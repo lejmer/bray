@@ -215,6 +215,10 @@ func assert_ok<T, E>(pos result: Result<T, E>) -> T;
 
 func assert_error<T, E>(pos result: Result<T, E>) -> E;
 
+func assert_present<T>(pos value: T?) -> T;
+
+func assert_absent<T>(pos value: T?);
+
 func assert_completed<T>(pos result: RunResult<T>) -> T;
 
 func assert_panicked<T>(pos result: RunResult<T>) -> PanicReport;
@@ -229,10 +233,16 @@ extern func fail(pos message: &string) -> never;
 `assert_ok` consumes a result and returns its `Ok` payload. An `Error` fails the current test with an
 `expected Result.Ok` message. `assert_error` performs the inverse operation and returns the `Error` payload.
 
+`assert_present` consumes a nullable value and returns its present payload. `assert_absent` accepts only `none`.
+
 `assert_completed` and `assert_panicked` consume a run result and return the payload for their expected state.
 `assert_cancelled` accepts the payload-free cancelled state. `assert_not_completed` accepts either a panicked or
 cancelled run. A mismatched state fails the current test with a message that names the expected variant or variants.
 These helpers keep tests from repeating union matches solely to reject other states.
+
+Tests use these state-selection helpers instead of matches whose only other behavior is `assert(false)`, `fail`, or a
+panic. An explicit match remains appropriate when a test must inspect a more specific domain variant after the outer
+state has been selected.
 
 `fail` evaluates its borrowed message once, constructs an explicit structured test failure at the call source, and
 terminates the current test root without a normal continuation. A generated test host reports it as `explicit_failure`,

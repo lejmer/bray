@@ -2,8 +2,10 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_base::shared_slice;
-use bray_bound_tree::{BoundExpressionId, BoundPatternId};
-use bray_symbols::{ConstantTermId, ConstantValueId, TypeId};
+use bray_bound_tree::{
+    BoundExpressionId, BoundPatternId, DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
+};
+use bray_symbols::{ConstantTermId, ConstantValueId, TypeExpressionTemplate, TypeId};
 
 /// The selected element type supplied to one iteration pattern.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -97,6 +99,7 @@ impl GuardConstantEvidence {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct PatternCheckInput {
     iteration_patterns: Arc<[IterationPatternType]>,
+    declared_patterns: BTreeMap<BoundPatternId, TypeExpressionTemplate>,
     constant_patterns: BTreeMap<BoundPatternId, PatternConstantEvidence>,
     constant_guards: BTreeMap<BoundExpressionId, ConstantValueId>,
     is_consistent: bool,
@@ -113,6 +116,7 @@ impl PatternCheckInput {
     pub fn new() -> Self {
         Self {
             iteration_patterns: Arc::from([]),
+            declared_patterns: BTreeMap::new(),
             constant_patterns: BTreeMap::new(),
             constant_guards: BTreeMap::new(),
             is_consistent: true,
@@ -125,6 +129,28 @@ impl PatternCheckInput {
         patterns: impl IntoIterator<Item = IterationPatternType>,
     ) -> Self {
         self.iteration_patterns = shared_slice(patterns);
+
+        self
+    }
+
+    /// Returns this input with source-declared pattern types.
+    pub fn with_declared_pattern_types(mut self, declared: &DeclaredValueTypeTemplates) -> Self {
+        for evidence in declared.evidence() {
+            let DeclaredValueTypeTerm::Pattern(pattern) = evidence.term() else {
+                continue;
+            };
+
+            // The check input owns templates independently of the borrowed declaration query.
+            let template = evidence.template().clone();
+
+            if self
+                .declared_patterns
+                .insert(pattern, template)
+                .is_some_and(|current| current != *evidence.template())
+            {
+                self.is_consistent = false;
+            }
+        }
 
         self
     }
@@ -167,6 +193,10 @@ impl PatternCheckInput {
 
     pub(super) fn iteration_patterns(&self) -> &[IterationPatternType] {
         &self.iteration_patterns
+    }
+
+    pub(super) fn declared_patterns(&self) -> &BTreeMap<BoundPatternId, TypeExpressionTemplate> {
+        &self.declared_patterns
     }
 
     pub(super) fn constant_patterns(&self) -> &BTreeMap<BoundPatternId, PatternConstantEvidence> {

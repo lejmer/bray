@@ -19,6 +19,17 @@ impl Lowerer<'_> {
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
         match conversion.target() {
             ConversionTarget::Identity => Ok((current, operand)),
+            ConversionTarget::NullablePresent => {
+                let value = self.push_nullable_present(
+                    expression,
+                    current,
+                    source,
+                    operand,
+                    conversion.target_type(),
+                )?;
+
+                Ok((current, value))
+            }
             ConversionTarget::BuiltInScalar
             | ConversionTarget::CVariadicPromotion
             | ConversionTarget::Composite(_) => self

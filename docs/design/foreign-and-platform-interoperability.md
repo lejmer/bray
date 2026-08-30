@@ -124,7 +124,13 @@ Construction from bytes or text validates interior NUL units, terminal NUL stora
 selected encoding policy. Conversion to Bray `string` is fallible and names the encoding being decoded. A C string is
 not assumed to contain UTF-8, and a native path is not silently converted through a C string.
 
-`OwnedNarrowString.new` accepts either a raw byte slice or UTF-8 text and selects the arm from the argument type.
+```bray
+let bytes = try trusted std.ffi.c.OwnedNarrowString.from_bytes(source);
+let text = try trusted std.ffi.c.OwnedNarrowString.from_utf8(&value);
+let borrowed = try std.ffi.c.borrow_string(terminated_units);
+```
+
+`OwnedNarrowString.from_bytes` copies raw narrow units, while `OwnedNarrowString.from_utf8` names text encoding.
 `BorrowedNarrowString.decode_utf8` performs explicit text decoding. The `borrow_string` overload accepts a validated
 narrow byte slice and, when the target has a wide C character type, a validated wide-unit slice. When `target.c.WCHAR`
 is `u16`, wide text conversion uses `encode_utf16` and

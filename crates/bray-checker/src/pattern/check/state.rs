@@ -16,6 +16,7 @@ use bray_symbols::{
 use super::result::{
     effective_pattern_kind, pattern_mode_accepts_refutable, pattern_operation, pattern_refutability,
 };
+use crate::expression::{TemplateResolution, resolve_type_template};
 use crate::pattern::input::{PatternCheckInput, PatternConstantEvidence};
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerQueryResult,
@@ -111,6 +112,7 @@ where
     pub(in crate::pattern) request: CheckerUnitView<'view, C>,
     expression_types: &'view CheckedExpressionTypes,
     iteration_patterns: BTreeMap<BoundPatternId, PatternSubject>,
+    declared_patterns: BTreeMap<BoundPatternId, TypeId>,
     pub(in crate::pattern) constant_patterns:
         &'input BTreeMap<BoundPatternId, PatternConstantEvidence>,
     pub(in crate::pattern) constant_guards:
@@ -159,17 +161,29 @@ where
             })
             .collect();
 
+        let mut diagnostics = DiagnosticBag::new();
+        let mut declared_patterns = BTreeMap::new();
+
+        for (&pattern, template) in input.declared_patterns() {
+            if let TemplateResolution::Resolved(ty) =
+                resolve_type_template(request, template, &mut diagnostics)?
+            {
+                declared_patterns.insert(pattern, ty);
+            }
+        }
+
         Ok(Self {
             request,
             expression_types,
             iteration_patterns,
+            declared_patterns,
             constant_patterns: input.constant_patterns(),
             constant_guards: input.constant_guards(),
             subjects: BTreeMap::new(),
             patterns: BTreeMap::new(),
             binding_types: BTreeMap::new(),
             matches: Vec::new(),
-            diagnostics: Vec::new(),
+            diagnostics: diagnostics.into_vec(),
             error_type,
         })
     }
@@ -198,7 +212,26 @@ where
                         };
 
                         match self.expression_type(binding.initializer()) {
-                            Ok(subject) => {
+                            Ok(mut subject) => {
+                                if let Some(declared) =
+                                    self.declared_patterns.get(&binding.pattern()).copied()
+                                {
+                                    let Ok(data) =
+                                        self.request.semantic_values().type_data(declared)
+                                    else {
+                                        failure = Some(
+                                            CheckerInfrastructureError::SemanticValueUnavailable,
+                                        );
+
+                                        return BoundWalkControl::Stop;
+                                    };
+
+                                    if matches!(data.as_ref(), TypeData::Nullable(contained) if *contained == subject.ty)
+                                    {
+                                        subject.ty = declared;
+                                    }
+                                }
+
                                 self.subjects.insert(binding.pattern(), subject);
                             }
                             Err(error) => {

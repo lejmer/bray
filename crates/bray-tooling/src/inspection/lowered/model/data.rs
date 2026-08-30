@@ -2309,6 +2309,7 @@ fn conversion_parts(
 
     match conversion.target() {
         ConversionTarget::Identity
+        | ConversionTarget::NullablePresent
         | ConversionTarget::BuiltInScalar
         | ConversionTarget::CVariadicPromotion => {}
         ConversionTarget::Composite(elements) => {
@@ -2595,6 +2596,7 @@ fn generator_kind(kind: MirGeneratorKind) -> &'static str {
 fn conversion_kind(target: &ConversionTarget) -> &'static str {
     match target {
         ConversionTarget::Identity => "identity",
+        ConversionTarget::NullablePresent => "nullable_present",
         ConversionTarget::BuiltInScalar => "built_in_scalar",
         ConversionTarget::CVariadicPromotion => "c_variadic_promotion",
         ConversionTarget::Composite(_) => "composite",

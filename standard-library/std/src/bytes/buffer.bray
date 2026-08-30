@@ -6,12 +6,8 @@ struct Buffer
 {
     internal mut storage: std.memory.RawBuffer<u8>;
 
-    trusted internal construct empty() -> Result<Self, std.memory.MemoryLayoutError>
-    {
-        return trusted Buffer.with_capacity(0);
-    }
-
-    trusted internal construct with_capacity(pos capacity: usize) -> Result<Self, std.memory.MemoryLayoutError>
+    /// Creates an empty byte buffer with an optional reserved capacity.
+    trusted construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>
     {
         let storage: std.memory.RawBuffer<u8> = try trusted std.memory.RawBuffer<u8>(capacity = capacity);
 
@@ -23,16 +19,17 @@ struct Buffer
         return Ok(buffer);
     }
 
-    trusted internal construct from_slice(pos bytes: &[u8]) -> Result<Self, std.memory.MemoryLayoutError>
+    /// Copies a byte slice into an owned buffer.
+    trusted construct from_slice(pos bytes: &[u8]) -> Result<Self, std.memory.MemoryLayoutError>
     {
         let byte_count: usize = internal std.memory.slice_length<u8>(bytes);
 
         if byte_count == 0
         {
-            return Buffer.empty();
+            return Buffer();
         }
 
-        let mut buffer: Buffer = try Buffer.with_capacity(byte_count);
+        let mut buffer: Buffer = try Buffer(capacity = byte_count);
         let destination: RawPointer<u8> = buffer.storage.pointer;
 
         trusted internal std.memory.byte_buffer_copy(
@@ -44,14 +41,6 @@ struct Buffer
         trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = byte_count);
 
         return Ok(buffer);
-    }
-
-    /// Creates an empty buffer, reserves a capacity, or copies a byte slice.
-    overload new =
-    {
-        empty,
-        with_capacity,
-        from_slice,
     }
 
     func as_slice() -> &[u8]

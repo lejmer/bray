@@ -36,17 +36,11 @@ func string_queries_and_slices()
     let middle: char? = std.string.scalar_at(&value, index = 1);
     let missing: char? = std.string.scalar_at(&value, index = 3);
 
-    match middle
-    {
-        case ?character { assert(character == 'é'); }
-        case none { assert(false); }
-    }
+    let middle_character: char = std.testing.assert_present<char>(middle);
 
-    match missing
-    {
-        case ?_ { assert(false); }
-        case none {}
-    }
+    assert(middle_character == 'é');
+
+    std.testing.assert_absent<char>(missing);
 }
 
 @test
@@ -82,21 +76,11 @@ func utf8_conversion_and_scalar_iteration()
     let second: char? = cursor(Iterator).next();
     let exhausted: char? = cursor(Iterator).next();
 
-    match first
-    {
-        case ?character { assert(character == 'A'); }
-        case none { assert(false); }
-    }
+    let first_character: char = std.testing.assert_present<char>(first);
+    let second_character: char = std.testing.assert_present<char>(second);
 
-    match second
-    {
-        case ?character { assert(character == 'é'); }
-        case none { assert(false); }
-    }
+    assert(first_character == 'A');
+    assert(second_character == 'é');
 
-    match exhausted
-    {
-        case ?_ { assert(false); }
-        case none {}
-    }
+    std.testing.assert_absent<char>(exhausted);
 }

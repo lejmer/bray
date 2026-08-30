@@ -16,11 +16,11 @@ const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 129;
+const API_TEST_COUNT: usize = 130;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const CONCURRENCY_MODEL_TEST_COUNT: usize = 7;
 const CONCURRENCY_STRESS_TEST_COUNT: usize = 5;
-const OUTCOME_CASES: [OutcomeCase; 15] = [
+const OUTCOME_CASES: [OutcomeCase; 17] = [
     OutcomeCase::new(
         "assertion-failure",
         "assertion_failure",
@@ -46,6 +46,24 @@ const OUTCOME_CASES: [OutcomeCase; 15] = [
         OutcomeExpectation::Panic {
             cause: "explicit_failure",
             message: "expected Result.Error",
+            source_available: false,
+        },
+    ),
+    OutcomeCase::new(
+        "assert-present-rejects-absence",
+        "assert_present_rejects_absence",
+        OutcomeExpectation::Panic {
+            cause: "explicit_failure",
+            message: "expected a present nullable value",
+            source_available: false,
+        },
+    ),
+    OutcomeCase::new(
+        "assert-absent-rejects-presence",
+        "assert_absent_rejects_presence",
+        OutcomeExpectation::Panic {
+            cause: "explicit_failure",
+            message: "expected an absent nullable value",
             source_available: false,
         },
     ),

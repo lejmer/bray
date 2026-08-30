@@ -458,8 +458,14 @@ impl Compilation {
                 let expressions =
                     self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
 
+                // Each cached query owns its key while this branch retains it for later queries.
+                let declared = self
+                    .declared_value_type_templates_with_cancellation(key.clone(), cancellation)?;
+
                 let (input, _, iteration_diagnostics, _) =
                     self.iteration_inputs(&key, bound.result().value(), cancellation)?;
+
+                let input = input.with_declared_pattern_types(declared.result().value());
 
                 let context = self.checker_context_for(&key, cancellation)?;
 

@@ -15,6 +15,7 @@ struct NativeText
 {
     internal bytes: std.bytes.Buffer;
 
+    /// Encodes UTF-8 text in the target's native path representation.
     construct from_string(pos value: &string) -> Result<Self, PathError>
     {
         let width: usize = trusted internal std.platform.native_text_width();
@@ -70,7 +71,8 @@ struct Path
 {
     internal native: NativeText;
 
-    internal construct from_native(pos value: NativeText) -> Result<Self, PathError>
+    /// Validates and adopts target-native path text.
+    construct from_native(pos value: NativeText) -> Result<Self, PathError>
     {
         if !valid_native_text(&value)
         {
@@ -84,18 +86,12 @@ struct Path
         );
     }
 
-    internal construct from_string(pos value: &string) -> Result<Self, PathError>
+    /// Converts UTF-8 text into a validated native path.
+    construct from_string(pos value: &string) -> Result<Self, PathError>
     {
         let native: NativeText = try NativeText.from_string(value);
 
         return Path.from_native(native);
-    }
-
-    /// Creates a path from validated native text or UTF-8 text.
-    overload new =
-    {
-        from_native,
-        from_string,
     }
 
     func to_native() -> &NativeText
@@ -271,12 +267,12 @@ internal func path_from_buffer(pos buffer: std.bytes.Buffer) -> Result<Path, Pat
         bytes = buffer
     };
 
-    return Path.new(native);
+    return Path.from_native(native);
 }
 
 internal func allocate_buffer(capacity: usize = 0) -> Result<std.bytes.Buffer, PathError>
 {
-    match trusted std.bytes.Buffer.new(capacity)
+    match trusted std.bytes.Buffer(capacity = capacity)
     {
         case Ok(buffer) { return Ok(buffer); }
         case Error(_) { return Error(PathError.MemoryLayout); }
@@ -391,7 +387,7 @@ trusted internal func utf8_scalar(pos encoded: &[u8], index: usize, length: usiz
 
 internal func buffer_from_utf8(pos bytes: &[u8]) -> Result<std.bytes.Buffer, PathError>
 {
-    match trusted std.bytes.Buffer.new(bytes)
+    match trusted std.bytes.Buffer.from_slice(bytes)
     {
         case Ok(buffer) { return Ok(buffer); }
         case Error(_) { return Error(PathError.MemoryLayout); }

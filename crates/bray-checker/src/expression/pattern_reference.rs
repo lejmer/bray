@@ -209,7 +209,7 @@ fn pattern_binding_id(
     }
 }
 
-fn expression_uses_pattern_binding<C>(
+pub(super) fn expression_uses_pattern_binding<C>(
     request: CheckerUnitView<'_, C>,
     expression: bray_bound_tree::BoundExpressionId,
 ) -> bool

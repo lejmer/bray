@@ -534,6 +534,12 @@ pub(crate) fn array_type(element: TypeId, length: usize) -> TypeId {
         .unwrap_or_else(|error| panic!("test array type must be valid: {error:?}"))
 }
 
+pub(crate) fn nullable_type(contained: TypeId) -> TypeId {
+    semantic_values()
+        .intern_type(TypeData::Nullable(contained))
+        .unwrap_or_else(|error| panic!("test nullable type must be valid: {error:?}"))
+}
+
 pub(crate) fn symbol_name(name: &str) -> SymbolName {
     let Some(name) = SymbolName::try_new(name) else {
         panic!("test symbol name must be valid");

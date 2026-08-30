@@ -6,7 +6,7 @@ use crate::{
 };
 use bray_bound_tree::{
     BoundBlockId, BoundBlockItem, BoundControlTransferKind, BoundExpression, BoundExpressionId,
-    BoundLiteralKind, BoundReferenceTarget, BoundStructuredExpressionKind,
+    BoundLiteralKind, BoundOperator, BoundReferenceTarget, BoundStructuredExpressionKind,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{NamedTypeSymbolId, TypeData, TypeId};
@@ -25,40 +25,51 @@ pub(super) fn add_intrinsic_constraints(
     types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
 ) {
+    if let BoundExpression::Conversion(conversion) = expression
+        && let Some(target) = conversion.target_type()
+    {
+        inference.add_evidence(variable, target, expression_id);
+    }
+
+    let Some(role) = intrinsic_representation_role(expression) else {
+        return;
+    };
+
+    let ty = match role {
+        RepresentationRole::Unit => types.unit,
+        RepresentationRole::Never => types.never,
+        RepresentationRole::ScalarBool => types.boolean,
+        RepresentationRole::ScalarChar => types.character,
+        RepresentationRole::String => types.string,
+        _ => return,
+    };
+
+    inference.add_evidence(variable, ty, expression_id);
+}
+
+pub(crate) fn intrinsic_representation_role(
+    expression: &BoundExpression,
+) -> Option<RepresentationRole> {
     match expression {
-        BoundExpression::Assignment(_) => {
-            inference.add_evidence(variable, types.unit, expression_id);
+        BoundExpression::Assignment(_) | BoundExpression::Generator(_) => {
+            Some(RepresentationRole::Unit)
         }
         BoundExpression::Literal(literal) => match literal.kind() {
-            BoundLiteralKind::Boolean => {
-                inference.add_evidence(variable, types.boolean, expression_id);
-            }
-            BoundLiteralKind::Character => {
-                inference.add_evidence(variable, types.character, expression_id);
-            }
-            BoundLiteralKind::String => {
-                inference.add_evidence(variable, types.string, expression_id);
-            }
-            BoundLiteralKind::Integer | BoundLiteralKind::Real | BoundLiteralKind::Imaginary => {}
+            BoundLiteralKind::Boolean => Some(RepresentationRole::ScalarBool),
+            BoundLiteralKind::Character => Some(RepresentationRole::ScalarChar),
+            BoundLiteralKind::String => Some(RepresentationRole::String),
+            BoundLiteralKind::Integer
+            | BoundLiteralKind::Real
+            | BoundLiteralKind::Imaginary => None,
         },
-        BoundExpression::Conversion(conversion) => {
-            if let Some(target) = conversion.target_type() {
-                inference.add_evidence(variable, target, expression_id);
-            }
-        }
-        BoundExpression::Generator(_) => {
-            inference.add_evidence(variable, types.unit, expression_id);
-        }
         BoundExpression::Structured(structured) => match structured.kind() {
             BoundStructuredExpressionKind::Unit | BoundStructuredExpressionKind::Assertion => {
-                inference.add_evidence(variable, types.unit, expression_id);
+                Some(RepresentationRole::Unit)
             }
-            BoundStructuredExpressionKind::Panic => {
-                inference.add_evidence(variable, types.never, expression_id);
-            }
-            _ => {}
+            BoundStructuredExpressionKind::Panic => Some(RepresentationRole::Never),
+            _ => None,
         },
-        _ => {}
+        _ => None,
     }
 }
 
@@ -368,9 +379,9 @@ where
             continue;
         };
 
-        inference.add_expectation(variable, expectation.ty(), expectation.expression());
-
         let Some(expression) = request.view().expression(expectation.expression()) else {
+            inference.add_expectation(variable, expectation.ty(), expectation.expression());
+
             continue;
         };
 
@@ -378,6 +389,20 @@ where
             .semantic_values()
             .type_data(expectation.ty())
             .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+        if is_contextual_numeric_literal(request, expectation.expression())
+            && let TypeData::Nullable(contained) = data.as_ref()
+        {
+            inference.add_expectation(variable, *contained, expectation.expression());
+
+            continue;
+        }
+
+        if let TypeData::Nullable(contained) = data.as_ref() {
+            inference.add_implicit_compatibility(expectation.ty(), *contained);
+        }
+
+        inference.add_expectation(variable, expectation.ty(), expectation.expression());
 
         match (expression, data.as_ref()) {
             (BoundExpression::Name(name), TypeData::Callable(_))
@@ -458,6 +483,33 @@ where
     }
 
     Ok(Some(()))
+}
+
+fn is_contextual_numeric_literal<C>(
+    request: CheckerUnitView<'_, C>,
+    expression: BoundExpressionId,
+) -> bool
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    match request.view().expression(expression) {
+        Some(BoundExpression::Literal(literal)) => matches!(
+            literal.kind(),
+            BoundLiteralKind::Integer | BoundLiteralKind::Real | BoundLiteralKind::Imaginary
+        ),
+        Some(BoundExpression::Unary(unary))
+            if matches!(
+                unary.operator(),
+                BoundOperator::Add | BoundOperator::Subtract | BoundOperator::BitwiseNot
+            ) =>
+        {
+            unary
+                .operands()
+                .first()
+                .is_some_and(|operand| is_contextual_numeric_literal(request, *operand))
+        }
+        _ => false,
+    }
 }
 
 fn qualified_union_construction<C>(

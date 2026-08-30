@@ -7,10 +7,10 @@ use bray_bound_tree::{
     StorageIdentityId,
 };
 use bray_ir::{
-    MirAggregate, MirAggregateKind, MirBinaryOperator, MirBlockId, MirBlockKind, MirCall,
-    MirCallArgument, MirCallIntrinsic, MirCallTarget, MirCallableReference, MirEdge,
-    MirImmediateValue, MirOperand, MirOperationKind, MirPatternPredicate, MirPlace,
-    MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnaryOperator,
+    MirBinaryOperator, MirBlockId, MirBlockKind, MirCall, MirCallArgument, MirCallIntrinsic,
+    MirCallTarget, MirCallableReference, MirEdge, MirImmediateValue, MirOperand, MirOperationKind,
+    MirPatternPredicate, MirPlace, MirSourceAnchor, MirStorageKind, MirStoreKind,
+    MirTerminatorKind, MirUnaryOperator,
 };
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableDefinitionId, CallableInstanceData, GenericOwnerId,
@@ -663,28 +663,14 @@ impl Lowerer<'_> {
 
         let destination_type = destination.ty();
 
-        let destination_data = self
-            .input
-            .semantic_values()
-            .type_data(destination_type)
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
-
-        if matches!(destination_data.as_ref(), TypeData::Nullable(element) if *element == value_type)
-        {
-            let commit = self.builder.push_operation(
+        if self.nullable_contains(destination_type, value_type)? {
+            value = self.push_nullable_present(
+                *value_id,
                 current,
                 Self::retained_source(&source),
-                MirOperationKind::Aggregate(MirAggregate::new(
-                    MirAggregateKind::NullablePresent,
-                    [value],
-                )),
-                Some(destination_type),
+                value,
+                destination_type,
             )?;
-
-            value = commit
-                .result()
-                .map(MirOperand::Value)
-                .ok_or(LoweringError::MissingOperationResult(*value_id))?;
         }
 
         self.builder.push_operation(

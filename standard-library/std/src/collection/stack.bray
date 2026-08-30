@@ -4,12 +4,8 @@ struct Stack<T>
 {
     internal mut storage: Deque<T>;
 
-    trusted internal construct empty() -> Result<Self, std.memory.MemoryLayoutError>
-    {
-        return trusted Stack<T>.with_capacity(0);
-    }
-
-    trusted internal construct with_capacity(pos capacity: usize) -> Result<Self, std.memory.MemoryLayoutError>
+    /// Creates an empty stack with an optional reserved capacity.
+    trusted construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>
     {
         let storage: Deque<T> = try trusted Deque<T>(capacity = capacity);
 
@@ -20,20 +16,13 @@ struct Stack<T>
         );
     }
 
-    internal construct from_deque(pos storage: Deque<T>) -> Self
+    /// Adopts an owned deque as stack storage.
+    construct from_deque(pos storage: Deque<T>) -> Self
     {
         return
         {
             storage = storage,
         };
-    }
-
-    /// Creates an empty stack, reserves a capacity, or adopts an owned deque.
-    overload new =
-    {
-        empty,
-        with_capacity,
-        from_deque,
     }
 
     func peek() -> (&T)?

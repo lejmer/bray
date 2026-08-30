@@ -1,8 +1,9 @@
-# Standard Library Packages And Toolchain Artifacts
+# Standard Library
 
-This document defines how ordinary Bray standard-library source becomes an exact compiler input. It covers package
-identity, artifact compatibility, immutable layout, and discovery without prescribing an installer, archive format,
-operating-system package, or code-generation backend.
+This document defines the shared public API principles for Bray's standard library and how ordinary standard-library
+source becomes an exact compiler input. It covers caller-facing construction vocabulary, package identity, artifact
+compatibility, immutable layout, and discovery without prescribing an installer, archive format, operating-system
+package, or code-generation backend.
 
 The public text, byte, collection, formatting, hashing, ordering, and numeric contracts are defined by
 [Core Data Standard Library](core-data-standard-library.md).
@@ -15,6 +16,41 @@ boundaries are defined by [Foreign and platform interoperability](foreign-and-pl
 
 The public testing surface and its private native-host boundary are defined by
 [Testing standard library and runner](testing.md).
+
+## Public API Design
+
+Standard-library APIs begin with caller intent. A primary constructor represents ordinary construction when omitted
+named parameters select ordinary behavior. A `from_*` constructor names a source representation or an
+ownership-changing conversion. `parse` means that text is interpreted and validated.
+
+An overload is appropriate only when explicit argument arity or argument types select exactly one arm and every arm is
+the same operation. Receiver-capability variants such as `front` and `front_mut`, synchronous and asynchronous
+operations, and policies such as stable and unstable sorting remain separately named. Caller ownership, execution
+context, and result type do not select overload arms.
+
+Representative calls are:
+
+```bray
+let options = std.format.Options(width = 8);
+let argument = std.format.Argument<u32>(&value, options = options);
+
+let buffer = try std.bytes.Buffer(capacity = 4096);
+let copied = try std.bytes.Buffer.from_slice(source);
+
+let queue = try trusted std.collection.Queue<Item>();
+let adopted = std.collection.Queue<Item>.from_deque(storage);
+
+let path = try std.path.Path.from_string(&"assets/config.bray");
+let date = try std.time.Date(year = 2026, month = 8, day = 30);
+let timestamp = try std.time.Timestamp.parse(&"2026-08-30T14:45:00Z");
+```
+
+`std.format.Options()` uses ordinary defaults, and its nullable `precision` distinguishes omission from explicit zero.
+`std.format.Argument(value)` uses default options, while the named `options` parameter accepts customization.
+Collection capacity is a defaulted primary-constructor parameter, while `from_deque` makes storage adoption visible.
+Time component constructors use defaulted nanoseconds and keep strict text parsing under `parse`.
+`std.atomic.Atomic<T>(value)` remains ordinary primary construction because no representation or policy choice needs a
+separate name.
 
 ## Principles
 

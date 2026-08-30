@@ -223,7 +223,7 @@ struct NativeText
 
 impl NativeText
 {
-    construct from_string(pos value: string) -> Result<Self, PathError>;
+    construct from_string(pos value: &string) -> Result<Self, PathError>;
     func to_string() -> Result<string, PathError>;
 }
 
@@ -234,14 +234,8 @@ struct Path
 
 impl Path
 {
-    internal construct from_native(pos value: NativeText) -> Result<Self, PathError>;
-    internal construct from_string(pos value: &string) -> Result<Self, PathError>;
-
-    overload new =
-    {
-        from_native,
-        from_string,
-    }
+    construct from_native(pos value: NativeText) -> Result<Self, PathError>;
+    construct from_string(pos value: &string) -> Result<Self, PathError>;
 
     func to_native() -> &NativeText;
     func to_string() -> Result<string, PathError>;
@@ -396,6 +390,13 @@ async func rename_async(
     pos destination: &std.path.Path,
 ) -> Result<unit, std.io.IoError>
     requires(blocking_execution());
+```
+
+Construction makes the source representation explicit:
+
+```bray
+let text_path = try Path.from_string(&"assets/config.bray");
+let native_path = try Path.from_native(native);
 ```
 
 `File` implements the blocking and asynchronous reader, writer, and seeker traits. A call disallowed by the file's

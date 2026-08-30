@@ -291,6 +291,9 @@ where
         let Some(operand) = self.term_value(operand)? else {
             return match conversion.target() {
                 ConversionTarget::Identity => Ok(operand),
+                ConversionTarget::NullablePresent => {
+                    self.intern_typed_term(ty, ConstantTermData::NullablePresent(operand))
+                }
                 ConversionTarget::BuiltInScalar | ConversionTarget::CVariadicPromotion => self
                     .intern_typed_term(
                         ty,
@@ -336,6 +339,7 @@ where
 
         let kind = match conversion.target() {
             ConversionTarget::Identity => return Ok(value),
+            ConversionTarget::NullablePresent => ConstantValueKind::NullablePresent(value),
             ConversionTarget::BuiltInScalar | ConversionTarget::CVariadicPromotion => {
                 let Some(target) = type_representation(self.request, conversion.target_type())
                     .map_err(EvaluationFailure::Infrastructure)?

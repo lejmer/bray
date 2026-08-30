@@ -34,7 +34,8 @@ Consult the [specification concepts](https://github.com/lejmer/bray/blob/develop
 - **Construction, destruction, finalization, scoped use, or partial values:** [references/lifecycle.md](references/lifecycle.md)
 - **Async functions, tasks, cancellation, synchronization, or atomics:** [references/async-and-concurrency.md](references/async-and-concurrency.md)
 - **Compiler-known declarations, protected representations, or recognized operations:** [references/compiler-known.md](references/compiler-known.md)
-- **Standard-library modules, APIs, I/O, or platform services:** [references/standard-library.md](references/standard-library.md)
+- **Test products, test entries, test assertions, or test helpers:** [references/testing.md](references/testing.md)
+- **Standard-library modules or APIs, I/O, or platform services:** [references/standard-library.md](references/standard-library.md)
 - **Raw memory, target control, layout, FFI, or ABI:** [references/targets-layout-abi-and-raw-memory.md](references/targets-layout-abi-and-raw-memory.md)
 
 ## Verify the result

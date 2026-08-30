@@ -13,6 +13,17 @@ func testing_result_assertions_return_the_selected_payload()
 }
 
 @test
+func testing_nullable_assertions_select_the_expected_state()
+{
+    let nullable: i32? = 43;
+    let present: i32 = std.testing.assert_present<i32>(nullable);
+
+    std.testing.assert_absent<i32>(none);
+
+    assert(present == 43);
+}
+
+@test
 func testing_completed_assertion_returns_the_selected_payload()
 {
     let completed: i32 = std.testing.assert_completed<i32>(RunResult.Completed(43));

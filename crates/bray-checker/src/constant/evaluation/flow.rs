@@ -4,7 +4,8 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
-    AnyLocalSymbolId, ConstantTermData, ConstantTermId, ConstantValueKind, TypeId, UnionSymbolId,
+    AnyLocalSymbolId, ConstantTermData, ConstantTermId, ConstantValueKind, TypeData, TypeId,
+    UnionSymbolId,
 };
 
 use crate::representation::type_representation;
@@ -117,7 +118,29 @@ where
                         ));
                     };
 
-                    let value = self.evaluate(constant.initializer())?;
+                    let mut value = self.evaluate(constant.initializer())?;
+
+                    if let Some(declared) = constant.declared_type().ty() {
+                        let initializer_type = self.expression_type(constant.initializer())?;
+
+                        let declared_data = self
+                            .request
+                            .semantic_values()
+                            .type_data(declared)
+                            .map_err(|_| {
+                                EvaluationFailure::Infrastructure(
+                                    CheckerInfrastructureError::SemanticValueUnavailable,
+                                )
+                            })?;
+
+                        if matches!(declared_data.as_ref(), TypeData::Nullable(contained) if *contained == initializer_type)
+                        {
+                            value = self.intern_typed_term(
+                                declared,
+                                ConstantTermData::NullablePresent(value),
+                            )?;
+                        }
+                    }
 
                     self.locals.insert(AnyLocalSymbolId::from(symbol), value);
                 }

@@ -330,7 +330,7 @@ where
     ))
 }
 
-pub(super) fn resolve_type_template<C>(
+pub(crate) fn resolve_type_template<C>(
     request: crate::CheckerUnitView<'_, C>,
     template: &TypeExpressionTemplate,
     diagnostics: &mut DiagnosticBag,

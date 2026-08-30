@@ -124,7 +124,8 @@ struct Timestamp
 {
     internal state: TimestampState;
 
-    internal construct components(pos seconds: i64, pos nanoseconds: u32) -> Result<Self, ClockError>
+    /// Creates a validated timestamp from Unix time components.
+    construct(pos seconds: i64, nanoseconds: u32 = 0) -> Result<Self, ClockError>
     {
         if nanoseconds >= NANOSECONDS_PER_SECOND
         {
@@ -144,18 +145,12 @@ struct Timestamp
         return self.state.nanoseconds;
     }
 
-    internal construct text(pos text: &string) -> Result<Self, TimeError>
+    /// Parses an RFC 3339 timestamp.
+    construct parse(pos text: &string) -> Result<Self, TimeError>
     {
         let value: PlatformTemporalValue = try trusted parse_temporal_value(kind = 3, text = text);
 
         return Ok(timestamp_from_parts(seconds = value.timestamp_seconds, nanoseconds = value.local.nanosecond));
-    }
-
-    /// Creates a timestamp from Unix components or RFC 3339 text.
-    overload new =
-    {
-        components,
-        text,
     }
 
     func rfc3339(pos offset: UtcOffset = UtcOffset.utc()) -> Result<string, TimeError>

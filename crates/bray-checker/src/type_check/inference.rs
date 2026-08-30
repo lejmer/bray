@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use bray_bound_tree::{BoundExpressionId, ExpressionTypeResult, ExpressionTypeStatus};
 use bray_symbols::TypeId;
 
@@ -36,6 +38,7 @@ pub(super) struct TypeInferenceContext {
     nodes: Vec<InferenceNode>,
     error_type: TypeId,
     never_type: TypeId,
+    implicit_compatibilities: BTreeSet<(TypeId, TypeId)>,
     conflicts: Vec<TypeConflict>,
     revision: u64,
 }
@@ -46,6 +49,7 @@ impl TypeInferenceContext {
             nodes: Vec::new(),
             error_type,
             never_type,
+            implicit_compatibilities: BTreeSet::new(),
             conflicts: Vec::new(),
             revision: 0,
         }
@@ -122,6 +126,23 @@ impl TypeInferenceContext {
             self.nodes[index].expectations.push(expectation);
             self.revision = self.revision.saturating_add(1);
         }
+    }
+
+    pub(super) fn replace_evidence(&mut self, id: InferenceTypeId, ty: TypeId) {
+        let root = self.find(id);
+
+        let Some(index) = root.to_index() else {
+            return;
+        };
+
+        if self.nodes[index].evidence != Some(ty) {
+            self.nodes[index].evidence = Some(ty);
+            self.revision = self.revision.saturating_add(1);
+        }
+    }
+
+    pub(super) fn add_implicit_compatibility(&mut self, expected: TypeId, actual: TypeId) {
+        self.implicit_compatibilities.insert((expected, actual));
     }
 
     pub(super) fn unify(
@@ -440,7 +461,10 @@ impl TypeInferenceContext {
     fn compatibility(&self, expected: TypeId, actual: TypeId) -> TypeCompatibility {
         if expected == self.error_type || actual == self.error_type {
             TypeCompatibility::Recovered
-        } else if expected == actual || actual == self.never_type {
+        } else if expected == actual
+            || actual == self.never_type
+            || self.implicit_compatibilities.contains(&(expected, actual))
+        {
             TypeCompatibility::Compatible
         } else {
             TypeCompatibility::Incompatible

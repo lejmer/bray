@@ -10,7 +10,7 @@ using std.testing;
 trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Result<unit, std.ffi.ForeignError>
     uses(foreign_call, layout_reinterpret)
 {
-    let relative_result: Result<std.path.Path, std.path.PathError> = std.path.Path.new(&"ambient-loader-name");
+    let relative_result: Result<std.path.Path, std.path.PathError> = std.path.Path.from_string(&"ambient-loader-name");
     let relative: std.path.Path = std.testing.assert_ok<std.path.Path, std.path.PathError>(relative_result);
 
     let relative_open: Result<std.dynamic.DynamicLibrary, std.ffi.ForeignError> = std.dynamic.DynamicLibrary.open(

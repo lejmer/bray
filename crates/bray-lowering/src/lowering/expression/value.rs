@@ -4,9 +4,9 @@ use bray_bound_tree::{
 };
 use bray_ir::{
     MirAggregate, MirAggregateKind, MirBlockId, MirConstruction, MirConstructionInput, MirOperand,
-    MirOperationKind,
+    MirOperationKind, MirSourceAnchor,
 };
-use bray_symbols::AnySymbolId;
+use bray_symbols::{AnySymbolId, TypeData, TypeId};
 
 use super::super::LoweringError;
 use super::super::block::LoweredExpression;
@@ -21,6 +21,44 @@ enum LoweredOperands {
 }
 
 impl Lowerer<'_> {
+    pub(in crate::lowering) fn nullable_contains(
+        &self,
+        nullable: TypeId,
+        contained: TypeId,
+    ) -> Result<bool, LoweringError> {
+        let data = self
+            .input
+            .semantic_values()
+            .type_data(nullable)
+            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+
+        Ok(matches!(data.as_ref(), TypeData::Nullable(element) if *element == contained))
+    }
+
+    pub(in crate::lowering) fn push_nullable_present(
+        &mut self,
+        expression: BoundExpressionId,
+        current: MirBlockId,
+        source: MirSourceAnchor,
+        operand: MirOperand,
+        result_type: TypeId,
+    ) -> Result<MirOperand, LoweringError> {
+        let commit = self.builder.push_operation(
+            current,
+            source,
+            MirOperationKind::Aggregate(MirAggregate::new(
+                MirAggregateKind::NullablePresent,
+                [operand],
+            )),
+            Some(result_type),
+        )?;
+
+        commit
+            .result()
+            .map(MirOperand::Value)
+            .ok_or(LoweringError::MissingOperationResult(expression))
+    }
+
     pub(super) fn lower_aggregate(
         &mut self,
         id: BoundExpressionId,

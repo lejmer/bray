@@ -5,7 +5,7 @@ use bray_bound_tree::{
     BoundStructuredExpressionKind, BoundUnit, BoundUnitKey, CheckedExpressionTypes,
     CheckedLiteralValues, CheckedSemanticSelections, CheckedTemplateInputId, CheckedTemplateKind,
     CheckedTemplateNodeId, CheckedTemplateShortCircuitKind, ConstructionTarget, SelectedArgument,
-    SelectedOperation, SemanticSelection,
+    SelectedConstruction, SelectedOperation, SemanticSelection,
 };
 use bray_declarations::SyntaxAnchor;
 use bray_package_interface::{
@@ -158,6 +158,7 @@ pub(super) fn export_source_template(
 }
 
 fn source_expression_root(unit: &BoundUnit, syntax: SyntaxAnchor) -> Option<BoundExpressionId> {
+    let mut exact_root = None;
     let mut postfix_root = None;
 
     for (id, expression) in unit.tree().expressions() {
@@ -168,7 +169,9 @@ fn source_expression_root(unit: &BoundUnit, syntax: SyntaxAnchor) -> Option<Boun
         }
 
         if source.full_range() == syntax.full_range() {
-            return Some(id);
+            exact_root = Some(id);
+
+            continue;
         }
 
         if syntax.full_range().contains_range(source.full_range())
@@ -179,7 +182,7 @@ fn source_expression_root(unit: &BoundUnit, syntax: SyntaxAnchor) -> Option<Boun
         }
     }
 
-    postfix_root.map(|(id, _)| id)
+    postfix_root.map(|(id, _)| id).or(exact_root)
 }
 
 struct SourceTemplateBuilder<'export, 'values, 'unit> {
@@ -358,18 +361,20 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
                 _ => Err(incomplete()),
             },
             BoundExpression::MemberAccess(member) => {
-                let Some(SemanticSelection::Operation(SelectedOperation::Member(target))) =
-                    self.selections.expression(expression_id)
-                else {
-                    return Err(incomplete());
-                };
-
-                Ok(InterfaceCheckedTemplateOperation::Project {
-                    subject: self.expression(member.receiver())?,
-                    member: InterfaceTemplateReference::Symbol(
-                        self.export.symbol_reference(target.member())?,
-                    ),
-                })
+                match self.selections.expression(expression_id) {
+                    Some(SemanticSelection::Operation(SelectedOperation::Member(target))) => {
+                        Ok(InterfaceCheckedTemplateOperation::Project {
+                            subject: self.expression(member.receiver())?,
+                            member: InterfaceTemplateReference::Symbol(
+                                self.export.symbol_reference(target.member())?,
+                            ),
+                        })
+                    }
+                    Some(SemanticSelection::Operation(SelectedOperation::Construction(
+                        construction,
+                    ))) => self.payloadless_variant_construction(construction),
+                    _ => Err(incomplete()),
+                }
             }
             _ => Err(incomplete()),
         }
@@ -400,6 +405,13 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             return Err(incomplete());
         };
 
+        self.payloadless_variant_construction(construction)
+    }
+
+    fn payloadless_variant_construction(
+        &mut self,
+        construction: &SelectedConstruction,
+    ) -> Result<InterfaceCheckedTemplateOperation, PackageInterfaceExportError> {
         let ConstructionTarget::UnionVariant(variant) = construction.target() else {
             return Err(incomplete());
         };

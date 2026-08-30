@@ -336,6 +336,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | ConversionTarget::CVariadicPromotion => {
                 self.convert(value, conversion.source_type(), conversion.target_type())
             }
+            ConversionTarget::NullablePresent => {
+                self.construct_nullable_present(conversion.target_type(), value)
+            }
             ConversionTarget::Trait { fulfillment, .. } => {
                 let helper = next_helper(helpers, &MirHelperReference::Conversion(*fulfillment))?;
 

@@ -86,7 +86,7 @@ trusted internal func directory_entry_path(
         bytes = buffer,
     };
 
-    match std.path.Path.new(native)
+    match std.path.Path.from_native(native)
     {
         case Ok(path) { return Ok(path); }
         case Error(_) { return Error(internal std.io.invalid_transfer_error()); }

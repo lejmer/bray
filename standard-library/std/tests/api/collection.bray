@@ -50,23 +50,15 @@ trusted func list_operations() -> Result<unit, std.memory.MemoryLayoutError>
     assert(items[2] == 30);
 
     let removed: i32? = trusted std.collection.remove<i32>(&mut values, index = 1);
+    let removed_value: i32 = std.testing.assert_present<i32>(removed);
 
-    match consume removed
-    {
-        case ?value { assert(value == 20); }
-        case none { assert(false); }
-    }
-
+    assert(removed_value == 20);
     assert(std.collection.length<i32>(&values) == 2);
 
     let final: i32? = trusted std.collection.pop<i32>(&mut values);
+    let final_value: i32 = std.testing.assert_present<i32>(final);
 
-    match consume final
-    {
-        case ?value { assert(value == 30); }
-        case none { assert(false); }
-    }
-
+    assert(final_value == 30);
     assert(std.collection.length<i32>(&values) == 1);
 
     return Ok(unit);
@@ -89,16 +81,11 @@ trusted func list_capacity_and_iteration() -> Result<unit, std.memory.MemoryLayo
     assert(std.collection.capacity<i32>(&values) == 4);
 
     let cursor: std.collection.MoveCursor<i32> = values(Iterable).iterate();
-
     let mut taken: std.iteration.Take<std.collection.MoveCursor<i32>, i32> = cursor.take(count = 2);
-
     let second: i32? = taken.nth(index = 1);
+    let second_value: i32 = std.testing.assert_present<i32>(second);
 
-    match consume second
-    {
-        case ?value { assert(value == 5); }
-        case none { assert(false); }
-    }
+    assert(second_value == 5);
 
     return Ok(unit);
 }
@@ -113,23 +100,16 @@ trusted func iterator_adapters_preserve_order() -> Result<unit, std.memory.Memor
     try trusted std.collection.push<i32>(&mut values, 6);
 
     let cursor: std.collection.MoveCursor<i32> = values(Iterable).iterate();
-
     let skipped: std.iteration.Skip<std.collection.MoveCursor<i32>, i32> = cursor.skip(count = 1);
 
     let mut enumerated: std.iteration.Enumerate<std.iteration.Skip<std.collection.MoveCursor<i32>, i32>, i32> =
         skipped.enumerate();
 
     let item: (usize, i32)? = enumerated.first();
+    let value: (usize, i32) = std.testing.assert_present<(usize, i32)>(item);
 
-    match consume item
-    {
-        case ?value
-        {
-            assert(value.0 == 0);
-            assert(value.1 == 5);
-        }
-        case none { assert(false); }
-    }
+    assert(value.0 == 0);
+    assert(value.1 == 5);
 
     return Ok(unit);
 }
@@ -173,11 +153,7 @@ trusted func list_mutation_edges() -> Result<unit, std.memory.MemoryLayoutError>
 
     let missing: i32? = trusted std.collection.remove<i32>(&mut values, index = 0);
 
-    match consume missing
-    {
-        case ?_ { assert(false); }
-        case none { assert(true); }
-    }
+    std.testing.assert_absent<i32>(missing);
 
     return Ok(unit);
 }
@@ -201,24 +177,18 @@ trusted func borrowed_list_iteration_preserves_access() -> Result<unit, std.memo
         let source: &std.collection.List<i32> = &values;
         let mut cursor: std.collection.ReadCursor<i32> = source(Iterable).iterate();
         let item: (&i32)? = cursor.first();
+        let value: &i32 = std.testing.assert_present(item);
 
-        match consume item
-        {
-            case ?value { assert(value == 4); }
-            case none { assert(false); }
-        }
+        assert(value == 4);
     }
 
     {
         let source: &mut std.collection.List<i32> = &mut values;
         let mut cursor: std.collection.WriteCursor<i32> = source(Iterable).iterate();
         let item: (&mut i32)? = cursor(Iterator).next();
+        let value: &mut i32 = std.testing.assert_present(item);
 
-        match consume item
-        {
-            case ?value { value = 9; }
-            case none { assert(false); }
-        }
+        value = 9;
     }
 
     let items: &[i32] = values.as_slice();
@@ -238,32 +208,20 @@ trusted func iterator_boundaries() -> Result<unit, std.memory.MemoryLayoutError>
     try trusted std.collection.push<i32>(&mut values, 2);
 
     let zero_cursor: std.collection.MoveCursor<i32> = values(Iterable).iterate();
-
     let mut zero: std.iteration.Take<std.collection.MoveCursor<i32>, i32> = zero_cursor.take(count = 0);
-
     let missing: i32? = zero.first();
 
-    match missing
-    {
-        case ?_ { assert(false); }
-        case none {}
-    }
+    std.testing.assert_absent<i32>(missing);
 
     let mut skipped_values: std.collection.List<i32> = try trusted std.collection.List<i32>();
 
     try trusted std.collection.push<i32>(&mut skipped_values, 3);
 
     let skip_cursor: std.collection.MoveCursor<i32> = skipped_values(Iterable).iterate();
-
     let mut skipped: std.iteration.Skip<std.collection.MoveCursor<i32>, i32> = skip_cursor.skip(count = 2);
-
     let exhausted: i32? = skipped.first();
 
-    match exhausted
-    {
-        case ?_ { assert(false); }
-        case none {}
-    }
+    std.testing.assert_absent<i32>(exhausted);
 
     return Ok(unit);
 }
@@ -276,12 +234,12 @@ trusted func list_growth_relocates_only_initialized_owned_values() -> Result<uni
 
     let first: OwnedValue =
     {
-        bytes = try std.bytes.Buffer.new(&first_bytes[..]),
+        bytes = try std.bytes.Buffer.from_slice(&first_bytes[..]),
     };
 
     let second: OwnedValue =
     {
-        bytes = try std.bytes.Buffer.new(&second_bytes[..]),
+        bytes = try std.bytes.Buffer.from_slice(&second_bytes[..]),
     };
 
     let mut values: std.collection.List<OwnedValue> = try trusted std.collection.List<OwnedValue>(capacity = 4);
@@ -304,11 +262,9 @@ trusted func list_growth_relocates_only_initialized_owned_values() -> Result<uni
 
     let removed: OwnedValue? = trusted std.collection.pop<OwnedValue>(&mut values);
 
-    match consume removed
-    {
-        case ?value { assert(value.bytes.as_slice()[0] == 22); }
-        case none { assert(false); }
-    }
+    let value: OwnedValue = std.testing.assert_present<OwnedValue>(removed);
+
+    assert(value.bytes.as_slice()[0] == 22);
 
     return Ok(unit);
 }
@@ -340,17 +296,11 @@ trusted func deque_wraparound_growth_and_end_access() -> Result<unit, std.memory
     try trusted values.push_back(3);
     try trusted values.push_back(4);
 
-    match trusted values.pop_front()
-    {
-        case ?value { assert(value == 1); }
-        case none { std.testing.fail(&"expected deque front"); }
-    }
+    let first: i32 = std.testing.assert_present<i32>(trusted values.pop_front());
+    let second: i32 = std.testing.assert_present<i32>(trusted values.pop_front());
 
-    match trusted values.pop_front()
-    {
-        case ?value { assert(value == 2); }
-        case none { std.testing.fail(&"expected deque front"); }
-    }
+    assert(first == 1);
+    assert(second == 2);
 
     try trusted values.push_back(5);
     try trusted values.push_back(6);
@@ -373,29 +323,19 @@ trusted func deque_wraparound_growth_and_end_access() -> Result<unit, std.memory
         assert(values[fifth_index] == 6);
     }
 
-    match values.front_mut()
-    {
-        case ?value { value = 10; }
-        case none { std.testing.fail(&"expected mutable deque front"); }
-    }
+    let mutable_front: &mut i32 = std.testing.assert_present(values.front_mut());
 
-    match values.back_mut()
-    {
-        case ?value { value = 60; }
-        case none { std.testing.fail(&"expected mutable deque back"); }
-    }
+    mutable_front = 10;
 
-    match values.front()
-    {
-        case ?value { assert(value == 10); }
-        case none { std.testing.fail(&"expected deque front"); }
-    }
+    let mutable_back: &mut i32 = std.testing.assert_present(values.back_mut());
 
-    match values.back()
-    {
-        case ?value { assert(value == 60); }
-        case none { std.testing.fail(&"expected deque back"); }
-    }
+    mutable_back = 60;
+
+    let observed_front: &i32 = std.testing.assert_present(values.front());
+    let observed_back: &i32 = std.testing.assert_present(values.back());
+
+    assert(observed_front == 10);
+    assert(observed_back == 60);
 
     try trusted values.shrink_to_fit();
 
@@ -434,11 +374,9 @@ trusted func deque_iteration_preserves_wrapped_logical_order() -> Result<unit, s
         let mut cursor: std.collection.DequeReadCursor<i32> = source(Iterable).iterate();
         let third: (&i32)? = cursor.nth(index = 2);
 
-        match third
-        {
-            case ?value { assert(value == 5); }
-            case none { std.testing.fail(&"expected wrapped deque element"); }
-        }
+        let value: &i32 = std.testing.assert_present(third);
+
+        assert(value == 5);
     }
 
     {
@@ -446,21 +384,17 @@ trusted func deque_iteration_preserves_wrapped_logical_order() -> Result<unit, s
         let mut cursor: std.collection.DequeWriteCursor<i32> = source(Iterable).iterate();
         let first: (&mut i32)? = cursor(Iterator).next();
 
-        match consume first
-        {
-            case ?value { value = 30; }
-            case none { std.testing.fail(&"expected mutable wrapped deque element"); }
-        }
+        let value: &mut i32 = std.testing.assert_present(first);
+
+        value = 30;
     }
 
     let mut cursor: std.collection.DequeMoveCursor<i32> = values(Iterable).iterate();
     let second: i32? = cursor.nth(index = 1);
 
-    match consume second
-    {
-        case ?value { assert(value == 4); }
-        case none { std.testing.fail(&"expected owned wrapped deque element"); }
-    }
+    let value: i32 = std.testing.assert_present<i32>(second);
+
+    assert(value == 4);
 
     return Ok(unit);
 }
@@ -478,29 +412,10 @@ trusted func deque_owned_zero_sized_and_overflow_edges() -> Result<unit, std.mem
 
     assert(exact.capacity() == 0);
 
-    match exact.front()
-    {
-        case ?_ { std.testing.fail(&"expected empty deque front"); }
-        case none {}
-    }
-
-    match exact.back()
-    {
-        case ?_ { std.testing.fail(&"expected empty deque back"); }
-        case none {}
-    }
-
-    match trusted exact.pop_front()
-    {
-        case ?_ { std.testing.fail(&"expected empty front pop"); }
-        case none {}
-    }
-
-    match trusted exact.pop_back()
-    {
-        case ?_ { std.testing.fail(&"expected empty back pop"); }
-        case none {}
-    }
+    std.testing.assert_absent(exact.front());
+    std.testing.assert_absent(exact.back());
+    std.testing.assert_absent<i32>(trusted exact.pop_front());
+    std.testing.assert_absent<i32>(trusted exact.pop_back());
 
     let first_bytes: [u8; 1] = [31];
     let second_bytes: [u8; 1] = [47];
@@ -508,27 +423,21 @@ trusted func deque_owned_zero_sized_and_overflow_edges() -> Result<unit, std.mem
 
     try trusted owned.push_front(
         {
-            bytes = try std.bytes.Buffer.new(&first_bytes[..]),
+            bytes = try std.bytes.Buffer.from_slice(&first_bytes[..]),
         }
     );
 
     try trusted owned.push_back(
         {
-            bytes = try std.bytes.Buffer.new(&second_bytes[..]),
+            bytes = try std.bytes.Buffer.from_slice(&second_bytes[..]),
         }
     );
 
-    match consume trusted owned.pop_front()
-    {
-        case ?value { assert(value.bytes.as_slice()[0] == 31); }
-        case none { std.testing.fail(&"expected owned deque value"); }
-    }
+    let first: OwnedValue = std.testing.assert_present<OwnedValue>(trusted owned.pop_front());
+    let second: OwnedValue = std.testing.assert_present<OwnedValue>(trusted owned.pop_back());
 
-    match consume trusted owned.pop_back()
-    {
-        case ?value { assert(value.bytes.as_slice()[0] == 47); }
-        case none { std.testing.fail(&"expected owned deque value"); }
-    }
+    assert(first.bytes.as_slice()[0] == 31);
+    assert(second.bytes.as_slice()[0] == 47);
 
     let mut empty: std.collection.Deque<unit> = try trusted std.collection.Deque<unit>();
 
@@ -558,8 +467,8 @@ trusted func deque_owned_zero_sized_and_overflow_edges() -> Result<unit, std.mem
 @test
 trusted func stack_and_queue_are_explicit_deque_adapters() -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let empty_stack: std.collection.Stack<i32> = try trusted std.collection.Stack<i32>.new();
-    let mut stack: std.collection.Stack<i32> = try trusted std.collection.Stack<i32>.new(capacity = 4);
+    let empty_stack: std.collection.Stack<i32> = try trusted std.collection.Stack<i32>();
+    let mut stack: std.collection.Stack<i32> = try trusted std.collection.Stack<i32>(capacity = 4);
 
     assert(empty_stack.is_empty());
     assert(stack.capacity() == 4);
@@ -567,82 +476,60 @@ trusted func stack_and_queue_are_explicit_deque_adapters() -> Result<unit, std.m
     try trusted stack.push(1);
     try trusted stack.push(2);
 
-    match stack.peek_mut()
-    {
-        case ?value { value = 20; }
-        case none { std.testing.fail(&"expected mutable stack top"); }
-    }
+    let mutable_top: &mut i32 = std.testing.assert_present(stack.peek_mut());
 
-    match stack.peek()
-    {
-        case ?value { assert(value == 20); }
-        case none { std.testing.fail(&"expected stack top"); }
-    }
+    mutable_top = 20;
 
-    match trusted stack.pop()
-    {
-        case ?value { assert(value == 20); }
-        case none { std.testing.fail(&"expected stack value"); }
-    }
+    let observed_top: &i32 = std.testing.assert_present(stack.peek());
+
+    assert(observed_top == 20);
+
+    let popped_top: i32 = std.testing.assert_present<i32>(trusted stack.pop());
+
+    assert(popped_top == 20);
 
     let storage: std.collection.Deque<i32> = stack.into_deque();
-    let mut queue: std.collection.Queue<i32> = std.collection.Queue<i32>.new(storage);
+    let mut queue: std.collection.Queue<i32> = std.collection.Queue<i32>.from_deque(storage);
 
     try trusted queue.enqueue(3);
     try trusted queue.enqueue(4);
 
-    match trusted queue.dequeue()
-    {
-        case ?value { assert(value == 1); }
-        case none { std.testing.fail(&"expected queue value"); }
-    }
+    let first: i32 = std.testing.assert_present<i32>(trusted queue.dequeue());
 
-    match queue.peek()
-    {
-        case ?value { assert(value == 3); }
-        case none { std.testing.fail(&"expected queue front"); }
-    }
+    assert(first == 1);
 
-    match queue.peek_mut()
-    {
-        case ?value { value = 30; }
-        case none { std.testing.fail(&"expected mutable queue front"); }
-    }
+    let observed_front: &i32 = std.testing.assert_present(queue.peek());
+
+    assert(observed_front == 3);
+
+    let mutable_front: &mut i32 = std.testing.assert_present(queue.peek_mut());
+
+    mutable_front = 30;
 
     let remaining: std.collection.Deque<i32> = queue.into_deque();
-    let mut cleared: std.collection.Queue<i32> = std.collection.Queue<i32>.new(remaining);
-    let reserved: std.collection.Queue<i32> = try trusted std.collection.Queue<i32>.new(capacity = 2);
+    let mut cleared: std.collection.Queue<i32> = std.collection.Queue<i32>.from_deque(remaining);
+    let reserved: std.collection.Queue<i32> = try trusted std.collection.Queue<i32>(capacity = 2);
 
     assert(cleared.length() == 2);
 
-    match cleared.peek()
-    {
-        case ?value { assert(value == 30); }
-        case none { std.testing.fail(&"expected rewrapped queue front"); }
-    }
+    let rewrapped_front: &i32 = std.testing.assert_present(cleared.peek());
 
-    match trusted cleared.dequeue()
-    {
-        case ?value { assert(value == 30); }
-        case none { std.testing.fail(&"expected rewrapped queue value"); }
-    }
+    assert(rewrapped_front == 30);
 
-    match cleared.peek()
-    {
-        case ?value { assert(value == 4); }
-        case none { std.testing.fail(&"expected rewrapped queue remainder"); }
-    }
+    let dequeued_front: i32 = std.testing.assert_present<i32>(trusted cleared.dequeue());
+
+    assert(dequeued_front == 30);
+
+    let remaining_front: &i32 = std.testing.assert_present(cleared.peek());
+
+    assert(remaining_front == 4);
 
     trusted cleared.clear();
 
     assert(cleared.is_empty());
     assert(reserved.capacity() == 2);
 
-    match trusted cleared.dequeue()
-    {
-        case ?_ { std.testing.fail(&"expected cleared queue"); }
-        case none {}
-    }
+    std.testing.assert_absent<i32>(trusted cleared.dequeue());
 
     return Ok(unit);
 }

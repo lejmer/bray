@@ -217,25 +217,21 @@ operations. No byte API silently assumes host endianness, native integer width, 
 The owning byte-buffer identity is `std.bytes.Buffer`. Its representation is private and contains one
 `std.memory.RawBuffer<u8>` whose initialized prefix is the buffer's byte sequence. The type is movable and not copyable.
 
+```bray
+let empty = try std.bytes.Buffer();
+let reserved = try std.bytes.Buffer(capacity = 4096);
+let copied = try std.bytes.Buffer.from_slice(source);
+```
+
 The public surface is:
 
 ```bray
 module std.bytes;
 
-struct Buffer;
-
-impl Buffer
+struct Buffer
 {
-    trusted internal construct empty() -> Result<Self, std.memory.MemoryLayoutError>;
-    trusted internal construct with_capacity(pos capacity: usize) -> Result<Self, std.memory.MemoryLayoutError>;
-    trusted internal construct from_slice(pos bytes: &[u8]) -> Result<Self, std.memory.MemoryLayoutError>;
-
-    overload new =
-    {
-        empty,
-        with_capacity,
-        from_slice,
-    }
+    trusted construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>;
+    trusted construct from_slice(pos bytes: &[u8]) -> Result<Self, std.memory.MemoryLayoutError>;
 
     func as_slice() -> &[u8];
     mut func as_slice_mut() -> &mut [u8];
@@ -471,12 +467,18 @@ invariant. They do not duplicate storage engines solely to provide alternate nam
 the ordering policy that defines the adapter, while projection and conversion to and from the underlying owning
 collection are explicit.
 
+```bray
+let stack = try trusted std.collection.Stack<Item>();
+let queue = try trusted std.collection.Queue<Item>(capacity = 32);
+let adopted = std.collection.Queue<Item>.from_deque(storage);
+```
+
 `std.collection.Stack<T>` exposes `push`, `pop`, `peek`, and `peek_mut` with last-in-first-out ordering.
 `std.collection.Queue<T>` exposes `enqueue`, `dequeue`, `peek`, and `peek_mut` with first-in-first-out ordering. Their
-`new` overloads select empty construction, a requested capacity, or an owned `Deque<T>` from the supplied arguments. Both
-adapters share `length`, `capacity`, `is_empty`, `reserve`, and `clear` through `DequeAdapter<T>`, store one `Deque<T>`
-without an additional dispatch layer, project it explicitly with `as_deque` and `as_deque_mut`, and convert explicitly
-with `into_deque`.
+primary constructors create empty adapters with an optional capacity. `from_deque` makes ownership-changing adoption of
+an existing `Deque<T>` explicit. Both adapters share `length`, `capacity`, `is_empty`, `reserve`, and `clear` through
+`DequeAdapter<T>`, store one `Deque<T>` without an additional dispatch layer, project it explicitly with `as_deque` and
+`as_deque_mut`, and convert explicitly with `into_deque`.
 
 ## Formatting
 
@@ -490,10 +492,18 @@ Formatting writes incrementally to a sink. It does not require every formatted v
 `string`. Convenience operations that return a `string` are explicit allocation-bearing wrappers over the sink-based
 contract.
 
+```bray
+let ordinary = std.format.Options();
+let hexadecimal = std.format.Options(radix = std.format.Radix.HexadecimalLowercase, width = 8);
+let argument = std.format.Argument<u32>(&value, options = hexadecimal);
+```
+
 Format arguments retain their semantic types until the selected formatting implementation consumes them. The
 implementation does not parse a type-erased host-language value or depend on debug reflection. Formatting options such
 as radix, precision, width, alignment, sign, and escaping are typed policy values with deterministic defaults.
-`Argument.new` selects default or explicit options, and `Options.new` selects its default or complete explicit form.
+`Options()` supplies ordinary defaults and named arguments override individual choices. Nullable precision distinguishes
+an omitted precision from an explicit precision of zero. `Argument(value)` uses default options, while its named
+`options` parameter accepts an explicit policy value.
 
 The core formatting contract is independent of terminals, files, locales, and operating-system streams. `std.io` adapts
 its writers to the formatting sink contract. Compiler diagnostics continue to use `bray-messages`. The standard

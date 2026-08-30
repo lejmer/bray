@@ -1076,6 +1076,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 dispatch: self.trait_dispatch()?,
             },
             5 => ConversionTarget::CVariadicPromotion,
+            6 => ConversionTarget::NullablePresent,
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 

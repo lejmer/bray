@@ -153,11 +153,31 @@ impl Lowerer<'_> {
             return Ok(initializer);
         };
 
-        let Some(value) = initializer.value else {
+        let Some(mut value) = initializer.value else {
             return Err(LoweringError::MissingOperationResult(binding.initializer()));
         };
 
         let source = self.source(binding.origin());
+
+        if let Some(declared) = self
+            .input
+            .patterns()
+            .pattern(binding.pattern())
+            .map(|pattern| pattern.input_type())
+        {
+            let initializer_type = self.expression_type(binding.initializer())?;
+
+            if self.nullable_contains(declared, initializer_type)? {
+                value = self.push_nullable_present(
+                    binding.initializer(),
+                    current,
+                    Self::retained_source(&source),
+                    value,
+                    declared,
+                )?;
+            }
+        }
+
         let current = self.lower_pattern_bindings(binding.pattern(), value, current)?;
 
         Ok(LoweredExpression::continuing(current, None, source))

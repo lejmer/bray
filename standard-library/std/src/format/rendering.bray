@@ -53,12 +53,11 @@ internal func write_aligned<Destination, Failure>(
 
 internal func minimum_digits(pos options: &Options) -> usize
 {
-    if options.precision == 0
+    match options.precision
     {
-        return 1;
+        case ?precision { return precision; }
+        case none { return 1; }
     }
-
-    return options.precision;
 }
 
 internal func radix_value(pos options: &Options) -> u8
