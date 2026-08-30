@@ -36,9 +36,8 @@ pub(super) fn normalize_callable_type_equalities(
 ) -> Result<CallableSignature, FactQueryError> {
     let values = binding_context.semantic_values();
 
-    signature.try_map_types(|ty| {
-        super::constraint::normalize_type_equalities(values, ty, constraints)
-    })
+    signature
+        .try_map_types(|ty| super::constraint::normalize_type_equalities(values, ty, constraints))
 }
 
 pub(super) fn normalize_callable_type_valued_members(

@@ -114,9 +114,8 @@ impl Compilation {
         .map_err(FactQueryError::CheckerInfrastructure)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let signature = signature.try_map_types(|ty| {
-            substitute_contextual_self(values, ty, contextual_self)
-        })?;
+        let signature = signature
+            .try_map_types(|ty| substitute_contextual_self(values, ty, contextual_self))?;
 
         let checker = CompilationCheckerContext::new(binding_context)
             .with_implementation_witnesses(instance.implementation_witnesses().iter().copied());
