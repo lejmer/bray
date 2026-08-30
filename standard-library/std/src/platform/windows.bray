@@ -293,6 +293,17 @@ internal func windows_error_status_from(pos code: u32) -> PlatformStatus
     return native_status(category = windows_error_category(code), code = code as i64);
 }
 
+internal func windows_errno_status_from(pos code: i32) -> PlatformStatus
+{
+    let category: u32 = match code
+    {
+        case std.os.windows.EAGAIN | std.os.windows.ENOMEM { yield 7; }
+        case _ { yield 10; }
+    };
+
+    return native_status(category = category, code = code as i64);
+}
+
 internal func windows_error_category(pos code: u32) -> u32
 {
     return match code

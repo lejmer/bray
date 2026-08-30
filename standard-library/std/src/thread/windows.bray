@@ -59,10 +59,10 @@ trusted internal func windows_thread_entry(pos context: RawPointer<u8>) -> u32
 
 trusted internal func native_thread_entry() -> RawPointer<u8>
 {
-    let entry: std.os.windows.ThreadStartRoutine = windows_thread_entry;
-    let pointer: RawPointer<std.os.windows.ThreadStartRoutine> = trusted std.memory.pointer_from_callable(entry);
+    let entry: std.os.windows.BeginThreadRoutine = windows_thread_entry;
+    let pointer: RawPointer<std.os.windows.BeginThreadRoutine> = trusted std.memory.pointer_from_callable(entry);
 
-    return trusted std.memory.reinterpret<u8, std.os.windows.ThreadStartRoutine>(pointer);
+    return trusted std.memory.reinterpret<u8, std.os.windows.BeginThreadRoutine>(pointer);
 }
 
 @abi(c)
@@ -72,32 +72,29 @@ trusted internal func platform_thread_create(
     pos owner: RawPointer<u64>,
     pos native_error: RawPointer<i64>,
 ) -> std.platform.PlatformStatus
-    uses(foreign_call)
+    uses(foreign_call, intrinsic)
 {
-    let entry_pointer: RawPointer<std.os.windows.ThreadStartRoutine> = trusted std.memory.reinterpret<
-        std.os.windows.ThreadStartRoutine,
-        u8
-    >(entry);
-
-    let callback: std.os.windows.ThreadStartRoutine = trusted std.memory.callable_from_pointer(entry_pointer);
-
-    let handle: RawPointer<u8> = trusted std.os.windows.create_thread(
-        std.memory.null<std.os.windows.SecurityAttributes>(),
+    let native_handle: usize = trusted std.os.windows.begin_thread_ex(
+        std.memory.null<u8>(),
         stack_size = 0,
-        entry = callback,
+        entry = entry,
         context = context,
         creation_flags = 0,
         thread_identifier = std.memory.null<u32>(),
     );
 
-    if std.memory.is_null<u8>(handle)
+    if native_handle == 0
     {
-        let status: std.platform.PlatformStatus = trusted internal std.platform.windows_error_status();
+        let code: i32 = trusted internal std.platform.read_native_i32(trusted std.os.windows.errno_location());
+
+        let status: std.platform.PlatformStatus = internal std.platform.windows_errno_status_from(code);
 
         trusted std.memory.write<i64>(native_error, status.native_code);
 
         return status;
     }
+
+    let handle: RawPointer<u8> = trusted core.target.from_exposed_address<u8>(address = native_handle);
 
     trusted std.memory.write<u64>(owner, trusted internal std.platform.pointer_handle(handle));
 

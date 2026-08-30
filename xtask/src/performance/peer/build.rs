@@ -228,7 +228,10 @@ pub(in crate::performance) fn rust_executable_arguments(
     ]);
 
     if target.object_format() == ObjectFormat::Coff {
-        arguments.extend(["-C".to_owned(), "target-feature=+crt-static".to_owned()]);
+        arguments.extend([
+            "-C".to_owned(),
+            crate::windows_crt::RUST_DYNAMIC_TARGET_FEATURE.to_owned(),
+        ]);
     }
 
     arguments
@@ -419,7 +422,7 @@ pub(in crate::performance) fn cpp_executable_arguments(target: NativeTarget) -> 
     arguments.push("-fuse-ld=lld".to_owned());
 
     if target.object_format() == ObjectFormat::Coff {
-        arguments.push("-fms-runtime-lib=static".to_owned());
+        arguments.push(crate::windows_crt::CLANG_DYNAMIC_RUNTIME.to_owned());
 
         if target.as_str().starts_with("x86_64-") {
             arguments.push("-D_AMD64_".to_owned());
@@ -444,7 +447,8 @@ pub(in crate::performance) fn runtime_linkage(
     target: NativeTarget,
 ) -> Result<RuntimeLinkage, String> {
     match target.object_format() {
-        ObjectFormat::Coff | ObjectFormat::Elf => Ok(RuntimeLinkage::StaticApplicationRuntime),
+        ObjectFormat::Coff => Ok(RuntimeLinkage::DynamicApplicationRuntime),
+        ObjectFormat::Elf => Ok(RuntimeLinkage::StaticApplicationRuntime),
         ObjectFormat::MachO => Err(
             "performance comparison requires static application runtimes, which the C++ peer does not yet provide on Mach-O"
                 .to_owned(),
@@ -686,7 +690,8 @@ pub(in crate::performance) fn fixture_build_configuration(
                 )
                 .unwrap_or_else(|error| panic!("fixture Rust configuration must build: {error}")),
                 linker: crate::path::slash_separated(&linker),
-                runtime_linkage: RuntimeLinkage::StaticApplicationRuntime,
+                runtime_linkage: runtime_linkage(target)
+                    .unwrap_or_else(|error| panic!("fixture runtime linkage must exist: {error}")),
                 post_link_actions: vec!["rustc strips symbols during linking".to_owned()],
             }
         }
@@ -712,7 +717,8 @@ pub(in crate::performance) fn fixture_build_configuration(
             )
             .unwrap_or_else(|error| panic!("fixture C++ configuration must build: {error}")),
             linker: "lld selected through the clang++ driver".to_owned(),
-            runtime_linkage: RuntimeLinkage::StaticApplicationRuntime,
+            runtime_linkage: runtime_linkage(target)
+                .unwrap_or_else(|error| panic!("fixture runtime linkage must exist: {error}")),
             post_link_actions: vec!["llvm-strip --strip-all".to_owned()],
         },
     }
@@ -825,7 +831,7 @@ mod tests {
     }
 
     #[test]
-    fn windows_peers_both_embed_the_static_msvc_runtime() {
+    fn windows_peers_both_use_the_dynamic_msvc_runtime() {
         let target = NativeTarget::X86_64WindowsMsvc;
         let linker = rust_linker(std::path::Path::new("workspace"), target);
 
@@ -862,26 +868,26 @@ mod tests {
         assert!(
             rust.arguments
                 .iter()
-                .any(|argument| argument == "target-feature=+crt-static")
+                .any(|argument| argument == crate::windows_crt::RUST_DYNAMIC_TARGET_FEATURE)
         );
 
         assert!(
             cpp.arguments
                 .iter()
-                .any(|argument| argument == "-fms-runtime-lib=static")
+                .any(|argument| argument == crate::windows_crt::CLANG_DYNAMIC_RUNTIME)
         );
 
         assert!(
             !rust
                 .arguments
                 .iter()
-                .any(|argument| argument.contains("-crt-static"))
+                .any(|argument| argument.contains("+crt-static"))
         );
 
         assert!(
             !cpp.arguments
                 .iter()
-                .any(|argument| argument.contains("runtime-lib=dll"))
+                .any(|argument| argument.contains("runtime-lib=static"))
         );
     }
 

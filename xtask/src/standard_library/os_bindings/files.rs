@@ -261,10 +261,9 @@ fn synchronize_files(files: &[GeneratedFile]) -> Result<(), String> {
         std::fs::create_dir_all(parent)
             .map_err(|error| workspace::io_error("create", parent, error))?;
 
-        if std::fs::read(&file.path)
-            .ok()
-            .is_some_and(|actual| canonical_text(&actual) == canonical_text(file.contents.as_bytes()))
-        {
+        if std::fs::read(&file.path).ok().is_some_and(|actual| {
+            canonical_text(&actual) == canonical_text(file.contents.as_bytes())
+        }) {
             continue;
         }
 
@@ -342,8 +341,7 @@ fn obsolete_managed_files(files: &[GeneratedFile]) -> Result<Vec<PathBuf>, Strin
 #[cfg(test)]
 mod tests {
     use super::{
-        GeneratedFile, canonical_text, check_files, read_description, read_input,
-        synchronize_files,
+        GeneratedFile, canonical_text, check_files, read_description, read_input, synchronize_files,
     };
 
     #[test]

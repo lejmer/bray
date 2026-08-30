@@ -182,12 +182,17 @@ fn configure_c_toolchain(
     target: NativeTarget,
     compilation: NativeCompilation,
 ) {
-    if matches!(compilation, NativeCompilation::ThinLto) {
+    if let Some(flags) = rust_compiler_flags(target, compilation) {
+        command.env("CARGO_ENCODED_RUSTFLAGS", flags);
+    }
+
+    if matches!(compilation, NativeCompilation::ThinLto)
+        || target.object_format() == bray_target::ObjectFormat::Coff
+    {
         let tools = native_tools(target);
-        let flags = thin_lto_flags(root);
+        let flags = c_compiler_flags(root, target, compilation);
 
         command
-            .env("CARGO_ENCODED_RUSTFLAGS", "-Clinker-plugin-lto")
             .env(
                 target_environment("CC", target),
                 bray_llvm_toolchain::tool_path(root, tools.compiler),
@@ -223,8 +228,42 @@ fn configure_c_toolchain(
     }
 }
 
-fn thin_lto_flags(root: &Path) -> String {
-    thin_lto_arguments(root)
+fn rust_compiler_flags(target: NativeTarget, compilation: NativeCompilation) -> Option<String> {
+    let mut flags = Vec::new();
+
+    if matches!(compilation, NativeCompilation::ThinLto) {
+        flags.push("-Clinker-plugin-lto".to_owned());
+    }
+
+    if target.object_format() == bray_target::ObjectFormat::Coff {
+        flags.push(format!(
+            "-C{}",
+            crate::windows_crt::RUST_DYNAMIC_TARGET_FEATURE
+        ));
+    }
+
+    (!flags.is_empty()).then(|| flags.join("\u{1f}"))
+}
+
+fn c_compiler_flags(root: &Path, target: NativeTarget, compilation: NativeCompilation) -> String {
+    let mut flags = match compilation {
+        NativeCompilation::Object => String::new(),
+        NativeCompilation::ThinLto => thin_lto_flags(root),
+    };
+
+    if target.object_format() == bray_target::ObjectFormat::Coff {
+        if !flags.is_empty() {
+            flags.push(' ');
+        }
+
+        flags.push_str(crate::windows_crt::CLANG_CL_DYNAMIC_RUNTIME);
+    }
+
+    flags
+}
+
+fn format_c_flags(flags: impl IntoIterator<Item = String>) -> String {
+    flags
         .into_iter()
         .map(|argument| {
             if argument.contains(' ') {
@@ -235,6 +274,10 @@ fn thin_lto_flags(root: &Path) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn thin_lto_flags(root: &Path) -> String {
+    format_c_flags(thin_lto_arguments(root))
 }
 
 pub(crate) fn thin_lto_arguments(root: &Path) -> [String; 3] {
@@ -359,7 +402,8 @@ mod tests {
     use bray_symbols::NativeLinkKind;
 
     use super::{
-        NativeTools, native_tools, parse_native_link_arguments, rust_static_library_file_name,
+        NativeCompilation, NativeTools, c_compiler_flags, native_tools,
+        parse_native_link_arguments, rust_compiler_flags, rust_static_library_file_name,
         thin_lto_flags,
     };
 
@@ -398,6 +442,48 @@ mod tests {
         assert_eq!(
             thin_lto_flags(std::path::Path::new("C:\\work space\\bray")),
             "-flto=thin \"-ffile-prefix-map=C:/work space/bray=.\" -fdebug-compilation-dir=."
+        );
+    }
+
+    #[test]
+    fn windows_native_archives_use_the_dynamic_crt_for_rust_and_c_dependencies() {
+        let target = bray_target::NativeTarget::X86_64WindowsMsvc;
+
+        assert_eq!(
+            rust_compiler_flags(target, NativeCompilation::Object),
+            Some(format!(
+                "-C{}",
+                crate::windows_crt::RUST_DYNAMIC_TARGET_FEATURE
+            ))
+        );
+
+        assert_eq!(
+            rust_compiler_flags(target, NativeCompilation::ThinLto),
+            Some(format!(
+                "-Clinker-plugin-lto\u{1f}-C{}",
+                crate::windows_crt::RUST_DYNAMIC_TARGET_FEATURE
+            ))
+        );
+
+        assert_eq!(
+            c_compiler_flags(
+                std::path::Path::new("C:\\work"),
+                target,
+                NativeCompilation::Object,
+            ),
+            crate::windows_crt::CLANG_CL_DYNAMIC_RUNTIME
+        );
+
+        assert_eq!(
+            c_compiler_flags(
+                std::path::Path::new("C:\\work"),
+                target,
+                NativeCompilation::ThinLto,
+            ),
+            format!(
+                "-flto=thin -ffile-prefix-map=C:/work=. -fdebug-compilation-dir=. {}",
+                crate::windows_crt::CLANG_CL_DYNAMIC_RUNTIME
+            )
         );
     }
 

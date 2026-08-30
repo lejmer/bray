@@ -20,6 +20,7 @@ mod runtime_artifact;
 mod source_format;
 mod standard_library;
 mod style;
+mod windows_crt;
 mod workspace;
 
 const USAGE: &str = "usage: cargo xtask <compiler-known | format | package-interface | performance | readiness | runtime-artifact | standard-library | style> ...";

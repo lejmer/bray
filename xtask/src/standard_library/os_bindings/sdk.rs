@@ -189,6 +189,7 @@ fn configure_windows(
     )?;
 
     command
+        .arg(crate::windows_crt::CLANG_DYNAMIC_RUNTIME)
         .arg("-nostdinc")
         .arg("-isystem")
         .arg(resource_include)
