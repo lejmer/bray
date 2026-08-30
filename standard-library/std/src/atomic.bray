@@ -106,7 +106,8 @@ impl Atomic<T>
         }
     }
 
-    /// Replaces the current value when it equals the expected value.
+    /// Returns the observed value and whether it was replaced with the desired value.
+    /// Replacement fails only when the observed value differs from the expected value.
     func compare_exchange(pos expected: T, pos desired: T, order: CompareExchangeOrder) -> (T, bool)
     {
         match order
@@ -150,7 +151,8 @@ impl Atomic<T>
         }
     }
 
-    /// Attempts a replacement that may fail spuriously.
+    /// Returns the observed value and whether it was replaced with the desired value.
+    /// Replacement may fail spuriously even when the observed value equals the expected value.
     func compare_exchange_weak(pos expected: T, pos desired: T, order: CompareExchangeOrder) -> (T, bool)
     {
         match order
@@ -274,7 +276,8 @@ impl Atomic<T>
         }
     }
 
-    /// Waits until the value changes or the operation wakes spuriously.
+    /// Waits while the observed value equals the expected value.
+    /// Returns after observing a different value or waking spuriously, so callers must recheck the condition.
     func wait(pos expected: T, order: LoadOrder)
     {
         match order
