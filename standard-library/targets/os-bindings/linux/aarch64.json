@@ -501,6 +501,20 @@
           ],
           "result": "RawPointer<u8>",
           "native_result": "void *"
+        },
+        {
+          "name": "ThreadStorageDestructor",
+          "native": "void (*)(void *)",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "value",
+              "type": "RawPointer<u8>",
+              "native_type": "void *"
+            }
+          ],
+          "result": "unit",
+          "native_result": "void"
         }
       ],
       "functions": [

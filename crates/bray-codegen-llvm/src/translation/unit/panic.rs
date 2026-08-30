@@ -6,6 +6,8 @@ use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
 use super::core::UnitTranslator;
 use super::support::{int_value, llvm, pointer_value};
 
+pub(super) const CANCELLATION_OUTCOME_SENTINEL: u64 = 1;
+
 pub(super) fn incoming_panic_report_context<'context>(
     function: FunctionValue<'context>,
     signature: &CodegenCallableSignature,
@@ -45,9 +47,40 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
             llvm(self.builder.build_store(context, report))?;
-            self.return_propagated_panic()?;
+            self.return_propagated_outcome()?;
         } else {
             self.invoke_runtime(runtime, &[report.into()])?;
+            llvm(self.builder.build_unreachable())?;
+        }
+
+        Ok(())
+    }
+
+    pub(super) fn translate_cancellation_propagation(
+        &mut self,
+        runtime: bray_ir::MirRuntimeReference,
+    ) -> Result<(), CodegenFailure> {
+        self.clear_moved_places()?;
+
+        if self.signature.has_panic_report_context() {
+            let context = self
+                .panic_report_context
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+            let ty = crate::native::pointer_integer_type(
+                self.types.context(),
+                self.request.target(),
+            );
+
+            llvm(self.builder.build_store(
+                context,
+                ty.const_int(CANCELLATION_OUTCOME_SENTINEL, false),
+            ))?;
+
+            self.return_propagated_outcome()?;
+        } else {
+            self.invoke_runtime(runtime, &[])?;
+
             llvm(self.builder.build_unreachable())?;
         }
 
@@ -74,6 +107,44 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         llvm(self.builder.build_store(context, ty.const_zero()))?;
 
         let report = int_value(report).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let cancelled = llvm(self.builder.build_int_compare(
+            IntPredicate::EQ,
+            report,
+            ty.const_int(CANCELLATION_OUTCOME_SENTINEL, false),
+            "call.cancelled",
+        ))?;
+
+        let function = self
+            .builder
+            .get_insert_block()
+            .and_then(inkwell::basic_block::BasicBlock::get_parent)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let propagate_cancellation = self
+            .types
+            .context()
+            .append_basic_block(function, "call.propagate_cancellation");
+
+        let inspect_panic = self
+            .types
+            .context()
+            .append_basic_block(function, "call.inspect_panic");
+
+        llvm(self.builder.build_conditional_branch(
+            cancelled,
+            propagate_cancellation,
+            inspect_panic,
+        ))?;
+
+        self.builder.position_at_end(propagate_cancellation);
+
+        self.translate_cancellation_propagation(bray_ir::MirRuntimeReference::new(
+            bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
+            self.request.unit().target().runtime_abi(),
+        ))?;
+
+        self.builder.position_at_end(inspect_panic);
 
         let pending = llvm(self.builder.build_int_compare(
             IntPredicate::NE,
@@ -104,7 +175,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(())
     }
 
-    fn return_propagated_panic(&mut self) -> Result<(), CodegenFailure> {
+    fn return_propagated_outcome(&mut self) -> Result<(), CodegenFailure> {
         match self.signature.result() {
             CodegenResultMapping::Void => {
                 llvm(self.builder.build_return(None))?;

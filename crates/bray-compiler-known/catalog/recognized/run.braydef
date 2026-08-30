@@ -72,7 +72,7 @@ scope StandardThread at std.thread {
 
         surface {
             trusted internal func execute_native_thread(
-                pos operation: RawPointer<u8>,
+                pos operation: ThreadOperation,
                 pos context: usize,
                 pos cancellation: RawPointer<u8>,
                 pos cancellation_context: usize,

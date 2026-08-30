@@ -104,6 +104,27 @@ pub(super) fn native_run_outcome<'context>(
     Ok((state, payload))
 }
 
+pub(super) fn native_run_outcome_value<'context>(
+    context: &'context inkwell::context::Context,
+    builder: &Builder<'context>,
+    target: &bray_codegen::CodegenTarget,
+    state: NativeRunState,
+    payload: IntValue<'context>,
+) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+    let outcome = crate::native::run_outcome_type(context, target)
+        .const_zero()
+        .into();
+
+    let state = context
+        .i32_type()
+        .const_int(u64::from(state.code()), false)
+        .into();
+
+    let outcome = insert_value(builder, outcome, state, 0)?;
+
+    insert_value(builder, outcome, payload.into(), 1)
+}
+
 pub(super) fn native_run_state_is<'context>(
     builder: &Builder<'context>,
     state: IntValue<'context>,

@@ -1,4 +1,5 @@
 use bray_binder::SymbolQueryProvider;
+use bray_bound_tree::BoundCallResult;
 use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
 use bray_ir::{
     MirAsyncOperation, MirCall, MirCallTarget, MirCallableReference, MirFrameInitializer,
@@ -279,6 +280,40 @@ impl Compilation {
                         None,
                     )),
                 )?;
+            }
+
+            return Ok(true);
+        }
+
+        if role == RepresentationRole::PanicReport {
+            if matches!(
+                reference,
+                MirHelperReference::Destroy(_)
+                    | MirHelperReference::Cleanup {
+                        phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                        ..
+                    }
+            ) {
+                let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
+
+                let call = MirCall::protocol(
+                    MirCallTarget::Runtime(MirRuntimeReference::new(
+                        RuntimeAbiRole::PanicReportDestruction,
+                        runtime_abi,
+                    )),
+                    BoundCallResult::Immediate(status),
+                    [MirOperand::Move(place.clone())],
+                    [],
+                );
+
+                builder
+                    .push_operation(
+                        block,
+                        source.clone(),
+                        MirOperationKind::Call(call),
+                        Some(status),
+                    )
+                    .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
             }
 
             return Ok(true);

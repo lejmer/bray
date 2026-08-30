@@ -81,6 +81,7 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
     anchor: bray_declarations::SyntaxAnchor,
     syntax: &FunctionDeclarationSyntax,
     callable: &CallableBoundarySurface,
+    runtime_role: Option<bray_runtime_interface::RuntimeAbiRole>,
     cancellation: &CancellationToken,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<(), FactQueryError> {
@@ -137,7 +138,13 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
         );
     }
 
-    for parameter in &callable.parameters {
+    for (ordinal, parameter) in callable.parameters.iter().enumerate() {
+        if runtime_role == Some(bray_runtime_interface::RuntimeAbiRole::NativeThreadExecution)
+            && ordinal == 0
+        {
+            continue;
+        }
+
         validate_foreign_type(
             compilation,
             parameter,
@@ -163,7 +170,7 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
         .source(anchor.source_id())
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-    let parameters = callable
+    let mut parameters = callable
         .parameters
         .iter()
         .map(|parameter| target_abi_value(compilation, parameter, cancellation))
@@ -171,6 +178,12 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
         .into_iter()
         .flatten()
         .collect::<Vec<_>>();
+
+    if runtime_role == Some(bray_runtime_interface::RuntimeAbiRole::NativeThreadExecution)
+        && let Some(operation) = parameters.first_mut()
+    {
+        *operation = bray_checker::TargetAbiValue::RawPointer;
+    }
 
     let result = if is_unit_template(compilation, &callable.result)? {
         None
@@ -541,7 +554,7 @@ fn raw_pointer_target(
 }
 
 #[derive(Clone, Copy)]
-pub(super) enum AbiField {
+pub(in crate::compilation) enum AbiField {
     Scalar(RepresentationRole),
     Pointer(RepresentationRole),
     Struct(&'static [AbiField]),
@@ -598,7 +611,7 @@ fn pointer_struct_matches(
     c_struct_matches(compilation, target, fields, cancellation)
 }
 
-fn c_struct_matches(
+pub(in crate::compilation) fn c_struct_matches(
     compilation: &Compilation,
     ty: TypeId,
     expected_fields: &[AbiField],
@@ -657,20 +670,7 @@ fn c_struct_matches(
             return Ok(false);
         };
 
-        let matches = match expected {
-            AbiField::Scalar(role) => type_has_representation(compilation, field_ty, *role)?,
-            AbiField::Pointer(role) => raw_pointer_targets(compilation, field_ty, *role)?,
-            AbiField::Struct(fields) => {
-                c_struct_matches(compilation, field_ty, fields, cancellation)?
-            }
-            AbiField::PointerStruct(fields) => {
-                let Some(target) = raw_pointer_target(compilation, field_ty)? else {
-                    return Ok(false);
-                };
-
-                c_struct_matches(compilation, target, fields, cancellation)?
-            }
-        };
+        let matches = abi_type_matches(compilation, field_ty, expected, cancellation)?;
 
         if !matches {
             return Ok(false);
@@ -678,6 +678,26 @@ fn c_struct_matches(
     }
 
     Ok(true)
+}
+
+pub(in crate::compilation) fn abi_type_matches(
+    compilation: &Compilation,
+    ty: TypeId,
+    expected: &AbiField,
+    cancellation: &CancellationToken,
+) -> Result<bool, FactQueryError> {
+    match expected {
+        AbiField::Scalar(role) => type_has_representation(compilation, ty, *role),
+        AbiField::Pointer(role) => raw_pointer_targets(compilation, ty, *role),
+        AbiField::Struct(fields) => c_struct_matches(compilation, ty, fields, cancellation),
+        AbiField::PointerStruct(fields) => {
+            let Some(target) = raw_pointer_target(compilation, ty)? else {
+                return Ok(false);
+            };
+
+            c_struct_matches(compilation, target, fields, cancellation)
+        }
+    }
 }
 
 fn platform_status_matches(

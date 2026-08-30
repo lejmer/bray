@@ -6,7 +6,7 @@ use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
     PackageInterfaceIdentity,
 };
-use bray_runtime_interface::PlatformServiceBinding;
+use bray_runtime_interface::{PlatformServiceBinding, RuntimeRoleSourceBinding};
 use bray_source::{SourceInput, SourceSpan};
 pub use bray_standard_library::PackageSourceAuthority;
 use bray_standard_library::{
@@ -141,6 +141,7 @@ pub struct CompilationRequest {
     sources: Vec<SourceInput>,
     dependency_interfaces: Vec<DependencyInterfaceInput>,
     platform_services: Vec<PlatformServiceBinding>,
+    runtime_roles: Vec<RuntimeRoleSourceBinding>,
     package_interface_export: Option<PackageInterfaceExportRequest>,
     profile: Option<CompilationProfileConfiguration>,
     profile_product: Option<bray_symbols::ProductIdentity>,
@@ -384,6 +385,7 @@ impl CompilationRequest {
             sources,
             dependency_interfaces: Vec::new(),
             platform_services: Vec::new(),
+            runtime_roles: Vec::new(),
             package_interface_export: None,
             profile: None,
             profile_product: None,
@@ -438,6 +440,19 @@ impl CompilationRequest {
         bindings: impl IntoIterator<Item = PlatformServiceBinding>,
     ) -> Self {
         self.platform_services = bindings.into_iter().collect();
+
+        self
+    }
+
+    /// Returns a copy with trusted runtime-artifact source role bindings.
+    ///
+    /// This compiler API is intentionally not represented in package manifests. Runtime artifact
+    /// tooling owns the authority to associate source declarations with private runtime roles.
+    pub fn with_runtime_roles(
+        mut self,
+        bindings: impl IntoIterator<Item = RuntimeRoleSourceBinding>,
+    ) -> Self {
+        self.runtime_roles = bindings.into_iter().collect();
 
         self
     }
@@ -510,6 +525,11 @@ impl CompilationRequest {
         &self.platform_services
     }
 
+    /// Returns trusted runtime-artifact source role bindings in role order.
+    pub fn runtime_roles(&self) -> &[RuntimeRoleSourceBinding] {
+        &self.runtime_roles
+    }
+
     /// Returns the selected current-product interface export, when requested.
     pub const fn package_interface_export(&self) -> Option<&PackageInterfaceExportRequest> {
         self.package_interface_export.as_ref()
@@ -537,6 +557,7 @@ impl CompilationRequest {
         Vec<SourceInput>,
         Vec<DependencyInterfaceInput>,
         Vec<PlatformServiceBinding>,
+        Vec<RuntimeRoleSourceBinding>,
         Option<PackageInterfaceExportRequest>,
         Option<CompilationProfileConfiguration>,
         Option<bray_symbols::ProductIdentity>,
@@ -550,6 +571,7 @@ impl CompilationRequest {
             self.sources,
             self.dependency_interfaces,
             self.platform_services,
+            self.runtime_roles,
             self.package_interface_export,
             self.profile,
             self.profile_product,

@@ -1,5 +1,6 @@
 //! Reference runtime artifact packaging and conformance.
 
+mod bootstrap;
 mod command;
 mod native_link;
 mod partition;

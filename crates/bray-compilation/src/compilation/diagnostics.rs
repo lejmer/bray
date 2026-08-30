@@ -10,8 +10,9 @@ use bray_bound_tree::{
     CheckedPatterns, DeclaredValueTypeTemplates, SelectedArgument, SemanticSelection, StoragePlan,
 };
 use bray_checker::{
-    TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
+    TargetAbiValue, TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
 };
+use bray_compiler_known::ImplementationHook;
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{
     Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticInterfaceDeclarationIdentity,
@@ -701,6 +702,12 @@ impl Compilation {
                 .into_iter()
                 .map(|value| value.unwrap_or(bray_checker::TargetAbiValue::Unsupported))
                 .collect::<Vec<_>>();
+
+            if call.implementation_hook() == Some(ImplementationHook::NativeThreadExecution)
+                && let Some(operation) = parameters.first_mut()
+            {
+                *operation = TargetAbiValue::RawPointer;
+            }
 
             for argument in call.arguments() {
                 let SelectedArgument::Explicit {

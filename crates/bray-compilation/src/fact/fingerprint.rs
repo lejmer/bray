@@ -25,6 +25,7 @@ pub(crate) enum CompilationInputKey {
     DependencyInterface(ImportedInterfaceId),
     DependencyImplementation(ImportedInterfaceId),
     PlatformServices,
+    RuntimeRoles,
     PackageInterfaceExport,
     CodegenConfiguration,
     StandardLibrary,
@@ -68,7 +69,7 @@ impl CompilationInputs {
 }
 
 impl CompilationInputKey {
-    pub(super) const FIXED: [Self; 15] = [
+    pub(super) const FIXED: [Self; 16] = [
         Self::PackageIdentity,
         Self::PackageSourceAuthority,
         Self::SourceSet,
@@ -80,6 +81,7 @@ impl CompilationInputKey {
         Self::SemanticPairwiseLimit,
         Self::DependencySet,
         Self::PlatformServices,
+        Self::RuntimeRoles,
         Self::PackageInterfaceExport,
         Self::CodegenConfiguration,
         Self::StandardLibrary,
@@ -99,10 +101,11 @@ impl CompilationInputKey {
             Self::SemanticPairwiseLimit => 8,
             Self::DependencySet => 9,
             Self::PlatformServices => 10,
-            Self::PackageInterfaceExport => 11,
-            Self::CodegenConfiguration => 12,
-            Self::StandardLibrary => 13,
-            Self::StandardLibraryProviders => 14,
+            Self::RuntimeRoles => 11,
+            Self::PackageInterfaceExport => 12,
+            Self::CodegenConfiguration => 13,
+            Self::StandardLibrary => 14,
+            Self::StandardLibraryProviders => 15,
             Self::Source(_) | Self::DependencyInterface(_) | Self::DependencyImplementation(_) => {
                 return None;
             }

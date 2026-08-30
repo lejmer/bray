@@ -1,5 +1,5 @@
 use std::mem::align_of;
-use std::panic::{AssertUnwindSafe, catch_unwind, panic_any};
+use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use bray_runtime_abi::{
     NativeExecutionLaneResult, NativeFrameProgress, NativeFrameProgressKind, NativeInactiveFrame,
@@ -8,28 +8,25 @@ use bray_runtime_abi::{
     NativeRootHandle, NativeRootStart, NativeRunOutcome, NativeRunResultLayout, NativeRunState,
     NativeRuntimeConfiguration, NativeRuntimeEventCallback, NativeRuntimeStatus,
     NativeSourceAnchor, NativeStringView, NativeTaskAllocation, NativeTaskHandle,
-    NativeThreadStaticCleanupRegistration, NativeWakeCallback,
+    NativeWakeCallback,
 };
 
 use crate::current_run_cancellation_requested;
 use crate::root::propagate_current_run_cancellation;
 
-use super::callback::PropagatedPanicReport;
 use super::state::{initialize, runtime_failure, shutdown, with_runtime};
 
 native_export! {
-    pub extern "C" fn bray_runtime_thread_attachment_identity(
-        descriptor: &'static NativeProductHostDescriptor,
-    ) -> u64 {
-        crate::product::thread_attachment_identity(descriptor)
-    }
-}
-
-native_export! {
-    pub extern "C" fn bray_runtime_thread_static_cleanup_registration(
-        registration: &NativeThreadStaticCleanupRegistration,
+    pub extern "C" fn bray_runtime_substrate_initialization(
+        worker_capacity: usize,
+        timer_capacity: usize,
     ) -> NativeRuntimeStatus {
-        crate::product::register_thread_static(registration)
+        contain_status(|| {
+            initialize(NativeRuntimeConfiguration::new(
+                worker_capacity,
+                timer_capacity,
+            ))
+        })
     }
 }
 
@@ -125,36 +122,36 @@ native_export! {
     }
 }
 
-native_export! {
-    #[expect(
-        unsafe_code,
-        reason = "the reporting role receives the exact owned report allocation"
-    )]
-    pub extern "C" fn bray_runtime_panic_reporting(
-        payload: usize,
-    ) -> NativeRuntimeStatus {
-        if payload == 0 {
+#[expect(
+    unsafe_code,
+    reason = "the reporting role receives the exact owned report allocation"
+)]
+pub(crate) extern "C" fn bray_runtime_panic_reporting(payload: usize) -> NativeRuntimeStatus {
+    if payload == 0 {
+        return NativeRuntimeStatus::INVALID_ARGUMENT;
+    }
+
+    contain_status(|| {
+        let report = unsafe {
+            // The construction and propagation roles transfer this exact allocation.
+            Box::from_raw(payload as *mut NativePanicReport)
+        };
+
+        if !report.cause.is_known() || !report.source.is_valid() {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
         }
 
-        contain_status(|| {
-            let report = unsafe {
-                // The construction and propagation roles transfer this exact allocation.
-                Box::from_raw(payload as *mut NativePanicReport)
-            };
+        report_panic(report.cause, report.source, report.message);
 
-            if !report.cause.is_known() || !report.source.is_valid() {
-                return NativeRuntimeStatus::INVALID_ARGUMENT;
-            }
+        NativeRuntimeStatus::SUCCESS
+    })
+}
 
-            if super::host::active() {
-                super::host::record_panic(report.cause, report.source, report.message);
-            } else {
-                eprintln!("{}", report.message);
-            }
-
-            NativeRuntimeStatus::SUCCESS
-        })
+pub(super) fn report_panic(cause: NativePanicCause, source: NativeSourceAnchor, message: String) {
+    if super::host::active() {
+        super::host::record_panic(cause, source, message);
+    } else {
+        eprintln!("{message}");
     }
 }
 
@@ -192,48 +189,60 @@ native_export! {
     }
 }
 
-native_export! {
-    #[expect(
-        unsafe_code,
-        reason = "the construction role borrows the validated native string view for this call"
-    )]
-    pub extern "C" fn bray_runtime_panic_report_construction(
-        cause: NativePanicCause,
-        source: NativeSourceAnchor,
-        message: NativeStringView,
-    ) -> usize {
-        catch_unwind(AssertUnwindSafe(|| {
-            if !cause.is_known()
-                || !source.is_valid()
-                || (message.length() != 0 && message.data().is_null())
-            {
-                return 0;
+#[expect(
+    unsafe_code,
+    reason = "the construction role borrows the validated native string view for this call"
+)]
+pub(crate) extern "C" fn bray_runtime_panic_report_construction(
+    cause: NativePanicCause,
+    source_present: u32,
+    source_identity: u32,
+    source_start: u32,
+    source_end: u32,
+    source_version: u64,
+    message_data: *const u8,
+    message_length: usize,
+) -> usize {
+    catch_unwind(AssertUnwindSafe(|| {
+        let source = if source_present == 0 {
+            NativeSourceAnchor::unavailable()
+        } else {
+            NativeSourceAnchor::new(source_identity, source_start, source_end, source_version)
+        };
+
+        let message = NativeStringView::new(message_data, message_length);
+
+        if !cause.is_known()
+            || source_present > 1
+            || !source.is_valid()
+            || (message.length() != 0 && message.data().is_null())
+        {
+            return 0;
+        }
+
+        let bytes = if message.length() == 0 {
+            &[][..]
+        } else {
+            unsafe {
+                // The view is borrowed only for this construction call.
+                std::slice::from_raw_parts(message.data(), message.length())
             }
+        };
 
-            let bytes = if message.length() == 0 {
-                &[][..]
-            } else {
-                unsafe {
-                    // The view is borrowed only for this construction call.
-                    std::slice::from_raw_parts(message.data(), message.length())
-                }
-            };
-
-            Box::into_raw(Box::new(NativePanicReport {
-                cause,
-                source,
-                message: String::from_utf8_lossy(bytes).into_owned(),
-            })) as usize
-        }))
-        .unwrap_or(0)
-    }
+        Box::into_raw(Box::new(NativePanicReport {
+            cause,
+            source,
+            message: String::from_utf8_lossy(bytes).into_owned(),
+        })) as usize
+    }))
+    .unwrap_or(0)
 }
 
 native_export! {
-    pub extern "C-unwind" fn bray_runtime_panic_propagation(
-        payload: usize,
+    pub extern "C" fn bray_runtime_panic_propagation(
+        _: usize,
     ) -> ! {
-        panic_any(PropagatedPanicReport(payload))
+        std::process::abort()
     }
 }
 
@@ -260,7 +269,7 @@ native_export! {
     pub extern "C" fn bray_runtime_main_thread_lane_startup(
         configuration: NativeRuntimeConfiguration,
     ) -> NativeRuntimeStatus {
-        contain_status(|| initialize(configuration))
+        contain_status(|| initialize_for_execution(configuration))
     }
 }
 
@@ -528,17 +537,21 @@ native_export! {
     }
 }
 
+pub(crate) extern "C" fn bray_runtime_structured_shutdown() -> NativeRuntimeStatus {
+    contain_status(|| {
+        let runtime_status = shutdown();
+
+        if super::host::finish().is_err() {
+            return NativeRuntimeStatus::RUNTIME_FAILURE;
+        }
+
+        runtime_status
+    })
+}
+
 native_export! {
-    pub extern "C" fn bray_runtime_structured_shutdown() -> NativeRuntimeStatus {
-        contain_status(|| {
-            let runtime_status = shutdown();
-
-            if super::host::finish().is_err() {
-                return NativeRuntimeStatus::RUNTIME_FAILURE;
-            }
-
-            runtime_status
-        })
+    pub extern "C" fn bray_runtime_substrate_shutdown() -> NativeRuntimeStatus {
+        bray_runtime_structured_shutdown()
     }
 }
 
@@ -570,7 +583,7 @@ fn execute_root(
     frame: NativeProtectedFrame,
     configuration: NativeRuntimeConfiguration,
 ) -> NativeRootStart {
-    let status = initialize(configuration);
+    let status = initialize_for_execution(configuration);
 
     if !status.is_success() {
         return NativeRootStart::failure(status);
@@ -595,6 +608,16 @@ fn execute_root(
     )
 }
 
+fn initialize_for_execution(configuration: NativeRuntimeConfiguration) -> NativeRuntimeStatus {
+    let status = initialize(configuration);
+
+    if status == NativeRuntimeStatus::ALREADY_INITIALIZED {
+        NativeRuntimeStatus::SUCCESS
+    } else {
+        status
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::mem::size_of;
@@ -603,13 +626,13 @@ mod tests {
     use bray_runtime_abi::{
         NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
         NativeFrameState, NativeInactiveFrame, NativeLaneRequirements, NativePanicCause,
-        NativeProtectedFrame, NativeProtectedFrameTransfer, NativeRunState,
-        NativeRuntimeConfiguration, NativeRuntimeStatus, NativeSourceAnchor, NativeStringView,
-        NativeTaskHandle,
+        NativeProtectedFrame, NativeProtectedFrameTransfer, NativeRunOutcome, NativeRunState,
+        NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskHandle,
     };
 
     use super::super::callback::{
-        bray_runtime_foreign_callback_execution, bray_runtime_synchronous_root_execution,
+        bray_runtime_substrate_foreign_callback_execution,
+        bray_runtime_substrate_synchronous_root_execution,
     };
 
     use super::{
@@ -1161,10 +1184,7 @@ mod tests {
         bray_runtime_root_execution(transfer, configuration)
     }
 
-    fn start_test_task(
-        task: NativeTaskHandle,
-        frame: NativeProtectedFrame,
-    ) -> NativeRuntimeStatus {
+    fn start_test_task(task: NativeTaskHandle, frame: NativeProtectedFrame) -> NativeRuntimeStatus {
         bray_runtime_task_start(
             task,
             NativeInactiveFrame::new(Box::into_raw(Box::new(frame)).addr(), move_test_frame),
@@ -1181,7 +1201,11 @@ mod tests {
 
     #[test]
     fn synchronous_root_boundary_catches_reports_and_resolves_panic() {
-        let outcome = bray_runtime_synchronous_root_execution(propagate_test_panic, 0);
+        let outcome = bray_runtime_substrate_synchronous_root_execution(
+            propagate_test_panic,
+            0,
+            assert_attached_cleanup as *const (),
+        );
 
         assert_eq!(outcome.state(), NativeRunState::PANICKED);
         assert_ne!(outcome.payload(), 0);
@@ -1194,7 +1218,11 @@ mod tests {
 
     #[test]
     fn synchronous_root_boundary_catches_current_run_cancellation() {
-        let outcome = bray_runtime_synchronous_root_execution(propagate_test_cancellation, 0);
+        let outcome = bray_runtime_substrate_synchronous_root_execution(
+            propagate_test_cancellation,
+            0,
+            assert_attached_cleanup as *const (),
+        );
 
         assert_eq!(outcome.state(), NativeRunState::CANCELLED);
         assert_eq!(outcome.payload(), 0);
@@ -1205,8 +1233,11 @@ mod tests {
         let (outcome, attached_after_return) = std::thread::spawn(|| {
             assert!(bray_platform::current_runtime_thread().is_none());
 
-            let outcome =
-                bray_runtime_foreign_callback_execution(assert_callback_runtime_thread, 41);
+            let outcome = bray_runtime_substrate_foreign_callback_execution(
+                assert_callback_runtime_thread,
+                41,
+                assert_attached_cleanup as *const (),
+            );
 
             (outcome, bray_platform::current_runtime_thread().is_some())
         })
@@ -1223,7 +1254,11 @@ mod tests {
         let _thread = bray_platform::RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must attach: {error:?}"));
 
-        let outcome = bray_runtime_foreign_callback_execution(assert_callback_runtime_thread, 41);
+        let outcome = bray_runtime_substrate_foreign_callback_execution(
+            assert_callback_runtime_thread,
+            41,
+            assert_attached_cleanup as *const (),
+        );
 
         assert_eq!(outcome.state(), NativeRunState::COMPLETED);
         assert_eq!(outcome.payload(), 41);
@@ -1343,24 +1378,38 @@ mod tests {
         NativeFrameProgress::new(NativeFrameProgressKind::CANCELLED, 0, 0)
     }
 
-    extern "C-unwind" fn propagate_test_panic(_: usize) {
+    extern "C" fn propagate_test_panic(_: usize, outcome: &mut NativeRunOutcome) {
         const MESSAGE: &[u8] = b"synchronous root panic";
 
         let report = super::bray_runtime_panic_report_construction(
             NativePanicCause::MESSAGE,
-            NativeSourceAnchor::new(0, 0, 1, 0),
-            NativeStringView::new(MESSAGE.as_ptr(), MESSAGE.len()),
+            1,
+            0,
+            0,
+            1,
+            0,
+            MESSAGE.as_ptr(),
+            MESSAGE.len(),
         );
 
-        super::bray_runtime_panic_propagation(report)
+        *outcome = NativeRunOutcome::new(NativeRunState::PANICKED, report);
     }
 
-    extern "C-unwind" fn propagate_test_cancellation(_: usize) {
-        super::bray_runtime_current_run_cancellation_propagation()
+    extern "C" fn propagate_test_cancellation(_: usize, outcome: &mut NativeRunOutcome) {
+        *outcome = NativeRunOutcome::new(NativeRunState::CANCELLED, 0);
     }
 
-    extern "C-unwind" fn assert_callback_runtime_thread(destination: usize) {
+    extern "C" fn assert_callback_runtime_thread(
+        destination: usize,
+        outcome: &mut NativeRunOutcome,
+    ) {
         assert_eq!(destination, 41);
+        assert!(bray_platform::current_runtime_thread().is_some());
+
+        *outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, destination);
+    }
+
+    extern "C" fn assert_attached_cleanup() {
         assert!(bray_platform::current_runtime_thread().is_some());
     }
 

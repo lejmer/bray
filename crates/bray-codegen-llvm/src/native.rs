@@ -85,9 +85,7 @@ pub(crate) fn uses_indirect_argument(
     uses_microsoft_x64_abi(target)
         && matches!(
             (role, index),
-            (RuntimeAbiRole::RootExecution, 1)
-                | (RuntimeAbiRole::PanicReportConstruction, 1 | 2)
-                | (RuntimeAbiRole::AwaitedFrameComposition, 0)
+            (RuntimeAbiRole::RootExecution, 1) | (RuntimeAbiRole::AwaitedFrameComposition, 0)
         )
 }
 
@@ -492,7 +490,16 @@ fn runtime_function_type<'context>(
             }
             RuntimeAbiRole::PanicReportConstruction => {
                 return Some(pointer_integer_type(context, target).fn_type(
-                    &[context.i32_type().into(), pointer.into(), pointer.into()],
+                    &[
+                        context.i32_type().into(),
+                        context.i32_type().into(),
+                        context.i32_type().into(),
+                        context.i32_type().into(),
+                        context.i32_type().into(),
+                        context.i64_type().into(),
+                        pointer.into(),
+                        usize.into(),
+                    ],
                     false,
                 ));
             }
@@ -504,6 +511,15 @@ fn runtime_function_type<'context>(
     }
 
     match role {
+        RuntimeAbiRole::RuntimeInitialization => {
+            let capacity = pointer_integer_type(context, target);
+
+            Some(
+                context
+                    .i32_type()
+                    .fn_type(&[capacity.into(), capacity.into()], false),
+            )
+        }
         RuntimeAbiRole::RootExecution => Some(root_start_type(context).fn_type(
             &[
                 pointer_integer_type(context, target).into(),
@@ -603,7 +619,7 @@ fn runtime_function_type<'context>(
                 .i32_type()
                 .fn_type(&[context.i64_type().into()], false),
         ),
-        RuntimeAbiRole::PanicReporting => Some(
+        RuntimeAbiRole::PanicReporting | RuntimeAbiRole::PanicReportDestruction => Some(
             context
                 .i32_type()
                 .fn_type(&[pointer_integer_type(context, target).into()], false),
@@ -621,14 +637,7 @@ fn runtime_function_type<'context>(
                 .fn_type(&[context.i32_type().into()], false),
         ),
         RuntimeAbiRole::PanicReportConstruction => {
-            Some(pointer_integer_type(context, target).fn_type(
-                &[
-                    context.i32_type().into(),
-                    source_anchor_type(context).into(),
-                    string_view_type(context, target).into(),
-                ],
-                false,
-            ))
+            Some(panic_report_construction_type(context, target))
         }
         RuntimeAbiRole::PanicPropagation => Some(
             context
@@ -648,6 +657,25 @@ fn runtime_function_type<'context>(
         }
         _ => None,
     }
+}
+
+fn panic_report_construction_type<'context>(
+    context: &'context Context,
+    target: &CodegenTarget,
+) -> FunctionType<'context> {
+    pointer_integer_type(context, target).fn_type(
+        &[
+            context.i32_type().into(),
+            context.i32_type().into(),
+            context.i32_type().into(),
+            context.i32_type().into(),
+            context.i32_type().into(),
+            context.i64_type().into(),
+            context.ptr_type(AddressSpace::default()).into(),
+            pointer_integer_type(context, target).into(),
+        ],
+        false,
+    )
 }
 
 pub(crate) fn frame_operation_type<'context>(
@@ -832,14 +860,19 @@ mod tests {
         )
         .unwrap_or_else(|| panic!("panic report construction must have a native ABI"));
 
-        assert_eq!(panic.count_param_types(), 3);
+        assert_eq!(panic.count_param_types(), 8);
 
         assert_eq!(
             panic.get_param_types(),
             [
                 context.i32_type().into(),
+                context.i32_type().into(),
+                context.i32_type().into(),
+                context.i32_type().into(),
+                context.i32_type().into(),
+                context.i64_type().into(),
                 context.ptr_type(inkwell::AddressSpace::default()).into(),
-                context.ptr_type(inkwell::AddressSpace::default()).into(),
+                context.i64_type().into(),
             ]
         );
     }
@@ -876,14 +909,19 @@ mod tests {
         )
         .unwrap_or_else(|| panic!("panic report construction must have a native ABI"));
 
-        assert_eq!(panic.count_param_types(), 3);
+        assert_eq!(panic.count_param_types(), 8);
 
         assert_eq!(
             panic.get_param_types(),
             [
                 context.i32_type().into(),
-                super::source_anchor_type(&context).into(),
-                super::string_view_type(&context, &target).into(),
+                context.i32_type().into(),
+                context.i32_type().into(),
+                context.i32_type().into(),
+                context.i32_type().into(),
+                context.i64_type().into(),
+                context.ptr_type(inkwell::AddressSpace::default()).into(),
+                context.i64_type().into(),
             ]
         );
     }

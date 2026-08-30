@@ -124,6 +124,107 @@
       ],
       "functions": [
         {
+          "name": "pthread_key_create",
+          "native": "pthread_key_create",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "key",
+              "type": "RawPointer<u32>",
+              "native_type": "pthread_key_t *"
+            },
+            {
+              "name": "destructor",
+              "type": "ThreadStorageDestructor",
+              "native_type": "void (*)(void *)"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "pthread",
+          "error_state": "returns a POSIX error number",
+          "ownership": "success creates one process-owned thread-storage key",
+          "initialization": "success initializes the key output",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "pthread_key_delete",
+          "native": "pthread_key_delete",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "key",
+              "type": "u32",
+              "native_type": "pthread_key_t"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "pthread",
+          "error_state": "returns a POSIX error number",
+          "ownership": "success releases one quiescent thread-storage key",
+          "initialization": "existing thread values are not destroyed",
+          "dependencies": [
+            "foreign_call",
+            "native_thread"
+          ]
+        },
+        {
+          "name": "pthread_getspecific",
+          "native": "pthread_getspecific",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "key",
+              "type": "u32",
+              "native_type": "pthread_key_t"
+            }
+          ],
+          "result": "RawPointer<u8>",
+          "native_result": "void *",
+          "link": "pthread",
+          "error_state": "returns the current thread value or null when unset",
+          "ownership": "the platform does not own the stored value",
+          "initialization": "the returned address is opaque",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "pthread_setspecific",
+          "native": "pthread_setspecific",
+          "abi": "c",
+          "parameters": [
+            {
+              "name": "key",
+              "type": "u32",
+              "native_type": "pthread_key_t"
+            },
+            {
+              "name": "value",
+              "type": "RawPointer<u8>",
+              "native_type": "const void *"
+            }
+          ],
+          "result": "i32",
+          "native_result": "int",
+          "link": "pthread",
+          "error_state": "returns a POSIX error number",
+          "ownership": "the platform stores but does not own the value",
+          "initialization": "null clears the current thread value",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
+        },
+        {
           "name": "getrandom",
           "native": "getrandom",
           "abi": "c",

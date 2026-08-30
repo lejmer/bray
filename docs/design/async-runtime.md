@@ -419,6 +419,21 @@ product-and-standard-library build. The compiler validates the role, signature, 
 checks wrappers using the record, and trusts the substrate implementation. It never discovers these contracts from
 source spelling or an extern body.
 
+Trusted runtime artifacts use the same binding rule. Build metadata associates each private source declaration with a
+closed runtime or platform role. The compiler checks the declaration as a C ABI boundary where the native contract
+requires one, then emits the role's fixed native symbol. Runtime and platform bindings share one typed source-binding
+representation. The role type keeps their catalogs distinct.
+
+The bootstrap runtime owns one destructor-bearing target thread-storage key. Its private target contract can create the
+key, load and store the current thread's opaque value, and destroy the key only after attachment quiescence. POSIX
+thread-specific storage and Windows FLS provide the required exit callback. A native shim may adapt that callback ABI,
+but it cannot own attachment state, cleanup order, panic policy, or product shutdown.
+
+Synchronous and foreign callback entries exchange a fixed outcome record. The panicked state transfers one opaque owned
+panic-report handle. The cancelled state transfers no report. A callback never uses Rust or C++ unwinding to carry a
+Bray panic through a native frame. Cleanup callbacks use the same outcome rule, report a cleanup panic, continue the
+remaining reverse-order cleanup, and return normally to the target destructor.
+
 The role set and each role's semantic effect are closed compiler contracts. A runtime selects implementations for
 runtime-owned roles but cannot publish replacement semantics for them. Compiler-lowering roles remain compiler-owned and
 cannot be claimed by a runtime artifact.
@@ -443,6 +458,13 @@ bounded test protocol. The runtime implementation crate publishes no stable nati
 publishes only its assigned ABI surface and delegates to the shared implementation support selected through its
 component dependency. Artifact construction deduplicates archive members, produces deterministic archives, validates
 dependency graphs, and audits exact exported symbols so these boundaries do not regress silently.
+
+The runtime artifact smoke proof links a C target adapter directly with the trusted Bray bootstrap archive. Its link map
+must contain the eight bootstrap roles and four thread-storage operations, and must contain no Rust execution-runtime
+archive, Rust panic symbol, scheduler role, task role, or test-host role. The executable checks nested initialization,
+completed, cancelled, and panicked outcomes, report ownership, thread-exit cleanup order, cleanup-panic containment,
+dependency access during thread-static cleanup, attachment quiescence, attach-versus-shutdown races, and repeated
+shutdown.
 
 The runtime receives compiler-generated frame descriptors and never parses source types or compiled package interfaces.
 

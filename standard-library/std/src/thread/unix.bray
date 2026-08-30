@@ -109,3 +109,65 @@ trusted internal func platform_thread_detach(pos owner: u64) -> std.platform.Pla
 
     return internal std.platform.success_status();
 }
+
+@abi(c)
+trusted internal func platform_thread_storage_create(
+    pos destructor: RawPointer<u8>,
+    pos key: RawPointer<u64>,
+) -> std.platform.PlatformStatus
+{
+    let destructor_pointer: RawPointer<std.os.unix.ThreadStorageDestructor> = trusted std.memory.reinterpret<
+        std.os.unix.ThreadStorageDestructor,
+        u8
+    >(destructor);
+
+    let callback: std.os.unix.ThreadStorageDestructor = trusted std.memory.callable_from_pointer(destructor_pointer);
+    let status: i32 = trusted std.os.unix.pthread_key_create(key, destructor = callback);
+
+    if status != 0
+    {
+        return internal std.platform.unix_error_status_from(status);
+    }
+
+    return internal std.platform.success_status();
+}
+
+@abi(c)
+trusted internal func platform_thread_storage_load(
+    pos key: u64,
+    pos value: RawPointer<RawPointer<u8>>,
+) -> std.platform.PlatformStatus
+{
+    trusted std.memory.write<RawPointer<u8>>(value, trusted std.os.unix.pthread_getspecific(key));
+
+    return internal std.platform.success_status();
+}
+
+@abi(c)
+trusted internal func platform_thread_storage_store(
+    pos key: u64,
+    pos value: RawPointer<u8>,
+) -> std.platform.PlatformStatus
+{
+    let status: i32 = trusted std.os.unix.pthread_setspecific(key, value);
+
+    if status != 0
+    {
+        return internal std.platform.unix_error_status_from(status);
+    }
+
+    return internal std.platform.success_status();
+}
+
+@abi(c)
+trusted internal func platform_thread_storage_destroy(pos key: u64) -> std.platform.PlatformStatus
+{
+    let status: i32 = trusted std.os.unix.pthread_key_delete(key);
+
+    if status != 0
+    {
+        return internal std.platform.unix_error_status_from(status);
+    }
+
+    return internal std.platform.success_status();
+}

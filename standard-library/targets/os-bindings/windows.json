@@ -8,6 +8,12 @@
       ],
       "constants": [
         {
+          "name": "FLS_OUT_OF_INDEXES",
+          "native": "FLS_OUT_OF_INDEXES",
+          "type": "u32",
+          "value": 4294967295
+        },
+        {
           "name": "CSTR_EQUAL",
           "native": "CSTR_EQUAL",
           "type": "i32",
@@ -363,6 +369,123 @@
         }
       ],
       "functions": [
+        {
+          "name": "fls_alloc",
+          "native": "FlsAlloc",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "destructor",
+              "type": "ThreadStorageDestructor",
+              "native_type": "PFLS_CALLBACK_FUNCTION"
+            }
+          ],
+          "result": "u32",
+          "native_result": "DWORD",
+          "link": "Kernel32",
+          "error_state": "returns FLS_OUT_OF_INDEXES and records GetLastError state on failure",
+          "ownership": "success creates one process-owned fiber-local storage key",
+          "initialization": "the returned key has no values",
+          "dependencies": [
+            "foreign_call",
+            "native_thread"
+          ]
+        },
+        {
+          "name": "fls_free",
+          "native": "FlsFree",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "key",
+              "type": "u32",
+              "native_type": "DWORD"
+            }
+          ],
+          "result": "i32",
+          "native_result": "BOOL",
+          "link": "Kernel32",
+          "error_state": "returns zero and records GetLastError state on failure",
+          "ownership": "success releases one quiescent fiber-local storage key",
+          "initialization": "existing thread values are not destroyed",
+          "dependencies": [
+            "foreign_call",
+            "native_thread"
+          ]
+        },
+        {
+          "name": "fls_get_value",
+          "native": "FlsGetValue",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "key",
+              "type": "u32",
+              "native_type": "DWORD"
+            }
+          ],
+          "result": "RawPointer<u8>",
+          "native_result": "PVOID",
+          "link": "Kernel32",
+          "error_state": "returns null when unset or after recording GetLastError state on failure",
+          "ownership": "the platform does not own the stored value",
+          "initialization": "the returned address is opaque",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "fls_set_value",
+          "native": "FlsSetValue",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "key",
+              "type": "u32",
+              "native_type": "DWORD"
+            },
+            {
+              "name": "value",
+              "type": "RawPointer<u8>",
+              "native_type": "PVOID"
+            }
+          ],
+          "result": "i32",
+          "native_result": "BOOL",
+          "link": "Kernel32",
+          "error_state": "returns zero and records GetLastError state on failure",
+          "ownership": "the platform stores but does not own the value",
+          "initialization": "null clears the current thread value",
+          "dependencies": [
+            "foreign_call",
+            "native_thread",
+            "raw_memory"
+          ]
+        },
+        {
+          "name": "set_last_error",
+          "native": "SetLastError",
+          "abi": "system",
+          "parameters": [
+            {
+              "name": "code",
+              "type": "u32",
+              "native_type": "DWORD"
+            }
+          ],
+          "result": "unit",
+          "native_result": "void",
+          "link": "Kernel32",
+          "error_state": "sets the calling native thread error state",
+          "ownership": "no resource transfer",
+          "initialization": "no output storage",
+          "dependencies": [
+            "foreign_call",
+            "native_thread"
+          ]
+        },
         {
           "name": "command_line_to_argv_w",
           "native": "CommandLineToArgvW",

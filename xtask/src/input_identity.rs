@@ -20,8 +20,10 @@ const COMMON_SOURCE_INPUTS: &[&str] = &[
     "xtask/src/workspace.rs",
 ];
 const RUNTIME_SOURCE_INPUTS: &[&str] = &[
+    "runtime/bootstrap",
     "xtask/src/dependency_audit.rs",
     "xtask/src/link_map.rs",
+    "xtask/src/native_product.rs",
     "xtask/src/runtime_artifact",
 ];
 const STANDARD_LIBRARY_SOURCE_INPUTS: &[&str] =

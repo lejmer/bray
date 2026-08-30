@@ -55,7 +55,7 @@ struct Semaphore
 
         while available > 0
         {
-            let(observed, acquired) = core.atomic.compare_exchange<usize, 1, 0>(
+            let (observed, acquired) = core.atomic.compare_exchange<usize, 1, 0>(
                 &self.permits,
                 expected = available,
                 desired = available - 1,
@@ -88,7 +88,7 @@ struct Semaphore
                 return Error(SemaphoreError.CapacityOverflow);
             }
 
-            let(observed, released) = core.atomic.compare_exchange<usize, 2, 0>(
+            let (observed, released) = core.atomic.compare_exchange<usize, 2, 0>(
                 &self.permits,
                 expected = available,
                 desired = available + count,

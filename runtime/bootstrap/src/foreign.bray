@@ -1,0 +1,33 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap;
+
+@abi(c)
+trusted internal func foreign_callback_execution(
+    pos callback: RawPointer<u8>,
+    pos context: usize,
+) -> RunOutcome
+    uses(foreign_call)
+{
+    let status: u32 = trusted prepare_substrate_callback(callback);
+
+    if status != STATUS_SUCCESS
+    {
+        return { state = RUN_RUNTIME_FAILURE, payload = status as usize };
+    }
+
+    return trusted substrate_foreign_callback_execution(
+        callback,
+        context,
+        cleanup = trusted substrate_cleanup_pointer(),
+    );
+}
+
+@link(name = "bray_runtime_callback", kind = system)
+@symbol(name = "bray_runtime_substrate_foreign_callback_execution")
+@abi(c)
+extern trusted internal func substrate_foreign_callback_execution(
+    pos callback: RawPointer<u8>,
+    pos context: usize,
+    pos cleanup: RawPointer<u8>,
+) -> RunOutcome
+    uses(foreign_call);

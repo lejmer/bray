@@ -1,0 +1,317 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap;
+
+using std.memory;
+
+internal const FINALIZER_NONE: u32 = 0;
+internal const FINALIZER_SYNCHRONOUS: u32 = 1;
+internal const FINALIZER_INCIDENT: u32 = 1;
+
+internal callable StaticTransitionCallback = @abi(c)
+trusted func();
+
+internal callable StaticFinalizerStartCallback = @abi(c)
+trusted func(pos destination: usize) -> u32;
+
+internal callable CleanupIncidentReportCallback = @abi(c)
+trusted func(pos payload: usize) -> u32;
+
+internal callable CleanupIncidentDestroyCallback = @abi(c)
+trusted func(pos payload: usize);
+
+@copy
+@layout(c)
+internal struct SourceAnchor
+{
+    present: u32;
+    source: u32;
+    start: u32;
+    end: u32;
+    version: u64;
+}
+
+@copy
+@layout(c)
+internal struct CleanupIncident
+{
+    payload: usize;
+    type_identity: [u8; 32];
+    source: SourceAnchor;
+    report: RawPointer<u8>;
+    destroy: RawPointer<u8>;
+}
+
+@copy
+@layout(c)
+internal struct StaticFinalizer
+{
+    execution: u32;
+    reserved: u32;
+    result_size: usize;
+    result_alignment: usize;
+    start: RawPointer<u8>;
+    resolve: RawPointer<u8>;
+}
+
+@copy
+@layout(c)
+internal struct CleanupRegistration
+{
+    product: RawPointer<u8>;
+    static_identity: [u8; 32];
+    prepare: RawPointer<u8>;
+    finalizer: StaticFinalizer;
+    destroy: RawPointer<u8>;
+    detach: RawPointer<u8>;
+}
+
+@copy
+@layout(c)
+internal struct CleanupRecord
+{
+    next: RawPointer<CleanupRecord>;
+    prepare: RawPointer<u8>;
+    finalizer: StaticFinalizer;
+    destroy: RawPointer<u8>;
+    detach: RawPointer<u8>;
+}
+
+internal static BOOTSTRAP_PROBE_CLEANUP_ORDER: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+internal static BOOTSTRAP_PROBE_CLEANUP_DEPENDENCIES: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
+
+internal struct BootstrapThreadStaticDependency
+{
+    value: u64;
+
+    finalize()
+    {
+        record_bootstrap_probe_cleanup(stage = 1, dependency = self.value);
+    }
+
+    destruct() {}
+}
+
+internal struct BootstrapThreadStaticPrimary
+{
+    value: u64;
+
+    finalize()
+    {
+        record_bootstrap_probe_cleanup(stage = 2, dependency = BOOTSTRAP_THREAD_STATIC_DEPENDENCY.value);
+    }
+
+    destruct() {}
+}
+
+@thread_local internal static BOOTSTRAP_THREAD_STATIC_DEPENDENCY: BootstrapThreadStaticDependency =
+    BootstrapThreadStaticDependency
+    {
+        value = 17
+    };
+
+@thread_local internal static BOOTSTRAP_THREAD_STATIC_PRIMARY: BootstrapThreadStaticPrimary = BootstrapThreadStaticPrimary
+{
+    value = 29
+};
+
+@symbol(name = "bray_runtime_bootstrap_thread_static_probe")
+@abi(c)
+internal func bootstrap_thread_static_probe() -> u64
+{
+    return BOOTSTRAP_THREAD_STATIC_DEPENDENCY.value + BOOTSTRAP_THREAD_STATIC_PRIMARY.value;
+}
+
+@symbol(name = "bray_runtime_bootstrap_thread_static_cleanup_observation")
+@abi(c)
+internal func bootstrap_thread_static_cleanup_observation() -> u64
+{
+    let order: u64 = core.atomic.load<u32, 1>(&BOOTSTRAP_PROBE_CLEANUP_ORDER) as u64;
+    let dependencies: u64 = core.atomic.load<u64, 1>(&BOOTSTRAP_PROBE_CLEANUP_DEPENDENCIES);
+
+    return order * 10000 + dependencies;
+}
+
+internal func record_bootstrap_probe_cleanup(pos stage: u32, pos dependency: u64)
+{
+    let order: u32 = core.atomic.load<u32, 0>(&BOOTSTRAP_PROBE_CLEANUP_ORDER);
+    let dependencies: u64 = core.atomic.load<u64, 0>(&BOOTSTRAP_PROBE_CLEANUP_DEPENDENCIES);
+
+    core.atomic.store<u32, 2>(&BOOTSTRAP_PROBE_CLEANUP_ORDER, value = order * 10 + stage);
+    core.atomic.store<u64, 2>(&BOOTSTRAP_PROBE_CLEANUP_DEPENDENCIES, value = dependencies * 100 + dependency);
+}
+
+@abi(c)
+trusted internal func register_thread_cleanup(pos registration: RawPointer<u8>) -> u32
+    requires(
+        trusted core.memory.valid_read<CleanupRegistration>(
+            pointer = trusted std.memory.reinterpret<CleanupRegistration, u8>(registration),
+            count = 1,
+        ),
+        trusted core.memory.aligned_for<CleanupRegistration>(
+            pointer = trusted std.memory.reinterpret<CleanupRegistration, u8>(registration)
+        ),
+        trusted core.memory.initialized_as<CleanupRegistration>(
+            pointer = trusted std.memory.reinterpret<CleanupRegistration, u8>(registration)
+        ),
+    )
+    uses(layout_reinterpret)
+{
+    if std.memory.is_null<u8>(registration)
+    {
+        return STATUS_INVALID_ARGUMENT;
+    }
+
+    let state: RawPointer<AttachmentState> = trusted load_attachment();
+
+    if std.memory.is_null<AttachmentState>(state)
+    {
+        return STATUS_NOT_INITIALIZED;
+    }
+
+    let current: AttachmentState = trusted read_opaque<AttachmentState>(state);
+
+    if current.phase != ATTACHMENT_ACTIVE
+    {
+        return STATUS_NOT_INITIALIZED;
+    }
+
+    let registration_value: CleanupRegistration = trusted read_opaque<CleanupRegistration>(
+        trusted std.memory.reinterpret<CleanupRegistration, u8>(registration)
+    );
+
+    if std.memory.is_null<u8>(registration_value.prepare)
+        || std.memory.is_null<u8>(registration_value.destroy)
+        || std.memory.is_null<u8>(registration_value.detach)
+        || registration_value.finalizer.reserved != 0
+        || registration_value.finalizer.execution > FINALIZER_SYNCHRONOUS
+        || registration_value.finalizer.execution == FINALIZER_NONE
+            && (registration_value.finalizer.result_size != 0 || registration_value.finalizer.result_alignment != 1)
+        || registration_value.finalizer.execution == FINALIZER_SYNCHRONOUS
+            && (
+                std.memory.is_null<u8>(registration_value.finalizer.start)
+                    || std.memory.is_null<u8>(registration_value.finalizer.resolve)
+                    || !is_power_of_two(registration_value.finalizer.result_alignment)
+            )
+    {
+        return STATUS_INVALID_ARGUMENT;
+    }
+
+    let bytes: usize = internal bray.runtime.bootstrap.heap.allocation_bytes<CleanupRecord>();
+    let allocation: RawPointer<u8> = trusted internal bray.runtime.bootstrap.heap.allocate(
+        bytes,
+        align = std.memory.align_of<CleanupRecord>()
+    );
+
+    if std.memory.is_null<u8>(allocation)
+    {
+        return STATUS_RUNTIME_FAILURE;
+    }
+
+    let pointer: RawPointer<CleanupRecord> = trusted std.memory.reinterpret<CleanupRecord, u8>(allocation);
+
+    trusted write_opaque<CleanupRecord>(
+        pointer,
+        {
+            next = current.cleanups,
+            prepare = registration_value.prepare,
+            finalizer = registration_value.finalizer,
+            destroy = registration_value.destroy,
+            detach = registration_value.detach,
+        }
+    );
+
+    trusted write_opaque<AttachmentState>(
+        state,
+        {
+            identity = current.identity,
+            depth = current.depth,
+            phase = current.phase,
+            runtime_context = current.runtime_context,
+            task_context = current.task_context,
+            cancellation_context = current.cancellation_context,
+            product_attachment_state = current.product_attachment_state,
+            cleanups = pointer,
+        }
+    );
+
+    return STATUS_SUCCESS;
+}
+
+internal func is_power_of_two(pos value: usize) -> bool
+{
+    return value != 0 && value & (value - ONE_USIZE) == 0;
+}
+
+trusted internal func invoke_static_transition(pos pointer: RawPointer<u8>)
+    uses(layout_reinterpret)
+{
+    let callback_pointer: RawPointer<StaticTransitionCallback> = trusted std.memory.reinterpret<
+        StaticTransitionCallback,
+        u8,
+    >(pointer);
+    let callback: StaticTransitionCallback = trusted std.memory.callable_from_pointer(callback_pointer);
+
+    trusted callback();
+}
+
+trusted internal func run_static_finalizer(pos finalizer: StaticFinalizer)
+    uses(intrinsic, layout_reinterpret)
+{
+    if finalizer.execution == FINALIZER_NONE
+    {
+        return;
+    }
+
+    let mut incident: CleanupIncident = {
+        payload = 0,
+        type_identity = [0; 32],
+        source = { present = 0, source = 0, start = 0, end = 0, version = 0 },
+        report = std.memory.null<u8>(),
+        destroy = std.memory.null<u8>(),
+    };
+    let start_pointer: RawPointer<StaticFinalizerStartCallback> = trusted std.memory.reinterpret<
+        StaticFinalizerStartCallback,
+        u8,
+    >(finalizer.start);
+    let start: StaticFinalizerStartCallback = trusted std.memory.callable_from_pointer(start_pointer);
+    let status: u32 = trusted start(
+        trusted core.target.expose_address<CleanupIncident>(std.memory.address_of_mut<CleanupIncident>(&mut incident))
+    );
+
+    if status == STATUS_SUCCESS
+    {
+        return;
+    }
+
+    if status != FINALIZER_INCIDENT
+        || incident.payload == 0
+        || std.memory.is_null<u8>(incident.report)
+        || std.memory.is_null<u8>(incident.destroy)
+        || incident.source.present > 1
+        || incident.source.present == 0
+            && (
+                incident.source.source != 0
+                    || incident.source.start != 0
+                    || incident.source.end != 0
+                    || incident.source.version != 0
+            )
+        || incident.source.present == 1 && incident.source.start > incident.source.end
+    {
+        trusted core.target.abort();
+    }
+
+    let report_pointer: RawPointer<CleanupIncidentReportCallback> = trusted std.memory.reinterpret<
+        CleanupIncidentReportCallback,
+        u8,
+    >(incident.report);
+    let report: CleanupIncidentReportCallback = trusted std.memory.callable_from_pointer(report_pointer);
+    let _: u32 = trusted report(incident.payload);
+    let destroy_pointer: RawPointer<CleanupIncidentDestroyCallback> = trusted std.memory.reinterpret<
+        CleanupIncidentDestroyCallback,
+        u8,
+    >(incident.destroy);
+    let destroy: CleanupIncidentDestroyCallback = trusted std.memory.callable_from_pointer(destroy_pointer);
+
+    trusted destroy(incident.payload);
+}

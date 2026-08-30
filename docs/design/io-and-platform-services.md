@@ -174,6 +174,7 @@ The minimum role families are:
 | Process pipes    | Read child output, write and flush child input, and close a typed pipe owner                                        |
 | Filesystems      | Open files and directories, query metadata, enumerate entries, mutate filesystem state, and close handles           |
 | Child processes  | Spawn with explicit arguments, environment, working directory, and stream policy. Wait, signal, terminate, and reap |
+| Native threads   | Create, join, detach, and provide destructor-bearing storage for runtime attachment state                        |
 | Clocks           | Read process-local monotonic and wall clocks                                                                        |
 | Temporal data    | Interpret calendar values and named timezone rules through the pinned third-party provider                          |
 | Entropy          | Fill caller-owned mutable bytes from the target entropy source                                                      |
@@ -453,6 +454,28 @@ target that cannot perform the requested mode returns `Unsupported`. Every other
 The public consuming completion operations do not return until reap succeeds. They can preserve the first infrastructure
 failure while retrying ownership resolution, then return that failure after the child is reaped. The typed Bray process
 wrapper applies its separate `TerminationPolicy` through these roles.
+
+#### Native threads and bootstrap storage
+
+|       ID | Role                              | Parameters                                 | Results                                      | Mode and effects                                      |
+|---------:|-----------------------------------|--------------------------------------------|----------------------------------------------|-------------------------------------------------------|
+| `0x0321` | `platform.thread.create`          | `raw_address entry`, `raw_address context` | `out<u64> owner`, `out<i64> native_identity` | `may_block`. Creates one thread owner on success      |
+| `0x0322` | `platform.thread.join`            | `u64 owner`                                | none                                         | `may_block`. Resolves and consumes the owner          |
+| `0x0323` | `platform.thread.detach`          | `u64 owner`                                | none                                         | `nonblocking`. Transfers and consumes the owner       |
+| `0x0331` | `platform.thread_storage.create`  | `raw_address destructor`                   | `out<u64> key`                               | `nonblocking`. Creates a process-local storage key    |
+| `0x0332` | `platform.thread_storage.load`    | `u64 key`                                  | `out<raw_address>`                           | `nonblocking`. Reads the current thread's value       |
+| `0x0333` | `platform.thread_storage.store`   | `u64 key`, `raw_address value`             | none                                         | `nonblocking`. Stores or explicitly clears the value |
+| `0x0334` | `platform.thread_storage.destroy` | `u64 key`                                  | none                                         | `nonblocking`. Destroys a quiescent key               |
+
+The four storage roles are private runtime bootstrap mechanisms. `create` installs a target callback with the fixed
+thread-storage destructor ABI. When a native thread exits with a nonzero value, the target clears the slot before it
+invokes that callback on the exiting thread. `store` with a zero address is an explicit clear and does not invoke the
+callback. `destroy` requires runtime attachment quiescence and does not inspect or clean up values owned by other
+threads.
+
+Windows providers use FLS and POSIX providers use destructor-bearing thread-specific keys. A shim may adapt an
+unrepresentable callback convention. It returns the fixed status record and owns no runtime attachment, cleanup, panic,
+or product policy. The callback contains every Bray panic and cancellation before it returns to the target.
 
 #### Clocks and entropy
 

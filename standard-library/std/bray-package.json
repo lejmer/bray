@@ -155,6 +155,22 @@
           "declaration": "std.thread.platform_thread_detach"
         },
         {
+          "role": "platform.thread_storage.create",
+          "declaration": "std.thread.platform_thread_storage_create"
+        },
+        {
+          "role": "platform.thread_storage.load",
+          "declaration": "std.thread.platform_thread_storage_load"
+        },
+        {
+          "role": "platform.thread_storage.store",
+          "declaration": "std.thread.platform_thread_storage_store"
+        },
+        {
+          "role": "platform.thread_storage.destroy",
+          "declaration": "std.thread.platform_thread_storage_destroy"
+        },
+        {
           "role": "platform.clock.monotonic_now",
           "declaration": "std.platform.clock_monotonic_now"
         },

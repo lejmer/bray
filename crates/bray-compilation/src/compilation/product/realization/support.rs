@@ -18,8 +18,9 @@ use bray_source::SourceSnapshot;
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableExecution, ConstantTermData, ConstantValueKind,
     DeclaredLayoutMode, ForeignCallableDirection, ImplementationCoherenceQuery,
-    ImplementationSymbolId, NativeSymbolBinding, ReceiverMode, SelfTypeContext, SemanticValueStore,
-    SymbolKey, SymbolKeyData, SymbolQueryRequest, TypeData, TypeId,
+    ImplementationSymbolId, NamedTypeSymbolId, NativeSymbolBinding, ReceiverMode, SelfTypeContext,
+    SemanticValueStore, StructSymbolId, SymbolKey, SymbolKeyData, SymbolQueryRequest, TypeData,
+    TypeId,
 };
 use bray_target::{
     TargetAtomicRepresentation, TargetLayoutContract, TargetScalarKind, TargetValueLayout,
@@ -28,8 +29,38 @@ use bray_target::{
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
 use super::super::super::binder::CompilationBindingContext;
+use super::super::super::substitution::named_type;
 use super::symbols::NativeBoundaryMapping;
 use crate::fact::{CancellationToken, FactQueryError};
+
+impl Compilation {
+    pub(super) fn codegen_representation_type(
+        &self,
+        role: RepresentationRole,
+    ) -> Result<TypeId, FactQueryError> {
+        let definition = self
+            .available_compiler_known_symbols()
+            .representation_symbol::<StructSymbolId>(role)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        named_type(
+            self.semantic_value_store()?,
+            NamedTypeSymbolId::Struct(definition),
+        )
+    }
+
+    pub(super) fn codegen_opaque_pointer_type(&self) -> Result<TypeId, FactQueryError> {
+        let element = self.codegen_representation_type(RepresentationRole::ScalarU8)?;
+
+        self.available_compiler_known_symbols()
+            .unary_representation_type(
+                self.semantic_value_store()?,
+                RepresentationRole::RawPointer,
+                element,
+            )
+            .ok_or(FactQueryError::InfrastructureFailure)
+    }
+}
 
 pub(super) fn atomic_storage_is_padding_free(
     ty: TypeId,
@@ -776,7 +807,7 @@ mod tests {
     };
     use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
     use bray_ir::{
-        MirBlockKind, MirCleanupPhase, MirFrameReference, MirGeneratorOperation,
+        MirBlockKind, MirCallTarget, MirCleanupPhase, MirFrameReference, MirGeneratorOperation,
         MirHelperReference, MirOperationKind, MirProjectionKind, MirRuntimeReference,
         MirTerminatorKind, MirUnit, MirUnitId,
     };
@@ -1169,6 +1200,40 @@ mod tests {
                 Some(MirProjectionKind::TupleField(actual)) if *actual == field
             ));
         }
+    }
+
+    #[test]
+    fn generated_panic_report_destruction_uses_the_non_reporting_runtime_role() {
+        let compilation = compilation("module app; func main() {}");
+        let target = codegen_target(&compilation);
+
+        let report = compilation
+            .compiler_known_type(RepresentationRole::PanicReport)
+            .expect("panic report representation must resolve");
+
+        let generated = generated_lifecycle(
+            &compilation,
+            &target,
+            MirHelperReference::Destroy(report),
+            78,
+        );
+
+        let runtime_roles = generated.operations().iter().filter_map(|operation| {
+            let MirOperationKind::Call(call) = operation.kind() else {
+                return None;
+            };
+
+            let MirCallTarget::Runtime(runtime) = call.target() else {
+                return None;
+            };
+
+            Some(runtime.role())
+        });
+
+        assert_eq!(
+            runtime_roles.collect::<Vec<_>>(),
+            [RuntimeAbiRole::PanicReportDestruction]
+        );
     }
 
     #[test]
@@ -1692,12 +1757,8 @@ mod tests {
     }
 
     #[test]
-    fn panic_reporting_runtime_helper_transfers_a_report_and_returns_status() {
+    fn panic_report_transfer_runtime_helpers_use_the_owned_report_and_status_types() {
         let compilation = compilation("module app; func main() {}");
-
-        let signature = compilation
-            .codegen_runtime_signature(RuntimeAbiRole::PanicReporting)
-            .expect("panic reporting signature must realize");
 
         let report = compilation
             .codegen_representation_type(RepresentationRole::PanicReport)
@@ -1707,15 +1768,24 @@ mod tests {
             .codegen_representation_type(RepresentationRole::ScalarU32)
             .expect("status representation must realize");
 
-        assert_eq!(
-            signature.parameters(),
-            [CodegenParameterMapping::direct(report, None, [])]
-        );
+        for role in [
+            RuntimeAbiRole::PanicReporting,
+            RuntimeAbiRole::PanicReportDestruction,
+        ] {
+            let signature = compilation
+                .codegen_runtime_signature(role)
+                .unwrap_or_else(|error| panic!("{role:?} signature must realize: {error:?}"));
 
-        assert_eq!(
-            signature.result(),
-            &CodegenResultMapping::direct(status, None, [])
-        );
+            assert_eq!(
+                signature.parameters(),
+                [CodegenParameterMapping::direct(report, None, [])]
+            );
+
+            assert_eq!(
+                signature.result(),
+                &CodegenResultMapping::direct(status, None, [])
+            );
+        }
     }
 
     #[test]
@@ -2370,6 +2440,43 @@ mod tests {
             "struct Node\n",
             "{\n",
             "    visit: func(pos node: Node) -> unit;\n",
+            "}\n",
+        ));
+
+        let target = baseline_codegen_target();
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
+
+        let node = symbols
+            .structures()
+            .iter()
+            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .unwrap_or_else(|| panic!("fixture must declare Node"));
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+
+        let ty = named_type(values, NamedTypeSymbolId::Struct(node.id()))
+            .unwrap_or_else(|error| panic!("Node type must be available: {error:?}"));
+
+        let mappings = realized_types(&compilation, &target, [ty]);
+
+        assert_eq!(
+            mappings[&ty].layout().map(TargetValueLayout::size),
+            Some(pointer_layout(&target).size())
+        );
+    }
+
+    #[test]
+    fn raw_pointer_indirection_closes_recursive_value_layouts() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Node\n",
+            "{\n",
+            "    next: RawPointer<Node>;\n",
             "}\n",
         ));
 

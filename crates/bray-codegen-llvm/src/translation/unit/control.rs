@@ -136,9 +136,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.translate_panic_propagation(report, *runtime)?;
             }
             MirTerminatorKind::PropagateCancellation { runtime } => {
-                self.clear_moved_places()?;
-                self.invoke_runtime(*runtime, &[])?;
-                llvm(self.builder.build_unreachable())?;
+                self.translate_cancellation_propagation(*runtime)?;
             }
             MirTerminatorKind::PatternBranch {
                 subject,
@@ -248,7 +246,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     fn translate_suspension(
         &mut self,
         kind: bray_ir::MirSuspensionKind,
-        payload: Option<&bray_ir::MirOperand>,
+        payload: Option<&MirOperand>,
         resume_state: bray_ir::MirFrameStateId,
         registration: bray_ir::MirRuntimeReference,
         wake: bray_ir::MirRuntimeReference,
@@ -455,7 +453,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         subject: BasicValueEnum<'context>,
         subject_type: bray_symbols::TypeId,
         predicate: MirPatternPredicate,
-    ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
+    ) -> Result<IntValue<'context>, CodegenFailure> {
         match predicate {
             MirPatternPredicate::Literal(_) => {
                 let mapping = self
@@ -508,7 +506,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &self,
         left: BasicValueEnum<'context>,
         right: BasicValueEnum<'context>,
-    ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
+    ) -> Result<IntValue<'context>, CodegenFailure> {
         if left.get_type() != right.get_type() {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
@@ -541,7 +539,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         left: BasicValueEnum<'context>,
         right: BasicValueEnum<'context>,
         length: u32,
-    ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
+    ) -> Result<IntValue<'context>, CodegenFailure> {
         let mut equal = self.types.context().bool_type().const_int(1, false);
 
         for index in 0..length {
@@ -562,7 +560,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &self,
         subject: BasicValueEnum<'context>,
         subject_type: bray_symbols::TypeId,
-    ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
+    ) -> Result<IntValue<'context>, CodegenFailure> {
         let mapping = self
             .type_mapping(subject_type)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
@@ -593,7 +591,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         subject: BasicValueEnum<'context>,
         subject_type: bray_symbols::TypeId,
         variant: bray_symbols::UnionVariantSymbolId,
-    ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
+    ) -> Result<IntValue<'context>, CodegenFailure> {
         let tag = self.union_tag(subject, subject_type)?;
         let expected = self.union_variant_tag(subject_type, variant, tag.get_type())?;
 
@@ -609,7 +607,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         mut subject: BasicValueEnum<'context>,
         mut subject_type: bray_symbols::TypeId,
-    ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
+    ) -> Result<IntValue<'context>, CodegenFailure> {
         let (storage, tag_type) = loop {
             let mapping = self
                 .type_mapping(subject_type)

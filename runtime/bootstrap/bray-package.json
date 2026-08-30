@@ -1,0 +1,43 @@
+{
+  "format": 1,
+  "identity": "bray_runtime_bootstrap",
+  "version": { "workspace": true },
+  "source_roots": [
+    { "name": "runtime", "path": "src" }
+  ],
+  "products": [
+    {
+      "name": "runtime",
+      "kind": "library",
+      "source_roots": ["runtime"],
+      "targets": [
+        "aarch64-linux",
+        "aarch64-macos",
+        "aarch64-windows",
+        "x86-64-linux",
+        "x86-64-macos",
+        "x86-64-windows"
+      ],
+      "dependencies": [],
+      "outputs": ["static_library"],
+      "platform_services": [
+        {
+          "role": "platform.thread_storage.create",
+          "declaration": "bray.runtime.bootstrap.platform_thread_storage_create"
+        },
+        {
+          "role": "platform.thread_storage.load",
+          "declaration": "bray.runtime.bootstrap.platform_thread_storage_load"
+        },
+        {
+          "role": "platform.thread_storage.store",
+          "declaration": "bray.runtime.bootstrap.platform_thread_storage_store"
+        },
+        {
+          "role": "platform.thread_storage.destroy",
+          "declaration": "bray.runtime.bootstrap.platform_thread_storage_destroy"
+        }
+      ]
+    }
+  ]
+}

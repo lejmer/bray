@@ -48,7 +48,7 @@ struct Mutex<T>
             return none;
         }
 
-        let(_, acquired) = core.atomic.compare_exchange<u32, 0, 0>(
+        let (_, acquired) = core.atomic.compare_exchange<u32, 0, 0>(
             &self.next_ticket,
             expected = next,
             desired = next + 1,

@@ -92,8 +92,9 @@ trusted internal func take_transferred_value<T>(pos pointer: RawPointer<T>) -> T
 extern trusted internal func transferred_value<T>(pos pointer: RawPointer<T>) -> &mut T
     uses(raw_memory);
 
+@abi(c)
 extern trusted internal func execute_native_thread(
-    pos operation: RawPointer<u8>,
+    pos operation: ThreadOperation,
     pos context: usize,
     pos cancellation: RawPointer<u8>,
     pos cancellation_context: usize,

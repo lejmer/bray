@@ -722,10 +722,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
-        let pointer = self.static_storage_pointer(storage)?;
-
-        self.storages.insert(storage, pointer);
-
-        Ok(pointer)
+        self.static_storage_pointer(storage)
     }
 }

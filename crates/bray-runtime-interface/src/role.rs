@@ -5,6 +5,8 @@ use crate::BinarySymbolName;
 /// Closed binary execution ABI role understood by lowering, backends, and product hosts.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RuntimeAbiRole {
+    /// Initialize one loaded runtime artifact instance before product entry.
+    RuntimeInitialization,
     /// Begin and own the executable root run.
     RootExecution,
     /// Execute one synchronous entry callback behind the product panic boundary.
@@ -75,6 +77,8 @@ pub enum RuntimeAbiRole {
     RootCompletionResolution,
     /// Report and resolve one root panic payload.
     PanicReporting,
+    /// Destroy one handled panic report without reporting it.
+    PanicReportDestruction,
     /// Report one recoverable entrypoint failure value before host resolution.
     EntryFailureReporting,
     /// Select the catalog entry admitted by the test runner.
@@ -115,7 +119,8 @@ pub enum RuntimeAbiRole {
 
 impl RuntimeAbiRole {
     /// Every private execution ABI role in stable order.
-    pub const ALL: [Self; 53] = [
+    pub const ALL: [Self; 55] = [
+        Self::RuntimeInitialization,
         Self::RootExecution,
         Self::SynchronousRootExecution,
         Self::ForeignCallbackExecution,
@@ -151,6 +156,7 @@ impl RuntimeAbiRole {
         Self::RootTerminalObservation,
         Self::RootCompletionResolution,
         Self::PanicReporting,
+        Self::PanicReportDestruction,
         Self::EntryFailureReporting,
         Self::TestEntrySelection,
         Self::StructuredShutdown,
@@ -185,6 +191,7 @@ impl RuntimeAbiRole {
     /// Returns this role's stable textual name.
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::RuntimeInitialization => "runtime_initialization",
             Self::RootExecution => "root_execution",
             Self::SynchronousRootExecution => "synchronous_root_execution",
             Self::ForeignCallbackExecution => "foreign_callback_execution",
@@ -220,6 +227,7 @@ impl RuntimeAbiRole {
             Self::RootTerminalObservation => "root_terminal_observation",
             Self::RootCompletionResolution => "root_completion_resolution",
             Self::PanicReporting => "panic_reporting",
+            Self::PanicReportDestruction => "panic_report_destruction",
             Self::EntryFailureReporting => "entry_failure_reporting",
             Self::TestEntrySelection => "test_entry_selection",
             Self::StructuredShutdown => "structured_shutdown",
@@ -252,9 +260,18 @@ impl RuntimeAbiRole {
     }
 }
 
+/// One build-authorized association between a Bray declaration and a private runtime role.
+///
+/// Runtime artifact tooling supplies these bindings directly to the compiler. Package manifests
+/// cannot declare them, so an ordinary package cannot acquire runtime authority by spelling a
+/// matching declaration or binary symbol.
+pub type RuntimeRoleSourceBinding = crate::SourceRoleBinding<RuntimeAbiRole>;
+
 /// Semantic effect fixed by one closed private ABI role.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum RuntimeRoleContractEffect {
+    /// Initialize one loaded runtime artifact instance.
+    InitializeRuntime,
     /// Establish a new root run owned by the product host.
     EstablishRootRun,
     /// Transfer ownership of a protected frame.
@@ -293,6 +310,8 @@ pub enum RuntimeRoleContractEffect {
     ReleaseRootCompletion,
     /// Report and destroy one owned panic report.
     ReportPanic,
+    /// Destroy one handled panic report without reporting it.
+    DestroyPanicReport,
     /// Report one borrowed recoverable entry failure value.
     ReportEntryFailure,
     /// Select one admitted test entry from the runner command.
@@ -455,6 +474,7 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
     use RuntimeRoleContractEffect as Effect;
 
     match role {
+        RuntimeAbiRole::RuntimeInitialization => &[Effect::InitializeRuntime],
         RuntimeAbiRole::RootExecution => &[Effect::EstablishRootRun, Effect::TransferFrame],
         RuntimeAbiRole::SynchronousRootExecution => {
             &[Effect::EstablishRootRun, Effect::ExecuteCallbackRoot]
@@ -472,9 +492,7 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
         }
         RuntimeAbiRole::NativeThreadPanicReportRecovery => &[Effect::AcquireTerminalState],
         RuntimeAbiRole::TaskEventCreation => &[Effect::CreateTaskEvent],
-        RuntimeAbiRole::TaskEventSignal => {
-            &[Effect::SignalTaskEvent, Effect::EstablishVisibility]
-        }
+        RuntimeAbiRole::TaskEventSignal => &[Effect::SignalTaskEvent, Effect::EstablishVisibility],
         RuntimeAbiRole::TaskEventDestruction => &[Effect::ReleaseTaskEvent],
         RuntimeAbiRole::ThreadAttachmentIdentity => &[Effect::ObserveThreadAttachment],
         RuntimeAbiRole::ThreadStaticCleanupRegistration => &[Effect::RegisterThreadCleanup],
@@ -512,6 +530,7 @@ const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffe
         }
         RuntimeAbiRole::RootCompletionResolution => &[Effect::ReleaseRootCompletion],
         RuntimeAbiRole::PanicReporting => &[Effect::ReportPanic],
+        RuntimeAbiRole::PanicReportDestruction => &[Effect::DestroyPanicReport],
         RuntimeAbiRole::EntryFailureReporting => &[Effect::ReportEntryFailure],
         RuntimeAbiRole::TestEntrySelection => &[Effect::SelectTestEntry],
         RuntimeAbiRole::StructuredShutdown => &[Effect::StructuredShutdown],

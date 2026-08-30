@@ -70,9 +70,13 @@ impl PlatformServiceRole {
             | Self::ChildTerminate
             | Self::ChildReap
             | Self::ChildDispose => PlatformServiceFamily::Process,
-            Self::ThreadCreate | Self::ThreadJoin | Self::ThreadDetach => {
-                PlatformServiceFamily::Thread
-            }
+            Self::ThreadCreate
+            | Self::ThreadJoin
+            | Self::ThreadDetach
+            | Self::ThreadStorageCreate
+            | Self::ThreadStorageLoad
+            | Self::ThreadStorageStore
+            | Self::ThreadStorageDestroy => PlatformServiceFamily::Thread,
             Self::TimeDateValidate
             | Self::TimeDateAdd
             | Self::TimeZoneLoad

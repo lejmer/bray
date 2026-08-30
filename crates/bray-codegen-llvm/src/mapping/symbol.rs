@@ -171,16 +171,28 @@ fn apply_linkage(
 
     function.set_linkage(linkage);
 
-    if mapping.linkage() == CodegenLinkage::Fallback
+    if matches!(
+        mapping.linkage(),
+        CodegenLinkage::Fallback | CodegenLinkage::LinkOnce
+    )
         && defines_symbol
         && target.machine().object_format() == bray_target::ObjectFormat::Coff
     {
-        crate::comdat::attach(
-            module,
-            function.as_global_value(),
-            mapping.name().as_str(),
-            target.machine().object_format(),
-        );
+        if mapping.linkage() == CodegenLinkage::LinkOnce {
+            crate::comdat::attach_any(
+                module,
+                function.as_global_value(),
+                mapping.name().as_str(),
+                target.machine().object_format(),
+            );
+        } else {
+            crate::comdat::attach(
+                module,
+                function.as_global_value(),
+                mapping.name().as_str(),
+                target.machine().object_format(),
+            );
+        }
     }
 
     if matches!(
@@ -655,6 +667,43 @@ mod tests {
                 .print_to_string()
                 .to_string()
                 .contains("comdat exactmatch")
+        );
+    }
+
+    #[test]
+    fn coff_link_once_definitions_use_comdat_linkage() {
+        let fixture = codegen_request();
+        let mapping = &fixture.request().mappings().symbols()[0];
+
+        let link_once = CodegenSymbolMapping::new(
+            mapping.key().clone(),
+            mapping.name().clone(),
+            CodegenLinkage::LinkOnce,
+            mapping.signature().clone(),
+        );
+
+        let target = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
+        let context = Context::create();
+        let module = context.create_module("coff-link-once");
+
+        let function = module.add_function(
+            link_once.name().as_str(),
+            context.void_type().fn_type(&[], false),
+            None,
+        );
+
+        assert_eq!(
+            apply_linkage(&module, function, &link_once, &target, true),
+            Ok(())
+        );
+
+        assert_eq!(function.get_linkage(), Linkage::WeakODR);
+
+        assert!(
+            module
+                .print_to_string()
+                .to_string()
+                .contains("comdat any")
         );
     }
 

@@ -406,3 +406,38 @@ trusted func pthread_self() -> u64
 {
     return trusted core.target.expose_address<u8>(trusted std.os.darwin.pthread_self()) as u64;
 }
+
+trusted func pthread_key_create(pos key: RawPointer<u64>, pos destructor: ThreadStorageDestructor) -> i32
+    uses(foreign_call)
+{
+    let destructor_pointer: RawPointer<ThreadStorageDestructor> = trusted std.memory.pointer_from_callable(destructor);
+
+    let native_pointer: RawPointer<std.os.darwin.ThreadStorageDestructor> = trusted std.memory.reinterpret<
+        std.os.darwin.ThreadStorageDestructor,
+        ThreadStorageDestructor
+    >(destructor_pointer);
+
+    let native_destructor: std.os.darwin.ThreadStorageDestructor = trusted std.memory.callable_from_pointer(
+        native_pointer,
+    );
+
+    return trusted std.os.darwin.pthread_key_create(key, destructor = native_destructor);
+}
+
+trusted func pthread_key_delete(pos key: u64) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.pthread_key_delete(key);
+}
+
+trusted func pthread_getspecific(pos key: u64) -> RawPointer<u8>
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.pthread_getspecific(key);
+}
+
+trusted func pthread_setspecific(pos key: u64, pos value: RawPointer<u8>) -> i32
+    uses(foreign_call)
+{
+    return trusted std.os.darwin.pthread_setspecific(key, value);
+}

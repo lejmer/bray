@@ -20,7 +20,9 @@ pub use artifact::{
     RuntimeArtifactMetadataEncodeError, RuntimeArtifactPurpose, RuntimeArtifactSelection,
     RuntimeArtifactSelectionError,
 };
-pub use binding::{native_platform_service_role_symbol, native_runtime_role_symbol};
+pub use binding::{
+    SourceRoleBinding, native_platform_service_role_symbol, native_runtime_role_symbol,
+};
 pub use bray_runtime_model::{
     BinarySymbolName, ExecutionLaneRequirement, PanicAbiIdentity, ProtectedAsyncFrameId,
     ProtectedFrameAbiOperation, ProtectedFrameAbiVersions, ProtectedFrameAffinity,
@@ -42,6 +44,6 @@ pub use platform::{
 };
 pub use role::{
     RuntimeAbiRole, RuntimeRoleBinding, RuntimeRoleContract, RuntimeRoleContractEffect,
-    RuntimeRoleImplementation,
+    RuntimeRoleImplementation, RuntimeRoleSourceBinding,
 };
 pub use runtime::{RuntimeCompatibilityError, RuntimeContract, RuntimeContractBuildError};

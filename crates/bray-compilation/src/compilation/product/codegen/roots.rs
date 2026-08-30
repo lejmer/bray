@@ -51,6 +51,12 @@ impl Compilation {
         }
 
         for function in binding_context.symbols().functions() {
+            if crate::compilation::foreign::has_source_role(self, function.id())? {
+                symbols.push(function.id().into());
+
+                continue;
+            }
+
             if self
                 .foreign_callable_contract_with_cancellation(function.id(), cancellation)?
                 .value()

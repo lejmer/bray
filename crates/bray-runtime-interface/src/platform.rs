@@ -1,7 +1,3 @@
-use std::sync::Arc;
-
-use bray_base::{NonEmptySharedStr, shared_slice};
-
 macro_rules! define_platform_service_roles {
     ($( $(#[$documentation:meta])* $role:ident, )+) => {
         /// One closed platform-service role understood by the compiler, standard library, and runtime.
@@ -110,6 +106,14 @@ define_platform_service_roles! {
     ThreadJoin,
     /// Releases the join authority for one operating-system thread.
     ThreadDetach,
+    /// Creates one destructor-bearing native thread-storage key.
+    ThreadStorageCreate,
+    /// Loads the calling native thread's value for one storage key.
+    ThreadStorageLoad,
+    /// Stores or clears the calling native thread's value for one storage key.
+    ThreadStorageStore,
+    /// Destroys one storage key after its attached threads have quiesced.
+    ThreadStorageDestroy,
     /// Observes the process-local monotonic clock.
     ClockMonotonicNow,
     /// Observes the host wall clock.
@@ -200,6 +204,10 @@ impl PlatformServiceRole {
             Self::ThreadCreate => 0x0321,
             Self::ThreadJoin => 0x0322,
             Self::ThreadDetach => 0x0323,
+            Self::ThreadStorageCreate => 0x0331,
+            Self::ThreadStorageLoad => 0x0332,
+            Self::ThreadStorageStore => 0x0333,
+            Self::ThreadStorageDestroy => 0x0334,
             Self::ClockMonotonicNow => 0x0401,
             Self::ClockWallNow => 0x0402,
             Self::ClockSleep => 0x0403,
@@ -271,6 +279,10 @@ impl PlatformServiceRole {
             0x0321 => Some(Self::ThreadCreate),
             0x0322 => Some(Self::ThreadJoin),
             0x0323 => Some(Self::ThreadDetach),
+            0x0331 => Some(Self::ThreadStorageCreate),
+            0x0332 => Some(Self::ThreadStorageLoad),
+            0x0333 => Some(Self::ThreadStorageStore),
+            0x0334 => Some(Self::ThreadStorageDestroy),
             0x0401 => Some(Self::ClockMonotonicNow),
             0x0402 => Some(Self::ClockWallNow),
             0x0403 => Some(Self::ClockSleep),
@@ -343,6 +355,10 @@ impl PlatformServiceRole {
             Self::ThreadCreate => "platform.thread.create",
             Self::ThreadJoin => "platform.thread.join",
             Self::ThreadDetach => "platform.thread.detach",
+            Self::ThreadStorageCreate => "platform.thread_storage.create",
+            Self::ThreadStorageLoad => "platform.thread_storage.load",
+            Self::ThreadStorageStore => "platform.thread_storage.store",
+            Self::ThreadStorageDestroy => "platform.thread_storage.destroy",
             Self::ClockMonotonicNow => "platform.clock.monotonic_now",
             Self::ClockWallNow => "platform.clock.wall_now",
             Self::ClockSleep => "platform.clock.sleep",
@@ -414,6 +430,10 @@ impl PlatformServiceRole {
             "platform.thread.create" => Some(Self::ThreadCreate),
             "platform.thread.join" => Some(Self::ThreadJoin),
             "platform.thread.detach" => Some(Self::ThreadDetach),
+            "platform.thread_storage.create" => Some(Self::ThreadStorageCreate),
+            "platform.thread_storage.load" => Some(Self::ThreadStorageLoad),
+            "platform.thread_storage.store" => Some(Self::ThreadStorageStore),
+            "platform.thread_storage.destroy" => Some(Self::ThreadStorageDestroy),
             "platform.clock.monotonic_now" => Some(Self::ClockMonotonicNow),
             "platform.clock.wall_now" => Some(Self::ClockWallNow),
             "platform.clock.sleep" => Some(Self::ClockSleep),
@@ -550,6 +570,9 @@ impl PlatformServiceRole {
         const THREAD_CREATE: &[PlatformAbiType] = &[PointerU8, PointerU8, PointerU64, PointerI64];
 
         const THREAD_OWNER: &[PlatformAbiType] = &[U64];
+        const THREAD_STORAGE_CREATE: &[PlatformAbiType] = &[PointerU8, PointerU64];
+        const THREAD_STORAGE_LOAD: &[PlatformAbiType] = &[U64, RawAddressPointer];
+        const THREAD_STORAGE_STORE: &[PlatformAbiType] = &[U64, PointerU8];
 
         let parameters = match self {
             Self::ContextIdentity | Self::ContextNativeTextWidth => NO_PARAMETERS,
@@ -592,6 +615,10 @@ impl PlatformServiceRole {
             Self::ChildDispose => STREAM_HANDLE,
             Self::ThreadCreate => THREAD_CREATE,
             Self::ThreadJoin | Self::ThreadDetach => THREAD_OWNER,
+            Self::ThreadStorageCreate => THREAD_STORAGE_CREATE,
+            Self::ThreadStorageLoad => THREAD_STORAGE_LOAD,
+            Self::ThreadStorageStore => THREAD_STORAGE_STORE,
+            Self::ThreadStorageDestroy => THREAD_OWNER,
             Self::ClockMonotonicNow => CLOCK_MONOTONIC_NOW,
             Self::ClockWallNow => CLOCK_WALL_NOW,
             Self::ClockSleep => CLOCK_SLEEP,
@@ -695,54 +722,7 @@ impl PlatformServiceSignature {
 }
 
 /// An explicit product association between a private declaration and platform role.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct PlatformServiceBinding {
-    role: PlatformServiceRole,
-    module: Arc<[NonEmptySharedStr]>,
-    declaration: NonEmptySharedStr,
-}
-
-impl PlatformServiceBinding {
-    /// Creates a binding from a role and dotted declaration path.
-    pub fn try_new(role: PlatformServiceRole, path: &str) -> Option<Self> {
-        let mut segments = path.split('.').map(NonEmptySharedStr::try_new);
-        let mut present = segments.by_ref().collect::<Option<Vec<_>>>()?;
-        let declaration = present.pop()?;
-
-        if present.is_empty() {
-            return None;
-        }
-
-        Some(Self {
-            role,
-            module: shared_slice(present),
-            declaration,
-        })
-    }
-
-    /// Returns the closed platform role selected by this binding.
-    pub const fn role(&self) -> PlatformServiceRole {
-        self.role
-    }
-
-    /// Returns the declaration's module path segments.
-    pub fn module(&self) -> impl ExactSizeIterator<Item = &str> {
-        self.module.iter().map(NonEmptySharedStr::as_str)
-    }
-
-    /// Returns the declaration name within its module.
-    pub fn declaration(&self) -> &str {
-        self.declaration.as_str()
-    }
-
-    /// Returns the canonical dotted declaration path.
-    pub fn dotted_path(&self) -> String {
-        self.module()
-            .chain(std::iter::once(self.declaration()))
-            .collect::<Vec<_>>()
-            .join(".")
-    }
-}
+pub type PlatformServiceBinding = crate::SourceRoleBinding<PlatformServiceRole>;
 
 #[cfg(test)]
 mod tests {
@@ -851,6 +831,48 @@ mod tests {
         );
 
         assert_eq!(role.signature().result(), PlatformAbiType::Status);
+    }
+
+    #[test]
+    fn thread_storage_roles_have_closed_bootstrap_shapes() {
+        let create = PlatformServiceRole::ThreadStorageCreate;
+        let load = PlatformServiceRole::ThreadStorageLoad;
+        let store = PlatformServiceRole::ThreadStorageStore;
+        let destroy = PlatformServiceRole::ThreadStorageDestroy;
+
+        assert_eq!(create.id(), 0x0331);
+        assert_eq!(create.as_str(), "platform.thread_storage.create");
+
+        assert_eq!(
+            create.signature().parameters(),
+            [PlatformAbiType::PointerU8, PlatformAbiType::PointerU64]
+        );
+
+        assert_eq!(load.id(), 0x0332);
+        assert_eq!(load.as_str(), "platform.thread_storage.load");
+
+        assert_eq!(
+            load.signature().parameters(),
+            [PlatformAbiType::U64, PlatformAbiType::RawAddressPointer]
+        );
+
+        assert_eq!(store.id(), 0x0333);
+        assert_eq!(store.as_str(), "platform.thread_storage.store");
+
+        assert_eq!(
+            store.signature().parameters(),
+            [PlatformAbiType::U64, PlatformAbiType::PointerU8]
+        );
+
+        assert_eq!(destroy.id(), 0x0334);
+        assert_eq!(destroy.as_str(), "platform.thread_storage.destroy");
+        assert_eq!(destroy.signature().parameters(), [PlatformAbiType::U64]);
+
+        for role in [create, load, store, destroy] {
+            assert_eq!(role.signature().result(), PlatformAbiType::Status);
+            assert_eq!(PlatformServiceRole::from_id(role.id()), Some(role));
+            assert_eq!(PlatformServiceRole::from_name(role.as_str()), Some(role));
+        }
     }
 
     #[test]

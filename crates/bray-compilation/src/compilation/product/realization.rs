@@ -4,6 +4,7 @@ mod lifecycle;
 mod names;
 mod native_statics;
 mod operations;
+mod runtime_source;
 mod signatures;
 mod standard;
 mod statics;
