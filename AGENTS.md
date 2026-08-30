@@ -18,10 +18,6 @@ Do not treat existing code as permanent. When touching an area, delete or flatte
 
 Keep reviews bounded by the issue contract. Fix correctness defects, architectural violations, and mandatory convention failures, but move unrelated improvements to later work instead of repeatedly expanding or rewriting the current change.
 
-## Agent workflows
-
-Use the `Work on Bray Issues` skill for Bray issue, pull-request, review, and issue-stack work. Use the `Debug Bray End to End` skill for compiler, runtime, standard-library, native-product, and test failures.
-
 ## Structured messages
 
 Do not construct user-facing English text inside compiler logic. Emit structured message IDs and typed arguments instead. User-facing text must be rendered through `bray-messages`.
