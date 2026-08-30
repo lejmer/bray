@@ -15,16 +15,15 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     BorrowKind, ConstantTermData, ConstantValueKind, ImplementationCandidate,
     ImplementationInstanceData, ImplementationRequirementKey, IntegerConstant, IntegerSign,
-    TargetSizedIntegerType, TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId,
-    TypeData, TypeId,
+    TargetSizedIntegerType, TraitCallableMemberSymbolId, TypeData, TypeId,
 };
 
 use super::Compilation;
 use super::binder::CompilationBindingContext;
 use super::checker::{CompilationCheckerContext, checker_result};
 use super::implementation::{
-    TypeValuedMemberResolution, callable_instance, implementation_fulfillments,
-    implementation_requirement, selected_callable, selected_type_valued_member,
+    TypeValuedMemberResolution, callable_instance, implementation_callable_instance,
+    implementation_fulfillments, implementation_requirement, selected_type_valued_member,
 };
 use super::unit::semantic_unit_context_for;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, IterationSourceQueryKey};
@@ -44,7 +43,6 @@ struct ProtocolCandidate<'candidate> {
     requirement: ImplementationRequirementKey,
     candidate: &'candidate ImplementationCandidate,
     member: TraitCallableMemberSymbolId,
-    fulfillment: TraitCallableFulfillmentSymbolId,
 }
 
 impl Compilation {
@@ -248,14 +246,6 @@ impl Compilation {
                 }
             };
 
-            let Some(iterate) = selected_callable(
-                binding_context,
-                iterable_fulfillments.callables,
-                input.protocol.iterable_iterate(),
-            ) else {
-                continue;
-            };
-
             let iterator_requirement = implementation_requirement(
                 binding_context.semantic_values(),
                 cursor_type,
@@ -310,15 +300,7 @@ impl Compilation {
                     continue;
                 }
 
-                let Some(next) = selected_callable(
-                    binding_context,
-                    iterator_fulfillments.callables,
-                    input.protocol.iterator_next(),
-                ) else {
-                    continue;
-                };
-
-                candidates.push(iteration_candidate(
+                let candidate = iteration_candidate(
                     binding_context,
                     input,
                     cursor_type,
@@ -327,15 +309,17 @@ impl Compilation {
                         requirement: iterable_requirement,
                         candidate: iterable,
                         member: input.protocol.iterable_iterate(),
-                        fulfillment: iterate,
                     },
                     ProtocolCandidate {
                         requirement: iterator_requirement,
                         candidate: iterator,
                         member: input.protocol.iterator_next(),
-                        fulfillment: next,
                     },
-                )?);
+                )?;
+
+                if let Some(candidate) = candidate {
+                    candidates.push(candidate);
+                }
             }
         }
 
@@ -524,7 +508,7 @@ fn iteration_candidate(
     element_type: TypeId,
     iterable: ProtocolCandidate<'_>,
     iterator: ProtocolCandidate<'_>,
-) -> Result<IterationSourceCandidate, FactQueryError> {
+) -> Result<Option<IterationSourceCandidate>, FactQueryError> {
     let values = binding_context.semantic_values();
 
     let iterable_witness = values
@@ -555,14 +539,21 @@ fn iteration_candidate(
         [iterable_application.substitution()],
     )?;
 
-    let iterate_fulfillment = callable_instance(
-        values,
-        iterable.fulfillment.into(),
-        [
-            iterable_application.substitution(),
-            iterable.candidate.substitution(),
-        ],
-    )?;
+    let iterable_fulfillments =
+        implementation_fulfillments(binding_context, iterable.candidate.implementation())?;
+
+    let Some(iterate_fulfillment) = implementation_callable_instance(
+        binding_context,
+        iterable_fulfillments.callables,
+        iterable.member,
+        iterable_application.substitution(),
+        iterable.candidate.substitution(),
+    )?
+    else {
+        return Ok(None);
+    };
+
+    let iterate_fulfillment = iterate_fulfillment.instance();
 
     let next_member = callable_instance(
         values,
@@ -570,14 +561,21 @@ fn iteration_candidate(
         [iterator_application.substitution()],
     )?;
 
-    let next_fulfillment = callable_instance(
-        values,
-        iterator.fulfillment.into(),
-        [
-            iterator_application.substitution(),
-            iterator.candidate.substitution(),
-        ],
-    )?;
+    let iterator_fulfillments =
+        implementation_fulfillments(binding_context, iterator.candidate.implementation())?;
+
+    let Some(next_fulfillment) = implementation_callable_instance(
+        binding_context,
+        iterator_fulfillments.callables,
+        iterator.member,
+        iterator_application.substitution(),
+        iterator.candidate.substitution(),
+    )?
+    else {
+        return Ok(None);
+    };
+
+    let next_fulfillment = next_fulfillment.instance();
 
     let selection = SelectedIterationSource::new(
         input.expression,
@@ -597,11 +595,11 @@ fn iteration_candidate(
         ),
     );
 
-    Ok(IterationSourceCandidate::new(
+    Ok(Some(IterationSourceCandidate::new(
         iterable.candidate.key().clone(),
         iterator.candidate.key().clone(),
         selection,
-    ))
+    )))
 }
 
 fn select_iteration(

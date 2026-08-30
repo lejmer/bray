@@ -11,7 +11,7 @@ use bray_symbols::{
 use super::super::Compilation;
 use super::super::binder::{CompilationBindingContext, binding_query_error};
 use super::super::implementation::{
-    callable_instance, implementation_fulfillments, implementation_requirement, selected_callable,
+    implementation_callable_instance, implementation_fulfillments, implementation_requirement,
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -75,14 +75,27 @@ pub(in crate::compilation) fn selected_storage_callable(
         .declaration_symbol::<TraitCallableMemberSymbolId>(member_key)
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-    let Some(fulfillment) = selected_callable(binding_context, fulfillments.callables, member)
+    let application = binding_context
+        .semantic_values()
+        .trait_application_data(requirement.trait_application())
+        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+    let Some(callable) = implementation_callable_instance(
+        binding_context,
+        fulfillments.callables,
+        member,
+        application.substitution(),
+        implementation.substitution(),
+    )?
     else {
         return Ok(DiagnosticResult::new(None, diagnostics));
     };
 
+    let callable = callable.instance();
+
     let signature = binding_context
         .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
-            fulfillment.into(),
+            callable.definition().callable_symbol(),
         ))
         .map_err(binding_query_error)?;
 
@@ -97,17 +110,6 @@ pub(in crate::compilation) fn selected_storage_callable(
     )?;
 
     diagnostics = diagnostics.merged(checked.diagnostics());
-
-    let application = binding_context
-        .semantic_values()
-        .trait_application_data(requirement.trait_application())
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-    let callable = callable_instance(
-        binding_context.semantic_values(),
-        fulfillment.into(),
-        [application.substitution(), implementation.substitution()],
-    )?;
 
     let signature = resolve_callable_signature_template(
         binding_context.semantic_values(),

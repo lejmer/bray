@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::NonZeroU64;
 
+use bray_binder::BindingQueryContext;
 use bray_codegen::{
     CodegenInstanceTypeMapping, CodegenParameterMapping, CodegenResultMapping, CodegenTarget,
     CodegenTypeKind, CodegenTypeMapping, TargetAddressSpaceKind,
@@ -17,9 +18,12 @@ use super::super::super::Compilation;
 use super::super::super::checker::CompilationCheckerContext;
 use super::super::super::substitution::substitution_for_owner;
 use super::super::specialization::ConcreteCodegenInstance;
+use super::contextual_self::{
+    codegen_instance_contextual_self, implementation_subject, substitute_contextual_self,
+};
 use super::support::{
-    callable_type_signature, closed_array_length, codegen_checker_error, implementation_subject,
-    pointer_layout, pointer_mapping, target_layout_contract,
+    callable_type_signature, closed_array_length, codegen_checker_error, pointer_layout,
+    pointer_mapping, target_layout_contract,
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -107,6 +111,17 @@ impl Compilation {
     ) -> Result<TypeId, CodegenPreparationError> {
         let ty = self.substitute_codegen_type(ty, substitution, cancellation)?;
         let binding_context = self.binding_context(cancellation)?;
+
+        let contextual_self = instance
+            .map(|instance| codegen_instance_contextual_self(self, &binding_context, instance))
+            .transpose()?
+            .flatten();
+
+        let ty = substitute_contextual_self(
+            binding_context.semantic_values(),
+            ty,
+            contextual_self,
+        )?;
 
         let checker = CompilationCheckerContext::new(binding_context)
             .with_implementation_witnesses(

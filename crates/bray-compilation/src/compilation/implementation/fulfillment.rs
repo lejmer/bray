@@ -1,8 +1,9 @@
 use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    AnySymbolId, CallableDefinitionId, CallableInstanceData, ExternalDeclarationIdentity,
-    ExternalSymbolKeyData, GenericArgument, GenericOwnerId, GenericSubstitutionData,
+    AnySymbolId, CallableDefinitionId, CallableInstanceData, CallableSignatureQuery,
+    ExternalDeclarationIdentity, ExternalSymbolKeyData, GenericArgument, GenericOwnerId,
+    GenericSubstitutionData,
     ImplementationCoherenceQuery, ImplementationInstanceId, ImplementationRequirementKey,
     ImplementationSymbolId, SymbolKeyData, SymbolQueryRequest, TraitApplicationData,
     TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId, TraitSymbolId,
@@ -220,6 +221,65 @@ pub(in crate::compilation) fn selected_callable(
     }
 
     Some(fulfillment)
+}
+
+#[derive(Clone, Copy)]
+pub(in crate::compilation) struct ImplementationCallableInstance {
+    instance: CallableInstanceData,
+    uses_trait_default: bool,
+}
+
+impl ImplementationCallableInstance {
+    pub(in crate::compilation) const fn new(
+        instance: CallableInstanceData,
+        uses_trait_default: bool,
+    ) -> Self {
+        Self {
+            instance,
+            uses_trait_default,
+        }
+    }
+
+    pub(in crate::compilation) const fn instance(self) -> CallableInstanceData {
+        self.instance
+    }
+
+    pub(in crate::compilation) const fn uses_trait_default(self) -> bool {
+        self.uses_trait_default
+    }
+}
+
+pub(in crate::compilation) fn implementation_callable_instance(
+    binding_context: &CompilationBindingContext<'_>,
+    fulfillments: &[TraitCallableFulfillmentSymbolId],
+    member: TraitCallableMemberSymbolId,
+    trait_substitution: bray_symbols::GenericSubstitutionId,
+    implementation_substitution: bray_symbols::GenericSubstitutionId,
+) -> Result<Option<ImplementationCallableInstance>, FactQueryError> {
+    let values = binding_context.semantic_values();
+
+    match selected_callable(binding_context, fulfillments, member) {
+        Some(fulfillment) => callable_instance(
+            values,
+            fulfillment.into(),
+            [trait_substitution, implementation_substitution],
+        )
+        .map(|instance| Some(ImplementationCallableInstance::new(instance, false))),
+        None => {
+            let signature = binding_context
+                .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
+                    member.into(),
+                ))
+                .map_err(binding_query_error)?;
+
+            if !signature.value().has_body() {
+                return Ok(None);
+            }
+
+            callable_instance(values, member.into(), [trait_substitution])
+                .map(|instance| Some(ImplementationCallableInstance::new(instance, true)))
+        }
+    }
 }
 
 pub(in crate::compilation) fn callable_instance(

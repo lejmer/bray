@@ -491,15 +491,18 @@ fn operator_target(
             member,
             dispatch,
             ..
-        } => Ok(InspectionSelectionTarget::TraitConstraintOperator {
-            operator: operator.as_str(),
-            member: callable_identity(symbols, member),
-            constraint_owner: InspectionSymbolIdentity::from_symbol(
-                symbols,
-                dispatch.owner().symbol(),
-            ),
-            constraint_ordinal: dispatch.ordinal().raw(),
-        }),
+        } => {
+            let Some((owner, ordinal)) = dispatch.constraint() else {
+                return Err(SelectionInspectionError::SemanticValue);
+            };
+
+            Ok(InspectionSelectionTarget::TraitConstraintOperator {
+                operator: operator.as_str(),
+                member: callable_identity(symbols, member),
+                constraint_owner: InspectionSymbolIdentity::from_symbol(symbols, owner.symbol()),
+                constraint_ordinal: ordinal.raw(),
+            })
+        }
     }
 }
 
@@ -538,14 +541,15 @@ fn index_target(
             dispatch,
             ..
         } => {
+            let Some((owner, ordinal)) = dispatch.constraint() else {
+                return Err(SelectionInspectionError::SemanticValue);
+            };
+
             return Ok(InspectionSelectionTarget::TraitConstraintIndex {
                 capability: borrow_kind.as_str(),
                 member: callable_identity(symbols, member),
-                constraint_owner: InspectionSymbolIdentity::from_symbol(
-                    symbols,
-                    dispatch.owner().symbol(),
-                ),
-                constraint_ordinal: dispatch.ordinal().raw(),
+                constraint_owner: InspectionSymbolIdentity::from_symbol(symbols, owner.symbol()),
+                constraint_ordinal: ordinal.raw(),
             });
         }
     };
@@ -585,14 +589,17 @@ fn inspection_conversion(
         },
         ConversionTarget::TraitConstraint {
             member, dispatch, ..
-        } => InspectionConversionRule::TraitConstraint {
-            member: callable_identity(symbols, *member),
-            constraint_owner: InspectionSymbolIdentity::from_symbol(
-                symbols,
-                dispatch.owner().symbol(),
-            ),
-            constraint_ordinal: dispatch.ordinal().raw(),
-        },
+        } => {
+            let Some((owner, ordinal)) = dispatch.constraint() else {
+                return Err(SelectionInspectionError::SemanticValue);
+            };
+
+            InspectionConversionRule::TraitConstraint {
+                member: callable_identity(symbols, *member),
+                constraint_owner: InspectionSymbolIdentity::from_symbol(symbols, owner.symbol()),
+                constraint_ordinal: ordinal.raw(),
+            }
+        }
     };
 
     Ok(InspectionConversion {

@@ -2258,12 +2258,20 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     }
 
     fn trait_dispatch(&mut self) -> Result<TraitConstraintDispatch, ExecutableTemplateDecodeError> {
-        let owner = GenericOwnerId::try_new(self.symbol()?)
-            .ok_or(ExecutableTemplateDecodeError::Malformed)?;
+        match read_u32(&mut self.reader)? {
+            0 => {
+                let owner = GenericOwnerId::try_new(self.symbol()?)
+                    .ok_or(ExecutableTemplateDecodeError::Malformed)?;
 
-        let ordinal = SymbolOrdinal::new(read_u32(&mut self.reader)?);
+                let ordinal = SymbolOrdinal::new(read_u32(&mut self.reader)?);
 
-        Ok(TraitConstraintDispatch::new(owner, ordinal))
+                Ok(TraitConstraintDispatch::new(owner, ordinal))
+            }
+            1 => Ok(TraitConstraintDispatch::trait_default(
+                self.implementation_requirement()?,
+            )),
+            _ => Err(ExecutableTemplateDecodeError::Malformed),
+        }
     }
 
     fn frame_id(&mut self) -> Result<ProtectedAsyncFrameId, ExecutableTemplateDecodeError> {

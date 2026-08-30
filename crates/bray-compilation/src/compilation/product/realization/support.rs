@@ -1,7 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::num::{NonZeroU16, NonZeroU64};
 
-use bray_binder::SymbolQueryProvider;
 use bray_codegen::{
     CodegenCallableSignature, CodegenIndirectParameterKind, CodegenInstance, CodegenLinkage,
     CodegenOperationMapping, CodegenParameterMapping, CodegenResultMapping, CodegenSourceFile,
@@ -17,10 +16,8 @@ use bray_runtime_interface::{BinarySymbolName, ProtectedFrameOperation, RuntimeA
 use bray_source::SourceSnapshot;
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableExecution, ConstantTermData, ConstantValueKind,
-    DeclaredLayoutMode, ForeignCallableDirection, ImplementationCoherenceQuery,
-    ImplementationSymbolId, NamedTypeSymbolId, NativeSymbolBinding, ReceiverMode, SelfTypeContext,
-    SemanticValueStore, StructSymbolId, SymbolKey, SymbolKeyData, SymbolQueryRequest, TypeData,
-    TypeId,
+    DeclaredLayoutMode, ForeignCallableDirection, NamedTypeSymbolId, NativeSymbolBinding,
+    ReceiverMode, SemanticValueStore, StructSymbolId, SymbolKey, SymbolKeyData, TypeData, TypeId,
 };
 use bray_target::{
     TargetAtomicRepresentation, TargetLayoutContract, TargetScalarKind, TargetValueLayout,
@@ -28,7 +25,6 @@ use bray_target::{
 
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
-use super::super::super::binder::CompilationBindingContext;
 use super::super::super::substitution::named_type;
 use super::symbols::NativeBoundaryMapping;
 use crate::fact::{CancellationToken, FactQueryError};
@@ -223,32 +219,6 @@ pub(super) const fn target_layout_contract(layout: DeclaredLayoutMode) -> Target
         DeclaredLayoutMode::C => TargetLayoutContract::C,
         DeclaredLayoutMode::Transparent => TargetLayoutContract::Transparent,
     }
-}
-
-pub(super) fn substitute_contextual_self(
-    values: &SemanticValueStore,
-    ty: TypeId,
-    substitution: Option<(SelfTypeContext, TypeId)>,
-) -> Result<TypeId, FactQueryError> {
-    let Some((context, replacement)) = substitution else {
-        return Ok(ty);
-    };
-
-    values
-        .substitute_contextual_self(ty, context, replacement)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
-}
-
-pub(super) fn implementation_subject(
-    binding_context: &CompilationBindingContext<'_>,
-    implementation: ImplementationSymbolId,
-) -> Result<TypeId, FactQueryError> {
-    binding_context
-        .resolve_symbol_query(SymbolQueryRequest::<ImplementationCoherenceQuery>::new(
-            implementation,
-        ))
-        .map(|coherence| coherence.value().subject())
-        .map_err(super::super::super::binder::binding_query_error)
 }
 
 pub(super) fn signature_types(
@@ -816,55 +786,21 @@ mod tests {
     };
     use bray_symbols::testing::intern_type;
     use bray_symbols::{
-        BorrowKind, CallableAbi, ImplementationSymbolId, InherentImplementationSymbolId,
-        NamedTypeSymbolId, ReceiverMode, SelfTypeContext, SemanticValueStore, SymbolId,
-        SymbolOrigin, TraitApplicationData, TypeData, TypeId,
+        BorrowKind, CallableAbi, NamedTypeSymbolId, ReceiverMode, SymbolOrigin,
+        TraitApplicationData, TypeData, TypeId,
     };
     use bray_target::{NativeTarget, TargetLayoutContract, TargetValueLayout};
     use bray_testing::{test_mir_unit, test_mir_unit_for_target, test_mir_unit_with_declaration};
 
     use super::{
         dependency_symbol, direct_helper_symbol, indirect_abi_value, indirect_parameter_kind,
-        is_void_result, pointer_layout, receiver_codegen_type, substitute_contextual_self,
+        is_void_result, pointer_layout, receiver_codegen_type,
     };
     use crate::compilation::CodegenPreparationError;
     use crate::compilation::product::specialization::ConcreteCodegenInstance;
     use crate::compilation::substitution::{empty_substitution, named_type};
     use crate::test_support::compilation;
     use crate::{CancellationToken, Compilation, SelectedTarget};
-
-    #[test]
-    fn codegen_contextual_self_substitution_reaches_nested_type_forms() {
-        let values = SemanticValueStore::try_new()
-            .unwrap_or_else(|error| panic!("test semantic values must initialize: {error:?}"));
-
-        let implementation = ImplementationSymbolId::Inherent(
-            InherentImplementationSymbolId::from_symbol_id(SymbolId::new(1)),
-        );
-
-        let context = SelfTypeContext::Implementation(implementation);
-
-        let contextual = values
-            .intern_type(TypeData::ContextualSelf(context))
-            .unwrap_or_else(|error| panic!("test contextual type must intern: {error:?}"));
-
-        let nested = values
-            .intern_type(TypeData::Nullable(contextual))
-            .unwrap_or_else(|error| panic!("test nested type must intern: {error:?}"));
-
-        let replacement = values
-            .intern_type(TypeData::tuple([]))
-            .unwrap_or_else(|error| panic!("test replacement type must intern: {error:?}"));
-
-        let substituted = substitute_contextual_self(&values, nested, Some((context, replacement)))
-            .unwrap_or_else(|error| panic!("test contextual type must substitute: {error:?}"));
-
-        let data = values
-            .type_data(substituted)
-            .unwrap_or_else(|error| panic!("test substituted type must resolve: {error:?}"));
-
-        assert_eq!(data.as_ref(), &TypeData::Nullable(replacement));
-    }
 
     #[test]
     fn generated_helpers_map_to_exact_runtime_and_frame_roles() {

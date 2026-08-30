@@ -8,8 +8,8 @@ mod query;
 mod selection;
 
 pub(super) use fulfillment::{
-    TypeValuedMemberResolution, callable_instance, implementation_fulfillments,
-    implementation_instance_requirement, implementation_requirement, selected_callable,
+    TypeValuedMemberResolution, callable_instance, implementation_callable_instance,
+    implementation_fulfillments, implementation_instance_requirement, implementation_requirement,
     selected_type_valued_member,
 };
 pub(super) use index::ImplementationHeader;
