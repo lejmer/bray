@@ -49,218 +49,252 @@ union CompareExchangeOrder
     SequentiallyConsistentSequentiallyConsistent;
 }
 
+/// Owns one value whose supported operations are atomic for the selected target.
 struct Atomic<T>
 {
     internal storage: core.atomic.Atomic<T>;
-}
 
-func atomic<T>(pos value: T) -> Atomic<T>
-{
-    let storage: Atomic<T> =
+    /// Creates atomic storage initialized with a value.
+    construct(pos value: T) -> Self
     {
-        storage = core.atomic.initialize<T>(value),
-    };
+        let storage: Atomic<T> =
+        {
+            storage = core.atomic.initialize<T>(value),
+        };
 
-    return storage;
-}
-
-func load<T>(pos storage: &Atomic<T>, order: LoadOrder) -> T
-{
-    match order
-    {
-        case LoadOrder.Relaxed { return core.atomic.load<T, 0>(&storage.storage); }
-        case LoadOrder.Acquire { return core.atomic.load<T, 1>(&storage.storage); }
-        case LoadOrder.SequentiallyConsistent { return core.atomic.load<T, 4>(&storage.storage); }
+        return storage;
     }
 }
 
-func store<T>(pos storage: &Atomic<T>, pos value: T, order: StoreOrder)
+impl Atomic<T>
 {
-    match order
+    /// Reads the current value with the selected load ordering.
+    func load(order: LoadOrder) -> T
     {
-        case StoreOrder.Relaxed { core.atomic.store<T, 0>(&storage.storage, value); }
-        case StoreOrder.Release { core.atomic.store<T, 2>(&storage.storage, value); }
-        case StoreOrder.SequentiallyConsistent { core.atomic.store<T, 4>(&storage.storage, value); }
-    }
-}
-
-func exchange<T>(pos storage: &Atomic<T>, pos value: T, order: ReadModifyWriteOrder) -> T
-{
-    match order
-    {
-        case ReadModifyWriteOrder.Relaxed { return core.atomic.exchange<T, 0>(&storage.storage, value); }
-        case ReadModifyWriteOrder.Acquire { return core.atomic.exchange<T, 1>(&storage.storage, value); }
-        case ReadModifyWriteOrder.Release { return core.atomic.exchange<T, 2>(&storage.storage, value); }
-        case ReadModifyWriteOrder.AcquireRelease { return core.atomic.exchange<T, 3>(&storage.storage, value); }
-        case ReadModifyWriteOrder.SequentiallyConsistent { return core.atomic.exchange<T, 4>(&storage.storage, value); }
-    }
-}
-
-func compare_exchange<T>(
-    pos storage: &Atomic<T>,
-    pos expected: T,
-    pos desired: T,
-    order: CompareExchangeOrder,
-) -> (T, bool)
-{
-    match order
-    {
-        case CompareExchangeOrder.RelaxedRelaxed
+        match order
         {
-            return core.atomic.compare_exchange<T, 0, 0>(&storage.storage, expected, desired);
-        }
-        case CompareExchangeOrder.AcquireRelaxed
-        {
-            return core.atomic.compare_exchange<T, 1, 0>(&storage.storage, expected, desired);
-        }
-        case CompareExchangeOrder.AcquireAcquire
-        {
-            return core.atomic.compare_exchange<T, 1, 1>(&storage.storage, expected, desired);
-        }
-        case CompareExchangeOrder.ReleaseRelaxed
-        {
-            return core.atomic.compare_exchange<T, 2, 0>(&storage.storage, expected, desired);
-        }
-        case CompareExchangeOrder.AcquireReleaseRelaxed
-        {
-            return core.atomic.compare_exchange<T, 3, 0>(&storage.storage, expected, desired);
-        }
-        case CompareExchangeOrder.AcquireReleaseAcquire
-        {
-            return core.atomic.compare_exchange<T, 3, 1>(&storage.storage, expected, desired);
-        }
-        case CompareExchangeOrder.SequentiallyConsistentRelaxed
-        {
-            return core.atomic.compare_exchange<T, 4, 0>(&storage.storage, expected, desired);
-        }
-        case CompareExchangeOrder.SequentiallyConsistentAcquire
-        {
-            return core.atomic.compare_exchange<T, 4, 1>(&storage.storage, expected, desired);
-        }
-        case CompareExchangeOrder.SequentiallyConsistentSequentiallyConsistent
-        {
-            return core.atomic.compare_exchange<T, 4, 4>(&storage.storage, expected, desired);
+            case LoadOrder.Relaxed { return core.atomic.load<T, 0>(&self.storage); }
+            case LoadOrder.Acquire { return core.atomic.load<T, 1>(&self.storage); }
+            case LoadOrder.SequentiallyConsistent { return core.atomic.load<T, 4>(&self.storage); }
         }
     }
-}
 
-func compare_exchange_weak<T>(
-    pos storage: &Atomic<T>,
-    pos expected: T,
-    pos desired: T,
-    order: CompareExchangeOrder,
-) -> (T, bool)
-{
-    match order
+    /// Replaces the current value with the selected store ordering.
+    func store(pos value: T, order: StoreOrder)
     {
-        case CompareExchangeOrder.RelaxedRelaxed
+        match order
         {
-            return core.atomic.compare_exchange_weak<T, 0, 0>(&storage.storage, expected, desired);
-        }
-        case CompareExchangeOrder.AcquireRelaxed
-        {
-            return core.atomic.compare_exchange_weak<T, 1, 0>(&storage.storage, expected, desired);
-        }
-        case CompareExchangeOrder.AcquireAcquire
-        {
-            return core.atomic.compare_exchange_weak<T, 1, 1>(&storage.storage, expected, desired);
-        }
-        case CompareExchangeOrder.ReleaseRelaxed
-        {
-            return core.atomic.compare_exchange_weak<T, 2, 0>(&storage.storage, expected, desired);
-        }
-        case CompareExchangeOrder.AcquireReleaseRelaxed
-        {
-            return core.atomic.compare_exchange_weak<T, 3, 0>(&storage.storage, expected, desired);
-        }
-        case CompareExchangeOrder.AcquireReleaseAcquire
-        {
-            return core.atomic.compare_exchange_weak<T, 3, 1>(&storage.storage, expected, desired);
-        }
-        case CompareExchangeOrder.SequentiallyConsistentRelaxed
-        {
-            return core.atomic.compare_exchange_weak<T, 4, 0>(&storage.storage, expected, desired);
-        }
-        case CompareExchangeOrder.SequentiallyConsistentAcquire
-        {
-            return core.atomic.compare_exchange_weak<T, 4, 1>(&storage.storage, expected, desired);
-        }
-        case CompareExchangeOrder.SequentiallyConsistentSequentiallyConsistent
-        {
-            return core.atomic.compare_exchange_weak<T, 4, 4>(&storage.storage, expected, desired);
+            case StoreOrder.Relaxed { core.atomic.store<T, 0>(&self.storage, value); }
+            case StoreOrder.Release { core.atomic.store<T, 2>(&self.storage, value); }
+            case StoreOrder.SequentiallyConsistent { core.atomic.store<T, 4>(&self.storage, value); }
         }
     }
-}
 
-func fetch_add<T>(pos storage: &Atomic<T>, pos value: T, order: ReadModifyWriteOrder) -> T
-{
-    match order
+    /// Replaces the current value and returns the value that preceded it.
+    func exchange(pos value: T, order: ReadModifyWriteOrder) -> T
     {
-        case ReadModifyWriteOrder.Relaxed { return core.atomic.fetch_add<T, 0>(&storage.storage, value); }
-        case ReadModifyWriteOrder.Acquire { return core.atomic.fetch_add<T, 1>(&storage.storage, value); }
-        case ReadModifyWriteOrder.Release { return core.atomic.fetch_add<T, 2>(&storage.storage, value); }
-        case ReadModifyWriteOrder.AcquireRelease { return core.atomic.fetch_add<T, 3>(&storage.storage, value); }
-        case ReadModifyWriteOrder.SequentiallyConsistent
+        match order
         {
-            return core.atomic.fetch_add<T, 4>(&storage.storage, value);
+            case ReadModifyWriteOrder.Relaxed { return core.atomic.exchange<T, 0>(&self.storage, value); }
+            case ReadModifyWriteOrder.Acquire { return core.atomic.exchange<T, 1>(&self.storage, value); }
+            case ReadModifyWriteOrder.Release { return core.atomic.exchange<T, 2>(&self.storage, value); }
+            case ReadModifyWriteOrder.AcquireRelease { return core.atomic.exchange<T, 3>(&self.storage, value); }
+            case ReadModifyWriteOrder.SequentiallyConsistent
+            {
+                return core.atomic.exchange<T, 4>(&self.storage, value);
+            }
         }
     }
-}
 
-func fetch_sub<T>(pos storage: &Atomic<T>, pos value: T, order: ReadModifyWriteOrder) -> T
-{
-    match order
+    /// Replaces the current value when it equals the expected value.
+    func compare_exchange(pos expected: T, pos desired: T, order: CompareExchangeOrder) -> (T, bool)
     {
-        case ReadModifyWriteOrder.Relaxed { return core.atomic.fetch_sub<T, 0>(&storage.storage, value); }
-        case ReadModifyWriteOrder.Acquire { return core.atomic.fetch_sub<T, 1>(&storage.storage, value); }
-        case ReadModifyWriteOrder.Release { return core.atomic.fetch_sub<T, 2>(&storage.storage, value); }
-        case ReadModifyWriteOrder.AcquireRelease { return core.atomic.fetch_sub<T, 3>(&storage.storage, value); }
-        case ReadModifyWriteOrder.SequentiallyConsistent
+        match order
         {
-            return core.atomic.fetch_sub<T, 4>(&storage.storage, value);
+            case CompareExchangeOrder.RelaxedRelaxed
+            {
+                return core.atomic.compare_exchange<T, 0, 0>(&self.storage, expected, desired);
+            }
+            case CompareExchangeOrder.AcquireRelaxed
+            {
+                return core.atomic.compare_exchange<T, 1, 0>(&self.storage, expected, desired);
+            }
+            case CompareExchangeOrder.AcquireAcquire
+            {
+                return core.atomic.compare_exchange<T, 1, 1>(&self.storage, expected, desired);
+            }
+            case CompareExchangeOrder.ReleaseRelaxed
+            {
+                return core.atomic.compare_exchange<T, 2, 0>(&self.storage, expected, desired);
+            }
+            case CompareExchangeOrder.AcquireReleaseRelaxed
+            {
+                return core.atomic.compare_exchange<T, 3, 0>(&self.storage, expected, desired);
+            }
+            case CompareExchangeOrder.AcquireReleaseAcquire
+            {
+                return core.atomic.compare_exchange<T, 3, 1>(&self.storage, expected, desired);
+            }
+            case CompareExchangeOrder.SequentiallyConsistentRelaxed
+            {
+                return core.atomic.compare_exchange<T, 4, 0>(&self.storage, expected, desired);
+            }
+            case CompareExchangeOrder.SequentiallyConsistentAcquire
+            {
+                return core.atomic.compare_exchange<T, 4, 1>(&self.storage, expected, desired);
+            }
+            case CompareExchangeOrder.SequentiallyConsistentSequentiallyConsistent
+            {
+                return core.atomic.compare_exchange<T, 4, 4>(&self.storage, expected, desired);
+            }
         }
     }
-}
 
-func fetch_and<T>(pos storage: &Atomic<T>, pos value: T, order: ReadModifyWriteOrder) -> T
-{
-    match order
+    /// Attempts a replacement that may fail spuriously.
+    func compare_exchange_weak(pos expected: T, pos desired: T, order: CompareExchangeOrder) -> (T, bool)
     {
-        case ReadModifyWriteOrder.Relaxed { return core.atomic.fetch_and<T, 0>(&storage.storage, value); }
-        case ReadModifyWriteOrder.Acquire { return core.atomic.fetch_and<T, 1>(&storage.storage, value); }
-        case ReadModifyWriteOrder.Release { return core.atomic.fetch_and<T, 2>(&storage.storage, value); }
-        case ReadModifyWriteOrder.AcquireRelease { return core.atomic.fetch_and<T, 3>(&storage.storage, value); }
-        case ReadModifyWriteOrder.SequentiallyConsistent
+        match order
         {
-            return core.atomic.fetch_and<T, 4>(&storage.storage, value);
+            case CompareExchangeOrder.RelaxedRelaxed
+            {
+                return core.atomic.compare_exchange_weak<T, 0, 0>(&self.storage, expected, desired);
+            }
+            case CompareExchangeOrder.AcquireRelaxed
+            {
+                return core.atomic.compare_exchange_weak<T, 1, 0>(&self.storage, expected, desired);
+            }
+            case CompareExchangeOrder.AcquireAcquire
+            {
+                return core.atomic.compare_exchange_weak<T, 1, 1>(&self.storage, expected, desired);
+            }
+            case CompareExchangeOrder.ReleaseRelaxed
+            {
+                return core.atomic.compare_exchange_weak<T, 2, 0>(&self.storage, expected, desired);
+            }
+            case CompareExchangeOrder.AcquireReleaseRelaxed
+            {
+                return core.atomic.compare_exchange_weak<T, 3, 0>(&self.storage, expected, desired);
+            }
+            case CompareExchangeOrder.AcquireReleaseAcquire
+            {
+                return core.atomic.compare_exchange_weak<T, 3, 1>(&self.storage, expected, desired);
+            }
+            case CompareExchangeOrder.SequentiallyConsistentRelaxed
+            {
+                return core.atomic.compare_exchange_weak<T, 4, 0>(&self.storage, expected, desired);
+            }
+            case CompareExchangeOrder.SequentiallyConsistentAcquire
+            {
+                return core.atomic.compare_exchange_weak<T, 4, 1>(&self.storage, expected, desired);
+            }
+            case CompareExchangeOrder.SequentiallyConsistentSequentiallyConsistent
+            {
+                return core.atomic.compare_exchange_weak<T, 4, 4>(&self.storage, expected, desired);
+            }
         }
     }
-}
 
-func fetch_or<T>(pos storage: &Atomic<T>, pos value: T, order: ReadModifyWriteOrder) -> T
-{
-    match order
+    /// Adds a value and returns the value that preceded the update.
+    func fetch_add(pos value: T, order: ReadModifyWriteOrder) -> T
     {
-        case ReadModifyWriteOrder.Relaxed { return core.atomic.fetch_or<T, 0>(&storage.storage, value); }
-        case ReadModifyWriteOrder.Acquire { return core.atomic.fetch_or<T, 1>(&storage.storage, value); }
-        case ReadModifyWriteOrder.Release { return core.atomic.fetch_or<T, 2>(&storage.storage, value); }
-        case ReadModifyWriteOrder.AcquireRelease { return core.atomic.fetch_or<T, 3>(&storage.storage, value); }
-        case ReadModifyWriteOrder.SequentiallyConsistent { return core.atomic.fetch_or<T, 4>(&storage.storage, value); }
-    }
-}
-
-func fetch_xor<T>(pos storage: &Atomic<T>, pos value: T, order: ReadModifyWriteOrder) -> T
-{
-    match order
-    {
-        case ReadModifyWriteOrder.Relaxed { return core.atomic.fetch_xor<T, 0>(&storage.storage, value); }
-        case ReadModifyWriteOrder.Acquire { return core.atomic.fetch_xor<T, 1>(&storage.storage, value); }
-        case ReadModifyWriteOrder.Release { return core.atomic.fetch_xor<T, 2>(&storage.storage, value); }
-        case ReadModifyWriteOrder.AcquireRelease { return core.atomic.fetch_xor<T, 3>(&storage.storage, value); }
-        case ReadModifyWriteOrder.SequentiallyConsistent
+        match order
         {
-            return core.atomic.fetch_xor<T, 4>(&storage.storage, value);
+            case ReadModifyWriteOrder.Relaxed { return core.atomic.fetch_add<T, 0>(&self.storage, value); }
+            case ReadModifyWriteOrder.Acquire { return core.atomic.fetch_add<T, 1>(&self.storage, value); }
+            case ReadModifyWriteOrder.Release { return core.atomic.fetch_add<T, 2>(&self.storage, value); }
+            case ReadModifyWriteOrder.AcquireRelease { return core.atomic.fetch_add<T, 3>(&self.storage, value); }
+            case ReadModifyWriteOrder.SequentiallyConsistent
+            {
+                return core.atomic.fetch_add<T, 4>(&self.storage, value);
+            }
         }
+    }
+
+    /// Subtracts a value and returns the value that preceded the update.
+    func fetch_sub(pos value: T, order: ReadModifyWriteOrder) -> T
+    {
+        match order
+        {
+            case ReadModifyWriteOrder.Relaxed { return core.atomic.fetch_sub<T, 0>(&self.storage, value); }
+            case ReadModifyWriteOrder.Acquire { return core.atomic.fetch_sub<T, 1>(&self.storage, value); }
+            case ReadModifyWriteOrder.Release { return core.atomic.fetch_sub<T, 2>(&self.storage, value); }
+            case ReadModifyWriteOrder.AcquireRelease { return core.atomic.fetch_sub<T, 3>(&self.storage, value); }
+            case ReadModifyWriteOrder.SequentiallyConsistent
+            {
+                return core.atomic.fetch_sub<T, 4>(&self.storage, value);
+            }
+        }
+    }
+
+    /// Applies bitwise AND and returns the value that preceded the update.
+    func fetch_and(pos value: T, order: ReadModifyWriteOrder) -> T
+    {
+        match order
+        {
+            case ReadModifyWriteOrder.Relaxed { return core.atomic.fetch_and<T, 0>(&self.storage, value); }
+            case ReadModifyWriteOrder.Acquire { return core.atomic.fetch_and<T, 1>(&self.storage, value); }
+            case ReadModifyWriteOrder.Release { return core.atomic.fetch_and<T, 2>(&self.storage, value); }
+            case ReadModifyWriteOrder.AcquireRelease { return core.atomic.fetch_and<T, 3>(&self.storage, value); }
+            case ReadModifyWriteOrder.SequentiallyConsistent
+            {
+                return core.atomic.fetch_and<T, 4>(&self.storage, value);
+            }
+        }
+    }
+
+    /// Applies bitwise OR and returns the value that preceded the update.
+    func fetch_or(pos value: T, order: ReadModifyWriteOrder) -> T
+    {
+        match order
+        {
+            case ReadModifyWriteOrder.Relaxed { return core.atomic.fetch_or<T, 0>(&self.storage, value); }
+            case ReadModifyWriteOrder.Acquire { return core.atomic.fetch_or<T, 1>(&self.storage, value); }
+            case ReadModifyWriteOrder.Release { return core.atomic.fetch_or<T, 2>(&self.storage, value); }
+            case ReadModifyWriteOrder.AcquireRelease { return core.atomic.fetch_or<T, 3>(&self.storage, value); }
+            case ReadModifyWriteOrder.SequentiallyConsistent
+            {
+                return core.atomic.fetch_or<T, 4>(&self.storage, value);
+            }
+        }
+    }
+
+    /// Applies bitwise XOR and returns the value that preceded the update.
+    func fetch_xor(pos value: T, order: ReadModifyWriteOrder) -> T
+    {
+        match order
+        {
+            case ReadModifyWriteOrder.Relaxed { return core.atomic.fetch_xor<T, 0>(&self.storage, value); }
+            case ReadModifyWriteOrder.Acquire { return core.atomic.fetch_xor<T, 1>(&self.storage, value); }
+            case ReadModifyWriteOrder.Release { return core.atomic.fetch_xor<T, 2>(&self.storage, value); }
+            case ReadModifyWriteOrder.AcquireRelease { return core.atomic.fetch_xor<T, 3>(&self.storage, value); }
+            case ReadModifyWriteOrder.SequentiallyConsistent
+            {
+                return core.atomic.fetch_xor<T, 4>(&self.storage, value);
+            }
+        }
+    }
+
+    /// Waits until the value changes or the operation wakes spuriously.
+    func wait(pos expected: T, order: LoadOrder)
+    {
+        match order
+        {
+            case LoadOrder.Relaxed { core.atomic.wait<T, 0>(&self.storage, expected); }
+            case LoadOrder.Acquire { core.atomic.wait<T, 1>(&self.storage, expected); }
+            case LoadOrder.SequentiallyConsistent { core.atomic.wait<T, 4>(&self.storage, expected); }
+        }
+    }
+
+    /// Permits at least one eligible waiter to resume.
+    func notify_one()
+    {
+        core.atomic.notify_one<T>(&self.storage);
+    }
+
+    /// Permits every eligible waiter to resume.
+    func notify_all()
+    {
+        core.atomic.notify_all<T>(&self.storage);
     }
 }
 
@@ -286,30 +320,13 @@ func compiler_fence(order: FenceOrder)
     }
 }
 
-func wait<T>(pos storage: &Atomic<T>, pos expected: T, order: LoadOrder)
+impl Atomic<u32>
 {
-    match order
+    internal func wait_for(pos expected: u32, pos timeout_milliseconds: u32)
+        requires(blocking_execution())
     {
-        case LoadOrder.Relaxed { core.atomic.wait<T, 0>(&storage.storage, expected); }
-        case LoadOrder.Acquire { core.atomic.wait<T, 1>(&storage.storage, expected); }
-        case LoadOrder.SequentiallyConsistent { core.atomic.wait<T, 4>(&storage.storage, expected); }
+        trusted internal platform_wait_word_for(&self.storage, expected, timeout_milliseconds = timeout_milliseconds);
     }
-}
-
-internal func wait_for(pos storage: &Atomic<u32>, pos expected: u32, pos timeout_milliseconds: u32)
-    requires(blocking_execution())
-{
-    trusted internal platform_wait_word_for(&storage.storage, expected, timeout_milliseconds = timeout_milliseconds);
-}
-
-func notify_one<T>(pos storage: &Atomic<T>)
-{
-    core.atomic.notify_one<T>(&storage.storage);
-}
-
-func notify_all<T>(pos storage: &Atomic<T>)
-{
-    core.atomic.notify_all<T>(&storage.storage);
 }
 
 trusted internal func word_pointer(pos storage: &core.atomic.Atomic<u32>) -> RawPointer<u32>

@@ -276,36 +276,34 @@ Use `std.atomic.Atomic<T>` for the safe ordinary atomic surface. Operations are 
 ```bray
 func new_counter() -> Atomic<u64>
 {
-    return std.atomic.atomic<u64>(0);
+    return std.atomic.Atomic<u64>(0);
 }
 
 func atomic_surface(pos counter: &Atomic<u64>)
 {
-    let initial: u64 = std.atomic.load<u64>(counter, order = LoadOrder.Acquire);
+    let initial: u64 = counter.load(order = LoadOrder.Acquire);
 
-    std.atomic.store<u64>(counter, initial + 1, order = StoreOrder.Release);
+    counter.store(initial + 1, order = StoreOrder.Release);
 
-    let replaced: u64 = std.atomic.exchange<u64>(counter, 10, order = ReadModifyWriteOrder.AcquireRelease);
+    let replaced: u64 = counter.exchange(10, order = ReadModifyWriteOrder.AcquireRelease);
 
-    let (observed, exchanged): (u64, bool) = std.atomic.compare_exchange<u64>(
-        counter,
+    let (observed, exchanged): (u64, bool) = counter.compare_exchange(
         replaced,
         20,
         order = CompareExchangeOrder.AcquireReleaseAcquire,
     );
 
-    let (weak_observed, weak_exchanged): (u64, bool) = std.atomic.compare_exchange_weak<u64>(
-        counter,
+    let (weak_observed, weak_exchanged): (u64, bool) = counter.compare_exchange_weak(
         observed,
         30,
         order = CompareExchangeOrder.AcquireReleaseAcquire,
     );
 
-    let before_add: u64 = std.atomic.fetch_add<u64>(counter, 2, order = ReadModifyWriteOrder.AcquireRelease);
-    let before_sub: u64 = std.atomic.fetch_sub<u64>(counter, 1, order = ReadModifyWriteOrder.AcquireRelease);
-    let before_and: u64 = std.atomic.fetch_and<u64>(counter, 0xff, order = ReadModifyWriteOrder.AcquireRelease);
-    let before_or: u64 = std.atomic.fetch_or<u64>(counter, 0x10, order = ReadModifyWriteOrder.AcquireRelease);
-    let before_xor: u64 = std.atomic.fetch_xor<u64>(counter, 0x01, order = ReadModifyWriteOrder.AcquireRelease);
+    let before_add: u64 = counter.fetch_add(2, order = ReadModifyWriteOrder.AcquireRelease);
+    let before_sub: u64 = counter.fetch_sub(1, order = ReadModifyWriteOrder.AcquireRelease);
+    let before_and: u64 = counter.fetch_and(0xff, order = ReadModifyWriteOrder.AcquireRelease);
+    let before_or: u64 = counter.fetch_or(0x10, order = ReadModifyWriteOrder.AcquireRelease);
+    let before_xor: u64 = counter.fetch_xor(0x01, order = ReadModifyWriteOrder.AcquireRelease);
 
     std.atomic.fence(order = FenceOrder.SequentiallyConsistent);
     std.atomic.compiler_fence(order = FenceOrder.AcquireRelease);
@@ -324,22 +322,22 @@ func atomic_surface(pos counter: &Atomic<u64>)
 
 func wait_until_ready(pos ready: &Atomic<bool>)
 {
-    while !std.atomic.load<bool>(ready, order = LoadOrder.Acquire)
+    while !ready.load(order = LoadOrder.Acquire)
     {
-        std.atomic.wait<bool>(ready, false, order = LoadOrder.Acquire);
+        ready.wait(false, order = LoadOrder.Acquire);
     }
 }
 
 func publish_one(pos ready: &Atomic<bool>)
 {
-    std.atomic.store<bool>(ready, true, order = StoreOrder.Release);
-    std.atomic.notify_one<bool>(ready);
+    ready.store(true, order = StoreOrder.Release);
+    ready.notify_one();
 }
 
 func publish_all(pos ready: &Atomic<bool>)
 {
-    std.atomic.store<bool>(ready, true, order = StoreOrder.Release);
-    std.atomic.notify_all<bool>(ready);
+    ready.store(true, order = StoreOrder.Release);
+    ready.notify_all();
 }
 ```
 

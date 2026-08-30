@@ -36,7 +36,7 @@ internal async func record_writer_order(pos lock: &std.sync.RwLock<u32>, pos ord
     requires(blocking_execution())
 {
     let mut guard: std.sync.RwLockWriteGuard<u32> = lock.write();
-    let position: u32 = std.atomic.fetch_add<u32>(order, 1, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
+    let position: u32 = order.fetch_add(1, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
     let value: &mut u32 = guard.get();
 
     assert(position == 0);
@@ -47,7 +47,7 @@ internal async func record_reader_order(pos lock: &std.sync.RwLock<u32>, pos ord
     requires(blocking_execution())
 {
     let guard: std.sync.RwLockReadGuard<u32> = lock.read();
-    let position: u32 = std.atomic.fetch_add<u32>(order, 1, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
+    let position: u32 = order.fetch_add(1, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
 
     assert(position == 1);
     assert(guard.get() == 1);
@@ -65,7 +65,7 @@ internal async func cross_reusable_barrier(
     while remaining > 0
     {
         let _: std.sync.BarrierWait = barrier.wait();
-        let _: u32 = std.atomic.fetch_add<u32>(crossings, 1, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
+        let _: u32 = crossings.fetch_add(1, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
 
         remaining -= 1;
         await std.task.yield_now();
@@ -223,7 +223,7 @@ async func concurrency_stress_mutex_contention_and_panic_cleanup_preserve_progre
 async func concurrency_model_reader_writer_lock_admits_a_pending_writer_before_later_readers()
 {
     let lock: std.sync.RwLock<u32> = std.sync.RwLock<u32>(0);
-    let order = std.atomic.atomic<u32>(0);
+    let order = std.atomic.Atomic<u32>(0);
     let mut initial: std.sync.RwLockReadGuard<u32> = lock.read();
     let writer: Task<unit> = record_writer_order(&lock, order = &order).start();
     let mut writer_pending: bool = false;
@@ -251,7 +251,7 @@ async func concurrency_model_reader_writer_lock_admits_a_pending_writer_before_l
     try await writer.join();
     try await reader.join();
 
-    assert(std.atomic.load<u32>(&order, order = std.atomic.LoadOrder.Acquire) == 2);
+    assert(order.load(order = std.atomic.LoadOrder.Acquire) == 2);
 }
 
 @test
@@ -263,7 +263,7 @@ async func concurrency_stress_barrier_reuses_its_generation_across_contended_rou
         case Error(_) { panic("barrier construction failed"); }
     };
 
-    let crossings: std.atomic.Atomic<u32> = std.atomic.atomic<u32>(0);
+    let crossings: std.atomic.Atomic<u32> = std.atomic.Atomic<u32>(0);
 
     let first: Task<unit> = cross_reusable_barrier(&barrier, rounds = 16, crossings = &crossings).start();
 
@@ -275,5 +275,5 @@ async func concurrency_stress_barrier_reuses_its_generation_across_contended_rou
     try await second.join();
     try await third.join();
 
-    assert(std.atomic.load<u32>(&crossings, order = std.atomic.LoadOrder.Acquire) == 48);
+    assert(crossings.load(order = std.atomic.LoadOrder.Acquire) == 48);
 }

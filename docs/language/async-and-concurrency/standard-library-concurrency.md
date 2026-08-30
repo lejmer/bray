@@ -84,9 +84,44 @@ execute before the calling task resumes. Native-thread helpers under `std.thread
 ## Atomic storage
 
 `std.atomic` provides the ordinary safe wrapper `Atomic<T>` over protected compiler-provided atomic storage.
-`atomic(value)` is its only primary constructor. The module exposes `load`, `store`, `exchange`, strong and weak
-`compare_exchange`, integer `fetch_add`, `fetch_sub`, `fetch_and`, `fetch_or`, and `fetch_xor`, hardware and compiler
-`fence`, `wait`, `notify_one`, and `notify_all`.
+Its value-specific surface belongs to the owner:
+
+```bray
+impl Atomic<T>
+{
+    construct(pos value: T) -> Self;
+    func load(order: LoadOrder) -> T;
+    func store(pos value: T, order: StoreOrder);
+    func exchange(pos value: T, order: ReadModifyWriteOrder) -> T;
+
+    func compare_exchange(
+        pos expected: T,
+        pos desired: T,
+        order: CompareExchangeOrder,
+    ) -> (T, bool);
+
+    func compare_exchange_weak(
+        pos expected: T,
+        pos desired: T,
+        order: CompareExchangeOrder,
+    ) -> (T, bool);
+
+    func fetch_add(pos value: T, order: ReadModifyWriteOrder) -> T;
+    func fetch_sub(pos value: T, order: ReadModifyWriteOrder) -> T;
+    func fetch_and(pos value: T, order: ReadModifyWriteOrder) -> T;
+    func fetch_or(pos value: T, order: ReadModifyWriteOrder) -> T;
+    func fetch_xor(pos value: T, order: ReadModifyWriteOrder) -> T;
+    func wait(pos expected: T, order: LoadOrder);
+    func notify_one();
+    func notify_all();
+}
+
+func fence(order: FenceOrder);
+func compiler_fence(order: FenceOrder);
+```
+
+`Atomic<T>(value)` is the primary construction form. Hardware and compiler fences remain module functions because they
+do not act on one atomic owner. Strong and weak compare-exchange remain separately named methods.
 
 The copyable policy unions `LoadOrder`, `StoreOrder`, `ReadModifyWriteOrder`, `FenceOrder`, and `CompareExchangeOrder`
 make invalid operation and ordering combinations unrepresentable. Their ordinary exhaustive dispatch invokes

@@ -7,17 +7,17 @@ using std.memory;
 trusted internal func await_thread_identity<T>(pos pointer: RawPointer<ThreadStorage<T>>) -> u64
 {
     let value: &ThreadControl = trusted internal thread_control<RawPointer<ThreadStorage<T>>, T>(&pointer, pointer);
-    let mut identity: u64 = std.atomic.load<u64>(&value.identity, order = std.atomic.LoadOrder.Acquire);
+    let mut identity: u64 = value.identity.load(order = std.atomic.LoadOrder.Acquire);
 
     while identity == 0
     {
-        if std.atomic.load<u32>(&value.state, order = std.atomic.LoadOrder.Acquire) != THREAD_RUNNING
+        if value.state.load(order = std.atomic.LoadOrder.Acquire) != THREAD_RUNNING
         {
             return 0;
         }
 
-        std.atomic.wait<u64>(&value.identity, 0, order = std.atomic.LoadOrder.Acquire);
-        identity = std.atomic.load<u64>(&value.identity, order = std.atomic.LoadOrder.Acquire);
+        value.identity.wait(0, order = std.atomic.LoadOrder.Acquire);
+        identity = value.identity.load(order = std.atomic.LoadOrder.Acquire);
     }
 
     return identity;

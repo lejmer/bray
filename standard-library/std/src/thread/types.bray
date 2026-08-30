@@ -146,8 +146,8 @@ struct Thread<T>
     {
         let control: &ThreadControl = trusted internal thread_control<Thread<T>, T>(&self, self.storage);
 
-        std.atomic.store<u32>(&control.park_token, 1, order = std.atomic.StoreOrder.Release);
-        std.atomic.notify_one<u32>(&control.park_token);
+        control.park_token.store(1, order = std.atomic.StoreOrder.Release);
+        control.park_token.notify_one();
     }
 
     consume mut func join() -> RunResult<T>
