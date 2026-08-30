@@ -31,7 +31,8 @@ pub use entry::{
 };
 pub use lookup::{
     BoundImplementationUsing, ImportedPathRoot, NameAccess, bind_implementation_using,
-    bind_named_trait_implementation_path, bind_surface_path_with_re_exports,
+    bind_named_trait_implementation_path, bind_owner_surface_path,
+    bind_surface_path_with_re_exports,
 };
 pub use query::{
     BindingQueryContext, BindingQueryError, BindingQueryResult, BindingSymbolQueryEvaluator,

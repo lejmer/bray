@@ -2278,8 +2278,7 @@ mod tests {
             "}\n",
         );
 
-        let (backend, compilation) =
-            codegen_compilation_for_product(source, ProductKind::Library);
+        let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
 
         let cancellation = CancellationToken::new();
 
@@ -2289,9 +2288,9 @@ mod tests {
             .codegen_target()
             .unwrap_or_else(|error| panic!("test codegen target must validate: {error:?}"));
 
-        let semantic = compilation
-            .product_semantics()
-            .unwrap_or_else(|error| panic!("trait default product semantics must resolve: {error:?}"));
+        let semantic = compilation.product_semantics().unwrap_or_else(|error| {
+            panic!("trait default product semantics must resolve: {error:?}")
+        });
 
         let roots = compilation
             .product_root_instances(semantic.value(), None, &target, &cancellation)
@@ -2310,6 +2309,84 @@ mod tests {
                 None,
             )
             .unwrap_or_else(|error| panic!("trait default body must realize: {error:?}"));
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn constrained_trait_owned_default_bodies_dispatch_required_members() {
+        let source = concat!(
+            "module app;\n",
+            "trait Numeric\n",
+            "{\n",
+            "    func bounds() -> (Self, Self);\n",
+            "    func increase(pos amount: Self) -> Self\n",
+            "        with(Self: Add<Self>, Self(Add<Self>).Output == Self, Self: Copyable)\n",
+            "    {\n",
+            "        let bounds: (Self, Self) = self.bounds();\n",
+            "        return identity<Self>(bounds.0 + amount);\n",
+            "    }\n",
+            "}\n",
+            "impl I32Numeric = i32(Numeric)\n",
+            "{\n",
+            "    func bounds() -> (i32, i32)\n",
+            "    {\n",
+            "        return (1, 10);\n",
+            "    }\n",
+            "}\n",
+            "func identity<Value>(pos value: Value) -> Value\n",
+            "{\n",
+            "    return value;\n",
+            "}\n",
+            "public func read() -> i32\n",
+            "{\n",
+            "    return 1.increase(2);\n",
+            "}\n",
+        );
+
+        let (backend, compilation) = codegen_compilation_for_product(source, ProductKind::Library);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let cancellation = CancellationToken::new();
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .unwrap_or_else(|error| panic!("test codegen target must validate: {error:?}"));
+
+        let semantic = compilation
+            .product_semantics()
+            .unwrap_or_else(|error| panic!("constrained trait semantics must resolve: {error:?}"));
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
+            .unwrap_or_else(|error| panic!("constrained trait roots must resolve: {error:?}"));
+
+        compilation
+            .codegen_reachability(roots, None, &target, &cancellation)
+            .unwrap_or_else(|error| panic!("constrained trait reachability must close: {error:?}"));
+
+        let plan = compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                None,
+            )
+            .unwrap_or_else(|error| {
+                panic!("constrained trait default body must realize: {error:?}")
+            });
 
         assert!(
             generated_artifacts(&backend, &plan)

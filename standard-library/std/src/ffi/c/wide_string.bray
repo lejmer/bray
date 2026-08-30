@@ -24,7 +24,7 @@ struct BorrowedWideString
     }
 }
 
-func borrow_wide_string(pos units: &[WideChar]) -> Result<BorrowedWideString, StringError>
+internal func borrow_wide_string(pos units: &[WideChar]) -> Result<BorrowedWideString, StringError>
 {
     let count: usize = std.memory.slice_length<WideChar>(units);
 
@@ -105,7 +105,7 @@ struct OwnedWideString
     {
         return
         {
-            units_value = std.collection.as_slice<WideChar>(&self.storage),
+            units_value = self.storage.as_slice(),
         };
     }
 }
@@ -165,7 +165,7 @@ trusted internal func append_wide_decoded_scalar(
 
 internal func decoded_wide_string(pos bytes: &std.bytes.Buffer) -> Result<string, StringError>
 {
-    match std.string.from_utf8(std.bytes.as_slice(bytes))
+    match std.string.from_utf8(bytes.as_slice())
     {
         case Ok(value) { return Ok(value); }
         case Error(_) { return Error(StringError.InvalidEncoding); }

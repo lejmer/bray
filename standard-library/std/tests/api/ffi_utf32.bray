@@ -16,7 +16,7 @@ trusted func c_utf32_strings_name_and_validate_their_encoding() -> Result<unit, 
     assert(std.string.equals(&decoded, &"A😀"));
 
     let invalid_units: [std.ffi.c.WideChar; 2] = [std.ffi.c.wide_char_wrapping(-1), std.ffi.c.wide_char_wrapping(0)];
-    let invalid: std.ffi.c.BorrowedWideString = try std.ffi.c.borrow_wide_string(&invalid_units[..]);
+    let invalid: std.ffi.c.BorrowedWideString = try std.ffi.c.borrow_string(&invalid_units[..]);
 
     let _: std.ffi.c.StringError = std.testing.assert_error<string, std.ffi.c.StringError>(
         trusted std.ffi.c.decode_utf32(&invalid),

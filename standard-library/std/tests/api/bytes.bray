@@ -20,20 +20,22 @@ func byte_slice_operations()
 @test
 trusted func byte_buffer_mutation() -> Result<unit, std.memory.MemoryLayoutError>
 {
+    let empty: std.bytes.Buffer = try std.bytes.Buffer.new();
     let initial: [u8; 2] = [65, 66];
-    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer.from_slice(&initial[..]);
+    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer.new(&initial[..]);
 
+    assert(std.bytes.length(&empty) == 0);
     assert(std.bytes.length(&buffer) == 2);
     assert(std.bytes.capacity(&buffer) == 2);
 
     try trusted std.bytes.push(&mut buffer, value = 67);
-    try trusted std.bytes.append_repeated(&mut buffer, value = 68, count = 2);
+    try trusted std.bytes.append(&mut buffer, 68, 2);
 
     let appended: [u8; 2] = [69, 70];
 
     try trusted std.bytes.append(&mut buffer, bytes = &appended[..]);
 
-    let values: &[u8] = std.bytes.as_slice(&buffer);
+    let values: &[u8] = buffer.as_slice();
 
     assert(std.bytes.length(&buffer) == 7);
     assert(std.bytes.capacity(&buffer) >= 7);
@@ -53,7 +55,7 @@ trusted func byte_buffer_mutation() -> Result<unit, std.memory.MemoryLayoutError
 
     try trusted std.bytes.resize(&mut buffer, new_length = 8, fill = 90);
 
-    let resized: &mut [u8] = std.bytes.as_slice_mut(&mut buffer);
+    let resized: &mut [u8] = buffer.as_slice_mut();
 
     assert(resized[6] == 90);
     assert(resized[7] == 90);
@@ -63,12 +65,12 @@ trusted func byte_buffer_mutation() -> Result<unit, std.memory.MemoryLayoutError
     trusted std.bytes.truncate(&mut buffer, new_length = 1);
 
     assert(std.bytes.length(&buffer) == 1);
-    assert(std.bytes.as_slice(&buffer)[0] == 97);
+    assert(buffer.as_slice()[0] == 97);
 
     std.bytes.clear(&mut buffer);
 
     assert(std.bytes.length(&buffer) == 0);
-    assert(std.bytes.equals(std.bytes.as_slice(&buffer), std.bytes.as_slice(&buffer)));
+    assert(std.bytes.equals(buffer.as_slice(), buffer.as_slice()));
 
     let exhausted: u8? = trusted std.bytes.pop(&mut buffer);
 
@@ -97,7 +99,7 @@ func byte_slice_comparison_boundaries()
 @test
 trusted func byte_buffer_growth_and_exact_reservation() -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer(capacity = 0);
+    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer.new(capacity = 0);
 
     try trusted std.bytes.push(&mut buffer, value = 1);
 
@@ -127,7 +129,7 @@ trusted func byte_buffer_growth_and_exact_reservation() -> Result<unit, std.memo
 @test
 trusted func byte_buffer_growth_reports_length_overflow() -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer(capacity = 1);
+    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer.new(capacity = 1);
 
     try trusted std.bytes.push(&mut buffer, value = 1);
 
@@ -146,7 +148,7 @@ trusted func byte_buffer_growth_reports_length_overflow() -> Result<unit, std.me
 trusted func full_byte_buffer_append_relocates_before_initializing_spare_storage(
 ) -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer(capacity = 24);
+    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer.new(capacity = 24);
 
     try trusted std.bytes.resize(&mut buffer, new_length = 24, fill = 7);
     try trusted std.bytes.push(&mut buffer, value = 9);
@@ -154,7 +156,7 @@ trusted func full_byte_buffer_append_relocates_before_initializing_spare_storage
     assert(std.bytes.length(&buffer) == 25);
     assert(std.bytes.capacity(&buffer) == 48);
 
-    let values: &[u8] = std.bytes.as_slice(&buffer);
+    let values: &[u8] = buffer.as_slice();
 
     assert(values[0] == 7);
     assert(values[23] == 7);

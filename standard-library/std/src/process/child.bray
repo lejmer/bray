@@ -301,7 +301,7 @@ internal func environment_entry_index(
 
     while index < std.collection.length<EnvironmentEntry>(values)
     {
-        let entries: &[EnvironmentEntry] = std.collection.as_slice<EnvironmentEntry>(values);
+        let entries: &[EnvironmentEntry] = values.as_slice();
 
         let equal: bool = trusted internal std.platform.environment_keys_equal(
             internal std.path.native_bytes(&entries[index].key),
@@ -385,8 +385,8 @@ trusted internal func spawn_child_request(
     let status: std.platform.PlatformStatus = trusted internal std.process.platform_child_spawn(
         executable,
         working_directory = working_directory,
-        arguments = std.collection.as_slice<PlatformNativeText>(arguments),
-        environment = std.collection.as_slice<PlatformEnvironmentEntry>(environment),
+        arguments = arguments.as_slice(),
+        environment = environment.as_slice(),
         standard_input_policy = internal std.process.stream_policy_value(policy = standard_input),
         standard_output_policy = internal std.process.stream_policy_value(policy = standard_output),
         standard_error_policy = internal std.process.stream_policy_value(policy = standard_error),
@@ -420,7 +420,7 @@ trusted internal func argument_spans(
         kind = Creation
     );
 
-    let entries: &[std.path.NativeText] = std.collection.as_slice<std.path.NativeText>(values);
+    let entries: &[std.path.NativeText] = values.as_slice();
     let mut index: usize = 0;
 
     while index < std.collection.length<std.path.NativeText>(values)
@@ -445,7 +445,7 @@ trusted internal func environment_spans(
         kind = Creation
     );
 
-    let entries: &[EnvironmentEntry] = std.collection.as_slice<EnvironmentEntry>(values);
+    let entries: &[EnvironmentEntry] = values.as_slice();
     let mut index: usize = 0;
 
     while index < std.collection.length<EnvironmentEntry>(&values)

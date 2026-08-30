@@ -79,9 +79,7 @@ impl TargetCDataModel {
     ///
     /// Omitted kinds are represented by the corresponding `"unavailable"` target property.
     /// Returns absence for a duplicate kind or a representation invalid for that C scalar.
-    pub const fn try_new(
-        mappings: &[(TargetCScalarKind, TargetScalarKind)],
-    ) -> Option<Self> {
+    pub const fn try_new(mappings: &[(TargetCScalarKind, TargetScalarKind)]) -> Option<Self> {
         let mut model = Self {
             mappings: [None; C_SCALAR_KIND_COUNT],
         };
@@ -134,7 +132,10 @@ impl TargetCDataModel {
             (TargetCScalarKind::LongLong, TargetScalarKind::I64),
             (TargetCScalarKind::UnsignedLongLong, TargetScalarKind::U64),
             (TargetCScalarKind::Size, TargetScalarKind::Usize),
-            (TargetCScalarKind::PointerDifference, TargetScalarKind::Isize),
+            (
+                TargetCScalarKind::PointerDifference,
+                TargetScalarKind::Isize,
+            ),
             (TargetCScalarKind::WideChar, wide_char),
             (TargetCScalarKind::Bool, TargetScalarKind::Bool),
             (TargetCScalarKind::Float, TargetScalarKind::R32),
@@ -169,11 +170,11 @@ impl TargetCDataModel {
     pub(crate) fn is_supported_by_c_abi(self, contract: TargetForeignAbiContract) -> bool {
         self.is_empty()
             || contract.transparent_layout()
-            && self
-                .mappings
-                .into_iter()
-                .flatten()
-                .all(|scalar| contract.scalars().supports(scalar))
+                && self
+                    .mappings
+                    .into_iter()
+                    .flatten()
+                    .all(|scalar| contract.scalars().supports(scalar))
     }
 
     pub(crate) fn is_empty(self) -> bool {

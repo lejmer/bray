@@ -17,6 +17,16 @@ struct List<T>
 
         return Ok(list);
     }
+
+    func as_slice() -> &[T]
+    {
+        return trusted std.memory.initialized_slice<T>(&self.storage);
+    }
+
+    mut func as_slice_mut() -> &mut [T]
+    {
+        return trusted std.memory.initialized_slice_mut<T>(&mut self.storage);
+    }
 }
 
 trusted internal func push_available<T>(pos list: &mut List<T>, pos value: T) -> unit
@@ -99,16 +109,6 @@ func capacity<T>(pos list: &List<T>) -> usize
 func is_empty<T>(pos list: &List<T>) -> bool
 {
     return length<T>(list) == 0;
-}
-
-func as_slice<T>(pos list: &List<T>) -> &[T]
-{
-    return trusted std.memory.initialized_slice<T>(&list.storage);
-}
-
-func as_slice_mut<T>(pos list: &mut List<T>) -> &mut [T]
-{
-    return trusted std.memory.initialized_slice_mut<T>(&mut list.storage);
 }
 
 trusted func reserve<T>(pos list: &mut List<T>, additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
@@ -257,7 +257,7 @@ impl ListElementIndex = List<T>(ElementIndex<usize>)
     {
         let index: usize = copied_index(selector);
 
-        return &as_slice<T>(&self)[index];
+        return &self.as_slice()[index];
     }
 }
 
@@ -267,7 +267,7 @@ impl ListSliceIndex = List<T>(SliceIndex<usize>)
 
     func slice(pos start: usize?, pos end: usize?) -> &[T]
     {
-        let values: &[T] = as_slice<T>(&self);
+        let values: &[T] = self.as_slice();
         let lower: usize = slice_start(start);
         let upper: usize = slice_end(end, self.storage.initialized);
 
@@ -315,7 +315,7 @@ impl ListReadIterable = &List<T>(Iterable)
     {
         let cursor: ReadCursor<T> =
         {
-            values = as_slice<T>(self),
+            values = self.as_slice(),
             count = length<T>(self),
         };
 
@@ -365,7 +365,7 @@ impl ListWriteIterable = &mut List<T>(Iterable)
 
         let cursor: WriteCursor<T> =
         {
-            values = as_slice_mut<T>(self),
+            values = self.as_slice_mut(),
             count = count,
         };
 

@@ -3,9 +3,8 @@ use std::collections::BTreeMap;
 use bray_symbols::{
     CallableParameterSignature, CallableSignature, CallableSignatureTemplate,
     ConstantExpressionOccurrenceKey, ConstantTermId, GenericArgument, GenericArgumentTemplate,
-    GenericOwnerId, GenericSubstitutionData, GenericSubstitutionId, ReceiverParameterSignature,
-    SemanticValueStore, TraitApplicationData, TraitApplicationTemplate, TypeData,
-    TypeExpressionTemplate, TypeId,
+    GenericOwnerId, GenericSubstitutionData, GenericSubstitutionId, SemanticValueStore,
+    TraitApplicationData, TraitApplicationTemplate, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use crate::CheckerInfrastructureError;
@@ -303,27 +302,14 @@ pub fn resolve_callable_signature_template(
             return Ok(None);
         };
 
-        parameters.push(CallableParameterSignature::new(
-            parameter,
-            substitute_type(values, ty, substitution)?,
-        ));
+        parameters.push(CallableParameterSignature::new(parameter, ty));
     }
 
-    let receiver = template
-        .receiver()
-        .map(|receiver| {
-            substitute_type(values, receiver.ty(), substitution).map(|ty| {
-                ReceiverParameterSignature::new(receiver.parameter(), ty, receiver.mode())
-            })
-        })
-        .transpose()?;
+    let signature = CallableSignature::new(callable_type, template.receiver(), parameters, result);
 
-    Ok(Some(CallableSignature::new(
-        substitute_type(values, callable_type, substitution)?,
-        receiver,
-        parameters,
-        substitute_type(values, result, substitution)?,
-    )))
+    signature
+        .try_map_types(|ty| substitute_type(values, ty, substitution))
+        .map(Some)
 }
 
 fn substitute_type(

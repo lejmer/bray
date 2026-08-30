@@ -6,7 +6,7 @@ using std.memory;
 trusted internal func platform_set_current_thread_name(pos name: &string) -> Result<unit, ThreadNameError>
     uses(foreign_call)
 {
-    let native: std.ffi.c.OwnedNarrowString = match trusted std.ffi.c.OwnedNarrowString.from_utf8(name)
+    let native: std.ffi.c.OwnedNarrowString = match trusted std.ffi.c.OwnedNarrowString.new(name)
     {
         case Ok(value) { yield value; }
         case Error(std.ffi.c.StringError.Allocation) { return Error(ThreadNameError.Allocation); }

@@ -520,11 +520,8 @@ fn compilation_with_sources_and_options(
     sources: &[&str],
     options: CompilationOptions,
 ) -> Compilation {
-    let request = CompilationRequest::with_options(
-        package_identity(),
-        source_inputs(sources),
-        options,
-    );
+    let request =
+        CompilationRequest::with_options(package_identity(), source_inputs(sources), options);
 
     match Compilation::load(request) {
         Ok(compilation) => compilation,

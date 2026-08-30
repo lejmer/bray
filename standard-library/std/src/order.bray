@@ -11,6 +11,112 @@ trait OrderedSequence
     func compare_value(pos index: usize, pos value: &Element) -> Ordering;
 
     mut func swap_indices(pos left: usize, pos right: usize) -> unit;
+
+    /// Finds the first element equal to the supplied value.
+    func find(pos value: &Element) -> usize?
+    {
+        let count: usize = self.order_length();
+        let mut index: usize = 0;
+
+        while index < count
+        {
+            if self.compare_value(index, value) == Ordering.Equal
+            {
+                let mut result: usize? = none;
+
+                result = index;
+
+                return result;
+            }
+
+            index += 1;
+        }
+
+        return none;
+    }
+
+    /// Finds an equal element in an ascending sequence.
+    func binary_search(pos value: &Element) -> usize?
+    {
+        let mut start: usize = 0;
+        let mut end: usize = self.order_length();
+
+        while start < end
+        {
+            let middle: usize = start + (end - start) / 2;
+
+            match self.compare_value(middle, value)
+            {
+                case Ordering.Less { start = middle + 1; }
+                case Ordering.Equal
+                {
+                    let mut result: usize? = none;
+
+                    result = middle;
+
+                    return result;
+                }
+                case Ordering.Greater { end = middle; }
+            }
+        }
+
+        return none;
+    }
+
+    /// Sorts the sequence while preserving the relative order of equal elements.
+    mut func sort_stable() -> unit
+    {
+        let count: usize = self.order_length();
+        let mut index: usize = 1;
+
+        while index < count
+        {
+            let mut current: usize = index;
+
+            while current > 0
+            {
+                if self.compare_indices(current - 1, current) != Ordering.Greater
+                {
+                    break;
+                }
+
+                self.swap_indices(current - 1, current);
+                current -= 1;
+            }
+
+            index += 1;
+        }
+    }
+
+    /// Sorts the sequence without preserving the relative order of equal elements.
+    mut func sort_unstable() -> unit
+    {
+        let count: usize = self.order_length();
+        let mut index: usize = 0;
+
+        while index < count
+        {
+            let mut minimum_index: usize = index;
+            let mut candidate: usize = index + 1;
+
+            while candidate < count
+            {
+                if self.compare_indices(candidate, minimum_index) == Ordering.Less
+                {
+                    minimum_index = candidate;
+                }
+
+                candidate += 1;
+            }
+
+            if minimum_index != index
+            {
+                self.swap_indices(index, minimum_index);
+            }
+
+            index += 1;
+        }
+    }
 }
 
 impl OrderingEquatable = Ordering(Equatable<Ordering>)
@@ -106,110 +212,4 @@ func clamp<Value>(pos value: Value, pos minimum: Value, pos maximum: Value) -> V
     }
 
     return value;
-}
-
-func find<Sequence>(pos values: &Sequence, pos value: &Sequence(OrderedSequence).Element) -> usize?
-    with(Sequence: OrderedSequence)
-{
-    let count: usize = values.order_length();
-    let mut index: usize = 0;
-
-    while index < count
-    {
-        if values.compare_value(index, value) == Ordering.Equal
-        {
-            let mut result: usize? = none;
-
-            result = index;
-
-            return result;
-        }
-
-        index += 1;
-    }
-
-    return none;
-}
-
-func binary_search<Sequence>(pos values: &Sequence, pos value: &Sequence(OrderedSequence).Element) -> usize?
-    with(Sequence: OrderedSequence)
-{
-    let mut start: usize = 0;
-    let mut end: usize = values.order_length();
-
-    while start < end
-    {
-        let middle: usize = start + (end - start) / 2;
-
-        match values.compare_value(middle, value)
-        {
-            case Ordering.Less { start = middle + 1; }
-            case Ordering.Equal
-            {
-                let mut result: usize? = none;
-
-                result = middle;
-
-                return result;
-            }
-            case Ordering.Greater { end = middle; }
-        }
-    }
-
-    return none;
-}
-
-func sort_stable<Sequence>(pos values: &mut Sequence) -> unit
-    with(Sequence: OrderedSequence)
-{
-    let count: usize = values.order_length();
-    let mut index: usize = 1;
-
-    while index < count
-    {
-        let mut current: usize = index;
-
-        while current > 0
-        {
-            if values.compare_indices(current - 1, current) != Ordering.Greater
-            {
-                break;
-            }
-
-            values.swap_indices(current - 1, current);
-            current -= 1;
-        }
-
-        index += 1;
-    }
-}
-
-func sort_unstable<Sequence>(pos values: &mut Sequence) -> unit
-    with(Sequence: OrderedSequence)
-{
-    let count: usize = values.order_length();
-    let mut index: usize = 0;
-
-    while index < count
-    {
-        let mut minimum_index: usize = index;
-        let mut candidate: usize = index + 1;
-
-        while candidate < count
-        {
-            if values.compare_indices(candidate, minimum_index) == Ordering.Less
-            {
-                minimum_index = candidate;
-            }
-
-            candidate += 1;
-        }
-
-        if minimum_index != index
-        {
-            values.swap_indices(index, minimum_index);
-        }
-
-        index += 1;
-    }
 }

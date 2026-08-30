@@ -13,8 +13,10 @@ pub(crate) use diagnostic::{NameReference, lookup_diagnostic};
 pub use implementation::{
     BoundImplementationUsing, bind_implementation_using, bind_named_trait_implementation_path,
 };
-pub use path::{ImportedPathRoot, NameAccess, bind_surface_path_with_re_exports};
+pub use path::{
+    ImportedPathRoot, NameAccess, bind_owner_surface_path, bind_surface_path_with_re_exports,
+};
 pub(crate) use path::{
-    PathBindingContext, bind_module_path, bind_source_path, lookup_surface_name_with_imports,
-    visible_imported_path_root,
+    PathBindingContext, bind_module_path, bind_owner_path, bind_source_path,
+    lookup_surface_name_with_imports, visible_imported_path_root,
 };

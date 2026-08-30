@@ -244,7 +244,9 @@ where
     Ok(DiagnosticResult::new(result, diagnostics))
 }
 
-fn surface_lookup(result: NameLookupResult<ResolvedName>) -> MemberLookupResult<AnySymbolId> {
+pub(super) fn surface_lookup(
+    result: NameLookupResult<ResolvedName>,
+) -> MemberLookupResult<AnySymbolId> {
     match result {
         MemberLookupResult::Found(ResolvedName::Surface(symbol)) => {
             MemberLookupResult::Found(symbol)
@@ -296,7 +298,7 @@ where
     Ok(bind_module_path_lookup(binding_context, module, path, access, re_exports)?.result)
 }
 
-fn bind_module_path_lookup<C>(
+pub(super) fn bind_module_path_lookup<C>(
     binding_context: &C,
     module: ModuleSymbolId,
     path: &PathSyntax,
@@ -736,7 +738,7 @@ fn bind_path_with_ordinary(
     )
 }
 
-fn bind_remaining_path(
+pub(super) fn bind_remaining_path(
     symbols: &SymbolGraph,
     imported_symbols: Option<&ImportedSymbolSkeleton>,
     access: NameAccess,

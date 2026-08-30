@@ -288,6 +288,7 @@ impl Compilation {
             }
 
             let contributions = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
+
             let behavior = contributions.result().value().behavior();
 
             builder.merge_contributions(behavior);
@@ -336,10 +337,10 @@ impl Compilation {
     ) -> Result<(), FactQueryError> {
         match call.target() {
             BoundCallableTarget::Declaration(instance) => {
+                let callable = instance.definition().callable_symbol();
                 let body = self.callable_body_key(instance.definition())?;
 
                 if let Some(body) = body {
-                    let callable = instance.definition().callable_symbol();
                     let execution = callable_execution(binding_context, callable)?;
 
                     if phase_executes_body(call.phase(), execution) {

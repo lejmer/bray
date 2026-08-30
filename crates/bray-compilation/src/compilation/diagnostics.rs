@@ -15,8 +15,8 @@ use bray_checker::{
 use bray_compiler_known::ImplementationHook;
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{
-    Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticInterfaceDeclarationIdentity,
-    DiagnosticEmissionEvaluationFailure, DiagnosticInterfaceSymbolIdentity,
+    Diagnostic, DiagnosticBag, DiagnosticEmissionEvaluationFailure, DiagnosticId,
+    DiagnosticInterfaceDeclarationIdentity, DiagnosticInterfaceSymbolIdentity,
     DiagnosticInterfaceSymbolReference, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
     DiagnosticNote, DiagnosticNoteKind, DiagnosticProductKind, DiagnosticResult, SeverityKind,
 };

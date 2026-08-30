@@ -277,15 +277,15 @@ trusted internal func decode_scalar(
     match width
     {
         case 1 { return first; }
-        case 2 { return(first & 0x1f) << 6 | (trusted byte(data, length = length, index = offset + 1) as u32 & 0x3f); }
+        case 2 { return (first & 0x1f) << 6 | (trusted byte(data, length = length, index = offset + 1) as u32 & 0x3f); }
         case 3
         {
-            return(first & 0x0f) << 12 | (trusted byte(data, length = length, index = offset + 1) as u32 & 0x3f) << 6 |
+            return (first & 0x0f) << 12 | (trusted byte(data, length = length, index = offset + 1) as u32 & 0x3f) << 6 |
                 (trusted byte(data, length = length, index = offset + 2) as u32 & 0x3f);
         }
         case 4
         {
-            return(first & 0x07) << 18 | (trusted byte(data, length = length, index = offset + 1) as u32 & 0x3f) << 12 |
+            return (first & 0x07) << 18 | (trusted byte(data, length = length, index = offset + 1) as u32 & 0x3f) << 12 |
                 (trusted byte(data, length = length, index = offset + 2) as u32 & 0x3f) << 6 | (trusted byte(
                 data,
                 length = length,

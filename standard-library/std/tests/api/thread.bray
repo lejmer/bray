@@ -85,7 +85,7 @@ internal func name_current_thread(pos name: string) -> bool
 
 internal func generic_thread_values(pos ignored: unit) -> (u64, u64)
 {
-    return(GENERIC_THREAD_VALUE<7>, GENERIC_THREAD_VALUE<11>);
+    return (GENERIC_THREAD_VALUE<7>, GENERIC_THREAD_VALUE<11>);
 }
 
 @test

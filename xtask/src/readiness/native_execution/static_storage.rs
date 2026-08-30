@@ -5,8 +5,8 @@ use std::process::Command;
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 
 use super::core::{
-    inspect_objects, llvm_tool, object_files, reject_evidence,
-    require_equal_artifacts, require_evidence, standard_library_root,
+    inspect_objects, llvm_tool, object_files, reject_evidence, require_equal_artifacts,
+    require_evidence, standard_library_root,
 };
 use super::fixtures::PRODUCT_NAME;
 use super::repeatable::{RepeatableFixtureAudit, audit_repeatable_fixtures};

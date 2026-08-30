@@ -410,11 +410,9 @@ mod tests {
             Err(TargetProfileBuildError::CScalarMappingWithoutCAbi)
         );
 
-        let c_abi = TargetCDataModel::try_new(&[(
-            TargetCScalarKind::LongDouble,
-            TargetScalarKind::R128,
-        )])
-        .unwrap_or_else(|| panic!("test C scalar mapping must be valid"));
+        let c_abi =
+            TargetCDataModel::try_new(&[(TargetCScalarKind::LongDouble, TargetScalarKind::R128)])
+                .unwrap_or_else(|| panic!("test C scalar mapping must be valid"));
 
         let contract = TargetForeignAbiContract::new(
             TargetAbiScalars::required(),
@@ -485,9 +483,7 @@ mod tests {
             baseline.operations(),
         );
 
-        assert!(
-            TargetProfile::try_new(test_identity(), test_target_machine(), properties).is_ok()
-        );
+        assert!(TargetProfile::try_new(test_identity(), test_target_machine(), properties).is_ok());
     }
 
     #[test]

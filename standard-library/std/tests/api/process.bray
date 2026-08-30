@@ -124,7 +124,7 @@ func required_child_executable() -> std.path.Path
     {
         case ?value
         {
-            yield match consume std.path.Path.from_native(value)
+            yield match consume std.path.Path.new(value)
             {
                 case Ok(path) { yield path; }
                 case Error(_) { panic("child executable path must be valid"); }

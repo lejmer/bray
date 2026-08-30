@@ -29,6 +29,10 @@ use super::super::implementation::{
     implementation_instance_requirement,
 };
 use super::super::substitution::named_type;
+use super::realization::{
+    codegen_instance_contextual_self, substitute_contextual_self,
+    substitute_contextual_self_in_application, substitute_contextual_self_in_substitution,
+};
 use super::specialization_identity::encoding::structural_type_identity;
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -156,10 +160,7 @@ impl ConcreteCodegenInstance {
         })
     }
 
-    pub(super) fn bound_helper(
-        owner: &Self,
-        unit: bray_bound_tree::BoundUnitKey,
-    ) -> Option<Self> {
+    pub(super) fn bound_helper(owner: &Self, unit: bray_bound_tree::BoundUnitKey) -> Option<Self> {
         Some(Self {
             key: Self::inherited_key(owner, MirUnitKey::Bound(unit))?,
             callable: None,
@@ -445,13 +446,7 @@ impl Compilation {
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
-        self.concrete_codegen_callable_with_context(
-            callable,
-            witnesses,
-            None,
-            target,
-            cancellation,
-        )
+        self.concrete_codegen_callable_with_context(callable, witnesses, None, target, cancellation)
     }
 
     fn concrete_codegen_callable_with_context(
@@ -500,7 +495,7 @@ impl Compilation {
             witnesses,
             contextual_self_witness,
         )
-            .ok_or_else(|| FactQueryError::InfrastructureFailure.into())
+        .ok_or_else(|| FactQueryError::InfrastructureFailure.into())
     }
 
     fn codegen_callable_template(
@@ -562,30 +557,38 @@ impl Compilation {
         }
 
         let values = self.semantic_value_store()?;
+        let binding_context = self.binding_context(cancellation)?;
+        let contextual_self = codegen_instance_contextual_self(&binding_context, owner)?;
         let reference = demand.reference();
         let callable = reference.instance();
 
-        let (callable, mut witnesses) = match owner.substitution() {
+        let (substitution, mut witnesses) = match owner.substitution() {
             Some(owner_substitution) => {
                 let substitution = values
                     .substitute_generic_substitution(callable.substitution(), owner_substitution)
                     .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-                let callable = CallableInstanceData::new(callable.definition(), substitution);
+                let witnesses = self.concrete_codegen_demand_witnesses(
+                    demand.witnesses(),
+                    owner_substitution,
+                    contextual_self,
+                )?;
 
-                let witnesses =
-                    self.concrete_codegen_demand_witnesses(demand.witnesses(), owner_substitution)?;
-
-                (callable, witnesses)
+                (substitution, witnesses)
             }
-            None => {
-                values
-                    .require_concrete_substitution(callable.substitution())
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-                (callable, demand.witnesses().to_vec())
-            }
+            None => (callable.substitution(), demand.witnesses().to_vec()),
         };
+
+        let substitution =
+            substitute_contextual_self_in_substitution(&values, substitution, contextual_self)?;
+
+        if owner.substitution().is_none() {
+            values
+                .require_concrete_substitution(substitution)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        }
+
+        let callable = CallableInstanceData::new(callable.definition(), substitution);
 
         witnesses.extend(self.concrete_codegen_forwarded_constraint_witnesses(
             owner,
@@ -622,6 +625,7 @@ impl Compilation {
 
         let values = self.semantic_value_store()?;
         let binding_context = self.binding_context(cancellation)?;
+        let contextual_self = codegen_instance_contextual_self(&binding_context, owner)?;
 
         if let Some(requirement) = dispatch.trait_default_requirement() {
             let subject = values
@@ -629,10 +633,7 @@ impl Compilation {
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
             let application = values
-                .substitute_trait_application(
-                    requirement.trait_application(),
-                    owner_substitution,
-                )
+                .substitute_trait_application(requirement.trait_application(), owner_substitution)
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
             let requirement = ImplementationRequirementKey::new(subject, application);
@@ -645,8 +646,11 @@ impl Compilation {
                 TypeData::ContextualSelf(_)
             );
 
-            let demand_witnesses = self
-                .concrete_codegen_demand_witnesses(demand.witnesses(), owner_substitution)?;
+            let demand_witnesses = self.concrete_codegen_demand_witnesses(
+                demand.witnesses(),
+                owner_substitution,
+                contextual_self,
+            )?;
 
             let witness = self
                 .concrete_codegen_matching_witness(
@@ -745,6 +749,11 @@ impl Compilation {
             .substitute_trait_application(application, owner_substitution)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
+        let subject = substitute_contextual_self(&values, subject, contextual_self)?;
+
+        let application =
+            substitute_contextual_self_in_application(&values, application, contextual_self)?;
+
         let requirement = ImplementationRequirementKey::new(subject, application);
 
         let witness = self.concrete_codegen_dispatch_witness(owner, requirement, cancellation)?;
@@ -771,6 +780,8 @@ impl Compilation {
                     let target = values
                         .substitute_type(target, owner_substitution)
                         .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                    let target = substitute_contextual_self(&values, target, contextual_self)?;
 
                     let conversion = bray_checker::built_in_conversion_plan_for_context(
                         &context, subject, target,
@@ -805,8 +816,11 @@ impl Compilation {
         )?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let mut witnesses =
-            self.concrete_codegen_demand_witnesses(demand.witnesses(), owner_substitution)?;
+        let mut witnesses = self.concrete_codegen_demand_witnesses(
+            demand.witnesses(),
+            owner_substitution,
+            contextual_self,
+        )?;
 
         witnesses.extend(
             self.concrete_codegen_implementation_constraint_witnesses(witness, cancellation)?,
@@ -823,7 +837,7 @@ impl Compilation {
             target,
             cancellation,
         )
-            .map(ConcreteCodegenCallee::Instance)
+        .map(ConcreteCodegenCallee::Instance)
     }
 
     fn concrete_codegen_dispatch_witness(
@@ -1023,6 +1037,7 @@ impl Compilation {
         &self,
         witnesses: &[ImplementationInstanceId],
         owner_substitution: GenericSubstitutionId,
+        contextual_self: Option<(bray_symbols::SelfTypeContext, bray_symbols::TypeId)>,
     ) -> Result<Vec<ImplementationInstanceId>, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
 
@@ -1036,6 +1051,12 @@ impl Compilation {
                 let substitution = values
                     .substitute_generic_substitution(data.substitution(), owner_substitution)
                     .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+                let substitution = substitute_contextual_self_in_substitution(
+                    &values,
+                    substitution,
+                    contextual_self,
+                )?;
 
                 let substitution = self.realize_codegen_substitution(substitution)?;
 
@@ -1057,6 +1078,8 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
+        let binding_context = self.binding_context(cancellation)?;
+        let contextual_self = codegen_instance_contextual_self(&binding_context, owner)?;
 
         let substitution = match owner.substitution() {
             Some(owner_substitution) => values
@@ -1064,6 +1087,9 @@ impl Compilation {
                 .map_err(|_| FactQueryError::InfrastructureFailure)?,
             None => callable.substitution(),
         };
+
+        let substitution =
+            substitute_contextual_self_in_substitution(&values, substitution, contextual_self)?;
 
         let callable = CallableInstanceData::new(callable.definition(), substitution);
 

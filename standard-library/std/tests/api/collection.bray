@@ -21,6 +21,7 @@ using std.collection.StackDequeAdapter;
 using std.collection.WriteCursorIterator;
 using std.iteration;
 using std.iteration.EnumerateIterator;
+using std.iteration.IteratorDefaultOperations;
 using std.iteration.SkipIterator;
 using std.iteration.TakeIterator;
 using std.memory;
@@ -40,7 +41,7 @@ trusted func list_operations() -> Result<unit, std.memory.MemoryLayoutError>
     try trusted std.collection.push<i32>(&mut values, 30);
 
     let inserted: bool = try trusted std.collection.insert<i32>(&mut values, 20, index = 1);
-    let items: &[i32] = std.collection.as_slice<i32>(&values);
+    let items: &[i32] = values.as_slice();
 
     assert(inserted);
     assert(std.collection.length<i32>(&values) == 3);
@@ -89,11 +90,9 @@ trusted func list_capacity_and_iteration() -> Result<unit, std.memory.MemoryLayo
 
     let cursor: std.collection.MoveCursor<i32> = values(Iterable).iterate();
 
-    let taken: std.iteration.Take<std.collection.MoveCursor<i32>, i32> = std.iteration.take<
-        std.collection.MoveCursor<i32>
-    >(cursor, count = 2);
+    let mut taken: std.iteration.Take<std.collection.MoveCursor<i32>, i32> = cursor.take(count = 2);
 
-    let second: i32? = std.iteration.nth<std.iteration.Take<std.collection.MoveCursor<i32>, i32>>(taken, index = 1);
+    let second: i32? = taken.nth(index = 1);
 
     match consume second
     {
@@ -115,16 +114,12 @@ trusted func iterator_adapters_preserve_order() -> Result<unit, std.memory.Memor
 
     let cursor: std.collection.MoveCursor<i32> = values(Iterable).iterate();
 
-    let skipped: std.iteration.Skip<std.collection.MoveCursor<i32>, i32> = std.iteration.skip<
-        std.collection.MoveCursor<i32>
-    >(cursor, count = 1);
+    let skipped: std.iteration.Skip<std.collection.MoveCursor<i32>, i32> = cursor.skip(count = 1);
 
-    let enumerated: std.iteration.Enumerate<std.iteration.Skip<std.collection.MoveCursor<i32>, i32>, i32> =
-        std.iteration.enumerate<std.iteration.Skip<std.collection.MoveCursor<i32>, i32>>(skipped);
+    let mut enumerated: std.iteration.Enumerate<std.iteration.Skip<std.collection.MoveCursor<i32>, i32>, i32> =
+        skipped.enumerate();
 
-    let item: (usize, i32)? = std.iteration.first<
-        std.iteration.Enumerate<std.iteration.Skip<std.collection.MoveCursor<i32>, i32>, i32>
-    >(enumerated);
+    let item: (usize, i32)? = enumerated.first();
 
     match consume item
     {
@@ -157,12 +152,12 @@ trusted func list_mutation_edges() -> Result<unit, std.memory.MemoryLayoutError>
     std.collection.reverse<i32>(&mut values);
 
     {
-        let items: &mut [i32] = std.collection.as_slice_mut<i32>(&mut values);
+        let items: &mut [i32] = values.as_slice_mut();
 
         items[1] = 8;
     }
 
-    let items: &[i32] = std.collection.as_slice<i32>(&values);
+    let items: &[i32] = values.as_slice();
 
     assert(items[0] == 3);
     assert(items[1] == 8);
@@ -204,8 +199,8 @@ trusted func borrowed_list_iteration_preserves_access() -> Result<unit, std.memo
 
     {
         let source: &std.collection.List<i32> = &values;
-        let cursor: std.collection.ReadCursor<i32> = source(Iterable).iterate();
-        let item: (&i32)? = std.iteration.first<std.collection.ReadCursor<i32>>(cursor);
+        let mut cursor: std.collection.ReadCursor<i32> = source(Iterable).iterate();
+        let item: (&i32)? = cursor.first();
 
         match consume item
         {
@@ -226,7 +221,7 @@ trusted func borrowed_list_iteration_preserves_access() -> Result<unit, std.memo
         }
     }
 
-    let items: &[i32] = std.collection.as_slice<i32>(&values);
+    let items: &[i32] = values.as_slice();
 
     assert(items[0] == 9);
     assert(items[1] == 5);
@@ -244,11 +239,9 @@ trusted func iterator_boundaries() -> Result<unit, std.memory.MemoryLayoutError>
 
     let zero_cursor: std.collection.MoveCursor<i32> = values(Iterable).iterate();
 
-    let zero: std.iteration.Take<std.collection.MoveCursor<i32>, i32> = std.iteration.take<
-        std.collection.MoveCursor<i32>
-    >(zero_cursor, count = 0);
+    let mut zero: std.iteration.Take<std.collection.MoveCursor<i32>, i32> = zero_cursor.take(count = 0);
 
-    let missing: i32? = std.iteration.first<std.iteration.Take<std.collection.MoveCursor<i32>, i32>>(zero);
+    let missing: i32? = zero.first();
 
     match missing
     {
@@ -262,11 +255,9 @@ trusted func iterator_boundaries() -> Result<unit, std.memory.MemoryLayoutError>
 
     let skip_cursor: std.collection.MoveCursor<i32> = skipped_values(Iterable).iterate();
 
-    let skipped: std.iteration.Skip<std.collection.MoveCursor<i32>, i32> = std.iteration.skip<
-        std.collection.MoveCursor<i32>
-    >(skip_cursor, count = 2);
+    let mut skipped: std.iteration.Skip<std.collection.MoveCursor<i32>, i32> = skip_cursor.skip(count = 2);
 
-    let exhausted: i32? = std.iteration.first<std.iteration.Skip<std.collection.MoveCursor<i32>, i32>>(skipped);
+    let exhausted: i32? = skipped.first();
 
     match exhausted
     {
@@ -285,12 +276,12 @@ trusted func list_growth_relocates_only_initialized_owned_values() -> Result<uni
 
     let first: OwnedValue =
     {
-        bytes = try std.bytes.Buffer.from_slice(&first_bytes[..]),
+        bytes = try std.bytes.Buffer.new(&first_bytes[..]),
     };
 
     let second: OwnedValue =
     {
-        bytes = try std.bytes.Buffer.from_slice(&second_bytes[..]),
+        bytes = try std.bytes.Buffer.new(&second_bytes[..]),
     };
 
     let mut values: std.collection.List<OwnedValue> = try trusted std.collection.List<OwnedValue>(capacity = 4);
@@ -306,16 +297,16 @@ trusted func list_growth_relocates_only_initialized_owned_values() -> Result<uni
 
     assert(std.collection.capacity<OwnedValue>(&values) == 8);
 
-    let stored: &[OwnedValue] = std.collection.as_slice<OwnedValue>(&values);
+    let stored: &[OwnedValue] = values.as_slice();
 
-    assert(std.bytes.as_slice(&stored[0].bytes)[0] == 11);
-    assert(std.bytes.as_slice(&stored[1].bytes)[0] == 22);
+    assert(stored[0].bytes.as_slice()[0] == 11);
+    assert(stored[1].bytes.as_slice()[0] == 22);
 
     let removed: OwnedValue? = trusted std.collection.pop<OwnedValue>(&mut values);
 
     match consume removed
     {
-        case ?value { assert(std.bytes.as_slice(&value.bytes)[0] == 22); }
+        case ?value { assert(value.bytes.as_slice()[0] == 22); }
         case none { assert(false); }
     }
 
@@ -440,8 +431,8 @@ trusted func deque_iteration_preserves_wrapped_logical_order() -> Result<unit, s
 
     {
         let source: &std.collection.Deque<i32> = &values;
-        let cursor: std.collection.DequeReadCursor<i32> = source(Iterable).iterate();
-        let third: (&i32)? = std.iteration.nth<std.collection.DequeReadCursor<i32>>(cursor, index = 2);
+        let mut cursor: std.collection.DequeReadCursor<i32> = source(Iterable).iterate();
+        let third: (&i32)? = cursor.nth(index = 2);
 
         match third
         {
@@ -462,8 +453,8 @@ trusted func deque_iteration_preserves_wrapped_logical_order() -> Result<unit, s
         }
     }
 
-    let cursor: std.collection.DequeMoveCursor<i32> = values(Iterable).iterate();
-    let second: i32? = std.iteration.nth<std.collection.DequeMoveCursor<i32>>(cursor, index = 1);
+    let mut cursor: std.collection.DequeMoveCursor<i32> = values(Iterable).iterate();
+    let second: i32? = cursor.nth(index = 1);
 
     match consume second
     {
@@ -517,25 +508,25 @@ trusted func deque_owned_zero_sized_and_overflow_edges() -> Result<unit, std.mem
 
     try trusted owned.push_front(
         {
-            bytes = try std.bytes.Buffer.from_slice(&first_bytes[..]),
+            bytes = try std.bytes.Buffer.new(&first_bytes[..]),
         }
     );
 
     try trusted owned.push_back(
         {
-            bytes = try std.bytes.Buffer.from_slice(&second_bytes[..]),
+            bytes = try std.bytes.Buffer.new(&second_bytes[..]),
         }
     );
 
     match consume trusted owned.pop_front()
     {
-        case ?value { assert(std.bytes.as_slice(&value.bytes)[0] == 31); }
+        case ?value { assert(value.bytes.as_slice()[0] == 31); }
         case none { std.testing.fail(&"expected owned deque value"); }
     }
 
     match consume trusted owned.pop_back()
     {
-        case ?value { assert(std.bytes.as_slice(&value.bytes)[0] == 47); }
+        case ?value { assert(value.bytes.as_slice()[0] == 47); }
         case none { std.testing.fail(&"expected owned deque value"); }
     }
 
@@ -567,10 +558,10 @@ trusted func deque_owned_zero_sized_and_overflow_edges() -> Result<unit, std.mem
 @test
 trusted func stack_and_queue_are_explicit_deque_adapters() -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let mut stack: std.collection.Stack<i32> = try trusted std.collection.Stack<i32>();
+    let empty_stack: std.collection.Stack<i32> = try trusted std.collection.Stack<i32>.new();
+    let mut stack: std.collection.Stack<i32> = try trusted std.collection.Stack<i32>.new(capacity = 4);
 
-    try trusted stack.reserve(additional = 4);
-
+    assert(empty_stack.is_empty());
     assert(stack.capacity() == 4);
 
     try trusted stack.push(1);
@@ -595,7 +586,7 @@ trusted func stack_and_queue_are_explicit_deque_adapters() -> Result<unit, std.m
     }
 
     let storage: std.collection.Deque<i32> = stack.into_deque();
-    let mut queue: std.collection.Queue<i32> = std.collection.Queue<i32>.from_deque(storage);
+    let mut queue: std.collection.Queue<i32> = std.collection.Queue<i32>.new(storage);
 
     try trusted queue.enqueue(3);
     try trusted queue.enqueue(4);
@@ -619,20 +610,33 @@ trusted func stack_and_queue_are_explicit_deque_adapters() -> Result<unit, std.m
     }
 
     let remaining: std.collection.Deque<i32> = queue.into_deque();
-    let first_index: usize = 0;
-    let second_index: usize = 1;
+    let mut cleared: std.collection.Queue<i32> = std.collection.Queue<i32>.new(remaining);
+    let reserved: std.collection.Queue<i32> = try trusted std.collection.Queue<i32>.new(capacity = 2);
 
+    assert(cleared.length() == 2);
+
+    match cleared.peek()
     {
-        assert(remaining.length() == 2);
-        assert(remaining[first_index] == 30);
-        assert(remaining[second_index] == 4);
+        case ?value { assert(value == 30); }
+        case none { std.testing.fail(&"expected rewrapped queue front"); }
     }
 
-    let mut cleared: std.collection.Queue<i32> = std.collection.Queue<i32>.from_deque(remaining);
+    match trusted cleared.dequeue()
+    {
+        case ?value { assert(value == 30); }
+        case none { std.testing.fail(&"expected rewrapped queue value"); }
+    }
+
+    match cleared.peek()
+    {
+        case ?value { assert(value == 4); }
+        case none { std.testing.fail(&"expected rewrapped queue remainder"); }
+    }
 
     trusted cleared.clear();
 
     assert(cleared.is_empty());
+    assert(reserved.capacity() == 2);
 
     match trusted cleared.dequeue()
     {

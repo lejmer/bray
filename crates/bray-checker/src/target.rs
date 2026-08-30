@@ -763,12 +763,15 @@ mod tests {
         let baseline = bray_target::test_support::test_target_profile();
         let properties = baseline.properties();
 
+        let c_abi = bray_target::TargetCDataModel::try_new(&[])
+            .unwrap_or_else(|| panic!("empty C scalar mapping must be valid"));
+
         let properties = TargetProperties::new(
             properties.identity().clone(),
             properties.scalars(),
             properties.atomics(),
             TargetAbiSupport::new(None, None),
-            properties.c_abi(),
+            c_abi,
             properties.address_spaces(),
             properties.alignments(),
             properties.operations(),

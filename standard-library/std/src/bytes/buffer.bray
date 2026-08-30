@@ -6,7 +6,12 @@ struct Buffer
 {
     internal mut storage: std.memory.RawBuffer<u8>;
 
-    trusted construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>
+    trusted internal construct empty() -> Result<Self, std.memory.MemoryLayoutError>
+    {
+        return trusted Buffer.with_capacity(0);
+    }
+
+    trusted internal construct with_capacity(pos capacity: usize) -> Result<Self, std.memory.MemoryLayoutError>
     {
         let storage: std.memory.RawBuffer<u8> = try trusted std.memory.RawBuffer<u8>(capacity = capacity);
 
@@ -18,16 +23,16 @@ struct Buffer
         return Ok(buffer);
     }
 
-    trusted construct from_slice(pos bytes: &[u8]) -> Result<Self, std.memory.MemoryLayoutError>
+    trusted internal construct from_slice(pos bytes: &[u8]) -> Result<Self, std.memory.MemoryLayoutError>
     {
         let byte_count: usize = internal std.memory.slice_length<u8>(bytes);
 
         if byte_count == 0
         {
-            return Buffer(capacity = 0);
+            return Buffer.empty();
         }
 
-        let mut buffer: Buffer = try Buffer(capacity = byte_count);
+        let mut buffer: Buffer = try Buffer.with_capacity(byte_count);
         let destination: RawPointer<u8> = buffer.storage.pointer;
 
         trusted internal std.memory.byte_buffer_copy(
@@ -40,6 +45,24 @@ struct Buffer
 
         return Ok(buffer);
     }
+
+    /// Creates an empty buffer, reserves a capacity, or copies a byte slice.
+    overload new =
+    {
+        empty,
+        with_capacity,
+        from_slice,
+    }
+
+    func as_slice() -> &[u8]
+    {
+        return trusted std.memory.initialized_slice<u8>(&self.storage);
+    }
+
+    mut func as_slice_mut() -> &mut [u8]
+    {
+        return trusted std.memory.initialized_slice_mut<u8>(&mut self.storage);
+    }
 }
 
 func length(pos buffer: &Buffer) -> usize
@@ -50,16 +73,6 @@ func length(pos buffer: &Buffer) -> usize
 func capacity(pos buffer: &Buffer) -> usize
 {
     return std.memory.capacity<u8>(&buffer.storage);
-}
-
-func as_slice(pos buffer: &Buffer) -> &[u8]
-{
-    return trusted std.memory.initialized_slice<u8>(&buffer.storage);
-}
-
-func as_slice_mut(pos buffer: &mut Buffer) -> &mut [u8]
-{
-    return trusted std.memory.initialized_slice_mut<u8>(&mut buffer.storage);
 }
 
 func slice_length(pos bytes: &[u8]) -> usize
@@ -182,7 +195,10 @@ trusted internal func initialize_spare_byte(pos buffer: &mut Buffer, value: u8) 
     trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = current_length + 1);
 }
 
-trusted func append(pos buffer: &mut Buffer, bytes: &[u8]) -> Result<unit, std.memory.MemoryLayoutError>
+trusted internal func append_slice(
+    pos buffer: &mut Buffer,
+    pos bytes: &[u8],
+) -> Result<unit, std.memory.MemoryLayoutError>
 {
     let byte_count: usize = internal std.memory.slice_length<u8>(bytes);
 
@@ -207,10 +223,10 @@ trusted func append(pos buffer: &mut Buffer, bytes: &[u8]) -> Result<unit, std.m
     return Ok(unit);
 }
 
-trusted func append_repeated(
+trusted internal func append_repeated(
     pos buffer: &mut Buffer,
-    value: u8,
-    count: usize,
+    pos value: u8,
+    pos count: usize,
 ) -> Result<unit, std.memory.MemoryLayoutError>
 {
     if count == 0
@@ -227,6 +243,13 @@ trusted func append_repeated(
     trusted std.memory.set_initialized_count<u8>(buffer = &mut buffer.storage, count = current_length + count);
 
     return Ok(unit);
+}
+
+/// Appends a byte slice or one repeated byte to a buffer.
+overload append =
+{
+    append_slice,
+    append_repeated,
 }
 
 trusted func pop(pos buffer: &mut Buffer) -> u8?

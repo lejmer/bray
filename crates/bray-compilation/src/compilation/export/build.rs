@@ -1,17 +1,18 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use bray_binder::SymbolQueryProvider;
+use bray_binder::{NameAccess, SymbolQueryProvider};
 use bray_package_interface::{
     ExportLookupInput, ExportRelationshipInput, ExportSymbolInput, ExportSymbolReferenceInput,
     ExportedLookupKind, InterfaceDependency, InterfaceProductKind, PackageInterfaceExportBundle,
     SymbolRelationshipKind, build_package_interface_surface,
 };
 use bray_symbols::{
-    AnySymbolId, ExternalSymbolKey, ModulePathKey, ModuleSurfaceQuery, ModuleSymbolId, ProductKind,
-    SymbolKeyData, SymbolKind, SymbolOrdinal, SymbolOrigin, SymbolQueryRequest,
-    SynthesizedSymbolKey, SynthesizedSymbolRole,
+    AnySymbolId, ExternalSymbolKey, MemberLookupResult, ModulePathKey, ModuleSurfaceQuery,
+    ModuleSymbolId, ProductKind, SymbolKeyData, SymbolKind, SymbolOrdinal, SymbolOrigin,
+    SymbolQueryRequest, SynthesizedSymbolKey, SynthesizedSymbolRole,
 };
+use bray_syntax::PathSyntax;
 
 use super::PackageInterfaceExportError;
 use crate::compilation::Compilation;
@@ -226,11 +227,18 @@ fn build_identity_surface(
         .map(|symbol| export_symbol(graph, symbol, &keys))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let relationships = selected
+    let mut relationships = selected
         .iter()
         .copied()
         .filter_map(|symbol| export_relationship(graph, symbol, &selected, &keys).transpose())
         .collect::<Result<Vec<_>, _>>()?;
+
+    relationships.extend(source_overload_relationships(
+        compilation,
+        graph,
+        &selected,
+        &keys,
+    )?);
 
     let mut exports = direct_exports(graph, &selected, &keys)?;
     exports.extend(compilation.public_module_re_exports(&module_keys(graph, &keys)?)?);
@@ -242,6 +250,100 @@ fn build_identity_surface(
         selected,
         keys,
     })
+}
+
+fn source_overload_relationships(
+    compilation: &Compilation,
+    graph: &bray_symbols::SymbolGraph,
+    selected: &BTreeSet<AnySymbolId>,
+    keys: &BTreeMap<AnySymbolId, ExternalSymbolKey>,
+) -> Result<Vec<ExportRelationshipInput>, PackageInterfaceExportError> {
+    let binding_context = compilation
+        .binding_context(&compilation.state.cancellation)
+        .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+    let overloads = graph
+        .callable_overloads()
+        .iter()
+        .filter(|overload| overload.origin() == SymbolOrigin::Source)
+        .map(|overload| (AnySymbolId::from(overload.id()), overload.arm_syntax()))
+        .chain(
+            graph
+                .implementation_overloads()
+                .iter()
+                .filter(|overload| overload.origin() == SymbolOrigin::Source)
+                .map(|overload| (AnySymbolId::from(overload.id()), overload.arm_syntax())),
+        );
+
+    let mut relationships = Vec::new();
+
+    for (overload, arms) in overloads {
+        if !selected.contains(&overload) {
+            continue;
+        }
+
+        let owner = graph.containing_symbol(overload).ok_or(
+            PackageInterfaceExportError::IncompletePublicDeclarationSemantics(overload.kind()),
+        )?;
+
+        let owner_key = keys.get(&overload).cloned().ok_or(
+            PackageInterfaceExportError::IncompletePublicDeclarationSemantics(overload.kind()),
+        )?;
+
+        for (ordinal, anchor) in arms.iter().enumerate() {
+            let path = anchor
+                .find_descendant::<PathSyntax>(compilation.syntax_tree())
+                .ok_or(
+                    PackageInterfaceExportError::IncompletePublicDeclarationSemantics(
+                        overload.kind(),
+                    ),
+                )?;
+
+            let result = match owner {
+                AnySymbolId::Module(module) => {
+                    binding_context.bind_surface_path(module, &path, NameAccess::Internal)
+                }
+                owner => {
+                    binding_context.bind_owner_surface_path(owner, &path, NameAccess::Internal)
+                }
+            }
+            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+            if result.diagnostics().has_errors() {
+                return Err(PackageInterfaceExportError::InvalidCompilation);
+            }
+
+            let MemberLookupResult::Found(member) = result.value() else {
+                return Err(PackageInterfaceExportError::InvalidCompilation);
+            };
+
+            if !selected.contains(member) {
+                return Err(
+                    PackageInterfaceExportError::IncompletePublicDeclarationSemantics(
+                        member.kind(),
+                    ),
+                );
+            }
+
+            let member_key = keys.get(member).cloned().ok_or(
+                PackageInterfaceExportError::IncompletePublicDeclarationSemantics(member.kind()),
+            )?;
+
+            let ordinal = u32::try_from(ordinal)
+                .map(SymbolOrdinal::new)
+                .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+
+            // Each serialized overload-arm relationship owns its stable owner identity.
+            relationships.push(ExportRelationshipInput::new(
+                SymbolRelationshipKind::OverloadArm,
+                owner_key.clone(),
+                member_key,
+                ordinal.raw(),
+            ));
+        }
+    }
+
+    Ok(relationships)
 }
 
 fn package_symbol(
@@ -815,6 +917,79 @@ mod tests {
 
         assert_eq!(bundle.surface().symbols().symbols().len(), 5);
         assert!(bundle.surface().exports().is_empty());
+    }
+
+    #[test]
+    fn type_owned_callable_overloads_round_trip_through_package_interfaces() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "public struct Value<T>\n",
+            "{\n",
+            "    stored: T;\n",
+            "    internal construct single(pos value: T) -> Self\n",
+            "    {\n",
+            "        return { stored = value };\n",
+            "    }\n",
+            "    internal construct pair(pos first: T, pos second: T) -> Self\n",
+            "    {\n",
+            "        return { stored = first };\n",
+            "    }\n",
+            "    overload new = {single, pair}\n",
+            "}\n",
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "unexpected diagnostics: {:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let bundle = export(&compilation);
+
+        let artifact = encode_package_interface(bundle)
+            .unwrap_or_else(|error| panic!("overloaded interface must encode: {error:?}"));
+
+        ValidatedPackageInterface::try_new(
+            artifact.shared_bytes(),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        )
+        .unwrap_or_else(|error| panic!("overloaded interface must validate: {error:?}"));
+    }
+
+    #[test]
+    fn generic_trait_implementations_round_trip_through_package_interfaces() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "public trait Base\n",
+            "{\n",
+            "}\n",
+            "public trait Extension\n",
+            "{\n",
+            "}\n",
+            "impl DefaultExtension = Subject(Extension) with(Subject: Base)\n",
+            "{\n",
+            "}\n",
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "unexpected diagnostics: {:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let bundle = export(&compilation);
+
+        let artifact = encode_package_interface(bundle).unwrap_or_else(|error| {
+            panic!("generic implementation interface must encode: {error:?}")
+        });
+
+        ValidatedPackageInterface::try_new(
+            artifact.shared_bytes(),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        )
+        .unwrap_or_else(|error| {
+            panic!("generic implementation interface must validate: {error:?}")
+        });
     }
 
     #[test]
@@ -1711,7 +1886,7 @@ trusted internal func flush() -> PlatformStatus
                 "{\n",
                 "    internal value: bool;\n",
                 "\n",
-                "    construct(capacity: usize = 0)\n",
+                "    internal construct with_capacity(pos capacity: usize)\n",
                 "        -> Result<Self, std.memory.MemoryLayoutError>\n",
                 "    {\n",
                 "        let buffer: Buffer =\n",
@@ -1721,16 +1896,31 @@ trusted internal func flush() -> PlatformStatus
                 "\n",
                 "        return Ok(buffer);\n",
                 "    }\n",
+                "\n",
+                "    overload new =\n",
+                "    {\n",
+                "        with_capacity,\n",
+                "    }\n",
+                "\n",
+                "    func as_slice() -> &[u8]\n",
+                "    {\n",
+                "        return as_slice(&self);\n",
+                "    }\n",
                 "}\n",
                 "extern func as_slice(pos buffer: &Buffer) -> &[u8];\n",
                 "extern func length(pos buffer: &Buffer) -> usize;\n",
                 "extern func slice_length(pos bytes: &[u8]) -> usize;\n",
                 "extern func push(pos buffer: &mut Buffer, value: u8)\n",
                 "    -> Result<unit, std.memory.MemoryLayoutError>;\n",
-                "extern func append(pos buffer: &mut Buffer, bytes: &[u8])\n",
+                "extern internal func append_slice(pos buffer: &mut Buffer, pos bytes: &[u8])\n",
                 "    -> Result<unit, std.memory.MemoryLayoutError>;\n",
-                "extern func append_repeated(pos buffer: &mut Buffer, value: u8, count: usize)\n",
+                "extern internal func append_repeated(pos buffer: &mut Buffer, pos value: u8, pos count: usize)\n",
                 "    -> Result<unit, std.memory.MemoryLayoutError>;\n",
+                "overload append =\n",
+                "{\n",
+                "    append_slice,\n",
+                "    append_repeated,\n",
+                "}\n",
                 "extern func reserve(pos buffer: &mut Buffer, additional: usize)\n",
                 "    -> Result<unit, std.memory.MemoryLayoutError>;\n",
                 "extern func resize(pos buffer: &mut Buffer, new_length: usize, fill: u8 = 0)\n",
@@ -1770,6 +1960,29 @@ trusted internal func flush() -> PlatformStatus
                 "        requires(blocking_execution());\n",
                 "    mut func flush() -> Result<unit, IoError>\n",
                 "        requires(blocking_execution());\n",
+                "    mut func write_all(pos source: &[u8]) -> Result<unit, IoError>\n",
+                "        requires(blocking_execution())\n",
+                "    {\n",
+                "        let length: usize = std.bytes.slice_length(source);\n",
+                "        let mut written: usize = 0;\n",
+                "        while written < length\n",
+                "        {\n",
+                "            let result: Result<usize, IoError> = self.write(&source[written..length]);\n",
+                "            match consume result\n",
+                "            {\n",
+                "                case Ok(count)\n",
+                "                {\n",
+                "                    if count == 0 || count > length - written\n",
+                "                    {\n",
+                "                        return Error({ kind = IoErrorKind.BrokenStream, transferred = written });\n",
+                "                    }\n",
+                "                    written += count;\n",
+                "                }\n",
+                "                case Error(error) { return Error(prefixed_error(error, prefix = written)); }\n",
+                "            }\n",
+                "        }\n",
+                "        return Ok(unit);\n",
+                "    }\n",
                 "}\n",
                 "internal func smaller(pos left: usize, pos right: usize) -> usize\n",
                 "{\n",
@@ -1782,30 +1995,6 @@ trusted internal func flush() -> PlatformStatus
                 "internal func prefixed_error(pos error: IoError, prefix: usize) -> IoError\n",
                 "{\n",
                 "    return { kind = error.kind, transferred = prefix + error.transferred };\n",
-                "}\n",
-                "func write_all<Sink>(pos sink: &mut Sink, pos source: &[u8]) -> Result<unit, IoError>\n",
-                "    with(Sink: Writer)\n",
-                "    requires(blocking_execution())\n",
-                "{\n",
-                "    let length: usize = std.bytes.slice_length(source);\n",
-                "    let mut written: usize = 0;\n",
-                "    while written < length\n",
-                "    {\n",
-                "        let result: Result<usize, IoError> = sink.write(&source[written..length]);\n",
-                "        match consume result\n",
-                "        {\n",
-                "            case Ok(count)\n",
-                "            {\n",
-                "                if count == 0 || count > length - written\n",
-                "                {\n",
-                "                    return Error({ kind = IoErrorKind.BrokenStream, transferred = written });\n",
-                "                }\n",
-                "                written += count;\n",
-                "            }\n",
-                "            case Error(error) { return Error(prefixed_error(error, prefix = written)); }\n",
-                "        }\n",
-                "    }\n",
-                "    return Ok(unit);\n",
                 "}\n",
             ),
             include_str!("../../../../../standard-library/std/src/io/formatting.bray"),
@@ -1965,7 +2154,7 @@ trusted internal func flush() -> PlatformStatus
                 "{\n",
                 "    return std.format.write(\n",
                 "        destination,\n",
-                "        std.format.Argument<string>(&value),\n",
+                "        std.format.Argument.new<string>(&value),\n",
                 "    );\n",
                 "}\n",
                 "func render_integer(pos destination: &mut std.format.ByteSink, pos value: i32)\n",
@@ -1974,12 +2163,12 @@ trusted internal func flush() -> PlatformStatus
                 "{\n",
                 "    return std.format.write(\n",
                 "        destination,\n",
-                "        std.format.Argument<i32>(&value),\n",
+                "        std.format.Argument.new<i32>(&value),\n",
                 "    );\n",
                 "}\n",
                 "func resolved_defaults() -> std.format.Options\n",
                 "{\n",
-                "    return std.format.Options.default();\n",
+                "    return std.format.Options.new();\n",
                 "}\n",
                 "public trusted func stream_integer(pos writer: &mut RecordingWriter, pos value: u32)\n",
                 "    -> Result<unit, std.io.IoError>\n",
@@ -1993,7 +2182,7 @@ trusted internal func flush() -> PlatformStatus
                 "        std.io.IoError\n",
                 "    >(\n",
                 "        &mut destination,\n",
-                "        std.format.Argument<u32>(&value),\n",
+                "        std.format.Argument.new<u32>(&value),\n",
                 "    );\n",
                 "}\n",
             ),
@@ -2047,7 +2236,14 @@ trusted internal func flush() -> PlatformStatus
             .module_by_path(package.id(), &format_path)
             .unwrap_or_else(|| panic!("format module must be imported"));
 
-        for name in ["Argument", "ByteSink", "ByteSinkFormatting"] {
+        for name in [
+            "Argument",
+            "ByteSink",
+            "ByteSinkFormatting",
+            "Options",
+            "write",
+            "write_to",
+        ] {
             assert!(
                 matches!(
                     skeleton.lookup(format.id().into(), name),

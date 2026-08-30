@@ -12,7 +12,7 @@ trusted func decode_utf16(pos value: &BorrowedWideString) -> Result<string, Stri
     let units: &[WideChar] = value.units();
     let count: usize = std.memory.slice_length<WideChar>(units);
 
-    let mut bytes: std.bytes.Buffer = match trusted std.bytes.Buffer(capacity = count)
+    let mut bytes: std.bytes.Buffer = match trusted std.bytes.Buffer.new(count)
     {
         case Ok(buffer) { yield buffer; }
         case Error(_) { return Error(StringError.Allocation); }
@@ -95,7 +95,7 @@ trusted func encode_utf16(pos value: &string) -> Result<OwnedWideString, StringE
         }
     }
 
-    return trusted OwnedWideString.from_units(std.collection.as_slice<WideChar>(&units));
+    return trusted OwnedWideString.from_units(units.as_slice());
 }
 
 trusted internal func push_utf16_unit(

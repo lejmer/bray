@@ -27,7 +27,7 @@ func print(pos text: string) -> Result<unit, IoError>
     let bytes: &[u8] = std.string.utf8(&text);
     let length: usize = internal std.memory.slice_length<u8>(bytes);
 
-    try write_all(&mut output, bytes);
+    try output.write_all(bytes);
 
     return flush_after_write(&mut output, written = length);
 }
@@ -41,10 +41,10 @@ func print_line(pos text: string) -> Result<unit, IoError>
     let bytes: &[u8] = std.string.utf8(&text);
     let length: usize = internal std.memory.slice_length<u8>(bytes);
 
-    try write_all(&mut output, bytes);
+    try output.write_all(bytes);
 
     let newline: &[u8] = std.string.utf8(&"\n");
-    let newline_result: Result<unit, IoError> = write_all(&mut output, newline);
+    let newline_result: Result<unit, IoError> = output.write_all(newline);
 
     match consume newline_result
     {

@@ -17,15 +17,20 @@ func integer_limits_and_checked_arithmetic()
     assert(std.numeric.ISIZE_MIN < 0);
     assert(std.numeric.ISIZE_MAX > 0);
 
-    let sum: u8? = std.numeric.checked_add<u8>(20, 22);
-    let overflow: u8? = std.numeric.checked_add<u8>(std.numeric.U8_MAX, 1);
-    let signed_sum: i32? = std.numeric.checked_add<i32>(-60, 18);
-    let signed_product: i32? = std.numeric.checked_multiply<i32>(-6, 7);
-    let difference: u8? = std.numeric.checked_subtract<u8>(50, 8);
-    let underflow: u8? = std.numeric.checked_subtract<u8>(0, 1);
-    let product_overflow: u8? = std.numeric.checked_multiply<u8>(128, 2);
-    let division_by_zero: i32? = std.numeric.checked_divide<i32>(10, 0);
-    let division_overflow: i32? = std.numeric.checked_divide<i32>(std.numeric.I32_MIN, -1);
+    let twenty: u8 = 20;
+    let fifty: u8 = 50;
+    let zero: u8 = 0;
+    let one_hundred_twenty_eight: u8 = 128;
+
+    let sum: u8? = twenty.checked_add(22);
+    let overflow: u8? = std.numeric.U8_MAX.checked_add(1);
+    let signed_sum: i32? = (-60 as i32).checked_add(18);
+    let signed_product: i32? = (-6 as i32).checked_multiply(7);
+    let difference: u8? = fifty.checked_subtract(8);
+    let underflow: u8? = zero.checked_subtract(1);
+    let product_overflow: u8? = one_hundred_twenty_eight.checked_multiply(2);
+    let division_by_zero: i32? = (10 as i32).checked_divide(0);
+    let division_overflow: i32? = std.numeric.I32_MIN.checked_divide(-1);
 
     match sum
     {

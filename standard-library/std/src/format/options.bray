@@ -38,13 +38,13 @@ struct Options
     sign: Sign;
     escaping: Escaping;
 
-    construct(
-        radix: Radix,
-        precision: usize,
-        width: usize,
-        alignment: Alignment,
-        sign: Sign,
-        escaping: Escaping,
+    internal construct explicit(
+        pos radix: Radix,
+        pos precision: usize,
+        pos width: usize,
+        pos alignment: Alignment,
+        pos sign: Sign,
+        pos escaping: Escaping,
     ) -> Self
     {
         return
@@ -58,7 +58,7 @@ struct Options
         };
     }
 
-    construct default() -> Self
+    internal construct defaults() -> Self
     {
         return Options
         {
@@ -69,5 +69,12 @@ struct Options
             sign = Sign.NegativeOnly,
             escaping = Escaping.Raw,
         };
+    }
+
+    /// Creates default formatting options or a complete explicit option set.
+    overload new =
+    {
+        defaults,
+        explicit,
     }
 }

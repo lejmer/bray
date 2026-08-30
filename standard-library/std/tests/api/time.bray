@@ -54,9 +54,9 @@ func unavailable_monotonic_clocks_preserve_the_typed_failure()
 @test
 func civil_dates_validate_and_apply_explicit_adjustment() -> Result<unit, std.time.TimeError>
 {
-    let leap: std.time.Date = try std.time.Date(year = 2000, month = 2, day = 29);
+    let leap: std.time.Date = try std.time.Date.new(year = 2000, month = 2, day = 29);
     let period: std.time.CalendarPeriod = std.time.CalendarPeriod(months = 1);
-    let january: std.time.Date = try std.time.Date(year = 2024, month = 1, day = 31);
+    let january: std.time.Date = try std.time.Date.new(year = 2024, month = 1, day = 31);
     let clamped: std.time.Date = try january.add(period, adjustment = std.time.DateAdjustment.Clamp);
 
     assert(leap.year() == 2000);
@@ -66,13 +66,15 @@ func civil_dates_validate_and_apply_explicit_adjustment() -> Result<unit, std.ti
     assert(clamped.month() == 2);
     assert(clamped.day() == 29);
 
-    match std.testing.assert_error<std.time.Date, std.time.TimeError>(std.time.Date(year = 1900, month = 2, day = 29))
+    match std.testing.assert_error<std.time.Date, std.time.TimeError>(
+        std.time.Date.new(year = 1900, month = 2, day = 29)
+    )
     {
         case std.time.TimeError.InvalidValue {}
         case _ { assert(false); }
     }
 
-    let rejected: std.time.Date = try std.time.Date(year = 2024, month = 1, day = 31);
+    let rejected: std.time.Date = try std.time.Date.new(year = 2024, month = 1, day = 31);
 
     match std.testing.assert_error<std.time.Date, std.time.TimeError>(rejected.add(std.time.CalendarPeriod(months = 1)))
     {
@@ -80,13 +82,15 @@ func civil_dates_validate_and_apply_explicit_adjustment() -> Result<unit, std.ti
         case _ { assert(false); }
     }
 
-    match std.testing.assert_error<std.time.Date, std.time.TimeError>(std.time.Date(year = 65536, month = 1, day = 1))
+    match std.testing.assert_error<std.time.Date, std.time.TimeError>(
+        std.time.Date.new(year = 65536, month = 1, day = 1)
+    )
     {
         case std.time.TimeError.OutOfRange {}
         case _ { assert(false); }
     }
 
-    let maximum: std.time.Date = try std.time.Date(year = 32767, month = 12, day = 31);
+    let maximum: std.time.Date = try std.time.Date.new(year = 32767, month = 12, day = 31);
 
     match std.testing.assert_error<std.time.Date, std.time.TimeError>(maximum.add(std.time.CalendarPeriod(years = 1)))
     {
@@ -100,25 +104,30 @@ func civil_dates_validate_and_apply_explicit_adjustment() -> Result<unit, std.ti
 @test
 func civil_and_timestamp_text_round_trip() -> Result<unit, std.time.TimeError>
 {
-    let date: std.time.Date = try std.time.Date.parse(&"2024-02-29");
+    let date: std.time.Date = try std.time.Date.new(&"2024-02-29");
     let date_text: string = try date.iso8601();
 
-    let time: std.time.TimeOfDay = try std.time.TimeOfDay.parse(&"12:34:56.125");
+    let time: std.time.TimeOfDay = try std.time.TimeOfDay.new(&"12:34:56.125");
     let time_text: string = try time.iso8601();
+    let whole_second: std.time.TimeOfDay = try std.time.TimeOfDay.new(12, 34, 56);
+    let component_time: std.time.TimeOfDay = try std.time.TimeOfDay.new(12, 34, 56, 125000000);
 
-    let local: std.time.LocalDateTime = try std.time.LocalDateTime.parse(&"2024-02-29T12:34:56.125");
+    let local: std.time.LocalDateTime = try std.time.LocalDateTime.new(&"2024-02-29T12:34:56.125");
     let local_text: string = try local.iso8601();
+    let component_local: std.time.LocalDateTime = std.time.LocalDateTime.new(date, component_time);
 
-    let timestamp: std.time.Timestamp = try std.time.Timestamp.parse(&"2024-02-29T12:34:56.125+05:30");
+    let timestamp: std.time.Timestamp = try std.time.Timestamp.new(&"2024-02-29T12:34:56.125+05:30");
 
     let offset: std.time.UtcOffset = try std.time.UtcOffset(seconds = 19800);
     let timestamp_text: string = try timestamp.rfc3339(offset);
-    let expanded: std.time.Date = try std.time.Date(year = 10000, month = 1, day = 2);
+    let expanded: std.time.Date = try std.time.Date.new(year = 10000, month = 1, day = 2);
     let expanded_text: string = try expanded.iso8601();
-    let expanded_round_trip: std.time.Date = try std.time.Date.parse(&expanded_text);
+    let expanded_round_trip: std.time.Date = try std.time.Date.new(&expanded_text);
 
     assert(std.string.equals(&date_text, &"2024-02-29"));
     assert(std.string.equals(&time_text, &"12:34:56.125"));
+    assert(whole_second.nanosecond() == 0);
+    assert(component_local.time().nanosecond() == 125000000);
     assert(std.string.equals(&local_text, &"2024-02-29T12:34:56.125"));
     assert(std.string.equals(&timestamp_text, &"2024-02-29T12:34:56.125+05:30"));
     assert(std.string.equals(&expanded_text, &"+010000-01-02"));
@@ -130,7 +139,7 @@ func civil_and_timestamp_text_round_trip() -> Result<unit, std.time.TimeError>
 @test
 func fixed_offsets_convert_without_named_time_zone_data() -> Result<unit, std.time.TimeError>
 {
-    let local: std.time.LocalDateTime = try std.time.LocalDateTime.parse(&"2024-02-29T12:34:56.125");
+    let local: std.time.LocalDateTime = try std.time.LocalDateTime.new(&"2024-02-29T12:34:56.125");
     let offset: std.time.UtcOffset = try std.time.UtcOffset(seconds = 19800);
     let timestamp: std.time.Timestamp = try local.at_offset(offset);
 
@@ -141,7 +150,7 @@ func fixed_offsets_convert_without_named_time_zone_data() -> Result<unit, std.ti
     assert(std.string.equals(&text, &"2024-02-29T12:34:56.125"));
 
     let extreme: std.time.Timestamp = std.testing.assert_ok<std.time.Timestamp, std.time.ClockError>(
-        std.time.Timestamp(seconds = 9223372036854775807, nanoseconds = 0)
+        std.time.Timestamp.new(seconds = 9223372036854775807, nanoseconds = 0)
     );
 
     match std.testing.assert_error<string, std.time.TimeError>(extreme.rfc3339())
@@ -157,8 +166,8 @@ func fixed_offsets_convert_without_named_time_zone_data() -> Result<unit, std.ti
 func named_time_zones_use_pinned_aliases_and_rules() -> Result<unit, std.time.TimeError>
 {
     let zone: std.time.TimeZone = try std.time.TimeZone.load(&"US/Eastern");
-    let summer: std.time.Timestamp = try std.time.Timestamp.parse(&"2024-07-01T12:00:00Z");
-    let winter: std.time.Timestamp = try std.time.Timestamp.parse(&"2040-01-01T12:00:00Z");
+    let summer: std.time.Timestamp = try std.time.Timestamp.new(&"2024-07-01T12:00:00Z");
+    let winter: std.time.Timestamp = try std.time.Timestamp.new(&"2040-01-01T12:00:00Z");
 
     assert(summer.seconds() == 1719835200);
 
@@ -181,8 +190,8 @@ func named_time_zones_use_pinned_aliases_and_rules() -> Result<unit, std.time.Ti
 func named_time_zones_expose_repeated_and_skipped_local_times() -> Result<unit, std.time.TimeError>
 {
     let zone: std.time.TimeZone = try std.time.TimeZone.load(&"America/New_York");
-    let repeated: std.time.LocalDateTime = try std.time.LocalDateTime.parse(&"2024-11-03T01:30:00");
-    let skipped: std.time.LocalDateTime = try std.time.LocalDateTime.parse(&"2024-03-10T02:30:00");
+    let repeated: std.time.LocalDateTime = try std.time.LocalDateTime.new(&"2024-11-03T01:30:00");
+    let skipped: std.time.LocalDateTime = try std.time.LocalDateTime.new(&"2024-03-10T02:30:00");
 
     match try zone.resolve(&repeated)
     {

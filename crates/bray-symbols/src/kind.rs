@@ -454,7 +454,8 @@ const fn is_module_member(kind: SymbolKind) -> bool {
 const fn is_type_or_implementation_member(kind: SymbolKind) -> bool {
     matches!(
         kind,
-        SymbolKind::TypeCallableMember
+        SymbolKind::CallableOverload
+            | SymbolKind::TypeCallableMember
             | SymbolKind::Constructor
             | SymbolKind::Finalizer
             | SymbolKind::Destructor
@@ -732,8 +733,9 @@ mod tests {
         }
     }
 
-    fn type_members() -> [SymbolKind; 7] {
+    fn type_members() -> [SymbolKind; 8] {
         [
+            SymbolKind::CallableOverload,
             SymbolKind::TypeCallableMember,
             SymbolKind::Constructor,
             SymbolKind::Finalizer,

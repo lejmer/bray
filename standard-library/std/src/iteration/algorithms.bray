@@ -1,30 +1,73 @@
 module std.iteration;
 
-func first<I>(pos mut iterator: I) -> I(Iterator).Element?
-    with(I: Iterator)
+/// Provides derived consuming operations for every iterator.
+trait IteratorOperations
 {
-    let item: I(Iterator).Element? = iterator(Iterator).next();
+    type Element;
 
-    return item;
-}
-
-func nth<I>(pos mut iterator: I, index: usize) -> I(Iterator).Element?
-    with(I: Iterator)
-{
-    let mut current: usize = 0;
-
-    while current < index
+    /// Returns the first item, or `none` when the iterator is empty.
+    consume mut func first() -> Element?
+        with(Self: Iterator, Self(Iterator).Element == Element)
     {
-        let skipped: I(Iterator).Element? = iterator(Iterator).next();
+        let item: Element? = self(Iterator).next();
 
-        match consume skipped
-        {
-            case ?_ { current += 1; }
-            case none { return none; }
-        }
+        return item;
     }
 
-    let item: I(Iterator).Element? = iterator(Iterator).next();
+    /// Returns the item at the supplied zero-based position.
+    consume mut func nth(index: usize) -> Element?
+        with(Self: Iterator, Self(Iterator).Element == Element)
+    {
+        let mut current: usize = 0;
 
-    return item;
+        while current < index
+        {
+            let skipped: Element? = self(Iterator).next();
+
+            match consume skipped
+            {
+                case ?_ { current += 1; }
+                case none { return none; }
+            }
+        }
+
+        let item: Element? = self(Iterator).next();
+
+        return item;
+    }
+
+    /// Limits iteration to at most the supplied item count.
+    consume func take(count: usize) -> Take<Self, Element>
+    {
+        return
+        {
+            source = self,
+            remaining = count,
+        };
+    }
+
+    /// Discards at most the supplied number of leading items.
+    consume func skip(count: usize) -> Skip<Self, Element>
+    {
+        return
+        {
+            source = self,
+            remaining = count,
+        };
+    }
+
+    /// Pairs every item with its zero-based position.
+    consume func enumerate() -> Enumerate<Self, Element>
+    {
+        return
+        {
+            source = self,
+        };
+    }
+}
+
+impl IteratorDefaultOperations = Source(IteratorOperations)
+    with(Source: Iterator)
+{
+    type Element = Source(Iterator).Element;
 }
