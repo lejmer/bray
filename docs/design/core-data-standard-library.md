@@ -454,13 +454,15 @@ and exclusive bounds explicitly and preserve ascending order unless the operatio
 ### Collection Adapters
 
 Stack and queue types are narrow adapters over sequence storage when their restricted interfaces communicate a useful
-invariant. They do not duplicate storage engines solely to provide alternate names. Their public operations expose only
-the ordering policy that defines the adapter, while conversion to and from the underlying owning collection is explicit.
+invariant. They do not duplicate storage engines solely to provide alternate names. Their direct operations expose only
+the ordering policy that defines the adapter, while projection and conversion to and from the underlying owning
+collection are explicit.
 
 `std.collection.Stack<T>` exposes `push`, `pop`, `peek`, and `peek_mut` with last-in-first-out ordering.
 `std.collection.Queue<T>` exposes `enqueue`, `dequeue`, `peek`, and `peek_mut` with first-in-first-out ordering. Both
-adapters expose `length`, `capacity`, `is_empty`, `reserve`, and `clear`, store one `Deque<T>` without an additional
-dispatch layer, and convert explicitly with `from_deque` and `into_deque`.
+adapters share `length`, `capacity`, `is_empty`, `reserve`, and `clear` through `DequeAdapter<T>`, store one `Deque<T>`
+without an additional dispatch layer, project it explicitly with `as_deque` and `as_deque_mut`, and convert explicitly
+with `from_deque` and `into_deque`.
 
 ## Formatting
 

@@ -23,21 +23,6 @@ struct Stack<T>
         };
     }
 
-    func length() -> usize
-    {
-        return self.storage.length();
-    }
-
-    func capacity() -> usize
-    {
-        return self.storage.capacity();
-    }
-
-    func is_empty() -> bool
-    {
-        return self.storage.is_empty();
-    }
-
     func peek() -> (&T)?
     {
         return self.storage.back();
@@ -46,11 +31,6 @@ struct Stack<T>
     mut func peek_mut() -> (&mut T)?
     {
         return self.storage.back_mut();
-    }
-
-    trusted mut func reserve(additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
-    {
-        return trusted self.storage.reserve(additional = additional);
     }
 
     trusted mut func push(pos value: T) -> Result<unit, std.memory.MemoryLayoutError>
@@ -62,10 +42,19 @@ struct Stack<T>
     {
         return trusted self.storage.pop_back();
     }
+}
 
-    trusted mut func clear()
+/// Makes the common deque-backed adapter operations available to `Stack<T>`.
+impl StackDequeAdapter = Stack<T>(DequeAdapter<T>)
+{
+    func as_deque() -> &Deque<T>
     {
-        trusted self.storage.clear();
+        return &self.storage;
+    }
+
+    mut func as_deque_mut() -> &mut Deque<T>
+    {
+        return &mut self.storage;
     }
 
     consume func into_deque() -> Deque<T>
