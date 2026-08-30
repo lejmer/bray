@@ -6,8 +6,13 @@ trusted func c_utf32_strings_name_and_validate_their_encoding() -> Result<unit, 
 {
     let encoded: std.ffi.c.OwnedWideString = try trusted std.ffi.c.encode_utf32(&"A😀");
     let borrowed: std.ffi.c.BorrowedWideString = encoded.borrow();
+    let units: &[std.ffi.c.WideChar] = borrowed.units_with_nul();
     let decoded: string = try trusted std.ffi.c.decode_utf32(&borrowed);
 
+    assert(std.memory.slice_length<std.ffi.c.WideChar>(units) == 3);
+    assert(units[0].value() == 65);
+    assert(units[1].value() == 128_512);
+    assert(units[2].value() == 0);
     assert(std.string.equals(&decoded, &"A😀"));
 
     let invalid_units: [std.ffi.c.WideChar; 2] = [std.ffi.c.wide_char_wrapping(-1), std.ffi.c.wide_char_wrapping(0)];

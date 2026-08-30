@@ -458,6 +458,13 @@ pub(crate) fn compilation_with_target_profile(
     source: &str,
     profile: bray_target::TargetProfile,
 ) -> Compilation {
+    compilation_with_sources_and_target_profile(&[source], profile)
+}
+
+pub(crate) fn compilation_with_sources_and_target_profile(
+    sources: &[&str],
+    profile: bray_target::TargetProfile,
+) -> Compilation {
     let baseline = crate::SelectedTarget::baseline();
 
     let options = CompilationOptions::new(
@@ -466,7 +473,7 @@ pub(crate) fn compilation_with_target_profile(
         crate::SelectedTarget::new(profile, baseline.runtime_abi()),
     );
 
-    compilation_with_options(source, options)
+    compilation_with_sources_and_options(sources, options)
 }
 
 pub(crate) fn compilation_with_target_operations(
@@ -506,9 +513,16 @@ pub(crate) fn compilation_with_target_operations(
 }
 
 pub(crate) fn compilation_with_options(source: &str, options: CompilationOptions) -> Compilation {
+    compilation_with_sources_and_options(&[source], options)
+}
+
+fn compilation_with_sources_and_options(
+    sources: &[&str],
+    options: CompilationOptions,
+) -> Compilation {
     let request = CompilationRequest::with_options(
         package_identity(),
-        vec![source_input(source, 0)],
+        source_inputs(sources),
         options,
     );
 
@@ -570,19 +584,9 @@ pub(crate) fn compilation_with_sources_product_and_worker_budget(
     product_kind: bray_symbols::ProductKind,
     worker_budget: WorkerBudget,
 ) -> Compilation {
-    let sources = sources
-        .iter()
-        .copied()
-        .enumerate()
-        .map(|(index, source)| match u32::try_from(index) {
-            Ok(version) => source_input(source, version),
-            Err(_) => panic!("test source index must fit in u32"),
-        })
-        .collect();
-
     let request = CompilationRequest::with_options(
         package_identity(),
-        sources,
+        source_inputs(sources),
         CompilationOptions::new(
             worker_budget,
             product_kind,
@@ -594,6 +598,18 @@ pub(crate) fn compilation_with_sources_product_and_worker_budget(
         Ok(compilation) => compilation,
         Err(error) => panic!("test compilation must load: {error:?}"),
     }
+}
+
+fn source_inputs(sources: &[&str]) -> Vec<SourceInput> {
+    sources
+        .iter()
+        .copied()
+        .enumerate()
+        .map(|(index, source)| match u32::try_from(index) {
+            Ok(version) => source_input(source, version),
+            Err(_) => panic!("test source index must fit in u32"),
+        })
+        .collect()
 }
 
 pub(crate) fn source_callable_body_key(compilation: &Compilation) -> BoundUnitKey {

@@ -3,16 +3,19 @@ module std.ffi.c;
 
 @copy
 @layout(transparent)
+/// Target-exact wrapper for C `unsigned char` when `target.c.UNSIGNED_CHAR` selects `u8`.
 struct UnsignedChar
 {
     internal raw: u8;
 
+    /// Returns the selected `u8` representation.
     func value() -> u8
     {
         return self.raw;
     }
 }
 
+/// Creates a C `unsigned char` wrapper from its exact `u8` representation.
 const func unsigned_char_exact(pos raw: u8) -> UnsignedChar
 {
     return
@@ -21,6 +24,7 @@ const func unsigned_char_exact(pos raw: u8) -> UnsignedChar
     };
 }
 
+/// Converts an integer to C `unsigned char` and reports `ConversionError.OutOfRange` when it does not fit.
 func unsigned_char_checked(pos value: u128) -> Result<UnsignedChar, ConversionError>
 {
     if value > std.numeric.U8_MAX as u128
@@ -35,6 +39,7 @@ func unsigned_char_checked(pos value: u128) -> Result<UnsignedChar, ConversionEr
     );
 }
 
+/// Converts an integer to C `unsigned char` by wrapping it to the selected `u8` representation.
 func unsigned_char_wrapping(pos value: u128) -> UnsignedChar
 {
     return

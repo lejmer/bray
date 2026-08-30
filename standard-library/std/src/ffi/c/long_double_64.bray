@@ -3,16 +3,19 @@ module std.ffi.c;
 
 @copy
 @layout(transparent)
+/// Target-exact wrapper for C `long double` when `target.c.LONG_DOUBLE` selects `r64`.
 struct LongDouble
 {
     internal raw: r64;
 
+    /// Returns the selected `r64` representation.
     func value() -> r64
     {
         return self.raw;
     }
 }
 
+/// Creates a C `long double` wrapper from its exact `r64` representation.
 const func long_double_exact(pos raw: r64) -> LongDouble
 {
     return

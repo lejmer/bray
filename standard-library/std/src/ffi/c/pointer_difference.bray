@@ -3,16 +3,19 @@ module std.ffi.c;
 
 @copy
 @layout(transparent)
+/// Target-exact wrapper for C `ptrdiff_t` when `target.c.PTRDIFF` selects `isize`.
 struct PointerDifference
 {
     internal raw: isize;
 
+    /// Returns the selected `isize` representation.
     func value() -> isize
     {
         return self.raw;
     }
 }
 
+/// Creates a C `ptrdiff_t` wrapper from its exact `isize` representation.
 const func pointer_difference_exact(pos raw: isize) -> PointerDifference
 {
     return
@@ -21,6 +24,7 @@ const func pointer_difference_exact(pos raw: isize) -> PointerDifference
     };
 }
 
+/// Converts an integer to C `ptrdiff_t` and reports `ConversionError.OutOfRange` when it does not fit.
 func pointer_difference_checked(pos value: i128) -> Result<PointerDifference, ConversionError>
 {
     if value < std.numeric.ISIZE_MIN as i128 || value > std.numeric.ISIZE_MAX as i128
@@ -35,6 +39,7 @@ func pointer_difference_checked(pos value: i128) -> Result<PointerDifference, Co
     );
 }
 
+/// Converts an integer to C `ptrdiff_t` by wrapping it to the selected `isize` representation.
 func pointer_difference_wrapping(pos value: i128) -> PointerDifference
 {
     return

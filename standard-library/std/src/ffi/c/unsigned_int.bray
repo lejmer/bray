@@ -3,16 +3,19 @@ module std.ffi.c;
 
 @copy
 @layout(transparent)
+/// Target-exact wrapper for C `unsigned int` when `target.c.UNSIGNED_INT` selects `u32`.
 struct UnsignedInt
 {
     internal raw: u32;
 
+    /// Returns the selected `u32` representation.
     func value() -> u32
     {
         return self.raw;
     }
 }
 
+/// Creates a C `unsigned int` wrapper from its exact `u32` representation.
 const func unsigned_int_exact(pos raw: u32) -> UnsignedInt
 {
     return
@@ -21,6 +24,7 @@ const func unsigned_int_exact(pos raw: u32) -> UnsignedInt
     };
 }
 
+/// Converts an integer to C `unsigned int` and reports `ConversionError.OutOfRange` when it does not fit.
 func unsigned_int_checked(pos value: u128) -> Result<UnsignedInt, ConversionError>
 {
     if value > std.numeric.U32_MAX as u128
@@ -35,6 +39,7 @@ func unsigned_int_checked(pos value: u128) -> Result<UnsignedInt, ConversionErro
     );
 }
 
+/// Converts an integer to C `unsigned int` by wrapping it to the selected `u32` representation.
 func unsigned_int_wrapping(pos value: u128) -> UnsignedInt
 {
     return

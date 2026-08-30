@@ -126,8 +126,9 @@ not assumed to contain UTF-8, and a native path is not silently converted throug
 
 Narrow text conversion uses `OwnedNarrowString.from_utf8` and `BorrowedNarrowString.decode_utf8`. Raw narrow bytes use
 `from_bytes` and are not described as text. When `target.c.WCHAR` is `u16`, wide text conversion uses `encode_utf16` and
-`decode_utf16`; when it is `i32`, it uses `encode_utf32` and `decode_utf32`. Invalid surrogate sequences, invalid Unicode
-scalar values, and interior NUL characters return `StringError` rather than being replaced or reinterpreted.
+`decode_utf16`. When it is `i32`, wide text conversion uses `encode_utf32` and `decode_utf32`. Invalid surrogate
+sequences, invalid Unicode scalar values, and interior NUL characters return `StringError` rather than being replaced
+or reinterpreted.
 
 Borrowing a raw pointer from `BorrowedNarrowString` or `OwnedNarrowString` retains the source dependency. Constructing a
 borrowed C string from a raw pointer is trusted and requires an explicit readable extent or a caller obligation that

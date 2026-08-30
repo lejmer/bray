@@ -3,16 +3,19 @@ module std.ffi.c;
 
 @copy
 @layout(transparent)
+/// Target-exact wrapper for C `size_t` when `target.c.SIZE` selects `usize`.
 struct Size
 {
     internal raw: usize;
 
+    /// Returns the selected `usize` representation.
     func value() -> usize
     {
         return self.raw;
     }
 }
 
+/// Creates a C `size_t` wrapper from its exact `usize` representation.
 const func size_exact(pos raw: usize) -> Size
 {
     return
@@ -21,6 +24,7 @@ const func size_exact(pos raw: usize) -> Size
     };
 }
 
+/// Converts an integer to C `size_t` and reports `ConversionError.OutOfRange` when it does not fit.
 func size_checked(pos value: u128) -> Result<Size, ConversionError>
 {
     if value > std.numeric.USIZE_MAX as u128
@@ -35,6 +39,7 @@ func size_checked(pos value: u128) -> Result<Size, ConversionError>
     );
 }
 
+/// Converts an integer to C `size_t` by wrapping it to the selected `usize` representation.
 func size_wrapping(pos value: u128) -> Size
 {
     return

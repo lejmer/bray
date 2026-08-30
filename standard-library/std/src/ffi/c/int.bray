@@ -3,16 +3,19 @@ module std.ffi.c;
 
 @copy
 @layout(transparent)
+/// Target-exact wrapper for C `int` when `target.c.INT` selects `i32`.
 struct Int
 {
     internal raw: i32;
 
+    /// Returns the selected `i32` representation.
     func value() -> i32
     {
         return self.raw;
     }
 }
 
+/// Creates a C `int` wrapper from its exact `i32` representation.
 const func int_exact(pos raw: i32) -> Int
 {
     return
@@ -21,6 +24,7 @@ const func int_exact(pos raw: i32) -> Int
     };
 }
 
+/// Converts an integer to C `int` and reports `ConversionError.OutOfRange` when it does not fit.
 func int_checked(pos value: i128) -> Result<Int, ConversionError>
 {
     if value < std.numeric.I32_MIN as i128 || value > std.numeric.I32_MAX as i128
@@ -35,6 +39,7 @@ func int_checked(pos value: i128) -> Result<Int, ConversionError>
     );
 }
 
+/// Converts an integer to C `int` by wrapping it to the selected `i32` representation.
 func int_wrapping(pos value: i128) -> Int
 {
     return

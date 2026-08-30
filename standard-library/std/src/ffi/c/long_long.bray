@@ -3,16 +3,19 @@ module std.ffi.c;
 
 @copy
 @layout(transparent)
+/// Target-exact wrapper for C `long long` when `target.c.LONG_LONG` selects `i64`.
 struct LongLong
 {
     internal raw: i64;
 
+    /// Returns the selected `i64` representation.
     func value() -> i64
     {
         return self.raw;
     }
 }
 
+/// Creates a C `long long` wrapper from its exact `i64` representation.
 const func long_long_exact(pos raw: i64) -> LongLong
 {
     return
@@ -21,6 +24,7 @@ const func long_long_exact(pos raw: i64) -> LongLong
     };
 }
 
+/// Converts an integer to C `long long` and reports `ConversionError.OutOfRange` when it does not fit.
 func long_long_checked(pos value: i128) -> Result<LongLong, ConversionError>
 {
     if value < std.numeric.I64_MIN as i128 || value > std.numeric.I64_MAX as i128
@@ -35,6 +39,7 @@ func long_long_checked(pos value: i128) -> Result<LongLong, ConversionError>
     );
 }
 
+/// Converts an integer to C `long long` by wrapping it to the selected `i64` representation.
 func long_long_wrapping(pos value: i128) -> LongLong
 {
     return

@@ -3,16 +3,19 @@ module std.ffi.c;
 
 @copy
 @layout(transparent)
+/// Target-exact wrapper for C `unsigned long` when `target.c.UNSIGNED_LONG` selects `u64`.
 struct UnsignedLong
 {
     internal raw: u64;
 
+    /// Returns the selected `u64` representation.
     func value() -> u64
     {
         return self.raw;
     }
 }
 
+/// Creates a C `unsigned long` wrapper from its exact `u64` representation.
 const func unsigned_long_exact(pos raw: u64) -> UnsignedLong
 {
     return
@@ -21,6 +24,7 @@ const func unsigned_long_exact(pos raw: u64) -> UnsignedLong
     };
 }
 
+/// Converts an integer to C `unsigned long` and reports `ConversionError.OutOfRange` when it does not fit.
 func unsigned_long_checked(pos value: u128) -> Result<UnsignedLong, ConversionError>
 {
     if value > std.numeric.U64_MAX as u128
@@ -35,6 +39,7 @@ func unsigned_long_checked(pos value: u128) -> Result<UnsignedLong, ConversionEr
     );
 }
 
+/// Converts an integer to C `unsigned long` by wrapping it to the selected `u64` representation.
 func unsigned_long_wrapping(pos value: u128) -> UnsignedLong
 {
     return

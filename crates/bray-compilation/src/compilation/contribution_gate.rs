@@ -445,12 +445,16 @@ mod tests {
 
     use bray_diagnostics::{DiagnosticArg, DiagnosticKind};
     use bray_symbols::{
-        AnyConstantDefinitionId, ConstantInstanceKey, ConstantValueKind, TargetPropertyDependency,
+        AnyConstantDefinitionId, ConstantInstanceKey, ConstantValueKind, SymbolOrigin,
+        TargetPropertyDependency,
     };
     use bray_target::TargetPropertyKind;
 
     use super::super::constant::empty_concrete_substitution;
-    use crate::test_support::{compilation, compilation_with_target_profile};
+    use crate::test_support::{
+        compilation, compilation_with_sources_and_target_profile,
+        compilation_with_target_profile,
+    };
 
     #[test]
     fn target_gates_publish_exact_dependencies_and_selected_results() {
@@ -584,12 +588,40 @@ mod tests {
 
         let explicitly_unavailable = compilation_with_target_profile(
             "@target(target.c.UNSIGNED_INT == \"unavailable\") module app;",
+            profile.clone(),
+        );
+
+        let standard_library = compilation_with_sources_and_target_profile(
+            &[
+                include_str!(
+                    "../../../../standard-library/std/src/ffi/c/int.bray"
+                ),
+                include_str!(
+                    "../../../../standard-library/std/src/ffi/c/unsigned_int.bray"
+                ),
+                include_str!(
+                    "../../../../standard-library/std/src/ffi/c/double.bray"
+                ),
+            ],
             profile,
         );
+
+        let symbols = standard_library
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("mixed C registry symbols must build: {error:?}"));
+
+        let structures = symbols
+            .structures()
+            .iter()
+            .filter(|structure| structure.origin() == SymbolOrigin::Source)
+            .filter_map(|structure| symbols.member_name(structure.id().into()))
+            .map(|name| name.as_str())
+            .collect::<Vec<_>>();
 
         assert!(module_gate(&available).value().is_enabled());
         assert!(!module_gate(&unavailable).value().is_enabled());
         assert!(module_gate(&explicitly_unavailable).value().is_enabled());
+        assert_eq!(structures, ["Int"]);
     }
 
     #[test]

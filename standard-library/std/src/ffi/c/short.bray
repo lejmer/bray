@@ -3,16 +3,19 @@ module std.ffi.c;
 
 @copy
 @layout(transparent)
+/// Target-exact wrapper for C `short` when `target.c.SHORT` selects `i16`.
 struct Short
 {
     internal raw: i16;
 
+    /// Returns the selected `i16` representation.
     func value() -> i16
     {
         return self.raw;
     }
 }
 
+/// Creates a C `short` wrapper from its exact `i16` representation.
 const func short_exact(pos raw: i16) -> Short
 {
     return
@@ -21,6 +24,7 @@ const func short_exact(pos raw: i16) -> Short
     };
 }
 
+/// Converts an integer to C `short` and reports `ConversionError.OutOfRange` when it does not fit.
 func short_checked(pos value: i128) -> Result<Short, ConversionError>
 {
     if value < std.numeric.I16_MIN as i128 || value > std.numeric.I16_MAX as i128
@@ -35,6 +39,7 @@ func short_checked(pos value: i128) -> Result<Short, ConversionError>
     );
 }
 
+/// Converts an integer to C `short` by wrapping it to the selected `i16` representation.
 func short_wrapping(pos value: i128) -> Short
 {
     return

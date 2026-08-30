@@ -1,6 +1,12 @@
 @target(target.c.WCHAR == "u16")
 module std.ffi.c;
 
+/// Decodes borrowed target C wide units as UTF-16.
+///
+/// Available when `target.c.WCHAR` selects `u16`.
+///
+/// Returns `StringError.InvalidEncoding` for an invalid surrogate sequence and
+/// `StringError.Allocation` when the decoded Bray string cannot be allocated.
 trusted func decode_utf16(pos value: &BorrowedWideString) -> Result<string, StringError>
 {
     let units: &[WideChar] = value.units();
@@ -16,29 +22,26 @@ trusted func decode_utf16(pos value: &BorrowedWideString) -> Result<string, Stri
 
     while index < count
     {
-        let first: u32 = units[index].value() as u32;
-        let mut scalar: u32 = first;
+        let first: u16 = units[index].value();
 
-        if first >= 55_296 && first <= 56_319
+        let mut second: u16? = none;
+
+        if index + 1 < count
         {
-            if index + 1 >= count
-            {
-                return Error(StringError.InvalidEncoding);
-            }
+            let second_value: u16 = units[index + 1].value();
 
-            let second: u32 = units[index + 1].value() as u32;
-
-            if second < 56_320 || second > 57_343
-            {
-                return Error(StringError.InvalidEncoding);
-            }
-
-            scalar = 65_536 + ((first - 55_296) << 10) + (second - 56_320);
-            index += 1;
+            second = second_value;
         }
-        else if first >= 56_320 && first <= 57_343
+
+        let (scalar, consumed_second): (u32, bool) = match internal std.character.utf16_scalar(first, second = second)
         {
-            return Error(StringError.InvalidEncoding);
+            case ?decoded { yield decoded; }
+            case none { return Error(StringError.InvalidEncoding); }
+        };
+
+        if consumed_second
+        {
+            index += 1;
         }
 
         try trusted internal append_wide_decoded_scalar(&mut bytes, scalar = scalar);
@@ -48,6 +51,12 @@ trusted func decode_utf16(pos value: &BorrowedWideString) -> Result<string, Stri
     return internal decoded_wide_string(&bytes);
 }
 
+/// Encodes Bray text as an owned NUL-terminated UTF-16 C wide string.
+///
+/// Available when `target.c.WCHAR` selects `u16`.
+///
+/// Returns `StringError.InteriorNul` when the text contains NUL and
+/// `StringError.Allocation` when the owned wide string cannot be allocated.
 trusted func encode_utf16(pos value: &string) -> Result<OwnedWideString, StringError>
 {
     let mut units: std.collection.List<WideChar> = match trusted std.collection.List<WideChar>(
@@ -75,16 +84,14 @@ trusted func encode_utf16(pos value: &string) -> Result<OwnedWideString, StringE
             return Error(StringError.InteriorNul);
         }
 
-        if scalar < 65_536
-        {
-            try trusted push_utf16_unit(&mut units, scalar = scalar);
-        }
-        else
-        {
-            let supplementary: u32 = scalar - 65_536;
+        let (first, second) = internal std.character.utf16_units(scalar);
 
-            try trusted push_utf16_unit(&mut units, scalar = 55_296 + (supplementary >> 10));
-            try trusted push_utf16_unit(&mut units, scalar = 56_320 + (supplementary & 1_023));
+        try trusted push_utf16_unit(&mut units, scalar = first as u32);
+
+        match second
+        {
+            case ?unit_value { try trusted push_utf16_unit(&mut units, scalar = unit_value as u32); }
+            case none {}
         }
     }
 
