@@ -1,0 +1,44 @@
+@target(target.c.UNSIGNED_INT == "u32")
+module std.ffi.c;
+
+@copy
+@layout(transparent)
+struct UnsignedInt
+{
+    internal raw: u32;
+
+    func value() -> u32
+    {
+        return self.raw;
+    }
+}
+
+const func unsigned_int_exact(pos raw: u32) -> UnsignedInt
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func unsigned_int_checked(pos value: u128) -> Result<UnsignedInt, ConversionError>
+{
+    if value > std.numeric.U32_MAX as u128
+    {
+        return Error(ConversionError.OutOfRange);
+    }
+
+    return Ok(
+        {
+            raw = std.truncate_to<u32>(value)
+        }
+    );
+}
+
+func unsigned_int_wrapping(pos value: u128) -> UnsignedInt
+{
+    return
+    {
+        raw = std.truncate_to<u32>(value)
+    };
+}

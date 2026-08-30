@@ -13,10 +13,32 @@ struct WideChar
     }
 }
 
-func wide_char(pos raw: i32) -> WideChar
+const func wide_char_exact(pos raw: i32) -> WideChar
 {
     return
     {
         raw = raw
+    };
+}
+
+func wide_char_checked(pos value: i128) -> Result<WideChar, ConversionError>
+{
+    if value < std.numeric.I32_MIN as i128 || value > std.numeric.I32_MAX as i128
+    {
+        return Error(ConversionError.OutOfRange);
+    }
+
+    return Ok(
+        {
+            raw = std.truncate_to<i32>(value)
+        }
+    );
+}
+
+func wide_char_wrapping(pos value: i128) -> WideChar
+{
+    return
+    {
+        raw = std.truncate_to<i32>(value)
     };
 }

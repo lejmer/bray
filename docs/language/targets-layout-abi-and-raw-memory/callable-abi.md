@@ -101,9 +101,9 @@ An ellipsis after one or more fixed parameters declares a variadic foreign calla
 ```bray
 @abi(c)
 extern trusted func printf(
-    pos format: RawPointer<std.ffi.c.char>,
+    pos format: RawPointer<std.ffi.c.Char>,
     ...
-) -> std.ffi.c.int
+) -> std.ffi.c.Int
     uses(foreign_call);
 ```
 

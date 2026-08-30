@@ -169,7 +169,7 @@ union List<T>
 @layout(c, tag = none)
 union NativeValue
 {
-    Integer(value: std.ffi.c.int);
+    Integer(value: std.ffi.c.Int);
     Floating(value: r32);
     Pointer(value: RawPointer<u8>);
 }

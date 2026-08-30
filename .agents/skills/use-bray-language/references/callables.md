@@ -140,7 +140,7 @@ extern trusted func native_clock() -> u64
 
 @symbol(name = "native_printf")
 @abi(c)
-extern trusted func printf(pos format: RawPointer<std.ffi.c.char>, ...) -> std.ffi.c.int
+extern trusted func printf(pos format: RawPointer<std.ffi.c.Char>, ...) -> std.ffi.c.Int
     uses(foreign_call);
 
 internal func normalize(pos value: i32) -> i32

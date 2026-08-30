@@ -13,11 +13,11 @@ a static, it declares provider-owned address-bearing storage.
 @link(name = "c")
 @symbol(name = "errno")
 @thread_local
-extern trusted static mut errno: std.ffi.c.int;
+extern trusted static mut errno: std.ffi.c.Int;
 
 @link(name = "native")
 @symbol(name = "native_build_id")
-extern trusted static BUILD_ID: std.ffi.c.uint;
+extern trusted static BUILD_ID: std.ffi.c.UnsignedInt;
 ```
 
 An extern static has a required stored type and no initializer. It is valid only at module level. It cannot have generic
@@ -41,7 +41,7 @@ borrow. The reference performs symbol-address resolution only. It does not read,
 validate the reached storage.
 
 ```bray
-let address: RawPointer<std.ffi.c.int> = errno;
+let address: RawPointer<std.ffi.c.Int> = errno;
 ```
 
 The resulting pointer carries the declaration's provider dependency. A thread-local result also carries its exact
@@ -66,10 +66,10 @@ only through its address.
 
 ```bray
 @symbol(name = "bray_abi_version")
-static ABI_VERSION: std.ffi.c.uint = std.ffi.c.uint(1);
+static ABI_VERSION: std.ffi.c.UnsignedInt = std.ffi.c.unsigned_int_exact(1);
 
 @symbol(name = "bray_flags")
-trusted static mut ABI_FLAGS: std.ffi.c.uint = std.ffi.c.uint(0);
+trusted static mut ABI_FLAGS: std.ffi.c.UnsignedInt = std.ffi.c.unsigned_int_exact(0);
 ```
 
 The static remains owned, initialized, retained, and cleaned by its Bray product. Native symbol visibility does not

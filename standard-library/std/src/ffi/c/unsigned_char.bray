@@ -1,9 +1,9 @@
-@target(target.c.CHAR == "u8")
+@target(target.c.UNSIGNED_CHAR == "u8")
 module std.ffi.c;
 
 @copy
 @layout(transparent)
-struct Char
+struct UnsignedChar
 {
     internal raw: u8;
 
@@ -13,7 +13,7 @@ struct Char
     }
 }
 
-const func char_exact(pos raw: u8) -> Char
+const func unsigned_char_exact(pos raw: u8) -> UnsignedChar
 {
     return
     {
@@ -21,7 +21,7 @@ const func char_exact(pos raw: u8) -> Char
     };
 }
 
-func char_checked(pos value: u128) -> Result<Char, ConversionError>
+func unsigned_char_checked(pos value: u128) -> Result<UnsignedChar, ConversionError>
 {
     if value > std.numeric.U8_MAX as u128
     {
@@ -35,7 +35,7 @@ func char_checked(pos value: u128) -> Result<Char, ConversionError>
     );
 }
 
-func char_wrapping(pos value: u128) -> Char
+func unsigned_char_wrapping(pos value: u128) -> UnsignedChar
 {
     return
     {

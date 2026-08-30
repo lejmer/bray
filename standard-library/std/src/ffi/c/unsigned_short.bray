@@ -1,9 +1,9 @@
-@target(target.c.WCHAR == "u16")
+@target(target.c.UNSIGNED_SHORT == "u16")
 module std.ffi.c;
 
 @copy
 @layout(transparent)
-struct WideChar
+struct UnsignedShort
 {
     internal raw: u16;
 
@@ -13,7 +13,7 @@ struct WideChar
     }
 }
 
-const func wide_char_exact(pos raw: u16) -> WideChar
+const func unsigned_short_exact(pos raw: u16) -> UnsignedShort
 {
     return
     {
@@ -21,7 +21,7 @@ const func wide_char_exact(pos raw: u16) -> WideChar
     };
 }
 
-func wide_char_checked(pos value: u128) -> Result<WideChar, ConversionError>
+func unsigned_short_checked(pos value: u128) -> Result<UnsignedShort, ConversionError>
 {
     if value > std.numeric.U16_MAX as u128
     {
@@ -35,7 +35,7 @@ func wide_char_checked(pos value: u128) -> Result<WideChar, ConversionError>
     );
 }
 
-func wide_char_wrapping(pos value: u128) -> WideChar
+func unsigned_short_wrapping(pos value: u128) -> UnsignedShort
 {
     return
     {

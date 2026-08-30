@@ -1,0 +1,44 @@
+@target(target.c.UNSIGNED_LONG_LONG == "u64")
+module std.ffi.c;
+
+@copy
+@layout(transparent)
+struct UnsignedLongLong
+{
+    internal raw: u64;
+
+    func value() -> u64
+    {
+        return self.raw;
+    }
+}
+
+const func unsigned_long_long_exact(pos raw: u64) -> UnsignedLongLong
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func unsigned_long_long_checked(pos value: u128) -> Result<UnsignedLongLong, ConversionError>
+{
+    if value > std.numeric.U64_MAX as u128
+    {
+        return Error(ConversionError.OutOfRange);
+    }
+
+    return Ok(
+        {
+            raw = std.truncate_to<u64>(value)
+        }
+    );
+}
+
+func unsigned_long_long_wrapping(pos value: u128) -> UnsignedLongLong
+{
+    return
+    {
+        raw = std.truncate_to<u64>(value)
+    };
+}

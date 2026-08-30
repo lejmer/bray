@@ -1,9 +1,9 @@
-@target(target.c.CHAR == "i8")
+@target(target.c.SIGNED_CHAR == "i8")
 module std.ffi.c;
 
 @copy
 @layout(transparent)
-struct Char
+struct SignedChar
 {
     internal raw: i8;
 
@@ -13,7 +13,7 @@ struct Char
     }
 }
 
-const func char_exact(pos raw: i8) -> Char
+const func signed_char_exact(pos raw: i8) -> SignedChar
 {
     return
     {
@@ -21,7 +21,7 @@ const func char_exact(pos raw: i8) -> Char
     };
 }
 
-func char_checked(pos value: i128) -> Result<Char, ConversionError>
+func signed_char_checked(pos value: i128) -> Result<SignedChar, ConversionError>
 {
     if value < std.numeric.I8_MIN as i128 || value > std.numeric.I8_MAX as i128
     {
@@ -35,7 +35,7 @@ func char_checked(pos value: i128) -> Result<Char, ConversionError>
     );
 }
 
-func char_wrapping(pos value: i128) -> Char
+func signed_char_wrapping(pos value: i128) -> SignedChar
 {
     return
     {

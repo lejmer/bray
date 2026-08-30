@@ -13,7 +13,7 @@ struct LongDouble
     }
 }
 
-func long_double(pos raw: r128) -> LongDouble
+const func long_double_exact(pos raw: r128) -> LongDouble
 {
     return
     {

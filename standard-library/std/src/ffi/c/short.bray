@@ -1,0 +1,44 @@
+@target(target.c.SHORT == "i16")
+module std.ffi.c;
+
+@copy
+@layout(transparent)
+struct Short
+{
+    internal raw: i16;
+
+    func value() -> i16
+    {
+        return self.raw;
+    }
+}
+
+const func short_exact(pos raw: i16) -> Short
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func short_checked(pos value: i128) -> Result<Short, ConversionError>
+{
+    if value < std.numeric.I16_MIN as i128 || value > std.numeric.I16_MAX as i128
+    {
+        return Error(ConversionError.OutOfRange);
+    }
+
+    return Ok(
+        {
+            raw = std.truncate_to<i16>(value)
+        }
+    );
+}
+
+func short_wrapping(pos value: i128) -> Short
+{
+    return
+    {
+        raw = std.truncate_to<i16>(value)
+    };
+}

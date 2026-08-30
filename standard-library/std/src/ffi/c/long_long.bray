@@ -1,9 +1,9 @@
-@target(target.c.LONG == "i64")
+@target(target.c.LONG_LONG == "i64")
 module std.ffi.c;
 
 @copy
 @layout(transparent)
-struct Long
+struct LongLong
 {
     internal raw: i64;
 
@@ -13,7 +13,7 @@ struct Long
     }
 }
 
-const func long_exact(pos raw: i64) -> Long
+const func long_long_exact(pos raw: i64) -> LongLong
 {
     return
     {
@@ -21,7 +21,7 @@ const func long_exact(pos raw: i64) -> Long
     };
 }
 
-func long_checked(pos value: i128) -> Result<Long, ConversionError>
+func long_long_checked(pos value: i128) -> Result<LongLong, ConversionError>
 {
     if value < std.numeric.I64_MIN as i128 || value > std.numeric.I64_MAX as i128
     {
@@ -35,7 +35,7 @@ func long_checked(pos value: i128) -> Result<Long, ConversionError>
     );
 }
 
-func long_wrapping(pos value: i128) -> Long
+func long_long_wrapping(pos value: i128) -> LongLong
 {
     return
     {

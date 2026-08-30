@@ -454,6 +454,21 @@ pub(crate) fn compilation(source: &str) -> Compilation {
     compilation_with_options(source, CompilationOptions::default())
 }
 
+pub(crate) fn compilation_with_target_profile(
+    source: &str,
+    profile: bray_target::TargetProfile,
+) -> Compilation {
+    let baseline = crate::SelectedTarget::baseline();
+
+    let options = CompilationOptions::new(
+        WorkerBudget::serial(),
+        bray_symbols::ProductKind::Library,
+        crate::SelectedTarget::new(profile, baseline.runtime_abi()),
+    );
+
+    compilation_with_options(source, options)
+}
+
 pub(crate) fn compilation_with_target_operations(
     source: &str,
     raw_memory: bool,

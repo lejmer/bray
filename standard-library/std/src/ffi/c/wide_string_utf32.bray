@@ -1,0 +1,68 @@
+@target(target.c.WCHAR == "i32")
+module std.ffi.c;
+
+trusted func decode_utf32(pos value: &BorrowedWideString) -> Result<string, StringError>
+{
+    let units: &[WideChar] = value.units();
+    let count: usize = std.memory.slice_length<WideChar>(units);
+
+    let mut bytes: std.bytes.Buffer = match trusted std.bytes.Buffer(capacity = count)
+    {
+        case Ok(buffer) { yield buffer; }
+        case Error(_) { return Error(StringError.Allocation); }
+    };
+
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        let scalar: i32 = units[index].value();
+
+        if scalar < 0
+        {
+            return Error(StringError.InvalidEncoding);
+        }
+
+        try trusted internal append_wide_decoded_scalar(&mut bytes, scalar = scalar as u32);
+        index += 1;
+    }
+
+    return internal decoded_wide_string(&bytes);
+}
+
+trusted func encode_utf32(pos value: &string) -> Result<OwnedWideString, StringError>
+{
+    let mut units: std.collection.List<WideChar> = match trusted std.collection.List<WideChar>(
+        capacity = std.string.scalar_count(value),
+    )
+    {
+        case Ok(list) { yield list; }
+        case Error(_) { return Error(StringError.Allocation); }
+    };
+
+    let mut scalars: std.string.ScalarCursor = std.string.scalars(value);
+
+    loop
+    {
+        let character: char = match scalars.next()
+        {
+            case ?next { yield next; }
+            case none { break; }
+        };
+
+        let scalar: u32 = std.character.scalar_value(value = character);
+
+        if scalar == 0
+        {
+            return Error(StringError.InteriorNul);
+        }
+
+        match trusted std.collection.push<WideChar>(&mut units, wide_char_wrapping(scalar as i128))
+        {
+            case Ok(_) {}
+            case Error(_) { return Error(StringError.Allocation); }
+        }
+    }
+
+    return trusted OwnedWideString.from_units(std.collection.as_slice<WideChar>(&units));
+}

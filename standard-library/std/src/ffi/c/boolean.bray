@@ -1,0 +1,22 @@
+@target(target.c.BOOL == "bool")
+module std.ffi.c;
+
+@copy
+@layout(transparent)
+struct Boolean
+{
+    internal raw: bool;
+
+    func value() -> bool
+    {
+        return self.raw;
+    }
+}
+
+const func boolean_exact(pos raw: bool) -> Boolean
+{
+    return
+    {
+        raw = raw
+    };
+}

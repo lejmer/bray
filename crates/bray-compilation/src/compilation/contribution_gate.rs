@@ -450,7 +450,7 @@ mod tests {
     use bray_target::TargetPropertyKind;
 
     use super::super::constant::empty_concrete_substitution;
-    use crate::test_support::compilation;
+    use crate::test_support::{compilation, compilation_with_target_profile};
 
     #[test]
     fn target_gates_publish_exact_dependencies_and_selected_results() {
@@ -540,6 +540,56 @@ mod tests {
         };
 
         assert_dependency(&compilation, dependency, TargetPropertyKind::CLong);
+    }
+
+    #[test]
+    fn target_gates_select_each_c_scalar_mapping_independently() {
+        let baseline = crate::SelectedTarget::baseline();
+        let baseline_profile = baseline.profile();
+        let baseline_properties = baseline_profile.properties();
+
+        let c_abi = bray_target::TargetCDataModel::try_new(&[(
+            bray_target::TargetCScalarKind::Int,
+            bray_target::TargetScalarKind::I32,
+        )])
+        .unwrap_or_else(|| panic!("mixed C registry fixture must be valid"));
+
+        let properties = bray_target::TargetProperties::new(
+            baseline_properties.identity().clone(),
+            baseline_properties.scalars(),
+            baseline_properties.atomics(),
+            baseline_properties.abis(),
+            c_abi,
+            baseline_properties.address_spaces(),
+            baseline_properties.alignments(),
+            baseline_properties.operations(),
+        );
+
+        let profile = bray_target::TargetProfile::try_new(
+            baseline_profile.identity().clone(),
+            baseline_profile.machine().clone(),
+            properties,
+        )
+        .unwrap_or_else(|error| panic!("mixed C registry target must be valid: {error:?}"));
+
+        let available = compilation_with_target_profile(
+            "@target(target.c.INT == \"i32\") module app;",
+            profile.clone(),
+        );
+
+        let unavailable = compilation_with_target_profile(
+            "@target(target.c.UNSIGNED_INT == \"u32\") module app;",
+            profile.clone(),
+        );
+
+        let explicitly_unavailable = compilation_with_target_profile(
+            "@target(target.c.UNSIGNED_INT == \"unavailable\") module app;",
+            profile,
+        );
+
+        assert!(module_gate(&available).value().is_enabled());
+        assert!(!module_gate(&unavailable).value().is_enabled());
+        assert!(module_gate(&explicitly_unavailable).value().is_enabled());
     }
 
     #[test]

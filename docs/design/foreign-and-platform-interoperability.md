@@ -105,6 +105,13 @@ no approximate byte-product substitute.
 Fixed-width C APIs should use Bray's fixed-width scalar types directly when the C declaration guarantees that exact
 representation. The named C wrappers are for declarations whose ABI follows target C types rather than fixed widths.
 
+The public wrapper names are `Char`, `SignedChar`, `UnsignedChar`, `Short`, `UnsignedShort`, `Int`, `UnsignedInt`,
+`Long`, `UnsignedLong`, `LongLong`, `UnsignedLongLong`, `Size`, `PointerDifference`, `WideChar`, `Boolean`, `Float`,
+`Double`, and `LongDouble`. Each available wrapper exposes `value()` with its exact selected Bray scalar result. An
+`*_exact` const constructor accepts only that exact scalar representation. Integer wrappers additionally expose
+`*_checked` from the corresponding `i128` or `u128` value domain and `*_wrapping` with explicit wrapping semantics.
+Checked range failure returns `ConversionError.OutOfRange`. Boolean and real wrappers have no wrapping conversion.
+
 ### C Strings
 
 `std.ffi.c` distinguishes borrowed and owned NUL-terminated storage:
@@ -116,6 +123,11 @@ representation. The named C wrappers are for declarations whose ABI follows targ
 Construction from bytes or text validates interior NUL units, terminal NUL storage, capacity arithmetic, and the
 selected encoding policy. Conversion to Bray `string` is fallible and names the encoding being decoded. A C string is
 not assumed to contain UTF-8, and a native path is not silently converted through a C string.
+
+Narrow text conversion uses `OwnedNarrowString.from_utf8` and `BorrowedNarrowString.decode_utf8`. Raw narrow bytes use
+`from_bytes` and are not described as text. When `target.c.WCHAR` is `u16`, wide text conversion uses `encode_utf16` and
+`decode_utf16`; when it is `i32`, it uses `encode_utf32` and `decode_utf32`. Invalid surrogate sequences, invalid Unicode
+scalar values, and interior NUL characters return `StringError` rather than being replaced or reinterpreted.
 
 Borrowing a raw pointer from `BorrowedNarrowString` or `OwnedNarrowString` retains the source dependency. Constructing a
 borrowed C string from a raw pointer is trusted and requires an explicit readable extent or a caller obligation that

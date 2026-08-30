@@ -83,7 +83,7 @@ static THREAD_TOTAL: usize = 0;
 
 @link(name = "native")
 @symbol(name = "native_counter")
-extern trusted static mut NATIVE_COUNTER: std.ffi.c.uint;
+extern trusted static mut NATIVE_COUNTER: std.ffi.c.UnsignedInt;
 
 static EMPTY_BUFFER<T, const N: usize>: Buffer<T, N>
     with(T: Copyable) = Buffer<T, N>.empty();

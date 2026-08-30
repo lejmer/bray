@@ -10,11 +10,13 @@ func windows_native_values_are_typed_and_target_gated()
 {
     let handle: std.os.windows.Handle = std.os.windows.handle(7);
 
-    let transient_exhaustion: std.platform.PlatformStatus =
-        internal std.platform.windows_errno_status_from(std.os.windows.EAGAIN);
+    let transient_exhaustion: std.platform.PlatformStatus = internal std.platform.windows_errno_status_from(
+        std.os.windows.EAGAIN
+    );
 
-    let memory_exhaustion: std.platform.PlatformStatus =
-        internal std.platform.windows_errno_status_from(std.os.windows.ENOMEM);
+    let memory_exhaustion: std.platform.PlatformStatus = internal std.platform.windows_errno_status_from(
+        std.os.windows.ENOMEM
+    );
 
     assert(handle.value() == 7);
     assert(std.os.windows.GENERIC_READ == 2147483648);

@@ -333,10 +333,10 @@ trusted func audit_strings()
     assert(trusted native_narrow_length(narrow.borrow().pointer()) == 4);
 
     let wide_units: [std.ffi.c.WideChar; 4] = [
-        std.ffi.c.wide_char(98),
-        std.ffi.c.wide_char(114),
-        std.ffi.c.wide_char(97),
-        std.ffi.c.wide_char(121),
+        std.ffi.c.wide_char_wrapping(98),
+        std.ffi.c.wide_char_wrapping(114),
+        std.ffi.c.wide_char_wrapping(97),
+        std.ffi.c.wide_char_wrapping(121),
     ];
 
     let wide: std.ffi.c.OwnedWideString = std.testing.assert_ok<

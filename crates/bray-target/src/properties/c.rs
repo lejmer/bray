@@ -1,4 +1,4 @@
-use super::{TargetScalarKind, TargetScalarSupport};
+use super::{TargetForeignAbiContract, TargetScalarKind, TargetScalarSupport};
 
 const C_SCALAR_KIND_COUNT: usize = 18;
 
@@ -75,48 +75,83 @@ pub struct TargetCDataModel {
 }
 
 impl TargetCDataModel {
-    /// Creates a C model from the target-dependent scalar choices.
+    /// Creates a C model from independently available exact scalar mappings.
     ///
-    /// Returns absence when the choices do not form one of Bray's supported C data models.
+    /// Omitted kinds are represented by the corresponding `"unavailable"` target property.
+    /// Returns absence for a duplicate kind or a representation invalid for that C scalar.
     pub const fn try_new(
+        mappings: &[(TargetCScalarKind, TargetScalarKind)],
+    ) -> Option<Self> {
+        let mut model = Self {
+            mappings: [None; C_SCALAR_KIND_COUNT],
+        };
+
+        let mut index = 0;
+
+        while index < mappings.len() {
+            let (kind, scalar) = mappings[index];
+
+            let mapping_index = kind.index();
+
+            if model.mappings[mapping_index].is_some() || !valid_mapping(kind, scalar) {
+                return None;
+            }
+
+            model.mappings[mapping_index] = Some(scalar);
+            index += 1;
+        }
+
+        let long = model.mapping(TargetCScalarKind::Long);
+        let unsigned_long = model.mapping(TargetCScalarKind::UnsignedLong);
+
+        if let (Some(long), Some(unsigned_long)) = (long, unsigned_long)
+            && !matching_long_pair(long, unsigned_long)
+        {
+            return None;
+        }
+
+        Some(model)
+    }
+
+    /// Creates the complete C scalar registry shared by Bray's native target profiles.
+    pub fn try_native(
         char: TargetScalarKind,
         long: TargetScalarKind,
         unsigned_long: TargetScalarKind,
         wide_char: TargetScalarKind,
         long_double: Option<TargetScalarKind>,
     ) -> Option<Self> {
-        if !matches!(char, TargetScalarKind::I8 | TargetScalarKind::U8)
-            || !matches!(long, TargetScalarKind::I32 | TargetScalarKind::I64)
-            || !matches!(unsigned_long, TargetScalarKind::U32 | TargetScalarKind::U64)
-            || !matching_long_pair(long, unsigned_long)
-            || !matches!(wide_char, TargetScalarKind::I32 | TargetScalarKind::U16)
-            || !valid_long_double(long_double)
-        {
-            return None;
+        let mappings = [
+            (TargetCScalarKind::Char, char),
+            (TargetCScalarKind::SignedChar, TargetScalarKind::I8),
+            (TargetCScalarKind::UnsignedChar, TargetScalarKind::U8),
+            (TargetCScalarKind::Short, TargetScalarKind::I16),
+            (TargetCScalarKind::UnsignedShort, TargetScalarKind::U16),
+            (TargetCScalarKind::Int, TargetScalarKind::I32),
+            (TargetCScalarKind::UnsignedInt, TargetScalarKind::U32),
+            (TargetCScalarKind::Long, long),
+            (TargetCScalarKind::UnsignedLong, unsigned_long),
+            (TargetCScalarKind::LongLong, TargetScalarKind::I64),
+            (TargetCScalarKind::UnsignedLongLong, TargetScalarKind::U64),
+            (TargetCScalarKind::Size, TargetScalarKind::Usize),
+            (TargetCScalarKind::PointerDifference, TargetScalarKind::Isize),
+            (TargetCScalarKind::WideChar, wide_char),
+            (TargetCScalarKind::Bool, TargetScalarKind::Bool),
+            (TargetCScalarKind::Float, TargetScalarKind::R32),
+            (TargetCScalarKind::Double, TargetScalarKind::R64),
+        ];
+
+        let mut model = Self::try_new(&mappings)?;
+
+        if let Some(long_double) = long_double {
+            if !valid_mapping(TargetCScalarKind::LongDouble, long_double) {
+                return None;
+            }
+
+            model.mappings[TargetCScalarKind::LongDouble.index()] = Some(long_double);
         }
 
-        Some(Self {
-            mappings: [
-                Some(char),
-                Some(TargetScalarKind::I8),
-                Some(TargetScalarKind::U8),
-                Some(TargetScalarKind::I16),
-                Some(TargetScalarKind::U16),
-                Some(TargetScalarKind::I32),
-                Some(TargetScalarKind::U32),
-                Some(long),
-                Some(unsigned_long),
-                Some(TargetScalarKind::I64),
-                Some(TargetScalarKind::U64),
-                Some(TargetScalarKind::Usize),
-                Some(TargetScalarKind::Isize),
-                Some(wide_char),
-                Some(TargetScalarKind::Bool),
-                Some(TargetScalarKind::R32),
-                Some(TargetScalarKind::R64),
-                long_double,
-            ],
-        })
+        Some(model)
     }
 
     /// Returns the exact Bray scalar for one C type, or absence when unsupported.
@@ -130,6 +165,49 @@ impl TargetCDataModel {
             .flatten()
             .all(|scalar| scalars.supports(scalar))
     }
+
+    pub(crate) fn is_supported_by_c_abi(self, contract: TargetForeignAbiContract) -> bool {
+        self.is_empty()
+            || contract.transparent_layout()
+            && self
+                .mappings
+                .into_iter()
+                .flatten()
+                .all(|scalar| contract.scalars().supports(scalar))
+    }
+
+    pub(crate) fn is_empty(self) -> bool {
+        self.mappings.into_iter().all(|mapping| mapping.is_none())
+    }
+}
+
+const fn valid_mapping(kind: TargetCScalarKind, scalar: TargetScalarKind) -> bool {
+    match kind {
+        TargetCScalarKind::Char => matches!(scalar, TargetScalarKind::I8 | TargetScalarKind::U8),
+        TargetCScalarKind::SignedChar => matches!(scalar, TargetScalarKind::I8),
+        TargetCScalarKind::UnsignedChar => matches!(scalar, TargetScalarKind::U8),
+        TargetCScalarKind::Short => matches!(scalar, TargetScalarKind::I16),
+        TargetCScalarKind::UnsignedShort => matches!(scalar, TargetScalarKind::U16),
+        TargetCScalarKind::Int => matches!(scalar, TargetScalarKind::I32),
+        TargetCScalarKind::UnsignedInt => matches!(scalar, TargetScalarKind::U32),
+        TargetCScalarKind::Long => matches!(scalar, TargetScalarKind::I32 | TargetScalarKind::I64),
+        TargetCScalarKind::UnsignedLong => {
+            matches!(scalar, TargetScalarKind::U32 | TargetScalarKind::U64)
+        }
+        TargetCScalarKind::LongLong => matches!(scalar, TargetScalarKind::I64),
+        TargetCScalarKind::UnsignedLongLong => matches!(scalar, TargetScalarKind::U64),
+        TargetCScalarKind::Size => matches!(scalar, TargetScalarKind::Usize),
+        TargetCScalarKind::PointerDifference => matches!(scalar, TargetScalarKind::Isize),
+        TargetCScalarKind::WideChar => {
+            matches!(scalar, TargetScalarKind::I32 | TargetScalarKind::U16)
+        }
+        TargetCScalarKind::Bool => matches!(scalar, TargetScalarKind::Bool),
+        TargetCScalarKind::Float => matches!(scalar, TargetScalarKind::R32),
+        TargetCScalarKind::Double => matches!(scalar, TargetScalarKind::R64),
+        TargetCScalarKind::LongDouble => {
+            matches!(scalar, TargetScalarKind::R64 | TargetScalarKind::R128)
+        }
+    }
 }
 
 const fn matching_long_pair(long: TargetScalarKind, unsigned_long: TargetScalarKind) -> bool {
@@ -137,13 +215,6 @@ const fn matching_long_pair(long: TargetScalarKind, unsigned_long: TargetScalarK
         (long, unsigned_long),
         (TargetScalarKind::I32, TargetScalarKind::U32)
             | (TargetScalarKind::I64, TargetScalarKind::U64)
-    )
-}
-
-const fn valid_long_double(long_double: Option<TargetScalarKind>) -> bool {
-    matches!(
-        long_double,
-        None | Some(TargetScalarKind::R64 | TargetScalarKind::R128)
     )
 }
 
@@ -155,26 +226,21 @@ mod tests {
     #[test]
     fn c_models_reject_mismatched_signed_and_unsigned_long_widths() {
         assert_eq!(
-            TargetCDataModel::try_new(
-                TargetScalarKind::I8,
-                TargetScalarKind::I32,
-                TargetScalarKind::U64,
-                TargetScalarKind::U16,
-                Some(TargetScalarKind::R64),
-            ),
+            TargetCDataModel::try_new(&[
+                (TargetCScalarKind::Long, TargetScalarKind::I32),
+                (TargetCScalarKind::UnsignedLong, TargetScalarKind::U64),
+            ]),
             None
         );
     }
 
     #[test]
-    fn c_models_keep_unsupported_long_double_explicit() {
-        let properties = TargetCDataModel::try_new(
-            TargetScalarKind::I8,
-            TargetScalarKind::I64,
-            TargetScalarKind::U64,
-            TargetScalarKind::I32,
-            None,
-        )
+    fn c_models_keep_each_unavailable_mapping_independent() {
+        let properties = TargetCDataModel::try_new(&[
+            (TargetCScalarKind::SignedChar, TargetScalarKind::I8),
+            (TargetCScalarKind::Long, TargetScalarKind::I64),
+            (TargetCScalarKind::UnsignedLong, TargetScalarKind::U64),
+        ])
         .unwrap_or_else(|| panic!("test C ABI properties must be valid"));
 
         assert_eq!(
@@ -183,5 +249,22 @@ mod tests {
         );
 
         assert_eq!(properties.mapping(TargetCScalarKind::LongDouble), None);
+        assert_eq!(properties.mapping(TargetCScalarKind::UnsignedChar), None);
+    }
+
+    #[test]
+    fn c_models_reject_duplicate_and_inexact_mappings() {
+        assert_eq!(
+            TargetCDataModel::try_new(&[
+                (TargetCScalarKind::Int, TargetScalarKind::I32),
+                (TargetCScalarKind::Int, TargetScalarKind::I32),
+            ]),
+            None
+        );
+
+        assert_eq!(
+            TargetCDataModel::try_new(&[(TargetCScalarKind::Int, TargetScalarKind::I64)]),
+            None
+        );
     }
 }

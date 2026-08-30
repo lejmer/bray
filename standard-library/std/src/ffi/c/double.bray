@@ -1,9 +1,9 @@
-@target(target.c.LONG_DOUBLE == "r64")
+@target(target.c.DOUBLE == "r64")
 module std.ffi.c;
 
 @copy
 @layout(transparent)
-struct LongDouble
+struct Double
 {
     internal raw: r64;
 
@@ -13,7 +13,7 @@ struct LongDouble
     }
 }
 
-const func long_double_exact(pos raw: r64) -> LongDouble
+const func double_exact(pos raw: r64) -> Double
 {
     return
     {

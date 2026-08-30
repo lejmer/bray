@@ -1,0 +1,44 @@
+@target(target.c.PTRDIFF == "isize")
+module std.ffi.c;
+
+@copy
+@layout(transparent)
+struct PointerDifference
+{
+    internal raw: isize;
+
+    func value() -> isize
+    {
+        return self.raw;
+    }
+}
+
+const func pointer_difference_exact(pos raw: isize) -> PointerDifference
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func pointer_difference_checked(pos value: i128) -> Result<PointerDifference, ConversionError>
+{
+    if value < std.numeric.ISIZE_MIN as i128 || value > std.numeric.ISIZE_MAX as i128
+    {
+        return Error(ConversionError.OutOfRange);
+    }
+
+    return Ok(
+        {
+            raw = std.truncate_to<isize>(value)
+        }
+    );
+}
+
+func pointer_difference_wrapping(pos value: i128) -> PointerDifference
+{
+    return
+    {
+        raw = std.truncate_to<isize>(value)
+    };
+}

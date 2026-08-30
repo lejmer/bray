@@ -1,0 +1,44 @@
+@target(target.c.SIZE == "usize")
+module std.ffi.c;
+
+@copy
+@layout(transparent)
+struct Size
+{
+    internal raw: usize;
+
+    func value() -> usize
+    {
+        return self.raw;
+    }
+}
+
+const func size_exact(pos raw: usize) -> Size
+{
+    return
+    {
+        raw = raw
+    };
+}
+
+func size_checked(pos value: u128) -> Result<Size, ConversionError>
+{
+    if value > std.numeric.USIZE_MAX as u128
+    {
+        return Error(ConversionError.OutOfRange);
+    }
+
+    return Ok(
+        {
+            raw = std.truncate_to<usize>(value)
+        }
+    );
+}
+
+func size_wrapping(pos value: u128) -> Size
+{
+    return
+    {
+        raw = std.truncate_to<usize>(value)
+    };
+}

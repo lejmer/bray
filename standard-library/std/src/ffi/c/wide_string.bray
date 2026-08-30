@@ -1,3 +1,4 @@
+@target(target.c.WCHAR == "u16" || target.c.WCHAR == "i32")
 module std.ffi.c;
 
 @copy
@@ -87,7 +88,7 @@ struct OwnedWideString
             index += 1;
         }
 
-        match trusted std.collection.push<WideChar>(&mut storage, wide_char(0))
+        match trusted std.collection.push<WideChar>(&mut storage, wide_char_exact(0))
         {
             case Ok(_) {}
             case Error(_) { return Error(StringError.Allocation); }
@@ -130,4 +131,43 @@ internal func wide_contains_nul(pos units: &[WideChar]) -> bool
 internal func wide_unit_is_nul(pos value: &WideChar) -> bool
 {
     return value.value() == 0;
+}
+
+trusted internal func append_wide_decoded_scalar(
+    pos bytes: &mut std.bytes.Buffer,
+    scalar: u32,
+) -> Result<unit, StringError>
+{
+    let character: char = match std.character.from_scalar_value(value = scalar)
+    {
+        case ?value { yield value; }
+        case none { return Error(StringError.InvalidEncoding); }
+    };
+
+    let length: usize = std.character.utf8_length(value = character);
+    let mut index: usize = 0;
+
+    while index < length
+    {
+        let byte: u8 = std.character.utf8_byte(value = character, index = index);
+
+        match trusted std.bytes.push(&mut bytes, value = byte)
+        {
+            case Ok(_) {}
+            case Error(_) { return Error(StringError.Allocation); }
+        }
+
+        index += 1;
+    }
+
+    return Ok(unit);
+}
+
+internal func decoded_wide_string(pos bytes: &std.bytes.Buffer) -> Result<string, StringError>
+{
+    match std.string.from_utf8(std.bytes.as_slice(bytes))
+    {
+        case Ok(value) { return Ok(value); }
+        case Error(_) { return Error(StringError.InvalidEncoding); }
+    }
 }

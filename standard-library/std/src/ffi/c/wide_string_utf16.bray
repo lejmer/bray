@@ -1,0 +1,104 @@
+@target(target.c.WCHAR == "u16")
+module std.ffi.c;
+
+trusted func decode_utf16(pos value: &BorrowedWideString) -> Result<string, StringError>
+{
+    let units: &[WideChar] = value.units();
+    let count: usize = std.memory.slice_length<WideChar>(units);
+
+    let mut bytes: std.bytes.Buffer = match trusted std.bytes.Buffer(capacity = count)
+    {
+        case Ok(buffer) { yield buffer; }
+        case Error(_) { return Error(StringError.Allocation); }
+    };
+
+    let mut index: usize = 0;
+
+    while index < count
+    {
+        let first: u32 = units[index].value() as u32;
+        let mut scalar: u32 = first;
+
+        if first >= 55_296 && first <= 56_319
+        {
+            if index + 1 >= count
+            {
+                return Error(StringError.InvalidEncoding);
+            }
+
+            let second: u32 = units[index + 1].value() as u32;
+
+            if second < 56_320 || second > 57_343
+            {
+                return Error(StringError.InvalidEncoding);
+            }
+
+            scalar = 65_536 + ((first - 55_296) << 10) + (second - 56_320);
+            index += 1;
+        }
+        else if first >= 56_320 && first <= 57_343
+        {
+            return Error(StringError.InvalidEncoding);
+        }
+
+        try trusted internal append_wide_decoded_scalar(&mut bytes, scalar = scalar);
+        index += 1;
+    }
+
+    return internal decoded_wide_string(&bytes);
+}
+
+trusted func encode_utf16(pos value: &string) -> Result<OwnedWideString, StringError>
+{
+    let mut units: std.collection.List<WideChar> = match trusted std.collection.List<WideChar>(
+        capacity = std.string.scalar_count(value),
+    )
+    {
+        case Ok(list) { yield list; }
+        case Error(_) { return Error(StringError.Allocation); }
+    };
+
+    let mut scalars: std.string.ScalarCursor = std.string.scalars(value);
+
+    loop
+    {
+        let character: char = match scalars.next()
+        {
+            case ?next { yield next; }
+            case none { break; }
+        };
+
+        let scalar: u32 = std.character.scalar_value(value = character);
+
+        if scalar == 0
+        {
+            return Error(StringError.InteriorNul);
+        }
+
+        if scalar < 65_536
+        {
+            try trusted push_utf16_unit(&mut units, scalar = scalar);
+        }
+        else
+        {
+            let supplementary: u32 = scalar - 65_536;
+
+            try trusted push_utf16_unit(&mut units, scalar = 55_296 + (supplementary >> 10));
+            try trusted push_utf16_unit(&mut units, scalar = 56_320 + (supplementary & 1_023));
+        }
+    }
+
+    return trusted OwnedWideString.from_units(std.collection.as_slice<WideChar>(&units));
+}
+
+trusted internal func push_utf16_unit(
+    pos units: &mut std.collection.List<WideChar>,
+    scalar: u32,
+) -> Result<unit, StringError>
+{
+    match trusted std.collection.push<WideChar>(units, wide_char_wrapping(scalar as u128))
+    {
+        case Ok(_) { return Ok(unit); }
+        case Error(_) { return Error(StringError.Allocation); }
+    }
+}
