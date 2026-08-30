@@ -50,96 +50,168 @@ const ISIZE_MIN: isize = -ISIZE_MAX - 1;
 
 impl U8Integer = u8(Integer)
 {
-    func bounds() -> (u8, u8, u8, u8)
+    func bounds() -> IntegerBounds<u8>
     {
-        return(0, 0, U8_MIN, U8_MAX);
+        return
+        {
+            zero = 0,
+            negative_one = 0,
+            minimum = U8_MIN,
+            maximum = U8_MAX
+        };
     }
 }
 
 impl U16Integer = u16(Integer)
 {
-    func bounds() -> (u16, u16, u16, u16)
+    func bounds() -> IntegerBounds<u16>
     {
-        return(0, 0, U16_MIN, U16_MAX);
+        return
+        {
+            zero = 0,
+            negative_one = 0,
+            minimum = U16_MIN,
+            maximum = U16_MAX
+        };
     }
 }
 
 impl U32Integer = u32(Integer)
 {
-    func bounds() -> (u32, u32, u32, u32)
+    func bounds() -> IntegerBounds<u32>
     {
-        return(0, 0, U32_MIN, U32_MAX);
+        return
+        {
+            zero = 0,
+            negative_one = 0,
+            minimum = U32_MIN,
+            maximum = U32_MAX
+        };
     }
 }
 
 impl U64Integer = u64(Integer)
 {
-    func bounds() -> (u64, u64, u64, u64)
+    func bounds() -> IntegerBounds<u64>
     {
-        return(0, 0, U64_MIN, U64_MAX);
+        return
+        {
+            zero = 0,
+            negative_one = 0,
+            minimum = U64_MIN,
+            maximum = U64_MAX
+        };
     }
 }
 
 impl U128Integer = u128(Integer)
 {
-    func bounds() -> (u128, u128, u128, u128)
+    func bounds() -> IntegerBounds<u128>
     {
-        return(0, 0, U128_MIN, U128_MAX);
+        return
+        {
+            zero = 0,
+            negative_one = 0,
+            minimum = U128_MIN,
+            maximum = U128_MAX
+        };
     }
 }
 
 impl UsizeInteger = usize(Integer)
 {
-    func bounds() -> (usize, usize, usize, usize)
+    func bounds() -> IntegerBounds<usize>
     {
-        return(0, 0, USIZE_MIN, USIZE_MAX);
+        return
+        {
+            zero = 0,
+            negative_one = 0,
+            minimum = USIZE_MIN,
+            maximum = USIZE_MAX
+        };
     }
 }
 
 impl I8Integer = i8(Integer)
 {
-    func bounds() -> (i8, i8, i8, i8)
+    func bounds() -> IntegerBounds<i8>
     {
-        return(0, -1, I8_MIN, I8_MAX);
+        return
+        {
+            zero = 0,
+            negative_one = I8_MIN + I8_MAX,
+            minimum = I8_MIN,
+            maximum = I8_MAX
+        };
     }
 }
 
 impl I16Integer = i16(Integer)
 {
-    func bounds() -> (i16, i16, i16, i16)
+    func bounds() -> IntegerBounds<i16>
     {
-        return(0, -1, I16_MIN, I16_MAX);
+        return
+        {
+            zero = 0,
+            negative_one = I16_MIN + I16_MAX,
+            minimum = I16_MIN,
+            maximum = I16_MAX
+        };
     }
 }
 
 impl I32Integer = i32(Integer)
 {
-    func bounds() -> (i32, i32, i32, i32)
+    func bounds() -> IntegerBounds<i32>
     {
-        return(0, -1, I32_MIN, I32_MAX);
+        return
+        {
+            zero = 0,
+            negative_one = -1,
+            minimum = I32_MIN,
+            maximum = I32_MAX
+        };
     }
 }
 
 impl I64Integer = i64(Integer)
 {
-    func bounds() -> (i64, i64, i64, i64)
+    func bounds() -> IntegerBounds<i64>
     {
-        return(0, -1, I64_MIN, I64_MAX);
+        return
+        {
+            zero = 0,
+            negative_one = I64_MIN + I64_MAX,
+            minimum = I64_MIN,
+            maximum = I64_MAX
+        };
     }
 }
 
 impl I128Integer = i128(Integer)
 {
-    func bounds() -> (i128, i128, i128, i128)
+    func bounds() -> IntegerBounds<i128>
     {
-        return(0, -1, I128_MIN, I128_MAX);
+        return
+        {
+            zero = 0,
+            negative_one = I128_MIN + I128_MAX,
+            minimum = I128_MIN,
+            maximum = I128_MAX
+        };
     }
 }
 
 impl IsizeInteger = isize(Integer)
 {
-    func bounds() -> (isize, isize, isize, isize)
+    func bounds() -> IntegerBounds<isize>
     {
-        return(0, -1, ISIZE_MIN, ISIZE_MAX);
+        return
+        {
+            zero = 0,
+            negative_one = ISIZE_MIN + ISIZE_MAX,
+            minimum = ISIZE_MIN,
+            maximum = ISIZE_MAX
+        };
     }
 }

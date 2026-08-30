@@ -21,7 +21,7 @@ use bray_syntax::{GenericArgumentSyntax, PathSyntax};
 
 use super::template::{callable_declaration_template, combined_generic_declaration};
 
-use crate::lookup::{NameAccess, ResolvedName, bind_module_path};
+use crate::lookup::{NameAccess, ResolvedName, bind_module_path, bind_owner_path};
 use crate::{
     BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider,
     TypeExpressionBinder, TypeExpressionScope,
@@ -192,7 +192,15 @@ where
 {
     match target {
         BoundReferenceTarget::Surface(AnySymbolId::CallableOverload(overload)) => {
-            bind_overload_candidates(context, overload, state, generic, diagnostics, candidates)
+            bind_overload_candidates(
+                context,
+                overload,
+                state,
+                generic,
+                None,
+                diagnostics,
+                candidates,
+            )
         }
         BoundReferenceTarget::Surface(symbol)
             if let Some(subject) = NamedTypeSymbolId::try_from_any(symbol) =>
@@ -249,6 +257,7 @@ fn bind_overload_candidates<C>(
     overload: CallableOverloadSymbolId,
     state: CallableCandidateTemplateState,
     generic: CallGenericContext<'_>,
+    inherited_generic: Option<InheritedGenericContext<'_>>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BindingQueryResult<CandidateAbsence>
@@ -274,7 +283,7 @@ where
                 *symbol,
                 state,
                 generic,
-                None,
+                inherited_generic,
                 diagnostics,
                 candidates,
             )?,
@@ -284,6 +293,7 @@ where
                 *anchor,
                 state,
                 generic,
+                inherited_generic,
                 diagnostics,
                 candidates,
             )?,
@@ -308,6 +318,7 @@ fn bind_source_overload_arm<C>(
     anchor: bray_declarations::SyntaxAnchor,
     state: CallableCandidateTemplateState,
     generic: CallGenericContext<'_>,
+    inherited_generic: Option<InheritedGenericContext<'_>>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BindingQueryResult<DeclarationCandidateOutcome>
@@ -320,7 +331,7 @@ where
         + SymbolQueryProvider<CallableParameterDefaultTemplateQuery>
         + SymbolQueryProvider<CallableOverloadTemplateQuery>,
 {
-    let Some(module) = context.symbols().containing_module(overload.into()) else {
+    let Some(owner) = context.symbols().containing_symbol(overload.into()) else {
         return Ok(DeclarationCandidateOutcome::Ignored);
     };
 
@@ -328,7 +339,12 @@ where
         return Ok(DeclarationCandidateOutcome::Ignored);
     };
 
-    let lookup = bind_module_path(context, module.id(), &path, NameAccess::Internal)?;
+    let lookup = match owner {
+        AnySymbolId::Module(module) => {
+            bind_module_path(context, module, &path, NameAccess::Internal)?
+        }
+        owner => bind_owner_path(context, owner, &path, NameAccess::Internal)?,
+    };
 
     let outcome = match lookup {
         MemberLookupResult::Found(name) => bind_resolved_name_candidate(
@@ -336,7 +352,7 @@ where
             name,
             state,
             generic,
-            None,
+            inherited_generic,
             diagnostics,
             candidates,
         )?,
@@ -349,7 +365,7 @@ where
                     name,
                     CallableCandidateTemplateState::Inaccessible,
                     generic,
-                    None,
+                    inherited_generic,
                     diagnostics,
                     candidates,
                 )?;
@@ -370,7 +386,7 @@ where
                     name,
                     CallableCandidateTemplateState::Recovered,
                     generic,
-                    None,
+                    inherited_generic,
                     diagnostics,
                     candidates,
                 )?;
@@ -404,6 +420,29 @@ where
         + SymbolQueryProvider<CallableParameterDefaultTemplateQuery>
         + SymbolQueryProvider<CallableOverloadTemplateQuery>,
 {
+    if let ResolvedName::Surface(AnySymbolId::CallableOverload(overload)) = name {
+        let candidate_count = candidates.len();
+
+        return Ok(
+            if bind_overload_candidates(
+                context,
+                overload,
+                state,
+                generic,
+                inherited_generic,
+                diagnostics,
+                candidates,
+            )? == CandidateAbsence::UnavailableDeclarationSemantics
+            {
+                DeclarationCandidateOutcome::UnavailableSemantics
+            } else if candidates.len() == candidate_count {
+                DeclarationCandidateOutcome::Ignored
+            } else {
+                DeclarationCandidateOutcome::Added
+            },
+        );
+    }
+
     if let ResolvedName::Surface(symbol) = name {
         if symbol.kind().is_callable() {
             return bind_declaration_candidate(

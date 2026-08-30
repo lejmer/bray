@@ -3,11 +3,11 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, CallableSignatureQuery,
     ExternalDeclarationIdentity, ExternalSymbolKeyData, GenericArgument, GenericOwnerId,
-    GenericSubstitutionData,
-    ImplementationCoherenceQuery, ImplementationInstanceId, ImplementationRequirementKey,
-    ImplementationSymbolId, SymbolKeyData, SymbolQueryRequest, TraitApplicationData,
-    TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId, TraitSymbolId,
-    TraitTypeFulfillmentSymbolId, TraitTypeFulfillmentValueQuery, TraitTypeMemberSymbolId, TypeId,
+    GenericSubstitutionData, ImplementationCoherenceQuery, ImplementationInstanceId,
+    ImplementationRequirementKey, ImplementationSymbolId, SymbolKeyData, SymbolQueryRequest,
+    TraitApplicationData, TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId,
+    TraitSymbolId, TraitTypeFulfillmentSymbolId, TraitTypeFulfillmentValueQuery,
+    TraitTypeMemberSymbolId, TypeId,
 };
 
 use super::super::binder::{CompilationBindingContext, binding_query_error};

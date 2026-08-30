@@ -8,7 +8,7 @@ using std.memory;
 @test
 func imported_buffer_is_destroyed() -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer(capacity = 2);
+    let mut buffer: std.bytes.Buffer = try std.bytes.Buffer.new(capacity = 2);
 
     try std.bytes.push(buffer = &mut buffer, value = 65);
     try std.bytes.push(buffer = &mut buffer, value = 66);

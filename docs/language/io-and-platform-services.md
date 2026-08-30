@@ -59,8 +59,10 @@ std.io.print_line("ready");
 try std.io.print_line(message);
 ```
 
-`write_all` and `write_all_async` commit a complete borrowed byte slice. `read_exact` and `read_exact_async` initialize a
-complete borrowed destination. They retry partial transfers and return an `IoError` whose `transferred` value is the
+`Writer.write_all` and `AsyncWriter.write_all_async` are default trait methods that commit a complete borrowed byte
+slice through the required partial-write operation. `Reader.read_exact` and `AsyncReader.read_exact_async` are default
+trait methods that initialize a complete borrowed destination through the required partial-read operation. They retry
+partial transfers and return an `IoError` whose `transferred` value is the
 exact completed prefix when a transfer fails. Reaching the end of a stream before `read_exact` fills its destination is
 a `BrokenStream` failure with that same exact progress. A stream result that claims more bytes than the offered range is
 an invalid transfer failure.
@@ -337,6 +339,9 @@ timezone-transition policy. Adding 24 hours is not assumed to be equivalent to a
 Strict RFC 3339 and ISO 8601 interchange is locale-independent. Named-zone behavior and timezone aliases use the
 toolchain's pinned timezone database, so compilation and execution do not depend on the host's database version or
 perform runtime downloads.
+
+`Date.new`, `TimeOfDay.new`, `LocalDateTime.new`, and `Timestamp.new` select component construction or strict text
+parsing from explicit argument types and arity. The shape-specific constructor arms remain internal.
 
 Clock resolution is explicit target information. Arithmetic detects overflow and does not silently wrap. Reading either
 clock is an I/O effect and can return a typed failure when the selected service cannot provide a valid reading.

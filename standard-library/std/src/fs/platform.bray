@@ -76,7 +76,7 @@ trusted internal func directory_entry_path(
     {
         trusted internal std.memory.byte_buffer_copy(
             source,
-            internal std.memory.byte_slice_pointer_mut(std.bytes.as_slice_mut(&mut buffer)),
+            internal std.memory.byte_slice_pointer_mut(buffer.as_slice_mut()),
             count = bytes,
         );
     }
@@ -86,7 +86,7 @@ trusted internal func directory_entry_path(
         bytes = buffer,
     };
 
-    match std.path.Path.from_native(native)
+    match std.path.Path.new(native)
     {
         case Ok(path) { return Ok(path); }
         case Error(_) { return Error(internal std.io.invalid_transfer_error()); }

@@ -6,8 +6,7 @@ use bray_ir::{MirHelperReference, MirUnitKey};
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableExecution,
-    CallableParameterDefaultQuery, CallableParameterDefaultValue, CallableParameterSignature,
-    CallableSignature, CallableSignatureQuery, ReceiverParameterSignature,
+    CallableParameterDefaultQuery, CallableParameterDefaultValue, CallableSignatureQuery,
     RuntimeDefaultProviderInput, StructFieldDefaultQuery, StructFieldDefaultValue,
     SymbolQueryRequest, TypeAssociatedLifecycleSlot, TypeData, TypeId, UnionPayloadDefaultValue,
     UnionPayloadFieldDefaultQuery,
@@ -17,9 +16,7 @@ use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
 use super::super::super::checker::CompilationCheckerContext;
 use super::super::specialization::ConcreteCodegenInstance;
-use super::contextual_self::{
-    codegen_instance_contextual_self, substitute_contextual_self,
-};
+use super::contextual_self::{codegen_instance_contextual_self, substitute_contextual_self};
 use super::support::{
     callable_type_signature, codegen_checker_error, is_void_result, receiver_codegen_type,
     synchronous_bray_signature, void_signature,
@@ -95,8 +92,7 @@ impl Compilation {
         let substitution = callable.substitution();
         let binding_context = self.binding_context(cancellation)?;
 
-        let contextual_self =
-            codegen_instance_contextual_self(&binding_context, instance)?;
+        let contextual_self = codegen_instance_contextual_self(&binding_context, instance)?;
 
         let template = binding_context
             .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
@@ -118,77 +114,25 @@ impl Compilation {
         .map_err(FactQueryError::CheckerInfrastructure)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let callable_type =
-            substitute_contextual_self(values, signature.callable_type(), contextual_self)?;
-
-        let receiver = signature
-            .receiver()
-            .map(|receiver| {
-                substitute_contextual_self(values, receiver.ty(), contextual_self).map(|ty| {
-                    ReceiverParameterSignature::new(receiver.parameter(), ty, receiver.mode())
-                })
-            })
-            .transpose()?;
-
-        let parameters = signature
-            .parameters()
-            .iter()
-            .copied()
-            .map(|parameter| {
-                substitute_contextual_self(values, parameter.ty(), contextual_self)
-                    .map(|ty| CallableParameterSignature::new(parameter.parameter(), ty))
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let result = substitute_contextual_self(values, signature.result(), contextual_self)?;
+        let signature = signature.try_map_types(|ty| {
+            substitute_contextual_self(values, ty, contextual_self)
+        })?;
 
         let checker = CompilationCheckerContext::new(binding_context)
             .with_implementation_witnesses(instance.implementation_witnesses().iter().copied());
 
         let mut diagnostics = DiagnosticBag::new();
 
-        let callable_type =
-            bray_checker::normalize_type_valued_members(&checker, callable_type, &mut diagnostics)
-                .map_err(codegen_checker_error)?;
-
-        let receiver = receiver
-            .as_ref()
-            .map(|receiver| {
-                bray_checker::normalize_type_valued_members(
-                    &checker,
-                    receiver.ty(),
-                    &mut diagnostics,
-                )
-                .map(|ty| {
-                    ReceiverParameterSignature::new(receiver.parameter(), ty, receiver.mode())
-                })
-                .map_err(codegen_checker_error)
-            })
-            .transpose()?;
-
-        let parameters = parameters
-            .iter()
-            .copied()
-            .map(|parameter| {
-                bray_checker::normalize_type_valued_members(
-                    &checker,
-                    parameter.ty(),
-                    &mut diagnostics,
-                )
-                .map(|ty| CallableParameterSignature::new(parameter.parameter(), ty))
-                .map_err(codegen_checker_error)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let result =
-            bray_checker::normalize_type_valued_members(&checker, result, &mut diagnostics)
-                .map_err(codegen_checker_error)?;
+        let signature = bray_checker::normalize_callable_signature_type_valued_members(
+            &checker,
+            signature,
+            &mut diagnostics,
+        )
+        .map_err(codegen_checker_error)?;
 
         if diagnostics.has_errors() {
             return Err(CodegenPreparationError::Diagnostics(diagnostics));
         }
-
-        let signature = CallableSignature::new(callable_type, receiver, parameters, result);
 
         let callable = values
             .type_data(signature.callable_type())

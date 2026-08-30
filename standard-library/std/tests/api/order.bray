@@ -78,7 +78,7 @@ func ordering_algorithms()
         values = [4, 1, 3, 2],
     };
 
-    std.order.sort_stable<NumberSequence>(&mut stable);
+    stable.sort_stable();
 
     assert(stable.values[0] == 1);
     assert(stable.values[1] == 2);
@@ -87,8 +87,8 @@ func ordering_algorithms()
 
     let found_value: i32 = 3;
     let searched_value: i32 = 4;
-    let found: usize? = std.order.find<NumberSequence>(&stable, &found_value);
-    let searched: usize? = std.order.binary_search<NumberSequence>(&stable, &searched_value);
+    let found: usize? = stable.find(&found_value);
+    let searched: usize? = stable.binary_search(&searched_value);
 
     match found
     {
@@ -103,8 +103,8 @@ func ordering_algorithms()
     }
 
     let absent_value: i32 = 8;
-    let absent: usize? = std.order.find<NumberSequence>(&stable, &absent_value);
-    let unsearchable: usize? = std.order.binary_search<NumberSequence>(&stable, &absent_value);
+    let absent: usize? = stable.find(&absent_value);
+    let unsearchable: usize? = stable.binary_search(&absent_value);
 
     match absent
     {
@@ -123,7 +123,7 @@ func ordering_algorithms()
         values = [2, 4, 1, 3],
     };
 
-    std.order.sort_unstable<NumberSequence>(&mut unstable);
+    unstable.sort_unstable();
 
     assert(unstable.values[0] == 1);
     assert(unstable.values[1] == 2);

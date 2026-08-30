@@ -19,12 +19,12 @@ use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableDefinitionId, CallableInstanceData,
     CallableParameterDefaultProviderSymbolId, CallableParameterDefaultTemplateQuery,
-    CallableParameterSignature, CallableParameterSymbolId, CallableSignature,
-    CallableSignatureQuery, CheckedConstraintKind, ExactSymbolId, GenericDeclarationTemplateQuery,
-    GenericOwnerId, ImplementationSelection, ImplementationSubjectQuery, MemberLookupResult,
-    NamedTypeSymbolId, ReceiverParameterSignature, SelfTypeContext, StructFieldTypeQuery,
-    SymbolQueryContract, SymbolQueryRequest, TraitApplicationId, TraitCallableMemberSymbolId,
-    TraitConstraintDispatch, TypeAssociatedMemberOrigin, TypeData, TypeExpressionTemplate, TypeId,
+    CallableParameterSymbolId, CallableSignature, CallableSignatureQuery, CheckedConstraintKind,
+    ExactSymbolId, GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationSelection,
+    ImplementationSubjectQuery, MemberLookupResult, NamedTypeSymbolId, SelfTypeContext,
+    StructFieldTypeQuery, SymbolQueryContract, SymbolQueryRequest, TraitApplicationId,
+    TraitCallableMemberSymbolId, TraitConstraintDispatch, TypeAssociatedMemberOrigin, TypeData,
+    TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::{GenericArgumentSyntax, TraitApplicationSyntax};
 
@@ -43,6 +43,10 @@ use crate::fact::{CancellationToken, FactQueryError, OperationSelectionQueryKey}
 
 use super::model::{OperationResolution, TraitOperation, TraitOperationCandidate};
 use super::query::expression_type;
+use super::signature::{
+    member_callable_signature, normalize_callable_type_equalities,
+    normalize_callable_type_valued_members, substitute_callable_self,
+};
 
 struct ResolvedCallableMember {
     signature: CallableSignature,
@@ -76,82 +80,6 @@ fn member_call_generic_arguments(
                 .ok_or(FactQueryError::InfrastructureFailure)
         })
         .collect()
-}
-
-fn member_callable_signature(
-    signature: CallableSignature,
-    receiver_type: TypeId,
-) -> CallableSignature {
-    let receiver = signature.receiver().map(|receiver| {
-        ReceiverParameterSignature::new(receiver.parameter(), receiver_type, receiver.mode())
-    });
-
-    CallableSignature::new(
-        signature.callable_type(),
-        receiver,
-        signature.parameters().iter().copied(),
-        signature.result(),
-    )
-}
-
-fn normalize_callable_type_equalities(
-    binding_context: &CompilationBindingContext<'_>,
-    signature: CallableSignature,
-    constraints: &[(
-        bray_symbols::GenericOwnerId,
-        bray_symbols::CheckedConstraint,
-    )],
-) -> Result<CallableSignature, FactQueryError> {
-    let values = binding_context.semantic_values();
-
-    transform_callable_signature(signature, |ty| {
-        super::constraint::normalize_type_equalities(values, ty, constraints)
-    })
-}
-
-fn substitute_callable_self(
-    binding_context: &CompilationBindingContext<'_>,
-    signature: CallableSignature,
-    context: SelfTypeContext,
-    replacement: TypeId,
-) -> Result<CallableSignature, FactQueryError> {
-    let values = binding_context.semantic_values();
-
-    transform_callable_signature(signature, |ty| {
-        values
-            .substitute_contextual_self(ty, context, replacement)
-            .map_err(|_| FactQueryError::InfrastructureFailure)
-    })
-}
-
-fn transform_callable_signature(
-    signature: CallableSignature,
-    mut transform: impl FnMut(TypeId) -> Result<TypeId, FactQueryError>,
-) -> Result<CallableSignature, FactQueryError> {
-    let receiver = signature
-        .receiver()
-        .map(|receiver| {
-            transform(receiver.ty()).map(|ty| {
-                ReceiverParameterSignature::new(receiver.parameter(), ty, receiver.mode())
-            })
-        })
-        .transpose()?;
-
-    let parameters = signature
-        .parameters()
-        .iter()
-        .map(|parameter| {
-            transform(parameter.ty())
-                .map(|ty| CallableParameterSignature::new(parameter.parameter(), ty))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    Ok(CallableSignature::new(
-        transform(signature.callable_type())?,
-        receiver,
-        parameters,
-        transform(signature.result())?,
-    ))
 }
 
 impl Compilation {
@@ -604,6 +532,17 @@ impl Compilation {
             callable.signature
         };
 
+        let signature = if uses_trait_default {
+            normalize_callable_type_valued_members(
+                binding_context,
+                signature,
+                witness,
+                diagnostics,
+            )?
+        } else {
+            signature
+        };
+
         let signature = member_callable_signature(signature, subject_type);
         let result_type = signature.callable_type();
         let defaults = self.resolve_callable_defaults(binding_context, &signature, diagnostics)?;
@@ -656,13 +595,11 @@ impl Compilation {
         let owner = bray_symbols::GenericOwnerId::try_new(trait_definition.into())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
-        let parameters = visible_generic_parameters(binding_context.symbols(), trait_definition.into());
+        let parameters =
+            visible_generic_parameters(binding_context.symbols(), trait_definition.into());
 
-        let substitution = identity_substitution(
-            binding_context.semantic_values(),
-            owner,
-            &parameters,
-        )?;
+        let substitution =
+            identity_substitution(binding_context.semantic_values(), owner, &parameters)?;
 
         let application = binding_context
             .semantic_values()

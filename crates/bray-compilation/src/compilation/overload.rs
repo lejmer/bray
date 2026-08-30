@@ -88,8 +88,8 @@ impl Compilation {
                 .containing_symbol(family.id().into())
                 .and_then(callable_family_context);
 
-            let module = symbols
-                .containing_module(family.id().into())
+            let owner = symbols
+                .containing_symbol(family.id().into())
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             let mut seen = BTreeMap::<CallableSymbolId, Vec<SyntaxAnchor>>::new();
@@ -100,9 +100,15 @@ impl Compilation {
                     .find_descendant::<PathSyntax>(self.syntax_tree())
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
-                let result = binding_context
-                    .bind_surface_path(module.id(), &path, NameAccess::Internal)
-                    .map_err(binding_query_error)?;
+                let result = match owner {
+                    AnySymbolId::Module(module) => {
+                        binding_context.bind_surface_path(module, &path, NameAccess::Internal)
+                    }
+                    owner => {
+                        binding_context.bind_owner_surface_path(owner, &path, NameAccess::Internal)
+                    }
+                }
+                .map_err(binding_query_error)?;
 
                 diagnostics.add_range(result.diagnostics().iter().cloned());
 
@@ -554,6 +560,94 @@ overload choose =
         bray_testing::assert_goal_state_diagnostic_kind(
             compilation.semantic_diagnostics(),
             DiagnosticKind::CheckingConflictingCallableOverloadSignature,
+        );
+    }
+
+    #[test]
+    fn callable_overloads_do_not_select_by_result_type() {
+        let compilation = compilation(
+            r#"module app;
+
+func integer(pos value: bool) -> i32
+{
+    return 1;
+}
+
+func boolean(pos value: bool) -> bool
+{
+    return value;
+}
+
+overload choose =
+{
+    integer,
+    boolean,
+}
+"#,
+        );
+
+        assert!(
+            diagnostic_kinds(compilation.semantic_diagnostics())
+                .contains(&DiagnosticKind::CheckingConflictingCallableOverloadSignature)
+        );
+    }
+
+    #[test]
+    fn callable_overloads_do_not_select_by_execution_mode() {
+        let compilation = compilation(
+            r#"module app;
+
+func synchronous(pos value: bool)
+{
+}
+
+async func asynchronous(pos value: bool)
+{
+}
+
+overload choose =
+{
+    synchronous,
+    asynchronous,
+}
+"#,
+        );
+
+        assert!(
+            diagnostic_kinds(compilation.semantic_diagnostics())
+                .contains(&DiagnosticKind::CheckingConflictingCallableOverloadSignature)
+        );
+    }
+
+    #[test]
+    fn type_owned_overloads_do_not_select_by_receiver_capability() {
+        let compilation = compilation(
+            r#"module app;
+
+struct Value
+{
+    internal func shared() -> i32
+    {
+        return 1;
+    }
+
+    internal mut func mutable() -> i32
+    {
+        return 2;
+    }
+
+    overload read =
+    {
+        shared,
+        mutable,
+    }
+}
+"#,
+        );
+
+        assert!(
+            diagnostic_kinds(compilation.semantic_diagnostics())
+                .contains(&DiagnosticKind::CheckingConflictingCallableOverloadSignature)
         );
     }
 

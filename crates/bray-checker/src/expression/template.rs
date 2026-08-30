@@ -7,18 +7,17 @@ use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     CallableAbi, CallableConstness, CallableDependencyContracts, CallableExecution,
-    CallableInstanceData, CallableParameterData, CallableParameterMode, CallableParameterSignature,
-    CallablePosition, CallableSignature, CallableSignatureTemplate, CallableTrust,
-    CallableTypeData, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
-    GenericSubstitutionData, GenericSubstitutionId, PredicateInstanceData,
-    ReceiverParameterSignature, TypeData, TypeExpressionTemplate, TypeId,
+    CallableInstanceData, CallableParameterData, CallableParameterMode, CallablePosition,
+    CallableSignature, CallableSignatureTemplate, CallableTrust, CallableTypeData, GenericArgument,
+    GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData, GenericSubstitutionId,
+    PredicateInstanceData, TypeData, TypeExpressionTemplate, TypeId,
 };
 
 use crate::{
     CallableCandidate, CallableCandidateState, CallableCandidateTemplateState,
     CallableDeclarationCandidateTemplate, CheckedConstantTerms, CheckerInfrastructureError,
     CheckerQueryError, CheckerQueryResult, PredicateCandidateTemplate,
-    normalize_type_valued_members, resolve_callable_signature_template,
+    normalize_callable_signature_type_valued_members, resolve_callable_signature_template,
     resolve_type_expression_template,
 };
 
@@ -385,36 +384,8 @@ where
         return Ok(TemplateResolution::Unsupported);
     };
 
-    let callable_type =
-        normalize_type_valued_members(request.context(), signature.callable_type(), diagnostics)?;
-
-    let receiver = signature
-        .receiver()
-        .map(|receiver| {
-            normalize_type_valued_members(request.context(), receiver.ty(), diagnostics).map(|ty| {
-                ReceiverParameterSignature::new(receiver.parameter(), ty, receiver.mode())
-            })
-        })
-        .transpose()?;
-
-    let parameters = signature
-        .parameters()
-        .iter()
-        .copied()
-        .map(|parameter| {
-            normalize_type_valued_members(request.context(), parameter.ty(), diagnostics)
-                .map(|ty| CallableParameterSignature::new(parameter.parameter(), ty))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let result = normalize_type_valued_members(request.context(), signature.result(), diagnostics)?;
-
-    Ok(TemplateResolution::Resolved(CallableSignature::new(
-        callable_type,
-        receiver,
-        parameters,
-        result,
-    )))
+    normalize_callable_signature_type_valued_members(request.context(), signature, diagnostics)
+        .map(TemplateResolution::Resolved)
 }
 
 pub(super) fn resolve_generic_arguments<C>(

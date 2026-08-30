@@ -222,7 +222,7 @@ func complete_transfers_preserve_partial_progress() -> Result<unit, std.io.IoErr
     let source: [u8; 5] = [1, 2, 3, 4, 5];
     let mut writer: CountingWriter = CountingWriter(limit = 2);
 
-    try std.io.write_all<CountingWriter>(&mut writer, &source[..]);
+    try writer.write_all(&source[..]);
 
     assert(writer.calls == 3);
     assert(writer.total == 5);
@@ -232,9 +232,7 @@ func complete_transfers_preserve_partial_progress() -> Result<unit, std.io.IoErr
         calls = 0,
     };
 
-    let write_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(
-        std.io.write_all<FailingWriter>(&mut failing, &source[..]),
-    );
+    let write_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(failing.write_all(&source[..]));
 
     assert(write_error.kind == std.io.IoErrorKind.Exhausted);
     assert(write_error.transferred == 3);
@@ -242,13 +240,13 @@ func complete_transfers_preserve_partial_progress() -> Result<unit, std.io.IoErr
     let mut exact: CountingReader = CountingReader(remaining = 5, limit = 2);
     let mut destination: [u8; 5] = [0; 5];
 
-    try std.io.read_exact<CountingReader>(&mut exact, &mut destination[..]);
+    try exact.read_exact(&mut destination[..]);
     assert(exact.calls == 3);
 
     let mut short: CountingReader = CountingReader(remaining = 2, limit = 2);
 
     let read_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(
-        std.io.read_exact<CountingReader>(&mut short, &mut destination[..]),
+        short.read_exact(&mut destination[..]),
     );
 
     assert(read_error.kind == std.io.IoErrorKind.BrokenStream);

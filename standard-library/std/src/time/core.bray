@@ -12,7 +12,7 @@ struct Duration
 {
     internal state: DurationState;
 
-    construct(seconds: i64, nanoseconds: u32) -> Result<Self, ClockError>
+    construct(pos seconds: i64, pos nanoseconds: u32) -> Result<Self, ClockError>
     {
         if nanoseconds >= NANOSECONDS_PER_SECOND
         {
@@ -124,7 +124,7 @@ struct Timestamp
 {
     internal state: TimestampState;
 
-    construct(seconds: i64, nanoseconds: u32) -> Result<Self, ClockError>
+    internal construct components(pos seconds: i64, pos nanoseconds: u32) -> Result<Self, ClockError>
     {
         if nanoseconds >= NANOSECONDS_PER_SECOND
         {
@@ -144,11 +144,18 @@ struct Timestamp
         return self.state.nanoseconds;
     }
 
-    construct parse(pos text: &string) -> Result<Self, TimeError>
+    internal construct text(pos text: &string) -> Result<Self, TimeError>
     {
         let value: PlatformTemporalValue = try trusted parse_temporal_value(kind = 3, text = text);
 
         return Ok(timestamp_from_parts(seconds = value.timestamp_seconds, nanoseconds = value.local.nanosecond));
+    }
+
+    /// Creates a timestamp from Unix components or RFC 3339 text.
+    overload new =
+    {
+        components,
+        text,
     }
 
     func rfc3339(pos offset: UtcOffset = UtcOffset.utc()) -> Result<string, TimeError>
@@ -392,7 +399,7 @@ internal func checked_clock_status(
 
 internal func checked_clock_add(pos left: i64, pos right: i64) -> Result<i64, ClockError>
 {
-    match std.numeric.checked_add<i64>(left, right)
+    match left.checked_add(right)
     {
         case ?value { return Ok(value); }
         case none { return Error(ClockError.OutOfRange); }
@@ -401,7 +408,7 @@ internal func checked_clock_add(pos left: i64, pos right: i64) -> Result<i64, Cl
 
 internal func checked_clock_subtract(pos left: i64, pos right: i64) -> Result<i64, ClockError>
 {
-    match std.numeric.checked_subtract<i64>(left, right)
+    match left.checked_subtract(right)
     {
         case ?value { return Ok(value); }
         case none { return Error(ClockError.OutOfRange); }
@@ -410,7 +417,7 @@ internal func checked_clock_subtract(pos left: i64, pos right: i64) -> Result<i6
 
 internal func checked_time_add(pos left: i64, pos right: i64) -> Result<i64, TimeError>
 {
-    match std.numeric.checked_add<i64>(left, right)
+    match left.checked_add(right)
     {
         case ?value { return Ok(value); }
         case none { return Error(TimeError.OutOfRange); }
@@ -419,7 +426,7 @@ internal func checked_time_add(pos left: i64, pos right: i64) -> Result<i64, Tim
 
 internal func checked_time_subtract(pos left: i64, pos right: i64) -> Result<i64, TimeError>
 {
-    match std.numeric.checked_subtract<i64>(left, right)
+    match left.checked_subtract(right)
     {
         case ?value { return Ok(value); }
         case none { return Error(TimeError.OutOfRange); }

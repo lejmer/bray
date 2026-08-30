@@ -347,6 +347,36 @@ impl CallableSignature {
         }
     }
 
+    /// Transforms every type in the signature while preserving declaration identities and modes.
+    pub fn try_map_types<E>(
+        self,
+        mut transform: impl FnMut(TypeId) -> Result<TypeId, E>,
+    ) -> Result<Self, E> {
+        let callable_type = transform(self.callable_type)?;
+
+        let receiver = self
+            .receiver
+            .map(|receiver| {
+                transform(receiver.ty()).map(|ty| {
+                    ReceiverParameterSignature::new(receiver.parameter(), ty, receiver.mode())
+                })
+            })
+            .transpose()?;
+
+        let parameters = self
+            .parameters
+            .iter()
+            .map(|parameter| {
+                transform(parameter.ty())
+                    .map(|ty| CallableParameterSignature::new(parameter.parameter(), ty))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let result = transform(self.result)?;
+
+        Ok(Self::new(callable_type, receiver, parameters, result))
+    }
+
     /// Returns the canonical callable type.
     pub const fn callable_type(&self) -> TypeId {
         self.callable_type
@@ -378,7 +408,8 @@ mod tests {
         CallableParameterSymbolId, CallableParameterTypeTemplate, CallablePosition,
         CallableSignature, CallableSignatureTemplate, CallableSignatureTemplateError,
         CallableTrust, CallableTypeData, CallableTypeTemplate, DependencyContractTemplateData,
-        SemanticValueStore, SymbolId, TypeData, TypeExpressionTemplate,
+        ReceiverMode, ReceiverParameterSignature, ReceiverParameterSymbolId, SemanticValueStore,
+        SymbolId, TypeData, TypeExpressionTemplate,
     };
 
     #[test]
@@ -414,6 +445,60 @@ mod tests {
 
         assert_eq!(signature.callable_type(), ty);
         assert_eq!(signature.result(), ty);
+    }
+
+    #[test]
+    fn callable_signature_type_mapping_preserves_declaration_structure() {
+        let receiver = ReceiverParameterSymbolId::from_symbol_id(SymbolId::new(1));
+        let parameter = CallableParameterSymbolId::from_symbol_id(SymbolId::new(2));
+
+        let Ok(store) = SemanticValueStore::try_new() else {
+            panic!("semantic value store identity must be available");
+        };
+
+        let Ok(source) = store.intern_type(TypeData::Error) else {
+            panic!("error type must be valid");
+        };
+
+        let Ok(mapped) = store.intern_type(TypeData::Tuple(Arc::from([]))) else {
+            panic!("empty tuple type must be valid");
+        };
+
+        let signature = CallableSignature::new(
+            source,
+            Some(ReceiverParameterSignature::new(
+                receiver,
+                source,
+                ReceiverMode::ConsumingMutable,
+            )),
+            [CallableParameterSignature::new(parameter, source)],
+            source,
+        );
+
+        let transformed = signature
+            .try_map_types(|ty| {
+                assert_eq!(ty, source);
+
+                Ok::<_, ()>(mapped)
+            })
+            .unwrap_or_else(|()| panic!("signature type mapping must succeed"));
+
+        assert_eq!(transformed.callable_type(), mapped);
+        assert_eq!(transformed.result(), mapped);
+
+        assert_eq!(
+            transformed.receiver(),
+            Some(ReceiverParameterSignature::new(
+                receiver,
+                mapped,
+                ReceiverMode::ConsumingMutable,
+            ))
+        );
+
+        assert_eq!(
+            transformed.parameters(),
+            &[CallableParameterSignature::new(parameter, mapped)]
+        );
     }
 
     #[test]

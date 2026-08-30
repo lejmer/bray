@@ -124,8 +124,10 @@ Construction from bytes or text validates interior NUL units, terminal NUL stora
 selected encoding policy. Conversion to Bray `string` is fallible and names the encoding being decoded. A C string is
 not assumed to contain UTF-8, and a native path is not silently converted through a C string.
 
-Narrow text conversion uses `OwnedNarrowString.from_utf8` and `BorrowedNarrowString.decode_utf8`. Raw narrow bytes use
-`from_bytes` and are not described as text. When `target.c.WCHAR` is `u16`, wide text conversion uses `encode_utf16` and
+`OwnedNarrowString.new` accepts either a raw byte slice or UTF-8 text and selects the arm from the argument type.
+`BorrowedNarrowString.decode_utf8` performs explicit text decoding. The `borrow_string` overload accepts a validated
+narrow byte slice and, when the target has a wide C character type, a validated wide-unit slice. When `target.c.WCHAR`
+is `u16`, wide text conversion uses `encode_utf16` and
 `decode_utf16`. When it is `i32`, wide text conversion uses `encode_utf32` and `decode_utf32`. Invalid surrogate
 sequences, invalid Unicode scalar values, and interior NUL characters return `StringError` rather than being replaced
 or reinterpreted.
@@ -194,6 +196,9 @@ a target facility with that behavior.
 Load policy states visibility, binding, namespace, and executable-image requirements only where the selected target
 supports them. Unsupported combinations fail before invoking the loader. Platform defaults are represented by an
 explicit default policy whose meaning is fixed for that target artifact.
+
+`DynamicLibrary.open` overloads the path and system-library forms. The explicit first argument selects the arm, while
+the load policy remains named and shared by both forms.
 
 Symbol lookup accepts an exact native symbol name and an ABI-qualified requested type. A successful lookup returns a
 `DynamicSymbol<T>` borrowed from the library owner. The symbol cannot outlive the library, and the library cannot be

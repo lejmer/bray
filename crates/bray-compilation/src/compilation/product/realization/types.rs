@@ -117,11 +117,8 @@ impl Compilation {
             .transpose()?
             .flatten();
 
-        let ty = substitute_contextual_self(
-            binding_context.semantic_values(),
-            ty,
-            contextual_self,
-        )?;
+        let ty =
+            substitute_contextual_self(binding_context.semantic_values(), ty, contextual_self)?;
 
         let checker = CompilationCheckerContext::new(binding_context)
             .with_implementation_witnesses(

@@ -226,18 +226,24 @@ struct Buffer;
 
 impl Buffer
 {
-    construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>;
+    trusted internal construct empty() -> Result<Self, std.memory.MemoryLayoutError>;
+    trusted internal construct with_capacity(pos capacity: usize) -> Result<Self, std.memory.MemoryLayoutError>;
+    trusted internal construct from_slice(pos bytes: &[u8]) -> Result<Self, std.memory.MemoryLayoutError>;
 
-    construct from_slice(pos bytes: &[u8]) -> Result<Self, std.memory.MemoryLayoutError>;
+    overload new =
+    {
+        empty,
+        with_capacity,
+        from_slice,
+    }
+
+    func as_slice() -> &[u8];
+    mut func as_slice_mut() -> &mut [u8];
 }
 
 func length(pos buffer: &Buffer) -> usize;
 
 func capacity(pos buffer: &Buffer) -> usize;
-
-func as_slice(pos buffer: &Buffer) -> &[u8];
-
-func as_slice_mut(pos buffer: &mut Buffer) -> &mut [u8];
 
 func equals(pos left: &[u8], pos right: &[u8]) -> bool;
 
@@ -268,13 +274,20 @@ func push(
 
 func append(
     pos buffer: &mut Buffer,
-    bytes: &[u8],
+    pos bytes: &[u8],
+) -> Result<unit, std.memory.MemoryLayoutError>;
+
+func append(
+    pos buffer: &mut Buffer,
+    pos value: u8,
+    pos count: usize,
 ) -> Result<unit, std.memory.MemoryLayoutError>;
 
 func pop(pos buffer: &mut Buffer) -> u8?;
 ```
 
-`create` and `from_slice` return `MemoryLayoutError` when the requested capacity cannot be represented. Allocation
+The `new` overload selects empty, capacity, or byte-slice construction from the supplied arguments. Construction returns
+`MemoryLayoutError` when the requested capacity cannot be represented. Allocation
 failure follows the language allocation panic contract. `equals` compares complete byte sequences without allocation.
 `reserve` guarantees capacity for `length(buffer) + additional` without changing the byte sequence and uses the stable
 geometric growth policy. `reserve_exact` grows only to the required capacity for callers that know the final size.
@@ -313,7 +326,8 @@ Algorithms requiring multiple passes, exact size, stable ordering, random access
 additional contracts. They do not infer those properties from `Iterable` alone.
 
 The standard adapter surface covers transformation, filtering, flattening, bounded traversal, indexing, peeking, and
-chaining. Adapters such as `map`, `filter`, `flat_map`, `take`, `skip`, `enumerate`, `peekable`, and `chain` own their
+chaining. `IteratorOperations` supplies `first`, `nth`, `take`, `skip`, and `enumerate` as default methods for every
+`Iterator`. Adapters such as `map`, `filter`, `flat_map`, `take`, `skip`, `enumerate`, `peekable`, and `chain` own their
 source cursors, advance them only when the adapter advances, and remain exhausted after their sources are exhausted.
 `take` produces at most the requested count. `skip` consumes at most the requested count before producing the remaining
 elements. `enumerate` pairs each produced element with a zero-based `usize` index and preserves source order.
@@ -362,6 +376,9 @@ module std.collection;
 struct List<T>
 {
     trusted construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>;
+
+    func as_slice() -> &[T];
+    mut func as_slice_mut() -> &mut [T];
 }
 
 func length<T>(pos list: &List<T>) -> usize;
@@ -369,10 +386,6 @@ func length<T>(pos list: &List<T>) -> usize;
 func capacity<T>(pos list: &List<T>) -> usize;
 
 func is_empty<T>(pos list: &List<T>) -> bool;
-
-func as_slice<T>(pos list: &List<T>) -> &[T];
-
-func as_slice_mut<T>(pos list: &mut List<T>) -> &mut [T];
 
 trusted func reserve<T>(
     pos list: &mut List<T>,
@@ -459,10 +472,11 @@ the ordering policy that defines the adapter, while projection and conversion to
 collection are explicit.
 
 `std.collection.Stack<T>` exposes `push`, `pop`, `peek`, and `peek_mut` with last-in-first-out ordering.
-`std.collection.Queue<T>` exposes `enqueue`, `dequeue`, `peek`, and `peek_mut` with first-in-first-out ordering. Both
+`std.collection.Queue<T>` exposes `enqueue`, `dequeue`, `peek`, and `peek_mut` with first-in-first-out ordering. Their
+`new` overloads select empty construction, a requested capacity, or an owned `Deque<T>` from the supplied arguments. Both
 adapters share `length`, `capacity`, `is_empty`, `reserve`, and `clear` through `DequeAdapter<T>`, store one `Deque<T>`
 without an additional dispatch layer, project it explicitly with `as_deque` and `as_deque_mut`, and convert explicitly
-with `from_deque` and `into_deque`.
+with `into_deque`.
 
 ## Formatting
 
@@ -479,6 +493,7 @@ contract.
 Format arguments retain their semantic types until the selected formatting implementation consumes them. The
 implementation does not parse a type-erased host-language value or depend on debug reflection. Formatting options such
 as radix, precision, width, alignment, sign, and escaping are typed policy values with deterministic defaults.
+`Argument.new` selects default or explicit options, and `Options.new` selects its default or complete explicit form.
 
 The core formatting contract is independent of terminals, files, locales, and operating-system streams. `std.io` adapts
 its writers to the formatting sink contract. Compiler diagnostics continue to use `bray-messages`. The standard
@@ -511,7 +526,8 @@ rather than silently changing this contract.
 `std.order` builds sorting, searching, minimum, maximum, and ordering adapters over the compiler-known `Comparable<Rhs>`
 contract and `Ordering` result. Stable and unstable algorithms are named or typed distinctly. A comparison callback must
 define a coherent ordering for the values presented to the algorithm. Algorithms do not repair inconsistent comparison
-behavior.
+behavior. `OrderedSequence` defines `find`, `binary_search`, `sort_stable`, and `sort_unstable` as default methods in
+terms of its required length, comparison, and swap operations.
 
 ## Numeric Utilities
 
@@ -529,9 +545,10 @@ target's defined width. Parsing never depends on the host process locale. Operat
 real, or complex domains expose that difference through overloads, traits, or typed policy rather than an untyped mode
 flag.
 
-The public `Integer` trait defines the common integer contract required by generic checked arithmetic. Every
-language-defined integer type implements that contract. Generic numeric APIs expose `Integer` when their validity
-depends on integer bounds rather than hiding those requirements behind an interface-private helper.
+The public `Integer` trait defines the common integer contract required by generic checked arithmetic. Its required
+`bounds` member returns `IntegerBounds<Self>`, whose named fields state zero, negative one, minimum, and maximum without
+positional tuple conventions. The trait defines checked add, subtract, multiply, and divide as default methods. Every
+language-defined integer type implements the bounds contract.
 
 The recognized conversion and numeric-policy operations at the `std` root retain the exact identities and semantics
 defined by the language specification. Named helpers may build on them but cannot weaken their range, representation,

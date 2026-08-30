@@ -4,6 +4,7 @@ mod construction;
 mod conversion;
 mod model;
 mod query;
+mod signature;
 mod storage;
 mod trait_operation;
 

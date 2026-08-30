@@ -7,22 +7,29 @@ struct Argument<Value>
     value: &Value;
     options: Options;
 
-    construct(pos value: &Value) -> Self
+    internal construct default_options(pos value: &Value) -> Self
     {
         return
         {
             value = value,
-            options = Options.default(),
+            options = Options.new(),
         };
     }
 
-    construct with_options(pos value: &Value, options: Options) -> Self
+    internal construct with_options(pos value: &Value, pos options: Options) -> Self
     {
         return
         {
             value = value,
             options = options,
         };
+    }
+
+    /// Creates a formatting argument with default or explicit options.
+    overload new =
+    {
+        default_options,
+        with_options,
     }
 }
 

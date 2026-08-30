@@ -1,8 +1,173 @@
 module std.numeric;
 
+/// Names the arithmetic identities and range selected by an integer implementation.
+struct IntegerBounds<Value>
+{
+    zero: Value;
+    negative_one: Value;
+    minimum: Value;
+    maximum: Value;
+}
+
 trait Integer
 {
-    func bounds() -> (Self, Self, Self, Self);
+    func bounds() -> IntegerBounds<Self>;
+
+    func checked_add(pos right: Self) -> Self?
+        with(
+            Self: Add<Self>,
+            Self(Add<Self>).Output == Self,
+            Self: Comparable<Self>,
+            Self: Copyable,
+            Self: Subtract<Self>,
+            Self(Subtract<Self>).Output == Self,
+        )
+    {
+        let bounds: IntegerBounds<Self> = self.bounds();
+        let zero: Self = bounds.zero;
+
+        if right > zero
+        {
+            let maximum: Self = bounds.maximum;
+
+            if self > maximum - right
+            {
+                return none;
+            }
+        }
+
+        if right < zero
+        {
+            let minimum: Self = bounds.minimum;
+
+            if self < minimum - right
+            {
+                return none;
+            }
+        }
+
+        return present<Self>(self + right);
+    }
+
+    func checked_subtract(pos right: Self) -> Self?
+        with(
+            Self: Add<Self>,
+            Self(Add<Self>).Output == Self,
+            Self: Comparable<Self>,
+            Self: Copyable,
+            Self: Subtract<Self>,
+            Self(Subtract<Self>).Output == Self,
+        )
+    {
+        let bounds: IntegerBounds<Self> = self.bounds();
+        let zero: Self = bounds.zero;
+
+        if right < zero
+        {
+            let maximum: Self = bounds.maximum;
+
+            if self > maximum + right
+            {
+                return none;
+            }
+        }
+
+        if right > zero
+        {
+            let minimum: Self = bounds.minimum;
+
+            if self < minimum + right
+            {
+                return none;
+            }
+        }
+
+        return present<Self>(self - right);
+    }
+
+    func checked_multiply(pos right: Self) -> Self?
+        with(
+            Self: Comparable<Self>,
+            Self: Copyable,
+            Self: Divide<Self>,
+            Self(Divide<Self>).Output == Self,
+            Self: Multiply<Self>,
+            Self(Multiply<Self>).Output == Self,
+        )
+    {
+        let bounds: IntegerBounds<Self> = self.bounds();
+        let zero: Self = bounds.zero;
+
+        if self > zero
+        {
+            if right > zero
+            {
+                let maximum: Self = bounds.maximum;
+
+                if self > maximum / right
+                {
+                    return none;
+                }
+            }
+
+            if right < zero
+            {
+                let minimum: Self = bounds.minimum;
+
+                if right < minimum / self
+                {
+                    return none;
+                }
+            }
+        }
+
+        if self < zero
+        {
+            if right > zero
+            {
+                let minimum: Self = bounds.minimum;
+
+                if self < minimum / right
+                {
+                    return none;
+                }
+            }
+
+            if right < zero
+            {
+                let maximum: Self = bounds.maximum;
+
+                if self < maximum / right
+                {
+                    return none;
+                }
+            }
+        }
+
+        return present<Self>(self * right);
+    }
+
+    func checked_divide(pos right: Self) -> Self?
+        with(Self: Copyable, Self: Divide<Self>, Self(Divide<Self>).Output == Self, Self: Equatable<Self>)
+    {
+        let bounds: IntegerBounds<Self> = self.bounds();
+        let zero: Self = bounds.zero;
+
+        if right == zero
+        {
+            return none;
+        }
+
+        let negative_one: Self = bounds.negative_one;
+        let minimum: Self = bounds.minimum;
+
+        if self == minimum && right == negative_one
+        {
+            return none;
+        }
+
+        return present<Self>(self / right);
+    }
 }
 
 internal func present<Value>(pos value: Value) -> Value?
@@ -12,169 +177,4 @@ internal func present<Value>(pos value: Value) -> Value?
     result = value;
 
     return result;
-}
-
-func checked_add<Value>(pos left: Value, pos right: Value) -> Value?
-    with(
-        Value: Add<Value>,
-        Value(Add<Value>).Output == Value,
-        Value: Comparable<Value>,
-        Value: Copyable,
-        Value: Integer,
-        Value: Subtract<Value>,
-        Value(Subtract<Value>).Output == Value,
-    )
-{
-    let bounds: (Value, Value, Value, Value) = right.bounds();
-    let zero: Value = bounds.0;
-
-    if right > zero
-    {
-        let maximum: Value = bounds.3;
-
-        if left > maximum - right
-        {
-            return none;
-        }
-    }
-
-    if right < zero
-    {
-        let minimum: Value = bounds.2;
-
-        if left < minimum - right
-        {
-            return none;
-        }
-    }
-
-    return present<Value>(left + right);
-}
-
-func checked_subtract<Value>(pos left: Value, pos right: Value) -> Value?
-    with(
-        Value: Add<Value>,
-        Value(Add<Value>).Output == Value,
-        Value: Comparable<Value>,
-        Value: Copyable,
-        Value: Integer,
-        Value: Subtract<Value>,
-        Value(Subtract<Value>).Output == Value,
-    )
-{
-    let bounds: (Value, Value, Value, Value) = right.bounds();
-    let zero: Value = bounds.0;
-
-    if right < zero
-    {
-        let maximum: Value = bounds.3;
-
-        if left > maximum + right
-        {
-            return none;
-        }
-    }
-
-    if right > zero
-    {
-        let minimum: Value = bounds.2;
-
-        if left < minimum + right
-        {
-            return none;
-        }
-    }
-
-    return present<Value>(left - right);
-}
-
-func checked_multiply<Value>(pos left: Value, pos right: Value) -> Value?
-    with(
-        Value: Comparable<Value>,
-        Value: Copyable,
-        Value: Divide<Value>,
-        Value(Divide<Value>).Output == Value,
-        Value: Integer,
-        Value: Multiply<Value>,
-        Value(Multiply<Value>).Output == Value,
-    )
-{
-    let bounds: (Value, Value, Value, Value) = right.bounds();
-    let zero: Value = bounds.0;
-
-    if left > zero
-    {
-        if right > zero
-        {
-            let maximum: Value = bounds.3;
-
-            if left > maximum / right
-            {
-                return none;
-            }
-        }
-
-        if right < zero
-        {
-            let minimum: Value = bounds.2;
-
-            if right < minimum / left
-            {
-                return none;
-            }
-        }
-    }
-
-    if left < zero
-    {
-        if right > zero
-        {
-            let minimum: Value = bounds.2;
-
-            if left < minimum / right
-            {
-                return none;
-            }
-        }
-
-        if right < zero
-        {
-            let maximum: Value = bounds.3;
-
-            if left < maximum / right
-            {
-                return none;
-            }
-        }
-    }
-
-    return present<Value>(left * right);
-}
-
-func checked_divide<Value>(pos left: Value, pos right: Value) -> Value?
-    with(
-        Value: Copyable,
-        Value: Divide<Value>,
-        Value(Divide<Value>).Output == Value,
-        Value: Equatable<Value>,
-        Value: Integer,
-    )
-{
-    let bounds: (Value, Value, Value, Value) = right.bounds();
-    let zero: Value = bounds.0;
-
-    if right == zero
-    {
-        return none;
-    }
-
-    let negative_one: Value = bounds.1;
-    let minimum: Value = bounds.2;
-
-    if left == minimum && right == negative_one
-    {
-        return none;
-    }
-
-    return present<Value>(left / right);
 }

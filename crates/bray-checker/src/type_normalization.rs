@@ -2,8 +2,9 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    CallableParameterData, CallableTypeData, GenericArgument, GenericSubstitutionData,
-    GenericSubstitutionId, TraitApplicationData, TraitApplicationId, TypeData, TypeId,
+    CallableParameterData, CallableSignature, CallableTypeData, GenericArgument,
+    GenericSubstitutionData, GenericSubstitutionId, TraitApplicationData, TraitApplicationId,
+    TypeData, TypeId,
 };
 
 use crate::{CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext};
@@ -23,6 +24,17 @@ where
         active: BTreeSet::new(),
     }
     .normalize_type(ty)
+}
+
+pub fn normalize_callable_signature_type_valued_members<C>(
+    request: &C,
+    signature: CallableSignature,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<CallableSignature, CheckerQueryError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    signature.try_map_types(|ty| normalize_type_valued_members(request, ty, diagnostics))
 }
 
 struct TypeNormalizer<'request, 'diagnostics, C>

@@ -19,16 +19,10 @@ struct FormattingSink<Destination>
 impl WriterFormattingSink = FormattingSink<Destination>(std.format.Sink<std.io.IoError>)
     with(Destination: std.io.Writer)
 {
-    mut func prepare(additional: usize) -> Result<unit, std.io.IoError>
-        requires(blocking_execution())
-    {
-        return Ok(unit);
-    }
-
     mut func write(pos source: &[u8]) -> Result<unit, std.io.IoError>
         requires(blocking_execution())
     {
-        return write_all<Destination>(&mut self.destination, source);
+        return self.destination.write_all(source);
     }
 
     mut func write_repeated(value: u8, count: usize) -> Result<unit, std.io.IoError>
@@ -42,10 +36,7 @@ impl WriterFormattingSink = FormattingSink<Destination>(std.format.Sink<std.io.I
             let remaining_count: usize = count - written;
             let chunk_length: usize = smaller(remaining_count, 64);
 
-            let result: Result<unit, std.io.IoError> = write_all<Destination>(
-                &mut self.destination,
-                &chunk[0..chunk_length]
-            );
+            let result: Result<unit, std.io.IoError> = self.destination.write_all(&chunk[0..chunk_length]);
 
             match consume result
             {

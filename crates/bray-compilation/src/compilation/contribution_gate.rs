@@ -452,8 +452,7 @@ mod tests {
 
     use super::super::constant::empty_concrete_substitution;
     use crate::test_support::{
-        compilation, compilation_with_sources_and_target_profile,
-        compilation_with_target_profile,
+        compilation, compilation_with_sources_and_target_profile, compilation_with_target_profile,
     };
 
     #[test]
@@ -593,15 +592,9 @@ mod tests {
 
         let standard_library = compilation_with_sources_and_target_profile(
             &[
-                include_str!(
-                    "../../../../standard-library/std/src/ffi/c/int.bray"
-                ),
-                include_str!(
-                    "../../../../standard-library/std/src/ffi/c/unsigned_int.bray"
-                ),
-                include_str!(
-                    "../../../../standard-library/std/src/ffi/c/double.bray"
-                ),
+                include_str!("../../../../standard-library/std/src/ffi/c/int.bray"),
+                include_str!("../../../../standard-library/std/src/ffi/c/unsigned_int.bray"),
+                include_str!("../../../../standard-library/std/src/ffi/c/double.bray"),
             ],
             profile,
         );

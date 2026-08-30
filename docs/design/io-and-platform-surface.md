@@ -234,8 +234,15 @@ struct Path
 
 impl Path
 {
-    construct from_native(pos value: NativeText) -> Result<Self, PathError>;
-    construct from_string(pos value: string) -> Result<Self, PathError>;
+    internal construct from_native(pos value: NativeText) -> Result<Self, PathError>;
+    internal construct from_string(pos value: &string) -> Result<Self, PathError>;
+
+    overload new =
+    {
+        from_native,
+        from_string,
+    }
+
     func to_native() -> &NativeText;
     func to_string() -> Result<string, PathError>;
     func join(pos child: &Path) -> Result<Path, PathError>;

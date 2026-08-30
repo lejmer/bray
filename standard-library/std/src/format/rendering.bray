@@ -131,7 +131,7 @@ internal func sign_length(pos negative: bool, pos options: &Options) -> usize
 
 internal func integer_content_length(pos sign: usize, pos digits: usize) -> usize
 {
-    match std.numeric.checked_add<usize>(sign, digits)
+    match sign.checked_add(digits)
     {
         case ?length { return length; }
         case none { return std.numeric.USIZE_MAX; }

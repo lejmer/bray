@@ -115,7 +115,8 @@ impl SemanticValueStore {
         self.intern_type(substituted)
     }
 
-    fn substitute_contextual_self_in_application(
+    /// Replaces one declaration context's `Self` throughout a trait application.
+    pub fn substitute_contextual_self_in_application(
         &self,
         application: TraitApplicationId,
         context: SelfTypeContext,
@@ -132,7 +133,8 @@ impl SemanticValueStore {
         self.intern_trait_application(TraitApplicationData::new(data.definition(), substitution))
     }
 
-    fn substitute_contextual_self_in_substitution(
+    /// Replaces one declaration context's `Self` throughout a generic substitution.
+    pub fn substitute_contextual_self_in_substitution(
         &self,
         substitution: GenericSubstitutionId,
         context: SelfTypeContext,

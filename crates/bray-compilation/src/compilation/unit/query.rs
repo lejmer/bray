@@ -3626,10 +3626,8 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
             "}\n",
         ));
 
-        let key = crate::test_support::source_trait_callable_member_body_key(
-            &compilation,
-            "doubled",
-        );
+        let key =
+            crate::test_support::source_trait_callable_member_body_key(&compilation, "doubled");
 
         let selections = compilation
             .semantic_selections(key)
@@ -3723,7 +3721,53 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
             .lowered_unit(key)
             .unwrap_or_else(|error| panic!("trait default call must lower: {error:?}"));
 
-        assert!(lowered.diagnostics().is_empty(), "{:?}", lowered.diagnostics());
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:?}",
+            lowered.diagnostics()
+        );
+    }
+
+    #[test]
+    fn selected_trait_defaults_normalize_associated_types_from_the_witness() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "trait Sequence\n",
+            "{\n",
+            "    type Element;\n",
+            "    func compare(pos value: &Element) -> bool;\n",
+            "    func contains(pos value: &Element) -> bool\n",
+            "    {\n",
+            "        return self.compare(value);\n",
+            "    }\n",
+            "}\n",
+            "struct Numbers {}\n",
+            "impl NumbersSequence = Numbers(Sequence)\n",
+            "{\n",
+            "    type Element = i32;\n",
+            "    func compare(pos value: &i32) -> bool\n",
+            "    {\n",
+            "        return value == 1;\n",
+            "    }\n",
+            "}\n",
+            "using NumbersSequence;\n",
+            "func read(pos numbers: &Numbers, pos value: &i32) -> bool\n",
+            "{\n",
+            "    return numbers.contains(value);\n",
+            "}\n",
+        ));
+
+        let key = source_function_body_key(&compilation, "read");
+
+        let selections = compilation
+            .semantic_selections(key)
+            .unwrap_or_else(|error| panic!("trait default selection must publish: {error:?}"));
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "associated types in the selected default signature must resolve: {:?}",
+            selections.diagnostics()
+        );
     }
 
     #[test]
@@ -3769,7 +3813,11 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
             .lowered_unit(key)
             .unwrap_or_else(|error| panic!("generic trait calls must lower: {error:?}"));
 
-        assert!(lowered.diagnostics().is_empty(), "{:?}", lowered.diagnostics());
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:?}",
+            lowered.diagnostics()
+        );
     }
 
     #[test]
@@ -4651,6 +4699,56 @@ func convert(pos value: Value) -> i32
             types.value(),
             *expression,
             RepresentationRole::ScalarI64,
+        );
+    }
+
+    #[test]
+    fn type_owned_overloads_resolve_named_constructors_and_methods() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Buffer\n",
+            "{\n",
+            "    value: i32;\n",
+            "    internal construct empty() -> Self\n",
+            "    {\n",
+            "        return {value = 0};\n",
+            "    }\n",
+            "    internal construct with_value(pos value: i32) -> Self\n",
+            "    {\n",
+            "        return {value = value};\n",
+            "    }\n",
+            "    overload new = {empty, with_value}\n",
+            "    internal func read_bool(pos marker: bool) -> i32\n",
+            "    {\n",
+            "        return self.value;\n",
+            "    }\n",
+            "    internal func read_i32(pos marker: i32) -> i32\n",
+            "    {\n",
+            "        return self.value + marker;\n",
+            "    }\n",
+            "    overload read = {read_bool, read_i32}\n",
+            "}\n",
+            "func main()\n",
+            "{\n",
+            "    let shared: Buffer = Buffer.new();\n",
+            "    let _: i32 = shared.read(true);\n",
+            "    let buffer: Buffer = Buffer.new(42);\n",
+            "    let _: i32 = buffer.read(1);\n",
+            "}\n",
+        ));
+
+        let key = source_function_body_key(&compilation, "main");
+
+        let selections = compilation
+            .semantic_selections(key)
+            .unwrap_or_else(|error| {
+                panic!("type-owned overload selection must publish: {error:?}")
+            });
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "type-owned overloads must be diagnostic-free: {:?}",
+            selections.diagnostics()
         );
     }
 

@@ -40,7 +40,7 @@ struct BorrowedNarrowString
     }
 }
 
-func borrow_narrow_string(pos units: &[u8]) -> Result<BorrowedNarrowString, StringError>
+internal func borrow_narrow_string(pos units: &[u8]) -> Result<BorrowedNarrowString, StringError>
 {
     let count: usize = std.bytes.slice_length(units);
 
@@ -72,16 +72,14 @@ struct OwnedNarrowString
 {
     internal storage: std.bytes.Buffer;
 
-    trusted construct from_bytes(pos bytes: &[u8]) -> Result<Self, StringError>
+    trusted internal construct from_bytes(pos bytes: &[u8]) -> Result<Self, StringError>
     {
         if contains_nul(bytes)
         {
             return Error(StringError.InteriorNul);
         }
 
-        let created: Result<std.bytes.Buffer, std.memory.MemoryLayoutError> = trusted std.bytes.Buffer.from_slice(
-            bytes
-        );
+        let created: Result<std.bytes.Buffer, std.memory.MemoryLayoutError> = trusted std.bytes.Buffer.new(bytes);
 
         let mut storage: std.bytes.Buffer = match consume created
         {
@@ -102,7 +100,7 @@ struct OwnedNarrowString
         );
     }
 
-    trusted construct from_utf8(pos value: &string) -> Result<Self, StringError>
+    trusted internal construct from_utf8(pos value: &string) -> Result<Self, StringError>
     {
         return OwnedNarrowString.from_bytes(std.string.utf8(value));
     }
@@ -111,8 +109,15 @@ struct OwnedNarrowString
     {
         return
         {
-            units = std.bytes.as_slice(&self.storage),
+            units = self.storage.as_slice(),
         };
+    }
+
+    /// Creates an owned narrow C string from bytes or UTF-8 text.
+    overload new =
+    {
+        from_bytes,
+        from_utf8,
     }
 }
 

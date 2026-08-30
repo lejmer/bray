@@ -92,7 +92,9 @@ pub use target::{
     TargetValidityRequirement,
 };
 pub use type_check::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
-pub use type_normalization::normalize_type_valued_members;
+pub use type_normalization::{
+    normalize_callable_signature_type_valued_members, normalize_type_valued_members,
+};
 pub use type_representation::{
     DeclaredStorageMember, DeclaredStorageMemberIdentity, DeclaredTypeDefinition,
     DeclaredUnionVariant, RepresentationIntegerType, TypeRepresentationContext,

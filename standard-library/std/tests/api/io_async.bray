@@ -172,7 +172,7 @@ async func asynchronous_bulk_transfers_and_buffering_share_the_cost_model() -> R
     let bytes: [u8; 5] = [1, 2, 3, 4, 5];
     let mut writer: AsyncCountingWriter = AsyncCountingWriter(limit = 2);
 
-    try await std.io.write_all_async<AsyncCountingWriter>(&mut writer, &bytes[..]);
+    try await writer.write_all_async(&bytes[..]);
 
     assert(writer.calls == 3);
     assert(writer.total == 5);
@@ -203,7 +203,7 @@ async func asynchronous_bulk_transfers_and_buffering_share_the_cost_model() -> R
 
     let mut destination: [u8; 8] = [0; 8];
 
-    try await std.io.read_exact_async<std.io.BufferedReader<AsyncCountingReader>>(&mut reader, &mut destination[..]);
+    try await reader.read_exact_async(&mut destination[..]);
 
     let completed_source: AsyncCountingReader = reader.into_source();
 

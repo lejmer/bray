@@ -18,41 +18,6 @@ struct Enumerate<I, E>
     internal mut index: usize = 0;
 }
 
-func take<I>(pos source: I, count: usize) -> Take<I, I(Iterator).Element>
-    with(I: Iterator)
-{
-    let adapter: Take<I, I(Iterator).Element> =
-    {
-        source = source,
-        remaining = count,
-    };
-
-    return adapter;
-}
-
-func skip<I>(pos source: I, count: usize) -> Skip<I, I(Iterator).Element>
-    with(I: Iterator)
-{
-    let adapter: Skip<I, I(Iterator).Element> =
-    {
-        source = source,
-        remaining = count,
-    };
-
-    return adapter;
-}
-
-func enumerate<I>(pos source: I) -> Enumerate<I, I(Iterator).Element>
-    with(I: Iterator)
-{
-    let adapter: Enumerate<I, I(Iterator).Element> =
-    {
-        source = source,
-    };
-
-    return adapter;
-}
-
 impl TakeIterator = Take<I, E>(Iterator)
     with(I: Iterator, I(Iterator).Element == E)
 {

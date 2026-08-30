@@ -2306,7 +2306,7 @@ trusted func main() -> Result<unit, std.memory.MemoryLayoutError>
 
         try trusted values.push_back(
             {
-                bytes = try std.bytes.Buffer.from_slice(&bytes[..]),
+                bytes = try std.bytes.Buffer.new(&bytes[..]),
             }
         );
     }

@@ -374,7 +374,8 @@ impl CompilationSymbolQueryEvaluator<ImplementedTraitApplicationQuery>
         }
 
         let syntax = declaration_child::<TraitApplicationSyntax>(context, symbol)?;
-        let result = type_binder(context, symbol)?.bind_trait_application(&syntax)?;
+        let binder = type_binder(context, symbol)?;
+        let result = binder.bind_trait_application(&syntax)?;
 
         Ok(result.map(Some))
     }
@@ -770,6 +771,49 @@ func identity<T>(value: T) -> T
             &TypeData::TypeParameter(*parameter)
         );
 
+        assert!(subject.diagnostics().is_empty());
+    }
+
+    #[test]
+    fn implementation_subjects_bind_a_bare_inferred_type_parameter() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "trait Extension\n",
+            "{\n",
+            "}\n",
+            "impl DefaultExtension = Subject(Extension)\n",
+            "{\n",
+            "}\n",
+        ));
+
+        let symbols = symbol_graph(&compilation);
+        let cancellation = CancellationToken::new();
+        let binding_context = binding_context(&compilation, &cancellation);
+
+        let implementation = source_id(
+            symbols.named_trait_implementations(),
+            |symbol| symbol.origin(),
+            |symbol| symbol.id(),
+        );
+
+        let subject = resolved_query(
+            &binding_context,
+            SymbolQueryRequest::<ImplementationSubjectQuery>::new(ImplementationSymbolId::from(
+                implementation,
+            )),
+        );
+
+        let subject_type = type_data(&compilation, subject.value().ty());
+
+        let TypeData::TypeParameter(parameter) = subject_type.as_ref() else {
+            panic!("bare implementation subject must resolve as its inferred parameter");
+        };
+
+        let Some(implementation) = symbols.named_trait_implementation(implementation) else {
+            panic!("named implementation must resolve");
+        };
+
+        assert_eq!(implementation.generic_type_parameters(), &[*parameter]);
         assert!(subject.diagnostics().is_empty());
     }
 

@@ -78,7 +78,7 @@ internal struct WaitQueue
             return false;
         }
 
-        return std.collection.as_slice<WaiterEntry>(&self.entries)[self.head].ticket == ticket;
+        return self.entries.as_slice()[self.head].ticket == ticket;
     }
 
     func is_head_completed(pos ticket: usize) -> bool
@@ -88,14 +88,14 @@ internal struct WaitQueue
             return false;
         }
 
-        return std.collection.as_slice<WaiterEntry>(&self.entries)[self.head].completed;
+        return self.entries.as_slice()[self.head].completed;
     }
 
     mut func complete_head(pos ticket: usize)
     {
         if self.is_head(ticket)
         {
-            std.collection.as_slice_mut<WaiterEntry>(&mut self.entries)[self.head].completed = true;
+            self.entries.as_slice_mut()[self.head].completed = true;
         }
     }
 
@@ -117,7 +117,7 @@ internal struct WaitQueue
 
         {
             let mut index: usize = self.head;
-            let entries: &mut [WaiterEntry] = std.collection.as_slice_mut<WaiterEntry>(&mut self.entries);
+            let entries: &mut [WaiterEntry] = self.entries.as_slice_mut();
             let length: usize = internal std.memory.slice_length<WaiterEntry>(&entries);
 
             while index < length
@@ -148,7 +148,7 @@ internal struct WaitQueue
         let mut next_head: usize = self.head;
 
         {
-            let entries: &[WaiterEntry] = std.collection.as_slice<WaiterEntry>(&self.entries);
+            let entries: &[WaiterEntry] = self.entries.as_slice();
 
             while next_head < length && entries[next_head].cancelled
             {
@@ -177,7 +177,7 @@ internal struct WaitQueue
         let remaining: usize = length - self.head;
 
         {
-            let entries: &mut [WaiterEntry] = std.collection.as_slice_mut<WaiterEntry>(&mut self.entries);
+            let entries: &mut [WaiterEntry] = self.entries.as_slice_mut();
             let mut index: usize = 0;
 
             while index < remaining

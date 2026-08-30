@@ -26,6 +26,40 @@ using std.memory;
 using std.string;
 using std.testing;
 
+struct DefaultMemberSink
+{
+    mut length: usize;
+    mut writes: usize;
+}
+
+impl DefaultMemberSinkFormatting = DefaultMemberSink(std.format.Sink<std.format.CountingSinkError>)
+{
+    mut func write(pos source: &[u8]) -> Result<unit, std.format.CountingSinkError>
+        requires(blocking_execution())
+    {
+        self.length += std.bytes.slice_length(source);
+        self.writes += 1;
+
+        return Ok(unit);
+    }
+}
+
+@test
+trusted func sink_defaults_prepare_and_repeat_through_write()
+{
+    let mut sink: DefaultMemberSink =
+    {
+        length = 0,
+        writes = 0,
+    };
+
+    std.testing.assert_ok<unit, std.format.CountingSinkError>(sink.prepare(additional = 130));
+    std.testing.assert_ok<unit, std.format.CountingSinkError>(sink.write_repeated(value = 7, count = 130));
+
+    assert(sink.length == 130);
+    assert(sink.writes == 3);
+}
+
 trusted func assert_default_integer_format<Value>(
     pos value: &Value,
     pos expected: string
@@ -35,7 +69,7 @@ trusted func assert_default_integer_format<Value>(
 {
     let mut sink: std.format.ByteSink = try std.format.ByteSink(capacity = 0);
 
-    try trusted std.format.write<Value>(&mut sink, std.format.Argument<Value>(value));
+    try trusted std.format.write<Value>(&mut sink, std.format.Argument.new<Value>(value));
 
     assert(std.bytes.equals(std.format.bytes(&sink), std.string.utf8(&expected)));
 
@@ -45,7 +79,7 @@ trusted func assert_default_integer_format<Value>(
 @test
 func formatting_options_are_available()
 {
-    let options: std.format.Options = std.format.Options.default();
+    let options: std.format.Options = std.format.Options.new();
 
     match options.radix
     {
@@ -64,19 +98,19 @@ trusted func scalar_formatting_is_deterministic() -> Result<unit, std.memory.Mem
     let integer: i32 = -42;
     let character: char = 'A';
 
-    try trusted std.format.write<i32>(&mut sink, std.format.Argument<i32>(&integer));
+    try trusted std.format.write<i32>(&mut sink, std.format.Argument.new<i32>(&integer));
 
     let expected_integer: [u8; 3] = [45, 52, 50];
 
     assert(std.bytes.equals(std.format.bytes(&sink), &expected_integer[..]));
 
-    try trusted std.format.write<bool>(&mut sink, std.format.Argument<bool>(&true));
+    try trusted std.format.write<bool>(&mut sink, std.format.Argument.new<bool>(&true));
 
     let expected_boolean: [u8; 7] = [45, 52, 50, 116, 114, 117, 101];
 
     assert(std.bytes.equals(std.format.bytes(&sink), &expected_boolean[..]));
 
-    try trusted std.format.write<char>(&mut sink, std.format.Argument<char>(&character));
+    try trusted std.format.write<char>(&mut sink, std.format.Argument.new<char>(&character));
 
     let expected: [u8; 8] = [45, 52, 50, 116, 114, 117, 101, 65];
 
@@ -88,7 +122,7 @@ trusted func scalar_formatting_is_deterministic() -> Result<unit, std.memory.Mem
 @test
 trusted func formatting_options_control_output() -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let options: std.format.Options = std.format.Options(
+    let options: std.format.Options = std.format.Options.new(
         radix = std.format.Radix.HexadecimalUppercase,
 
         precision = 4,
@@ -99,7 +133,7 @@ trusted func formatting_options_control_output() -> Result<unit, std.memory.Memo
         escaping = std.format.Escaping.Raw,
     );
 
-    let argument: std.format.Argument<u32> = std.format.Argument.with_options<u32>(&42, options = options);
+    let argument: std.format.Argument<u32> = std.format.Argument.new<u32>(&42, options = options);
     let mut sink: std.format.ByteSink = try std.format.ByteSink(capacity = 6);
 
     try trusted std.format.write<u32>(&mut sink, argument);
@@ -117,13 +151,13 @@ trusted func wide_integer_formatting_is_total() -> Result<unit, std.memory.Memor
     let minimum: i128 = -170141183460469231731687303715884105727 - 1;
     let mut decimal_sink: std.format.ByteSink = try std.format.ByteSink(capacity = 40);
 
-    try trusted std.format.write<i128>(&mut decimal_sink, std.format.Argument<i128>(&minimum));
+    try trusted std.format.write<i128>(&mut decimal_sink, std.format.Argument.new<i128>(&minimum));
 
     let expected_decimal: string = "-170141183460469231731687303715884105728";
 
     assert(std.bytes.equals(std.format.bytes(&decimal_sink), std.string.utf8(&expected_decimal)));
 
-    let hexadecimal_options: std.format.Options = std.format.Options(
+    let hexadecimal_options: std.format.Options = std.format.Options.new(
         radix = std.format.Radix.HexadecimalLowercase,
 
         precision = 0,
@@ -138,7 +172,7 @@ trusted func wide_integer_formatting_is_total() -> Result<unit, std.memory.Memor
 
     try trusted std.format.write<i128>(
         &mut hexadecimal_sink,
-        std.format.Argument.with_options<i128>(&minimum, options = hexadecimal_options),
+        std.format.Argument.new<i128>(&minimum, options = hexadecimal_options),
     );
 
     let expected_hexadecimal: string = "-80000000000000000000000000000000";
@@ -148,7 +182,7 @@ trusted func wide_integer_formatting_is_total() -> Result<unit, std.memory.Memor
     let maximum: u128 = 340282366920938463463374607431768211455;
     let mut maximum_sink: std.format.ByteSink = try std.format.ByteSink(capacity = 32);
 
-    let maximum_hexadecimal_options: std.format.Options = std.format.Options(
+    let maximum_hexadecimal_options: std.format.Options = std.format.Options.new(
         radix = std.format.Radix.HexadecimalLowercase,
 
         precision = 0,
@@ -161,7 +195,7 @@ trusted func wide_integer_formatting_is_total() -> Result<unit, std.memory.Memor
 
     try trusted std.format.write<u128>(
         &mut maximum_sink,
-        std.format.Argument.with_options<u128>(&maximum, options = maximum_hexadecimal_options),
+        std.format.Argument.new<u128>(&maximum, options = maximum_hexadecimal_options),
     );
 
     let expected_maximum: string = "ffffffffffffffffffffffffffffffff";
@@ -174,7 +208,7 @@ trusted func wide_integer_formatting_is_total() -> Result<unit, std.memory.Memor
 @test
 trusted func escaped_string_formatting() -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let options: std.format.Options = std.format.Options(
+    let options: std.format.Options = std.format.Options.new(
         radix = std.format.Radix.Decimal,
 
         precision = 0,
@@ -185,7 +219,7 @@ trusted func escaped_string_formatting() -> Result<unit, std.memory.MemoryLayout
         escaping = std.format.Escaping.Quoted,
     );
 
-    let argument: std.format.Argument<string> = std.format.Argument.with_options<string>(&"A\n", options = options);
+    let argument: std.format.Argument<string> = std.format.Argument.new<string>(&"A\n", options = options);
     let mut sink: std.format.ByteSink = try std.format.ByteSink(capacity = 0);
 
     try trusted std.format.write<string>(&mut sink, argument);
@@ -200,7 +234,7 @@ trusted func escaped_string_formatting() -> Result<unit, std.memory.MemoryLayout
 @test
 trusted func counting_formatting_sizes_output_without_collecting_bytes()
 {
-    let options: std.format.Options = std.format.Options(
+    let options: std.format.Options = std.format.Options.new(
         radix = std.format.Radix.Decimal,
 
         precision = 5,
@@ -217,7 +251,7 @@ trusted func counting_formatting_sizes_output_without_collecting_bytes()
     std.testing.assert_ok<unit, std.format.CountingSinkError>(
         trusted std.format.write_to<u32, std.format.CountingSink, std.format.CountingSinkError>(
             &mut sink,
-            std.format.Argument.with_options<u32>(&value, options = options),
+            std.format.Argument.new<u32>(&value, options = options),
         )
     );
 
@@ -227,7 +261,7 @@ trusted func counting_formatting_sizes_output_without_collecting_bytes()
 @test
 trusted func fixed_formatting_uses_borrowed_storage()
 {
-    let options: std.format.Options = std.format.Options(
+    let options: std.format.Options = std.format.Options.new(
         radix = std.format.Radix.HexadecimalUppercase,
 
         precision = 4,
@@ -245,7 +279,7 @@ trusted func fixed_formatting_uses_borrowed_storage()
     std.testing.assert_ok<unit, std.format.FixedSinkError>(
         trusted std.format.write_to<u32, std.format.FixedSink, std.format.FixedSinkError>(
             &mut sink,
-            std.format.Argument.with_options<u32>(&value, options = options),
+            std.format.Argument.new<u32>(&value, options = options),
         )
     );
 
@@ -265,7 +299,7 @@ trusted func fixed_formatting_accepts_zero_length_output()
     std.testing.assert_ok<unit, std.format.FixedSinkError>(
         trusted std.format.write_to<string, std.format.FixedSink, std.format.FixedSinkError>(
             &mut sink,
-            std.format.Argument<string>(&""),
+            std.format.Argument.new<string>(&""),
         )
     );
 
@@ -285,7 +319,7 @@ trusted func fixed_formatting_reports_capacity_without_partial_digit_output()
         u32,
         std.format.FixedSink,
         std.format.FixedSinkError
-    >(&mut sink, std.format.Argument<u32>(&value));
+    >(&mut sink, std.format.Argument.new<u32>(&value));
 
     match std.testing.assert_error<unit, std.format.FixedSinkError>(result)
     {
@@ -302,7 +336,7 @@ trusted func fixed_formatting_reports_capacity_without_partial_digit_output()
 @test
 trusted func fixed_formatting_handles_maximum_width_without_arithmetic_overflow()
 {
-    let options: std.format.Options = std.format.Options(
+    let options: std.format.Options = std.format.Options.new(
         radix = std.format.Radix.Decimal,
 
         precision = 0,
@@ -321,7 +355,7 @@ trusted func fixed_formatting_handles_maximum_width_without_arithmetic_overflow(
         u32,
         std.format.FixedSink,
         std.format.FixedSinkError
-    >(&mut sink, std.format.Argument.with_options<u32>(&value, options = options));
+    >(&mut sink, std.format.Argument.new<u32>(&value, options = options));
 
     match std.testing.assert_error<unit, std.format.FixedSinkError>(result)
     {
@@ -383,7 +417,7 @@ trusted func integer_width_boundaries_preserve_values() -> Result<unit, std.memo
 trusted func native_integer_zero_preserves_space_sign_precision_and_padding(
 ) -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let options: std.format.Options = std.format.Options(
+    let options: std.format.Options = std.format.Options.new(
         radix = std.format.Radix.Decimal,
 
         precision = 2,
@@ -397,7 +431,7 @@ trusted func native_integer_zero_preserves_space_sign_precision_and_padding(
     let value: u64 = 0;
     let mut sink: std.format.ByteSink = try std.format.ByteSink(capacity = 4);
 
-    try trusted std.format.write<u64>(&mut sink, std.format.Argument.with_options<u64>(&value, options = options));
+    try trusted std.format.write<u64>(&mut sink, std.format.Argument.new<u64>(&value, options = options));
 
     let expected: [u8; 4] = [32, 48, 48, 32];
 
@@ -409,7 +443,7 @@ trusted func native_integer_zero_preserves_space_sign_precision_and_padding(
 @test
 trusted func fixed_formatting_handles_maximum_precision_and_sign_without_arithmetic_overflow()
 {
-    let options: std.format.Options = std.format.Options(
+    let options: std.format.Options = std.format.Options.new(
         radix = std.format.Radix.Decimal,
 
         precision = ~0,
@@ -428,7 +462,7 @@ trusted func fixed_formatting_handles_maximum_precision_and_sign_without_arithme
         u32,
         std.format.FixedSink,
         std.format.FixedSinkError
-    >(&mut sink, std.format.Argument.with_options<u32>(&value, options = options));
+    >(&mut sink, std.format.Argument.new<u32>(&value, options = options));
 
     match std.testing.assert_error<unit, std.format.FixedSinkError>(result)
     {
@@ -493,7 +527,7 @@ trusted func streaming_formatting_writes_without_collecting_an_intermediate_buff
     let mut writer: RecordingWriter = RecordingWriter();
     let mut sink: std.io.FormattingSink<RecordingWriter> = std.io.FormattingSink<RecordingWriter>(&mut writer);
 
-    let options: std.format.Options = std.format.Options(
+    let options: std.format.Options = std.format.Options.new(
         radix = std.format.Radix.Decimal,
 
         precision = 0,
@@ -509,7 +543,7 @@ trusted func streaming_formatting_writes_without_collecting_an_intermediate_buff
     std.testing.assert_ok<unit, std.io.IoError>(
         trusted std.format.write_to<u32, std.io.FormattingSink<RecordingWriter>, std.io.IoError>(
             &mut sink,
-            std.format.Argument.with_options<u32>(&value, options = options)
+            std.format.Argument.new<u32>(&value, options = options)
         )
     );
 

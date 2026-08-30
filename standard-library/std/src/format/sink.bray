@@ -11,7 +11,10 @@ trait Sink<Failure>
 {
     /// Makes room for at least the requested additional output when storage is owned or bounded.
     mut func prepare(additional: usize) -> Result<unit, Failure>
-        requires(blocking_execution());
+        requires(blocking_execution())
+    {
+        return Ok(unit);
+    }
 
     /// Writes one contiguous byte slice.
     mut func write(pos source: &[u8]) -> Result<unit, Failure>
@@ -19,7 +22,31 @@ trait Sink<Failure>
 
     /// Writes one byte repeatedly without requiring a caller-owned temporary buffer.
     mut func write_repeated(value: u8, count: usize) -> Result<unit, Failure>
-        requires(blocking_execution());
+        requires(blocking_execution())
+    {
+        let chunk: [u8; 64] = [value; 64];
+        let mut written: usize = 0;
+
+        while written < count
+        {
+            let remaining: usize = count - written;
+
+            let chunk_length: usize = if remaining < 64
+            {
+                yield remaining;
+            }
+            else
+            {
+                yield 64;
+            };
+
+            try self.write(&chunk[0..chunk_length]);
+
+            written += chunk_length;
+        }
+
+        return Ok(unit);
+    }
 }
 
 struct ByteSink
@@ -28,7 +55,7 @@ struct ByteSink
 
     construct(capacity: usize) -> Result<Self, std.memory.MemoryLayoutError>
     {
-        let buffer: std.bytes.Buffer = try std.bytes.Buffer(capacity = capacity);
+        let buffer: std.bytes.Buffer = try std.bytes.Buffer.new(capacity);
 
         let sink: ByteSink =
         {
@@ -56,13 +83,13 @@ impl ByteSinkFormatting = ByteSink(Sink<std.memory.MemoryLayoutError>)
     mut func write_repeated(value: u8, count: usize) -> Result<unit, std.memory.MemoryLayoutError>
         requires(blocking_execution())
     {
-        return std.bytes.append_repeated(&mut self.buffer, value = value, count = count);
+        return std.bytes.append(&mut self.buffer, value, count);
     }
 }
 
 func bytes(pos sink: &ByteSink) -> &[u8]
 {
-    return std.bytes.as_slice(&sink.buffer);
+    return sink.buffer.as_slice();
 }
 
 func into_bytes(pos sink: ByteSink) -> std.bytes.Buffer
@@ -259,19 +286,19 @@ impl TextSinkFormatting = TextSink(Sink<std.memory.MemoryLayoutError>)
     mut func prepare(additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
         requires(blocking_execution())
     {
-        return(&mut self.bytes)(Sink<std.memory.MemoryLayoutError>).prepare(additional = additional);
+        return (&mut self.bytes)(Sink<std.memory.MemoryLayoutError>).prepare(additional = additional);
     }
 
     mut func write(pos source: &[u8]) -> Result<unit, std.memory.MemoryLayoutError>
         requires(blocking_execution())
     {
-        return(&mut self.bytes)(Sink<std.memory.MemoryLayoutError>).write(source);
+        return (&mut self.bytes)(Sink<std.memory.MemoryLayoutError>).write(source);
     }
 
     mut func write_repeated(value: u8, count: usize) -> Result<unit, std.memory.MemoryLayoutError>
         requires(blocking_execution())
     {
-        return(&mut self.bytes)(Sink<std.memory.MemoryLayoutError>).write_repeated(value = value, count = count);
+        return (&mut self.bytes)(Sink<std.memory.MemoryLayoutError>).write_repeated(value = value, count = count);
     }
 }
 

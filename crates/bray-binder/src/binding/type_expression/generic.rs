@@ -75,6 +75,11 @@ impl TypeExpressionBinder<'_> {
             MemberLookupResult::Found(crate::lookup::ResolvedTypeName::CallableContract(
                 definition,
             )) => self.bind_callable_contract(definition, arguments),
+            MemberLookupResult::Found(crate::lookup::ResolvedTypeName::GenericParameter(
+                parameter,
+            )) if arguments.is_none() => self
+                .intern_type(TypeData::TypeParameter(parameter))
+                .map(TypeExpressionTemplate::Resolved),
             MemberLookupResult::Found(_)
             | MemberLookupResult::NotFound
             | MemberLookupResult::WrongKind(_)

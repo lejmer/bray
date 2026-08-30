@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use bray_binder::{
     BindingQueryContext, BindingQueryError, BindingQueryResult, ImportedPathRoot, NameAccess,
-    SymbolQueryProvider, bind_surface_path_with_re_exports,
+    SymbolQueryProvider, bind_owner_surface_path, bind_surface_path_with_re_exports,
 };
 use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticResult;
@@ -23,6 +23,7 @@ use super::super::Compilation;
 use super::CompilationSymbolSemantics;
 use crate::fact::{CancellationToken, FactQueryError};
 
+#[derive(Clone, Copy)]
 pub(in crate::compilation) struct CompilationBindingContext<'compilation> {
     pub(super) compilation: &'compilation Compilation,
     declarations: &'compilation DeclarationTable,
@@ -68,6 +69,15 @@ impl<'compilation> CompilationBindingContext<'compilation> {
             access,
             &mut |module, name, access| self.module_re_export_lookup(module, name, access),
         )
+    }
+
+    pub(in crate::compilation) fn bind_owner_surface_path(
+        &self,
+        owner: AnySymbolId,
+        path: &PathSyntax,
+        access: NameAccess,
+    ) -> BindingQueryResult<DiagnosticResult<MemberLookupResult<AnySymbolId>>> {
+        bind_owner_surface_path(self, owner, path, access)
     }
 
     pub(in crate::compilation) const fn declarations(&self) -> &'compilation DeclarationTable {
