@@ -28,6 +28,10 @@
 #include <string>
 #endif
 
+#if BRAY_WORKLOAD == 17
+#include <deque>
+#endif
+
 #if BRAY_WORKLOAD == 7
 #include <charconv>
 #include <string>
@@ -82,7 +86,7 @@ constexpr char observation_header[] = "BRAYPO01";
 constexpr std::uint8_t controlled_duration_record = 3;
 
 #if defined(BRAY_PEER_TIMING) || (BRAY_WORKLOAD >= 2 && BRAY_WORKLOAD <= 8) \
-    || BRAY_WORKLOAD == 12
+    || BRAY_WORKLOAD == 12 || BRAY_WORKLOAD == 17
 template <typename Value>
 void retain_work(Value const& value)
 {
@@ -673,6 +677,46 @@ bool workload()
     output.insert(output.end(), bytes, bytes + 4096);
 
     return output.size() == 4096;
+}
+#elif BRAY_WORKLOAD == 17
+bool workload()
+{
+    std::deque<std::uint64_t> values;
+
+    for (std::uint64_t value = 0; value < 64; ++value)
+        values.push_back(value);
+
+    for (std::uint64_t expected = 0; expected < 32; ++expected)
+    {
+        if (values.empty() || values.front() != expected)
+            return false;
+
+        values.pop_front();
+    }
+
+    for (std::uint64_t value = 64; value < 96; ++value)
+        values.push_back(value);
+
+    for (std::size_t round = 0; round < 2048; ++round)
+    {
+        if (round % 2 == 0)
+        {
+            const std::uint64_t value = values.front();
+            values.pop_front();
+            values.push_back(value);
+        }
+        else
+        {
+            const std::uint64_t value = values.back();
+            values.pop_back();
+            values.push_front(value);
+        }
+    }
+
+    values.push_back(96);
+    retain_work(values);
+
+    return values.size() == 65 && values.front() == 32 && values.back() == 96;
 }
 #elif BRAY_WORKLOAD == 16
 char const* executable_path = nullptr;

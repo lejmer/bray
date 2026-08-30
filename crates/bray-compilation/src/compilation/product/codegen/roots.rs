@@ -5,7 +5,7 @@ use bray_codegen::CodegenTarget;
 use bray_ir::MirUnitKey;
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, ExactSymbolId, ImplementationSymbolId,
-    ProductKind, StaticSymbolId,
+    ProductKind, StaticSymbolId, TraitCallableMemberSymbolId,
 };
 
 use super::super::super::Compilation;
@@ -38,7 +38,7 @@ impl Compilation {
                 .public_symbols()
                 .iter()
                 .copied()
-                .filter_map(bray_symbols::ImplementationSymbolId::try_from_any)
+                .filter_map(ImplementationSymbolId::try_from_any)
             {
                 symbols.extend(
                     implementation_fulfillments(&binding_context, implementation)?
@@ -113,6 +113,10 @@ impl Compilation {
         let mut roots = Vec::new();
 
         for symbol in symbols {
+            if TraitCallableMemberSymbolId::try_from_any(symbol).is_some() {
+                continue;
+            }
+
             if has_visible_generic_parameters(binding_context.symbols(), symbol) {
                 continue;
             }

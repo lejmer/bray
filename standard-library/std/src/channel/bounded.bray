@@ -41,26 +41,13 @@ func bounded<T>(capacity: usize) -> Result<(Sender<T>, Receiver<T>), ChannelErro
         yield capacity;
     };
 
-    let mut storage: std.memory.RawBuffer<Uninit<T>> = match trusted std.memory.RawBuffer<Uninit<T>>(
-        capacity = storage_capacity,
+    let storage: std.memory.RawBuffer<Uninit<T>> = match trusted internal std.memory.uninit_buffer<T>(
+        capacity = storage_capacity
     )
     {
         case Ok(value) { yield value; }
         case Error(_) { return Error(ChannelError.CapacityOverflow); }
     };
-
-    let mut initialized: usize = 0;
-
-    while initialized < storage_capacity
-    {
-        let pointer: RawPointer<Uninit<T>> = trusted std.memory.spare_pointer<Uninit<T>>(&mut storage);
-
-        trusted std.memory.write<Uninit<T>>(pointer, std.memory.uninit<T>());
-
-        initialized += 1;
-
-        trusted std.memory.set_initialized_count<Uninit<T>>(&mut storage, count = initialized);
-    }
 
     let state: ChannelState<T> =
     {

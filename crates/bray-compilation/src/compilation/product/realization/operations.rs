@@ -404,9 +404,8 @@ impl Compilation {
             ));
         }
 
-        Ok(ConcreteCodegenInstance::imported_runtime_default(
-            owner, provider,
-        ))
+        ConcreteCodegenInstance::imported_runtime_default(owner, provider)
+            .ok_or_else(|| FactQueryError::InfrastructureFailure.into())
     }
 
     pub(super) fn runtime_default_unit(

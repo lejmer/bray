@@ -2345,17 +2345,21 @@ fn conversion_parts(
             requirement,
             dispatch,
         } => {
+            let Some((owner, ordinal)) = dispatch.constraint() else {
+                return Err(MirInspectionModelError::MissingSymbol);
+            };
+
             callable_instance(&format!("{role}_member"), *member, parts, context.symbols);
             implementation_requirement(role, *requirement, parts, context)?;
 
             parts.attribute(
                 format!("{role}_constraint_owner"),
-                dispatch.owner().symbol().kind().as_str(),
+                owner.symbol().kind().as_str(),
             );
 
             parts.attribute(
                 format!("{role}_constraint_ordinal"),
-                dispatch.ordinal().raw().to_string(),
+                ordinal.raw().to_string(),
             );
         }
     }

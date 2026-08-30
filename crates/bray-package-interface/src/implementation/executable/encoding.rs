@@ -254,6 +254,25 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         Ok(())
     }
 
+    fn trait_dispatch(
+        &mut self,
+        dispatch: bray_symbols::TraitConstraintDispatch,
+    ) -> Result<(), ExecutableTemplateEncodeError<C::Error>> {
+        match dispatch {
+            bray_symbols::TraitConstraintDispatch::Constraint { owner, ordinal } => {
+                self.wire.write_u32(0);
+                self.symbol(owner.symbol())?;
+                self.wire.write_u32(ordinal.raw());
+            }
+            bray_symbols::TraitConstraintDispatch::TraitDefault(requirement) => {
+                self.wire.write_u32(1);
+                self.implementation_requirement(requirement)?;
+            }
+        }
+
+        Ok(())
+    }
+
     fn implementation(
         &mut self,
         id: ImplementationInstanceId,
@@ -638,8 +657,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         match call.trait_dispatch() {
             Some(dispatch) => {
                 self.wire.write_u32(1);
-                self.symbol(dispatch.owner().symbol())?;
-                self.wire.write_u32(dispatch.ordinal().raw());
+                self.trait_dispatch(dispatch)?;
             }
             None => self.wire.write_u32(0),
         }
@@ -1329,8 +1347,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(4);
                 self.callable_instance(*member)?;
                 self.implementation_requirement(*requirement)?;
-                self.symbol(dispatch.owner().symbol())?;
-                self.wire.write_u32(dispatch.ordinal().raw());
+                self.trait_dispatch(*dispatch)?;
             }
         }
 

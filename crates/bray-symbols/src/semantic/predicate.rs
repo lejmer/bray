@@ -3,8 +3,9 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 
 use crate::{
-    DependencyContractTemplateId, GenericOwnerId, GenericSubstitutionId, SymbolOrdinal,
-    TraitApplicationId, TrustedCapabilitySymbolId, TypeId,
+    DependencyContractTemplateId, GenericOwnerId, GenericSubstitutionId,
+    ImplementationRequirementKey, SymbolOrdinal, TraitApplicationId, TrustedCapabilitySymbolId,
+    TypeId,
 };
 
 /// The result of attempting to prove one semantic predicate.
@@ -189,27 +190,45 @@ pub struct GenericConstraintSet {
     constraints: Arc<[CheckedConstraint]>,
 }
 
-/// One static trait constraint that supplies a concrete implementation during specialization.
+/// One static trait dispatch route that supplies a concrete implementation during specialization.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct TraitConstraintDispatch {
-    owner: GenericOwnerId,
-    ordinal: SymbolOrdinal,
+pub enum TraitConstraintDispatch {
+    /// Dispatch through one generic declaration constraint.
+    Constraint {
+        /// The generic declaration owning the constraint.
+        owner: GenericOwnerId,
+        /// The constraint's declaration-order position.
+        ordinal: SymbolOrdinal,
+    },
+    /// Dispatch through the implementation witness realizing a trait default body.
+    TraitDefault(ImplementationRequirementKey),
 }
 
 impl TraitConstraintDispatch {
     /// Creates a dispatch reference to one declaration constraint.
     pub const fn new(owner: GenericOwnerId, ordinal: SymbolOrdinal) -> Self {
-        Self { owner, ordinal }
+        Self::Constraint { owner, ordinal }
     }
 
-    /// Returns the generic declaration owning the constraint.
-    pub const fn owner(self) -> GenericOwnerId {
-        self.owner
+    /// Creates a dispatch reference to the implementation realizing one trait default body.
+    pub const fn trait_default(requirement: ImplementationRequirementKey) -> Self {
+        Self::TraitDefault(requirement)
     }
 
-    /// Returns the constraint's declaration-order position.
-    pub const fn ordinal(self) -> SymbolOrdinal {
-        self.ordinal
+    /// Returns the declaration constraint route, when dispatch comes from a generic constraint.
+    pub const fn constraint(self) -> Option<(GenericOwnerId, SymbolOrdinal)> {
+        match self {
+            Self::Constraint { owner, ordinal } => Some((owner, ordinal)),
+            Self::TraitDefault(_) => None,
+        }
+    }
+
+    /// Returns the implementation requirement whose witness realizes a default body.
+    pub const fn trait_default_requirement(self) -> Option<ImplementationRequirementKey> {
+        match self {
+            Self::Constraint { .. } => None,
+            Self::TraitDefault(requirement) => Some(requirement),
+        }
     }
 }
 

@@ -1,3 +1,5 @@
+// rust-style: allow(module-too-large, reason = "test-only compiler fixtures and query-key helpers share one crate-wide support surface")
+
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Duration;
@@ -616,6 +618,28 @@ pub(crate) fn source_trait_callable_fulfillment_body_key(
                     .is_some_and(|member_name| member_name.as_str() == name)
         })
         .unwrap_or_else(|| panic!("source trait callable fulfillment {name} must exist"));
+
+    source_symbol_body_key(compilation, symbols, member.id().into())
+}
+
+pub(crate) fn source_trait_callable_member_body_key(
+    compilation: &Compilation,
+    name: &str,
+) -> BoundUnitKey {
+    let symbols = compilation
+        .symbol_graph()
+        .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
+
+    let member = symbols
+        .trait_callable_members()
+        .iter()
+        .find(|member| {
+            member.origin() == SymbolOrigin::Source
+                && symbols
+                    .member_name(member.id().into())
+                    .is_some_and(|member_name| member_name.as_str() == name)
+        })
+        .unwrap_or_else(|| panic!("source trait callable member {name} must exist"));
 
     source_symbol_body_key(compilation, symbols, member.id().into())
 }

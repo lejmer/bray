@@ -1,4 +1,5 @@
 mod aggregate;
+mod contextual_self;
 mod known;
 mod lifecycle;
 mod names;

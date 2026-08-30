@@ -93,6 +93,7 @@ struct CodegenInstanceData {
     template: MirUnitKey,
     specialization: CodegenSpecialization,
     witnesses: Arc<[CodegenImplementationWitness]>,
+    contextual_self_witness: Option<CodegenImplementationWitness>,
     target: MirTargetContract,
 }
 
@@ -112,8 +113,27 @@ impl CodegenInstanceKey {
             template,
             specialization,
             witnesses: sorted_unique_shared_slice(witnesses),
+            contextual_self_witness: None,
             target,
         }))
+    }
+
+    /// Selects the implementation witness that supplies contextual `Self` for a trait default body.
+    pub fn try_with_contextual_self_witness(
+        self,
+        witness: CodegenImplementationWitness,
+    ) -> Option<Self> {
+        if !self.0.witnesses.contains(&witness) {
+            return None;
+        }
+
+        Some(Self(Arc::new(CodegenInstanceData {
+            template: self.0.template.clone(),
+            specialization: self.0.specialization.clone(),
+            witnesses: Arc::clone(&self.0.witnesses),
+            contextual_self_witness: Some(witness),
+            target: self.0.target.clone(),
+        })))
     }
 
     /// Creates the identity of a non-generic MIR definition without implementation witnesses.
@@ -139,6 +159,11 @@ impl CodegenInstanceKey {
     /// Returns selected implementation witnesses in canonical order.
     pub fn witnesses(&self) -> &[CodegenImplementationWitness] {
         &self.0.witnesses
+    }
+
+    /// Returns the implementation witness that supplies contextual `Self`, when required.
+    pub fn contextual_self_witness(&self) -> Option<&CodegenImplementationWitness> {
+        self.0.contextual_self_witness.as_ref()
     }
 
     /// Returns the target affecting this generated definition.

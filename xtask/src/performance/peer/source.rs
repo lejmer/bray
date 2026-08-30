@@ -14,6 +14,7 @@ pub(super) fn sources(workload: &str) -> Result<[PeerSource; 2], String> {
         "small_output" => ("small_output", "1"),
         "incremental_bytes_small" => ("incremental_bytes_small", "2"),
         "incremental_bytes" => ("incremental_bytes", "3"),
+        "deque_mixed_ends" => ("deque_mixed_ends", "17"),
         "filesystem_metadata" => ("filesystem_metadata", "4"),
         "process_context" => ("process_context", "5"),
         "monotonic_clock" => ("monotonic_clock", "6"),
@@ -77,6 +78,9 @@ pub(in crate::performance) fn comparison_contract(workload: &str) -> Option<&'st
         ),
         "incremental_bytes" => Some(
             "successfully append 4096 bytes with value 65 to an initially empty growable byte sequence and validate its final length",
+        ),
+        "deque_mixed_ends" => Some(
+            "fill a 64-element double-ended sequence, remove 32 front elements, wrap by appending 32 elements, perform 4096 alternating end operations without changing length, grow once, and validate final end values",
         ),
         "filesystem_metadata" => {
             Some("read metadata successfully for the same existing path 256 times")

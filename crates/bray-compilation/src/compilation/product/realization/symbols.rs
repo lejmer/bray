@@ -534,6 +534,7 @@ impl Compilation {
 
             realization.key().specialization().hash(&mut hasher);
             realization.key().witnesses().hash(&mut hasher);
+            realization.key().contextual_self_witness().hash(&mut hasher);
             realization.key().target().hash(&mut hasher);
 
             return binary_symbol_name(target, linkage, "default", hasher.finalize());
@@ -559,6 +560,7 @@ impl Compilation {
 
         realization.key().specialization().hash(&mut hasher);
         realization.key().witnesses().hash(&mut hasher);
+        realization.key().contextual_self_witness().hash(&mut hasher);
         realization.key().target().hash(&mut hasher);
 
         binary_symbol_name(target, linkage, "instance", hasher.finalize())

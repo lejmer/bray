@@ -1,0 +1,64 @@
+module std.collection;
+
+struct Stack<T>
+{
+    internal mut storage: Deque<T>;
+
+    trusted construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>
+    {
+        let storage: Deque<T> = try trusted Deque<T>(capacity = capacity);
+
+        return Ok(
+            {
+                storage = storage,
+            }
+        );
+    }
+
+    construct from_deque(pos storage: Deque<T>) -> Self
+    {
+        return
+        {
+            storage = storage,
+        };
+    }
+
+    func peek() -> (&T)?
+    {
+        return self.storage.back();
+    }
+
+    mut func peek_mut() -> (&mut T)?
+    {
+        return self.storage.back_mut();
+    }
+
+    trusted mut func push(pos value: T) -> Result<unit, std.memory.MemoryLayoutError>
+    {
+        return trusted self.storage.push_back(value);
+    }
+
+    trusted mut func pop() -> T?
+    {
+        return trusted self.storage.pop_back();
+    }
+}
+
+/// Makes the common deque-backed adapter operations available to `Stack<T>`.
+impl StackDequeAdapter = Stack<T>(DequeAdapter<T>)
+{
+    func as_deque() -> &Deque<T>
+    {
+        return &self.storage;
+    }
+
+    mut func as_deque_mut() -> &mut Deque<T>
+    {
+        return &mut self.storage;
+    }
+
+    consume func into_deque() -> Deque<T>
+    {
+        return self.storage;
+    }
+}

@@ -17,6 +17,7 @@ mod retention;
 mod source;
 mod statistics;
 mod validation;
+mod workloads;
 
 #[cfg(test)]
 mod tests;

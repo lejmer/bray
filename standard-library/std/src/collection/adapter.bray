@@ -1,0 +1,44 @@
+module std.collection;
+
+/// Provides the common capacity and storage operations of a deque-backed collection adapter.
+trait DequeAdapter<T>
+{
+    /// Borrows the underlying deque without consuming the adapter.
+    func as_deque() -> &Deque<T>;
+
+    /// Mutably borrows the underlying deque without consuming the adapter.
+    mut func as_deque_mut() -> &mut Deque<T>;
+
+    /// Returns the number of stored values.
+    func length() -> usize
+    {
+        return self.as_deque().length();
+    }
+
+    /// Returns the number of values that fit without reallocating.
+    func capacity() -> usize
+    {
+        return self.as_deque().capacity();
+    }
+
+    /// Reports whether the adapter contains no values.
+    func is_empty() -> bool
+    {
+        return self.as_deque().is_empty();
+    }
+
+    /// Reserves capacity for at least `additional` more values.
+    trusted mut func reserve(additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
+    {
+        return trusted self.as_deque_mut().reserve(additional = additional);
+    }
+
+    /// Removes every stored value while retaining the allocation.
+    trusted mut func clear()
+    {
+        trusted self.as_deque_mut().clear();
+    }
+
+    /// Consumes the adapter and returns its underlying deque.
+    consume func into_deque() -> Deque<T>;
+}

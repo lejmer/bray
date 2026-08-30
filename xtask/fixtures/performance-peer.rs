@@ -21,6 +21,8 @@ use std::io::Write as _;
 use std::io::Read as _;
 #[cfg(peer_workload = "process_pipe_transfer")]
 use std::process::{Command, Stdio};
+#[cfg(peer_workload = "deque_mixed_ends")]
+use std::collections::VecDeque;
 #[cfg(peer_workload = "async_output")]
 use std::sync::Arc;
 #[cfg(any(peer_timing, peer_workload = "monotonic_clock"))]
@@ -112,6 +114,42 @@ fn incremental_bytes(count: usize) -> bool {
     std::hint::black_box(&bytes);
 
     bytes.len() == count
+}
+
+#[cfg(peer_workload = "deque_mixed_ends")]
+fn workload() -> bool {
+    let mut values = VecDeque::with_capacity(64);
+
+    values.extend(0_u64..64);
+
+    for expected in 0_u64..32 {
+        if values.pop_front() != Some(expected) {
+            return false;
+        }
+    }
+
+    values.extend(64_u64..96);
+
+    for round in 0_usize..2_048 {
+        if round % 2 == 0 {
+            let Some(value) = values.pop_front() else {
+                return false;
+            };
+
+            values.push_back(value);
+        } else {
+            let Some(value) = values.pop_back() else {
+                return false;
+            };
+
+            values.push_front(value);
+        }
+    }
+
+    values.push_back(96);
+    std::hint::black_box(&values);
+
+    values.len() == 65 && values.front() == Some(&32) && values.back() == Some(&96)
 }
 
 #[cfg(peer_workload = "borrowed_text")]

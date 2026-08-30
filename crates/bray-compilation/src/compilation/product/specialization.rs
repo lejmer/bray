@@ -18,15 +18,15 @@ use bray_symbols::{
     GenericOwnerId, GenericSubstitutionData, GenericSubstitutionId, ImplementationInstanceData,
     ImplementationInstanceId, ImplementationRequirementKey, ImplementationSelection,
     NamedTypeSymbolId, ProofOutcome, StaticInstanceKey, StaticReferenceSelection, StructSymbolId,
-    SymbolQueryRequest, TargetSizedIntegerType, TraitCallableMemberSymbolId,
+    SymbolQueryRequest, TargetSizedIntegerType, TraitCallableMemberSymbolId, TypeData,
 };
 
 use super::super::CodegenPreparationError;
 use super::super::Compilation;
 use super::super::binder::binding_query_error;
 use super::super::implementation::{
-    callable_instance, implementation_fulfillments, implementation_instance_requirement,
-    selected_callable,
+    implementation_callable_instance, implementation_fulfillments,
+    implementation_instance_requirement,
 };
 use super::super::substitution::named_type;
 use super::specialization_identity::encoding::structural_type_identity;
@@ -41,6 +41,7 @@ pub(super) struct ConcreteCodegenInstance {
     lifecycle: Option<MirHelperReference>,
     substitution: Option<GenericSubstitutionId>,
     witnesses: Arc<[ImplementationInstanceId]>,
+    contextual_self_witness: Option<ImplementationInstanceId>,
 }
 
 pub(super) struct ConcreteCodegenReachability {
@@ -76,6 +77,7 @@ impl ConcreteCodegenInstance {
         callable: CallableInstanceData,
         specialization: CodegenSpecialization,
         witnesses: impl IntoIterator<Item = (CodegenImplementationWitness, ImplementationInstanceId)>,
+        contextual_self_witness: Option<ImplementationInstanceId>,
     ) -> Option<Self> {
         let mut witnesses: Vec<_> = witnesses.into_iter().collect();
 
@@ -86,7 +88,16 @@ impl ConcreteCodegenInstance {
             .map(|(identity, _)| identity.clone())
             .collect();
 
-        if key.specialization() != &specialization || key.witnesses() != identities {
+        let contextual_self_identity = contextual_self_witness.and_then(|selected| {
+            witnesses
+                .iter()
+                .find_map(|(identity, witness)| (*witness == selected).then_some(identity))
+        });
+
+        if key.specialization() != &specialization
+            || key.witnesses() != identities
+            || key.contextual_self_witness() != contextual_self_identity
+        {
             return None;
         }
 
@@ -102,6 +113,7 @@ impl ConcreteCodegenInstance {
                 .map(|(_, witness)| witness)
                 .collect::<Vec<_>>()
                 .into(),
+            contextual_self_witness,
         })
     }
 
@@ -114,6 +126,7 @@ impl ConcreteCodegenInstance {
             lifecycle: None,
             substitution: None,
             witnesses: Arc::from([]),
+            contextual_self_witness: None,
         }
     }
 
@@ -121,7 +134,7 @@ impl ConcreteCodegenInstance {
         owner: &Self,
         reference: &bray_ir::MirAnonymousCallableReference,
         callable_type: bray_symbols::TypeId,
-    ) -> Self {
+    ) -> Option<Self> {
         let template = match reference {
             // The nested instance owns the source key beyond the parent MIR operation borrow.
             bray_ir::MirAnonymousCallableReference::Bound(key) => MirUnitKey::Bound(key.clone()),
@@ -131,37 +144,32 @@ impl ConcreteCodegenInstance {
         };
 
         // The nested instance shares its parent's immutable specialization context.
-        Self {
-            key: CodegenInstanceKey::new(
-                template,
-                owner.key.specialization().clone(),
-                owner.key.witnesses().iter().cloned(),
-                owner.key.target().clone(),
-            ),
+        Some(Self {
+            key: Self::inherited_key(owner, template)?,
             callable: None,
             anonymous_callable_type: Some(callable_type),
             static_initializer: None,
             lifecycle: None,
             substitution: owner.substitution,
             witnesses: Arc::clone(&owner.witnesses),
-        }
+            contextual_self_witness: owner.contextual_self_witness,
+        })
     }
 
-    pub(super) fn bound_helper(owner: &Self, unit: bray_bound_tree::BoundUnitKey) -> Self {
-        Self {
-            key: CodegenInstanceKey::new(
-                MirUnitKey::Bound(unit),
-                owner.key.specialization().clone(),
-                owner.key.witnesses().iter().cloned(),
-                owner.key.target().clone(),
-            ),
+    pub(super) fn bound_helper(
+        owner: &Self,
+        unit: bray_bound_tree::BoundUnitKey,
+    ) -> Option<Self> {
+        Some(Self {
+            key: Self::inherited_key(owner, MirUnitKey::Bound(unit))?,
             callable: None,
             anonymous_callable_type: None,
             static_initializer: None,
             lifecycle: None,
             substitution: owner.substitution,
             witnesses: Arc::clone(&owner.witnesses),
-        }
+            contextual_self_witness: owner.contextual_self_witness,
+        })
     }
 
     pub(super) fn static_initializer(
@@ -189,30 +197,29 @@ impl ConcreteCodegenInstance {
                 .map(|(_, witness)| *witness)
                 .collect::<Vec<_>>()
                 .into(),
+            contextual_self_witness: None,
         }
     }
 
     pub(super) fn imported_runtime_default(
         owner: &Self,
         provider: bray_symbols::AnySymbolId,
-    ) -> Self {
-        Self {
-            key: CodegenInstanceKey::new(
-                MirUnitKey::ImportedExecutable(bray_ir::MirImportedExecutableKey::new(
-                    provider,
-                    bray_ir::MirExecutableTemplateId::ROOT,
-                )),
-                owner.key.specialization().clone(),
-                owner.key.witnesses().iter().cloned(),
-                owner.key.target().clone(),
-            ),
+    ) -> Option<Self> {
+        let template = MirUnitKey::ImportedExecutable(bray_ir::MirImportedExecutableKey::new(
+            provider,
+            bray_ir::MirExecutableTemplateId::ROOT,
+        ));
+
+        Some(Self {
+            key: Self::inherited_key(owner, template)?,
             callable: None,
             anonymous_callable_type: None,
             static_initializer: None,
             lifecycle: None,
             substitution: owner.substitution,
             witnesses: Arc::clone(&owner.witnesses),
-        }
+            contextual_self_witness: owner.contextual_self_witness,
+        })
     }
 
     pub(super) fn try_generated_lifecycle(
@@ -235,6 +242,7 @@ impl ConcreteCodegenInstance {
             lifecycle: Some(reference),
             substitution: None,
             witnesses: Arc::from([]),
+            contextual_self_witness: None,
         })
     }
 
@@ -264,6 +272,24 @@ impl ConcreteCodegenInstance {
 
     pub(super) fn implementation_witnesses(&self) -> &[ImplementationInstanceId] {
         &self.witnesses
+    }
+
+    pub(super) const fn contextual_self_witness(&self) -> Option<ImplementationInstanceId> {
+        self.contextual_self_witness
+    }
+
+    fn inherited_key(owner: &Self, template: MirUnitKey) -> Option<CodegenInstanceKey> {
+        let key = CodegenInstanceKey::new(
+            template,
+            owner.key.specialization().clone(),
+            owner.key.witnesses().iter().cloned(),
+            owner.key.target().clone(),
+        );
+
+        match owner.key.contextual_self_witness().cloned() {
+            Some(witness) => key.try_with_contextual_self_witness(witness),
+            None => Some(key),
+        }
     }
 }
 
@@ -368,11 +394,8 @@ impl Compilation {
         reference: &bray_ir::MirAnonymousCallableReference,
         callable_type: bray_symbols::TypeId,
     ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
-        Ok(ConcreteCodegenInstance::anonymous_callable(
-            owner,
-            reference,
-            callable_type,
-        ))
+        ConcreteCodegenInstance::anonymous_callable(owner, reference, callable_type)
+            .ok_or_else(|| FactQueryError::InfrastructureFailure.into())
     }
 
     pub(super) fn concrete_codegen_bound_helper(
@@ -380,7 +403,8 @@ impl Compilation {
         owner: &ConcreteCodegenInstance,
         unit: bray_bound_tree::BoundUnitKey,
     ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
-        Ok(ConcreteCodegenInstance::bound_helper(owner, unit))
+        ConcreteCodegenInstance::bound_helper(owner, unit)
+            .ok_or_else(|| FactQueryError::InfrastructureFailure.into())
     }
 
     pub(super) fn concrete_codegen_lifecycle(
@@ -421,6 +445,23 @@ impl Compilation {
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
+        self.concrete_codegen_callable_with_context(
+            callable,
+            witnesses,
+            None,
+            target,
+            cancellation,
+        )
+    }
+
+    fn concrete_codegen_callable_with_context(
+        &self,
+        callable: CallableInstanceData,
+        witnesses: impl IntoIterator<Item = ImplementationInstanceId>,
+        contextual_self_witness: Option<ImplementationInstanceId>,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
         cancellation.check()?;
 
         let substitution = self.realize_codegen_substitution(callable.substitution())?;
@@ -431,7 +472,7 @@ impl Compilation {
         let specialization = self.codegen_specialization(callable.substitution())?;
         let witnesses = self.concrete_codegen_witnesses(witnesses, cancellation)?;
 
-        let key = CodegenInstanceKey::new(
+        let mut key = CodegenInstanceKey::new(
             template,
             specialization.clone(),
             witnesses.iter().map(|(identity, _)| identity.clone()),
@@ -441,7 +482,24 @@ impl Compilation {
             ),
         );
 
-        ConcreteCodegenInstance::try_callable(key, callable, specialization, witnesses)
+        if let Some(selected) = contextual_self_witness {
+            let identity = witnesses
+                .iter()
+                .find_map(|(identity, witness)| (*witness == selected).then_some(identity.clone()))
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            key = key
+                .try_with_contextual_self_witness(identity)
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+        }
+
+        ConcreteCodegenInstance::try_callable(
+            key,
+            callable,
+            specialization,
+            witnesses,
+            contextual_self_witness,
+        )
             .ok_or_else(|| FactQueryError::InfrastructureFailure.into())
     }
 
@@ -565,9 +623,102 @@ impl Compilation {
         let values = self.semantic_value_store()?;
         let binding_context = self.binding_context(cancellation)?;
 
+        if let Some(requirement) = dispatch.trait_default_requirement() {
+            let subject = values
+                .substitute_type(requirement.subject(), owner_substitution)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            let application = values
+                .substitute_trait_application(
+                    requirement.trait_application(),
+                    owner_substitution,
+                )
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            let requirement = ImplementationRequirementKey::new(subject, application);
+
+            let contextual_requirement = matches!(
+                values
+                    .type_data(subject)
+                    .map_err(|_| FactQueryError::InfrastructureFailure)?
+                    .as_ref(),
+                TypeData::ContextualSelf(_)
+            );
+
+            let demand_witnesses = self
+                .concrete_codegen_demand_witnesses(demand.witnesses(), owner_substitution)?;
+
+            let witness = self
+                .concrete_codegen_matching_witness(
+                    demand_witnesses
+                        .iter()
+                        .copied()
+                        .chain(owner.implementation_witnesses().iter().copied()),
+                    requirement,
+                    cancellation,
+                )?
+                .or_else(|| {
+                    contextual_requirement
+                        .then(|| owner.contextual_self_witness())
+                        .flatten()
+                })
+                .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            let selected_requirement =
+                self.concrete_codegen_witness_requirement(witness, cancellation)?;
+
+            if selected_requirement.trait_application() != application {
+                return Err(FactQueryError::InfrastructureFailure.into());
+            }
+
+            let implementation = values
+                .implementation_instance_data(witness)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            let fulfillments =
+                implementation_fulfillments(&binding_context, implementation.definition())?;
+
+            let application_data = values
+                .trait_application_data(application)
+                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+
+            let callable = implementation_callable_instance(
+                &binding_context,
+                fulfillments.callables,
+                member,
+                application_data.substitution(),
+                implementation.substitution(),
+            )?
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+            let mut witnesses = demand_witnesses;
+
+            witnesses.extend(
+                self.concrete_codegen_implementation_constraint_witnesses(witness, cancellation)?,
+            );
+
+            witnesses.push(witness);
+
+            let contextual_self_witness = callable.uses_trait_default().then_some(witness);
+
+            return self
+                .concrete_codegen_callable_with_context(
+                    callable.instance(),
+                    witnesses,
+                    contextual_self_witness,
+                    target,
+                    cancellation,
+                )
+                .map(ConcreteCodegenCallee::Instance);
+        }
+
+        let (dispatch_owner, dispatch_ordinal) = dispatch
+            .constraint()
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
         let constraints = binding_context
             .resolve_symbol_query(SymbolQueryRequest::<GenericConstraintsQuery>::new(
-                dispatch.owner(),
+                dispatch_owner,
             ))
             .map_err(binding_query_error)?;
 
@@ -575,7 +726,7 @@ impl Compilation {
             .value()
             .constraints()
             .iter()
-            .find(|constraint| constraint.ordinal() == dispatch.ordinal())
+            .find(|constraint| constraint.ordinal() == dispatch_ordinal)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let CheckedConstraintKind::TraitSatisfaction {
@@ -641,18 +792,18 @@ impl Compilation {
         let fulfillments =
             implementation_fulfillments(&binding_context, implementation.definition())?;
 
-        let fulfillment = selected_callable(&binding_context, fulfillments.callables, member)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
         let application = values
             .trait_application_data(application)
             .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
-        let callable = callable_instance(
-            values,
-            fulfillment.into(),
-            [application.substitution(), implementation.substitution()],
-        )?;
+        let callable = implementation_callable_instance(
+            &binding_context,
+            fulfillments.callables,
+            member,
+            application.substitution(),
+            implementation.substitution(),
+        )?
+        .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let mut witnesses =
             self.concrete_codegen_demand_witnesses(demand.witnesses(), owner_substitution)?;
@@ -663,7 +814,15 @@ impl Compilation {
 
         witnesses.push(witness);
 
-        self.concrete_codegen_callable(callable, witnesses, target, cancellation)
+        let contextual_self_witness = callable.uses_trait_default().then_some(witness);
+
+        self.concrete_codegen_callable_with_context(
+            callable.instance(),
+            witnesses,
+            contextual_self_witness,
+            target,
+            cancellation,
+        )
             .map(ConcreteCodegenCallee::Instance)
     }
 

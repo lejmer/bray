@@ -1,0 +1,515 @@
+module std.collection;
+
+using std.memory;
+
+struct Deque<T>
+{
+    internal mut storage: std.memory.RawBuffer<Uninit<T>>;
+    internal mut head: usize;
+    internal mut count: usize;
+
+    trusted construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>
+    {
+        let storage: std.memory.RawBuffer<Uninit<T>> = try trusted internal std.memory.uninit_buffer<T>(
+            capacity = capacity
+        );
+
+        return Ok(
+            {
+                storage = storage,
+                head = 0,
+                count = 0,
+            }
+        );
+    }
+
+    trusted destruct()
+    {
+        trusted self.clear();
+    }
+
+    func length() -> usize
+    {
+        return self.count;
+    }
+
+    func capacity() -> usize
+    {
+        return std.memory.capacity<Uninit<T>>(&self.storage);
+    }
+
+    func is_empty() -> bool
+    {
+        return self.count == 0;
+    }
+
+    func front() -> (&T)?
+    {
+        if self.count == 0
+        {
+            return none;
+        }
+
+        let value: &T = trusted borrow_deque_element<T>(&self, logical_index = 0);
+        let mut result: (&T)? = none;
+
+        result = value;
+
+        return result;
+    }
+
+    func back() -> (&T)?
+    {
+        if self.count == 0
+        {
+            return none;
+        }
+
+        let value: &T = trusted borrow_deque_element<T>(&self, logical_index = self.count - 1);
+        let mut result: (&T)? = none;
+
+        result = value;
+
+        return result;
+    }
+
+    mut func front_mut() -> (&mut T)?
+    {
+        if self.count == 0
+        {
+            return none;
+        }
+
+        let value: &mut T = trusted borrow_deque_element_mut<T>(&mut self, logical_index = 0);
+        let mut result: (&mut T)? = none;
+
+        result = value;
+
+        return result;
+    }
+
+    mut func back_mut() -> (&mut T)?
+    {
+        if self.count == 0
+        {
+            return none;
+        }
+
+        let index: usize = self.count - 1;
+        let value: &mut T = trusted borrow_deque_element_mut<T>(&mut self, logical_index = index);
+        let mut result: (&mut T)? = none;
+
+        result = value;
+
+        return result;
+    }
+
+    trusted mut func reserve(additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
+    {
+        return trusted reserve_deque<T>(&mut self, additional = additional, exact = false);
+    }
+
+    trusted mut func reserve_exact(additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
+    {
+        return trusted reserve_deque<T>(&mut self, additional = additional, exact = true);
+    }
+
+    trusted mut func shrink_to_fit() -> Result<unit, std.memory.MemoryLayoutError>
+    {
+        if self.count == self.capacity()
+        {
+            return Ok(unit);
+        }
+
+        try trusted reallocate_deque<T>(&mut self, new_capacity = self.count);
+
+        return Ok(unit);
+    }
+
+    trusted mut func push_front(pos value: T) -> Result<unit, std.memory.MemoryLayoutError>
+    {
+        try trusted self.reserve(additional = 1);
+
+        let storage_capacity: usize = self.capacity();
+
+        if self.head == 0
+        {
+            self.head = storage_capacity - 1;
+        }
+        else
+        {
+            self.head -= 1;
+        }
+
+        trusted write_deque_slot<T>(&mut self, value, physical_index = self.head);
+        self.count += 1;
+
+        return Ok(unit);
+    }
+
+    trusted mut func push_back(pos value: T) -> Result<unit, std.memory.MemoryLayoutError>
+    {
+        try trusted self.reserve(additional = 1);
+
+        let index: usize = wrapped_deque_index(
+            head = self.head,
+            storage_capacity = self.capacity(),
+            logical_index = self.count,
+        );
+
+        trusted write_deque_slot<T>(&mut self, value, physical_index = index);
+        self.count += 1;
+
+        return Ok(unit);
+    }
+
+    trusted mut func pop_front() -> T?
+    {
+        if self.count == 0
+        {
+            return none;
+        }
+
+        let value: T = trusted take_deque_front<T>(&mut self);
+        let mut result: T? = none;
+
+        result = value;
+
+        return result;
+    }
+
+    trusted mut func pop_back() -> T?
+    {
+        if self.count == 0
+        {
+            return none;
+        }
+
+        let value: T = trusted take_deque_back<T>(&mut self);
+        let mut result: T? = none;
+
+        result = value;
+
+        return result;
+    }
+
+    trusted mut func clear()
+    {
+        while self.count > 0
+        {
+            let _: T = trusted take_deque_back<T>(&mut self);
+        }
+    }
+}
+
+internal func wrapped_deque_index(head: usize, storage_capacity: usize, logical_index: usize) -> usize
+{
+    let contiguous: usize = storage_capacity - head;
+
+    if logical_index < contiguous
+    {
+        return head + logical_index;
+    }
+
+    return logical_index - contiguous;
+}
+
+trusted internal func borrow_deque_element<T>(pos deque: &Deque<T>, logical_index: usize) -> &T
+{
+    let index: usize = wrapped_deque_index(
+        head = deque.head,
+        storage_capacity = deque.capacity(),
+        logical_index = logical_index,
+    );
+
+    let slots: &[Uninit<T>] = trusted std.memory.initialized_slice<Uninit<T>>(&deque.storage);
+    let pointer: RawPointer<T> = std.memory.uninit_pointer<T>(&slots[index]);
+
+    return trusted std.memory.borrow_from<T, Deque<T>>(deque, pointer);
+}
+
+trusted internal func borrow_deque_element_mut<T>(pos deque: &mut Deque<T>, logical_index: usize) -> &mut T
+{
+    let index: usize = wrapped_deque_index(
+        head = deque.head,
+        storage_capacity = deque.capacity(),
+        logical_index = logical_index,
+    );
+
+    let pointer: RawPointer<T> =
+    {
+        let slots: &mut [Uninit<T>] = trusted std.memory.initialized_slice_mut<Uninit<T>>(&mut deque.storage);
+
+        yield std.memory.uninit_pointer_mut<T>(&mut slots[index]);
+    };
+
+    return trusted std.memory.borrow_mut_from<T, Deque<T>>(deque, pointer);
+}
+
+trusted internal func write_deque_slot<T>(pos deque: &mut Deque<T>, pos value: T, physical_index: usize)
+{
+    let slots: &mut [Uninit<T>] = trusted std.memory.initialized_slice_mut<Uninit<T>>(&mut deque.storage);
+    let _: &mut T = std.memory.uninit_write<T>(&mut slots[physical_index], value);
+}
+
+trusted internal func take_deque_slot<T>(pos deque: &mut Deque<T>, physical_index: usize) -> T
+{
+    let slots: &mut [Uninit<T>] = trusted std.memory.initialized_slice_mut<Uninit<T>>(&mut deque.storage);
+
+    return trusted std.memory.move_initialized<T>(&mut slots[physical_index]);
+}
+
+trusted internal func take_deque_front<T>(pos deque: &mut Deque<T>) -> T
+{
+    let index: usize = deque.head;
+    let value: T = trusted take_deque_slot<T>(&mut deque, physical_index = index);
+    let storage_capacity: usize = deque.capacity();
+
+    deque.count -= 1;
+    deque.head += 1;
+
+    if deque.head == storage_capacity
+    {
+        deque.head = 0;
+    }
+
+    if deque.count == 0
+    {
+        deque.head = 0;
+    }
+
+    return value;
+}
+
+trusted internal func take_deque_back<T>(pos deque: &mut Deque<T>) -> T
+{
+    let index: usize = wrapped_deque_index(
+        head = deque.head,
+        storage_capacity = deque.capacity(),
+        logical_index = deque.count - 1,
+    );
+
+    let value: T = trusted take_deque_slot<T>(&mut deque, physical_index = index);
+
+    deque.count -= 1;
+
+    if deque.count == 0
+    {
+        deque.head = 0;
+    }
+
+    return value;
+}
+
+trusted internal func reserve_deque<T>(
+    pos deque: &mut Deque<T>,
+    additional: usize,
+    exact: bool
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let storage_capacity: usize = deque.capacity();
+
+    if additional <= storage_capacity - deque.count
+    {
+        return Ok(unit);
+    }
+
+    let replacement: usize = if exact
+    {
+        yield try internal std.memory.growth_capacity(
+            current_length = deque.count,
+            current_capacity = storage_capacity,
+            additional = additional,
+            growth = internal std.memory.CapacityGrowth.Exact,
+        );
+    }
+    else
+    {
+        yield try internal std.memory.growth_capacity(
+            current_length = deque.count,
+            current_capacity = storage_capacity,
+            additional = additional,
+            growth = internal std.memory.CapacityGrowth.Amortized,
+        );
+    };
+
+    try trusted reallocate_deque<T>(&mut deque, new_capacity = replacement);
+
+    return Ok(unit);
+}
+
+trusted internal func reallocate_deque<T>(
+    pos deque: &mut Deque<T>,
+    new_capacity: usize
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut replacement: std.memory.RawBuffer<Uninit<T>> = try trusted internal std.memory.uninit_buffer<T>(
+        capacity = new_capacity
+    );
+
+    let retained: usize = deque.count;
+    let source_head: usize = deque.head;
+    let source_capacity: usize = deque.capacity();
+    let mut moved: usize = 0;
+
+    while moved < retained
+    {
+        let source_index: usize = wrapped_deque_index(
+            head = source_head,
+            storage_capacity = source_capacity,
+            logical_index = moved,
+        );
+
+        let value: T = trusted take_deque_slot<T>(&mut deque, physical_index = source_index);
+        let slots: &mut [Uninit<T>] = trusted std.memory.initialized_slice_mut<Uninit<T>>(&mut replacement);
+        let _: &mut T = std.memory.uninit_write<T>(&mut slots[moved], value);
+
+        moved += 1;
+    }
+
+    trusted internal std.memory.raw_buffer_replace<Uninit<T>>(
+        destination = &mut deque.storage,
+        source = &mut replacement,
+    );
+
+    deque.head = 0;
+
+    return Ok(unit);
+}
+
+impl DequeElementIndex = Deque<T>(ElementIndex<usize>)
+{
+    type Output = T;
+
+    func index(pos selector: &usize) -> &T
+    {
+        let index: usize = copied_index(selector);
+
+        assert(index < self.count);
+
+        return trusted borrow_deque_element<T>(&self, logical_index = index);
+    }
+}
+
+struct DequeReadCursor<T>
+{
+    internal values: &Deque<T>;
+    internal mut index: usize = 0;
+    internal count: usize;
+}
+
+impl DequeReadCursorIterator = DequeReadCursor<T>(Iterator)
+{
+    type Element = &T;
+
+    mut func next() -> (&T)?
+    {
+        let index: usize = self.index;
+
+        if index >= self.count
+        {
+            return none;
+        }
+
+        self.index = index + 1;
+
+        let value: &T = trusted borrow_deque_element<T>(self.values, logical_index = index);
+        let mut result: (&T)? = none;
+
+        result = value;
+
+        return result;
+    }
+}
+
+impl DequeReadIterable = &Deque<T>(Iterable)
+{
+    type Element = &T;
+    type Cursor = DequeReadCursor<T>;
+
+    consume func iterate() -> DequeReadCursor<T>
+    {
+        return
+        {
+            values = self,
+            count = self.length(),
+        };
+    }
+}
+
+struct DequeWriteCursor<T>
+{
+    internal mut values: &mut Deque<T>;
+    internal mut index: usize = 0;
+    internal count: usize;
+}
+
+impl DequeWriteCursorIterator = DequeWriteCursor<T>(Iterator)
+{
+    type Element = &mut T;
+
+    mut func next() -> (&mut T)?
+    {
+        let index: usize = self.index;
+
+        if index >= self.count
+        {
+            return none;
+        }
+
+        self.index = index + 1;
+
+        let value: &mut T = trusted borrow_deque_element_mut<T>(&mut self.values, logical_index = index);
+        let mut result: (&mut T)? = none;
+
+        result = value;
+
+        return result;
+    }
+}
+
+impl DequeWriteIterable = &mut Deque<T>(Iterable)
+{
+    type Element = &mut T;
+    type Cursor = DequeWriteCursor<T>;
+
+    consume func iterate() -> DequeWriteCursor<T>
+    {
+        let count: usize = self.length();
+
+        return
+        {
+            values = self,
+            count = count,
+        };
+    }
+}
+
+struct DequeMoveCursor<T>
+{
+    internal mut values: Deque<T>;
+}
+
+impl DequeMoveCursorIterator = DequeMoveCursor<T>(Iterator)
+{
+    type Element = T;
+
+    mut func next() -> T?
+    {
+        return trusted self.values.pop_front();
+    }
+}
+
+impl DequeMoveIterable = Deque<T>(Iterable)
+{
+    type Element = T;
+    type Cursor = DequeMoveCursor<T>;
+
+    consume func iterate() -> DequeMoveCursor<T>
+    {
+        return
+        {
+            values = self,
+        };
+    }
+}

@@ -7,8 +7,8 @@ use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableExecution,
     CallableParameterDefaultQuery, CallableParameterDefaultValue, CallableParameterSignature,
-    CallableSignature, CallableSignatureQuery, ImplementationSymbolId, ReceiverParameterSignature,
-    RuntimeDefaultProviderInput, SelfTypeContext, StructFieldDefaultQuery, StructFieldDefaultValue,
+    CallableSignature, CallableSignatureQuery, ReceiverParameterSignature,
+    RuntimeDefaultProviderInput, StructFieldDefaultQuery, StructFieldDefaultValue,
     SymbolQueryRequest, TypeAssociatedLifecycleSlot, TypeData, TypeId, UnionPayloadDefaultValue,
     UnionPayloadFieldDefaultQuery,
 };
@@ -17,9 +17,12 @@ use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
 use super::super::super::checker::CompilationCheckerContext;
 use super::super::specialization::ConcreteCodegenInstance;
+use super::contextual_self::{
+    codegen_instance_contextual_self, substitute_contextual_self,
+};
 use super::support::{
-    callable_type_signature, codegen_checker_error, implementation_subject, is_void_result,
-    receiver_codegen_type, substitute_contextual_self, synchronous_bray_signature, void_signature,
+    callable_type_signature, codegen_checker_error, is_void_result, receiver_codegen_type,
+    synchronous_bray_signature, void_signature,
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -92,16 +95,8 @@ impl Compilation {
         let substitution = callable.substitution();
         let binding_context = self.binding_context(cancellation)?;
 
-        let contextual_self = self
-            .symbol_graph()?
-            .containing_symbol(definition.symbol())
-            .and_then(ImplementationSymbolId::try_from_any)
-            .map(|implementation| {
-                let subject = implementation_subject(&binding_context, implementation)?;
-
-                Ok::<_, FactQueryError>((SelfTypeContext::Implementation(implementation), subject))
-            })
-            .transpose()?;
+        let contextual_self =
+            codegen_instance_contextual_self(&binding_context, instance)?;
 
         let template = binding_context
             .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(

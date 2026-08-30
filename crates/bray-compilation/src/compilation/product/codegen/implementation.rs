@@ -2242,6 +2242,85 @@ mod tests {
     }
 
     #[test]
+    fn trait_owned_default_bodies_specialize_with_the_selected_implementation() {
+        let source = concat!(
+            "module app;\n",
+            "trait Counter\n",
+            "{\n",
+            "    func count() -> i32;\n",
+            "    func doubled() -> i32\n",
+            "    {\n",
+            "        return self.count() + self.count();\n",
+            "    }\n",
+            "    func quadrupled() -> i32\n",
+            "    {\n",
+            "        return self.doubled() + self.doubled();\n",
+            "    }\n",
+            "}\n",
+            "struct Value\n",
+            "{\n",
+            "    count: i32;\n",
+            "}\n",
+            "impl ValueCounter = Value(Counter)\n",
+            "{\n",
+            "    func count() -> i32\n",
+            "    {\n",
+            "        return self.count;\n",
+            "    }\n",
+            "}\n",
+            "func read_generic<T>(pos value: &T) -> i32\n",
+            "    with(T: Counter)\n",
+            "{\n",
+            "    return value.quadrupled();\n",
+            "}\n",
+            "public func read() -> i32\n",
+            "{\n",
+            "    let value: Value = { count = 3 };\n",
+            "    return value.quadrupled() + read_generic<Value>(&value);\n",
+            "}\n",
+        );
+
+        let (backend, compilation) =
+            codegen_compilation_for_product(source, ProductKind::Library);
+
+        let cancellation = CancellationToken::new();
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .unwrap_or_else(|error| panic!("test codegen target must validate: {error:?}"));
+
+        let semantic = compilation
+            .product_semantics()
+            .unwrap_or_else(|error| panic!("trait default product semantics must resolve: {error:?}"));
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
+            .unwrap_or_else(|error| panic!("trait default roots must resolve: {error:?}"));
+
+        compilation
+            .codegen_reachability(roots, None, &target, &cancellation)
+            .unwrap_or_else(|error| panic!("trait default reachability must close: {error:?}"));
+
+        let plan = compilation
+            .native_product_plan(
+                test_product_identity(),
+                crate::BuildConfiguration::Development,
+                None,
+                [],
+                None,
+            )
+            .unwrap_or_else(|error| panic!("trait default body must realize: {error:?}"));
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
     fn concrete_generic_specializations_are_stable_across_store_order() {
         let first = crate::test_support::compilation(CONCRETE_GENERIC_SOURCE);
         let second = crate::test_support::compilation(CONCRETE_GENERIC_SOURCE);
@@ -2392,52 +2471,56 @@ mod tests {
             })
         }));
 
-        let roots = reachability
-            .graph()
-            .roots()
-            .iter()
-            .cloned()
-            .collect::<BTreeSet<_>>();
+        realize_codegen_mappings(&compilation, &target, &reachability, &cancellation);
+    }
 
-        let compatibility = reachability
+    #[test]
+    fn imported_trait_default_bodies_specialize_with_the_consumer_implementation() {
+        let compilation = generic_consumer_for_target_with_source(
+            trait_default_dependency(),
+            SelectedTarget::baseline(),
+            TRAIT_DEFAULT_CONSUMER_SOURCE,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let cancellation = CancellationToken::new();
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .unwrap_or_else(|error| panic!("consumer target must validate: {error:?}"));
+
+        let semantic = compilation
+            .product_semantics()
+            .unwrap_or_else(|error| panic!("consumer product plan must resolve: {error:?}"));
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
+            .unwrap_or_else(|error| panic!("consumer roots must resolve: {error:?}"));
+
+        let reachability = compilation
+            .codegen_reachability(roots, None, &target, &cancellation)
+            .unwrap_or_else(|error| panic!("consumer reachability must close: {error:?}"));
+
+        let imported_defaults = reachability
             .graph()
             .instances()
             .iter()
-            .map(|instance| {
-                compilation
-                    .codegen_partition_compatibility(
-                        instance,
-                        compilation.package_identity(),
-                        &roots,
-                        &cancellation,
-                    )
-                    .map(|compatibility| (instance.key().clone(), compatibility))
+            .filter(|instance| {
+                matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_))
+                    && instance.key().contextual_self_witness().is_some()
             })
-            .collect::<Result<BTreeMap<_, _>, _>>()
-            .unwrap_or_else(|error| panic!("consumer partition plan must resolve: {error:?}"));
+            .count();
 
-        let units = partition_codegen_units(
-            CodegenPartitionPolicy::NATIVE_BALANCED,
-            reachability.graph(),
-            |instance| compatibility.get(instance.key()).cloned(),
-        )
-        .unwrap_or_else(|error| panic!("consumer units must partition: {error:?}"));
+        assert_eq!(imported_defaults, 4);
 
-        for unit in units.iter() {
-            compilation
-                .codegen_mappings_for_product(
-                    &test_product_identity(),
-                    unit,
-                    None,
-                    &BTreeSet::new(),
-                    &target,
-                    &roots,
-                    &reachability,
-                    false,
-                    &cancellation,
-                )
-                .unwrap_or_else(|error| panic!("consumer mappings must realize: {error:?}"));
-        }
+        realize_codegen_mappings(&compilation, &target, &reachability, &cancellation);
     }
 
     #[test]
@@ -2793,6 +2876,7 @@ mod tests {
                     .unwrap_or_else(|| panic!("test root must retain its callable")),
                 CodegenSpecialization::NonGeneric,
                 [],
+                None,
             )
             .is_none()
         );
@@ -4669,10 +4753,24 @@ mod tests {
         "}\n",
     );
 
+    const TRAIT_DEFAULT_CONSUMER_SOURCE: &str = concat!(
+        "module application;\n",
+        "\n",
+        "using example.dependency.templates.read;\n",
+        "using internal example.dependency.templates.I32Counter;\n",
+        "\n",
+        "func main()\n",
+        "{\n",
+        "    let value: i32 = 3;\n",
+        "    let count: i32 = example.dependency.templates.read<i32>(&value);\n",
+        "}\n",
+    );
+
     #[derive(Clone, Copy)]
     struct GenericDependencyFixture {
         source: &'static str,
         runtime_frames: Option<usize>,
+        executable_templates: usize,
     }
 
     const GENERIC_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixture {
@@ -4695,6 +4793,7 @@ mod tests {
             "}\n",
         ),
         runtime_frames: None,
+        executable_templates: 3,
     };
 
     const ASYNC_GENERIC_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixture {
@@ -4717,7 +4816,106 @@ mod tests {
             "}\n",
         ),
         runtime_frames: Some(2),
+        executable_templates: 3,
     };
+
+    const TRAIT_DEFAULT_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixture {
+        source: concat!(
+            "module templates;\n",
+            "\n",
+            "public trait Counter\n",
+            "{\n",
+            "    func count() -> i32;\n",
+            "    func doubled() -> i32\n",
+            "    {\n",
+            "        return self.count() + self.count();\n",
+            "    }\n",
+            "    func quadrupled() -> i32\n",
+            "    {\n",
+            "        return self.doubled() + self.through_lambda();\n",
+            "    }\n",
+            "    func through_lambda() -> i32\n",
+            "    {\n",
+            "        let invoke = lambda(pos value: &Self) -> i32\n",
+            "        {\n",
+            "            return value.count();\n",
+            "        };\n",
+            "\n",
+            "        return invoke(&self);\n",
+            "    }\n",
+            "}\n",
+            "\n",
+            "public impl I32Counter = i32(Counter)\n",
+            "{\n",
+            "    func count() -> i32\n",
+            "    {\n",
+            "        return self;\n",
+            "    }\n",
+            "}\n",
+            "\n",
+            "public func read<T>(pos value: &T) -> i32\n",
+            "    with(T: Counter)\n",
+            "{\n",
+            "    return value.quadrupled();\n",
+            "}\n",
+        ),
+        runtime_frames: None,
+        executable_templates: 6,
+    };
+
+    fn realize_codegen_mappings(
+        compilation: &crate::Compilation,
+        target: &bray_codegen::CodegenTarget,
+        reachability: &super::super::super::specialization::ConcreteCodegenReachability,
+        cancellation: &CancellationToken,
+    ) {
+        let roots = reachability
+            .graph()
+            .roots()
+            .iter()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+
+        let compatibility = reachability
+            .graph()
+            .instances()
+            .iter()
+            .map(|instance| {
+                compilation
+                    .codegen_partition_compatibility(
+                        instance,
+                        compilation.package_identity(),
+                        &roots,
+                        cancellation,
+                    )
+                    .map(|compatibility| (instance.key().clone(), compatibility))
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()
+            .unwrap_or_else(|error| panic!("consumer partition plan must resolve: {error:?}"));
+
+        let units = partition_codegen_units(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            reachability.graph(),
+            |instance| compatibility.get(instance.key()).cloned(),
+        )
+        .unwrap_or_else(|error| panic!("consumer units must partition: {error:?}"));
+
+        for unit in units.iter() {
+            compilation
+                .codegen_mappings_for_product(
+                    &test_product_identity(),
+                    unit,
+                    None,
+                    &BTreeSet::new(),
+                    target,
+                    &roots,
+                    reachability,
+                    false,
+                    cancellation,
+                )
+                .unwrap_or_else(|error| panic!("consumer mappings must realize: {error:?}"));
+        }
+    }
 
     fn generic_consumer(dependency: DependencyInterfaceInput) -> crate::Compilation {
         generic_consumer_for_target(dependency, SelectedTarget::baseline())
@@ -4760,6 +4958,10 @@ mod tests {
 
     fn generic_async_dependency() -> DependencyInterfaceInput {
         generic_dependency_from_fixture(true, false, ASYNC_GENERIC_DEPENDENCY)
+    }
+
+    fn trait_default_dependency() -> DependencyInterfaceInput {
+        generic_dependency_from_fixture(true, false, TRAIT_DEFAULT_DEPENDENCY)
     }
 
     fn generic_dependency_with_templates(
@@ -4872,7 +5074,10 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("dependency implementation must encode: {error:?}"));
 
-        assert_eq!(bundle.executable_templates().len(), 3);
+        assert_eq!(
+            bundle.executable_templates().len(),
+            fixture.executable_templates
+        );
 
         let dependency = DependencyInterfaceInput::new(
             package,

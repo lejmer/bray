@@ -16,8 +16,8 @@ use bray_symbols::{
 use super::super::Compilation;
 use super::super::binder::{CompilationBindingContext, binding_query_error};
 use super::super::implementation::{
-    TypeValuedMemberResolution, callable_instance, implementation_fulfillments,
-    implementation_requirement, selected_callable, selected_type_valued_member,
+    TypeValuedMemberResolution, callable_instance, implementation_callable_instance,
+    implementation_fulfillments, implementation_requirement, selected_type_valued_member,
 };
 use crate::fact::{CancellationToken, FactQueryError, OperationSelectionQueryKey};
 
@@ -240,11 +240,6 @@ impl Compilation {
 
         let fulfillments = implementation_fulfillments(binding_context, instance.definition())?;
 
-        let Some(fulfillment) = selected_callable(binding_context, fulfillments.callables, member)
-        else {
-            return Ok(None);
-        };
-
         let operation_result_type = match operation {
             TraitOperation::Conversion(target) => Some(target),
             TraitOperation::Operator(_) | TraitOperation::Index(_) => self.operation_result_type(
@@ -277,11 +272,18 @@ impl Compilation {
             [trait_application.substitution()],
         )?;
 
-        let fulfillment_instance = callable_instance(
-            binding_context.semantic_values(),
-            fulfillment.into(),
-            [trait_application.substitution(), instance.substitution()],
-        )?;
+        let Some(fulfillment_instance) = implementation_callable_instance(
+            binding_context,
+            fulfillments.callables,
+            member,
+            trait_application.substitution(),
+            instance.substitution(),
+        )?
+        else {
+            return Ok(None);
+        };
+
+        let fulfillment_instance = fulfillment_instance.instance();
 
         let selected_operation = match operation {
             TraitOperation::Operator(operator) => SelectedOperation::Operator {
