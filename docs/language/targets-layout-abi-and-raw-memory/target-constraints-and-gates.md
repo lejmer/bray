@@ -18,7 +18,7 @@ using std.atomic;
 
 func add(pos counter: &std.atomic.Atomic<u64>, amount: u64) -> u64
 {
-    return std.atomic.fetch_add(counter, amount, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
+    return counter.fetch_add(amount, order = std.atomic.ReadModifyWriteOrder.AcquireRelease);
 }
 ```
 

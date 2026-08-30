@@ -32,8 +32,7 @@ module counter_backend
 {
     func add(pos counter: &std.atomic.Atomic<u64>, amount: u64) -> u64
     {
-        return std.atomic.fetch_add(
-            counter,
+        return counter.fetch_add(
             amount,
             order = std.atomic.ReadModifyWriteOrder.AcquireRelease,
         );

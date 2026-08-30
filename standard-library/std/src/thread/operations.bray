@@ -27,11 +27,11 @@ trusted internal func start_with_completion<State, T>(
         {
             control =
             {
-                state = std.atomic.atomic<u32>(THREAD_RUNNING),
-                panic_payload = std.atomic.atomic<usize>(0),
-                cancellation = std.atomic.atomic<u32>(0),
-                identity = std.atomic.atomic<u64>(0),
-                park_token = std.atomic.atomic<u32>(0),
+                state = std.atomic.Atomic<u32>(THREAD_RUNNING),
+                panic_payload = std.atomic.Atomic<usize>(0),
+                cancellation = std.atomic.Atomic<u32>(0),
+                identity = std.atomic.Atomic<u64>(0),
+                park_token = std.atomic.Atomic<u32>(0),
                 completion_event = completion_event,
             },
             result = std.memory.uninit<T>(),
@@ -131,16 +131,12 @@ func park()
 
     let control: &ThreadControl = trusted internal control_from_address(&address, address = address);
 
-    let mut token: u32 = std.atomic.exchange<u32>(
-        &control.park_token,
-        0,
-        order = std.atomic.ReadModifyWriteOrder.Acquire,
-    );
+    let mut token: u32 = control.park_token.exchange(0, order = std.atomic.ReadModifyWriteOrder.Acquire);
 
     while token == 0
     {
-        std.atomic.wait<u32>(&control.park_token, 0, order = std.atomic.LoadOrder.Acquire);
-        token = std.atomic.exchange<u32>(&control.park_token, 0, order = std.atomic.ReadModifyWriteOrder.Acquire);
+        control.park_token.wait(0, order = std.atomic.LoadOrder.Acquire);
+        token = control.park_token.exchange(0, order = std.atomic.ReadModifyWriteOrder.Acquire);
     }
 }
 
@@ -215,13 +211,9 @@ trusted internal func execute_thread_entry<State, T>(pos context: usize)
             storage_pointer,
         );
 
-        std.atomic.store<u64>(
-            &control.identity,
-            current_native_thread_identity(),
-            order = std.atomic.StoreOrder.Release,
-        );
+        control.identity.store(current_native_thread_identity(), order = std.atomic.StoreOrder.Release);
 
-        std.atomic.notify_all<u64>(&control.identity);
+        control.identity.notify_all();
 
         core.atomic.store<usize, 2>(
             &CURRENT_THREAD_CONTROL,
@@ -261,7 +253,7 @@ trusted internal func native_thread_cancellation_requested(pos context: usize) -
 
     let control: &ThreadControl = trusted std.memory.borrow_from<ThreadControl, usize>(&context, control_pointer);
 
-    return std.atomic.load<u32>(&control.cancellation, order = std.atomic.LoadOrder.Acquire);
+    return control.cancellation.load(order = std.atomic.LoadOrder.Acquire);
 }
 
 trusted internal func publish_native_thread_outcome(
@@ -285,12 +277,12 @@ trusted internal func publish_native_thread_outcome(
 
     if state == THREAD_PANICKED
     {
-        std.atomic.store<usize>(&control.panic_payload, payload, order = std.atomic.StoreOrder.Release);
+        control.panic_payload.store(payload, order = std.atomic.StoreOrder.Release);
     }
 
-    std.atomic.store<u32>(&control.state, state, order = std.atomic.StoreOrder.Release);
-    std.atomic.notify_all<u32>(&control.state);
-    std.atomic.notify_all<u64>(&control.identity);
+    control.state.store(state, order = std.atomic.StoreOrder.Release);
+    control.state.notify_all();
+    control.identity.notify_all();
 
     if control.completion_event != 0
     {
@@ -360,7 +352,7 @@ trusted internal func observe_thread<T>(
             trusted internal request_thread_cancellation(control);
         }
 
-        let mut state: u32 = std.atomic.load<u32>(&control.state, order = std.atomic.LoadOrder.Acquire);
+        let mut state: u32 = control.state.load(order = std.atomic.LoadOrder.Acquire);
 
         while state == THREAD_RUNNING
         {
@@ -391,10 +383,7 @@ trusted internal func observe_thread<T>(
 
     let mut terminal: ThreadStorage<T> = trusted internal take_transferred_value<ThreadStorage<T>>(storage_pointer);
 
-    let outcome: RunResult<T> = match std.atomic.load<u32>(
-        &terminal.control.state,
-        order = std.atomic.LoadOrder.Acquire
-    )
+    let outcome: RunResult<T> = match terminal.control.state.load(order = std.atomic.LoadOrder.Acquire)
     {
         case THREAD_COMPLETED
         {
@@ -404,10 +393,7 @@ trusted internal func observe_thread<T>(
         }
         case THREAD_PANICKED
         {
-            let payload: usize = std.atomic.load<usize>(
-                &terminal.control.panic_payload,
-                order = std.atomic.LoadOrder.Acquire,
-            );
+            let payload: usize = terminal.control.panic_payload.load(order = std.atomic.LoadOrder.Acquire);
 
             assert(payload != 0, "a panicked native thread did not publish its panic report");
 
@@ -438,9 +424,9 @@ trusted internal func observe_thread<T>(
 trusted internal func wait_for_thread_state(pos control: &ThreadControl) -> u32
     requires(blocking_execution())
 {
-    std.atomic.wait_for(&control.state, THREAD_RUNNING, timeout_milliseconds = THREAD_CANCELLATION_POLL_MILLISECONDS);
+    control.state.wait_for(THREAD_RUNNING, timeout_milliseconds = THREAD_CANCELLATION_POLL_MILLISECONDS);
 
-    return std.atomic.load<u32>(&control.state, order = std.atomic.LoadOrder.Acquire);
+    return control.state.load(order = std.atomic.LoadOrder.Acquire);
 }
 
 trusted internal func wait_for_thread_storage_state<T>(pos storage: RawPointer<ThreadStorage<T>>) -> u32
@@ -453,8 +439,8 @@ trusted internal func wait_for_thread_storage_state<T>(pos storage: RawPointer<T
 
 trusted internal func request_thread_cancellation(pos control: &ThreadControl)
 {
-    std.atomic.store<u32>(&control.cancellation, 1, order = std.atomic.StoreOrder.Release);
-    std.atomic.notify_all<u32>(&control.cancellation);
+    control.cancellation.store(1, order = std.atomic.StoreOrder.Release);
+    control.cancellation.notify_all();
 }
 
 trusted internal func resolve_thread_outcome_during_cancellation<T>(pos outcome: RunResult<T>)

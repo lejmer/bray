@@ -227,13 +227,13 @@ module counters
     {
         return
         {
-            value = std.atomic.atomic<u64>(0)
+            value = std.atomic.Atomic<u64>(0)
         };
     }
 
     func value(pos counter: &Counter) -> u64
     {
-        return std.atomic.load(&counter.value, order = std.atomic.LoadOrder.Relaxed);
+        return counter.value.load(order = std.atomic.LoadOrder.Relaxed);
     }
 }
 
