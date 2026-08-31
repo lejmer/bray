@@ -242,3 +242,62 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         copied_bytes: 0,
     }),
 };
+
+pub(super) const ORDERED_COLLECTIONS_MONOTONIC_UPDATES: Workload = Workload {
+    id: "ordered_collections_monotonic_updates",
+    category: WorkloadCategory::CoreData,
+    scale: 8192,
+    units: "monotonic insert-and-lookup pairs",
+    batching: BatchingPolicy::SingleExecution,
+    source: r#"module ordered_collections_monotonic_updates;
+
+using std.collection;
+using std.memory;
+
+func main() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut map: std.collection.OrderedMap<u64, u64> = try trusted std.collection.OrderedMap<u64, u64>();
+    let mut set: std.collection.OrderedSet<u64> = try trusted std.collection.OrderedSet<u64>();
+    let mut value: u64 = 0;
+
+    while value < 4096
+    {
+        let _: u64? = try trusted map.insert(value, value);
+        value += 1;
+    }
+
+    value = 4096;
+
+    while value > 0
+    {
+        value -= 1;
+
+        let _: bool = try trusted set.insert(value);
+    }
+
+    value = 0;
+
+    while value < 4096
+    {
+        {
+            let lookup: u64 = value;
+
+            assert(map.contains_key(&lookup));
+            assert(set.contains(&lookup));
+        }
+
+        value += 1;
+    }
+
+    assert(map.length() == 4096);
+    assert(set.length() == 4096);
+
+    return Ok(unit);
+}
+"#,
+    expected_output: ExpectedOutput::Empty,
+    expected_side_effects: ExpectedSideEffects::None,
+    platform_operations: &[],
+    retention: NO_RETENTION_CONTRACT,
+    storage: None,
+};

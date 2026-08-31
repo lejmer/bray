@@ -11,7 +11,7 @@ use bray_codegen::{
     DebugInformationOutputMode, OptimizationLevel, ProtectedAsyncFrameMetadata,
     ReproducibilityLevel, SizePreference,
 };
-use bray_diagnostics::DiagnosticBag;
+use bray_diagnostics::{DiagnosticBag, DiagnosticCodegenVerificationStage};
 use bray_runtime_interface::RuntimeAbiVersion;
 use bray_symbols::ProductKind;
 #[cfg(test)]
@@ -95,7 +95,7 @@ impl LlvmCodeGenerator {
         let mut sessions = self
             .sessions
             .lock()
-            .map_err(|_| CodegenFailure::BackendLibrary)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         if let Some(session) = sessions.get(&key) {
             // Generation owns a shared immutable session after releasing the cache lock.
@@ -167,9 +167,10 @@ impl LlvmCodeGenerator {
             return Ok(CodegenOutcome::cancelled(DiagnosticBag::new()));
         }
 
-        module
-            .verify()
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        module.verify().map_err(|error| CodegenFailure::BackendRejectedModule {
+            stage: DiagnosticCodegenVerificationStage::BeforeOptimization,
+            report: Arc::from(error.to_string()),
+        })?;
 
         if request.cancellation().is_cancelled() {
             return Ok(CodegenOutcome::cancelled(DiagnosticBag::new()));
@@ -181,9 +182,10 @@ impl LlvmCodeGenerator {
             return Ok(CodegenOutcome::cancelled(DiagnosticBag::new()));
         }
 
-        module
-            .verify()
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        module.verify().map_err(|error| CodegenFailure::BackendRejectedModule {
+            stage: DiagnosticCodegenVerificationStage::AfterOptimization,
+            report: Arc::from(error.to_string()),
+        })?;
 
         let mut serialized: BTreeMap<BackendArtifactKind, ArtifactContent> = BTreeMap::new();
 

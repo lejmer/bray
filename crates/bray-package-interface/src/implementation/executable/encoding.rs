@@ -671,6 +671,16 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(2);
                 self.binary_operator(operator);
             }
+            Some(bray_ir::MirCallIntrinsic::Comparison {
+                less,
+                equal,
+                greater,
+            }) => {
+                self.wire.write_u32(4);
+                self.symbol(less.into())?;
+                self.symbol(equal.into())?;
+                self.symbol(greater.into())?;
+            }
             Some(bray_ir::MirCallIntrinsic::Conversion(target)) => {
                 self.wire.write_u32(3);
                 self.ty(target)?;

@@ -9,7 +9,7 @@ use bray_symbols::{
 
 use crate::{
     CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitView, SemanticUnitContext,
+    CheckerSemanticQueryProvider, CheckerStorageFlowFailure, CheckerUnitView, SemanticUnitContext,
 };
 
 pub(super) fn mutable_storage<C>(
@@ -47,11 +47,17 @@ where
 
     let mut mutable = BTreeSet::new();
 
-    let modes = parameter_modes(request, signature.value().callable_type())?;
+    let modes = parameter_modes(request, callable.into_any(), signature.value().callable_type())?;
 
     if modes.len() != signature.value().parameters().len() {
         return Err(CheckerQueryError::Infrastructure(
-            CheckerInfrastructureError::InvalidStorageFlow,
+            CheckerInfrastructureError::StorageFlow(
+                CheckerStorageFlowFailure::CallableParameterCountMismatch {
+                    callable: callable.into_any(),
+                    signature_parameters: signature.value().parameters().len(),
+                    type_parameters: modes.len(),
+                },
+            ),
         ));
     }
 
@@ -84,6 +90,7 @@ where
 
 fn parameter_modes<C>(
     request: CheckerUnitView<'_, C>,
+    callable_symbol: bray_symbols::AnySymbolId,
     callable: &TypeExpressionTemplate,
 ) -> CheckerQueryResult<Vec<CallableParameterMode>, C::UpstreamError>
 where
@@ -104,7 +111,11 @@ where
 
             let TypeData::Callable(callable) = data.as_ref() else {
                 return Err(CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::InvalidStorageFlow,
+                    CheckerInfrastructureError::StorageFlow(
+                        CheckerStorageFlowFailure::CallableTypeNotCallable {
+                            callable: callable_symbol,
+                        },
+                    ),
                 ));
             };
 
@@ -114,7 +125,9 @@ where
                 .map(|parameter| parameter.mode())
                 .collect())
         }
-        TypeExpressionTemplate::CallableContract { target, .. } => parameter_modes(request, target),
+        TypeExpressionTemplate::CallableContract { target, .. } => {
+            parameter_modes(request, callable_symbol, target)
+        }
         TypeExpressionTemplate::Named { .. }
         | TypeExpressionTemplate::TypeValuedMemberProjection { .. }
         | TypeExpressionTemplate::Tuple(_)
@@ -125,7 +138,11 @@ where
         | TypeExpressionTemplate::Borrow { .. }
         | TypeExpressionTemplate::OwnedIndirection { .. }
         | TypeExpressionTemplate::TraitView(_) => Err(CheckerQueryError::Infrastructure(
-            CheckerInfrastructureError::InvalidStorageFlow,
+            CheckerInfrastructureError::StorageFlow(
+                CheckerStorageFlowFailure::CallableTypeNotCallable {
+                    callable: callable_symbol,
+                },
+            ),
         )),
     }
 }

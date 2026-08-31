@@ -99,8 +99,18 @@ pub(super) fn format_english_checker_failure(
         Failure::RefinementStorageUnavailable => {
             "the compiler could not allocate memory needed to track what a condition or pattern proves about a value"
         }
-        Failure::InvalidStorageFlow => {
-            "an internal compiler error prevented Bray from tracking how a source body uses its values"
+        Failure::StorageFlow(failure) => return format_storage_flow_failure(failure),
+        Failure::InvalidStorageOperation {
+            expression,
+            access,
+            status,
+        } => {
+            return format!(
+                "an internal compiler error produced `{status}` while analyzing storage access #{access} for {} #{} in source body #{}",
+                format_checker_node_kind(expression.kind()),
+                expression.ordinal(),
+                expression.unit(),
+            );
         }
         Failure::InvalidBodySemantics => {
             "an internal compiler error found incompatible analysis results for a source body"
@@ -127,6 +137,172 @@ pub(super) fn format_english_checker_failure(
     };
 
     message.to_owned()
+}
+
+fn format_storage_flow_failure(
+    failure: bray_diagnostics::DiagnosticStorageFlowFailure,
+) -> String {
+    use bray_diagnostics::DiagnosticStorageFlowFailure as Failure;
+
+    match failure {
+        Failure::IncompatibleInput {
+            input,
+            expected_unit,
+            expected_kind,
+            actual_unit,
+            actual_kind,
+        } => format!(
+            "an internal compiler error associated {} for source body #{} ({}) with source body #{} ({})",
+            format_storage_flow_input(input),
+            actual_unit,
+            format_bound_unit_kind(actual_kind),
+            expected_unit,
+            format_bound_unit_kind(expected_kind),
+        ),
+        Failure::FlowConstruction(reason) => format!(
+            "an internal compiler error could not retain the ownership result for this source body because {}",
+            format_storage_flow_construction(reason),
+        ),
+        Failure::ForeignDependencyContract => {
+            "an internal compiler error selected a call or iteration dependency belonging to another source body".to_owned()
+        }
+        Failure::DependencyContractsConstruction(reason) => format!(
+            "an internal compiler error could not retain this source body's value dependencies because {}",
+            format_dependency_contract_construction(reason),
+        ),
+        Failure::AsyncConstruction(reason) => format!(
+            "an internal compiler error could not retain this source body's asynchronous behavior because {}",
+            format_async_construction(reason),
+        ),
+        Failure::MissingAwaitDependencyContract { expression } => format!(
+            "an internal compiler error did not determine which values await expression #{} in source body #{} requires",
+            expression.ordinal(),
+            expression.unit(),
+        ),
+        Failure::MissingDependencyContract {
+            expression,
+            contract_unit,
+            contract,
+        } => format!(
+            "an internal compiler error associated await expression #{} in source body #{} with missing dependency #{} from source body #{}",
+            expression.ordinal(),
+            expression.unit(),
+            contract,
+            contract_unit,
+        ),
+        Failure::CallableParameterCountMismatch {
+            callable,
+            signature_parameters,
+            type_parameters,
+        } => format!(
+            "an internal compiler error retained {signature_parameters} declared parameters but {type_parameters} parameter modes for {} declaration #{}",
+            format_checker_symbol_kind(callable.kind()),
+            callable.ordinal(),
+        ),
+        Failure::CallableTypeNotCallable { callable } => format!(
+            "an internal compiler error retained a non-callable type for {} declaration #{}",
+            format_checker_symbol_kind(callable.kind()),
+            callable.ordinal(),
+        ),
+        Failure::MissingBorrowCapability { unit, borrow } => format!(
+            "an internal compiler error lost borrow #{} while checking whether a value escapes source body #{}",
+            borrow, unit,
+        ),
+        Failure::MissingExitOrigin { exit } => format!(
+            "an internal compiler error lost the source location for {} #{} in source body #{}",
+            format_checker_node_kind(exit.kind()),
+            exit.ordinal(),
+            exit.unit(),
+        ),
+        Failure::MissingBlock { block } => format!(
+            "an internal compiler error lost block #{} targeted by a control-flow transfer in source body #{}",
+            block.ordinal(),
+            block.unit(),
+        ),
+        Failure::MissingStorageAccess { unit, access } => format!(
+            "an internal compiler error lost value access #{} required by source body #{}",
+            access, unit,
+        ),
+        Failure::MissingStorageIdentity { unit, identity } => format!(
+            "an internal compiler error lost local value #{} required by source body #{}",
+            identity, unit,
+        ),
+        Failure::MissingStorageSymbolName { symbol } => format!(
+            "an internal compiler error lost the declared name of {} declaration #{} while describing an invalid value access",
+            format_checker_symbol_kind(symbol.kind()),
+            symbol.ordinal(),
+        ),
+        Failure::UnbalancedScopes { open_scope: Some(scope) } => format!(
+            "an internal compiler error left block #{} open while examining the lexical scopes of source body #{}",
+            scope.ordinal(),
+            scope.unit(),
+        ),
+        Failure::UnbalancedScopes { open_scope: None } => {
+            "an internal compiler error encountered inconsistent block boundaries while examining this source body".to_owned()
+        }
+        Failure::MissingPattern { pattern } => format!(
+            "an internal compiler error lost pattern #{} while examining the lexical scopes of source body #{}",
+            pattern.ordinal(),
+            pattern.unit(),
+        ),
+    }
+}
+
+fn format_storage_flow_input(input: &str) -> &str {
+    match input {
+        "expression_types" => "expression types",
+        "semantic_selections" => "selected calls and operations",
+        "storage_plan" => "local-value layout",
+        "liveness" => "value lifetimes",
+        "refinements" => "known conditions and matched patterns",
+        "memory_operations" => "memory operations",
+        "storage_flow" => "ownership results",
+        "dependency_contracts" => "value dependencies",
+        input => input,
+    }
+}
+
+fn format_bound_unit_kind(kind: &str) -> &str {
+    match kind {
+        "callable_body" => "callable body",
+        "anonymous_callable" => "anonymous callable",
+        "runtime_default" => "runtime default",
+        "constant_template" => "constant definition",
+        "embedded_constant" => "embedded constant",
+        "predicate_definition" => "predicate definition",
+        "constraint" => "constraint",
+        "contract_clause" => "contract clause",
+        "target_gate" => "target condition",
+        kind => kind,
+    }
+}
+
+fn format_storage_flow_construction(reason: &str) -> &str {
+    match reason {
+        "foreign_unit" => "one recorded operation belongs to another source body",
+        "duplicate_suspension" => "one await or yield expression has two saved states",
+        "duplicate_memory_operation" => "one expression has two recorded memory operations",
+        reason => reason,
+    }
+}
+
+fn format_dependency_contract_construction(reason: &str) -> &str {
+    match reason {
+        "foreign_storage_plan" => "its local-value layout belongs to another source body",
+        "invalid_expression" => "a dependency refers to a missing expression",
+        "invalid_access" => "a dependency refers to a missing value access",
+        "invalid_borrow" => "a dependency refers to a missing borrow",
+        "foreign_contract" => "a dependency refers to another source body",
+        "contract_capacity_exceeded" => "the number of distinct dependencies exceeds the compiler's supported limit",
+        reason => reason,
+    }
+}
+
+fn format_async_construction(reason: &str) -> &str {
+    match reason {
+        "foreign_unit" => "one recorded operation belongs to another source body",
+        reason => reason,
+    }
 }
 
 fn format_checker_query(query: &str) -> &str {

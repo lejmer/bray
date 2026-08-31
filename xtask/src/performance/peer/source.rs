@@ -17,6 +17,9 @@ pub(super) fn sources(workload: &str) -> Result<[PeerSource; 2], String> {
         "deque_mixed_ends" => ("deque_mixed_ends", "17"),
         "hash_map_growth_and_healthy_lookup" => ("hash_map_growth_and_healthy_lookup", "18"),
         "hash_map_collision_lookup" => ("hash_map_collision_lookup", "19"),
+        "ordered_collections_monotonic_updates" => {
+            ("ordered_collections_monotonic_updates", "20")
+        }
         "filesystem_metadata" => ("filesystem_metadata", "4"),
         "process_context" => ("process_context", "5"),
         "monotonic_clock" => ("monotonic_clock", "6"),
@@ -89,6 +92,9 @@ pub(in crate::performance) fn comparison_contract(workload: &str) -> Option<&'st
         ),
         "hash_map_collision_lookup" => Some(
             "insert 48 distinct integer key-value pairs into a hash map whose hasher maps every key to one collision chain, complete 4096 successful lookups across that chain, and validate the final length",
+        ),
+        "ordered_collections_monotonic_updates" => Some(
+            "insert 4096 ascending integer key-value pairs into an ordered map, insert 4096 descending integer values into an ordered set, successfully look up every key and value, and validate both final lengths",
         ),
         "filesystem_metadata" => {
             Some("read metadata successfully for the same existing path 256 times")

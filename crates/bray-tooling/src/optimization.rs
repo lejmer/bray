@@ -69,11 +69,11 @@ impl BackendBitcodeOptimizer for NativeBitcodeOptimizer {
             return Ok(BackendBitcodeOptimizationOutcome::Cancelled);
         }
 
-        let directory = tempfile::tempdir().map_err(|_| CodegenFailure::BackendLibrary)?;
+        let directory = tempfile::tempdir().map_err(CodegenFailure::backend_library)?;
         let input = directory.path().join("input.bc");
         let output = directory.path().join("summarized.bc");
 
-        write_artifact(bitcode, &input).map_err(|_| CodegenFailure::BackendLibrary)?;
+        write_artifact(bitcode, &input).map_err(CodegenFailure::backend_library)?;
 
         let invocation = ExternalToolInvocation::try_new(
             self.program.clone(),
@@ -94,14 +94,26 @@ impl BackendBitcodeOptimizer for NativeBitcodeOptimizer {
             Err(ExternalToolFailure::Cancelled) => {
                 return Ok(BackendBitcodeOptimizationOutcome::Cancelled);
             }
-            Ok(_) | Err(_) => return Err(CodegenFailure::BackendLibrary),
+            Ok(output) => {
+                return Err(CodegenFailure::BackendToolExited {
+                    program: self.program.clone(),
+                    exit: bray_diagnostics::DiagnosticExternalToolExit::new(
+                        output.exit_code(),
+                        output.standard_output(),
+                        output.standard_error(),
+                    ),
+                });
+            }
+            Err(error) => {
+                return Err(CodegenFailure::backend_library(format!("{error:?}")));
+            }
         }
 
         if cancellation.is_cancelled() {
             return Ok(BackendBitcodeOptimizationOutcome::Cancelled);
         }
 
-        let bytes = std::fs::read(output).map_err(|_| CodegenFailure::BackendLibrary)?;
+        let bytes = std::fs::read(output).map_err(CodegenFailure::backend_library)?;
 
         let content = ArtifactContent::try_memory(bytes).map_err(|_| {
             CodegenFailure::ArtifactConstruction(bray_codegen::BackendArtifactKind::BackendBitcode)

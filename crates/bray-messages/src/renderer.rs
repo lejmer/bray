@@ -270,10 +270,12 @@ mod tests {
         DiagnosticArrayGeneratorCardinalityProblem, DiagnosticArrayLength,
         DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind,
         DiagnosticBag, DiagnosticCallbackStateProblem, DiagnosticCheckerFailure,
+        DiagnosticCodegenVerificationStage,
         DiagnosticConstructionInputRejection, DiagnosticDependencyRequirementKind,
         DiagnosticDependencySubjectKind, DiagnosticEmissionEvaluationFailure,
         DiagnosticEmissionFailure, DiagnosticExpressionCategory, DiagnosticId,
-        DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+        DiagnosticExternalToolExit, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel,
+        DiagnosticLabelKind,
         DiagnosticLabelStyle, DiagnosticLayoutOption, DiagnosticLayoutProblem,
         DiagnosticMemoryOperation, DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNamedType,
         DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticPatternCoverage,
@@ -479,6 +481,56 @@ mod tests {
         );
 
         assert_eq!(forbidden_ordinary_diagnostic_term(rendered.message()), None);
+    }
+
+    #[test]
+    fn backend_module_rejections_preserve_the_exact_report_and_stage() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(9),
+            DiagnosticKind::CodegenBackendRejectedModule,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::target_triple("x86_64-unknown-linux-gnu"))
+        .with_arg(DiagnosticArg::codegen_backend_identity("llvm"))
+        .with_arg(DiagnosticArg::codegen_backend_report(
+            "value representation mismatch",
+        ))
+        .with_arg(DiagnosticArg::codegen_verification_stage(
+            DiagnosticCodegenVerificationStage::BeforeOptimization,
+        ))
+        .with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::ReportCompilerDefect,
+        ));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert!(rendered.message().starts_with("an internal compiler error"));
+        assert!(rendered.message().contains("x86_64-unknown-linux-gnu"));
+        assert!(rendered.message().contains("value representation mismatch"));
+        assert!(rendered.message().contains("before optimization"));
+        assert_eq!(rendered.notes().len(), 1);
+    }
+
+    #[test]
+    fn backend_support_program_failures_render_captured_output_as_text() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(10),
+            DiagnosticKind::CodegenBackendToolExited,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::target_triple("x86_64-pc-windows-msvc"))
+        .with_arg(DiagnosticArg::codegen_backend_identity("llvm"))
+        .with_arg(DiagnosticArg::file_path("C:/toolchain/opt.exe"))
+        .with_arg(DiagnosticArg::external_tool_exit(
+            DiagnosticExternalToolExit::new(Some(1), &[], b"permission denied\n"),
+        ));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert!(rendered.message().contains("C:/toolchain/opt.exe"));
+        assert!(rendered.message().contains("exit code 1"));
+        assert!(rendered.message().contains("permission denied"));
+        assert!(!rendered.message().contains("[112, 101, 114"));
     }
 
     #[test]

@@ -407,7 +407,9 @@ fn executable_templates(
     let mut runtime_requirements = Vec::new();
 
     for symbol in selected.iter().copied() {
-        let Some(root) = executable_template_unit(compilation, graph, symbol)? else {
+        let declaration = exported_declaration_identity(export, symbol)?;
+
+        let Some(root) = executable_template_unit(compilation, graph, symbol, &declaration)? else {
             continue;
         };
 
@@ -416,7 +418,14 @@ fn executable_templates(
         };
 
         let (family_templates, family_requirement) =
-            export_executable_template_family(compilation, graph, owner, root, export)?;
+            export_executable_template_family(
+                compilation,
+                graph,
+                owner,
+                &declaration,
+                root,
+                export,
+            )?;
 
         templates.extend(family_templates);
 
@@ -434,6 +443,7 @@ fn export_executable_template_family(
     compilation: &Compilation,
     graph: &bray_symbols::SymbolGraph,
     owner: InterfaceSymbolId,
+    declaration: &bray_diagnostics::DiagnosticInterfaceSymbolIdentity,
     root: BoundUnitKey,
     export: &mut SemanticExporter<'_>,
 ) -> Result<
@@ -443,7 +453,7 @@ fn export_executable_template_family(
     ),
     PackageInterfaceExportError,
 > {
-    let family = executable_template_family(compilation, root)?;
+    let family = executable_template_family(compilation, root, declaration)?;
 
     let family_size =
         u32::try_from(family.len()).map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
@@ -490,7 +500,10 @@ fn export_executable_template_family(
                     )
                 })
                 .transpose()
-                .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?
+                .map_err(|cause| PackageInterfaceExportError::ExecutableTemplateEvaluation {
+                    declaration: declaration.clone(),
+                    cause,
+                })?
                 .flatten()
         } else {
             None
@@ -498,7 +511,10 @@ fn export_executable_template_family(
 
         let lowered = compilation
             .lowered_unit(key)
-            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+            .map_err(|cause| PackageInterfaceExportError::ExecutableTemplateEvaluation {
+                declaration: declaration.clone(),
+                cause,
+            })?;
 
         if lowered.diagnostics().has_errors() {
             return Err(PackageInterfaceExportError::InvalidCompilation);
@@ -560,10 +576,14 @@ fn export_executable_template_family(
 fn executable_template_family(
     compilation: &Compilation,
     root: BoundUnitKey,
+    declaration: &bray_diagnostics::DiagnosticInterfaceSymbolIdentity,
 ) -> Result<Vec<BoundUnitKey>, PackageInterfaceExportError> {
     compilation
         .bound_unit_family_with_cancellation(root, &compilation.state.cancellation)
-        .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?
+        .map_err(|cause| PackageInterfaceExportError::ExecutableTemplateEvaluation {
+            declaration: declaration.clone(),
+            cause,
+        })?
         .into_iter()
         .map(|bound| {
             if bound.diagnostics().has_errors() {
@@ -580,17 +600,24 @@ fn executable_template_unit(
     compilation: &Compilation,
     graph: &bray_symbols::SymbolGraph,
     owner: AnySymbolId,
+    declaration: &bray_diagnostics::DiagnosticInterfaceSymbolIdentity,
 ) -> Result<Option<BoundUnitKey>, PackageInterfaceExportError> {
     if let AnySymbolId::Static(static_declaration) = owner {
         return compilation
             .static_initializer_key(static_declaration)
-            .map_err(|_| PackageInterfaceExportError::InvalidCompilation);
+            .map_err(|cause| PackageInterfaceExportError::ExecutableTemplateEvaluation {
+                declaration: declaration.clone(),
+                cause,
+            });
     }
 
     if let Some(definition) = bray_symbols::CallableDefinitionId::try_new(owner) {
         return compilation
             .callable_body_key(definition)
-            .map_err(|_| PackageInterfaceExportError::InvalidCompilation);
+            .map_err(|cause| PackageInterfaceExportError::ExecutableTemplateEvaluation {
+                declaration: declaration.clone(),
+                cause,
+            });
     }
 
     if graph.runtime_default_subject(owner).is_none() {
@@ -603,7 +630,10 @@ fn executable_template_unit(
 
     compilation
         .declared_unit_keys()
-        .map_err(|_| PackageInterfaceExportError::InvalidCompilation)
+        .map_err(|cause| PackageInterfaceExportError::ExecutableTemplateEvaluation {
+            declaration: declaration.clone(),
+            cause,
+        })
         .map(|units| {
             units.into_iter().find(|unit| {
                 unit.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault

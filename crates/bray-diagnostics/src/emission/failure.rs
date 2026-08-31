@@ -115,6 +115,10 @@ pub enum DiagnosticPackageInterfaceFailure {
         declaration: crate::DiagnosticInterfaceSymbolIdentity,
         cause: DiagnosticEmissionEvaluationFailure,
     },
+    ExecutableTemplateEvaluation {
+        declaration: crate::DiagnosticInterfaceSymbolIdentity,
+        cause: DiagnosticEmissionEvaluationFailure,
+    },
     IncompletePublicDeclaration(String),
     DuplicateSymbol(String),
     MissingSymbol(String),
@@ -488,6 +492,7 @@ impl DiagnosticPackageInterfaceFailure {
             Self::InvalidCompilation => "invalid_compilation",
             Self::RecoveredPublicSymbol(_) => "recovered_public_symbol",
             Self::ConstantCallableEvaluation { .. } => "constant_callable_evaluation",
+            Self::ExecutableTemplateEvaluation { .. } => "executable_template_evaluation",
             Self::IncompletePublicDeclaration(_) => "incomplete_public_declaration",
             Self::DuplicateSymbol(_) => "duplicate_symbol",
             Self::MissingSymbol(_) => "missing_symbol",

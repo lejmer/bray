@@ -227,6 +227,19 @@ fn package_interface_export_failure_diagnostic(
                 target,
             )
         }
+        PackageInterfaceExportError::ExecutableTemplateEvaluation { declaration, cause } => {
+            let cause = diagnostic_evaluation_failure(cause);
+
+            package_evaluation_failure_diagnostic(
+                DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {
+                    declaration: declaration.clone(),
+                    cause,
+                },
+                cause,
+                product,
+                target,
+            )
+        }
         PackageInterfaceExportError::IncompletePublicDeclarationSemantics(kind) => {
             package_compiler_defect_diagnostic(
                 DiagnosticPackageInterfaceFailure::IncompletePublicDeclaration(
@@ -831,35 +844,51 @@ mod tests {
             TextRange::new(TextSize::new(10), TextSize::new(20)),
         );
 
-        let error = PackageInterfaceExportError::ConstantCallableEvaluation {
-            declaration: DiagnosticInterfaceSymbolIdentity::Package("example.package".to_owned()),
-            cause: FactQueryError::Lowering(LocatedLoweringFailure::new(
+        let lowering_failure = || {
+            FactQueryError::Lowering(LocatedLoweringFailure::new(
                 LoweringError::InvalidFrameDescriptor,
                 source,
-            )),
+            ))
         };
 
-        let diagnostic = package_interface_export_failure_diagnostic(&error, &product, &target)
-            .unwrap_or_else(|| panic!("package evaluation failure must diagnose"));
+        let errors = [
+            PackageInterfaceExportError::ConstantCallableEvaluation {
+                declaration: DiagnosticInterfaceSymbolIdentity::Package(
+                    "example.package".to_owned(),
+                ),
+                cause: lowering_failure(),
+            },
+            PackageInterfaceExportError::ExecutableTemplateEvaluation {
+                declaration: DiagnosticInterfaceSymbolIdentity::Package(
+                    "example.package".to_owned(),
+                ),
+                cause: lowering_failure(),
+            },
+        ];
 
-        assert_eq!(diagnostic.primary_span(), Some(source));
+        for error in errors {
+            let diagnostic = package_interface_export_failure_diagnostic(&error, &product, &target)
+                .unwrap_or_else(|| panic!("package evaluation failure must diagnose"));
 
-        assert!(diagnostic.labels().iter().any(|label| {
-            label.kind() == DiagnosticLabelKind::CompilerDefectSource && label.span() == source
-        }));
+            assert_eq!(diagnostic.primary_span(), Some(source));
 
-        assert!(
-            diagnostic
-                .notes()
-                .iter()
-                .any(|note| note.kind() == DiagnosticNoteKind::ReportCompilerDefect)
-        );
+            assert!(diagnostic.labels().iter().any(|label| {
+                label.kind() == DiagnosticLabelKind::CompilerDefectSource && label.span() == source
+            }));
 
-        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+            assert!(
+                diagnostic
+                    .notes()
+                    .iter()
+                    .any(|note| note.kind() == DiagnosticNoteKind::ReportCompilerDefect)
+            );
 
-        assert!(rendered.message().contains(
-            "an internal compiler error prevented Bray from generating resumable code for the highlighted callable"
-        ));
+            let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+            assert!(rendered.message().contains(
+                "an internal compiler error prevented Bray from generating resumable code for the highlighted callable"
+            ));
+        }
     }
 
     #[test]

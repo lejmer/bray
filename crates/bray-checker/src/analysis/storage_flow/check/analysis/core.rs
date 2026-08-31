@@ -20,10 +20,10 @@ use bray_symbols::{AnySymbolId, BorrowKind, CallableSignatureQuery};
 
 use crate::diagnostic::diagnostic_id;
 use crate::storage::StorageScopeOwners;
-use crate::unit::semantic_inputs_match;
+use crate::unit::storage_flow_input_failure;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitView,
+    CheckerSemanticQueryProvider, CheckerStorageFlowFailure, CheckerUnitView, StorageFlowInputKind,
 };
 
 use super::super::availability::storage_is_recovered;
@@ -51,19 +51,29 @@ pub(crate) fn check_storage_flow<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    if !semantic_inputs_match(
+    if let Some(error) = storage_flow_input_failure(
         request,
         [
-            (selections.unit(), selections.kind()),
-            (storage.unit(), storage.kind()),
-            (liveness.unit(), liveness.kind()),
-            (refinements.unit(), refinements.kind()),
-            (memory.unit(), memory.kind()),
+            (
+                StorageFlowInputKind::SemanticSelections,
+                (selections.unit(), selections.kind()),
+            ),
+            (
+                StorageFlowInputKind::StoragePlan,
+                (storage.unit(), storage.kind()),
+            ),
+            (StorageFlowInputKind::Liveness, (liveness.unit(), liveness.kind())),
+            (
+                StorageFlowInputKind::Refinements,
+                (refinements.unit(), refinements.kind()),
+            ),
+            (
+                StorageFlowInputKind::MemoryOperations,
+                (memory.unit(), memory.kind()),
+            ),
         ],
     ) {
-        return CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidStorageFlow,
-        );
+        return CheckerOutcome::InfrastructureFailure(error);
     }
 
     let graph = match build_storage_control_flow_graph(request, storage, selections) {
@@ -223,9 +233,11 @@ where
     .and_then(|analysis| analysis.with_memory_operations(memory, memory_decisions))
     {
         Ok(analysis) => analysis,
-        Err(_) => {
+        Err(error) => {
             return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidStorageFlow,
+                CheckerInfrastructureError::StorageFlow(
+                    CheckerStorageFlowFailure::FlowConstruction(error),
+                ),
             );
         }
     };
@@ -431,7 +443,11 @@ where
                 | StorageOperationStatus::NotCopyable
         ) {
             self.infrastructure_failure = Some(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::InvalidStorageFlow,
+                CheckerInfrastructureError::InvalidStorageOperation {
+                    expression: plan.expression(),
+                    access: plan.access(),
+                    status,
+                },
             ));
 
             return;
@@ -849,7 +865,9 @@ where
 
         let Some(access) = self.storage.access(access_id) else {
             self.infrastructure_failure = Some(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::InvalidStorageFlow,
+                CheckerInfrastructureError::StorageFlow(
+                    CheckerStorageFlowFailure::MissingStorageAccess { access: access_id },
+                ),
             ));
 
             return;
@@ -904,7 +922,9 @@ where
         let access = self
             .storage
             .access(access_id)
-            .ok_or(CheckerInfrastructureError::InvalidStorageFlow)?;
+            .ok_or(CheckerInfrastructureError::StorageFlow(
+                CheckerStorageFlowFailure::MissingStorageAccess { access: access_id },
+            ))?;
 
         let root = match access.root() {
             StorageAccessRoot::Storage(storage) => self.diagnostic_storage_identity(storage)?,
@@ -958,7 +978,11 @@ where
             Some(StorageIdentity::CompilerCreated(_)) => DiagnosticStorageRoot::CompilerCreated,
             Some(StorageIdentity::Alternative { .. }) => DiagnosticStorageRoot::Alternative,
             Some(StorageIdentity::Error(_)) => DiagnosticStorageRoot::Recovery,
-            None => return Err(CheckerInfrastructureError::InvalidStorageFlow),
+            None => {
+                return Err(CheckerInfrastructureError::StorageFlow(
+                    CheckerStorageFlowFailure::MissingStorageIdentity { identity },
+                ));
+            }
         };
 
         Ok(root)
@@ -967,7 +991,7 @@ where
     fn diagnostic_storage_projection(
         &self,
         projection: StorageProjection,
-    ) -> Result<DiagnosticStorageProjection, CheckerInfrastructureError> {
+    ) -> Result<DiagnosticStorageProjection, CheckerQueryError<C::UpstreamError>> {
         let projection = match projection {
             StorageProjection::ProductField(field) => DiagnosticStorageProjection::ProductField(
                 self.diagnostic_symbol_name(field.into())?,
@@ -1004,13 +1028,14 @@ where
     fn diagnostic_symbol_name(
         &self,
         symbol: AnySymbolId,
-    ) -> Result<String, CheckerInfrastructureError> {
+    ) -> Result<String, CheckerQueryError<C::UpstreamError>> {
         self.request
-            .context()
-            .symbols()
-            .member_name(symbol)
+            .member_name(symbol)?
             .map(|name| name.as_str().to_owned())
-            .ok_or(CheckerInfrastructureError::InvalidStorageFlow)
+            .ok_or(CheckerInfrastructureError::StorageFlow(
+                CheckerStorageFlowFailure::MissingStorageSymbolName { symbol },
+            ))
+            .map_err(CheckerQueryError::Infrastructure)
     }
 
     fn with_operation_origins(

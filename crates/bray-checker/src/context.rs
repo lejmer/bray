@@ -1,7 +1,12 @@
 use std::sync::Arc;
 
 use bray_base::Cancellation;
-use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundSourceAnchor, BoundUnit};
+use bray_bound_tree::{
+    AnyBoundNodeId, AsyncAnalysisBuildError, BorrowCapabilityId, BoundBlockId,
+    BoundDependencyContractId, BoundExpressionId, BoundPatternId, BoundSourceAnchor, BoundUnit,
+    BoundUnitId, BoundUnitKind, DependencyContractsBuildError, StorageAccessId,
+    StorageFlowBuildError, StorageIdentityId, StorageOperationStatus,
+};
 use bray_compiler_known::{ImplementationHook, RepresentationRole};
 use bray_diagnostics::DiagnosticResult;
 use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
@@ -89,8 +94,17 @@ pub enum CheckerInfrastructureError {
     RefinementCapacityUnrepresentable,
     /// Host allocation failed while constructing refinement analysis storage.
     RefinementStorageUnavailable,
-    /// Storage-flow inputs or durable decisions violate the requested unit contract.
-    InvalidStorageFlow,
+    /// One exact storage-flow contract was violated.
+    StorageFlow(CheckerStorageFlowFailure),
+    /// Storage-flow analysis produced a state forbidden for one exact planned source operation.
+    InvalidStorageOperation {
+        /// Source expression whose planned access produced the forbidden state.
+        expression: BoundExpressionId,
+        /// Planned storage access whose state was rejected.
+        access: StorageAccessId,
+        /// Exact rejected storage state.
+        status: StorageOperationStatus,
+    },
     /// Correlated body-semantic inputs or durable results violate the requested unit contract.
     InvalidBodySemantics,
     /// A committed bound relationship names a node absent from the requested unit.
@@ -102,6 +116,76 @@ pub enum CheckerInfrastructureError {
     ExpressionTypeCapacityExceeded,
     /// A checker unit view did not match its canonical bound unit.
     InvalidUnitView(CheckerUnitViewError),
+}
+
+/// The exact storage-flow contract violated by checker inputs or constructed analysis.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum CheckerStorageFlowFailure {
+    /// One analysis input belongs to a different checked source body.
+    IncompatibleInput {
+        /// Input table whose identity disagreed with the requested source body.
+        input: StorageFlowInputKind,
+        /// Requested source body identity.
+        expected_unit: BoundUnitId,
+        /// Requested source body category.
+        expected_kind: BoundUnitKind,
+        /// Input table's source body identity.
+        actual_unit: BoundUnitId,
+        /// Input table's source body category.
+        actual_kind: BoundUnitKind,
+    },
+    /// Durable storage-flow construction rejected an exact invariant.
+    FlowConstruction(StorageFlowBuildError),
+    /// A selected call or iteration produced a dependency contract for another source body.
+    ForeignDependencyContract,
+    /// Durable dependency-contract construction rejected an exact invariant.
+    DependencyContractsConstruction(DependencyContractsBuildError),
+    /// Durable async-analysis construction rejected an exact invariant.
+    AsyncConstruction(AsyncAnalysisBuildError),
+    /// A non-recovered await expression has no selected dependency contract.
+    MissingAwaitDependencyContract { expression: BoundExpressionId },
+    /// An await expression names a dependency contract absent from its source body.
+    MissingDependencyContract {
+        expression: BoundExpressionId,
+        contract: BoundDependencyContractId,
+    },
+    /// The callable signature and callable type disagree about their parameter count.
+    CallableParameterCountMismatch {
+        callable: AnySymbolId,
+        signature_parameters: usize,
+        type_parameters: usize,
+    },
+    /// A callable declaration's resolved type is not callable.
+    CallableTypeNotCallable { callable: AnySymbolId },
+    /// A storage borrow identity has no retained capability.
+    MissingBorrowCapability { borrow: BorrowCapabilityId },
+    /// A control-flow exit has no retained source origin.
+    MissingExitOrigin { exit: AnyBoundNodeId },
+    /// A control-flow transfer names a block absent from its source body.
+    MissingBlock { block: BoundBlockId },
+    /// A planned storage access is absent from its source body's storage plan.
+    MissingStorageAccess { access: StorageAccessId },
+    /// A planned storage identity is absent from its source body's storage plan.
+    MissingStorageIdentity { identity: StorageIdentityId },
+    /// A storage identity refers to a declaration whose name is unavailable.
+    MissingStorageSymbolName { symbol: AnySymbolId },
+    /// Walking a source body ended with unbalanced lexical scopes.
+    UnbalancedScopes { open_scope: Option<BoundBlockId> },
+    /// A pattern referenced while assigning lexical ownership is absent from its source body.
+    MissingPattern { pattern: BoundPatternId },
+}
+
+/// Identifies one correlated input to storage-flow-related analysis.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum StorageFlowInputKind {
+    ExpressionTypes,
+    SemanticSelections,
+    StoragePlan,
+    Liveness,
+    Refinements,
+    MemoryOperations,
+    StorageFlow,
+    DependencyContracts,
 }
 
 /// A failure while requesting a checker dependency.
@@ -326,6 +410,15 @@ pub trait CheckerRequestContext: Sync {
         Ok(DiagnosticResult::without_diagnostics(
             ImplementationSelection::Unavailable,
         ))
+    }
+
+    /// Selects an implementation using exact trait constraints established by the active source context.
+    fn implementation_selection_with_constraint_evidence(
+        &self,
+        requirement: ImplementationRequirementKey,
+        _evidence: &[(TypeId, TraitApplicationId)],
+    ) -> CheckerQueryResult<DiagnosticResult<ImplementationSelection>, Self::UpstreamError> {
+        self.implementation_selection(requirement)
     }
 
     /// Resolves one selected type-valued member projection when its witness is available.

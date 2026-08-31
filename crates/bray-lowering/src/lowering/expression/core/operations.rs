@@ -1045,6 +1045,21 @@ impl Lowerer<'_> {
         let callable = instance.definition().symbol();
         let available = self.input.available_compiler_known_symbols();
 
+        if available
+            .operation_contract(CompilerKnownOperationRole::Comparison)
+            .and_then(|contract| contract.callable())
+            .map(Into::into)
+            == Some(callable)
+        {
+            let ordering = available.ordering_representation()?;
+
+            return Some(MirCallIntrinsic::Comparison {
+                less: ordering.less_variant(),
+                equal: ordering.equal_variant(),
+                greater: ordering.greater_variant(),
+            });
+        }
+
         [
             (
                 CompilerKnownOperationRole::UnaryNegate,

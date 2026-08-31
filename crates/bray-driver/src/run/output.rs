@@ -182,6 +182,7 @@ fn driver_output_error_diagnostic(
                 operation: DiagnosticProjectOperation::CompilerProfileSerialization,
                 path: None,
                 problem: DiagnosticDocumentParseKind::Serialization,
+                detail: None,
             }
             .diagnostic(DiagnosticId::new(0)),
             FailedOutputStream::Neither,

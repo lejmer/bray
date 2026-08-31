@@ -188,6 +188,15 @@ pub enum MirCallIntrinsic {
     Unary(crate::MirUnaryOperator),
     /// A scalar binary operation.
     Binary(crate::MirBinaryOperator),
+    /// A scalar three-way comparison producing the compiler-known ordering representation.
+    Comparison {
+        /// Variant returned when the left operand is less than the right operand.
+        less: bray_symbols::UnionVariantSymbolId,
+        /// Variant returned when both operands compare equal.
+        equal: bray_symbols::UnionVariantSymbolId,
+        /// Variant returned when the left operand is greater than the right operand.
+        greater: bray_symbols::UnionVariantSymbolId,
+    },
     /// A compiler-defined conversion to the retained target type.
     Conversion(bray_symbols::TypeId),
 }

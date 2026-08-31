@@ -29,8 +29,9 @@ pub use argument::{
     DiagnosticAlignmentKind, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue,
     DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind,
     DiagnosticArtifactRequirement, DiagnosticAssemblySyntaxKind, DiagnosticCallableAbi,
-    DiagnosticDebugInformationMode, DiagnosticDebugOutputMode, DiagnosticDependencyRequirementKind,
-    DiagnosticDependencySubjectKind, DiagnosticDocumentParseKind,
+    DiagnosticCodegenVerificationStage, DiagnosticDebugInformationMode,
+    DiagnosticDebugOutputMode, DiagnosticDependencyRequirementKind, DiagnosticDependencySubjectKind,
+    DiagnosticDocumentParseKind,
     DiagnosticEmissionArtifactOperation, DiagnosticExternalToolFailureKind,
     DiagnosticExternalToolOperation, DiagnosticIoErrorKind, DiagnosticLinkInputKind,
     DiagnosticLinkOptimizationReportProblem, DiagnosticLinkRequirement,
@@ -80,7 +81,8 @@ pub use emission::{
     DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure, DiagnosticEmissionLinkPlanFailure,
     DiagnosticEmissionPlanningFailure, DiagnosticEmissionStagingFailure,
     DiagnosticHostEnvironmentVariable, DiagnosticLlvmToolRole, DiagnosticPackageInterfaceFailure,
-    DiagnosticSemanticValueFailure, DiagnosticUnsupportedEmissionReason,
+    DiagnosticSemanticValueFailure, DiagnosticStorageFlowFailure,
+    DiagnosticUnsupportedEmissionReason,
 };
 pub use id::DiagnosticId;
 pub use inspection::{

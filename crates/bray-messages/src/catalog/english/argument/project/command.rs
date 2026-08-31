@@ -152,20 +152,67 @@ pub(crate) fn format_english_project_command_failure(
                 )
             },
         ),
+        Failure::CompilerOutputMissing {
+            product,
+            program,
+            code,
+        } => code.map_or_else(
+            || {
+                format!(
+                    "the compiler process for {product} terminated unexpectedly before it could report a specific cause ({})",
+                    format_english_path(program),
+                )
+            },
+            |code| {
+                format!(
+                    "the compiler process for {product} terminated unexpectedly with exit code {code} before it could report a specific cause ({})",
+                    format_english_path(program),
+                )
+            },
+        ),
+        Failure::CompilerOutputInvalid {
+            product,
+            program,
+            code,
+            problem,
+            detail,
+        } => {
+            let exit = code.map_or_else(
+                || "without an exit code".to_owned(),
+                |code| format!("with exit code {code}"),
+            );
+
+            let detail = detail
+                .as_ref()
+                .map_or_else(String::new, |detail| format!(": {detail}"));
+
+            format!(
+                "the compiler process for {product} produced an invalid structured report {exit} ({}) because of {}{}",
+                format_english_path(program),
+                format_english_document_parse_kind(*problem),
+                detail,
+            )
+        }
         Failure::Document {
             operation,
             path,
             problem,
+            detail,
         } => {
             let path = path.as_ref().map_or_else(String::new, |path| {
                 format!(" at {}", format_english_path(path))
             });
 
+            let detail = detail
+                .as_ref()
+                .map_or_else(String::new, |detail| format!(": {detail}"));
+
             format!(
-                "could not {}{} because of {}",
+                "could not {}{} because of {}{}",
                 format_english_project_operation(*operation),
                 path,
-                format_english_document_parse_kind(*problem)
+                format_english_document_parse_kind(*problem),
+                detail,
             )
         }
         Failure::TestExecutionPlan(problem) => format_english_test_plan_problem(problem),

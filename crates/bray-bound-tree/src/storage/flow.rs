@@ -204,7 +204,7 @@ impl StorageExitDecision {
 }
 
 /// A contract violation while constructing durable storage-flow analysis.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum StorageFlowBuildError {
     /// A decision references an identity owned by another unit.
     ForeignUnit,

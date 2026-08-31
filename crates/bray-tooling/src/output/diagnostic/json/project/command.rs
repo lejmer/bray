@@ -224,6 +224,18 @@ pub(in crate::output::diagnostic::json) enum DiagnosticProjectCommandFailureJson
         program: String,
         code: Option<i32>,
     },
+    CompilerOutputMissing {
+        product: String,
+        program: String,
+        code: Option<i32>,
+    },
+    CompilerOutputInvalid {
+        product: String,
+        program: String,
+        code: Option<i32>,
+        problem: &'static str,
+        detail: Option<String>,
+    },
     ToolStreamIo {
         operation: &'static str,
         stream: &'static str,
@@ -242,6 +254,7 @@ pub(in crate::output::diagnostic::json) enum DiagnosticProjectCommandFailureJson
         operation: &'static str,
         path: Option<String>,
         problem: &'static str,
+        detail: Option<String>,
     },
     TestExecutionPlan {
         problem: DiagnosticTestExecutionPlanProblemJson,
@@ -375,10 +388,34 @@ impl DiagnosticProjectCommandFailureJson {
                 operation,
                 path,
                 problem,
+                detail,
             } => Self::Document {
                 operation: operation.as_str(),
                 path: path.as_ref().map(|path| path_to_output_string(path)),
                 problem: problem.as_str(),
+                detail: detail.clone(),
+            },
+            Failure::CompilerOutputMissing {
+                product,
+                program,
+                code,
+            } => Self::CompilerOutputMissing {
+                product: product.clone(),
+                program: path_to_output_string(program),
+                code: *code,
+            },
+            Failure::CompilerOutputInvalid {
+                product,
+                program,
+                code,
+                problem,
+                detail,
+            } => Self::CompilerOutputInvalid {
+                product: product.clone(),
+                program: path_to_output_string(program),
+                code: *code,
+                problem: problem.as_str(),
+                detail: detail.clone(),
             },
             Failure::TestExecutionPlan(problem) => test_execution_plan_failure_json(problem),
             Failure::TestScheduling(problem) => {

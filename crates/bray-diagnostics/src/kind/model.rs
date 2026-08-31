@@ -305,6 +305,8 @@ define_diagnostic_kinds! {
     BindingMalformedDirectiveArgument,
     /// An expression's established type is incompatible with its expected type.
     CheckingIncompatibleExpressionType,
+    /// An internal checker contract failed for one exact source construct.
+    CheckingCompilerDefect,
     /// Available constraints cannot establish an expression's canonical type.
     CheckingCannotInferExpressionType,
     /// A half-open range uses an element type outside the integer representations.
@@ -565,8 +567,12 @@ define_diagnostic_kinds! {
     CodegenResourceExhausted,
     /// The selected backend library failed while processing a valid request.
     CodegenBackendLibraryFailed,
+    /// A support program used by the selected backend exited unsuccessfully.
+    CodegenBackendToolExited,
     /// Generated backend IR violated the backend module contract.
     CodegenGeneratedModuleInvalid,
+    /// The backend rejected generated native-code input with an exact report.
+    CodegenBackendRejectedModule,
     /// A requested backend artifact could not be constructed.
     CodegenArtifactConstructionFailed,
     /// Native product planning could not complete for an exact structured reason.
@@ -778,6 +784,7 @@ impl DiagnosticKind {
             Self::BindingInvalidModuleExportTarget => 6014,
             Self::BindingMalformedDirectiveArgument => 6015,
             Self::CheckingIncompatibleExpressionType => 7001,
+            Self::CheckingCompilerDefect => 7114,
             Self::CheckingCannotInferExpressionType => 7002,
             Self::CheckingRangeElementTypeMustBeInteger => 7098,
             Self::CheckingNoCompatiblePropagationBoundary => 7082,
@@ -908,7 +915,9 @@ impl DiagnosticKind {
             Self::CodegenInvalidConfiguration => 9053,
             Self::CodegenResourceExhausted => 9054,
             Self::CodegenBackendLibraryFailed => 9055,
+            Self::CodegenBackendToolExited => 9060,
             Self::CodegenGeneratedModuleInvalid => 9056,
+            Self::CodegenBackendRejectedModule => 9059,
             Self::CodegenArtifactConstructionFailed => 9057,
             Self::NativeProductPreparationFailed => 9058,
             Self::LinkerUnsupportedTarget => 9101,
@@ -1123,6 +1132,7 @@ impl DiagnosticKind {
             Self::BindingInvalidModuleExportTarget => "binding_invalid_module_export_target",
             Self::BindingMalformedDirectiveArgument => "binding_malformed_directive_argument",
             Self::CheckingIncompatibleExpressionType => "checking_incompatible_expression_type",
+            Self::CheckingCompilerDefect => "checking_compiler_defect",
             Self::CheckingCannotInferExpressionType => "checking_cannot_infer_expression_type",
             Self::CheckingRangeElementTypeMustBeInteger => {
                 "checking_range_element_type_must_be_integer"
@@ -1355,7 +1365,9 @@ impl DiagnosticKind {
             Self::CodegenInvalidConfiguration => "codegen_invalid_configuration",
             Self::CodegenResourceExhausted => "codegen_resource_exhausted",
             Self::CodegenBackendLibraryFailed => "codegen_backend_library_failed",
+            Self::CodegenBackendToolExited => "codegen_backend_tool_exited",
             Self::CodegenGeneratedModuleInvalid => "codegen_generated_module_invalid",
+            Self::CodegenBackendRejectedModule => "codegen_backend_rejected_module",
             Self::CodegenArtifactConstructionFailed => "codegen_artifact_construction_failed",
             Self::NativeProductPreparationFailed => "native_product_preparation_failed",
             Self::LinkerUnsupportedTarget => "linker_unsupported_target",

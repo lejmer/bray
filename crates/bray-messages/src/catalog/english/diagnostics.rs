@@ -47,16 +47,38 @@ const CODEGEN_RESOURCE_EXHAUSTED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
 ];
 const CODEGEN_BACKEND_LIBRARY_FAILED: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("an internal compiler error prevented Bray from producing native code for target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+    MessageTemplatePart::Text(": native-code generator "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
+    MessageTemplatePart::Text(" reported "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendReport),
+];
+const CODEGEN_BACKEND_TOOL_EXITED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("native-code generator "),
     MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
-    MessageTemplatePart::Text(" failed while compiling target "),
+    MessageTemplatePart::Text(" could not finish target "),
     MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+    MessageTemplatePart::Text(" because support program "),
+    MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+    MessageTemplatePart::Text(" exited unsuccessfully: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ExternalToolExit),
 ];
 const CODEGEN_GENERATED_MODULE_INVALID: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("native-code generator "),
     MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
     MessageTemplatePart::Text(" rejected the generated module for target "),
     MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+];
+const CODEGEN_BACKEND_REJECTED_MODULE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("an internal compiler error prevented Bray from producing native code for target "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
+    MessageTemplatePart::Text(": native-code generator "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
+    MessageTemplatePart::Text(" reported "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendReport),
+    MessageTemplatePart::Text(" while validating its input "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CodegenVerificationStage),
 ];
 const CODEGEN_ARTIFACT_CONSTRUCTION_FAILED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("native-code generator "),
@@ -98,6 +120,10 @@ const EMISSION_TARGET_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ActualTargetTriple),
     MessageTemplatePart::Text(" but the compilation selected "),
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedTargetTriple),
+];
+const CHECKING_COMPILER_DEFECT: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("the compiler could not check the highlighted source: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::EmissionFailure),
 ];
 const EMISSION_PRODUCT_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("cannot emit requested product "),
@@ -2301,6 +2327,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingIncompatibleExpressionType => {
             MessageTemplate::new(CHECKING_INCOMPATIBLE_EXPRESSION_TYPE)
         }
+        DiagnosticKind::CheckingCompilerDefect => {
+            MessageTemplate::new(CHECKING_COMPILER_DEFECT)
+        }
         DiagnosticKind::CheckingIncompatiblePattern => {
             MessageTemplate::new(CHECKING_INCOMPATIBLE_PATTERN)
         }
@@ -2701,8 +2730,14 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CodegenBackendLibraryFailed => {
             MessageTemplate::new(CODEGEN_BACKEND_LIBRARY_FAILED)
         }
+        DiagnosticKind::CodegenBackendToolExited => {
+            MessageTemplate::new(CODEGEN_BACKEND_TOOL_EXITED)
+        }
         DiagnosticKind::CodegenGeneratedModuleInvalid => {
             MessageTemplate::new(CODEGEN_GENERATED_MODULE_INVALID)
+        }
+        DiagnosticKind::CodegenBackendRejectedModule => {
+            MessageTemplate::new(CODEGEN_BACKEND_REJECTED_MODULE)
         }
         DiagnosticKind::CodegenArtifactConstructionFailed => {
             MessageTemplate::new(CODEGEN_ARTIFACT_CONSTRUCTION_FAILED)

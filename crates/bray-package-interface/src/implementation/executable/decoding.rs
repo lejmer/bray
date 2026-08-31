@@ -822,6 +822,11 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             1 => Some(bray_ir::MirCallIntrinsic::Unary(self.unary_operator()?)),
             2 => Some(bray_ir::MirCallIntrinsic::Binary(self.binary_operator()?)),
             3 => Some(bray_ir::MirCallIntrinsic::Conversion(self.ty()?)),
+            4 => Some(bray_ir::MirCallIntrinsic::Comparison {
+                less: self.exact_symbol()?,
+                equal: self.exact_symbol()?,
+                greater: self.exact_symbol()?,
+            }),
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 

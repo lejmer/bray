@@ -36,7 +36,12 @@ pub enum DiagnosticCheckerFailure {
     InvalidRefinementInput,
     RefinementCapacityUnrepresentable,
     RefinementStorageUnavailable,
-    InvalidStorageFlow,
+    StorageFlow(DiagnosticStorageFlowFailure),
+    InvalidStorageOperation {
+        expression: DiagnosticCheckerNode,
+        access: u32,
+        status: &'static str,
+    },
     InvalidBodySemantics,
     InvalidBoundNode {
         node: DiagnosticCheckerNode,
@@ -127,11 +132,71 @@ impl DiagnosticCheckerFailure {
                 "checker_refinement_capacity_unrepresentable"
             }
             Self::RefinementStorageUnavailable => "checker_refinement_storage_unavailable",
-            Self::InvalidStorageFlow => "checker_invalid_storage_flow",
+            Self::StorageFlow(_) => "checker_storage_flow_failure",
+            Self::InvalidStorageOperation { .. } => "checker_invalid_storage_operation",
             Self::InvalidBodySemantics => "checker_invalid_body_semantics",
             Self::InvalidBoundNode { .. } => "checker_invalid_bound_node",
             Self::ExpressionTypeCapacityExceeded => "checker_expression_type_capacity_exceeded",
             Self::InvalidUnitView(_) => "checker_invalid_unit_view",
         }
     }
+}
+
+/// Exact storage-flow contract failure retained across compiler boundaries.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticStorageFlowFailure {
+    IncompatibleInput {
+        input: &'static str,
+        expected_unit: u32,
+        expected_kind: &'static str,
+        actual_unit: u32,
+        actual_kind: &'static str,
+    },
+    FlowConstruction(&'static str),
+    ForeignDependencyContract,
+    DependencyContractsConstruction(&'static str),
+    AsyncConstruction(&'static str),
+    MissingAwaitDependencyContract {
+        expression: DiagnosticCheckerNode,
+    },
+    MissingDependencyContract {
+        expression: DiagnosticCheckerNode,
+        contract_unit: u32,
+        contract: u32,
+    },
+    CallableParameterCountMismatch {
+        callable: DiagnosticCheckerSymbol,
+        signature_parameters: usize,
+        type_parameters: usize,
+    },
+    CallableTypeNotCallable {
+        callable: DiagnosticCheckerSymbol,
+    },
+    MissingBorrowCapability {
+        unit: u32,
+        borrow: u32,
+    },
+    MissingExitOrigin {
+        exit: DiagnosticCheckerNode,
+    },
+    MissingBlock {
+        block: DiagnosticCheckerNode,
+    },
+    MissingStorageAccess {
+        unit: u32,
+        access: u32,
+    },
+    MissingStorageIdentity {
+        unit: u32,
+        identity: u32,
+    },
+    MissingStorageSymbolName {
+        symbol: DiagnosticCheckerSymbol,
+    },
+    UnbalancedScopes {
+        open_scope: Option<DiagnosticCheckerNode>,
+    },
+    MissingPattern {
+        pattern: DiagnosticCheckerNode,
+    },
 }

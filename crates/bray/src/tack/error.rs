@@ -4,9 +4,11 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticExternalToolOperation, DiagnosticId,
     DiagnosticIoErrorKind, DiagnosticKind, DiagnosticProjectCommandFailure,
     DiagnosticProjectOperation, DiagnosticProjectProcessFailure, DiagnosticProjectSelectionProblem,
-    SeverityKind,
+    DiagnosticToolProtocolFailure, DiagnosticToolStream, SeverityKind,
 };
 use bray_platform::{PlatformError, PlatformErrorKind, PlatformOperation};
+
+use crate::tack::tool::{ToolExecutionError, ToolStream};
 
 pub(crate) fn selection_diagnostics(problem: DiagnosticProjectSelectionProblem) -> DiagnosticBag {
     DiagnosticBag::single(
@@ -59,6 +61,54 @@ pub(crate) fn process_failure(
     }
 }
 
+pub(crate) fn tool_execution_failure(
+    operation: DiagnosticProjectOperation,
+    error: ToolExecutionError,
+) -> DiagnosticProjectCommandFailure {
+    match error {
+        ToolExecutionError::Platform { program, error } => {
+            process_failure(operation, program, error)
+        }
+        ToolExecutionError::MissingStream(stream) => {
+            DiagnosticProjectCommandFailure::ToolProtocol {
+                operation,
+                failure: DiagnosticToolProtocolFailure::MissingStream(diagnostic_tool_stream(
+                    stream,
+                )),
+            }
+        }
+        ToolExecutionError::StreamIo { stream, error } => {
+            DiagnosticProjectCommandFailure::ToolStreamIo {
+                operation,
+                stream: diagnostic_tool_stream(stream),
+                error: DiagnosticIoErrorKind::from(error),
+            }
+        }
+        ToolExecutionError::InvalidUtf8(stream) => {
+            DiagnosticProjectCommandFailure::ToolStreamInvalidUtf8 {
+                operation,
+                stream: diagnostic_tool_stream(stream),
+            }
+        }
+        ToolExecutionError::StreamThreadPanicked(stream) => {
+            DiagnosticProjectCommandFailure::ToolProtocol {
+                operation,
+                failure: DiagnosticToolProtocolFailure::StreamThreadPanicked(
+                    diagnostic_tool_stream(stream),
+                ),
+            }
+        }
+    }
+}
+
+const fn diagnostic_tool_stream(stream: ToolStream) -> DiagnosticToolStream {
+    match stream {
+        ToolStream::StandardInput => DiagnosticToolStream::StandardInput,
+        ToolStream::StandardOutput => DiagnosticToolStream::StandardOutput,
+        ToolStream::StandardError => DiagnosticToolStream::StandardError,
+    }
+}
+
 const fn platform_operation(operation: PlatformOperation) -> DiagnosticExternalToolOperation {
     match operation {
         PlatformOperation::ThreadSpawn => DiagnosticExternalToolOperation::ThreadSpawn,
@@ -92,10 +142,11 @@ const fn platform_operation(operation: PlatformOperation) -> DiagnosticExternalT
 mod tests {
     use bray_diagnostics::{
         DiagnosticKind, DiagnosticProjectCommandFailure, DiagnosticProjectOperation,
-        DiagnosticProjectSelectionProblem,
+        DiagnosticProjectSelectionProblem, DiagnosticToolStream,
     };
 
-    use super::{operation_diagnostics, selection_diagnostics};
+    use super::{operation_diagnostics, selection_diagnostics, tool_execution_failure};
+    use crate::tack::tool::{ToolExecutionError, ToolStream};
 
     #[test]
     fn project_command_failures_keep_structured_operation_categories() {
@@ -115,6 +166,22 @@ mod tests {
         bray_testing::assert_goal_state_diagnostic_kind(
             &defect,
             DiagnosticKind::ProjectCompilerDefect,
+        );
+    }
+
+    #[test]
+    fn tool_execution_failures_keep_the_exact_stream_cause() {
+        let failure = tool_execution_failure(
+            DiagnosticProjectOperation::CompilerProcess,
+            ToolExecutionError::InvalidUtf8(ToolStream::StandardError),
+        );
+
+        assert_eq!(
+            failure,
+            DiagnosticProjectCommandFailure::ToolStreamInvalidUtf8 {
+                operation: DiagnosticProjectOperation::CompilerProcess,
+                stream: DiagnosticToolStream::StandardError,
+            }
         );
     }
 }

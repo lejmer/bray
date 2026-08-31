@@ -61,7 +61,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                     return self
-                        .translate_intrinsic_call(intrinsic, operand_type, semantic_arguments)
+                        .translate_intrinsic_call(
+                            intrinsic,
+                            operand_type,
+                            call.result().ty(),
+                            semantic_arguments,
+                        )
                         .map(Some);
                 }
 

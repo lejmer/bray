@@ -8,7 +8,8 @@ use bray_bound_tree::{
 };
 
 use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
+    CheckerStorageFlowFailure, CheckerUnitView,
 };
 
 pub(crate) struct StorageScopeOwners {
@@ -50,7 +51,11 @@ impl StorageScopeOwners {
 
         if outcome != BoundWalkOutcome::Completed || !scopes.is_empty() {
             return Err(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::InvalidStorageFlow,
+                CheckerInfrastructureError::StorageFlow(
+                    CheckerStorageFlowFailure::UnbalancedScopes {
+                        open_scope: scopes.last().copied(),
+                    },
+                ),
             ));
         }
 
@@ -134,7 +139,9 @@ fn assign_pattern_scope(
 
     while let Some(pattern) = pending.pop() {
         let pattern_node = view.pattern(pattern).ok_or_else(|| {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::InvalidStorageFlow)
+            CheckerQueryError::Infrastructure(CheckerInfrastructureError::StorageFlow(
+                CheckerStorageFlowFailure::MissingPattern { pattern },
+            ))
         })?;
 
         nodes.insert(pattern.into(), scope);

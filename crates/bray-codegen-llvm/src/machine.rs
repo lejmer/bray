@@ -103,7 +103,7 @@ impl LlvmTargetMachine {
             .as_str()
             .to_str()
             .map(Arc::from)
-            .map_err(|_| CodegenFailure::BackendLibrary)
+            .map_err(CodegenFailure::backend_library)
     }
 
     pub(crate) fn run_passes(
@@ -115,7 +115,7 @@ impl LlvmTargetMachine {
 
         module
             .run_passes(pipeline, &self.machine, options)
-            .map_err(|_| CodegenFailure::BackendLibrary)
+            .map_err(CodegenFailure::backend_library)
     }
 
     pub(crate) fn serialize(
@@ -126,7 +126,7 @@ impl LlvmTargetMachine {
         self.machine
             .write_to_memory_buffer(module, file_type)
             .map(|buffer| buffer.as_slice().to_vec())
-            .map_err(|_| CodegenFailure::BackendLibrary)
+            .map_err(CodegenFailure::backend_library)
     }
 }
 

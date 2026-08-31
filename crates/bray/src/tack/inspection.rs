@@ -18,11 +18,12 @@ pub(crate) fn render_project_inspection(
         OutputFormat::Text => Ok(report.text()),
         OutputFormat::Json => serde_json::to_string_pretty(&report)
             .map(|json| format!("{json}\n"))
-            .map_err(|_| {
+            .map_err(|error| {
                 operation_diagnostics(DiagnosticProjectCommandFailure::Document {
                     operation: DiagnosticProjectOperation::ProjectInspectionJson,
                     path: None,
                     problem: DiagnosticDocumentParseKind::Serialization,
+                    detail: Some(error.to_string()),
                 })
             }),
     }

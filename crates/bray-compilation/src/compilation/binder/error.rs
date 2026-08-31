@@ -32,7 +32,11 @@ mod tests {
     #[test]
     fn checker_infrastructure_causes_survive_binding_query_boundaries() {
         for cause in [
-            CheckerInfrastructureError::InvalidStorageFlow,
+            CheckerInfrastructureError::StorageFlow(
+                bray_checker::CheckerStorageFlowFailure::FlowConstruction(
+                    bray_bound_tree::StorageFlowBuildError::ForeignUnit,
+                ),
+            ),
             CheckerInfrastructureError::SemanticValueUnavailable,
             CheckerInfrastructureError::AtomicInitializerResultUnavailable,
         ] {

@@ -36,6 +36,11 @@
 #include <unordered_map>
 #endif
 
+#if BRAY_WORKLOAD == 20
+#include <map>
+#include <set>
+#endif
+
 #if BRAY_WORKLOAD == 7
 #include <charconv>
 #include <string>
@@ -90,7 +95,7 @@ constexpr char observation_header[] = "BRAYPO01";
 constexpr std::uint8_t controlled_duration_record = 3;
 
 #if defined(BRAY_PEER_TIMING) || (BRAY_WORKLOAD >= 2 && BRAY_WORKLOAD <= 8) \
-    || BRAY_WORKLOAD == 12 || (BRAY_WORKLOAD >= 17 && BRAY_WORKLOAD <= 19)
+    || BRAY_WORKLOAD == 12 || (BRAY_WORKLOAD >= 17 && BRAY_WORKLOAD <= 20)
 template <typename Value>
 void retain_work(Value const& value)
 {
@@ -182,6 +187,27 @@ bool workload()
     retain_work(map);
 
     return map.size() == 48;
+}
+#elif BRAY_WORKLOAD == 20
+bool workload()
+{
+    std::map<std::uint64_t, std::uint64_t> map;
+    std::set<std::uint64_t> set;
+
+    for (std::uint64_t key = 0; key < 4096; ++key)
+        map.emplace(key, key);
+
+    for (std::uint64_t key = 4096; key > 0; --key)
+        set.emplace(key - 1);
+
+    for (std::uint64_t key = 0; key < 4096; ++key)
+        if (map.find(key) == map.end() || set.find(key) == set.end())
+            return false;
+
+    retain_work(map);
+    retain_work(set);
+
+    return map.size() == 4096 && set.size() == 4096;
 }
 #elif BRAY_WORKLOAD == 7
 struct Wide

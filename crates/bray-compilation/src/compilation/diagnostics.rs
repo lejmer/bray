@@ -15,10 +15,11 @@ use bray_checker::{
 use bray_compiler_known::ImplementationHook;
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{
-    Diagnostic, DiagnosticBag, DiagnosticEmissionEvaluationFailure, DiagnosticId,
-    DiagnosticInterfaceDeclarationIdentity, DiagnosticInterfaceSymbolIdentity,
-    DiagnosticInterfaceSymbolReference, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
-    DiagnosticNote, DiagnosticNoteKind, DiagnosticProductKind, DiagnosticResult, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticEmissionEvaluationFailure,
+    DiagnosticEmissionFailure, DiagnosticId, DiagnosticInterfaceDeclarationIdentity,
+    DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolReference, DiagnosticKind,
+    DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind,
+    DiagnosticProductKind, DiagnosticResult, SeverityKind,
 };
 use bray_package_interface::InterfaceSymbolReference;
 use bray_source::SourceSpan;
@@ -78,6 +79,31 @@ pub(super) fn with_compiler_defect_source(
 pub(super) fn with_compiler_defect_note(diagnostic: Diagnostic) -> Diagnostic {
     diagnostic.with_note(DiagnosticNote::new(
         DiagnosticNoteKind::ReportCompilerDefect,
+    ))
+}
+
+fn checker_failure_diagnostics(
+    key: &BoundUnitKey,
+    error: bray_checker::CheckerInfrastructureError,
+) -> DiagnosticBag {
+    let anchor = key.source().syntax();
+
+    let failure = DiagnosticEmissionFailure::Evaluation(
+        DiagnosticEmissionEvaluationFailure::Checker(crate::fact::diagnostic_checker_failure(
+            error,
+        )),
+    );
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(anchor.full_range().start().bytes()),
+        DiagnosticKind::CheckingCompilerDefect,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::emission_failure(failure));
+
+    DiagnosticBag::single(with_compiler_defect_source(
+        diagnostic,
+        SourceSpan::new(anchor.source_id(), anchor.full_range()),
     ))
 }
 
@@ -379,8 +405,35 @@ impl Compilation {
             .fact_runtime
             .complete_batch(roots, cancellation, |(_, _, _, key)| {
                 // Each scheduled request owns the Arc-backed unit identity past the plan borrow.
-                let (bound, sources) =
-                    self.semantic_unit_diagnostic_sources(key.clone(), cancellation)?;
+                let (bound, sources) = match self
+                    .semantic_unit_diagnostic_sources(key.clone(), cancellation)
+                {
+                    Ok(result) => result,
+                    Err(FactQueryError::CheckerInfrastructure(error)) => {
+                        let nested = self
+                            .bound_unit_with_cancellation(key.clone(), cancellation)
+                            .ok()
+                            .into_iter()
+                            .flat_map(|bound| {
+                                bound
+                                    .result()
+                                    .value()
+                                    .nested_units()
+                                    .iter()
+                                    .cloned()
+                                    .map(unit_order_key)
+                                    .collect::<Vec<_>>()
+                            });
+
+                        return Ok::<_, FactQueryError>(BatchWork::new(
+                            vec![SemanticDiagnosticSource::Failure(
+                                checker_failure_diagnostics(&key, error),
+                            )],
+                            nested,
+                        ));
+                    }
+                    Err(error) => return Err(error),
+                };
 
                 // Nested unit keys are Arc-backed immutable identities shared with their owner.
                 let nested = bound
@@ -812,6 +865,7 @@ impl Compilation {
 }
 
 enum SemanticDiagnosticSource {
+    Failure(DiagnosticBag),
     Bound(Arc<DiagnosticResult<BoundUnit>>),
     DeclaredTypes(Arc<DiagnosticResult<DeclaredValueTypeTemplates>>),
     EmbeddedConstants(DiagnosticResult<bray_checker::CheckedConstantTerms>),
@@ -843,6 +897,7 @@ enum SemanticDiagnosticSource {
 impl SemanticDiagnosticSource {
     fn diagnostics(&self) -> &DiagnosticBag {
         match self {
+            Self::Failure(diagnostics) => diagnostics,
             Self::Bound(result) => result.diagnostics(),
             Self::DeclaredTypes(result) => result.diagnostics(),
             Self::EmbeddedConstants(result) => result.diagnostics(),

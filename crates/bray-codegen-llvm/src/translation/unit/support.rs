@@ -10,7 +10,7 @@ use inkwell::values::{AggregateValueEnum, BasicValueEnum, IntValue, PointerValue
 use inkwell::{FloatPredicate, IntPredicate};
 
 pub(super) fn llvm<T>(result: Result<T, BuilderError>) -> Result<T, CodegenFailure> {
-    result.map_err(|_| CodegenFailure::BackendLibrary)
+    result.map_err(CodegenFailure::backend_library)
 }
 
 pub(super) fn next_helper<'mapping>(

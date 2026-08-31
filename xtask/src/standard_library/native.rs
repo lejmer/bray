@@ -16,7 +16,7 @@ const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 130;
+const API_TEST_COUNT: usize = 146;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const CONCURRENCY_MODEL_TEST_COUNT: usize = 7;
 const CONCURRENCY_STRESS_TEST_COUNT: usize = 5;
@@ -292,6 +292,8 @@ fn audit_api(
         "api",
     )?;
 
+    require_success("native API batch", &output)?;
+
     let batch = parse_batch_report("native API batch", &output, &request)?;
     let byte_buffer = batch.report("startup-byte-buffer")?;
     let output_lock = batch.report("startup-output-lock")?;
@@ -354,8 +356,6 @@ fn audit_api(
         "concurrency_stress_",
         CONCURRENCY_STRESS_TEST_COUNT,
     )?;
-
-    require_success("native API batch", &output)?;
 
     Ok(())
 }

@@ -1,0 +1,328 @@
+module std.collection;
+
+trusted internal func ordered_tree_reserve<Item>(
+    pos tree: &mut OrderedTree<Item>,
+    additional: usize
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let current_capacity: usize = ordered_tree_capacity<Item>(&tree);
+
+    if additional <= current_capacity - tree.count
+    {
+        return Ok(unit);
+    }
+
+    let replacement_capacity: usize = try internal std.memory.growth_capacity(
+        current_length = tree.count,
+        current_capacity = current_capacity,
+        additional = additional,
+        growth = internal std.memory.CapacityGrowth.Amortized,
+    );
+
+    try trusted ordered_tree_reallocate<Item>(&mut tree, capacity = replacement_capacity);
+
+    return Ok(unit);
+}
+
+trusted internal func ordered_tree_reallocate<Item>(
+    pos tree: &mut OrderedTree<Item>,
+    capacity: usize
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut replacement_nodes: std.memory.RawBuffer<OrderedTreeNode> = try trusted ordered_tree_nodes(capacity);
+
+    let mut replacement_items: std.memory.RawBuffer<Uninit<Item>> = try trusted internal std.memory.uninit_buffer<Item>(
+        capacity = capacity
+    );
+
+    {
+        let source_nodes: &[OrderedTreeNode] = trusted std.memory.initialized_slice<OrderedTreeNode>(&tree.nodes);
+        let source_slots: &mut [Uninit<Item>] = trusted std.memory.initialized_slice_mut<Uninit<Item>>(&mut tree.items);
+
+        let destination_nodes: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(
+            &mut replacement_nodes
+        );
+
+        let destination_slots: &mut [Uninit<Item>] = trusted std.memory.initialized_slice_mut<Uninit<Item>>(
+            &mut replacement_items
+        );
+
+        let source_capacity: usize = source_nodes.length();
+        let mut index: usize = 0;
+
+        while index < source_capacity
+        {
+            if source_nodes[index].occupied
+            {
+                let item: Item = trusted std.memory.move_initialized<Item>(&mut source_slots[index]);
+                let _: &mut Item = std.memory.uninit_write<Item>(&mut destination_slots[index], item);
+
+                destination_nodes[index] = source_nodes[index];
+            }
+
+            index += 1;
+        }
+    }
+
+    trusted internal std.memory.raw_buffer_replace<OrderedTreeNode>(
+        destination = &mut tree.nodes,
+        source = &mut replacement_nodes,
+    );
+
+    trusted internal std.memory.raw_buffer_replace<Uninit<Item>>(
+        destination = &mut tree.items,
+        source = &mut replacement_items,
+    );
+
+    trusted ordered_tree_rebuild_free<Item>(&mut tree);
+
+    return Ok(unit);
+}
+
+trusted internal func ordered_tree_rebuild_free<Item>(pos tree: &mut OrderedTree<Item>)
+{
+    let slot_capacity: usize = std.memory.capacity<OrderedTreeNode>(&tree.nodes);
+    let nodes: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(&mut tree.nodes);
+    let mut free: usize? = none;
+    let mut index: usize = slot_capacity;
+
+    while index > 0
+    {
+        index -= 1;
+
+        if !nodes[index].occupied
+        {
+            nodes[index].next_free = free;
+            free = index;
+        }
+    }
+
+    tree.free = free;
+}
+
+trusted internal func ordered_tree_insert_at<Item>(
+    pos tree: &mut OrderedTree<Item>,
+    pos item: Item,
+    search: OrderedTreeSearch
+) -> usize
+{
+    let free: usize? = tree.free;
+    let search_parent: usize? = search.parent;
+    let search_side: OrderedTreeSide = search.side;
+
+    let index: usize = match free
+    {
+        case ?index { yield index; }
+        case none { panic("ordered-tree insertion requires reserved capacity"); }
+    };
+
+    let next_free: usize? =
+    {
+        let nodes: &[OrderedTreeNode] = trusted std.memory.initialized_slice<OrderedTreeNode>(&tree.nodes);
+
+        yield nodes[index].next_free;
+    };
+
+    trusted ordered_tree_write_item<Item>(&mut tree, item, index = index);
+
+    {
+        let nodes: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(&mut tree.nodes);
+
+        let node: OrderedTreeNode =
+        {
+            parent = search_parent,
+            left = none,
+            right = none,
+            height = 1,
+            occupied = true,
+            next_free = none,
+        };
+
+        nodes[index] = node;
+    }
+
+    tree.free = next_free;
+    tree.count += 1;
+
+    match search_side
+    {
+        case OrderedTreeSide.Root { tree.root = index; }
+        case OrderedTreeSide.Left
+        {
+            let parent: usize = match search_parent
+            {
+                case ?parent { yield parent; }
+                case none { panic("ordered-tree left insertion requires a parent"); }
+            };
+
+            let nodes: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(
+                &mut tree.nodes
+            );
+
+            nodes[parent].left = index;
+        }
+        case OrderedTreeSide.Right
+        {
+            let parent: usize = match search_parent
+            {
+                case ?parent { yield parent; }
+                case none { panic("ordered-tree right insertion requires a parent"); }
+            };
+
+            let nodes: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(
+                &mut tree.nodes
+            );
+
+            nodes[parent].right = index;
+        }
+    }
+
+    trusted ordered_tree_rebalance<Item>(&mut tree, search_parent);
+
+    return index;
+}
+
+trusted internal func ordered_tree_remove_at<Item>(pos tree: &mut OrderedTree<Item>, index: usize) -> Item
+{
+    let node: OrderedTreeNode = ordered_tree_node<Item>(&tree, index = index);
+    let mut removed_index: usize = index;
+
+    match node.left
+    {
+        case ?_
+        {
+            match node.right
+            {
+                case ?right
+                {
+                    removed_index = match ordered_tree_minimum<Item>(&tree, right)
+                    {
+                        case ?minimum { yield minimum; }
+                        case none { panic("ordered-tree right subtree requires a minimum"); }
+                    };
+
+                    trusted ordered_tree_swap_items<Item>(&mut tree, left = index, right = removed_index);
+                }
+                case none {}
+            }
+        }
+        case none {}
+    }
+
+    let removed_node: OrderedTreeNode = ordered_tree_node<Item>(&tree, index = removed_index);
+    let mut child: usize? = removed_node.right;
+
+    match removed_node.left
+    {
+        case ?left { child = left; }
+        case none {}
+    }
+
+    match removed_node.parent
+    {
+        case ?parent
+        {
+            let parent_node: OrderedTreeNode = ordered_tree_node<Item>(&tree, index = parent);
+
+            let nodes: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(
+                &mut tree.nodes
+            );
+
+            match parent_node.left
+            {
+                case ?left
+                {
+                    if left == removed_index
+                    {
+                        nodes[parent].left = child;
+                    }
+                    else
+                    {
+                        nodes[parent].right = child;
+                    }
+                }
+                case none { nodes[parent].right = child; }
+            }
+        }
+        case none { tree.root = child; }
+    }
+
+    match child
+    {
+        case ?child_index
+        {
+            let nodes: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(
+                &mut tree.nodes
+            );
+
+            nodes[child_index].parent = removed_node.parent;
+        }
+        case none {}
+    }
+
+    let item: Item = trusted ordered_tree_take_item<Item>(&mut tree, index = removed_index);
+
+    {
+        let nodes: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(&mut tree.nodes);
+
+        nodes[removed_index] = ordered_tree_empty_node();
+        nodes[removed_index].next_free = tree.free;
+    }
+
+    tree.free = removed_index;
+    tree.count -= 1;
+
+    trusted ordered_tree_rebalance<Item>(&mut tree, removed_node.parent);
+
+    return item;
+}
+
+trusted internal func ordered_tree_take_for_iteration<Item>(pos tree: &mut OrderedTree<Item>, index: usize) -> Item
+{
+    let item: Item =
+    {
+        let slots: &mut [Uninit<Item>] = trusted std.memory.initialized_slice_mut<Uninit<Item>>(&mut tree.items);
+
+        yield trusted std.memory.move_initialized<Item>(&mut slots[index]);
+    };
+
+    {
+        let nodes: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(&mut tree.nodes);
+
+        nodes[index].occupied = false;
+    }
+
+    tree.count -= 1;
+
+    return item;
+}
+
+trusted internal func ordered_tree_clear<Item>(pos tree: &mut OrderedTree<Item>)
+{
+    let slot_capacity: usize = std.memory.capacity<OrderedTreeNode>(&tree.nodes);
+    let mut free: usize? = none;
+
+    {
+        let nodes: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(&mut tree.nodes);
+        let slots: &mut [Uninit<Item>] = trusted std.memory.initialized_slice_mut<Uninit<Item>>(&mut tree.items);
+        let mut index: usize = slot_capacity;
+
+        while index > 0
+        {
+            index -= 1;
+
+            if nodes[index].occupied
+            {
+                let _: Item = trusted std.memory.move_initialized<Item>(&mut slots[index]);
+            }
+
+            nodes[index] = ordered_tree_empty_node();
+            nodes[index].next_free = free;
+            free = index;
+        }
+    }
+
+    tree.root = none;
+    tree.free = free;
+    tree.count = 0;
+}

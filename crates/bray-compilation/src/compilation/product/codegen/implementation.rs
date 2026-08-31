@@ -560,6 +560,23 @@ mod tests {
         "}\n",
     );
 
+    const SCALAR_COMPARISON_CALL_SOURCE: &str = concat!(
+        "module app;\n",
+        "\n",
+        "func compare_values<Value>(pos left: Value, pos right: Value) -> Ordering\n",
+        "    with(Value: Comparable<Value>)\n",
+        "{\n",
+        "    let ordering: Ordering = left.compare(&right);\n",
+        "\n",
+        "    return ordering;\n",
+        "}\n",
+        "\n",
+        "public func compare_u64(pos left: u64, pos right: u64) -> Ordering\n",
+        "{\n",
+        "    return compare_values<u64>(left, right);\n",
+        "}\n",
+    );
+
     const TARGET_FENCE_SOURCE: &str = concat!(
         "module app;\n",
         "\n",
@@ -2547,6 +2564,14 @@ mod tests {
         }));
 
         realize_codegen_mappings(&compilation, &target, &reachability, &cancellation);
+    }
+
+    #[test]
+    fn scalar_comparison_callable_is_lowered_as_native_intrinsic() {
+        assert_source_emits_valid_native_units(
+            SCALAR_COMPARISON_CALL_SOURCE,
+            crate::BuildConfiguration::Development,
+        );
     }
 
     #[test]

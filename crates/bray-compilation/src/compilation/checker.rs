@@ -541,6 +541,21 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .map_err(checker_query_error)
     }
 
+    fn implementation_selection_with_constraint_evidence(
+        &self,
+        requirement: ImplementationRequirementKey,
+        evidence: &[(TypeId, TraitApplicationId)],
+    ) -> CheckerQueryResult<DiagnosticResult<ImplementationSelection>> {
+        self.binding_context
+            .compilation()
+            .implementation_selection_with_constraint_evidence(
+                requirement,
+                evidence,
+                self.binding_context.cancellation(),
+            )
+            .map_err(checker_query_error)
+    }
+
     fn selected_type_valued_member(
         &self,
         subject: TypeId,

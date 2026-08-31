@@ -249,7 +249,7 @@ fn complete_sets<'outcome>(
             CodegenStatus::Failed(failure) => {
                 return Err(EmissionCodegenErrorKind::Generation {
                     unit: request.unit().clone(),
-                    failure: *failure,
+                    failure: failure.clone(),
                 });
             }
             CodegenStatus::Cancelled => {

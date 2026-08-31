@@ -65,7 +65,7 @@ pub(super) struct StorageExpectation {
     pub copied_bytes: u64,
 }
 
-pub(super) const WORKLOADS: [Workload; 19] = [
+pub(super) const WORKLOADS: [Workload; 20] = [
     Workload {
         id: "small_output",
         category: WorkloadCategory::Small,
@@ -157,6 +157,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     super::workloads::DEQUE_MIXED_ENDS,
     super::workloads::HASH_MAP_GROWTH_AND_HEALTHY_LOOKUP,
     super::workloads::HASH_MAP_COLLISION_LOOKUP,
+    super::workloads::ORDERED_COLLECTIONS_MONOTONIC_UPDATES,
     Workload {
         id: "borrowed_text",
         category: WorkloadCategory::CoreData,
@@ -837,6 +838,18 @@ mod tests {
         assert_eq!(collision_storage.allocation_count, 3);
         assert_eq!(collision_storage.allocated_bytes, 2_112);
         assert_eq!(collision_storage.copied_bytes, 0);
+    }
+
+    #[test]
+    fn ordered_collection_workload_covers_both_monotonic_insertion_directions() {
+        let ordered = workload("ordered_collections_monotonic_updates");
+
+        assert_eq!(ordered.scale, 8192);
+        assert_eq!(ordered.units, "monotonic insert-and-lookup pairs");
+        assert!(ordered.source.contains("while value < 4096"));
+        assert!(ordered.source.contains("value = 4096"));
+        assert!(ordered.source.contains("map.insert(value, value)"));
+        assert!(ordered.source.contains("set.insert(value)"));
     }
 
     #[test]

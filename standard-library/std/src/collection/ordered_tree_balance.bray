@@ -1,0 +1,291 @@
+module std.collection;
+
+internal func ordered_tree_node_height(pos nodes: &[OrderedTreeNode], pos index: usize?) -> usize
+{
+    return match index
+    {
+        case ?present { yield nodes[present].height; }
+        case none { yield 0; }
+    };
+}
+
+internal func ordered_tree_height<Item>(pos tree: &OrderedTree<Item>) -> usize
+{
+    let nodes: &[OrderedTreeNode] = trusted std.memory.initialized_slice<OrderedTreeNode>(&tree.nodes);
+
+    return ordered_tree_node_height(nodes, tree.root);
+}
+
+internal func ordered_tree_update_node_height(pos nodes: &mut [OrderedTreeNode], index: usize)
+{
+    let left_index: usize? = nodes[index].left;
+    let right_index: usize? = nodes[index].right;
+
+    let left: usize = match left_index
+    {
+        case ?present { yield nodes[present].height; }
+        case none { yield 0; }
+    };
+
+    let right: usize = match right_index
+    {
+        case ?present { yield nodes[present].height; }
+        case none { yield 0; }
+    };
+
+    nodes[index].height = std.order.maximum<usize>(left, right) + 1;
+}
+
+internal func ordered_tree_connect_node_parent(
+    pos nodes: &mut [OrderedTreeNode],
+    pos root: usize?,
+    parent: usize?,
+    previous: usize,
+    replacement: usize
+) -> usize?
+{
+    match parent
+    {
+        case ?parent_index
+        {
+            let parent_left: usize? = nodes[parent_index].left;
+
+            match parent_left
+            {
+                case ?left_child
+                {
+                    if left_child == previous
+                    {
+                        nodes[parent_index].left = replacement;
+                    }
+                    else
+                    {
+                        nodes[parent_index].right = replacement;
+                    }
+                }
+                case none { nodes[parent_index].right = replacement; }
+            }
+
+            return root;
+        }
+        case none
+        {
+            let mut result: usize? = none;
+
+            result = replacement;
+
+            return result;
+        }
+    }
+}
+
+internal func ordered_tree_rotate_nodes_left(
+    pos nodes: &mut [OrderedTreeNode],
+    pos root: usize?,
+    index: usize
+) -> (usize, usize?)
+{
+    let parent: usize? = nodes[index].parent;
+    let right: usize? = nodes[index].right;
+
+    let pivot: usize = match right
+    {
+        case ?candidate { yield candidate; }
+        case none { panic("ordered-tree left rotation requires a right child"); }
+    };
+
+    let middle: usize? = nodes[pivot].left;
+
+    let updated_root: usize? = ordered_tree_connect_node_parent(
+        &mut nodes,
+        root,
+        parent = parent,
+        previous = index,
+        replacement = pivot,
+    );
+
+    nodes[pivot].parent = parent;
+    nodes[pivot].left = index;
+    nodes[index].parent = pivot;
+    nodes[index].right = middle;
+
+    match middle
+    {
+        case ?middle_index { nodes[middle_index].parent = index; }
+        case none {}
+    }
+
+    ordered_tree_update_node_height(&mut nodes, index = index);
+    ordered_tree_update_node_height(&mut nodes, index = pivot);
+
+    return (pivot, updated_root);
+}
+
+internal func ordered_tree_rotate_nodes_right(
+    pos nodes: &mut [OrderedTreeNode],
+    pos root: usize?,
+    index: usize
+) -> (usize, usize?)
+{
+    let parent: usize? = nodes[index].parent;
+    let left: usize? = nodes[index].left;
+
+    let pivot: usize = match left
+    {
+        case ?candidate { yield candidate; }
+        case none { panic("ordered-tree right rotation requires a left child"); }
+    };
+
+    let middle: usize? = nodes[pivot].right;
+
+    let updated_root: usize? = ordered_tree_connect_node_parent(
+        &mut nodes,
+        root,
+        parent = parent,
+        previous = index,
+        replacement = pivot,
+    );
+
+    nodes[pivot].parent = parent;
+    nodes[pivot].right = index;
+    nodes[index].parent = pivot;
+    nodes[index].left = middle;
+
+    match middle
+    {
+        case ?middle_index { nodes[middle_index].parent = index; }
+        case none {}
+    }
+
+    ordered_tree_update_node_height(&mut nodes, index = index);
+    ordered_tree_update_node_height(&mut nodes, index = pivot);
+
+    return (pivot, updated_root);
+}
+
+internal func ordered_tree_rebalance_nodes(
+    pos nodes: &mut [OrderedTreeNode],
+    pos root: usize?,
+    pos start: usize?
+) -> usize?
+{
+    let mut current: usize? = start;
+    let mut updated_root: usize? = root;
+
+    while true
+    {
+        let index: usize = match current
+        {
+            case ?present { yield present; }
+            case none { break; }
+        };
+
+        ordered_tree_update_node_height(&mut nodes, index = index);
+
+        let left_link: usize? = nodes[index].left;
+        let right_link: usize? = nodes[index].right;
+
+        let left_height: usize = match left_link
+        {
+            case ?present { yield nodes[present].height; }
+            case none { yield 0; }
+        };
+
+        let right_height: usize = match right_link
+        {
+            case ?present { yield nodes[present].height; }
+            case none { yield 0; }
+        };
+
+        let mut subtree_root: usize = index;
+
+        if left_height > right_height + 1
+        {
+            let left_index: usize = match left_link
+            {
+                case ?present { yield present; }
+                case none { panic("ordered-tree balance requires a left child"); }
+            };
+
+            let left_left_link: usize? = nodes[left_index].left;
+            let left_right_link: usize? = nodes[left_index].right;
+
+            let left_left_height: usize = match left_left_link
+            {
+                case ?present { yield nodes[present].height; }
+                case none { yield 0; }
+            };
+
+            let left_right_height: usize = match left_right_link
+            {
+                case ?present { yield nodes[present].height; }
+                case none { yield 0; }
+            };
+
+            if left_right_height > left_left_height
+            {
+                let (_, rotated_root) = ordered_tree_rotate_nodes_left(&mut nodes, updated_root, index = left_index);
+
+                updated_root = rotated_root;
+            }
+
+            let (rotated, rotated_root) = ordered_tree_rotate_nodes_right(&mut nodes, updated_root, index = index);
+
+            subtree_root = rotated;
+            updated_root = rotated_root;
+        }
+        else if right_height > left_height + 1
+        {
+            let right_index: usize = match right_link
+            {
+                case ?present { yield present; }
+                case none { panic("ordered-tree balance requires a right child"); }
+            };
+
+            let right_left_link: usize? = nodes[right_index].left;
+            let right_right_link: usize? = nodes[right_index].right;
+
+            let right_left_height: usize = match right_left_link
+            {
+                case ?present { yield nodes[present].height; }
+                case none { yield 0; }
+            };
+
+            let right_right_height: usize = match right_right_link
+            {
+                case ?present { yield nodes[present].height; }
+                case none { yield 0; }
+            };
+
+            if right_left_height > right_right_height
+            {
+                let (_, rotated_root) = ordered_tree_rotate_nodes_right(&mut nodes, updated_root, index = right_index);
+
+                updated_root = rotated_root;
+            }
+
+            let (rotated, rotated_root) = ordered_tree_rotate_nodes_left(&mut nodes, updated_root, index = index);
+
+            subtree_root = rotated;
+            updated_root = rotated_root;
+        }
+
+        current = nodes[subtree_root].parent;
+    }
+
+    return updated_root;
+}
+
+trusted internal func ordered_tree_rebalance<Item>(pos tree: &mut OrderedTree<Item>, pos start: usize?)
+{
+    let root: usize? = tree.root;
+
+    let updated_root: usize? =
+    {
+        let nodes: &mut [OrderedTreeNode] = trusted std.memory.initialized_slice_mut<OrderedTreeNode>(&mut tree.nodes);
+
+        yield ordered_tree_rebalance_nodes(nodes, root, start);
+    };
+
+    tree.root = updated_root;
+}

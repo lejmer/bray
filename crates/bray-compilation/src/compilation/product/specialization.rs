@@ -776,6 +776,15 @@ impl Compilation {
             let intrinsic = match intrinsic {
                 bray_ir::MirCallIntrinsic::Unary(operator) => IntrinsicCall::Unary(operator),
                 bray_ir::MirCallIntrinsic::Binary(operator) => IntrinsicCall::Binary(operator),
+                bray_ir::MirCallIntrinsic::Comparison {
+                    less,
+                    equal,
+                    greater,
+                } => IntrinsicCall::Comparison {
+                    less,
+                    equal,
+                    greater,
+                },
                 bray_ir::MirCallIntrinsic::Conversion(target) => {
                     let target = values
                         .substitute_type(target, owner_substitution)

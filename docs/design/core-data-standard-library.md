@@ -481,6 +481,8 @@ a key's recorded hash while it belongs to a collection.
 comparison contract. They provide ordered lookup, insertion, replacement, removal, range traversal, and shared, mutable,
 and consuming iteration. Ordering must be total and consistent for the stored key type. Range APIs represent inclusive
 and exclusive bounds explicitly and preserve ascending order unless the operation explicitly requests reverse traversal.
+An incrementally balanced tree keeps lookup, insertion, and removal logarithmic even for already sorted input. Map and
+set operations share that tree machinery, while sets store values directly rather than allocating a dummy map payload.
 
 ### Collection Adapters
 

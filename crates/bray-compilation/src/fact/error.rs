@@ -277,7 +277,18 @@ pub(crate) fn diagnostic_checker_failure(
         Error::RefinementStorageUnavailable => {
             DiagnosticCheckerFailure::RefinementStorageUnavailable
         }
-        Error::InvalidStorageFlow => DiagnosticCheckerFailure::InvalidStorageFlow,
+        Error::StorageFlow(failure) => DiagnosticCheckerFailure::StorageFlow(
+            diagnostic_storage_flow_failure(failure),
+        ),
+        Error::InvalidStorageOperation {
+            expression,
+            access,
+            status,
+        } => DiagnosticCheckerFailure::InvalidStorageOperation {
+            expression: diagnostic_bound_node(expression.into()),
+            access: access.ordinal(),
+            status: diagnostic_storage_operation_status(status),
+        },
         Error::InvalidBodySemantics => DiagnosticCheckerFailure::InvalidBodySemantics,
         Error::InvalidBoundNode { node } => DiagnosticCheckerFailure::InvalidBoundNode {
             node: diagnostic_bound_node(node),
@@ -290,6 +301,167 @@ pub(crate) fn diagnostic_checker_failure(
                 "semantic_context_mismatch"
             }
         }),
+    }
+}
+
+fn diagnostic_storage_flow_failure(
+    failure: bray_checker::CheckerStorageFlowFailure,
+) -> bray_diagnostics::DiagnosticStorageFlowFailure {
+    use bray_checker::CheckerStorageFlowFailure as Failure;
+    use bray_diagnostics::DiagnosticStorageFlowFailure as DiagnosticFailure;
+
+    match failure {
+        Failure::IncompatibleInput {
+            input,
+            expected_unit,
+            expected_kind,
+            actual_unit,
+            actual_kind,
+        } => DiagnosticFailure::IncompatibleInput {
+            input: diagnostic_storage_flow_input(input),
+            expected_unit: expected_unit.raw(),
+            expected_kind: expected_kind.as_str(),
+            actual_unit: actual_unit.raw(),
+            actual_kind: actual_kind.as_str(),
+        },
+        Failure::FlowConstruction(error) => {
+            DiagnosticFailure::FlowConstruction(match error {
+                bray_bound_tree::StorageFlowBuildError::ForeignUnit => "foreign_unit",
+                bray_bound_tree::StorageFlowBuildError::DuplicateSuspension => {
+                    "duplicate_suspension"
+                }
+                bray_bound_tree::StorageFlowBuildError::DuplicateMemoryOperation => {
+                    "duplicate_memory_operation"
+                }
+            })
+        }
+        Failure::ForeignDependencyContract => DiagnosticFailure::ForeignDependencyContract,
+        Failure::DependencyContractsConstruction(error) => {
+            DiagnosticFailure::DependencyContractsConstruction(match error {
+                bray_bound_tree::DependencyContractsBuildError::ForeignStoragePlan => {
+                    "foreign_storage_plan"
+                }
+                bray_bound_tree::DependencyContractsBuildError::InvalidExpression => {
+                    "invalid_expression"
+                }
+                bray_bound_tree::DependencyContractsBuildError::InvalidAccess => "invalid_access",
+                bray_bound_tree::DependencyContractsBuildError::InvalidBorrow => "invalid_borrow",
+                bray_bound_tree::DependencyContractsBuildError::ForeignContract => {
+                    "foreign_contract"
+                }
+                bray_bound_tree::DependencyContractsBuildError::ContractCapacityExceeded => {
+                    "contract_capacity_exceeded"
+                }
+            })
+        }
+        Failure::AsyncConstruction(error) => DiagnosticFailure::AsyncConstruction(match error {
+            bray_bound_tree::AsyncAnalysisBuildError::ForeignUnit => "foreign_unit",
+        }),
+        Failure::MissingAwaitDependencyContract { expression } => {
+            DiagnosticFailure::MissingAwaitDependencyContract {
+                expression: diagnostic_bound_node(expression.into()),
+            }
+        }
+        Failure::MissingDependencyContract {
+            expression,
+            contract,
+        } => DiagnosticFailure::MissingDependencyContract {
+            expression: diagnostic_bound_node(expression.into()),
+            contract_unit: contract.unit().raw(),
+            contract: contract.ordinal(),
+        },
+        Failure::CallableParameterCountMismatch {
+            callable,
+            signature_parameters,
+            type_parameters,
+        } => DiagnosticFailure::CallableParameterCountMismatch {
+            callable: diagnostic_checker_symbol(callable),
+            signature_parameters,
+            type_parameters,
+        },
+        Failure::CallableTypeNotCallable { callable } => {
+            DiagnosticFailure::CallableTypeNotCallable {
+                callable: diagnostic_checker_symbol(callable),
+            }
+        }
+        Failure::MissingBorrowCapability { borrow } => {
+            DiagnosticFailure::MissingBorrowCapability {
+                unit: borrow.unit().raw(),
+                borrow: borrow.ordinal(),
+            }
+        }
+        Failure::MissingExitOrigin { exit } => DiagnosticFailure::MissingExitOrigin {
+            exit: diagnostic_bound_node(exit),
+        },
+        Failure::MissingBlock { block } => DiagnosticFailure::MissingBlock {
+            block: diagnostic_bound_node(block.into()),
+        },
+        Failure::MissingStorageAccess { access } => DiagnosticFailure::MissingStorageAccess {
+            unit: access.unit().raw(),
+            access: access.ordinal(),
+        },
+        Failure::MissingStorageIdentity { identity } => {
+            DiagnosticFailure::MissingStorageIdentity {
+                unit: identity.unit().raw(),
+                identity: identity.ordinal(),
+            }
+        }
+        Failure::MissingStorageSymbolName { symbol } => {
+            DiagnosticFailure::MissingStorageSymbolName {
+                symbol: diagnostic_checker_symbol(symbol),
+            }
+        }
+        Failure::UnbalancedScopes { open_scope } => DiagnosticFailure::UnbalancedScopes {
+            open_scope: open_scope.map(|block| diagnostic_bound_node(block.into())),
+        },
+        Failure::MissingPattern { pattern } => DiagnosticFailure::MissingPattern {
+            pattern: diagnostic_bound_node(pattern.into()),
+        },
+    }
+}
+
+const fn diagnostic_storage_flow_input(
+    input: bray_checker::StorageFlowInputKind,
+) -> &'static str {
+    use bray_checker::StorageFlowInputKind as Input;
+
+    match input {
+        Input::ExpressionTypes => "expression_types",
+        Input::SemanticSelections => "semantic_selections",
+        Input::StoragePlan => "storage_plan",
+        Input::Liveness => "liveness",
+        Input::Refinements => "refinements",
+        Input::MemoryOperations => "memory_operations",
+        Input::StorageFlow => "storage_flow",
+        Input::DependencyContracts => "dependency_contracts",
+    }
+}
+
+const fn diagnostic_checker_symbol(
+    symbol: bray_symbols::AnySymbolId,
+) -> bray_diagnostics::DiagnosticCheckerSymbol {
+    bray_diagnostics::DiagnosticCheckerSymbol::new(
+        symbol.kind().as_str(),
+        symbol.symbol_id().raw(),
+    )
+}
+
+const fn diagnostic_storage_operation_status(
+    status: bray_bound_tree::StorageOperationStatus,
+) -> &'static str {
+    use bray_bound_tree::StorageOperationStatus as Status;
+
+    match status {
+        Status::Unreachable => "unreachable",
+        Status::Valid => "valid",
+        Status::Recovered => "recovered",
+        Status::Uninitialized => "uninitialized",
+        Status::Moved => "moved",
+        Status::ConflictingBorrow => "conflicting_borrow",
+        Status::MissingMutationAuthority => "missing_mutation_authority",
+        Status::MissingOwnership => "missing_ownership",
+        Status::InactiveProjection => "inactive_projection",
+        Status::NotCopyable => "not_copyable",
     }
 }
 
