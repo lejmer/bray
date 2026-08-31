@@ -13,6 +13,7 @@ struct BorrowedNarrowString
 {
     internal units: &[u8];
 
+    /// Borrows the narrow units without the terminating NUL.
     func as_bytes() -> &[u8]
     {
         let count: usize = self.units.length();
@@ -20,6 +21,7 @@ struct BorrowedNarrowString
         return &self.units[0..count - 1];
     }
 
+    /// Borrows the narrow units including the terminating NUL.
     func as_bytes_with_nul() -> &[u8]
     {
         return self.units;
@@ -30,6 +32,9 @@ struct BorrowedNarrowString
         return std.memory.address_of<u8>(&self.units[0]);
     }
 
+    /// Interprets the narrow units as UTF-8 and copies them into owned Bray text.
+    ///
+    /// Returns `StringError.InvalidEncoding` when the units are not valid UTF-8.
     func to_string() -> Result<string, StringError>
     {
         match string.from_utf8(self.as_bytes())
@@ -109,6 +114,7 @@ struct OwnedNarrowString
         return OwnedNarrowString.from_bytes(value.as_bytes());
     }
 
+    /// Borrows this owned string as a NUL-terminated narrow C string.
     func as_borrowed() -> BorrowedNarrowString
     {
         return

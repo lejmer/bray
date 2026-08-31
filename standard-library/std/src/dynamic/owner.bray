@@ -78,6 +78,13 @@ struct DynamicLibrary
         return trusted release_dynamic_library(&mut self);
     }
 
+    /// Resolves an exact native symbol name as the caller-supplied ABI type.
+    ///
+    /// `name` must be nonempty and contain no NUL unit. `T` is the caller's trusted assertion about the symbol's ABI
+    /// and representation. The returned symbol retains a borrow of this library and cannot outlive it.
+    ///
+    /// Returns `ForeignErrorKind.InvalidInput` for an invalid name and `ForeignErrorKind.UnavailableSymbol` when the
+    /// loader cannot find the name. Returns `ForeignErrorKind.IncompatibleAbi` when the loader returns a null address.
     trusted func symbol<T>(pos name: &[u8]) -> Result<DynamicSymbol<T>, std.ffi.ForeignError>
         requires(blocking_execution())
         uses(foreign_call, layout_reinterpret)
@@ -85,6 +92,10 @@ struct DynamicLibrary
         return trusted resolve_dynamic_symbol<T>(&self, name);
     }
 
+    /// Transfers ownership of the native handle to the caller.
+    ///
+    /// Success disables this owner's destruction and makes the caller responsible for closing the handle. Failure
+    /// returns no handle.
     trusted consume mut func into_handle() -> Result<u64, std.ffi.ForeignError>
     {
         let handle: u64 = try internal std.ffi.checked_owned_foreign_resource_handle(
