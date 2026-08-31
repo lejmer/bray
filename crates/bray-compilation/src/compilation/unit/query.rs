@@ -4702,6 +4702,32 @@ func convert(pos value: Value) -> i32
     }
 
     #[test]
+    fn narrowing_integer_conversions_reach_the_user_as_conversion_diagnostics() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "func narrow(pos value: u64) -> u8\n",
+            "{\n",
+            "    return value as u8;\n",
+            "}\n",
+        ));
+
+        let diagnostic = compilation
+            .check_diagnostics()
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.kind() == DiagnosticKind::CheckingNoApplicableCandidate
+            })
+            .unwrap_or_else(|| panic!("narrowing conversion diagnostic must be published"));
+
+        assert_eq!(
+            DiagnosticRenderer::english().render(diagnostic).message(),
+            "no applicable conversion candidate"
+        );
+
+        assert!(diagnostic.primary_span().is_some());
+    }
+
+    #[test]
     fn box_construction_selection_retains_the_storage_implementation() {
         let compilation = compilation(concat!(
             "module app;\n",
@@ -5114,6 +5140,44 @@ func convert(pos value: Value) -> i32
                 .count(),
             2
         );
+    }
+
+    #[test]
+    fn tuple_projections_preserve_receiver_capability_for_method_calls() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "struct Wrapper<T>\n",
+            "{\n",
+            "    value: T;\n",
+            "}\n",
+            "impl Wrapper<T>\n",
+            "{\n",
+            "    func choose<U>(pos value: U) -> U\n",
+            "    {\n",
+            "        return value;\n",
+            "    }\n",
+            "}\n",
+            "func main(pos values: (Wrapper<i32>, bool)) -> i32\n",
+            "{\n",
+            "    return values.0.choose(7);\n",
+            "}\n",
+        ));
+
+        let selections = compilation
+            .semantic_selections(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| {
+                panic!("tuple-projected method selection must publish: {error:?}")
+            });
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "tuple-projected method selection must be diagnostic-free: {:?}",
+            selections.diagnostics()
+        );
+
+        assert!(selections.value().entries().iter().any(|entry| {
+            matches!(entry.selection(), SemanticSelection::Call(_))
+        }));
     }
 
     #[test]

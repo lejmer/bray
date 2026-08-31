@@ -75,9 +75,9 @@ pub use checking::{
 pub use code::DiagnosticCode;
 pub use diagnostic::Diagnostic;
 pub use emission::{
-    DiagnosticBindingFailure, DiagnosticCheckerFailure, DiagnosticEmissionArtifact,
-    DiagnosticEmissionCodegenFailure, DiagnosticEmissionEvaluationFailure,
-    DiagnosticEmissionFailure, DiagnosticEmissionLinkPlanFailure,
+    DiagnosticBindingFailure, DiagnosticCheckerFailure, DiagnosticCheckerNode,
+    DiagnosticCheckerSymbol, DiagnosticEmissionArtifact, DiagnosticEmissionCodegenFailure,
+    DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure, DiagnosticEmissionLinkPlanFailure,
     DiagnosticEmissionPlanningFailure, DiagnosticEmissionStagingFailure,
     DiagnosticHostEnvironmentVariable, DiagnosticLlvmToolRole, DiagnosticPackageInterfaceFailure,
     DiagnosticSemanticValueFailure, DiagnosticUnsupportedEmissionReason,

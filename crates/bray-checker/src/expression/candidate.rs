@@ -6,8 +6,9 @@ use std::{
 };
 
 use bray_bound_tree::{
-    BoundCallableTarget, BoundExpression, BoundExpressionId, BoundReferenceTarget,
-    BoundResolvedCall, SelectedArgument, SelectionKind, SemanticSelection, SemanticSelectionEntry,
+    BoundCallableTarget, BoundExpression, BoundExpressionId, BoundMemberSelector,
+    BoundReferenceTarget, BoundResolvedCall, SelectedArgument, SelectionKind, SemanticSelection,
+    SemanticSelectionEntry,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
@@ -1356,11 +1357,18 @@ where
 
         match request.view().expression(expression) {
             Some(BoundExpression::MemberAccess(member)) => {
-                let target = member_targets
-                    .get(&expression)
-                    .ok_or_else(invalid_selection_input)?;
+                match member.selector() {
+                    Some(BoundMemberSelector::Name(_)) => {
+                        let target = member_targets
+                            .get(&expression)
+                            .ok_or_else(invalid_selection_input)?;
 
-                mutable_projection &= member_allows_mutation(request, target.member());
+                        mutable_projection &= member_allows_mutation(request, target.member());
+                    }
+                    Some(BoundMemberSelector::TupleElement(_)) => {}
+                    None => return Err(invalid_selection_input()),
+                }
+
                 expression = member.receiver();
             }
             Some(BoundExpression::Name(name)) => {

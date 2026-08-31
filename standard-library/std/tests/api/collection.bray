@@ -50,6 +50,12 @@ struct CollisionKey
     value: u64;
 }
 
+struct OwnedHashValue
+{
+    identity: u64;
+    bytes: std.bytes.Buffer;
+}
+
 impl CollisionKeyEquatable = CollisionKey(Equatable<CollisionKey>)
 {
     func equals(pos rhs: &CollisionKey) -> bool
@@ -65,6 +71,35 @@ impl CollisionKeyHashable = CollisionKey(std.hash.Hashable<Sink>)
     {
         sink.write(0);
     }
+}
+
+impl OwnedHashValueEquatable = OwnedHashValue(Equatable<OwnedHashValue>)
+{
+    func equals(pos rhs: &OwnedHashValue) -> bool
+    {
+        return self.identity == rhs.identity;
+    }
+}
+
+impl OwnedHashValueHashable = OwnedHashValue(std.hash.Hashable<Sink>)
+    with(Sink: std.hash.HashSink)
+{
+    func contribute(pos sink: &mut Sink) -> unit
+    {
+        sink.write(self.identity as u128);
+    }
+}
+
+func owned_hash_value(pos identity: u64, pos byte: u8) -> Result<OwnedHashValue, std.memory.MemoryLayoutError>
+{
+    let bytes: [u8; 1] = [byte];
+
+    return Ok(
+        {
+            identity = identity,
+            bytes = try std.bytes.Buffer.from_slice(&bytes[..]),
+        }
+    );
 }
 
 @test
@@ -606,6 +641,78 @@ trusted func hash_map_supports_growth_replacement_and_removal() -> Result<unit, 
 }
 
 @test
+trusted func hash_map_preserves_owned_keys_and_values_across_every_teardown_path(
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut map: std.collection.HashMap<OwnedHashValue, OwnedHashValue> = try trusted std.collection.HashMap<
+        OwnedHashValue,
+        OwnedHashValue
+    >(capacity = 1);
+
+    let mut identity: u64 = 0;
+
+    while identity < 32
+    {
+        let key: OwnedHashValue = try owned_hash_value(identity, 1);
+
+        let value: OwnedHashValue = try owned_hash_value(identity + 100, 2);
+
+        let replaced: OwnedHashValue? = try trusted map.insert(key, value);
+
+        std.testing.assert_absent<OwnedHashValue>(replaced);
+
+        identity += 1;
+    }
+
+    let replacement_key: OwnedHashValue = try owned_hash_value(7, 207);
+    let replacement_value: OwnedHashValue = try owned_hash_value(107, 208);
+
+    let replaced: OwnedHashValue = std.testing.assert_present(
+        try trusted map.insert(replacement_key, replacement_value)
+    );
+
+    assert(replaced.bytes.as_slice()[0] == 2);
+
+    let lookup: OwnedHashValue = try owned_hash_value(7, 0);
+    let removed: (OwnedHashValue, OwnedHashValue) = std.testing.assert_present(trusted map.remove_entry(&lookup));
+
+    assert(removed.0.bytes.as_slice()[0] == 1);
+    assert(removed.1.bytes.as_slice()[0] == 208);
+
+    trusted map.clear();
+
+    assert(map.is_empty());
+
+    {
+        let mut partially_consumed: std.collection.HashMap<OwnedHashValue, OwnedHashValue> =
+            try trusted std.collection.HashMap<OwnedHashValue, OwnedHashValue>(capacity = 1);
+
+        identity = 0;
+
+        while identity < 8
+        {
+            let key: OwnedHashValue = try owned_hash_value(identity, 1);
+
+            let value: OwnedHashValue = try owned_hash_value(identity + 10, 2);
+
+            let _: OwnedHashValue? = try trusted partially_consumed.insert(key, value);
+
+            identity += 1;
+        }
+
+        let mut cursor: std.collection.HashMapMoveCursor<OwnedHashValue, OwnedHashValue> =
+            partially_consumed(Iterable).iterate();
+
+        let first: (OwnedHashValue, OwnedHashValue) = std.testing.assert_present(cursor.next());
+
+        assert(first.0.bytes.as_slice().length() == 1);
+        assert(first.1.bytes.as_slice().length() == 1);
+    }
+
+    return Ok(unit);
+}
+
+@test
 trusted func hash_map_supports_entry_insertion_and_mutation() -> Result<unit, std.memory.MemoryLayoutError>
 {
     let mut map: std.collection.HashMap<u64, u64> = try trusted std.collection.HashMap<u64, u64>();
@@ -859,6 +966,63 @@ trusted func hash_set_uses_value_storage_for_replace_take_and_iteration() -> Res
     }
 
     assert(moved_count == 47);
+
+    return Ok(unit);
+}
+
+@test
+trusted func hash_set_preserves_owned_values_across_every_teardown_path() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut set: std.collection.HashSet<OwnedHashValue> = try trusted std.collection.HashSet<OwnedHashValue>(
+        capacity = 1
+    );
+
+    let mut identity: u64 = 0;
+
+    while identity < 32
+    {
+        let value: OwnedHashValue = try owned_hash_value(identity, 1);
+
+        assert(try trusted set.insert(value));
+
+        identity += 1;
+    }
+
+    let replacement: OwnedHashValue = try owned_hash_value(7, 207);
+    let replaced: OwnedHashValue = std.testing.assert_present(try trusted set.replace(replacement));
+
+    assert(replaced.bytes.as_slice()[0] == 1);
+
+    let lookup: OwnedHashValue = try owned_hash_value(7, 0);
+    let taken: OwnedHashValue = std.testing.assert_present(trusted set.take(&lookup));
+
+    assert(taken.bytes.as_slice()[0] == 207);
+
+    trusted set.clear();
+
+    assert(set.is_empty());
+
+    {
+        let mut partially_consumed: std.collection.HashSet<OwnedHashValue> = try trusted std.collection.HashSet<
+            OwnedHashValue
+        >(capacity = 1);
+
+        identity = 0;
+
+        while identity < 8
+        {
+            let value: OwnedHashValue = try owned_hash_value(identity, 1);
+
+            assert(try trusted partially_consumed.insert(value));
+
+            identity += 1;
+        }
+
+        let mut cursor: std.collection.HashSetMoveCursor<OwnedHashValue> = partially_consumed(Iterable).iterate();
+        let first: OwnedHashValue = std.testing.assert_present(cursor.next());
+
+        assert(first.bytes.as_slice().length() == 1);
+    }
 
     return Ok(unit);
 }

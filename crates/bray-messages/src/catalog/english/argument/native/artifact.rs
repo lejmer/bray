@@ -1,4 +1,5 @@
 use super::super::source::{format_english_artifact_digest, format_english_artifact_kind};
+use super::checker::format_english_checker_failure;
 use bray_diagnostics::DiagnosticArtifactDigest;
 
 pub(crate) fn format_artifact_failure(
@@ -641,129 +642,11 @@ fn format_english_semantic_value_failure(
     }
 }
 
-fn format_english_checker_failure(failure: bray_diagnostics::DiagnosticCheckerFailure) -> String {
-    use bray_diagnostics::DiagnosticCheckerFailure as Failure;
-
-    let message = match failure {
-        Failure::MissingSource => {
-            "an internal compiler error prevented Bray from finding a source file required by this product"
-        }
-        Failure::SourceVersionMismatch => {
-            "an internal compiler error mixed different revisions of a source file while compiling this product"
-        }
-        Failure::InvalidSourceRange => {
-            "an internal compiler error retained a source location outside its source file"
-        }
-        Failure::SemanticQueryUnavailable => {
-            "an internal compiler error prevented Bray from resolving declaration information required by this product"
-        }
-        Failure::SemanticValueUnavailable => {
-            "an internal compiler error prevented Bray from retaining declaration information required by this product"
-        }
-        Failure::AtomicRepresentationTypeUnavailable => {
-            "the selected atomic value has no available representation type"
-        }
-        Failure::AtomicRepresentationArgumentsUnavailable => {
-            "the selected atomic value has no available representation arguments"
-        }
-        Failure::AtomicInitializerArgumentUnavailable => {
-            "the atomic initializer argument has no compile-time value"
-        }
-        Failure::AtomicInitializerResultUnavailable => {
-            "the atomic initializer result cannot be represented as a compile-time value"
-        }
-        Failure::UninitInitializerResultUnavailable => {
-            "the uninitialized-storage initializer result cannot be represented as a compile-time value"
-        }
-        Failure::ImportedExecutableTemplateMismatch => {
-            "an imported native operation does not match its compiled definition"
-        }
-        Failure::CompilerKnownRepresentationUnavailable(role) => {
-            return format!(
-                "an internal compiler error prevented Bray from finding the language-defined `{}` type required for the selected target",
-                format_compiler_known_representation(role),
-            );
-        }
-        Failure::InvalidExpressionTypeInput => {
-            "an internal compiler error associated an expression with the wrong source body while determining its type"
-        }
-        Failure::InvalidSemanticSelectionInput => {
-            "an internal compiler error prevented Bray from selecting the operation or call for an expression"
-        }
-        Failure::InvalidLiteralValueInput => {
-            "an internal compiler error associated a literal with the wrong source body while determining its value"
-        }
-        Failure::InvalidConstantEvaluationInput => {
-            "an internal compiler error supplied incompatible source information while evaluating a constant expression"
-        }
-        Failure::InvalidPatternCheckInput => {
-            "an internal compiler error supplied incompatible source information while checking a pattern"
-        }
-        Failure::InvalidStoragePlan => {
-            "an internal compiler error prevented Bray from arranging the local values used by a source body"
-        }
-        Failure::InvalidLiveness => {
-            "an internal compiler error prevented Bray from determining how long a value remains usable"
-        }
-        Failure::InvalidRefinementInput => {
-            "an internal compiler error prevented Bray from tracking what a condition or pattern proves about a value"
-        }
-        Failure::RefinementCapacityUnrepresentable => {
-            "an internal compiler limit prevented Bray from retaining everything a condition or pattern proves about a value"
-        }
-        Failure::RefinementStorageUnavailable => {
-            "the compiler could not allocate memory needed to track what a condition or pattern proves about a value"
-        }
-        Failure::InvalidStorageFlow => {
-            "an internal compiler error prevented Bray from tracking how a source body uses its values"
-        }
-        Failure::InvalidBodySemantics => {
-            "an internal compiler error found incompatible analysis results for a source body"
-        }
-        Failure::InvalidBoundNode => {
-            "an internal compiler error lost a source construct required to compile a source body"
-        }
-        Failure::ExpressionTypeCapacityExceeded => {
-            "an internal compiler limit prevented Bray from determining every expression type in a source body"
-        }
-        Failure::InvalidUnitView => {
-            "an internal compiler error associated analysis results with the wrong source declaration or body"
-        }
-    };
-
-    message.to_owned()
-}
-
-fn format_compiler_known_representation(role: &str) -> &str {
-    match role {
-        "ScalarBool" => "bool",
-        "ScalarChar" => "char",
-        "ScalarI8" => "i8",
-        "ScalarI16" => "i16",
-        "ScalarI32" => "i32",
-        "ScalarI64" => "i64",
-        "ScalarI128" => "i128",
-        "ScalarU8" => "u8",
-        "ScalarU16" => "u16",
-        "ScalarU32" => "u32",
-        "ScalarU64" => "u64",
-        "ScalarU128" => "u128",
-        "ScalarIsize" => "isize",
-        "ScalarUsize" => "usize",
-        "ScalarR16" => "r16",
-        "ScalarR32" => "r32",
-        "ScalarR64" => "r64",
-        "ScalarR128" => "r128",
-        "ScalarC32" => "c32",
-        "ScalarC64" => "c64",
-        "ScalarC128" => "c128",
-        "ScalarC256" => "c256",
-        role => role,
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use bray_diagnostics::{DiagnosticCheckerNode, DiagnosticCheckerSymbol};
+    use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
+
     use super::{format_english_binding_failure, format_english_checker_failure};
 
     #[test]
@@ -792,5 +675,50 @@ mod tests {
         assert!(storage.contains("local values"));
         assert!(!pattern.contains("checked"));
         assert!(!storage.contains("storage plan"));
+    }
+
+    #[test]
+    fn checker_failures_render_every_retained_identity() {
+        use bray_diagnostics::DiagnosticCheckerFailure as Failure;
+
+        let missing = format_english_checker_failure(Failure::MissingSource {
+            source_id: SourceId::new(7),
+        });
+
+        let version = format_english_checker_failure(Failure::SourceVersionMismatch {
+            source_id: SourceId::new(8),
+            expected: SourceVersion::new(13),
+            actual: SourceVersion::new(21),
+        });
+
+        let range = format_english_checker_failure(Failure::InvalidSourceRange {
+            span: SourceSpan::new(
+                SourceId::new(9),
+                TextRange::new(TextSize::new(34), TextSize::new(55)),
+            ),
+        });
+
+        let query = format_english_checker_failure(Failure::SemanticQueryUnavailable {
+            symbol: DiagnosticCheckerSymbol::new("module", 11),
+            query: "members",
+        });
+
+        let expression = format_english_checker_failure(Failure::InvalidExpressionTypeInput {
+            expression: DiagnosticCheckerNode::new("expression", 12, 17),
+        });
+
+        let node = format_english_checker_failure(Failure::InvalidBoundNode {
+            node: DiagnosticCheckerNode::new("pattern", 14, 19),
+        });
+
+        assert!(missing.contains("source snapshot #7"));
+        assert!(version.contains("revision 13 of source snapshot #8"));
+        assert!(version.contains("revision 21"));
+        assert!(range.contains("bytes 34 through 55"));
+        assert!(range.contains("source snapshot #9"));
+        assert!(query.contains("member declarations for module declaration #11"));
+        assert!(expression.contains("expression #17 in source body #12"));
+        assert!(node.contains("pattern #19"));
+        assert!(node.contains("source body #14"));
     }
 }
