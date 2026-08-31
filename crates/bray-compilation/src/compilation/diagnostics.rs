@@ -5,9 +5,10 @@ use std::sync::Arc;
 
 use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{
-    BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedBodyBehavior,
-    CheckedBodySemantics, CheckedControlFlow, CheckedExpressionSemantics, CheckedMemoryOperations,
-    CheckedPatterns, DeclaredValueTypeTemplates, SelectedArgument, SemanticSelection, StoragePlan,
+    AnyBoundNodeId, BoundBlock, BoundCallableBody, BoundExpression, BoundPattern, BoundUnit,
+    BoundUnitKey, BoundUnitKind, CheckedBodyBehavior, CheckedBodySemantics, CheckedControlFlow,
+    CheckedExpressionSemantics, CheckedMemoryOperations, CheckedPatterns,
+    DeclaredValueTypeTemplates, SelectedArgument, SemanticSelection, StoragePlan,
 };
 use bray_checker::{
     TargetAbiValue, TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
@@ -15,10 +16,11 @@ use bray_checker::{
 use bray_compiler_known::ImplementationHook;
 use bray_declarations::{DeclarationKind, DeclarationRecord, SyntaxAnchor};
 use bray_diagnostics::{
-    Diagnostic, DiagnosticBag, DiagnosticEmissionEvaluationFailure, DiagnosticId,
-    DiagnosticInterfaceDeclarationIdentity, DiagnosticInterfaceSymbolIdentity,
-    DiagnosticInterfaceSymbolReference, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
-    DiagnosticNote, DiagnosticNoteKind, DiagnosticProductKind, DiagnosticResult, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticEmissionEvaluationFailure,
+    DiagnosticEmissionFailure, DiagnosticId, DiagnosticInterfaceDeclarationIdentity,
+    DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolReference, DiagnosticKind,
+    DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind,
+    DiagnosticProductKind, DiagnosticResult, SeverityKind,
 };
 use bray_package_interface::InterfaceSymbolReference;
 use bray_source::SourceSpan;
@@ -79,6 +81,77 @@ pub(super) fn with_compiler_defect_note(diagnostic: Diagnostic) -> Diagnostic {
     diagnostic.with_note(DiagnosticNote::new(
         DiagnosticNoteKind::ReportCompilerDefect,
     ))
+}
+
+fn checker_failure_diagnostics(
+    key: &BoundUnitKey,
+    bound: Option<&BoundUnit>,
+    error: bray_checker::CheckerInfrastructureError,
+) -> DiagnosticBag {
+    let anchor = key.source().syntax();
+
+    let source = checker_failure_node(&error)
+        .and_then(|node| bound.and_then(|bound| bound_node_source(bound, node)))
+        .unwrap_or_else(|| SourceSpan::new(anchor.source_id(), anchor.full_range()));
+
+    let failure = DiagnosticEmissionFailure::Evaluation(
+        DiagnosticEmissionEvaluationFailure::Checker(crate::fact::diagnostic_checker_failure(
+            error,
+        )),
+    );
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(anchor.full_range().start().bytes()),
+        DiagnosticKind::CheckingCompilerDefect,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::emission_failure(failure));
+
+    DiagnosticBag::single(with_compiler_defect_source(
+        diagnostic,
+        source,
+    ))
+}
+
+fn checker_failure_node(
+    error: &bray_checker::CheckerInfrastructureError,
+) -> Option<AnyBoundNodeId> {
+    use bray_checker::{CheckerInfrastructureError as Error, CheckerStorageFlowFailure as Flow};
+
+    match error {
+        Error::InvalidExpressionTypeInput { expression }
+        | Error::InvalidStorageOperation { expression, .. } => Some((*expression).into()),
+        Error::InvalidBoundNode { node } => Some(*node),
+        Error::StorageFlow(failure) => match failure {
+            Flow::MissingAwaitDependencyContract { expression }
+            | Flow::MissingDependencyContract { expression, .. } => Some((*expression).into()),
+            Flow::MissingExitOrigin { exit } => Some(*exit),
+            Flow::MissingBlock { block } | Flow::UnbalancedScopes {
+                open_scope: Some(block),
+            } => Some((*block).into()),
+            Flow::MissingPattern { pattern } => Some((*pattern).into()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn bound_node_source(bound: &BoundUnit, node: AnyBoundNodeId) -> Option<SourceSpan> {
+    let view = bound.view();
+
+    let origin = match node {
+        AnyBoundNodeId::Expression(expression) => view.expression(expression).map(BoundExpression::origin),
+        AnyBoundNodeId::Pattern(pattern) => view.pattern(pattern).map(BoundPattern::origin),
+        AnyBoundNodeId::Block(block) => view.block(block).map(BoundBlock::origin),
+        AnyBoundNodeId::CallableBody(body) => view
+            .callable_body(body)
+            .copied()
+            .map(BoundCallableBody::origin),
+    }?;
+
+    let anchor = origin.source_anchor().syntax();
+
+    Some(SourceSpan::new(anchor.source_id(), anchor.full_range()))
 }
 
 pub(super) const fn code_production_failure_source(
@@ -379,8 +452,42 @@ impl Compilation {
             .fact_runtime
             .complete_batch(roots, cancellation, |(_, _, _, key)| {
                 // Each scheduled request owns the Arc-backed unit identity past the plan borrow.
-                let (bound, sources) =
-                    self.semantic_unit_diagnostic_sources(key.clone(), cancellation)?;
+                let (bound, sources) = match self
+                    .semantic_unit_diagnostic_sources(key.clone(), cancellation)
+                {
+                    Ok(result) => result,
+                    Err(FactQueryError::CheckerInfrastructure(error)) => {
+                        let bound = self
+                            .bound_unit_with_cancellation(key.clone(), cancellation)
+                            .ok();
+
+                        let nested = bound
+                            .as_ref()
+                            .into_iter()
+                            .flat_map(|bound| {
+                                bound
+                                    .result()
+                                    .value()
+                                    .nested_units()
+                                    .iter()
+                                    .cloned()
+                                    .map(unit_order_key)
+                                    .collect::<Vec<_>>()
+                            });
+
+                        return Ok::<_, FactQueryError>(BatchWork::new(
+                            vec![SemanticDiagnosticSource::Failure(
+                                checker_failure_diagnostics(
+                                    &key,
+                                    bound.as_ref().map(|bound| bound.result().value()),
+                                    error,
+                                ),
+                            )],
+                            nested,
+                        ));
+                    }
+                    Err(error) => return Err(error),
+                };
 
                 // Nested unit keys are Arc-backed immutable identities shared with their owner.
                 let nested = bound
@@ -812,6 +919,7 @@ impl Compilation {
 }
 
 enum SemanticDiagnosticSource {
+    Failure(DiagnosticBag),
     Bound(Arc<DiagnosticResult<BoundUnit>>),
     DeclaredTypes(Arc<DiagnosticResult<DeclaredValueTypeTemplates>>),
     EmbeddedConstants(DiagnosticResult<bray_checker::CheckedConstantTerms>),
@@ -843,6 +951,7 @@ enum SemanticDiagnosticSource {
 impl SemanticDiagnosticSource {
     fn diagnostics(&self) -> &DiagnosticBag {
         match self {
+            Self::Failure(diagnostics) => diagnostics,
             Self::Bound(result) => result.diagnostics(),
             Self::DeclaredTypes(result) => result.diagnostics(),
             Self::EmbeddedConstants(result) => result.diagnostics(),

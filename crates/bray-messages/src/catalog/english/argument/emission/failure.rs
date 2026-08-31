@@ -223,6 +223,11 @@ fn format_english_package_interface_failure(
             format_english_interface_symbol_identity(declaration),
             format_english_emission_evaluation_failure(*cause)
         ),
+        Failure::ExecutableTemplateEvaluation { declaration, cause } => format!(
+            "the compiler could not compile {} because {}",
+            format_english_interface_symbol_identity(declaration),
+            format_english_emission_evaluation_failure(*cause)
+        ),
         Failure::IncompletePublicDeclaration(kind) => format!(
             "the compiler could not prepare complete data for a reachable public {kind} declaration"
         ),
@@ -504,6 +509,18 @@ mod tests {
         assert_eq!(
             infrastructure,
             "the compiler could not finish package-interface export because the compiler evaluation state became inconsistent"
+        );
+
+        let executable = format_english_package_interface_failure(
+            &DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {
+                declaration: package("example.run"),
+                cause: DiagnosticEmissionEvaluationFailure::ConstantCallableBodyUnavailable,
+            },
+        );
+
+        assert_eq!(
+            executable,
+            "the compiler could not compile 'example.run' because the selected constant callable has no available body"
         );
 
         let overflow = format_english_package_interface_failure(

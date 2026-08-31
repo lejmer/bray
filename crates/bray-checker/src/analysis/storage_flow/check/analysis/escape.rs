@@ -33,7 +33,9 @@ where
             }
 
             let Some(capability) = self.storage.borrow_capability(borrow) else {
-                self.record_infrastructure_failure(CheckerInfrastructureError::InvalidStorageFlow);
+                self.record_infrastructure_failure(CheckerInfrastructureError::StorageFlow(
+                    crate::CheckerStorageFlowFailure::MissingBorrowCapability { borrow },
+                ));
 
                 return;
             };
@@ -53,7 +55,9 @@ where
             }
 
             let Some(exit_origin) = bound_node_origin(self.request, exit) else {
-                self.record_infrastructure_failure(CheckerInfrastructureError::InvalidStorageFlow);
+                self.record_infrastructure_failure(CheckerInfrastructureError::StorageFlow(
+                    crate::CheckerStorageFlowFailure::MissingExitOrigin { exit: exit.into() },
+                ));
 
                 return;
             };
@@ -118,7 +122,9 @@ where
         };
 
         let Some(block) = self.request.view().block(block) else {
-            self.record_infrastructure_failure(CheckerInfrastructureError::InvalidStorageFlow);
+            self.record_infrastructure_failure(CheckerInfrastructureError::StorageFlow(
+                crate::CheckerStorageFlowFailure::MissingBlock { block },
+            ));
 
             return false;
         };

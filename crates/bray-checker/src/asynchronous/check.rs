@@ -24,10 +24,10 @@ use crate::analysis::{
     ControlFlowGraphBuildOutcome, build_storage_control_flow_graph,
 };
 use crate::diagnostic::{diagnostic_id, expression_span};
-use crate::unit::semantic_inputs_match;
+use crate::unit::storage_flow_input_failure;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitView,
+    CheckerSemanticQueryProvider, CheckerStorageFlowFailure, CheckerUnitView, StorageFlowInputKind,
 };
 
 #[expect(
@@ -51,7 +51,7 @@ where
         return CheckerOutcome::Cancelled;
     }
 
-    if !inputs_match(
+    if let Some(error) = input_failure(
         request,
         types,
         selections,
@@ -61,9 +61,7 @@ where
         refinements,
         flow,
     ) {
-        return CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidStorageFlow,
-        );
+        return CheckerOutcome::InfrastructureFailure(error);
     }
 
     let graph = match build_storage_control_flow_graph(request, storage, selections) {
@@ -305,9 +303,11 @@ where
         is_recovered,
     ) {
         Ok(analysis) => analysis,
-        Err(_) => {
+        Err(error) => {
             return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidStorageFlow,
+                CheckerInfrastructureError::StorageFlow(
+                    CheckerStorageFlowFailure::AsyncConstruction(error),
+                ),
             );
         }
     };
@@ -350,7 +350,7 @@ where
     Ok(())
 }
 
-fn inputs_match<C>(
+fn input_failure<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     selections: &CheckedSemanticSelections,
@@ -359,20 +359,35 @@ fn inputs_match<C>(
     storage: &StoragePlan,
     refinements: &CheckedRefinements,
     flow: &StorageFlow,
-) -> bool
+) -> Option<CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    semantic_inputs_match(
+    storage_flow_input_failure(
         request,
         [
-            (types.unit(), types.kind()),
-            (selections.unit(), selections.kind()),
-            (liveness.unit(), liveness.kind()),
-            (dependencies.unit(), dependencies.kind()),
-            (storage.unit(), storage.kind()),
-            (refinements.unit(), refinements.kind()),
-            (flow.unit(), flow.kind()),
+            (StorageFlowInputKind::ExpressionTypes, (types.unit(), types.kind())),
+            (
+                StorageFlowInputKind::SemanticSelections,
+                (selections.unit(), selections.kind()),
+            ),
+            (StorageFlowInputKind::Liveness, (liveness.unit(), liveness.kind())),
+            (
+                StorageFlowInputKind::DependencyContracts,
+                (dependencies.unit(), dependencies.kind()),
+            ),
+            (
+                StorageFlowInputKind::StoragePlan,
+                (storage.unit(), storage.kind()),
+            ),
+            (
+                StorageFlowInputKind::Refinements,
+                (refinements.unit(), refinements.kind()),
+            ),
+            (
+                StorageFlowInputKind::StorageFlow,
+                (flow.unit(), flow.kind()),
+            ),
         ],
     )
 }
@@ -798,12 +813,17 @@ mod tests {
 
     #[test]
     fn non_recovered_await_without_an_inferred_dependency_contract_is_infrastructure_failure() {
-        assert_eq!(
-            await_outcome(false, true),
-            CheckerOutcome::InfrastructureFailure(
-                crate::CheckerInfrastructureError::InvalidStorageFlow
-            )
-        );
+        let CheckerOutcome::InfrastructureFailure(
+            crate::CheckerInfrastructureError::StorageFlow(
+                crate::CheckerStorageFlowFailure::MissingAwaitDependencyContract { expression },
+            ),
+        ) = await_outcome(false, true)
+        else {
+            panic!("missing await dependencies must retain the exact expression")
+        };
+
+        assert_eq!(expression.unit(), BoundUnitId::new(72));
+        assert_eq!(expression.ordinal(), 1);
     }
 
     #[test]

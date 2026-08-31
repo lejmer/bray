@@ -13,6 +13,15 @@ pub enum IntrinsicCall {
     Unary(bray_ir::MirUnaryOperator),
     /// A scalar binary operation.
     Binary(bray_ir::MirBinaryOperator),
+    /// A scalar three-way comparison producing the compiler-known ordering representation.
+    Comparison {
+        /// Variant returned when the left operand is less than the right operand.
+        less: bray_symbols::UnionVariantSymbolId,
+        /// Variant returned when both operands compare equal.
+        equal: bray_symbols::UnionVariantSymbolId,
+        /// Variant returned when the left operand is greater than the right operand.
+        greater: bray_symbols::UnionVariantSymbolId,
+    },
     /// An exact compiler-defined conversion plan.
     Conversion(bray_ir::SelectedConversion),
 }

@@ -119,7 +119,8 @@ pub(super) fn package_interface_failure_context(
         Failure::MissingDeclarationData(declaration) => {
             vec![interface_symbol_identity_field("declaration", declaration)]
         }
-        Failure::ConstantCallableEvaluation { declaration, cause } => vec![
+        Failure::ConstantCallableEvaluation { declaration, cause }
+        | Failure::ExecutableTemplateEvaluation { declaration, cause } => vec![
             interface_symbol_identity_field("declaration", declaration),
             text_field("cause", cause.as_str()),
         ],
@@ -491,7 +492,10 @@ pub(super) fn link_plan_failure_context(
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{DiagnosticInterfaceSymbolIdentity, DiagnosticPackageInterfaceFailure};
+    use bray_diagnostics::{
+        DiagnosticEmissionEvaluationFailure, DiagnosticInterfaceSymbolIdentity,
+        DiagnosticPackageInterfaceFailure,
+    };
 
     use super::package_interface_failure_context;
 
@@ -518,5 +522,23 @@ mod tests {
         assert_eq!(context[1]["value"]["value"]["package"], "example.second");
         assert_eq!(context[2]["name"], "stable_identity");
         assert_eq!(context[2]["value"]["value"]["package"], "example.shared");
+    }
+
+    #[test]
+    fn executable_template_failures_preserve_declaration_and_cause() {
+        let context = package_interface_failure_context(
+            &DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {
+                declaration: package("example.template"),
+                cause: DiagnosticEmissionEvaluationFailure::Cycle,
+            },
+        );
+
+        let context = serde_json::to_value(context)
+            .unwrap_or_else(|error| panic!("diagnostic context should serialize: {error:?}"));
+
+        assert_eq!(context[0]["name"], "declaration");
+        assert_eq!(context[0]["value"]["value"]["package"], "example.template");
+        assert_eq!(context[1]["name"], "cause");
+        assert_eq!(context[1]["value"]["value"], "cycle");
     }
 }

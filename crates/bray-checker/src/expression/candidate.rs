@@ -388,47 +388,8 @@ where
         return Ok(false);
     }
 
-    let mut active = BTreeSet::new();
-
-    let Some(mut owner) = request
-        .containing_callable()
-        .map(CallableSymbolId::into_any)
-    else {
-        return Ok(false);
-    };
-
-    loop {
-        if let Some(generic_owner) = GenericOwnerId::try_new(owner) {
-            let constraints = request.resolve_symbol_query(SymbolQueryRequest::<
-                GenericConstraintsQuery,
-            >::new(generic_owner))?;
-
-            if constraints.diagnostics().has_errors() {
-                diagnostics.extend(constraints.diagnostics().iter().cloned());
-            } else {
-                active.extend(
-                    constraints
-                        .value()
-                        .constraints()
-                        .iter()
-                        .filter_map(|constraint| match constraint.kind() {
-                            CheckedConstraintKind::TraitSatisfaction {
-                                subject,
-                                application,
-                            } => Some((subject, application)),
-                            CheckedConstraintKind::Predicate(_)
-                            | CheckedConstraintKind::TypeEquality { .. } => None,
-                        }),
-                );
-            }
-        }
-
-        let Some(container) = request.symbols().containing_symbol(owner) else {
-            break;
-        };
-
-        owner = container;
-    }
+    let active = active_trait_constraints(request, diagnostics)?;
+    let evidence = active.iter().copied().collect::<Vec<_>>();
 
     for constraint in required.value().constraints() {
         let CheckedConstraintKind::TraitSatisfaction {
@@ -465,12 +426,75 @@ where
             crate::built_in_trait_constraint_outcome(request.context(), subject, application)
                 .map_err(CheckerQueryError::Infrastructure)?;
 
-        if built_in != Some(ProofOutcome::Proven) {
+        if built_in == Some(ProofOutcome::Proven) {
+            continue;
+        }
+
+        let requirement = ImplementationRequirementKey::new(subject, application);
+
+        let selection = request
+            .implementation_selection_with_constraint_evidence(requirement, &evidence)?;
+
+        diagnostics.extend(selection.diagnostics().iter().cloned());
+
+        if !matches!(selection.value(), ImplementationSelection::Selected(_)) {
             return Ok(false);
         }
     }
 
     Ok(true)
+}
+
+fn active_trait_constraints<C>(
+    request: CheckerUnitView<'_, C>,
+    diagnostics: &mut DiagnosticBag,
+) -> CheckerQueryResult<BTreeSet<(TypeId, bray_symbols::TraitApplicationId)>, C::UpstreamError>
+where
+    C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
+{
+    let mut active = BTreeSet::new();
+
+    let Some(mut owner) = request
+        .containing_callable()
+        .map(CallableSymbolId::into_any)
+    else {
+        return Ok(active);
+    };
+
+    loop {
+        if let Some(generic_owner) = GenericOwnerId::try_new(owner) {
+            let constraints = request.resolve_symbol_query(SymbolQueryRequest::<
+                GenericConstraintsQuery,
+            >::new(generic_owner))?;
+
+            if constraints.diagnostics().has_errors() {
+                diagnostics.extend(constraints.diagnostics().iter().cloned());
+            } else {
+                active.extend(
+                    constraints
+                        .value()
+                        .constraints()
+                        .iter()
+                        .filter_map(|constraint| match constraint.kind() {
+                            CheckedConstraintKind::TraitSatisfaction {
+                                subject,
+                                application,
+                            } => Some((subject, application)),
+                            CheckedConstraintKind::Predicate(_)
+                            | CheckedConstraintKind::TypeEquality { .. } => None,
+                        }),
+                );
+            }
+        }
+
+        let Some(container) = request.symbols().containing_symbol(owner) else {
+            break;
+        };
+
+        owner = container;
+    }
+
+    Ok(active)
 }
 
 fn defer_callable_selection<C>(
@@ -1421,6 +1445,8 @@ where
     }
 
     let mut selections = Vec::new();
+    let active = active_trait_constraints(request, diagnostics)?;
+    let evidence = active.iter().copied().collect::<Vec<_>>();
 
     for constraint in constraints.value().constraints() {
         let CheckedConstraintKind::TraitSatisfaction {
@@ -1449,7 +1475,8 @@ where
 
         let requirement = ImplementationRequirementKey::new(subject, application);
 
-        let selection = request.implementation_selection(requirement)?;
+        let selection = request
+            .implementation_selection_with_constraint_evidence(requirement, &evidence)?;
 
         diagnostics.extend(selection.diagnostics().iter().cloned());
 

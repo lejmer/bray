@@ -1,6 +1,10 @@
+use std::sync::Arc;
+use std::path::PathBuf;
+
 use bray_diagnostics::{
-    Diagnostic, DiagnosticArg, DiagnosticArtifactKind, DiagnosticBag, DiagnosticId, DiagnosticKind,
-    DiagnosticNote, DiagnosticNoteKind, SeverityKind,
+    Diagnostic, DiagnosticArg, DiagnosticArtifactKind, DiagnosticBag,
+    DiagnosticCodegenVerificationStage, DiagnosticId, DiagnosticKind, DiagnosticNote,
+    DiagnosticNoteKind, SeverityKind,
 };
 
 use crate::{
@@ -9,7 +13,7 @@ use crate::{
 };
 
 /// Structured reason one backend operation could not produce a complete artifact set.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenFailure {
     /// The selected backend does not support the requested target.
     UnsupportedTarget,
@@ -19,10 +23,20 @@ pub enum CodegenFailure {
     InvalidConfiguration,
     /// Code generation exceeded an available resource or worker budget.
     ResourceExhausted,
-    /// The backend library failed while processing a valid request.
-    BackendLibrary,
+    /// The backend library failed while processing a valid request and retained its exact report.
+    BackendLibrary { report: Arc<str> },
+    /// A backend support program completed unsuccessfully with its exact captured output.
+    BackendToolExited {
+        program: PathBuf,
+        exit: bray_diagnostics::DiagnosticExternalToolExit,
+    },
     /// Generated backend IR violated a backend module invariant.
     GeneratedModuleInvariant,
+    /// The backend rejected generated native-code input and retained its exact report.
+    BackendRejectedModule {
+        stage: DiagnosticCodegenVerificationStage,
+        report: Arc<str>,
+    },
     /// Serialization failed for one requested artifact kind.
     ArtifactConstruction(BackendArtifactKind),
 }
@@ -123,6 +137,15 @@ impl CodegenOutcome {
     }
 }
 
+impl CodegenFailure {
+    /// Retains the exact report returned by a backend library operation.
+    pub fn backend_library(error: impl std::fmt::Display) -> Self {
+        Self::BackendLibrary {
+            report: Arc::from(error.to_string()),
+        }
+    }
+}
+
 /// A contract violation that prevents construction of a successful code generation outcome.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum CodegenOutcomeBuildError {
@@ -158,9 +181,17 @@ pub fn codegen_failure_diagnostic(
         }
         CodegenFailure::InvalidConfiguration => (DiagnosticKind::CodegenInvalidConfiguration, None),
         CodegenFailure::ResourceExhausted => (DiagnosticKind::CodegenResourceExhausted, None),
-        CodegenFailure::BackendLibrary => (DiagnosticKind::CodegenBackendLibraryFailed, None),
+        CodegenFailure::BackendLibrary { .. } => {
+            (DiagnosticKind::CodegenBackendLibraryFailed, None)
+        }
+        CodegenFailure::BackendToolExited { .. } => {
+            (DiagnosticKind::CodegenBackendToolExited, None)
+        }
         CodegenFailure::GeneratedModuleInvariant => {
             (DiagnosticKind::CodegenGeneratedModuleInvalid, None)
+        }
+        CodegenFailure::BackendRejectedModule { .. } => {
+            (DiagnosticKind::CodegenBackendRejectedModule, None)
         }
         CodegenFailure::ArtifactConstruction(artifact) => (
             DiagnosticKind::CodegenArtifactConstructionFailed,
@@ -178,12 +209,31 @@ pub fn codegen_failure_diagnostic(
         )));
     }
 
+    match failure {
+        CodegenFailure::BackendLibrary { report } => {
+            diagnostic = diagnostic.with_arg(DiagnosticArg::codegen_backend_report(report.as_ref()));
+        }
+        CodegenFailure::BackendToolExited { program, exit } => {
+            diagnostic = diagnostic
+                .with_arg(DiagnosticArg::file_path(program))
+                .with_arg(DiagnosticArg::external_tool_exit(exit.clone()));
+        }
+        CodegenFailure::BackendRejectedModule { stage, report } => {
+            diagnostic = diagnostic
+                .with_arg(DiagnosticArg::codegen_verification_stage(*stage))
+                .with_arg(DiagnosticArg::codegen_backend_report(report.as_ref()));
+        }
+        _ => {}
+    }
+
     if matches!(
         failure,
         CodegenFailure::InvalidConfiguration
             | CodegenFailure::ResourceExhausted
-            | CodegenFailure::BackendLibrary
+            | CodegenFailure::BackendLibrary { .. }
+            | CodegenFailure::BackendToolExited { .. }
             | CodegenFailure::GeneratedModuleInvariant
+            | CodegenFailure::BackendRejectedModule { .. }
             | CodegenFailure::ArtifactConstruction(_)
     ) {
         diagnostic = diagnostic.with_note(DiagnosticNote::new(
@@ -307,13 +357,31 @@ mod tests {
 
         let backend_library = CodegenOutcome::failed(
             fixture.request(),
-            CodegenFailure::BackendLibrary,
+            CodegenFailure::backend_library("backend test failure"),
             DiagnosticBag::new(),
         );
 
         assert_goal_state_diagnostic_kind(
             backend_library.diagnostics(),
             DiagnosticKind::CodegenBackendLibraryFailed,
+        );
+
+        let backend_tool_exit = CodegenOutcome::failed(
+            fixture.request(),
+            CodegenFailure::BackendToolExited {
+                program: std::path::PathBuf::from("opt"),
+                exit: bray_diagnostics::DiagnosticExternalToolExit::new(
+                    Some(1),
+                    &[],
+                    b"optimizer failure",
+                ),
+            },
+            DiagnosticBag::new(),
+        );
+
+        assert_goal_state_diagnostic_kind(
+            backend_tool_exit.diagnostics(),
+            DiagnosticKind::CodegenBackendToolExited,
         );
 
         let generated_module = CodegenOutcome::failed(
@@ -325,6 +393,20 @@ mod tests {
         assert_goal_state_diagnostic_kind(
             generated_module.diagnostics(),
             DiagnosticKind::CodegenGeneratedModuleInvalid,
+        );
+
+        let rejected_module = CodegenOutcome::failed(
+            fixture.request(),
+            CodegenFailure::BackendRejectedModule {
+                stage: bray_diagnostics::DiagnosticCodegenVerificationStage::BeforeOptimization,
+                report: std::sync::Arc::from("value representation mismatch"),
+            },
+            DiagnosticBag::new(),
+        );
+
+        assert_goal_state_diagnostic_kind(
+            rejected_module.diagnostics(),
+            DiagnosticKind::CodegenBackendRejectedModule,
         );
 
         let artifact_construction = CodegenOutcome::failed(

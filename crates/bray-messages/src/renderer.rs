@@ -270,10 +270,13 @@ mod tests {
         DiagnosticArrayGeneratorCardinalityProblem, DiagnosticArrayLength,
         DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind,
         DiagnosticBag, DiagnosticCallbackStateProblem, DiagnosticCheckerFailure,
+        DiagnosticCheckerNode, DiagnosticCheckerSymbol,
+        DiagnosticCodegenVerificationStage,
         DiagnosticConstructionInputRejection, DiagnosticDependencyRequirementKind,
         DiagnosticDependencySubjectKind, DiagnosticEmissionEvaluationFailure,
         DiagnosticEmissionFailure, DiagnosticExpressionCategory, DiagnosticId,
-        DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+        DiagnosticExternalToolExit, DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel,
+        DiagnosticLabelKind,
         DiagnosticLabelStyle, DiagnosticLayoutOption, DiagnosticLayoutProblem,
         DiagnosticMemoryOperation, DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNamedType,
         DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticPatternCoverage,
@@ -286,7 +289,8 @@ mod tests {
         DiagnosticSelectionCandidates, DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
         DiagnosticSelectionRejections, DiagnosticSourceInput, DiagnosticSourceInputOrigin,
         DiagnosticStorageAccess, DiagnosticStorageAccessPurpose, DiagnosticStorageProjection,
-        DiagnosticStorageRoot, DiagnosticSuggestion, DiagnosticSuggestionKind,
+        DiagnosticStorageFlowFailure, DiagnosticStorageRoot, DiagnosticSuggestion,
+        DiagnosticSuggestionKind,
         DiagnosticTargetPredicateValueKind, DiagnosticType, DiagnosticTypeArgument,
         DiagnosticUnionTagProblem, DiagnosticVisibility, DiagnosticYieldCardinality, SeverityKind,
     };
@@ -479,6 +483,296 @@ mod tests {
         );
 
         assert_eq!(forbidden_ordinary_diagnostic_term(rendered.message()), None);
+    }
+
+    #[test]
+    fn backend_module_rejections_preserve_the_exact_report_and_stage() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(9),
+            DiagnosticKind::CodegenBackendRejectedModule,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::target_triple("x86_64-unknown-linux-gnu"))
+        .with_arg(DiagnosticArg::codegen_backend_identity("llvm"))
+        .with_arg(DiagnosticArg::codegen_backend_report(
+            "value representation mismatch",
+        ))
+        .with_arg(DiagnosticArg::codegen_verification_stage(
+            DiagnosticCodegenVerificationStage::BeforeOptimization,
+        ))
+        .with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::ReportCompilerDefect,
+        ));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert!(rendered.message().starts_with("an internal compiler error"));
+        assert!(rendered.message().contains("x86_64-unknown-linux-gnu"));
+        assert!(rendered.message().contains("value representation mismatch"));
+        assert!(rendered.message().contains("before optimization"));
+        assert_eq!(rendered.notes().len(), 1);
+    }
+
+    #[test]
+    fn backend_support_program_failures_render_captured_output_as_text() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(10),
+            DiagnosticKind::CodegenBackendToolExited,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::target_triple("x86_64-pc-windows-msvc"))
+        .with_arg(DiagnosticArg::codegen_backend_identity("llvm"))
+        .with_arg(DiagnosticArg::file_path("C:/toolchain/opt.exe"))
+        .with_arg(DiagnosticArg::external_tool_exit(
+            DiagnosticExternalToolExit::new(Some(1), &[], b"permission denied\n"),
+        ));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert!(rendered.message().contains("C:/toolchain/opt.exe"));
+        assert!(rendered.message().contains("exit code 1"));
+        assert!(rendered.message().contains("permission denied"));
+        assert!(!rendered.message().contains("[112, 101, 114"));
+    }
+
+    #[test]
+    fn checker_compiler_defects_render_source_context_without_internal_identities() {
+        use DiagnosticCheckerFailure as CheckerFailure;
+        use DiagnosticStorageFlowFailure as StorageFlowFailure;
+
+        let expression = DiagnosticCheckerNode::new("expression", 17, 23);
+        let block = DiagnosticCheckerNode::new("block", 19, 29);
+        let pattern = DiagnosticCheckerNode::new("pattern", 31, 37);
+        let callable = DiagnosticCheckerSymbol::new("callable_overload", 41);
+
+        let cases = [
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::IncompatibleInput {
+                    input: "expression_types",
+                    expected_unit: 1,
+                    expected_kind: "callable_body",
+                    actual_unit: 2,
+                    actual_kind: "constant_template",
+                }),
+                "an internal compiler error associated expression types for the highlighted constant definition with a different callable body",
+            ),
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::IncompatibleInput {
+                    input: "future_input",
+                    expected_unit: 1,
+                    expected_kind: "future_expected_kind",
+                    actual_unit: 2,
+                    actual_kind: "future_actual_kind",
+                }),
+                "an internal compiler error associated ownership information for the highlighted source body with a different source body",
+            ),
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::FlowConstruction(
+                    "duplicate_suspension",
+                )),
+                "an internal compiler error could not retain the ownership result for this source body because one await or yield expression has two saved states",
+            ),
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::FlowConstruction(
+                    "future_reason",
+                )),
+                "an internal compiler error could not retain the ownership result for this source body because the compiler could not represent one ownership operation",
+            ),
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::ForeignDependencyContract),
+                "an internal compiler error selected a call or iteration dependency belonging to another source body",
+            ),
+            (
+                CheckerFailure::StorageFlow(
+                    StorageFlowFailure::DependencyContractsConstruction("invalid_borrow"),
+                ),
+                "an internal compiler error could not retain this source body's value dependencies because a dependency refers to a missing borrow",
+            ),
+            (
+                CheckerFailure::StorageFlow(
+                    StorageFlowFailure::DependencyContractsConstruction("future_reason"),
+                ),
+                "an internal compiler error could not retain this source body's value dependencies because the compiler could not represent one value dependency",
+            ),
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::AsyncConstruction(
+                    "foreign_unit",
+                )),
+                "an internal compiler error could not retain this source body's asynchronous behavior because one recorded operation belongs to another source body",
+            ),
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::AsyncConstruction(
+                    "future_reason",
+                )),
+                "an internal compiler error could not retain this source body's asynchronous behavior because the compiler could not represent one asynchronous operation",
+            ),
+            (
+                CheckerFailure::StorageFlow(
+                    StorageFlowFailure::MissingAwaitDependencyContract { expression },
+                ),
+                "an internal compiler error did not determine which values the highlighted expression requires",
+            ),
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::MissingDependencyContract {
+                    expression,
+                    contract_unit: 43,
+                    contract: 47,
+                }),
+                "an internal compiler error associated the highlighted expression with a value dependency that does not exist in its source body",
+            ),
+            (
+                CheckerFailure::StorageFlow(
+                    StorageFlowFailure::CallableParameterCountMismatch {
+                        callable,
+                        signature_parameters: 3,
+                        type_parameters: 2,
+                    },
+                ),
+                "an internal compiler error retained 3 declared parameters but 2 parameter modes for the highlighted overload declaration",
+            ),
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::CallableTypeNotCallable {
+                    callable,
+                }),
+                "an internal compiler error retained a non-callable type for the highlighted overload declaration",
+            ),
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::MissingBorrowCapability {
+                    unit: 53,
+                    borrow: 59,
+                }),
+                "an internal compiler error lost a borrow operation while checking whether a value escapes the highlighted source body",
+            ),
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::MissingExitOrigin {
+                    exit: expression,
+                }),
+                "an internal compiler error lost the source location for the highlighted expression",
+            ),
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::MissingBlock { block }),
+                "an internal compiler error lost the highlighted block targeted by a control-flow transfer",
+            ),
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::MissingStorageAccess {
+                    unit: 61,
+                    access: 67,
+                }),
+                "an internal compiler error lost a local-value access required by the highlighted source body",
+            ),
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::MissingStorageIdentity {
+                    unit: 71,
+                    identity: 73,
+                }),
+                "an internal compiler error lost a local value required by the highlighted source body",
+            ),
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::MissingStorageSymbolName {
+                    symbol: callable,
+                }),
+                "an internal compiler error lost the declared name of the highlighted overload declaration while describing a local-value access",
+            ),
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::UnbalancedScopes {
+                    open_scope: Some(block),
+                }),
+                "an internal compiler error left the highlighted block open while examining its source body's lexical scopes",
+            ),
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::UnbalancedScopes {
+                    open_scope: None,
+                }),
+                "an internal compiler error encountered inconsistent block boundaries while examining this source body",
+            ),
+            (
+                CheckerFailure::StorageFlow(StorageFlowFailure::MissingPattern { pattern }),
+                "an internal compiler error lost the highlighted pattern while examining its source body's lexical scopes",
+            ),
+            (
+                CheckerFailure::InvalidStorageOperation {
+                    expression,
+                    access: 79,
+                    status: "conflicting_borrow",
+                },
+                "an internal compiler error classified a local-value access by the highlighted expression as a conflicting borrow",
+            ),
+            (
+                CheckerFailure::InvalidStorageOperation {
+                    expression,
+                    access: 83,
+                    status: "future_status",
+                },
+                "an internal compiler error classified a local-value access by the highlighted expression as a state the compiler does not recognize",
+            ),
+        ];
+
+        let span = SourceSpan::new(
+            SourceId::new(5),
+            TextRange::new(TextSize::new(8), TextSize::new(13)),
+        );
+
+        for (index, (failure, detail)) in cases.into_iter().enumerate() {
+            let id = u32::try_from(index)
+                .map(DiagnosticId::new)
+                .unwrap_or_else(|_| panic!("checker failure inventory must fit diagnostic IDs"));
+
+            let diagnostic = Diagnostic::new(
+                id,
+                DiagnosticKind::CheckingCompilerDefect,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span)
+            .with_arg(DiagnosticArg::emission_failure(
+                DiagnosticEmissionFailure::Evaluation(
+                    DiagnosticEmissionEvaluationFailure::Checker(failure),
+                ),
+            ))
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::CompilerDefectSource,
+                span,
+            ))
+            .with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::ReportCompilerDefect,
+            ));
+
+            let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+            assert_eq!(rendered.primary_span(), Some(span));
+
+            assert_eq!(
+                rendered.message(),
+                format!(
+                    "an internal compiler error prevented Bray from checking the highlighted source: {detail}"
+                )
+            );
+
+            let [label] = rendered.labels() else {
+                panic!("expected one compiler-defect source label: {rendered:?}");
+            };
+
+            assert_eq!(label.span(), span);
+
+            assert_eq!(
+                label.message(),
+                "the internal compiler error occurred while compiling this highlighted Bray code"
+            );
+
+            let [note] = rendered.notes() else {
+                panic!("expected one compiler-defect reporting note: {rendered:?}");
+            };
+
+            assert_eq!(note.kind(), DiagnosticNoteKind::ReportCompilerDefect);
+            assert_eq!(note.rendered_kind(), RenderedDiagnosticNoteKind::Note);
+
+            assert_eq!(
+                note.message(),
+                "report this compiler defect with the command and complete diagnostic output"
+            );
+
+            assert_eq!(forbidden_internal_term(rendered.message()), None);
+            assert!(!rendered.message().contains('#'));
+        }
     }
 
     #[test]

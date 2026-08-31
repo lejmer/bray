@@ -37,6 +37,8 @@ pub(in crate::output::diagnostic::json) enum DiagnosticArgValueJson {
     DeclarationName(String),
     ReferencedName(String),
     CodegenBackendIdentity(String),
+    CodegenVerificationStage(&'static str),
+    CodegenBackendReport(String),
     LinkerDriverIdentity(DiagnosticLinkerDriverIdentityJson),
     PackageIdentity(String),
     ProductIdentity(String),
@@ -144,6 +146,12 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::ReferencedName(name) => Self::ReferencedName(name.to_owned()),
             DiagnosticArgValue::CodegenBackendIdentity(identity) => {
                 Self::CodegenBackendIdentity(identity.to_owned())
+            }
+            DiagnosticArgValue::CodegenVerificationStage(stage) => {
+                Self::CodegenVerificationStage((*stage).as_str())
+            }
+            DiagnosticArgValue::CodegenBackendReport(report) => {
+                Self::CodegenBackendReport(report.to_owned())
             }
             DiagnosticArgValue::LinkerDriverIdentity(identity) => Self::LinkerDriverIdentity(
                 DiagnosticLinkerDriverIdentityJson::from_identity(identity),

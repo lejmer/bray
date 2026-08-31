@@ -28,6 +28,8 @@ use std::collections::VecDeque;
     peer_workload = "hash_map_growth_and_healthy_lookup"
 ))]
 use std::collections::HashMap;
+#[cfg(peer_workload = "ordered_collections_monotonic_updates")]
+use std::collections::{BTreeMap, BTreeSet};
 #[cfg(peer_workload = "hash_map_collision_lookup")]
 use std::hash::{BuildHasherDefault, Hasher};
 #[cfg(peer_workload = "async_output")]
@@ -91,6 +93,30 @@ fn inner_iterations() -> u64 {
 #[cfg(peer_workload = "small_output")]
 fn workload() -> bool {
     true
+}
+
+#[cfg(peer_workload = "ordered_collections_monotonic_updates")]
+fn workload() -> bool {
+    let mut map = BTreeMap::new();
+    let mut set = BTreeSet::new();
+
+    for key in 0_u64..4_096 {
+        map.insert(key, key);
+    }
+
+    for key in (0_u64..4_096).rev() {
+        set.insert(key);
+    }
+
+    for key in 0_u64..4_096 {
+        if !map.contains_key(&key) || !set.contains(&key) {
+            return false;
+        }
+    }
+
+    std::hint::black_box((&map, &set));
+
+    map.len() == 4_096 && set.len() == 4_096
 }
 
 #[cfg(peer_workload = "hash_map_growth_and_healthy_lookup")]

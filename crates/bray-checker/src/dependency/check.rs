@@ -10,10 +10,10 @@ use bray_symbols::CallableSignatureQuery;
 
 use super::call::{selected_call_contracts, selected_iteration_contract};
 use super::operation::{operation_access_requirements, operation_requirements};
-use crate::unit::semantic_inputs_match;
+use crate::unit::storage_flow_input_failure;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitView,
+    CheckerSemanticQueryProvider, CheckerStorageFlowFailure, CheckerUnitView, StorageFlowInputKind,
 };
 
 pub(crate) fn check_dependency_contracts<C>(
@@ -29,17 +29,24 @@ where
         return CheckerOutcome::Cancelled;
     }
 
-    if !semantic_inputs_match(
+    if let Some(error) = storage_flow_input_failure(
         request,
         [
-            (selections.unit(), selections.kind()),
-            (storage.unit(), storage.kind()),
-            (flow.unit(), flow.kind()),
+            (
+                StorageFlowInputKind::SemanticSelections,
+                (selections.unit(), selections.kind()),
+            ),
+            (
+                StorageFlowInputKind::StoragePlan,
+                (storage.unit(), storage.kind()),
+            ),
+            (
+                StorageFlowInputKind::StorageFlow,
+                (flow.unit(), flow.kind()),
+            ),
         ],
     ) {
-        return CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidStorageFlow,
-        );
+        return CheckerOutcome::InfrastructureFailure(error);
     }
 
     let mut expression_requirements = BTreeMap::new();
@@ -124,7 +131,9 @@ where
             ))) => return CheckerOutcome::UpstreamFailure(error),
             Err(DependencyContractInstantiationError::ForeignUnit) => {
                 return CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::InvalidStorageFlow,
+                    CheckerInfrastructureError::StorageFlow(
+                        CheckerStorageFlowFailure::ForeignDependencyContract,
+                    ),
                 );
             }
         }
@@ -210,9 +219,11 @@ where
         is_recovered,
     ) {
         Ok(contracts) => contracts,
-        Err(_) => {
+        Err(error) => {
             return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidStorageFlow,
+                CheckerInfrastructureError::StorageFlow(
+                    CheckerStorageFlowFailure::DependencyContractsConstruction(error),
+                ),
             );
         }
     };

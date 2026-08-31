@@ -433,13 +433,13 @@ mod tests {
         fn generate(&self, request: CodegenRequest<'_>) -> CodegenOutcome {
             let outcome = CodegenOutcome::failed(
                 request,
-                CodegenFailure::BackendLibrary,
+                CodegenFailure::backend_library("backend test failure"),
                 DiagnosticBag::new(),
             );
 
             assert!(matches!(
                 outcome.status(),
-                CodegenStatus::Failed(CodegenFailure::BackendLibrary)
+                CodegenStatus::Failed(CodegenFailure::BackendLibrary { .. })
             ));
 
             outcome

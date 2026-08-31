@@ -8,14 +8,15 @@ use std::process::ExitCode;
 use bray_diagnostics::{
     DiagnosticBag, DiagnosticDocumentParseKind, DiagnosticIoErrorKind,
     DiagnosticProjectCommandFailure, DiagnosticProjectOperation, DiagnosticProjectSelectionProblem,
-    DiagnosticToolProtocolFailure, DiagnosticToolStream,
 };
 use bray_project::ProjectGraph;
 use bray_test_protocol::{MAXIMUM_TEST_BATCH_REQUEST_BYTES, TestBatchRequest};
 use bray_tooling::{OutputFormat, write_diagnostic_groups, write_diagnostics};
 
 use crate::tack::compiler::ProjectCompiler;
-use crate::tack::error::{operation_diagnostics, process_failure, selection_diagnostics};
+use crate::tack::error::{
+    operation_diagnostics, selection_diagnostics, tool_execution_failure,
+};
 use crate::tack::init::initialize_project;
 use crate::tack::inspection::render_project_inspection;
 use crate::tack::install::{install_git_repository, run_project_process};
@@ -242,6 +243,7 @@ fn execute_invocation(
                 operation: DiagnosticProjectOperation::WorkflowProgressOutput,
                 path: None,
                 problem,
+                detail: None,
             }),
             result.output_format(),
         );
@@ -848,6 +850,7 @@ fn test_batch_document_diagnostics(
         operation: DiagnosticProjectOperation::TestBatchRequest,
         path: Some(path.to_path_buf()),
         problem,
+        detail: None,
     })
 }
 
@@ -1107,54 +1110,6 @@ fn run_format(
             )),
             output_format,
         ),
-    }
-}
-
-fn tool_execution_failure(
-    operation: DiagnosticProjectOperation,
-    error: ToolExecutionError,
-) -> DiagnosticProjectCommandFailure {
-    match error {
-        ToolExecutionError::Platform { program, error } => {
-            process_failure(operation, program, error)
-        }
-        ToolExecutionError::MissingStream(stream) => {
-            DiagnosticProjectCommandFailure::ToolProtocol {
-                operation,
-                failure: DiagnosticToolProtocolFailure::MissingStream(diagnostic_tool_stream(
-                    stream,
-                )),
-            }
-        }
-        ToolExecutionError::StreamIo { stream, error } => {
-            DiagnosticProjectCommandFailure::ToolStreamIo {
-                operation,
-                stream: diagnostic_tool_stream(stream),
-                error: DiagnosticIoErrorKind::from(error),
-            }
-        }
-        ToolExecutionError::InvalidUtf8(stream) => {
-            DiagnosticProjectCommandFailure::ToolStreamInvalidUtf8 {
-                operation,
-                stream: diagnostic_tool_stream(stream),
-            }
-        }
-        ToolExecutionError::StreamThreadPanicked(stream) => {
-            DiagnosticProjectCommandFailure::ToolProtocol {
-                operation,
-                failure: DiagnosticToolProtocolFailure::StreamThreadPanicked(
-                    diagnostic_tool_stream(stream),
-                ),
-            }
-        }
-    }
-}
-
-const fn diagnostic_tool_stream(stream: ToolStream) -> DiagnosticToolStream {
-    match stream {
-        ToolStream::StandardInput => DiagnosticToolStream::StandardInput,
-        ToolStream::StandardOutput => DiagnosticToolStream::StandardOutput,
-        ToolStream::StandardError => DiagnosticToolStream::StandardError,
     }
 }
 

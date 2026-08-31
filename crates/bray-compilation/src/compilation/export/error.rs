@@ -22,6 +22,11 @@ pub enum PackageInterfaceExportError {
         declaration: DiagnosticInterfaceSymbolIdentity,
         cause: FactQueryError,
     },
+    /// Preparing reusable native code for one exported declaration could not complete.
+    ExecutableTemplateEvaluation {
+        declaration: DiagnosticInterfaceSymbolIdentity,
+        cause: FactQueryError,
+    },
     /// A reachable public declaration does not have complete serializable semantics.
     IncompletePublicDeclarationSemantics(SymbolKind),
     /// A resolved fragment omitted a value required by its declaration records.

@@ -372,6 +372,28 @@ pub enum DiagnosticProjectCommandFailure {
         /// Process exit code when the host supplied one.
         code: Option<i32>,
     },
+    /// A compiler child exited unsuccessfully without its required structured report.
+    CompilerOutputMissing {
+        /// Exact package/product identity compiled by the child.
+        product: String,
+        /// Exact compiler executable path or program name.
+        program: PathBuf,
+        /// Process exit code when the host supplied one.
+        code: Option<i32>,
+    },
+    /// A compiler child produced a malformed structured report.
+    CompilerOutputInvalid {
+        /// Exact package/product identity compiled by the child.
+        product: String,
+        /// Exact compiler executable path or program name.
+        program: PathBuf,
+        /// Process exit code when the host supplied one.
+        code: Option<i32>,
+        /// Exact structural category rejected by the report decoder.
+        problem: DiagnosticDocumentParseKind,
+        /// Exact decoder report when the document library supplied one.
+        detail: Option<String>,
+    },
     /// I/O through one selected child-tool stream failed.
     ToolStreamIo {
         /// Project command operation owning the tool.
@@ -403,6 +425,8 @@ pub enum DiagnosticProjectCommandFailure {
         path: Option<PathBuf>,
         /// Stable syntax, schema, input, or serialization category.
         problem: DiagnosticDocumentParseKind,
+        /// Exact parser or serializer report when the document library supplied one.
+        detail: Option<String>,
     },
     /// Test scheduling rejected the exact selected work.
     TestExecutionPlan(DiagnosticTestExecutionPlanProblem),
@@ -453,6 +477,12 @@ impl DiagnosticProjectCommandFailure {
                 | Self::Inspection(_)
                 | Self::ToolProtocol { .. }
                 | Self::Invariant(_)
+                | Self::CompilerOutputMissing { .. }
+                | Self::CompilerOutputInvalid { .. }
+                | Self::Document {
+                    operation: DiagnosticProjectOperation::CompilerJsonOutput,
+                    ..
+                }
         )
     }
 

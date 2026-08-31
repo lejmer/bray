@@ -44,7 +44,7 @@ impl Compilation {
             CompilationFactKey::ImplementationSelection(key),
             cancellation,
             || {
-                self.compute_implementation_selection(key, cancellation)
+                self.compute_implementation_selection(key, &[], cancellation)
                     .map(Arc::new)
             },
         )?;
@@ -52,9 +52,19 @@ impl Compilation {
         Ok(Arc::clone(result))
     }
 
+    pub(in crate::compilation) fn implementation_selection_with_constraint_evidence(
+        &self,
+        key: ImplementationRequirementKey,
+        evidence: &[(bray_symbols::TypeId, bray_symbols::TraitApplicationId)],
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<ImplementationSelection>, FactQueryError> {
+        self.compute_implementation_selection(key, evidence, cancellation)
+    }
+
     fn compute_implementation_selection(
         &self,
         key: ImplementationRequirementKey,
+        evidence: &[(bray_symbols::TypeId, bray_symbols::TraitApplicationId)],
         cancellation: &CancellationToken,
     ) -> Result<
         bray_diagnostics::DiagnosticResult<
@@ -74,8 +84,9 @@ impl Compilation {
         for candidate in candidates.value().candidates() {
             cancellation.check()?;
 
-            let outcome = self.implementation_candidate_constraint_outcome(
+            let outcome = self.implementation_candidate_constraint_outcome_with_evidence(
                 candidate,
+                evidence,
                 cancellation,
                 &mut diagnostics,
             )?;

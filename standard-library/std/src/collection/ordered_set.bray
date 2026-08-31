@@ -1,0 +1,402 @@
+module std.collection;
+
+internal struct OrderedSetItem<Value>
+{
+    value: Value;
+}
+
+internal impl OrderedSetTreeItem = OrderedSetItem<Value>(OrderedTreeItem<Value>)
+    with(Value: Comparable<Value>)
+{
+    func compare_key(pos key: &Value) -> Ordering
+    {
+        return self.value.compare(key);
+    }
+}
+
+/// An owning set with logarithmic operations and deterministic value-order traversal.
+struct OrderedSet<Value>
+{
+    internal mut tree: OrderedTree<OrderedSetItem<Value>>;
+
+    /// Creates an empty set able to retain at least `capacity` values without growing.
+    trusted construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>
+    {
+        let tree: OrderedTree<OrderedSetItem<Value>> = try trusted OrderedTree<OrderedSetItem<Value>>(
+            capacity = capacity
+        );
+
+        return Ok(
+            {
+                tree = tree,
+            }
+        );
+    }
+
+    /// Returns the number of values in the set.
+    func length() -> usize
+    {
+        return ordered_tree_length<OrderedSetItem<Value>>(&self.tree);
+    }
+
+    /// Returns the number of values that fit without growing the set's storage.
+    func capacity() -> usize
+    {
+        return ordered_tree_capacity<OrderedSetItem<Value>>(&self.tree);
+    }
+
+    /// Reports whether the set contains no values.
+    func is_empty() -> bool
+    {
+        return ordered_tree_is_empty<OrderedSetItem<Value>>(&self.tree);
+    }
+
+    /// Reserves room for at least `additional` more values.
+    trusted mut func reserve(additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
+    {
+        return trusted ordered_tree_reserve<OrderedSetItem<Value>>(&mut self.tree, additional = additional);
+    }
+
+    /// Borrows the stored value equal to `value`.
+    func get(pos value: &Value) -> (&Value)?
+        with(Value: Comparable<Value>)
+    {
+        let search: OrderedTreeSearch = ordered_tree_search<OrderedSetItem<Value>, Value>(
+            &self.tree,
+            value,
+        );
+
+        let index: usize = search.found?;
+        let item: &OrderedSetItem<Value> = trusted ordered_tree_item<OrderedSetItem<Value>>(&self.tree, index = index);
+
+        let stored: &Value = &item.value;
+        let mut result: (&Value)? = none;
+
+        result = stored;
+
+        return result;
+    }
+
+    /// Reports whether an equal value belongs to the set.
+    func contains(pos value: &Value) -> bool
+        with(Value: Comparable<Value>)
+    {
+        let search: OrderedTreeSearch = ordered_tree_search<OrderedSetItem<Value>, Value>(
+            &self.tree,
+            value,
+        );
+
+        return match search.found
+        {
+            case ?_ { yield true; }
+            case none { yield false; }
+        };
+    }
+
+    /// Inserts `value` and reports whether it was newly added.
+    trusted mut func insert(pos value: Value) -> Result<bool, std.memory.MemoryLayoutError>
+        with(Value: Comparable<Value>)
+    {
+        let search: OrderedTreeSearch = ordered_tree_search<OrderedSetItem<Value>, Value>(
+            &self.tree,
+            &value,
+        );
+
+        match search.found
+        {
+            case ?_ { return Ok(false); }
+            case none {}
+        }
+
+        try trusted self.reserve(additional = 1);
+
+        let item: OrderedSetItem<Value> =
+        {
+            value = value,
+        };
+
+        let _: usize = trusted ordered_tree_insert_at<OrderedSetItem<Value>>(&mut self.tree, item, search = search);
+
+        return Ok(true);
+    }
+
+    /// Inserts `value` and returns the equal value it replaced, if any.
+    trusted mut func replace(pos value: Value) -> Result<Value?, std.memory.MemoryLayoutError>
+        with(Value: Comparable<Value>)
+    {
+        let search: OrderedTreeSearch = ordered_tree_search<OrderedSetItem<Value>, Value>(
+            &self.tree,
+            &value,
+        );
+
+        match search.found
+        {
+            case ?index
+            {
+                let item: OrderedSetItem<Value> = trusted ordered_tree_take_item<OrderedSetItem<Value>>(
+                    &mut self.tree,
+                    index = index,
+                );
+
+                trusted ordered_tree_write_item<OrderedSetItem<Value>>(
+                    &mut self.tree,
+                    {
+                        value = value,
+                    },
+                    index = index,
+                );
+
+                let mut replaced: Value? = none;
+
+                replaced = item.value;
+
+                return Ok(replaced);
+            }
+            case none {}
+        }
+
+        try trusted self.reserve(additional = 1);
+
+        let item: OrderedSetItem<Value> =
+        {
+            value = value,
+        };
+
+        let _: usize = trusted ordered_tree_insert_at<OrderedSetItem<Value>>(&mut self.tree, item, search = search);
+
+        return Ok(none);
+    }
+
+    /// Removes an equal value and reports whether it was present.
+    trusted mut func remove(pos value: &Value) -> bool
+        with(Value: Comparable<Value>)
+    {
+        return match trusted self.take(value)
+        {
+            case ?_ { yield true; }
+            case none { yield false; }
+        };
+    }
+
+    /// Removes and returns the stored value equal to `value`.
+    trusted mut func take(pos value: &Value) -> Value?
+        with(Value: Comparable<Value>)
+    {
+        let search: OrderedTreeSearch = ordered_tree_search<OrderedSetItem<Value>, Value>(
+            &self.tree,
+            value,
+        );
+
+        let index: usize = search.found?;
+
+        let item: OrderedSetItem<Value> = trusted ordered_tree_remove_at<OrderedSetItem<Value>>(
+            &mut self.tree,
+            index = index,
+        );
+
+        let mut result: Value? = none;
+
+        result = item.value;
+
+        return result;
+    }
+
+    /// Borrows the first value greater than or equal to `value`.
+    func lower_bound(pos value: &Value) -> (&Value)?
+        with(Value: Comparable<Value>)
+    {
+        let index: usize = (ordered_tree_bound<OrderedSetItem<Value>, Value>(
+            &self.tree,
+            value,
+            inclusive = true,
+        ))?;
+
+        return ordered_set_reference_at<Value>(&self, index = index);
+    }
+
+    /// Borrows the first value greater than `value`.
+    func upper_bound(pos value: &Value) -> (&Value)?
+        with(Value: Comparable<Value>)
+    {
+        let index: usize = (ordered_tree_bound<OrderedSetItem<Value>, Value>(
+            &self.tree,
+            value,
+            inclusive = false,
+        ))?;
+
+        return ordered_set_reference_at<Value>(&self, index = index);
+    }
+
+    /// Borrows the least value.
+    func first() -> (&Value)?
+    {
+        let index: usize = (ordered_tree_minimum<OrderedSetItem<Value>>(&self.tree, self.tree.root))?;
+
+        return ordered_set_reference_at<Value>(&self, index = index);
+    }
+
+    /// Borrows the greatest value.
+    func last() -> (&Value)?
+    {
+        let index: usize = (ordered_tree_maximum<OrderedSetItem<Value>>(&self.tree, self.tree.root))?;
+
+        return ordered_set_reference_at<Value>(&self, index = index);
+    }
+
+    /// Iterates values in ascending order within the explicit bounds.
+    func range(pos start: Bound<Value>, pos end: Bound<Value>) -> OrderedSetRangeCursor<Value>
+        with(Value: Comparable<Value>)
+    {
+        let first: usize? = ordered_bound_start<OrderedSetItem<Value>, Value>(
+            &self.tree,
+            start,
+        );
+
+        let (upper, inclusive) = ordered_bound_end<Value>(end);
+
+        return
+        {
+            set = &self,
+            current = first,
+            upper = upper,
+            upper_inclusive = inclusive,
+        };
+    }
+
+    /// Removes all values while retaining the allocation.
+    trusted mut func clear()
+    {
+        trusted ordered_tree_clear<OrderedSetItem<Value>>(&mut self.tree);
+    }
+}
+
+internal func ordered_set_reference_at<Value>(pos set: &OrderedSet<Value>, index: usize) -> (&Value)?
+{
+    let item: &OrderedSetItem<Value> = trusted ordered_tree_item<OrderedSetItem<Value>>(&set.tree, index = index);
+
+    let stored: &Value = &item.value;
+    let mut result: (&Value)? = none;
+
+    result = stored;
+
+    return result;
+}
+
+/// A cursor over shared ordered-set values in ascending order.
+struct OrderedSetReadCursor<Value>
+{
+    internal set: &OrderedSet<Value>;
+    internal mut current: usize?;
+}
+
+impl OrderedSetReadCursorIterator = OrderedSetReadCursor<Value>(Iterator)
+{
+    type Element = &Value;
+
+    mut func next() -> (&Value)?
+    {
+        let index: usize = self.current?;
+
+        self.current = ordered_tree_successor<OrderedSetItem<Value>>(&self.set.tree, index = index);
+
+        return ordered_set_reference_at<Value>(self.set, index = index);
+    }
+}
+
+impl OrderedSetReadIterable = &OrderedSet<Value>(Iterable)
+{
+    type Element = &Value;
+    type Cursor = OrderedSetReadCursor<Value>;
+
+    consume func iterate() -> OrderedSetReadCursor<Value>
+    {
+        return
+        {
+            set = self,
+            current = ordered_tree_minimum<OrderedSetItem<Value>>(&self.tree, self.tree.root),
+        };
+    }
+}
+
+/// A cursor that consumes an ordered set and produces owned values in ascending order.
+struct OrderedSetMoveCursor<Value>
+{
+    internal mut set: OrderedSet<Value>;
+    internal mut current: usize?;
+}
+
+impl OrderedSetMoveCursorIterator = OrderedSetMoveCursor<Value>(Iterator)
+{
+    type Element = Value;
+
+    mut func next() -> Value?
+    {
+        let index: usize = self.current?;
+
+        self.current = ordered_tree_successor<OrderedSetItem<Value>>(&self.set.tree, index = index);
+
+        let item: OrderedSetItem<Value> = trusted ordered_tree_take_for_iteration<OrderedSetItem<Value>>(
+            &mut self.set.tree,
+            index = index,
+        );
+
+        let mut result: Value? = none;
+
+        result = item.value;
+
+        return result;
+    }
+}
+
+impl OrderedSetMoveIterable = OrderedSet<Value>(Iterable)
+{
+    type Element = Value;
+    type Cursor = OrderedSetMoveCursor<Value>;
+
+    consume func iterate() -> OrderedSetMoveCursor<Value>
+    {
+        let first: usize? = ordered_tree_minimum<OrderedSetItem<Value>>(&self.tree, self.tree.root);
+
+        return
+        {
+            set = self,
+            current = first,
+        };
+    }
+}
+
+/// A cursor over a bounded ascending range of shared ordered-set values.
+struct OrderedSetRangeCursor<Value>
+{
+    internal set: &OrderedSet<Value>;
+    internal mut current: usize?;
+    internal upper: (&Value)?;
+    internal upper_inclusive: bool;
+}
+
+impl OrderedSetRangeCursorIterator = OrderedSetRangeCursor<Value>(Iterator)
+    with(Value: Comparable<Value>)
+{
+    type Element = &Value;
+
+    mut func next() -> (&Value)?
+    {
+        let index: usize = self.current?;
+
+        let item: &OrderedSetItem<Value> = trusted ordered_tree_item<OrderedSetItem<Value>>(
+            &self.set.tree,
+            index = index,
+        );
+
+        if !ordered_key_within_end<Value>(&item.value, self.upper, inclusive = self.upper_inclusive)
+        {
+            self.current = none;
+
+            return none;
+        }
+
+        self.current = ordered_tree_successor<OrderedSetItem<Value>>(&self.set.tree, index = index);
+
+        return ordered_set_reference_at<Value>(self.set, index = index);
+    }
+}

@@ -70,6 +70,10 @@ pub enum DiagnosticArgName {
     ReferencedName,
     /// Stable identity of the selected code generation backend.
     CodegenBackendIdentity,
+    /// Stage at which the native-code generator rejected its input.
+    CodegenVerificationStage,
+    /// Exact report returned by the native-code generator.
+    CodegenBackendReport,
     /// Complete identity of the selected native linker or archiver driver.
     LinkerDriverIdentity,
     /// Semantic category required at a name reference.
@@ -311,6 +315,8 @@ impl DiagnosticArgName {
             Self::TraitMemberName => "trait_member_name",
             Self::ReferencedName => "referenced_name",
             Self::CodegenBackendIdentity => "codegen_backend_identity",
+            Self::CodegenVerificationStage => "codegen_verification_stage",
+            Self::CodegenBackendReport => "codegen_backend_report",
             Self::LinkerDriverIdentity => "linker_driver_identity",
             Self::ExpectedNameKind => "expected_name_kind",
             Self::ExpectedByteCount => "expected_byte_count",
@@ -452,6 +458,10 @@ pub enum DiagnosticArgValue {
     ReferencedName(String),
     /// Stable identity of the selected code generation backend.
     CodegenBackendIdentity(String),
+    /// Stage at which the native-code generator rejected its input.
+    CodegenVerificationStage(super::DiagnosticCodegenVerificationStage),
+    /// Exact report returned by the native-code generator.
+    CodegenBackendReport(String),
     /// Complete identity of the selected native linker or archiver driver.
     LinkerDriverIdentity(crate::DiagnosticLinkerDriverIdentity),
     /// Stable package identity.

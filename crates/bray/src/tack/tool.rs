@@ -92,25 +92,57 @@ impl ToolRequest {
 #[derive(Debug)]
 pub(crate) struct ToolOutput {
     success: bool,
+    exit_code: Option<i32>,
+    subject: Option<String>,
     stdout: String,
     stderr: String,
 }
 
 impl ToolOutput {
+    #[cfg(test)]
     pub(crate) fn new(success: bool, stdout: String, stderr: String) -> Self {
         Self {
             success,
+            exit_code: None,
+            subject: None,
             stdout,
             stderr,
         }
+    }
+
+    pub(crate) fn from_process(
+        success: bool,
+        exit_code: Option<i32>,
+        stdout: String,
+        stderr: String,
+    ) -> Self {
+        Self {
+            success,
+            exit_code,
+            subject: None,
+            stdout,
+            stderr,
+        }
+    }
+
+    pub(crate) fn with_subject(mut self, subject: impl Into<String>) -> Self {
+        self.subject = Some(subject.into());
+
+        self
     }
 
     pub(crate) const fn success(&self) -> bool {
         self.success
     }
 
-    pub(crate) fn into_parts(self) -> (bool, String, String) {
-        (self.success, self.stdout, self.stderr)
+    pub(crate) fn into_parts(self) -> (bool, Option<i32>, Option<String>, String, String) {
+        (
+            self.success,
+            self.exit_code,
+            self.subject,
+            self.stdout,
+            self.stderr,
+        )
     }
 }
 
@@ -165,7 +197,12 @@ impl ToolExecutor for NativeToolExecutor {
         let stderr = String::from_utf8(stderr)
             .map_err(|_| ToolExecutionError::InvalidUtf8(ToolStream::StandardError))?;
 
-        Ok(ToolOutput::new(status.success(), stdout, stderr))
+        Ok(ToolOutput::from_process(
+            status.success(),
+            status.code(),
+            stdout,
+            stderr,
+        ))
     }
 
     fn serve(
@@ -248,7 +285,12 @@ impl ToolExecutor for NativeToolExecutor {
         let stderr = String::from_utf8(stderr)
             .map_err(|_| ToolExecutionError::InvalidUtf8(ToolStream::StandardError))?;
 
-        Ok(ToolOutput::new(status.success(), String::new(), stderr))
+        Ok(ToolOutput::from_process(
+            status.success(),
+            status.code(),
+            String::new(),
+            stderr,
+        ))
     }
 }
 

@@ -1,0 +1,486 @@
+module std.collection;
+
+internal struct OrderedMapItem<Key, Value>
+{
+    key: Key;
+    mut value: Value;
+}
+
+internal impl OrderedMapTreeItem = OrderedMapItem<Key, Value>(OrderedTreeItem<Key>)
+    with(Key: Comparable<Key>)
+{
+    func compare_key(pos key: &Key) -> Ordering
+    {
+        return self.key.compare(key);
+    }
+}
+
+/// An owning map with logarithmic operations and deterministic key-order traversal.
+struct OrderedMap<Key, Value>
+{
+    internal mut tree: OrderedTree<OrderedMapItem<Key, Value>>;
+
+    /// Creates an empty map able to retain at least `capacity` entries without growing.
+    trusted construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>
+    {
+        let tree: OrderedTree<OrderedMapItem<Key, Value>> = try trusted OrderedTree<OrderedMapItem<Key, Value>>(
+            capacity = capacity
+        );
+
+        return Ok(
+            {
+                tree = tree,
+            }
+        );
+    }
+
+    /// Returns the number of entries in the map.
+    func length() -> usize
+    {
+        return ordered_tree_length<OrderedMapItem<Key, Value>>(&self.tree);
+    }
+
+    /// Returns the number of entries that fit without growing the map's storage.
+    func capacity() -> usize
+    {
+        return ordered_tree_capacity<OrderedMapItem<Key, Value>>(&self.tree);
+    }
+
+    /// Reports whether the map contains no entries.
+    func is_empty() -> bool
+    {
+        return ordered_tree_is_empty<OrderedMapItem<Key, Value>>(&self.tree);
+    }
+
+    /// Reserves room for at least `additional` more entries.
+    trusted mut func reserve(additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
+    {
+        return trusted ordered_tree_reserve<OrderedMapItem<Key, Value>>(&mut self.tree, additional = additional);
+    }
+
+    /// Borrows the value associated with `key`.
+    func get(pos key: &Key) -> (&Value)?
+        with(Key: Comparable<Key>)
+    {
+        let search: OrderedTreeSearch = ordered_tree_search<OrderedMapItem<Key, Value>, Key>(
+            &self.tree,
+            key,
+        );
+
+        let index: usize = search.found?;
+
+        let item: &OrderedMapItem<Key, Value> = trusted ordered_tree_item<OrderedMapItem<Key, Value>>(
+            &self.tree,
+            index = index,
+        );
+
+        let value: &Value = &item.value;
+        let mut result: (&Value)? = none;
+
+        result = value;
+
+        return result;
+    }
+
+    /// Mutably borrows the value associated with `key`.
+    mut func get_mut(pos key: &Key) -> (&mut Value)?
+        with(Key: Comparable<Key>)
+    {
+        let search: OrderedTreeSearch = ordered_tree_search<OrderedMapItem<Key, Value>, Key>(
+            &self.tree,
+            key,
+        );
+
+        let index: usize = search.found?;
+
+        let item: &mut OrderedMapItem<Key, Value> = trusted ordered_tree_item_mut<OrderedMapItem<Key, Value>>(
+            &mut self.tree,
+            index = index,
+        );
+
+        let value: &mut Value = &mut item.value;
+        let mut result: (&mut Value)? = none;
+
+        result = value;
+
+        return result;
+    }
+
+    /// Reports whether `key` belongs to the map.
+    func contains_key(pos key: &Key) -> bool
+        with(Key: Comparable<Key>)
+    {
+        let search: OrderedTreeSearch = ordered_tree_search<OrderedMapItem<Key, Value>, Key>(
+            &self.tree,
+            key,
+        );
+
+        return match search.found
+        {
+            case ?_ { yield true; }
+            case none { yield false; }
+        };
+    }
+
+    /// Inserts an entry and returns the replaced value when the key was already present.
+    trusted mut func insert(pos key: Key, pos value: Value) -> Result<Value?, std.memory.MemoryLayoutError>
+        with(Key: Comparable<Key>)
+    {
+        let search: OrderedTreeSearch = ordered_tree_search<OrderedMapItem<Key, Value>, Key>(
+            &self.tree,
+            &key,
+        );
+
+        match search.found
+        {
+            case ?index
+            {
+                let item: &mut OrderedMapItem<Key, Value> = trusted ordered_tree_item_mut<OrderedMapItem<Key, Value>>(
+                    &mut self.tree,
+                    index = index,
+                );
+
+                let pointer: RawPointer<Value> = std.memory.address_of_mut<Value>(&mut item.value);
+                let previous: Value = trusted std.memory.read<Value>(pointer);
+
+                trusted std.memory.write<Value>(pointer, value);
+
+                let mut replaced: Value? = none;
+
+                replaced = previous;
+
+                return Ok(replaced);
+            }
+            case none {}
+        }
+
+        try trusted self.reserve(additional = 1);
+
+        let item: OrderedMapItem<Key, Value> =
+        {
+            key = key,
+            value = value,
+        };
+
+        let _: usize = trusted ordered_tree_insert_at<OrderedMapItem<Key, Value>>(
+            &mut self.tree,
+            item,
+            search = search,
+        );
+
+        return Ok(none);
+    }
+
+    /// Removes `key` and returns its value when present.
+    trusted mut func remove(pos key: &Key) -> Value?
+        with(Key: Comparable<Key>)
+    {
+        let entry: (Key, Value) = (trusted self.remove_entry(key))?;
+        let (_, value) = entry;
+        let mut result: Value? = none;
+
+        result = value;
+
+        return result;
+    }
+
+    /// Removes `key` and returns its owned key and value when present.
+    trusted mut func remove_entry(pos key: &Key) -> (Key, Value)?
+        with(Key: Comparable<Key>)
+    {
+        let search: OrderedTreeSearch = ordered_tree_search<OrderedMapItem<Key, Value>, Key>(
+            &self.tree,
+            key,
+        );
+
+        let index: usize = search.found?;
+
+        let item: OrderedMapItem<Key, Value> = trusted ordered_tree_remove_at<OrderedMapItem<Key, Value>>(
+            &mut self.tree,
+            index = index,
+        );
+
+        let mut result: (Key, Value)? = none;
+
+        result = (item.key, item.value);
+
+        return result;
+    }
+
+    /// Borrows the first entry whose key is greater than or equal to `key`.
+    func lower_bound(pos key: &Key) -> OrderedMapReference<Key, Value>?
+        with(Key: Comparable<Key>)
+    {
+        let index: usize = (ordered_tree_bound<OrderedMapItem<Key, Value>, Key>(
+            &self.tree,
+            key,
+            inclusive = true,
+        ))?;
+
+        return ordered_map_reference_at<Key, Value>(&self, index = index);
+    }
+
+    /// Borrows the first entry whose key is greater than `key`.
+    func upper_bound(pos key: &Key) -> OrderedMapReference<Key, Value>?
+        with(Key: Comparable<Key>)
+    {
+        let index: usize = (ordered_tree_bound<OrderedMapItem<Key, Value>, Key>(
+            &self.tree,
+            key,
+            inclusive = false,
+        ))?;
+
+        return ordered_map_reference_at<Key, Value>(&self, index = index);
+    }
+
+    /// Borrows the least entry.
+    func first() -> OrderedMapReference<Key, Value>?
+    {
+        let index: usize = (ordered_tree_minimum<OrderedMapItem<Key, Value>>(&self.tree, self.tree.root))?;
+
+        return ordered_map_reference_at<Key, Value>(&self, index = index);
+    }
+
+    /// Borrows the greatest entry.
+    func last() -> OrderedMapReference<Key, Value>?
+    {
+        let index: usize = (ordered_tree_maximum<OrderedMapItem<Key, Value>>(&self.tree, self.tree.root))?;
+
+        return ordered_map_reference_at<Key, Value>(&self, index = index);
+    }
+
+    /// Iterates entries in ascending key order within the explicit bounds.
+    func range(pos start: Bound<Key>, pos end: Bound<Key>) -> OrderedMapRangeCursor<Key, Value>
+        with(Key: Comparable<Key>)
+    {
+        let first: usize? = ordered_bound_start<OrderedMapItem<Key, Value>, Key>(
+            &self.tree,
+            start,
+        );
+
+        let (upper, inclusive) = ordered_bound_end<Key>(end);
+
+        return
+        {
+            map = &self,
+            current = first,
+            upper = upper,
+            upper_inclusive = inclusive,
+        };
+    }
+
+    /// Removes all entries while retaining the allocation.
+    trusted mut func clear()
+    {
+        trusted ordered_tree_clear<OrderedMapItem<Key, Value>>(&mut self.tree);
+    }
+}
+
+/// A shared ordered-map entry produced by lookup or iteration.
+struct OrderedMapReference<Key, Value>
+{
+    key: &Key;
+    value: &Value;
+}
+
+internal func ordered_map_reference_at<Key, Value>(
+    pos map: &OrderedMap<Key, Value>,
+    index: usize
+) -> OrderedMapReference<Key, Value>?
+{
+    let item: &OrderedMapItem<Key, Value> = trusted ordered_tree_item<OrderedMapItem<Key, Value>>(
+        &map.tree,
+        index = index,
+    );
+
+    let reference: OrderedMapReference<Key, Value> =
+    {
+        key = &item.key,
+        value = &item.value,
+    };
+
+    let mut result: OrderedMapReference<Key, Value>? = none;
+
+    result = reference;
+
+    return result;
+}
+
+/// A mutable ordered-map entry produced during iteration. Keys remain shared so their ordering cannot be invalidated.
+struct OrderedMapReferenceMut<Key, Value>
+{
+    key: &Key;
+    mut value: &mut Value;
+}
+
+/// A cursor over shared ordered-map entries in ascending key order.
+struct OrderedMapReadCursor<Key, Value>
+{
+    internal map: &OrderedMap<Key, Value>;
+    internal mut current: usize?;
+}
+
+impl OrderedMapReadCursorIterator = OrderedMapReadCursor<Key, Value>(Iterator)
+{
+    type Element = OrderedMapReference<Key, Value>;
+
+    mut func next() -> OrderedMapReference<Key, Value>?
+    {
+        let index: usize = self.current?;
+
+        self.current = ordered_tree_successor<OrderedMapItem<Key, Value>>(&self.map.tree, index = index);
+
+        return ordered_map_reference_at<Key, Value>(self.map, index = index);
+    }
+}
+
+impl OrderedMapReadIterable = &OrderedMap<Key, Value>(Iterable)
+{
+    type Element = OrderedMapReference<Key, Value>;
+    type Cursor = OrderedMapReadCursor<Key, Value>;
+
+    consume func iterate() -> OrderedMapReadCursor<Key, Value>
+    {
+        return
+        {
+            map = self,
+            current = ordered_tree_minimum<OrderedMapItem<Key, Value>>(&self.tree, self.tree.root),
+        };
+    }
+}
+
+/// A cursor over mutable ordered-map values in ascending key order.
+struct OrderedMapWriteCursor<Key, Value>
+{
+    internal mut map: &mut OrderedMap<Key, Value>;
+    internal mut current: usize?;
+}
+
+impl OrderedMapWriteCursorIterator = OrderedMapWriteCursor<Key, Value>(Iterator)
+{
+    type Element = OrderedMapReferenceMut<Key, Value>;
+
+    mut func next() -> OrderedMapReferenceMut<Key, Value>?
+    {
+        let index: usize = self.current?;
+
+        self.current = ordered_tree_successor<OrderedMapItem<Key, Value>>(&self.map.tree, index = index);
+
+        let item: &mut OrderedMapItem<Key, Value> = trusted ordered_tree_item_mut<OrderedMapItem<Key, Value>>(
+            &mut self.map.tree,
+            index = index,
+        );
+
+        let reference: OrderedMapReferenceMut<Key, Value> =
+        {
+            key = &item.key,
+            value = &mut item.value,
+        };
+
+        let mut result: OrderedMapReferenceMut<Key, Value>? = none;
+
+        result = reference;
+
+        return result;
+    }
+}
+
+impl OrderedMapWriteIterable = &mut OrderedMap<Key, Value>(Iterable)
+{
+    type Element = OrderedMapReferenceMut<Key, Value>;
+    type Cursor = OrderedMapWriteCursor<Key, Value>;
+
+    consume func iterate() -> OrderedMapWriteCursor<Key, Value>
+    {
+        let first: usize? = ordered_tree_minimum<OrderedMapItem<Key, Value>>(&self.tree, self.tree.root);
+
+        return
+        {
+            map = self,
+            current = first,
+        };
+    }
+}
+
+/// A cursor that consumes an ordered map and produces owned entries in ascending key order.
+struct OrderedMapMoveCursor<Key, Value>
+{
+    internal mut map: OrderedMap<Key, Value>;
+    internal mut current: usize?;
+}
+
+impl OrderedMapMoveCursorIterator = OrderedMapMoveCursor<Key, Value>(Iterator)
+{
+    type Element = (Key, Value);
+
+    mut func next() -> (Key, Value)?
+    {
+        let index: usize = self.current?;
+
+        self.current = ordered_tree_successor<OrderedMapItem<Key, Value>>(&self.map.tree, index = index);
+
+        let item: OrderedMapItem<Key, Value> = trusted ordered_tree_take_for_iteration<OrderedMapItem<Key, Value>>(
+            &mut self.map.tree,
+            index = index,
+        );
+
+        let mut result: (Key, Value)? = none;
+
+        result = (item.key, item.value);
+
+        return result;
+    }
+}
+
+impl OrderedMapMoveIterable = OrderedMap<Key, Value>(Iterable)
+{
+    type Element = (Key, Value);
+    type Cursor = OrderedMapMoveCursor<Key, Value>;
+
+    consume func iterate() -> OrderedMapMoveCursor<Key, Value>
+    {
+        let first: usize? = ordered_tree_minimum<OrderedMapItem<Key, Value>>(&self.tree, self.tree.root);
+
+        return
+        {
+            map = self,
+            current = first,
+        };
+    }
+}
+
+/// A cursor over a bounded ascending range of shared ordered-map entries.
+struct OrderedMapRangeCursor<Key, Value>
+{
+    internal map: &OrderedMap<Key, Value>;
+    internal mut current: usize?;
+    internal upper: (&Key)?;
+    internal upper_inclusive: bool;
+}
+
+impl OrderedMapRangeCursorIterator = OrderedMapRangeCursor<Key, Value>(Iterator)
+    with(Key: Comparable<Key>)
+{
+    type Element = OrderedMapReference<Key, Value>;
+
+    mut func next() -> OrderedMapReference<Key, Value>?
+    {
+        let index: usize = self.current?;
+
+        let item: &OrderedMapItem<Key, Value> = trusted ordered_tree_item<OrderedMapItem<Key, Value>>(
+            &self.map.tree,
+            index = index,
+        );
+
+        if !ordered_key_within_end<Key>(&item.key, self.upper, inclusive = self.upper_inclusive)
+        {
+            self.current = none;
+
+            return none;
+        }
+
+        self.current = ordered_tree_successor<OrderedMapItem<Key, Value>>(&self.map.tree, index = index);
+
+        return ordered_map_reference_at<Key, Value>(self.map, index = index);
+    }
+}

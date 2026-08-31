@@ -98,6 +98,7 @@ fn load_profile(path: &Path) -> Result<CompilationProfileReport, DiagnosticBag> 
             } else {
                 DiagnosticDocumentParseKind::Input
             },
+            detail: Some(error.to_string()),
         })
     })?;
 

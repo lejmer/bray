@@ -254,14 +254,16 @@ where
         self.context.generic_constraints(obligation)
     }
 
-    pub(crate) fn implementation_selection(
+    pub(crate) fn implementation_selection_with_constraint_evidence(
         self,
         requirement: bray_symbols::ImplementationRequirementKey,
+        evidence: &[(bray_symbols::TypeId, bray_symbols::TraitApplicationId)],
     ) -> CheckerQueryResult<
         bray_diagnostics::DiagnosticResult<bray_symbols::ImplementationSelection>,
         C::UpstreamError,
     > {
-        self.context.implementation_selection(requirement)
+        self.context
+            .implementation_selection_with_constraint_evidence(requirement, evidence)
     }
 
     /// Returns the checked representation contract for one declared type.
@@ -367,6 +369,35 @@ where
     let identity = (request.unit().unit(), request.unit().key().kind());
 
     inputs.into_iter().all(|input| input == identity)
+}
+
+pub(crate) fn storage_flow_input_failure<C, const N: usize>(
+    request: CheckerUnitView<'_, C>,
+    inputs: [
+        (
+            crate::StorageFlowInputKind,
+            (bray_bound_tree::BoundUnitId, bray_bound_tree::BoundUnitKind),
+        );
+        N
+    ],
+) -> Option<CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let expected_unit = request.unit().unit();
+    let expected_kind = request.unit().key().kind();
+
+    inputs.into_iter().find_map(|(input, (actual_unit, actual_kind))| {
+        (actual_unit != expected_unit || actual_kind != expected_kind).then_some(
+            CheckerInfrastructureError::StorageFlow(crate::CheckerStorageFlowFailure::IncompatibleInput {
+                input,
+                expected_unit,
+                expected_kind,
+                actual_unit,
+                actual_kind,
+            }),
+        )
+    })
 }
 
 pub(crate) fn expression_block_owners<C>(

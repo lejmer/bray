@@ -716,7 +716,7 @@ mod tests {
 
             CodegenOutcome::failed(
                 request,
-                CodegenFailure::BackendLibrary,
+                CodegenFailure::backend_library("backend test failure"),
                 DiagnosticBag::new(),
             )
         }

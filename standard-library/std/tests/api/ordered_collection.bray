@@ -1,0 +1,415 @@
+module bray.standard_library_tests.ordered_collection;
+
+using std.bytes;
+using std.collection;
+using std.collection.OrderedMapMoveCursorIterator;
+using std.collection.OrderedMapMoveIterable;
+using std.collection.OrderedMapRangeCursorIterator;
+using std.collection.OrderedMapReadCursorIterator;
+using std.collection.OrderedMapReadIterable;
+using std.collection.OrderedMapWriteCursorIterator;
+using std.collection.OrderedMapWriteIterable;
+using std.collection.OrderedSetMoveCursorIterator;
+using std.collection.OrderedSetMoveIterable;
+using std.collection.OrderedSetRangeCursorIterator;
+using std.collection.OrderedSetReadCursorIterator;
+using std.collection.OrderedSetReadIterable;
+using std.iteration;
+using std.memory;
+using std.testing;
+
+struct OwnedOrderedValue
+{
+    identity: u64;
+    bytes: std.bytes.Buffer;
+}
+
+impl OwnedOrderedValueComparable = OwnedOrderedValue(Comparable<OwnedOrderedValue>)
+{
+    func compare(pos rhs: &OwnedOrderedValue) -> Ordering
+    {
+        if self.identity < rhs.identity
+        {
+            return Ordering.Less;
+        }
+
+        if self.identity > rhs.identity
+        {
+            return Ordering.Greater;
+        }
+
+        return Ordering.Equal;
+    }
+}
+
+func owned_ordered_value(pos identity: u64, pos byte: u8) -> Result<OwnedOrderedValue, std.memory.MemoryLayoutError>
+{
+    let bytes: [u8; 1] = [byte];
+
+    return Ok(
+        {
+            identity = identity,
+            bytes = try std.bytes.Buffer.from_slice(&bytes[..]),
+        }
+    );
+}
+
+@test
+trusted func ordered_map_orders_lookup_updates_and_ranges() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut map: std.collection.OrderedMap<u64, u64> = try trusted std.collection.OrderedMap<u64, u64>(capacity = 2);
+    let mut key: u64 = 64;
+
+    while key > 0
+    {
+        key -= 1;
+
+        let replaced: u64? = try trusted map.insert(key, key * 10);
+
+        std.testing.assert_absent(replaced);
+    }
+
+    assert(map.length() == 64);
+    assert(map.capacity() >= 64);
+    assert(map.contains_key(&31));
+    assert(!map.contains_key(&64));
+
+    let initial: &u64 = std.testing.assert_present(map.get(&31));
+
+    assert(initial == 310);
+
+    let replaced: u64? = try trusted map.insert(31, 999);
+
+    assert(std.testing.assert_present(replaced) == 310);
+    let updated: &u64 = std.testing.assert_present(map.get(&31));
+
+    assert(updated == 999);
+
+    {
+        let value: &mut u64 = std.testing.assert_present(map.get_mut(&31));
+
+        value = 310;
+    }
+
+    let first: std.collection.OrderedMapReference<u64, u64> = std.testing.assert_present(map.first());
+    let last: std.collection.OrderedMapReference<u64, u64> = std.testing.assert_present(map.last());
+    let lower: std.collection.OrderedMapReference<u64, u64> = std.testing.assert_present(map.lower_bound(&20));
+    let upper: std.collection.OrderedMapReference<u64, u64> = std.testing.assert_present(map.upper_bound(&20));
+
+    assert(first.key == 0);
+    assert(last.key == 63);
+    assert(lower.key == 20);
+    assert(upper.key == 21);
+
+    {
+        let source: &std.collection.OrderedMap<u64, u64> = &map;
+        let mut cursor: std.collection.OrderedMapReadCursor<u64, u64> = source(Iterable).iterate();
+        let mut expected: u64 = 0;
+
+        while expected < 64
+        {
+            let entry: std.collection.OrderedMapReference<u64, u64> = std.testing.assert_present(cursor.next());
+
+            assert(entry.key == expected);
+            assert(entry.value == expected * 10);
+
+            expected += 1;
+        }
+
+        std.testing.assert_absent(cursor.next());
+    }
+
+    {
+        let lower_key: u64 = 10;
+        let upper_key: u64 = 15;
+        let start: std.collection.Bound<u64> = std.collection.Bound.Included(&lower_key);
+        let end: std.collection.Bound<u64> = std.collection.Bound.Excluded(&upper_key);
+        let mut cursor: std.collection.OrderedMapRangeCursor<u64, u64> = map.range(start, end);
+
+        let mut expected: u64 = 10;
+
+        while expected < 15
+        {
+            let entry: std.collection.OrderedMapReference<u64, u64> = std.testing.assert_present(cursor.next());
+
+            assert(entry.key == expected);
+            expected += 1;
+        }
+
+        std.testing.assert_absent(cursor.next());
+    }
+
+    {
+        let source: &mut std.collection.OrderedMap<u64, u64> = &mut map;
+        let mut cursor: std.collection.OrderedMapWriteCursor<u64, u64> = source(Iterable).iterate();
+
+        while true
+        {
+            let entry: std.collection.OrderedMapReferenceMut<u64, u64> = match cursor.next()
+            {
+                case ?entry { yield entry; }
+                case none { break; }
+            };
+
+            let value: &mut u64 = entry.value;
+
+            value += 1;
+        }
+    }
+
+    let incremented: &u64 = std.testing.assert_present(map.get(&20));
+
+    assert(incremented == 201);
+
+    let removed: (u64, u64) = std.testing.assert_present(trusted map.remove_entry(&31));
+
+    assert(removed.0 == 31);
+    assert(removed.1 == 311);
+
+    assert(std.testing.assert_present(trusted map.remove(&0)) == 1);
+    assert(std.testing.assert_present(trusted map.remove(&63)) == 631);
+
+    std.testing.assert_absent(trusted map.remove(&100));
+
+    return Ok(unit);
+}
+
+@test
+trusted func ordered_set_orders_replaces_removes_and_ranges() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut set: std.collection.OrderedSet<u64> = try trusted std.collection.OrderedSet<u64>();
+    let mut value: u64 = 0;
+
+    while value < 96
+    {
+        assert(try trusted set.insert(value));
+        assert(!(try trusted set.insert(value)));
+
+        value += 1;
+    }
+
+    assert(set.length() == 96);
+
+    let first: &u64 = std.testing.assert_present(set.first());
+    let last: &u64 = std.testing.assert_present(set.last());
+
+    assert(first == 0);
+    assert(last == 95);
+
+    let lower: &u64 = std.testing.assert_present(set.lower_bound(&40));
+    let upper: &u64 = std.testing.assert_present(set.upper_bound(&40));
+
+    assert(lower == 40);
+    assert(upper == 41);
+
+    std.testing.assert_absent(set.upper_bound(&95));
+
+    {
+        let source: &std.collection.OrderedSet<u64> = &set;
+        let mut cursor: std.collection.OrderedSetReadCursor<u64> = source(Iterable).iterate();
+
+        value = 0;
+
+        while value < 96
+        {
+            let observed: &u64 = std.testing.assert_present(cursor.next());
+
+            assert(observed == value);
+            value += 1;
+        }
+
+        std.testing.assert_absent(cursor.next());
+    }
+
+    {
+        let lower_key: u64 = 20;
+        let upper_key: u64 = 24;
+        let start: std.collection.Bound<u64> = std.collection.Bound.Excluded(&lower_key);
+        let end: std.collection.Bound<u64> = std.collection.Bound.Included(&upper_key);
+        let mut cursor: std.collection.OrderedSetRangeCursor<u64> = set.range(start, end);
+
+        value = 21;
+
+        while value <= 24
+        {
+            let observed: &u64 = std.testing.assert_present(cursor.next());
+
+            assert(observed == value);
+            value += 1;
+        }
+
+        std.testing.assert_absent(cursor.next());
+    }
+
+    assert(trusted set.remove(&0));
+    assert(trusted set.remove(&47));
+    assert(trusted set.remove(&95));
+    assert(!(trusted set.remove(&100)));
+
+    assert(std.testing.assert_present(trusted set.take(&48)) == 48);
+
+    return Ok(unit);
+}
+
+@test
+trusted func ordered_collections_remain_balanced_under_monotonic_updates() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut ascending: std.collection.OrderedMap<u64, u64> = try trusted std.collection.OrderedMap<u64, u64>();
+    let mut descending: std.collection.OrderedSet<u64> = try trusted std.collection.OrderedSet<u64>();
+    let mut value: u64 = 0;
+
+    while value < 1024
+    {
+        let _: u64? = try trusted ascending.insert(value, value);
+        value += 1;
+    }
+
+    value = 1024;
+
+    while value > 0
+    {
+        value -= 1;
+
+        let _: bool = try trusted descending.insert(value);
+    }
+
+    value = 0;
+
+    while value < 1024
+    {
+        let lookup: u64 = value;
+
+        let observed: &u64 = std.testing.assert_present(ascending.get(&lookup));
+
+        assert(observed == lookup);
+        assert(descending.contains(&lookup));
+
+        if lookup % 2 == 0
+        {
+            assert(std.testing.assert_present(trusted ascending.remove(&lookup)) == lookup);
+            assert(trusted descending.remove(&lookup));
+        }
+
+        value += 1;
+    }
+
+    assert(ascending.length() == 512);
+    assert(descending.length() == 512);
+
+    return Ok(unit);
+}
+
+@test
+trusted func ordered_collections_preserve_owning_values_through_cleanup() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut map: std.collection.OrderedMap<OwnedOrderedValue, OwnedOrderedValue> =
+        try trusted std.collection.OrderedMap<OwnedOrderedValue, OwnedOrderedValue>(capacity = 1);
+
+    let mut identity: u64 = 0;
+
+    while identity < 48
+    {
+        let replaced: OwnedOrderedValue? = try trusted map.insert(
+            try owned_ordered_value(identity, 1),
+            try owned_ordered_value(identity + 100, 2),
+        );
+
+        std.testing.assert_absent(replaced);
+        identity += 1;
+    }
+
+    let replaced: OwnedOrderedValue? = try trusted map.insert(
+        try owned_ordered_value(20, 1),
+        try owned_ordered_value(500, 2),
+    );
+
+    assert(std.testing.assert_present<OwnedOrderedValue>(replaced).identity == 120);
+
+    let removed_key: OwnedOrderedValue = try owned_ordered_value(10, 1);
+
+    let removed: (OwnedOrderedValue, OwnedOrderedValue) = std.testing.assert_present(
+        trusted map.remove_entry(&removed_key)
+    );
+
+    assert(removed.0.identity == 10);
+    assert(removed.1.identity == 110);
+
+    trusted map.clear();
+
+    assert(map.is_empty());
+
+    {
+        let mut partially_consumed: std.collection.OrderedMap<OwnedOrderedValue, OwnedOrderedValue> =
+            try trusted std.collection.OrderedMap<OwnedOrderedValue, OwnedOrderedValue>();
+
+        identity = 0;
+
+        while identity < 12
+        {
+            let _: OwnedOrderedValue? = try trusted partially_consumed.insert(
+                try owned_ordered_value(identity, 1),
+                try owned_ordered_value(identity + 100, 2),
+            );
+
+            identity += 1;
+        }
+
+        let mut cursor: std.collection.OrderedMapMoveCursor<OwnedOrderedValue, OwnedOrderedValue> =
+            partially_consumed(Iterable).iterate();
+
+        let first: (OwnedOrderedValue, OwnedOrderedValue) = std.testing.assert_present(cursor.next());
+
+        assert(first.0.identity == 0);
+    }
+
+    let mut set: std.collection.OrderedSet<OwnedOrderedValue> = try trusted std.collection.OrderedSet<
+        OwnedOrderedValue
+    >(capacity = 1);
+
+    identity = 0;
+
+    while identity < 48
+    {
+        assert(try trusted set.insert(try owned_ordered_value(identity, 1)));
+        identity += 1;
+    }
+
+    let replaced_value: OwnedOrderedValue? = try trusted set.replace(try owned_ordered_value(20, 2));
+
+    assert(std.testing.assert_present<OwnedOrderedValue>(replaced_value).identity == 20);
+
+    let taken_key: OwnedOrderedValue = try owned_ordered_value(30, 1);
+
+    assert(std.testing.assert_present<OwnedOrderedValue>(trusted set.take(&taken_key)).identity == 30);
+
+    {
+        let mut cursor: std.collection.OrderedSetMoveCursor<OwnedOrderedValue> = set(Iterable).iterate();
+        let first: OwnedOrderedValue = std.testing.assert_present(cursor.next());
+
+        assert(first.identity == 0);
+    }
+
+    return Ok(unit);
+}
+
+@test
+trusted func ordered_collections_cover_empty_zero_sized_and_capacity_failure(
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let map: std.collection.OrderedMap<u64, unit> = try trusted std.collection.OrderedMap<u64, unit>();
+    let set: std.collection.OrderedSet<unit> = try trusted std.collection.OrderedSet<unit>();
+
+    assert(map.is_empty());
+    assert(set.is_empty());
+
+    std.testing.assert_absent(map.first());
+    std.testing.assert_absent(map.last());
+    std.testing.assert_absent(set.first());
+    std.testing.assert_absent(set.last());
+
+    std.testing.assert_error<std.collection.OrderedMap<u64, u64>, std.memory.MemoryLayoutError>(
+        trusted std.collection.OrderedMap<u64, u64>(capacity = ~0)
+    );
+
+    return Ok(unit);
+}

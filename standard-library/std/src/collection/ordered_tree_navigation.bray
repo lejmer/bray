@@ -1,0 +1,255 @@
+module std.collection;
+
+internal func ordered_tree_search<Item, Key>(pos tree: &OrderedTree<Item>, pos key: &Key) -> OrderedTreeSearch
+    with(Item: OrderedTreeItem<Key>)
+{
+    let mut current: usize? = tree.root;
+    let mut parent: usize? = none;
+    let mut side: OrderedTreeSide = OrderedTreeSide.Root;
+
+    while true
+    {
+        let index: usize = match current
+        {
+            case ?index { yield index; }
+            case none { break; }
+        };
+
+        let item: &Item = trusted ordered_tree_item<Item>(tree, index = index);
+
+        parent = current;
+
+        match item.compare_key(key)
+        {
+            case Ordering.Less
+            {
+                current = ordered_tree_node<Item>(tree, index = index).right;
+                side = OrderedTreeSide.Right;
+            }
+            case Ordering.Equal
+            {
+                return
+                {
+                    found = current,
+                    parent = parent,
+                    side = side,
+                };
+            }
+            case Ordering.Greater
+            {
+                current = ordered_tree_node<Item>(tree, index = index).left;
+                side = OrderedTreeSide.Left;
+            }
+        }
+    }
+
+    return
+    {
+        found = none,
+        parent = parent,
+        side = side,
+    };
+}
+
+internal func ordered_tree_bound<Item, Key>(pos tree: &OrderedTree<Item>, pos key: &Key, inclusive: bool) -> usize?
+    with(Item: OrderedTreeItem<Key>)
+{
+    let mut current: usize? = tree.root;
+    let mut candidate: usize? = none;
+
+    while true
+    {
+        let index: usize = match current
+        {
+            case ?index { yield index; }
+            case none { break; }
+        };
+
+        let item: &Item = trusted ordered_tree_item<Item>(tree, index = index);
+
+        match item.compare_key(key)
+        {
+            case Ordering.Less { current = ordered_tree_node<Item>(tree, index = index).right; }
+            case Ordering.Equal
+            {
+                if inclusive
+                {
+                    return current;
+                }
+
+                current = ordered_tree_node<Item>(tree, index = index).right;
+            }
+            case Ordering.Greater
+            {
+                candidate = current;
+                current = ordered_tree_node<Item>(tree, index = index).left;
+            }
+        }
+    }
+
+    return candidate;
+}
+
+internal func ordered_tree_minimum<Item>(pos tree: &OrderedTree<Item>, pos start: usize?) -> usize?
+{
+    let mut current: usize? = start;
+    let mut minimum: usize? = none;
+
+    while true
+    {
+        let index: usize = match current
+        {
+            case ?index { yield index; }
+            case none { break; }
+        };
+
+        minimum = current;
+        current = ordered_tree_node<Item>(tree, index = index).left;
+    }
+
+    return minimum;
+}
+
+internal func ordered_tree_maximum<Item>(pos tree: &OrderedTree<Item>, pos start: usize?) -> usize?
+{
+    let mut current: usize? = start;
+    let mut maximum: usize? = none;
+
+    while true
+    {
+        let index: usize = match current
+        {
+            case ?index { yield index; }
+            case none { break; }
+        };
+
+        maximum = current;
+        current = ordered_tree_node<Item>(tree, index = index).right;
+    }
+
+    return maximum;
+}
+
+internal func ordered_tree_successor<Item>(pos tree: &OrderedTree<Item>, index: usize) -> usize?
+{
+    let node: OrderedTreeNode = ordered_tree_node<Item>(tree, index = index);
+
+    match node.right
+    {
+        case ?right { return ordered_tree_minimum<Item>(tree, right); }
+        case none {}
+    }
+
+    let mut current: usize = index;
+    let mut parent: usize? = node.parent;
+
+    while true
+    {
+        let parent_index: usize = parent?;
+        let parent_node: OrderedTreeNode = ordered_tree_node<Item>(tree, index = parent_index);
+
+        match parent_node.left
+        {
+            case ?left
+            {
+                if left == current
+                {
+                    return parent;
+                }
+            }
+            case none {}
+        }
+
+        current = parent_index;
+        parent = parent_node.parent;
+    }
+
+    return none;
+}
+
+internal func ordered_tree_predecessor<Item>(pos tree: &OrderedTree<Item>, index: usize) -> usize?
+{
+    let node: OrderedTreeNode = ordered_tree_node<Item>(tree, index = index);
+
+    match node.left
+    {
+        case ?left { return ordered_tree_maximum<Item>(tree, left); }
+        case none {}
+    }
+
+    let mut current: usize = index;
+    let mut parent: usize? = node.parent;
+
+    while true
+    {
+        let parent_index: usize = parent?;
+        let parent_node: OrderedTreeNode = ordered_tree_node<Item>(tree, index = parent_index);
+
+        match parent_node.right
+        {
+            case ?right
+            {
+                if right == current
+                {
+                    return parent;
+                }
+            }
+            case none {}
+        }
+
+        current = parent_index;
+        parent = parent_node.parent;
+    }
+
+    return none;
+}
+
+internal func ordered_bound_start<Item, Key>(pos tree: &OrderedTree<Item>, pos bound: Bound<Key>) -> usize?
+    with(Item: OrderedTreeItem<Key>)
+{
+    return match bound
+    {
+        case Bound.Unbounded { yield ordered_tree_minimum<Item>(tree, tree.root); }
+        case Bound.Included(value) { yield ordered_tree_bound<Item, Key>(tree, value, inclusive = true); }
+        case Bound.Excluded(value) { yield ordered_tree_bound<Item, Key>(tree, value, inclusive = false); }
+    };
+}
+
+internal func ordered_bound_end<Key>(pos bound: Bound<Key>) -> ((&Key)?, bool)
+{
+    let mut upper: (&Key)? = none;
+
+    return match bound
+    {
+        case Bound.Unbounded { yield(upper, false); }
+        case Bound.Included(value)
+        {
+            upper = value;
+
+            yield(upper, true);
+        }
+        case Bound.Excluded(value)
+        {
+            upper = value;
+
+            yield(upper, false);
+        }
+    };
+}
+
+internal func ordered_key_within_end<Key>(pos key: &Key, pos end: (&Key)?, inclusive: bool) -> bool
+    with(Key: Comparable<Key>)
+{
+    let upper: &Key = match end
+    {
+        case ?upper { yield upper; }
+        case none { return true; }
+    };
+
+    return match key.compare(upper)
+    {
+        case Ordering.Less { yield true; }
+        case Ordering.Equal { yield inclusive; }
+        case Ordering.Greater { yield false; }
+    };
+}

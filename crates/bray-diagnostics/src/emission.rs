@@ -2,7 +2,10 @@ mod checker;
 mod failure;
 mod unsupported;
 
-pub use checker::{DiagnosticCheckerFailure, DiagnosticCheckerNode, DiagnosticCheckerSymbol};
+pub use checker::{
+    DiagnosticCheckerFailure, DiagnosticCheckerNode, DiagnosticCheckerSymbol,
+    DiagnosticStorageFlowFailure,
+};
 pub use failure::{
     DiagnosticBindingFailure, DiagnosticEmissionArtifact, DiagnosticEmissionCodegenFailure,
     DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure,

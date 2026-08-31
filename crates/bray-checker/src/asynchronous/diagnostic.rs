@@ -11,7 +11,9 @@ use bray_diagnostics::{
 
 use super::dependency::{UnsatisfiedDependency, unsatisfied_dependency_subjects};
 use crate::diagnostic::{bound_node_origin, diagnostic_id, expression_span};
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{
+    CheckerInfrastructureError, CheckerRequestContext, CheckerStorageFlowFailure, CheckerUnitView,
+};
 
 pub(super) enum AwaitDependencyFailure {
     MissingSuspensionState,
@@ -40,11 +42,18 @@ where
     }
 
     let Some(dependency_contract) = dependency_contract else {
-        return Err(CheckerInfrastructureError::InvalidStorageFlow);
+        return Err(CheckerInfrastructureError::StorageFlow(
+            CheckerStorageFlowFailure::MissingAwaitDependencyContract { expression },
+        ));
     };
 
     let Some(contract) = dependencies.contract(dependency_contract) else {
-        return Err(CheckerInfrastructureError::InvalidStorageFlow);
+        return Err(CheckerInfrastructureError::StorageFlow(
+            CheckerStorageFlowFailure::MissingDependencyContract {
+                expression,
+                contract: dependency_contract,
+            },
+        ));
     };
 
     let Some(suspension_state) = suspension_state else {

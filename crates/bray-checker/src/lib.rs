@@ -48,7 +48,8 @@ pub use constant::{
 };
 pub use context::{
     CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerSource, ImplementationHookResolution,
+    CheckerSemanticQueryProvider, CheckerSource, CheckerStorageFlowFailure,
+    ImplementationHookResolution, StorageFlowInputKind,
 };
 pub use diagnostic::diagnostic_type;
 pub use expression::{NestedCallableEvidence, check_generic_arguments};

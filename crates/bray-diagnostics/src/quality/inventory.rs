@@ -182,7 +182,8 @@ impl DiagnosticKind {
             ActualTargetTriple, ActualType, AlignmentKind, ArrayGeneratorCardinalityProblem,
             ArtifactKind, ArtifactOrdinal, ArtifactPath, ByteCount, CallableAbi,
             CallableOverloadProblem, CallbackStateProblem, CodegenBackendIdentity,
-            ConstantOperation, CopyContractProblem, DeclarationName, DependencyRequirementKind,
+            CodegenBackendReport, CodegenVerificationStage, ConstantOperation,
+            CopyContractProblem, DeclarationName, DependencyRequirementKind,
             DependencySubjectKind, DocumentColumn, DocumentLine, DocumentParseKind,
             EmissionArtifactOperation, EmissionFailure, ExpectedArtifactDigest, ExpectedByteCount,
             ExpectedNameKind, ExpectedPackageIdentity, ExpectedProductIdentity, ExpectedRevision,
@@ -774,6 +775,10 @@ impl DiagnosticKind {
                 &[ExpectedType, ActualType],
                 primary_components!(&[ExpectedType, ActualType]),
             ),
+            Self::CheckingCompilerDefect => Self::quality_source(
+                &[EmissionFailure],
+                note_components!(&[EmissionFailure], DiagnosticNoteKind::ReportCompilerDefect),
+            ),
             Self::CheckingIncompatiblePattern => {
                 Self::quality_source(&[ActualType], primary_components!(&[ActualType]))
             }
@@ -1318,10 +1323,45 @@ impl DiagnosticKind {
             ),
             Self::CodegenInvalidConfiguration
             | Self::CodegenResourceExhausted
-            | Self::CodegenBackendLibraryFailed
             | Self::CodegenGeneratedModuleInvalid => Self::quality_artifact(
                 &[CodegenBackendIdentity, TargetTriple],
                 compiler_defect_components!(&[CodegenBackendIdentity, TargetTriple]),
+            ),
+            Self::CodegenBackendLibraryFailed => Self::quality_artifact(
+                &[CodegenBackendIdentity, TargetTriple, CodegenBackendReport],
+                compiler_defect_components!(&[
+                    CodegenBackendIdentity,
+                    TargetTriple,
+                    CodegenBackendReport,
+                ]),
+            ),
+            Self::CodegenBackendToolExited => Self::quality_artifact(
+                &[
+                    CodegenBackendIdentity,
+                    TargetTriple,
+                    FilePath,
+                    ExternalToolExit,
+                ],
+                compiler_defect_components!(&[
+                    CodegenBackendIdentity,
+                    TargetTriple,
+                    FilePath,
+                    ExternalToolExit,
+                ]),
+            ),
+            Self::CodegenBackendRejectedModule => Self::quality_artifact(
+                &[
+                    CodegenBackendIdentity,
+                    TargetTriple,
+                    CodegenVerificationStage,
+                    CodegenBackendReport,
+                ],
+                compiler_defect_components!(&[
+                    CodegenBackendIdentity,
+                    TargetTriple,
+                    CodegenVerificationStage,
+                    CodegenBackendReport,
+                ]),
             ),
             Self::CodegenUnsupportedArtifact => Self::quality_artifact(
                 &[CodegenBackendIdentity, TargetTriple, ArtifactKind],

@@ -12,7 +12,9 @@ use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 use bray_target::{NativeTarget, TargetIdentity, TargetOutputKind, TargetOutputName};
 use bray_tooling::OutputFormat;
 
-use crate::tack::error::{operation_diagnostics, selection_diagnostics};
+use crate::tack::error::{
+    operation_diagnostics, selection_diagnostics, tool_execution_failure,
+};
 use crate::tack::model::{TackBuildConfiguration, TackInspection, TackProfileConfiguration};
 use crate::tack::progress::{
     BuildProgressAction, BuildProgressPackage, BuildProgressPlan, BuildProgressSession,
@@ -432,9 +434,16 @@ impl<'project> ProjectCompiler<'project> {
                 .map(|source| source.beneath(self.workspace_root).into_os_string()),
         );
 
-        let output = self.executor.capture(request).map_err(|_| {
-            operation_diagnostics(DiagnosticProjectCommandFailure::Invariant(
+        let output = self.executor.capture(request).map(|output| {
+            output.with_subject(format!(
+                "{}/{}",
+                product.identity().package().as_str(),
+                product.identity().name()
+            ))
+        }).map_err(|error| {
+            operation_diagnostics(tool_execution_failure(
                 DiagnosticProjectOperation::CompilerProcess,
+                error,
             ))
         });
 

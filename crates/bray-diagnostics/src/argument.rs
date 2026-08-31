@@ -23,8 +23,9 @@ pub use dependency::{DiagnosticDependencyRequirementKind, DiagnosticDependencySu
 pub use document::DiagnosticDocumentParseKind;
 pub use emission::{
     DiagnosticArtifactRequirement, DiagnosticAssemblySyntaxKind, DiagnosticDebugInformationMode,
-    DiagnosticDebugOutputMode, DiagnosticEmissionArtifactOperation, DiagnosticLoweringFailure,
-    DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
+    DiagnosticDebugOutputMode, DiagnosticCodegenVerificationStage,
+    DiagnosticEmissionArtifactOperation, DiagnosticLoweringFailure, DiagnosticLoweringFailureKind,
+    DiagnosticLoweringInputFailure,
     DiagnosticLoweringInputFailureKind, DiagnosticMirUnitBuildFailure,
     DiagnosticNativeProductFailureKind, DiagnosticProductKind, DiagnosticSourceConstructKind,
 };

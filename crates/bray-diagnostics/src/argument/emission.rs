@@ -5,7 +5,8 @@ mod product;
 
 pub use artifact::{DiagnosticArtifactRequirement, DiagnosticEmissionArtifactOperation};
 pub use backend::{
-    DiagnosticAssemblySyntaxKind, DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
+    DiagnosticAssemblySyntaxKind, DiagnosticCodegenVerificationStage,
+    DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
 };
 pub use lowering::{
     DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,

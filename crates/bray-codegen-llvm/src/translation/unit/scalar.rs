@@ -1,7 +1,8 @@
 use super::core::UnitTranslator;
-use super::support::{float_predicate, integer_predicate, llvm, pointer_value};
+use super::support::{float_predicate, int_value, integer_predicate, llvm, pointer_value};
 use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenTypeKind, IntrinsicCall};
 use bray_ir::{MirBinaryOperator, MirOperand, MirUnaryOperator};
+use inkwell::types::BasicTypeEnum;
 use inkwell::values::BasicValueEnum;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -9,6 +10,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         &mut self,
         intrinsic: &IntrinsicCall,
         operand_type: bray_symbols::TypeId,
+        result_type: bray_symbols::TypeId,
         arguments: &[BasicValueEnum<'context>],
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         match (intrinsic, arguments) {
@@ -24,6 +26,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.translate_binary_values(*operator, left, right, concrete_type)
             }
+            (
+                IntrinsicCall::Comparison {
+                    less,
+                    equal,
+                    greater,
+                },
+                [left, right],
+            ) => self.translate_comparison(
+                operand_type,
+                result_type,
+                [*less, *equal, *greater],
+                *left,
+                *right,
+            ),
             (IntrinsicCall::Conversion(conversion), [operand]) => {
                 let mut helpers = std::iter::empty::<&CodegenHelperMapping>();
 
@@ -31,6 +47,99 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             _ => Err(CodegenFailure::GeneratedModuleInvariant),
         }
+    }
+
+    fn translate_comparison(
+        &mut self,
+        operand_type: bray_symbols::TypeId,
+        result_type: bray_symbols::TypeId,
+        variants: [bray_symbols::UnionVariantSymbolId; 3],
+        left: BasicValueEnum<'context>,
+        right: BasicValueEnum<'context>,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let (concrete_type, left) = self.intrinsic_operand(operand_type, left)?;
+
+        let (_, right) = self.intrinsic_operand(operand_type, right)?;
+
+        let (less, greater) = match (left, right) {
+            (BasicValueEnum::IntValue(left), BasicValueEnum::IntValue(right)) => {
+                let signed = self.signed_integer(concrete_type)?;
+
+                (
+                    llvm(self.builder.build_int_compare(
+                        integer_predicate(MirBinaryOperator::LessThan, signed),
+                        left,
+                        right,
+                        "compare.less",
+                    ))?,
+                    llvm(self.builder.build_int_compare(
+                        integer_predicate(MirBinaryOperator::GreaterThan, signed),
+                        left,
+                        right,
+                        "compare.greater",
+                    ))?,
+                )
+            }
+            (BasicValueEnum::FloatValue(left), BasicValueEnum::FloatValue(right)) => (
+                llvm(self.builder.build_float_compare(
+                    float_predicate(MirBinaryOperator::LessThan),
+                    left,
+                    right,
+                    "compare.less",
+                ))?,
+                llvm(self.builder.build_float_compare(
+                    float_predicate(MirBinaryOperator::GreaterThan),
+                    left,
+                    right,
+                    "compare.greater",
+                ))?,
+            ),
+            _ => return Err(CodegenFailure::GeneratedModuleInvariant),
+        };
+
+        let mapping = self
+            .type_mapping(result_type)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let CodegenTypeKind::Union { tag, .. } = mapping.kind() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let tag = tag.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let BasicTypeEnum::IntType(tag_type) = self.types.map(tag)? else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let [less_variant, equal_variant, greater_variant] = variants;
+
+        let less_tag = self.union_variant_tag(result_type, less_variant, tag_type)?;
+        let equal_tag = self.union_variant_tag(result_type, equal_variant, tag_type)?;
+        let greater_tag = self.union_variant_tag(result_type, greater_variant, tag_type)?;
+
+        let not_less = llvm(self.builder.build_select(
+            greater,
+            greater_tag,
+            equal_tag,
+            "compare.not_less",
+        ))?;
+
+        let not_less = int_value(not_less).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let selected_tag = llvm(self
+            .builder
+            .build_select(less, less_tag, not_less, "compare.ordering.tag"))?;
+
+        let llvm_type = self.types.map(result_type)?;
+        let storage = self.allocate_temporary(llvm_type, "compare.ordering")?;
+
+        llvm(self.builder.build_store(storage, llvm_type.const_zero()))?;
+        llvm(self.builder.build_store(storage, selected_tag))?;
+
+        llvm(
+            self.builder
+                .build_load(llvm_type, storage, "compare.ordering.value"),
+        )
     }
 
     fn intrinsic_operand(

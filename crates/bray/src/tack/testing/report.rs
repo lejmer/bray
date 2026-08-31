@@ -72,11 +72,12 @@ pub(super) fn render_batch_report(
 fn serialize_json_report(report: &impl Serialize) -> Result<String, DiagnosticBag> {
     serde_json::to_string_pretty(report)
         .map(|report| format!("{report}\n"))
-        .map_err(|_| {
+        .map_err(|error| {
             operation_diagnostics(DiagnosticProjectCommandFailure::Document {
                 operation: DiagnosticProjectOperation::TestReportJson,
                 path: None,
                 problem: DiagnosticDocumentParseKind::Serialization,
+                detail: Some(error.to_string()),
             })
         })
 }

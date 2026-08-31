@@ -678,7 +678,7 @@ mod tests {
     }
 
     #[test]
-    fn checker_failures_render_every_retained_identity() {
+    fn checker_failures_keep_internal_identities_out_of_user_messages() {
         use bray_diagnostics::DiagnosticCheckerFailure as Failure;
 
         let missing = format_english_checker_failure(Failure::MissingSource {
@@ -711,14 +711,17 @@ mod tests {
             node: DiagnosticCheckerNode::new("pattern", 14, 19),
         });
 
-        assert!(missing.contains("source snapshot #7"));
-        assert!(version.contains("revision 13 of source snapshot #8"));
-        assert!(version.contains("revision 21"));
-        assert!(range.contains("bytes 34 through 55"));
-        assert!(range.contains("source snapshot #9"));
-        assert!(query.contains("member declarations for module declaration #11"));
-        assert!(expression.contains("expression #17 in source body #12"));
-        assert!(node.contains("pattern #19"));
-        assert!(node.contains("source body #14"));
+        for message in [&missing, &version, &range, &query, &expression, &node] {
+            assert!(message.starts_with("an internal compiler error"));
+            assert!(!message.contains('#'));
+        }
+
+        assert!(missing.contains("source text"));
+        assert!(version.contains("wrong revision of source text"));
+        assert!(range.contains("source range"));
+        assert!(query.contains("member declarations"));
+        assert!(query.contains("highlighted module declaration"));
+        assert!(expression.contains("highlighted expression"));
+        assert!(node.contains("highlighted pattern"));
     }
 }

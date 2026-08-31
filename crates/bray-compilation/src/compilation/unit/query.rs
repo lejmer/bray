@@ -3965,6 +3965,83 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
     }
 
     #[test]
+    fn active_generic_constraints_enable_constrained_implementation_candidates() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "trait Compares<T> {}\n",
+            "trait ItemKey<Key> {}\n",
+            "struct Item<Key, Value> {}\n",
+            "impl ItemKeyImplementation = Item<Key, Value>(ItemKey<Key>)\n",
+            "    with(Key: Compares<Key>)\n",
+            "{}\n",
+            "func search<Stored, Key>()\n",
+            "    with(Stored: ItemKey<Key>)\n",
+            "{}\n",
+            "func use_search<Key, Value>()\n",
+            "    with(Key: Compares<Key>)\n",
+            "{\n",
+            "    search<Item<Key, Value>, Key>();\n",
+            "}\n",
+        ));
+
+        let key = source_function_body_key(&compilation, "use_search");
+
+        let selections = compilation
+            .semantic_selections(key)
+            .unwrap_or_else(|error| panic!("constrained generic call must publish: {error:?}"));
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "{:?}",
+            selections.diagnostics()
+        );
+
+        let selected = selections
+            .value()
+            .entries()
+            .iter()
+            .find_map(|entry| match entry.selection() {
+                SemanticSelection::Call(call) => Some(call.resolution()),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("constrained generic call must be selected"));
+
+        assert_eq!(selected.implementation_witnesses().len(), 1);
+    }
+
+    #[test]
+    fn missing_generic_constraint_evidence_remains_anchored_to_the_call() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "trait Compares<T> {}\n",
+            "trait ItemKey<Key> {}\n",
+            "struct Item<Key, Value> {}\n",
+            "impl ItemKeyImplementation = Item<Key, Value>(ItemKey<Key>)\n",
+            "    with(Key: Compares<Key>)\n",
+            "{}\n",
+            "func search<Stored, Key>()\n",
+            "    with(Stored: ItemKey<Key>)\n",
+            "{}\n",
+            "func use_search<Key, Value>()\n",
+            "{\n",
+            "    search<Item<Key, Value>, Key>();\n",
+            "}\n",
+        ));
+
+        let selections = compilation
+            .semantic_selections(source_function_body_key(&compilation, "use_search"))
+            .unwrap_or_else(|error| panic!("invalid constrained call must recover: {error:?}"));
+
+        let diagnostic = selections
+            .diagnostics()
+            .by_kind(DiagnosticKind::CheckingNoApplicableCandidate)
+            .next()
+            .unwrap_or_else(|| panic!("missing evidence must reject the call"));
+
+        assert!(diagnostic.primary_span().is_some(), "{diagnostic:#?}");
+    }
+
+    #[test]
     fn scope_exits_destroy_plain_storage_with_declared_destructors() {
         let compilation = compilation(concat!(
             "module app;\n",
