@@ -6,7 +6,7 @@ use bray_bound_tree::{
     SelectedArgument, SelectedOperation, SemanticSelection, StorageAccessPurpose, StorageIdentity,
     StorageIdentityId,
 };
-use bray_compiler_known::RepresentationRole;
+use bray_compiler_known::{CompilerKnownOperationRole, RepresentationRole};
 use bray_ir::{
     MirBinaryOperator, MirBlockId, MirBlockKind, MirCall, MirCallArgument, MirCallIntrinsic,
     MirCallTarget, MirCallableReference, MirEdge, MirImmediateValue, MirOperand, MirOperationKind,
@@ -996,6 +996,20 @@ impl Lowerer<'_> {
             }
         }
 
+        let call = self.selected_mir_call(&selection, target, arguments);
+
+        let (current, value) =
+            self.lower_call_operation(id, current, Self::retained_source(&source), call)?;
+
+        Ok(LoweredExpression::continuing(current, Some(value), source))
+    }
+
+    fn selected_mir_call(
+        &self,
+        selection: &bray_bound_tree::SelectedCall,
+        target: MirCallTarget,
+        arguments: Vec<MirCallArgument>,
+    ) -> MirCall {
         // MIR owns the immutable checked call contract independently of the selection table.
         let call = MirCall::selected(
             target,
@@ -1012,10 +1026,85 @@ impl Lowerer<'_> {
             selection.witnesses().iter().copied(),
         );
 
-        let (current, value) =
-            self.lower_call_operation(id, current, Self::retained_source(&source), call)?;
+        match self.compiler_known_direct_call_intrinsic(selection) {
+            Some(intrinsic) => call.with_intrinsic(intrinsic),
+            None => call,
+        }
+    }
 
-        Ok(LoweredExpression::continuing(current, Some(value), source))
+    fn compiler_known_direct_call_intrinsic(
+        &self,
+        selection: &bray_bound_tree::SelectedCall,
+    ) -> Option<MirCallIntrinsic> {
+        selection.resolution().trait_dispatch()?;
+
+        let BoundCallableTarget::Declaration(instance) = selection.target() else {
+            return None;
+        };
+
+        let callable = instance.definition().symbol();
+        let available = self.input.available_compiler_known_symbols();
+
+        [
+            (
+                CompilerKnownOperationRole::UnaryNegate,
+                MirCallIntrinsic::Unary(MirUnaryOperator::Negate),
+            ),
+            (
+                CompilerKnownOperationRole::UnaryBitNot,
+                MirCallIntrinsic::Unary(MirUnaryOperator::BitwiseNot),
+            ),
+            (
+                CompilerKnownOperationRole::BinaryAdd,
+                MirCallIntrinsic::Binary(MirBinaryOperator::Add),
+            ),
+            (
+                CompilerKnownOperationRole::BinarySubtract,
+                MirCallIntrinsic::Binary(MirBinaryOperator::Subtract),
+            ),
+            (
+                CompilerKnownOperationRole::BinaryMultiply,
+                MirCallIntrinsic::Binary(MirBinaryOperator::Multiply),
+            ),
+            (
+                CompilerKnownOperationRole::BinaryDivide,
+                MirCallIntrinsic::Binary(MirBinaryOperator::Divide),
+            ),
+            (
+                CompilerKnownOperationRole::BinaryRemainder,
+                MirCallIntrinsic::Binary(MirBinaryOperator::Remainder),
+            ),
+            (
+                CompilerKnownOperationRole::BinaryBitAnd,
+                MirCallIntrinsic::Binary(MirBinaryOperator::BitwiseAnd),
+            ),
+            (
+                CompilerKnownOperationRole::BinaryBitOr,
+                MirCallIntrinsic::Binary(MirBinaryOperator::BitwiseOr),
+            ),
+            (
+                CompilerKnownOperationRole::BinaryBitXor,
+                MirCallIntrinsic::Binary(MirBinaryOperator::BitwiseXor),
+            ),
+            (
+                CompilerKnownOperationRole::BinaryShiftLeft,
+                MirCallIntrinsic::Binary(MirBinaryOperator::ShiftLeft),
+            ),
+            (
+                CompilerKnownOperationRole::BinaryShiftRight,
+                MirCallIntrinsic::Binary(MirBinaryOperator::ShiftRight),
+            ),
+            (
+                CompilerKnownOperationRole::Equality,
+                MirCallIntrinsic::Binary(MirBinaryOperator::Equal),
+            ),
+        ]
+        .into_iter()
+        .find_map(|(role, intrinsic)| {
+            let contract = available.operation_contract(role)?;
+
+            (contract.callable().map(Into::into) == Some(callable)).then_some(intrinsic)
+        })
     }
 
     pub(in crate::lowering::expression) fn selected_operation(

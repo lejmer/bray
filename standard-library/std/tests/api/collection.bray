@@ -9,6 +9,16 @@ using std.collection.DequeReadCursorIterator;
 using std.collection.DequeReadIterable;
 using std.collection.DequeWriteCursorIterator;
 using std.collection.DequeWriteIterable;
+using std.collection.HashMapMoveCursorIterator;
+using std.collection.HashMapMoveIterable;
+using std.collection.HashMapReadCursorIterator;
+using std.collection.HashMapReadIterable;
+using std.collection.HashMapWriteCursorIterator;
+using std.collection.HashMapWriteIterable;
+using std.collection.HashSetMoveCursorIterator;
+using std.collection.HashSetMoveIterable;
+using std.collection.HashSetReadCursorIterator;
+using std.collection.HashSetReadIterable;
 using std.collection.ListElementIndex;
 using std.collection.ListMoveIterable;
 using std.collection.ListReadIterable;
@@ -24,12 +34,37 @@ using std.iteration.EnumerateIterator;
 using std.iteration.IteratorDefaultOperations;
 using std.iteration.SkipIterator;
 using std.iteration.TakeIterator;
+using std.hash;
+using std.hash.StableHasherSink;
+using std.hash.U64Hashable;
 using std.memory;
 using std.testing;
 
 struct OwnedValue
 {
     bytes: std.bytes.Buffer;
+}
+
+struct CollisionKey
+{
+    value: u64;
+}
+
+impl CollisionKeyEquatable = CollisionKey(Equatable<CollisionKey>)
+{
+    func equals(pos rhs: &CollisionKey) -> bool
+    {
+        return self.value == rhs.value;
+    }
+}
+
+impl CollisionKeyHashable = CollisionKey(std.hash.Hashable<Sink>)
+    with(Sink: std.hash.HashSink)
+{
+    func contribute(pos sink: &mut Sink) -> unit
+    {
+        sink.write(0);
+    }
 }
 
 @test
@@ -530,6 +565,321 @@ trusted func stack_and_queue_are_explicit_deque_adapters() -> Result<unit, std.m
     assert(reserved.capacity() == 2);
 
     std.testing.assert_absent<i32>(trusted cleared.dequeue());
+
+    return Ok(unit);
+}
+
+@test
+trusted func hash_map_supports_growth_replacement_and_removal() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut map: std.collection.HashMap<u64, u64> = try trusted std.collection.HashMap<u64, u64>(capacity = 2);
+    let mut key: u64 = 0;
+
+    while key < 128
+    {
+        let replaced: u64? = try trusted map.insert(key, key * 10);
+
+        std.testing.assert_absent<u64>(replaced);
+
+        key += 1;
+    }
+
+    assert(map.length() == 128);
+    assert(map.capacity() >= 128);
+
+    let observed: &u64 = std.testing.assert_present(map.get(&42));
+
+    assert(observed == 420);
+
+    let replaced: u64 = std.testing.assert_present(try trusted map.insert(42, 421));
+
+    assert(replaced == 420);
+    assert(map.length() == 128);
+
+    let removed: (u64, u64) = std.testing.assert_present(trusted map.remove_entry(&42));
+
+    assert(removed.0 == 42);
+    assert(removed.1 == 421);
+    assert(!map.contains_key(&42));
+
+    return Ok(unit);
+}
+
+@test
+trusted func hash_map_supports_entry_insertion_and_mutation() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut map: std.collection.HashMap<u64, u64> = try trusted std.collection.HashMap<u64, u64>();
+
+    let _: u64? = try trusted map.insert(1, 10);
+    let _: u64? = try trusted map.insert(2, 20);
+
+    {
+        let mut entry: std.collection.Entry<u64, u64> = try trusted map.entry(3);
+        let inserted: &mut u64 = trusted entry.or_insert(30);
+
+        inserted += 1;
+    }
+
+    {
+        let mut entry: std.collection.Entry<u64, u64> = try trusted map.entry(3);
+        let existing: &mut u64 = trusted entry.or_insert(0);
+
+        assert(existing == 31);
+    }
+
+    return Ok(unit);
+}
+
+@test
+trusted func hash_map_produces_mutable_iteration_entries() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut map: std.collection.HashMap<u64, u64> = try trusted std.collection.HashMap<u64, u64>();
+
+    let _: u64? = try trusted map.insert(1, 10);
+    let _: u64? = try trusted map.insert(2, 20);
+
+    {
+        let source: &mut std.collection.HashMap<u64, u64> = &mut map;
+        let mut cursor: std.collection.HashMapWriteCursor<u64, u64> = source(Iterable).iterate();
+        let item: std.collection.HashMapReferenceMut<u64, u64>? = cursor.next();
+        let mut entry: std.collection.HashMapReferenceMut<u64, u64> = std.testing.assert_present(item);
+
+        assert(entry.key == 1 || entry.key == 2);
+        assert(entry.value == 10 || entry.value == 20);
+
+        let value: &mut u64 = entry.value;
+
+        value += 1;
+    }
+
+    let first: &u64 = std.testing.assert_present(map.get(&1));
+    let second: &u64 = std.testing.assert_present(map.get(&2));
+
+    assert((first == 11 && second == 20) || (first == 10 && second == 21));
+
+    return Ok(unit);
+}
+
+@test
+trusted func hash_map_supports_shared_and_consuming_iteration() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut map: std.collection.HashMap<u64, u64> = try trusted std.collection.HashMap<u64, u64>();
+    let mut key: u64 = 0;
+
+    while key < 128
+    {
+        let _: u64? = try trusted map.insert(key, key * 10);
+
+        key += 1;
+    }
+
+    let mut visited: usize = 0;
+
+    {
+        let source: &std.collection.HashMap<u64, u64> = &map;
+        let mut cursor: std.collection.HashMapReadCursor<u64, u64> = source(Iterable).iterate();
+
+        while true
+        {
+            match cursor.next()
+            {
+                case ?_ { visited += 1; }
+                case none { break; }
+            }
+        }
+    }
+
+    assert(visited == map.length());
+
+    let mut moved: std.collection.HashMapMoveCursor<u64, u64> = map(Iterable).iterate();
+    let mut moved_count: usize = 0;
+
+    while true
+    {
+        match moved.next()
+        {
+            case ?_ { moved_count += 1; }
+            case none { break; }
+        }
+    }
+
+    assert(moved_count == 128);
+
+    return Ok(unit);
+}
+
+@test
+trusted func hash_map_backshift_deletion_preserves_collision_clusters() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut map: std.collection.HashMap<CollisionKey, u64> = try trusted std.collection.HashMap<CollisionKey, u64>();
+    let mut value: u64 = 0;
+
+    while value < 64
+    {
+        let _: u64? = try trusted map.insert(
+            {
+                value = value,
+            },
+            value,
+        );
+
+        value += 1;
+    }
+
+    value = 0;
+
+    while value < 64
+    {
+        let key: CollisionKey =
+        {
+            value = value,
+        };
+
+        if value % 3 == 0
+        {
+            let removed: u64 = std.testing.assert_present(trusted map.remove(&key));
+
+            assert(removed == value);
+        }
+
+        value += 1;
+    }
+
+    value = 0;
+
+    while value < 64
+    {
+        let key: CollisionKey =
+        {
+            value = value,
+        };
+
+        if value % 3 == 0
+        {
+            assert(!map.contains_key(&key));
+        }
+        else
+        {
+            let retained: &u64 = std.testing.assert_present(map.get(&key));
+
+            assert(retained == value);
+        }
+
+        value += 1;
+    }
+
+    while value < 128
+    {
+        let _: u64? = try trusted map.insert(
+            {
+                value = value,
+            },
+            value,
+        );
+
+        value += 1;
+    }
+
+    assert(map.length() == 106);
+
+    return Ok(unit);
+}
+
+@test
+trusted func hash_set_uses_value_storage_for_replace_take_and_iteration() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut set: std.collection.HashSet<CollisionKey> = try trusted std.collection.HashSet<CollisionKey>(capacity = 4);
+    let mut value: u64 = 0;
+
+    while value < 48
+    {
+        assert(
+            try trusted set.insert(
+                {
+                    value = value,
+                }
+            )
+        );
+
+        value += 1;
+    }
+
+    let replaced: CollisionKey = std.testing.assert_present(
+        try trusted set.replace(
+            {
+                value = 7,
+            }
+        )
+    );
+
+    assert(replaced.value == 7);
+
+    let lookup: CollisionKey =
+    {
+        value = 17,
+    };
+
+    let stored: &CollisionKey = std.testing.assert_present(set.get(&lookup));
+
+    assert(stored.value == 17);
+
+    let taken: CollisionKey = std.testing.assert_present(trusted set.take(&lookup));
+
+    assert(taken.value == 17);
+    assert(!set.contains(&lookup));
+
+    let mut visited: usize = 0;
+
+    {
+        let source: &std.collection.HashSet<CollisionKey> = &set;
+        let mut cursor: std.collection.HashSetReadCursor<CollisionKey> = source(Iterable).iterate();
+
+        while true
+        {
+            match cursor.next()
+            {
+                case ?_ { visited += 1; }
+                case none { break; }
+            }
+        }
+    }
+
+    assert(visited == 47);
+
+    let mut moved: std.collection.HashSetMoveCursor<CollisionKey> = set(Iterable).iterate();
+    let mut moved_count: usize = 0;
+
+    while true
+    {
+        match moved.next()
+        {
+            case ?_ { moved_count += 1; }
+            case none { break; }
+        }
+    }
+
+    assert(moved_count == 47);
+
+    return Ok(unit);
+}
+
+@test
+trusted func hash_collection_capacity_overflow_is_reported() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut zero_sized_values: std.collection.HashMap<u64, unit> = try trusted std.collection.HashMap<u64, unit>();
+    let _: unit? = try trusted zero_sized_values.insert(1, unit);
+    let _: &unit = std.testing.assert_present(zero_sized_values.get(&1));
+
+    let _: std.memory.MemoryLayoutError = std.testing.assert_error<
+        std.collection.HashMap<u64, u64>,
+        std.memory.MemoryLayoutError
+    >(trusted std.collection.HashMap<u64, u64>(capacity = ~0));
+
+    let mut set: std.collection.HashSet<u64> = try trusted std.collection.HashSet<u64>();
+
+    let _: std.memory.MemoryLayoutError = std.testing.assert_error<unit, std.memory.MemoryLayoutError>(
+        trusted set.reserve(additional = ~0)
+    );
 
     return Ok(unit);
 }

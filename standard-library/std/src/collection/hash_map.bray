@@ -1,0 +1,591 @@
+module std.collection;
+
+using std.hash;
+
+internal struct MapItem<Key, Value>
+{
+    key: Key;
+    mut value: Value;
+}
+
+/// An owning hash map with expected constant-time lookup under healthy load.
+struct HashMap<Key, Value>
+{
+    internal mut table: HashTable<MapItem<Key, Value>>;
+
+    trusted internal func find(pos key: &Key, hash: u128) -> usize?
+        with(Key: Equatable<Key>)
+    {
+        let mut previous: usize? = none;
+
+        while true
+        {
+            let index: usize = (trusted hash_table_find_hash<MapItem<Key, Value>>(&self.table, previous, hash = hash))?;
+
+            let item: &MapItem<Key, Value> = trusted hash_table_item<MapItem<Key, Value>>(&self.table, index = index);
+
+            if item.key.equals(key)
+            {
+                let mut result: usize? = none;
+
+                result = index;
+
+                return result;
+            }
+
+            previous = index;
+        }
+    }
+
+    /// Creates an empty map able to retain at least `capacity` entries without growing.
+    trusted construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>
+    {
+        let table: HashTable<MapItem<Key, Value>> = try trusted HashTable<MapItem<Key, Value>>(capacity = capacity);
+
+        return Ok(
+            {
+                table = table,
+            }
+        );
+    }
+
+    /// Returns the number of entries in the map.
+    func length() -> usize
+    {
+        return hash_table_length<MapItem<Key, Value>>(&self.table);
+    }
+
+    /// Returns the number of entries that fit without growing the table.
+    func capacity() -> usize
+    {
+        return hash_table_capacity<MapItem<Key, Value>>(&self.table);
+    }
+
+    /// Reports whether the map contains no entries.
+    func is_empty() -> bool
+    {
+        return hash_table_is_empty<MapItem<Key, Value>>(&self.table);
+    }
+
+    /// Reserves room for at least `additional` more entries.
+    trusted mut func reserve(additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
+    {
+        return trusted hash_table_reserve<MapItem<Key, Value>>(&mut self.table, additional = additional);
+    }
+
+    /// Borrows the value associated with `key` without allocating or copying the key.
+    func get(pos key: &Key) -> (&Value)?
+        with(Key: std.hash.Hashable<std.hash.StableHasher>, Key: Equatable<Key>)
+    {
+        let hash: u128 = std.hash.stable_hash<Key>(key);
+        let index: usize = (trusted self.find(key, hash = hash))?;
+
+        let item: &MapItem<Key, Value> = trusted hash_table_item<MapItem<Key, Value>>(&self.table, index = index);
+        let value: &Value = &item.value;
+        let mut result: (&Value)? = none;
+
+        result = value;
+
+        return result;
+    }
+
+    /// Mutably borrows the value associated with `key` without allocating or copying the key.
+    mut func get_mut(pos key: &Key) -> (&mut Value)?
+        with(Key: std.hash.Hashable<std.hash.StableHasher>, Key: Equatable<Key>)
+    {
+        let hash: u128 = std.hash.stable_hash<Key>(key);
+        let index: usize = (trusted self.find(key, hash = hash))?;
+
+        let item: &mut MapItem<Key, Value> = trusted hash_table_item_mut<MapItem<Key, Value>>(
+            &mut self.table,
+            index = index,
+        );
+
+        let value: &mut Value = &mut item.value;
+        let mut result: (&mut Value)? = none;
+
+        result = value;
+
+        return result;
+    }
+
+    /// Reports whether `key` belongs to the map.
+    func contains_key(pos key: &Key) -> bool
+        with(Key: std.hash.Hashable<std.hash.StableHasher>, Key: Equatable<Key>)
+    {
+        let hash: u128 = std.hash.stable_hash<Key>(key);
+
+        return match trusted self.find(key, hash = hash)
+        {
+            case ?_ { yield true; }
+            case none { yield false; }
+        };
+    }
+
+    /// Inserts an entry and returns the replaced value when the key was already present.
+    trusted mut func insert(pos key: Key, pos value: Value) -> Result<Value?, std.memory.MemoryLayoutError>
+        with(Key: std.hash.Hashable<std.hash.StableHasher>, Key: Equatable<Key>)
+    {
+        let hash: u128 = std.hash.stable_hash<Key>(&key);
+
+        match trusted self.find(&key, hash = hash)
+        {
+            case ?index
+            {
+                let item: &mut MapItem<Key, Value> = trusted hash_table_item_mut<MapItem<Key, Value>>(
+                    &mut self.table,
+                    index = index,
+                );
+
+                let pointer: RawPointer<Value> = std.memory.address_of_mut<Value>(&mut item.value);
+                let previous: Value = trusted std.memory.read<Value>(pointer);
+
+                trusted std.memory.write<Value>(pointer, value);
+
+                let mut replaced: Value? = none;
+
+                replaced = previous;
+
+                return Ok(replaced);
+            }
+            case none {}
+        }
+
+        try trusted self.reserve(additional = 1);
+
+        let item: MapItem<Key, Value> =
+        {
+            key = key,
+            value = value,
+        };
+
+        let _: usize = trusted hash_table_insert_available<MapItem<Key, Value>>(&mut self.table, item, hash = hash);
+
+        return Ok(none);
+    }
+
+    /// Removes `key` and returns its value when present.
+    trusted mut func remove(pos key: &Key) -> Value?
+        with(Key: std.hash.Hashable<std.hash.StableHasher>, Key: Equatable<Key>)
+    {
+        let entry: (Key, Value) = (trusted self.remove_entry(key))?;
+
+        let (_, value) = entry;
+
+        let mut result: Value? = none;
+
+        result = value;
+
+        return result;
+    }
+
+    /// Removes `key` and returns its owned key and value when present.
+    trusted mut func remove_entry(pos key: &Key) -> (Key, Value)?
+        with(Key: std.hash.Hashable<std.hash.StableHasher>, Key: Equatable<Key>)
+    {
+        let hash: u128 = std.hash.stable_hash<Key>(key);
+        let index: usize = (trusted self.find(key, hash = hash))?;
+
+        let item: MapItem<Key, Value> = trusted hash_table_remove_at<MapItem<Key, Value>>(
+            &mut self.table,
+            index = index,
+        );
+
+        let mut result: (Key, Value)? = none;
+
+        result = (item.key, item.value);
+
+        return result;
+    }
+
+    /// Returns occupied or vacant access to `key`, reserving only for a vacant entry.
+    trusted mut func entry(pos key: Key) -> Result<Entry<Key, Value>, std.memory.MemoryLayoutError>
+        with(Key: std.hash.Hashable<std.hash.StableHasher>, Key: Equatable<Key>)
+    {
+        let hash: u128 = std.hash.stable_hash<Key>(&key);
+
+        match trusted self.find(&key, hash = hash)
+        {
+            case ?index { return Ok(occupied_map_entry<Key, Value>(&mut self, index = index)); }
+            case none {}
+        }
+
+        try trusted self.reserve(additional = 1);
+
+        return Ok(vacant_map_entry<Key, Value>(&mut self, key, hash = hash));
+    }
+
+    /// Removes all entries while retaining the allocation.
+    trusted mut func clear()
+    {
+        trusted hash_table_clear<MapItem<Key, Value>>(&mut self.table);
+    }
+}
+
+internal func occupied_map_entry<Key, Value>(pos map: &mut HashMap<Key, Value>, index: usize) -> Entry<Key, Value>
+{
+    return Entry.Occupied(
+        {
+            map = map,
+            index = index,
+        }
+    );
+}
+
+internal func vacant_map_entry<Key, Value>(
+    pos map: &mut HashMap<Key, Value>,
+    pos key: Key,
+    hash: u128
+) -> Entry<Key, Value>
+{
+    return Entry.Vacant(
+        {
+            map = map,
+            pending_key = key,
+            hash = hash,
+        }
+    );
+}
+
+/// An occupied hash-map entry.
+struct OccupiedEntry<Key, Value>
+{
+    internal mut map: &mut HashMap<Key, Value>;
+    internal index: usize;
+
+    /// Borrows the entry key.
+    func key() -> &Key
+    {
+        let item: &MapItem<Key, Value> = trusted hash_table_item<MapItem<Key, Value>>(
+            &self.map.table,
+            index = self.index,
+        );
+
+        return &item.key;
+    }
+
+    /// Borrows the entry value.
+    func get() -> &Value
+    {
+        let item: &MapItem<Key, Value> = trusted hash_table_item<MapItem<Key, Value>>(
+            &self.map.table,
+            index = self.index,
+        );
+
+        return &item.value;
+    }
+
+    /// Mutably borrows the entry value.
+    mut func get_mut() -> &mut Value
+    {
+        let item: &mut MapItem<Key, Value> = trusted hash_table_item_mut<MapItem<Key, Value>>(
+            &mut self.map.table,
+            index = self.index,
+        );
+
+        return &mut item.value;
+    }
+
+    /// Consumes the entry handle and returns its mutable value borrow.
+    consume func into_mut() -> &mut Value
+    {
+        let map: &mut HashMap<Key, Value> = self.map;
+
+        let item: &mut MapItem<Key, Value> = trusted hash_table_item_mut<MapItem<Key, Value>>(
+            &mut map.table,
+            index = self.index,
+        );
+
+        return &mut item.value;
+    }
+
+    /// Replaces and returns the entry value.
+    trusted mut func insert(pos value: Value) -> Value
+    {
+        let item: &mut MapItem<Key, Value> = trusted hash_table_item_mut<MapItem<Key, Value>>(
+            &mut self.map.table,
+            index = self.index,
+        );
+
+        let pointer: RawPointer<Value> = std.memory.address_of_mut<Value>(&mut item.value);
+        let previous: Value = trusted std.memory.read<Value>(pointer);
+
+        trusted std.memory.write<Value>(pointer, value);
+
+        return previous;
+    }
+
+    /// Removes and returns the owned entry.
+    trusted consume func remove() -> (Key, Value)
+    {
+        let map: &mut HashMap<Key, Value> = self.map;
+
+        let item: MapItem<Key, Value> = trusted hash_table_remove_at<MapItem<Key, Value>>(
+            &mut map.table,
+            index = self.index,
+        );
+
+        return (item.key, item.value);
+    }
+}
+
+/// A vacant hash-map entry whose insertion capacity is already reserved.
+struct VacantEntry<Key, Value>
+{
+    internal mut map: &mut HashMap<Key, Value>;
+    internal pending_key: Key;
+    internal hash: u128;
+
+    /// Borrows the key that would be inserted.
+    func key() -> &Key
+    {
+        return &self.pending_key;
+    }
+
+    /// Inserts the value and returns a mutable borrow of it.
+    trusted consume func insert(pos value: Value) -> &mut Value
+    {
+        let map: &mut HashMap<Key, Value> = self.map;
+
+        let item: MapItem<Key, Value> =
+        {
+            key = self.pending_key,
+            value = value,
+        };
+
+        let index: usize = trusted hash_table_insert_available<MapItem<Key, Value>>(
+            &mut map.table,
+            item,
+            hash = self.hash,
+        );
+
+        let inserted: &mut MapItem<Key, Value> = trusted hash_table_item_mut<MapItem<Key, Value>>(
+            &mut map.table,
+            index = index,
+        );
+
+        return &mut inserted.value;
+    }
+}
+
+/// Occupied or vacant access to one hash-map key.
+union Entry<Key, Value>
+{
+    Occupied(pos entry: OccupiedEntry<Key, Value>);
+    Vacant(pos entry: VacantEntry<Key, Value>);
+}
+
+impl Entry<Key, Value>
+{
+    /// Returns the occupied value or inserts `default` into a vacant entry.
+    trusted consume func or_insert(pos default: Value) -> &mut Value
+    {
+        match consume self
+        {
+            case Entry.Occupied(entry) { return entry.into_mut(); }
+            case Entry.Vacant(entry) { return trusted entry.insert(default); }
+        }
+    }
+
+    /// Returns the occupied value or inserts a lazily produced default into a vacant entry.
+    trusted consume func or_insert_with(pos default: func() -> Value) -> &mut Value
+    {
+        match consume self
+        {
+            case Entry.Occupied(entry) { return entry.into_mut(); }
+            case Entry.Vacant(entry) { return trusted entry.insert(default()); }
+        }
+    }
+}
+
+/// A shared hash-map entry produced during iteration.
+struct HashMapReference<Key, Value>
+{
+    key: &Key;
+    value: &Value;
+}
+
+/// A cursor over shared hash-map entries in unspecified order.
+struct HashMapReadCursor<Key, Value>
+{
+    internal map: &HashMap<Key, Value>;
+    internal mut index: usize = 0;
+}
+
+impl HashMapReadCursorIterator = HashMapReadCursor<Key, Value>(Iterator)
+{
+    type Element = HashMapReference<Key, Value>;
+
+    mut func next() -> HashMapReference<Key, Value>?
+    {
+        let bucket_count: usize = std.memory.capacity<u8>(&self.map.table.states);
+        let states: &[u8] = trusted std.memory.initialized_slice<u8>(&self.map.table.states);
+
+        while self.index < bucket_count
+        {
+            let index: usize = self.index;
+
+            self.index += 1;
+
+            if states[index] == HASH_TABLE_OCCUPIED
+            {
+                let item: &MapItem<Key, Value> = trusted hash_table_item<MapItem<Key, Value>>(
+                    &self.map.table,
+                    index = index,
+                );
+
+                let reference: HashMapReference<Key, Value> =
+                {
+                    key = &item.key,
+                    value = &item.value,
+                };
+
+                let mut result: HashMapReference<Key, Value>? = none;
+
+                result = reference;
+
+                return result;
+            }
+        }
+
+        return none;
+    }
+}
+
+impl HashMapReadIterable = &HashMap<Key, Value>(Iterable)
+{
+    type Element = HashMapReference<Key, Value>;
+    type Cursor = HashMapReadCursor<Key, Value>;
+
+    consume func iterate() -> HashMapReadCursor<Key, Value>
+    {
+        return
+        {
+            map = self,
+        };
+    }
+}
+
+/// A mutable hash-map entry produced during iteration. Keys remain shared so their hashes cannot be invalidated.
+struct HashMapReferenceMut<Key, Value>
+{
+    key: &Key;
+    mut value: &mut Value;
+}
+
+/// A cursor over mutable hash-map values in unspecified order.
+struct HashMapWriteCursor<Key, Value>
+{
+    internal mut map: &mut HashMap<Key, Value>;
+    internal mut index: usize = 0;
+}
+
+impl HashMapWriteCursorIterator = HashMapWriteCursor<Key, Value>(Iterator)
+{
+    type Element = HashMapReferenceMut<Key, Value>;
+
+    mut func next() -> HashMapReferenceMut<Key, Value>?
+    {
+        let bucket_count: usize = std.memory.capacity<u8>(&self.map.table.states);
+
+        while self.index < bucket_count
+        {
+            let index: usize = self.index;
+
+            self.index += 1;
+
+            if trusted hash_table_occupied(self.map.table.states.pointer, index = index)
+            {
+                let item: &mut MapItem<Key, Value> = trusted hash_table_item_mut<MapItem<Key, Value>>(
+                    &mut self.map.table,
+                    index = index,
+                );
+
+                let reference: HashMapReferenceMut<Key, Value> =
+                {
+                    key = &item.key,
+                    value = &mut item.value,
+                };
+
+                let mut result: HashMapReferenceMut<Key, Value>? = none;
+
+                result = reference;
+
+                return result;
+            }
+        }
+
+        return none;
+    }
+}
+
+impl HashMapWriteIterable = &mut HashMap<Key, Value>(Iterable)
+{
+    type Element = HashMapReferenceMut<Key, Value>;
+    type Cursor = HashMapWriteCursor<Key, Value>;
+
+    consume func iterate() -> HashMapWriteCursor<Key, Value>
+    {
+        return
+        {
+            map = self,
+        };
+    }
+}
+
+/// A cursor that consumes a hash map and produces owned entries in unspecified order.
+struct HashMapMoveCursor<Key, Value>
+{
+    internal mut map: HashMap<Key, Value>;
+    internal mut index: usize = 0;
+}
+
+impl HashMapMoveCursorIterator = HashMapMoveCursor<Key, Value>(Iterator)
+{
+    type Element = (Key, Value);
+
+    mut func next() -> (Key, Value)?
+    {
+        let bucket_count: usize = std.memory.capacity<u8>(&self.map.table.states);
+
+        while self.index < bucket_count
+        {
+            let index: usize = self.index;
+            let occupied: bool = trusted hash_table_occupied(self.map.table.states.pointer, index = index);
+
+            self.index += 1;
+
+            if occupied
+            {
+                let item: MapItem<Key, Value> = trusted hash_table_take<MapItem<Key, Value>>(
+                    &mut self.map.table,
+                    index = index,
+                );
+
+                self.map.table.count -= 1;
+
+                let mut result: (Key, Value)? = none;
+
+                result = (item.key, item.value);
+
+                return result;
+            }
+        }
+
+        return none;
+    }
+}
+
+impl HashMapMoveIterable = HashMap<Key, Value>(Iterable)
+{
+    type Element = (Key, Value);
+    type Cursor = HashMapMoveCursor<Key, Value>;
+
+    consume func iterate() -> HashMapMoveCursor<Key, Value>
+    {
+        return
+        {
+            map = self,
+        };
+    }
+}

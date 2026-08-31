@@ -116,7 +116,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 .result_type()
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-            return Ok(self.types.map(result)?.into_int_type().const_int(*length, false).into());
+            return Ok(self
+                .types
+                .map(result)?
+                .into_int_type()
+                .const_int(*length, false)
+                .into());
         }
 
         let slice = self.operand(slice)?.into_struct_value();

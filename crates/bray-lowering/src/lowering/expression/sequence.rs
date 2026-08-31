@@ -104,10 +104,7 @@ impl Lowerer<'_> {
             .map_err(|_| LoweringError::SemanticValueUnavailable)
     }
 
-    fn sequence_length_zero(
-        &self,
-        ty: bray_symbols::TypeId,
-    ) -> Result<MirOperand, LoweringError> {
+    fn sequence_length_zero(&self, ty: bray_symbols::TypeId) -> Result<MirOperand, LoweringError> {
         let value = self
             .input
             .semantic_values()
@@ -139,9 +136,6 @@ mod tests {
             Some(SequenceOperationKind::IsEmpty)
         );
 
-        assert_eq!(
-            sequence_operation_kind(ImplementationHook::AddressOf),
-            None
-        );
+        assert_eq!(sequence_operation_kind(ImplementationHook::AddressOf), None);
     }
 }

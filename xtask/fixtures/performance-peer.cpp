@@ -32,6 +32,10 @@
 #include <deque>
 #endif
 
+#if BRAY_WORKLOAD == 18 || BRAY_WORKLOAD == 19
+#include <unordered_map>
+#endif
+
 #if BRAY_WORKLOAD == 7
 #include <charconv>
 #include <string>
@@ -86,7 +90,7 @@ constexpr char observation_header[] = "BRAYPO01";
 constexpr std::uint8_t controlled_duration_record = 3;
 
 #if defined(BRAY_PEER_TIMING) || (BRAY_WORKLOAD >= 2 && BRAY_WORKLOAD <= 8) \
-    || BRAY_WORKLOAD == 12 || BRAY_WORKLOAD == 17
+    || BRAY_WORKLOAD == 12 || (BRAY_WORKLOAD >= 17 && BRAY_WORKLOAD <= 19)
 template <typename Value>
 void retain_work(Value const& value)
 {
@@ -136,6 +140,48 @@ bool workload()
 #else
     return incremental_bytes(4096);
 #endif
+}
+#elif BRAY_WORKLOAD == 18
+bool workload()
+{
+    std::unordered_map<std::uint64_t, std::uint64_t> map;
+
+    for (std::uint64_t key = 0; key < 4096; ++key)
+        map.emplace(key, key);
+
+    for (std::uint64_t key = 0; key < 4096; ++key)
+        if (map.find(key) == map.end())
+            return false;
+
+    retain_work(map);
+
+    return map.size() == 4096;
+}
+#elif BRAY_WORKLOAD == 19
+struct CollisionHasher
+{
+    std::size_t operator()(std::uint64_t) const
+    {
+        return 0;
+    }
+};
+
+bool workload()
+{
+    std::unordered_map<std::uint64_t, std::uint64_t, CollisionHasher> map;
+
+    map.reserve(48);
+
+    for (std::uint64_t key = 0; key < 48; ++key)
+        map.emplace(key, key);
+
+    for (std::size_t lookup = 0; lookup < 4096; ++lookup)
+        if (map.find(static_cast<std::uint64_t>(lookup % 48)) == map.end())
+            return false;
+
+    retain_work(map);
+
+    return map.size() == 48;
 }
 #elif BRAY_WORKLOAD == 7
 struct Wide

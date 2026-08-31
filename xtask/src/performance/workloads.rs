@@ -103,3 +103,142 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         copied_bytes: 0,
     }),
 };
+
+pub(super) const HASH_MAP_GROWTH_AND_HEALTHY_LOOKUP: Workload = Workload {
+    id: "hash_map_growth_and_healthy_lookup",
+    category: WorkloadCategory::CoreData,
+    scale: 4096,
+    units: "insert-and-lookup pairs",
+    batching: BatchingPolicy::SingleExecution,
+    source: r#"module hash_map_growth_and_healthy_lookup;
+
+using std.collection;
+using std.hash.StableHasherSink;
+using std.hash.U64Hashable;
+using std.memory;
+
+func main() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut map: std.collection.HashMap<u64, u64> = try trusted std.collection.HashMap<u64, u64>();
+    let mut key: u64 = 0;
+
+    while key < 4096
+    {
+        let value: u64 = key;
+        let _: u64? = try trusted map.insert(key, value);
+
+        key += 1;
+    }
+
+    key = 0;
+
+    while key < 4096
+    {
+        let lookup: u64 = key;
+
+        assert(map.contains_key(&lookup));
+
+        key += 1;
+    }
+
+    assert(map.length() == 4096);
+    assert(map.capacity() == 6144);
+
+    return Ok(unit);
+}
+"#,
+    expected_output: ExpectedOutput::Empty,
+    expected_side_effects: ExpectedSideEffects::None,
+    platform_operations: &[],
+    retention: NO_RETENTION_CONTRACT,
+    storage: Some(StorageExpectation {
+        allocation_count: 33,
+        allocated_bytes: 540_408,
+        copied_bytes: 0,
+    }),
+};
+
+pub(super) const HASH_MAP_COLLISION_LOOKUP: Workload = Workload {
+    id: "hash_map_collision_lookup",
+    category: WorkloadCategory::CoreData,
+    scale: 4096,
+    units: "collision-chain lookups",
+    batching: BatchingPolicy::SingleExecution,
+    source: r#"module hash_map_collision_lookup;
+
+using std.collection;
+using std.hash;
+using std.hash.StableHasherSink;
+using std.memory;
+
+struct CollisionKey
+{
+    value: u64;
+}
+
+impl CollisionKeyEquatable = CollisionKey(Equatable<CollisionKey>)
+{
+    func equals(pos rhs: &CollisionKey) -> bool
+    {
+        return self.value == rhs.value;
+    }
+}
+
+impl CollisionKeyHashable = CollisionKey(std.hash.Hashable<Sink>)
+    with(Sink: std.hash.HashSink)
+{
+    func contribute(pos sink: &mut Sink) -> unit
+    {
+        sink.write(0);
+    }
+}
+
+func main() -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let mut map: std.collection.HashMap<CollisionKey, u64> =
+        try trusted std.collection.HashMap<CollisionKey, u64>(capacity = 48);
+
+    let mut value: u64 = 0;
+
+    while value < 48
+    {
+        let _: u64? = try trusted map.insert(
+            {
+                value = value,
+            },
+            value,
+        );
+
+        value += 1;
+    }
+
+    let mut lookup: usize = 0;
+
+    while lookup < 4096
+    {
+        let subject: CollisionKey =
+        {
+            value = (lookup % 48) as u64,
+        };
+
+        assert(map.contains_key(&subject));
+
+        lookup += 1;
+    }
+
+    assert(map.length() == 48);
+    assert(map.capacity() == 48);
+
+    return Ok(unit);
+}
+"#,
+    expected_output: ExpectedOutput::Empty,
+    expected_side_effects: ExpectedSideEffects::None,
+    platform_operations: &[],
+    retention: NO_RETENTION_CONTRACT,
+    storage: Some(StorageExpectation {
+        allocation_count: 3,
+        allocated_bytes: 2_112,
+        copied_bytes: 0,
+    }),
+};

@@ -23,6 +23,13 @@ use std::io::Read as _;
 use std::process::{Command, Stdio};
 #[cfg(peer_workload = "deque_mixed_ends")]
 use std::collections::VecDeque;
+#[cfg(any(
+    peer_workload = "hash_map_collision_lookup",
+    peer_workload = "hash_map_growth_and_healthy_lookup"
+))]
+use std::collections::HashMap;
+#[cfg(peer_workload = "hash_map_collision_lookup")]
+use std::hash::{BuildHasherDefault, Hasher};
 #[cfg(peer_workload = "async_output")]
 use std::sync::Arc;
 #[cfg(any(peer_timing, peer_workload = "monotonic_clock"))]
@@ -84,6 +91,62 @@ fn inner_iterations() -> u64 {
 #[cfg(peer_workload = "small_output")]
 fn workload() -> bool {
     true
+}
+
+#[cfg(peer_workload = "hash_map_growth_and_healthy_lookup")]
+fn workload() -> bool {
+    let mut map = HashMap::new();
+
+    for key in 0_u64..4_096 {
+        map.insert(key, key);
+    }
+
+    for key in 0_u64..4_096 {
+        if !map.contains_key(&key) {
+            return false;
+        }
+    }
+
+    std::hint::black_box(&map);
+
+    map.len() == 4_096
+}
+
+#[cfg(peer_workload = "hash_map_collision_lookup")]
+#[derive(Default)]
+struct CollisionHasher;
+
+#[cfg(peer_workload = "hash_map_collision_lookup")]
+impl Hasher for CollisionHasher {
+    fn finish(&self) -> u64 {
+        0
+    }
+
+    fn write(&mut self, _bytes: &[u8]) {}
+}
+
+#[cfg(peer_workload = "hash_map_collision_lookup")]
+fn workload() -> bool {
+    let mut map = HashMap::with_capacity_and_hasher(
+        48,
+        BuildHasherDefault::<CollisionHasher>::default(),
+    );
+
+    for key in 0_u64..48 {
+        map.insert(key, key);
+    }
+
+    for lookup in 0_usize..4_096 {
+        let key = (lookup % 48) as u64;
+
+        if !map.contains_key(&key) {
+            return false;
+        }
+    }
+
+    std::hint::black_box(&map);
+
+    map.len() == 48
 }
 
 #[cfg(peer_workload = "incremental_bytes_small")]

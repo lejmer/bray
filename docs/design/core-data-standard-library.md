@@ -455,14 +455,25 @@ normalization move every live element exactly once and never treat spare storage
 
 ### Hash Collection Surface
 
-`std.collection.HashMap<Key, Value, Hasher>` and `std.collection.HashSet<Value, Hasher>` provide expected constant-time
-lookup under the selected hashing policy. Their construction makes the hashing policy explicit or selects the standard
-process-local policy. Stable hashing is used only where a caller explicitly requests deterministic cross-run hashes.
-Hash collections expose entry-style mutation, insertion, replacement, removal, containment, capacity management, and
-shared, mutable, and consuming iteration without claiming a stable iteration order.
+`std.collection.HashMap<Key, Value>` and `std.collection.HashSet<Value>` provide expected constant-time lookup under
+healthy load. They use `std.hash.StableHasher`, so stored keys and values require compatible
+`Hashable<StableHasher>` and `Equatable` implementations. Borrowed lookup hashes and compares the borrowed value without
+allocating or copying it.
 
-Hash collection keys require compatible hashing and equality contracts. Mutating a key through an alias while it belongs
-to a hash collection is prevented by ownership and borrowing rather than tolerated as an invalid table state.
+Construction accepts the minimum entry capacity that must fit without growth. Tables use power-of-two bucket counts, a
+minimum non-empty bucket count of eight, linear probing, and a maximum load of three quarters. `reserve` grows
+geometrically to satisfy the requested retained-entry capacity. Growth moves every retained entry once. Removal closes
+the probe hole by shifting later entries backward, so deleted buckets do not accumulate tombstones or progressively
+degrade lookup.
+
+Maps expose `get`, `get_mut`, containment, insertion and replacement, owned removal, entry-style mutation, capacity
+management, clearing, and shared, mutable, and consuming iteration. Sets store values directly and expose borrowed
+lookup, containment, insertion, replacement, owned removal, capacity management, clearing, and shared and consuming
+iteration. Mutable map iteration keeps keys shared and grants mutation only for values. No hash collection iteration
+order is part of the contract.
+
+Stored keys cannot be mutated through the collection surface. Ownership and borrowing prevent an alias from invalidating
+a key's recorded hash while it belongs to a collection.
 
 ### Ordered Collection Surface
 

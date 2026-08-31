@@ -1,0 +1,450 @@
+module std.collection;
+
+using std.memory;
+
+const HASH_TABLE_EMPTY: u8 = 0;
+
+const HASH_TABLE_OCCUPIED: u8 = 1;
+
+const HASH_TABLE_MINIMUM_BUCKETS: usize = 8;
+
+internal struct HashTable<Item>
+{
+    mut states: std.memory.RawBuffer<u8>;
+    mut hashes: std.memory.RawBuffer<u128>;
+    mut items: std.memory.RawBuffer<Uninit<Item>>;
+    mut count: usize;
+
+    trusted construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>
+    {
+        let bucket_count: usize = try hash_table_bucket_count(capacity);
+        let states: std.memory.RawBuffer<u8> = try trusted hash_table_filled_buffer<u8>(bucket_count, HASH_TABLE_EMPTY);
+
+        let hashes: std.memory.RawBuffer<u128> = try trusted hash_table_filled_buffer<u128>(bucket_count, 0);
+
+        let items: std.memory.RawBuffer<Uninit<Item>> = try trusted internal std.memory.uninit_buffer<Item>(
+            capacity = bucket_count
+        );
+
+        return Ok(
+            {
+                states = states,
+                hashes = hashes,
+                items = items,
+                count = 0,
+            }
+        );
+    }
+
+    trusted destruct()
+    {
+        trusted hash_table_clear<Item>(&mut self);
+    }
+}
+
+internal func hash_table_bucket_capacity(pos bucket_count: usize) -> usize
+{
+    return bucket_count - bucket_count / 4;
+}
+
+internal func hash_table_bucket_count(pos capacity: usize) -> Result<usize, std.memory.MemoryLayoutError>
+{
+    if capacity == 0
+    {
+        return Ok(0);
+    }
+
+    let maximum: usize = ~0;
+    let mut bucket_count: usize = HASH_TABLE_MINIMUM_BUCKETS;
+
+    while hash_table_bucket_capacity(bucket_count) < capacity
+    {
+        if bucket_count > maximum / 2
+        {
+            return Error(std.memory.MemoryLayoutError.SizeOverflow);
+        }
+
+        bucket_count *= 2;
+    }
+
+    return Ok(bucket_count);
+}
+
+trusted internal func hash_table_filled_buffer<Value>(
+    pos bucket_count: usize,
+    pos value: Value
+) -> Result<std.memory.RawBuffer<Value>, std.memory.MemoryLayoutError>
+    with(Value: Copyable)
+{
+    let mut buffer: std.memory.RawBuffer<Value> = try trusted std.memory.RawBuffer<Value>(capacity = bucket_count);
+    let mut initialized: usize = 0;
+
+    while initialized < bucket_count
+    {
+        let destination: RawPointer<Value> = trusted std.memory.spare_pointer<Value>(&mut buffer);
+
+        trusted std.memory.write<Value>(destination, value);
+
+        initialized += 1;
+
+        trusted std.memory.set_initialized_count<Value>(&mut buffer, count = initialized);
+    }
+
+    return Ok(buffer);
+}
+
+internal func hash_table_length<Item>(pos table: &HashTable<Item>) -> usize
+{
+    return table.count;
+}
+
+internal func hash_table_capacity<Item>(pos table: &HashTable<Item>) -> usize
+{
+    return hash_table_bucket_capacity(std.memory.capacity<u8>(&table.states));
+}
+
+internal func hash_table_is_empty<Item>(pos table: &HashTable<Item>) -> bool
+{
+    return table.count == 0;
+}
+
+internal func hash_table_bucket_index(pos hash: u128, pos bucket_count: usize) -> usize
+{
+    return std.truncate_to<usize>(hash % bucket_count as u128);
+}
+
+internal func hash_table_next(pos index: usize, pos bucket_count: usize) -> usize
+{
+    if index + 1 == bucket_count
+    {
+        return 0;
+    }
+
+    return index + 1;
+}
+
+internal func hash_table_probe_distance(pos ideal: usize, pos actual: usize, pos bucket_count: usize) -> usize
+{
+    if actual >= ideal
+    {
+        return actual - ideal;
+    }
+
+    return bucket_count - ideal + actual;
+}
+
+trusted internal func hash_table_item<Item>(pos table: &HashTable<Item>, index: usize) -> &Item
+{
+    let slots: &[Uninit<Item>] = trusted std.memory.initialized_slice<Uninit<Item>>(&table.items);
+    let pointer: RawPointer<Item> = std.memory.uninit_pointer<Item>(&slots[index]);
+
+    return trusted std.memory.borrow_from<Item, HashTable<Item>>(table, pointer);
+}
+
+trusted internal func hash_table_item_mut<Item>(pos table: &mut HashTable<Item>, index: usize) -> &mut Item
+{
+    let pointer: RawPointer<Item> =
+    {
+        let slots: &mut [Uninit<Item>] = trusted std.memory.initialized_slice_mut<Uninit<Item>>(&mut table.items);
+
+        yield std.memory.uninit_pointer_mut<Item>(&mut slots[index]);
+    };
+
+    return trusted std.memory.borrow_mut_from<Item, HashTable<Item>>(table, pointer);
+}
+
+trusted internal func hash_table_hash(pos hashes: &std.memory.RawBuffer<u128>, index: usize) -> u128
+{
+    let values: &[u128] = trusted std.memory.initialized_slice<u128>(hashes);
+    let pointer: RawPointer<u128> = std.memory.address_of<u128>(&values[index]);
+
+    return trusted std.memory.read<u128>(pointer);
+}
+
+trusted internal func hash_table_occupied(pos states: RawPointer<u8>, index: usize) -> bool
+{
+    return trusted internal std.memory.byte_buffer_read(states, index = index) == HASH_TABLE_OCCUPIED;
+}
+
+trusted internal func hash_table_write<Item>(pos table: &mut HashTable<Item>, pos item: Item, hash: u128, index: usize)
+{
+    trusted hash_table_write_storage<Item>(&mut table.items, &mut table.states, item, index = index);
+
+    let hashes: &mut [u128] = trusted std.memory.initialized_slice_mut<u128>(&mut table.hashes);
+
+    hashes[index] = hash;
+}
+
+trusted internal func hash_table_write_storage<Item>(
+    pos items: &mut std.memory.RawBuffer<Uninit<Item>>,
+    pos states: &mut std.memory.RawBuffer<u8>,
+    pos item: Item,
+    index: usize
+)
+{
+    let slots: &mut [Uninit<Item>] = trusted std.memory.initialized_slice_mut<Uninit<Item>>(items);
+    let _: &mut Item = std.memory.uninit_write<Item>(&mut slots[index], item);
+    let state_values: &mut [u8] = trusted std.memory.initialized_slice_mut<u8>(states);
+
+    state_values[index] = HASH_TABLE_OCCUPIED;
+}
+
+trusted internal func hash_table_take<Item>(pos table: &mut HashTable<Item>, index: usize) -> Item
+{
+    return trusted hash_table_take_storage<Item>(&mut table.items, &mut table.states, index = index);
+}
+
+trusted internal func hash_table_take_storage<Item>(
+    pos items: &mut std.memory.RawBuffer<Uninit<Item>>,
+    pos states: &mut std.memory.RawBuffer<u8>,
+    index: usize
+) -> Item
+{
+    let value: Item =
+    {
+        let slots: &mut [Uninit<Item>] = trusted std.memory.initialized_slice_mut<Uninit<Item>>(items);
+
+        yield trusted std.memory.move_initialized<Item>(&mut slots[index]);
+    };
+
+    let state_values: &mut [u8] = trusted std.memory.initialized_slice_mut<u8>(states);
+
+    state_values[index] = HASH_TABLE_EMPTY;
+
+    return value;
+}
+
+trusted internal func hash_table_transfer_at<Item>(
+    pos source: &mut HashTable<Item>,
+    pos destination: &mut HashTable<Item>,
+    index: usize
+)
+{
+    let hash: u128 =
+    {
+        let hashes: &mut [u128] = trusted std.memory.initialized_slice_mut<u128>(&mut source.hashes);
+
+        yield hashes[index];
+    };
+
+    let item: Item = trusted hash_table_take_storage<Item>(&mut source.items, &mut source.states, index = index);
+
+    let _: usize = trusted hash_table_insert_available<Item>(&mut destination, item, hash = hash);
+}
+
+trusted internal func hash_table_find_hash<Item>(pos table: &HashTable<Item>, pos after: usize?, hash: u128) -> usize?
+{
+    let bucket_count: usize = std.memory.capacity<u8>(&table.states);
+
+    if bucket_count == 0
+    {
+        return none;
+    }
+
+    let states: &[u8] = trusted std.memory.initialized_slice<u8>(&table.states);
+
+    let mut index: usize = match after
+    {
+        case ?index { yield hash_table_next(index, bucket_count); }
+        case none { yield hash_table_bucket_index(hash, bucket_count); }
+    };
+
+    let mut examined: usize = 0;
+
+    while examined < bucket_count
+    {
+        if states[index] == HASH_TABLE_EMPTY
+        {
+            return none;
+        }
+
+        if trusted hash_table_hash(&table.hashes, index = index) == hash
+        {
+            let mut result: usize? = none;
+
+            result = index;
+
+            return result;
+        }
+
+        index = hash_table_next(index, bucket_count);
+        examined += 1;
+    }
+
+    return none;
+}
+
+trusted internal func hash_table_insert_available<Item>(
+    pos table: &mut HashTable<Item>,
+    pos item: Item,
+    hash: u128
+) -> usize
+{
+    let bucket_count: usize = std.memory.capacity<u8>(&table.states);
+    let mut index: usize = hash_table_bucket_index(hash, bucket_count);
+
+    while true
+    {
+        let available: bool = !trusted hash_table_occupied(table.states.pointer, index = index);
+
+        if available
+        {
+            trusted hash_table_write<Item>(&mut table, item, hash = hash, index = index);
+            table.count += 1;
+
+            return index;
+        }
+
+        index = hash_table_next(index, bucket_count);
+    }
+}
+
+trusted internal func hash_table_reserve<Item>(
+    pos table: &mut HashTable<Item>,
+    additional: usize
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let maximum: usize = ~0;
+
+    if additional > maximum - table.count
+    {
+        return Error(std.memory.MemoryLayoutError.SizeOverflow);
+    }
+
+    let required: usize = table.count + additional;
+
+    if required <= hash_table_capacity<Item>(&table)
+    {
+        return Ok(unit);
+    }
+
+    let bucket_count: usize = try hash_table_bucket_count(required);
+
+    try trusted hash_table_reallocate<Item>(&mut table, bucket_count = bucket_count);
+
+    return Ok(unit);
+}
+
+trusted internal func hash_table_reallocate<Item>(
+    pos table: &mut HashTable<Item>,
+    bucket_count: usize
+) -> Result<unit, std.memory.MemoryLayoutError>
+{
+    let requested_capacity: usize = hash_table_bucket_capacity(bucket_count);
+    let mut replacement: HashTable<Item> = try trusted HashTable<Item>(capacity = requested_capacity);
+    let source_bucket_count: usize = std.memory.capacity<u8>(&table.states);
+    let mut index: usize = 0;
+
+    while index < source_bucket_count
+    {
+        let occupied: bool = trusted hash_table_occupied(table.states.pointer, index = index);
+
+        if occupied
+        {
+            trusted hash_table_transfer_at<Item>(&mut table, &mut replacement, index = index);
+        }
+
+        index += 1;
+    }
+
+    table.count = 0;
+
+    trusted internal std.memory.raw_buffer_replace<u8>(
+        destination = &mut table.states,
+        source = &mut replacement.states,
+    );
+
+    trusted internal std.memory.raw_buffer_replace<u128>(
+        destination = &mut table.hashes,
+        source = &mut replacement.hashes,
+    );
+
+    trusted internal std.memory.raw_buffer_replace<Uninit<Item>>(
+        destination = &mut table.items,
+        source = &mut replacement.items,
+    );
+
+    table.count = replacement.count;
+    replacement.count = 0;
+
+    return Ok(unit);
+}
+
+trusted internal func hash_table_remove_at<Item>(pos table: &mut HashTable<Item>, index: usize) -> Item
+{
+    let removed: Item = trusted hash_table_take<Item>(&mut table, index = index);
+
+    trusted hash_table_close_hole<Item>(&mut table, hole = index);
+
+    return removed;
+}
+
+trusted internal func hash_table_close_hole<Item>(pos table: &mut HashTable<Item>, hole: usize)
+{
+    let bucket_count: usize = std.memory.capacity<u8>(&table.states);
+    let mut open: usize = hole;
+    let mut current: usize = hash_table_next(hole, bucket_count);
+
+    while true
+    {
+        let occupied: bool = trusted hash_table_occupied(table.states.pointer, index = current);
+
+        if !occupied
+        {
+            break;
+        }
+
+        let item_hash: u128 =
+        {
+            let hashes: &mut [u128] = trusted std.memory.initialized_slice_mut<u128>(&mut table.hashes);
+
+            yield hashes[current];
+        };
+
+        let ideal: usize = hash_table_bucket_index(item_hash, bucket_count);
+
+        let current_distance: usize = hash_table_probe_distance(ideal, current, bucket_count);
+        let hole_distance: usize = hash_table_probe_distance(ideal, open, bucket_count);
+
+        if current_distance > hole_distance
+        {
+            let item: Item = trusted hash_table_take_storage<Item>(
+                &mut table.items,
+                &mut table.states,
+                index = current,
+            );
+
+            trusted hash_table_write_storage<Item>(&mut table.items, &mut table.states, item, index = open);
+
+            let hashes: &mut [u128] = trusted std.memory.initialized_slice_mut<u128>(&mut table.hashes);
+
+            hashes[open] = item_hash;
+
+            open = current;
+        }
+
+        current = hash_table_next(current, bucket_count);
+    }
+
+    table.count -= 1;
+}
+
+trusted internal func hash_table_clear<Item>(pos table: &mut HashTable<Item>)
+{
+    let bucket_count: usize = std.memory.capacity<u8>(&table.states);
+    let mut index: usize = 0;
+
+    while index < bucket_count
+    {
+        let occupied: bool = trusted hash_table_occupied(table.states.pointer, index = index);
+
+        if occupied
+        {
+            let _: Item = trusted hash_table_take<Item>(&mut table, index = index);
+        }
+
+        index += 1;
+    }
+
+    table.count = 0;
+}
