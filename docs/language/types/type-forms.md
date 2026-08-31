@@ -685,7 +685,7 @@ type is used as a materializable type.
 
 A fixed-size array contains exactly `N` elements of type `T`.
 
-Every fixed-size array access path exposes compiler-provided `length() -> usize` and `is_empty() -> bool` methods.
+Every fixed-size array access path has compiler-provided `length() -> usize` and `is_empty() -> bool` methods.
 `length()` returns `N`, and `is_empty()` is false because materializable fixed-size arrays require `N > 0`.
 
 Each element has its own initialization state while the array is being initialized or after a partial move.
@@ -779,7 +779,7 @@ A shared slice borrow permits observation of initialized elements.
 
 A mutable slice borrow permits mutation of initialized elements according to ordinary exclusive-borrow rules.
 
-Slice access paths expose compiler-provided `length() -> usize` and `is_empty() -> bool` methods. They observe the
+Slice access paths have compiler-provided `length() -> usize` and `is_empty() -> bool` methods. They observe the
 runtime length carried by the slice indirection and do not inspect or move any element.
 
 Borrowed slices do not own their elements.

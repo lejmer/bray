@@ -131,7 +131,7 @@ func summarize(pos value: &string) -> (usize, bool)
 }
 ```
 
-These calls reach recognized behavior only because the selected inherent implementation and its members have the exact standard-library identities. A user method named `length`, an implementation in another package, or a different visible declaration with the same surface remains ordinary code.
+These calls reach recognized behavior only because the selected inherent implementation and its members have the exact standard-library identities. A user method named `length`, an implementation in another package, or a different visible declaration with the same spelling and signature remains ordinary code.
 
 Recognition can provide specified checking, lowering, optimization, const eligibility, or contract behavior without making a declaration ambient. Current recognized families include numeric conversion policy, string operations, callback state, and the standard-library memory, layout, allocation, uninitialized-storage, and anchored-borrow surfaces listed by the conformance catalog. Safe atomic wrappers, channels, operating-system threads, child processes, task combinators, synchronization owners, run checkpoints, and runtime-selection types remain ordinary standard-library declarations rather than recognized names.
 

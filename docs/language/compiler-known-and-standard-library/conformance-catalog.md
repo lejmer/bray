@@ -207,7 +207,7 @@ The recognized declarations under `std.character` are:
   `whitespace`.
 
 The public string and character members are ordinary Bray bodies. Their internal primitive calls carry the
-compiler-provided behavior; source spelling alone never receives that behavior.
+compiler-provided behavior. Source spelling alone never receives that behavior.
 
 The recognized declarations under `std.memory` are:
 

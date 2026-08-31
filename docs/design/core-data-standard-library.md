@@ -105,7 +105,7 @@ The text surface uses `&string` as its borrowed text view and `&[u8]` as its bor
 introduce `StringView`, `TextView`, `ByteView`, or index-wrapper types that add no invariant beyond those structural
 forms. Scalar positions and UTF-8 byte offsets use `usize` and remain distinguished by the operation that accepts them.
 
-The public text surface has these exact signatures:
+The public text API has these exact signatures:
 
 ```bray
 module std.string;
@@ -140,8 +140,8 @@ an owning `string` whose scalar sequence is the decoded input. `Equatable<string
 behavior for strings.
 
 These methods are ordinary Bray bodies over internal recognized primitives. The primitives retain the compiler hooks
-for scalar counting, emptiness, equality, scalar access and slicing, UTF-8 byte observation, and validated decoding;
-they are not part of the public API.
+for scalar counting, emptiness, equality, scalar access and slicing, UTF-8 byte observation, and validated decoding.
+They are not part of the public API.
 
 Scalar iteration uses one public cursor identity and an ordinary named implementation:
 
@@ -158,11 +158,11 @@ impl ScalarCursorIterator = ScalarCursor(Iterator)
 }
 ```
 
-The cursor representation is private. The value returned by `characters` carries the dependency of its receiver,
-advances in Unicode scalar order, and remains exhausted after returning `none`. Byte iteration uses the slice returned
-by `as_bytes` and the ordinary slice iteration contract rather than a second string-specific byte cursor.
+The cursor representation is private. `characters` returns a cursor that depends on its receiver. The cursor advances
+in Unicode scalar order and remains exhausted after returning `none`. Byte iteration uses the slice returned by
+`as_bytes` and the ordinary slice iteration contract rather than a second string-specific byte cursor.
 
-The `std.character` surface is:
+The `std.character` API is:
 
 ```bray
 module std.character;
@@ -187,7 +187,7 @@ impl char
 ```
 
 `from_code_point` returns `none` for values that are not Unicode scalar values. `encode_utf8` returns a value containing
-exactly one character's UTF-8 encoding; `as_slice` exposes only its initialized prefix. The character-classification
+exactly one character's UTF-8 encoding. `as_slice` returns a slice of its initialized prefix. The character-classification
 contract uses Unicode 17.0.0 and is independent of the host locale. The selected standard-library artifact owns the
 exact data used by these operations. Changing the classification data requires rebuilt standard-library artifacts, so
 an unchanged artifact cannot silently acquire new classification behavior from a host toolchain update. Case conversion
