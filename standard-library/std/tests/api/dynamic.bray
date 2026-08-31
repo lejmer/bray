@@ -36,8 +36,7 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
 
     let invalid: [u8; 1] = [0];
 
-    let invalid_result: Result<std.dynamic.DynamicSymbol<u8>, std.ffi.ForeignError> = trusted std.dynamic.symbol<u8>(
-        &library,
+    let invalid_result: Result<std.dynamic.DynamicSymbol<u8>, std.ffi.ForeignError> = trusted library.symbol<u8>(
         &invalid[..]
     );
 
@@ -75,9 +74,8 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
             108,
         ];
 
-        let missing: Result<std.dynamic.DynamicSymbol<u8>, std.ffi.ForeignError> = trusted std.dynamic.symbol<u8>(
-            &library,
-            &missing_name[..],
+        let missing: Result<std.dynamic.DynamicSymbol<u8>, std.ffi.ForeignError> = trusted library.symbol<u8>(
+            &missing_name[..]
         );
 
         let missing_error: std.ffi.ForeignError = std.testing.assert_error<
@@ -92,8 +90,23 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
         }
 
         let name: [u8; 6] = [115, 116, 114, 108, 101, 110];
-        let _: std.dynamic.DynamicSymbol<u8> = try trusted std.dynamic.symbol<u8>(&library, &name[..]);
+        let _: std.dynamic.DynamicSymbol<u8> = try trusted library.symbol<u8>(&name[..]);
     }
 
     return library.close();
+}
+
+@test
+trusted func dynamic_library_handle_transfer_disables_owner_cleanup() -> Result<unit, std.ffi.ForeignError>
+    uses(foreign_call, layout_reinterpret)
+{
+    let mut library: std.dynamic.DynamicLibrary = try std.dynamic.DynamicLibrary.open(
+        std.dynamic.SystemLibrary.CRuntime,
+        policy = std.dynamic.LoadPolicy.PlatformDefault,
+    );
+
+    let handle: u64 = try trusted library.into_handle();
+    let status = trusted internal std.dynamic.platform_dynamic_library_close(handle);
+
+    return internal std.ffi.checked_foreign_status(status);
 }

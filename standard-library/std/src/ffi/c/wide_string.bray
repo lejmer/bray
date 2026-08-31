@@ -6,14 +6,14 @@ struct BorrowedWideString
 {
     internal units_value: &[WideChar];
 
-    func units() -> &[WideChar]
+    func as_units() -> &[WideChar]
     {
         let count: usize = self.units_value.length();
 
         return &self.units_value[0..count - 1];
     }
 
-    func units_with_nul() -> &[WideChar]
+    func as_units_with_nul() -> &[WideChar]
     {
         return self.units_value;
     }
@@ -21,6 +21,12 @@ struct BorrowedWideString
     func pointer() -> RawPointer<WideChar>
     {
         return std.memory.address_of<WideChar>(&self.units_value[0]);
+    }
+
+    /// Converts the borrowed target C wide string to owned Bray text.
+    trusted func to_string() -> Result<string, StringError>
+    {
+        return trusted decode_wide_string(&self);
     }
 }
 
@@ -55,6 +61,12 @@ internal func borrow_wide_string(pos units: &[WideChar]) -> Result<BorrowedWideS
 struct OwnedWideString
 {
     internal storage: std.collection.List<WideChar>;
+
+    /// Encodes Bray text as an owned NUL-terminated target C wide string.
+    trusted construct from_string(pos value: &string) -> Result<Self, StringError>
+    {
+        return trusted encode_wide_string(value);
+    }
 
     trusted construct from_units(pos units: &[WideChar]) -> Result<Self, StringError>
     {
@@ -101,7 +113,7 @@ struct OwnedWideString
         );
     }
 
-    func borrow() -> BorrowedWideString
+    func as_borrowed() -> BorrowedWideString
     {
         return
         {

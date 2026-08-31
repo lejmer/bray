@@ -78,7 +78,14 @@ struct DynamicLibrary
         return trusted release_dynamic_library(&mut self);
     }
 
-    trusted consume mut func transfer() -> Result<u64, std.ffi.ForeignError>
+    trusted func symbol<T>(pos name: &[u8]) -> Result<DynamicSymbol<T>, std.ffi.ForeignError>
+        requires(blocking_execution())
+        uses(foreign_call, layout_reinterpret)
+    {
+        return trusted resolve_dynamic_symbol<T>(&self, name);
+    }
+
+    trusted consume mut func into_handle() -> Result<u64, std.ffi.ForeignError>
     {
         let handle: u64 = try internal std.ffi.checked_owned_foreign_resource_handle(
             self.handle_value,

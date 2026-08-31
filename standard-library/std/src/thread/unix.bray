@@ -13,7 +13,7 @@ trusted internal func platform_set_current_thread_name(pos name: &string) -> Res
         case Error(_) { return Error(ThreadNameError.Invalid); }
     };
 
-    let borrowed: std.ffi.c.BorrowedNarrowString = native.borrow();
+    let borrowed: std.ffi.c.BorrowedNarrowString = native.as_borrowed();
     let status: i32 = trusted internal platform_set_native_thread_name(borrowed.pointer());
 
     if status != 0

@@ -330,7 +330,7 @@ trusted func audit_strings()
         std.ffi.c.StringError
     >(trusted std.ffi.c.OwnedNarrowString.from_bytes(&narrow_bytes[..]));
 
-    assert(trusted native_narrow_length(narrow.borrow().pointer()) == 4);
+    assert(trusted native_narrow_length(narrow.as_borrowed().pointer()) == 4);
 
     let wide_units: [std.ffi.c.WideChar; 4] = [
         std.ffi.c.wide_char_wrapping(98),
@@ -344,7 +344,7 @@ trusted func audit_strings()
         std.ffi.c.StringError
     >(trusted std.ffi.c.OwnedWideString.from_units(&wide_units[..]));
 
-    assert(trusted native_wide_length(wide.borrow().pointer()) == 4);
+    assert(trusted native_wide_length(wide.as_borrowed().pointer()) == 4);
 }
 
 trusted func audit_resources()
@@ -461,10 +461,10 @@ trusted func audit_dynamic_library()
             >,
             std.ffi.ForeignError
         >(
-            trusted std.dynamic.symbol<
+            trusted library.symbol<
                 @abi(c)
                 trusted func(pos value: NativeRecord) -> NativeRecord
-            >(&library, &name[..]),
+            >(&name[..]),
         );
 
         let _: &std.dynamic.DynamicLibrary = symbol.library();
@@ -479,7 +479,7 @@ trusted func audit_dynamic_library()
         let error: std.ffi.ForeignError = std.testing.assert_error<
             std.dynamic.DynamicSymbol<u8>,
             std.ffi.ForeignError
-        >(trusted std.dynamic.symbol<u8>(&library, &missing_name[..]));
+        >(trusted library.symbol<u8>(&missing_name[..]));
 
         match error.kind()
         {

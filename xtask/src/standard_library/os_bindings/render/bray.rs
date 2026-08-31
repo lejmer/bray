@@ -497,7 +497,7 @@ fn render_dynamic_symbol(source: &mut String, symbol: &DynamicSymbolDescription)
 
     writeln!(
         source,
-        "    return trusted std.dynamic.symbol<{}>(library, &name[..]);",
+        "    return trusted library.symbol<{}>(&name[..]);",
         symbol.ty
     )
     .expect("writing to a string must succeed");

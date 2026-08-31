@@ -95,12 +95,12 @@ trusted func c_strings_validate_termination_and_ownership() -> Result<unit, std.
     let input: [u8; 3] = [65, 66, 67];
     let owned: std.ffi.c.OwnedNarrowString = try trusted std.ffi.c.OwnedNarrowString.from_bytes(&input[..]);
     let owned_text: std.ffi.c.OwnedNarrowString = try trusted std.ffi.c.OwnedNarrowString.from_utf8(&"ABC");
-    let borrowed: std.ffi.c.BorrowedNarrowString = owned.borrow();
-    let bytes: &[u8] = borrowed.bytes();
-    let terminated: &[u8] = borrowed.bytes_with_nul();
+    let borrowed: std.ffi.c.BorrowedNarrowString = owned.as_borrowed();
+    let bytes: &[u8] = borrowed.as_bytes();
+    let terminated: &[u8] = borrowed.as_bytes_with_nul();
 
     assert(std.bytes.equals(bytes, &input[..]));
-    assert(std.bytes.equals(owned_text.borrow().bytes(), &input[..]));
+    assert(std.bytes.equals(owned_text.as_borrowed().as_bytes(), &input[..]));
     assert(terminated.length() == 4);
     assert(terminated[3] == 0);
     assert(!std.memory.is_null<u8>(borrowed.pointer()));
@@ -108,18 +108,18 @@ trusted func c_strings_validate_termination_and_ownership() -> Result<unit, std.
     let valid: [u8; 2] = [65, 0];
     let from_terminated: std.ffi.c.BorrowedNarrowString = try std.ffi.c.borrow_string(&valid[..]);
 
-    assert(from_terminated.bytes().length() == 1);
+    assert(from_terminated.as_bytes().length() == 1);
 
-    let decoded: string = try from_terminated.decode_utf8();
+    let decoded: string = try from_terminated.to_string();
 
     assert(decoded == "A");
 
     let wide_units: [std.ffi.c.WideChar; 2] = [std.ffi.c.wide_char_wrapping(65), std.ffi.c.wide_char_wrapping(66)];
 
     let wide_owned: std.ffi.c.OwnedWideString = try trusted std.ffi.c.OwnedWideString.from_units(&wide_units[..]);
-    let wide_borrowed: std.ffi.c.BorrowedWideString = wide_owned.borrow();
-    let borrowed_units: &[std.ffi.c.WideChar] = wide_borrowed.units();
-    let terminated_units: &[std.ffi.c.WideChar] = wide_borrowed.units_with_nul();
+    let wide_borrowed: std.ffi.c.BorrowedWideString = wide_owned.as_borrowed();
+    let borrowed_units: &[std.ffi.c.WideChar] = wide_borrowed.as_units();
+    let terminated_units: &[std.ffi.c.WideChar] = wide_borrowed.as_units_with_nul();
 
     assert(borrowed_units.length() == 2);
     assert(terminated_units.length() == 3);
@@ -146,7 +146,7 @@ trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.Strin
     let invalid_utf8: [u8; 2] = [255, 0];
     let encoded: std.ffi.c.BorrowedNarrowString = try std.ffi.c.borrow_string(&invalid_utf8[..]);
 
-    match std.testing.assert_error<string, std.ffi.c.StringError>(encoded.decode_utf8())
+    match std.testing.assert_error<string, std.ffi.c.StringError>(encoded.to_string())
     {
         case std.ffi.c.StringError.InvalidEncoding {}
         case _ { assert(false); }
