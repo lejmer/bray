@@ -8,10 +8,9 @@ use bray_compiler_known::{
 };
 
 use crate::availability::resolve_owned_availability;
-use crate::surface_kind::{DeclarationSurfaceKind, declaration_symbol_kind};
 use crate::{
     AnySymbolId, ExactSymbolId, ExternalSymbolKey, ImportedSymbolSkeleton, ModulePathKey,
-    PackageIdentity, SymbolName, SymbolOrdinal,
+    PackageIdentity, SymbolName, SymbolOrdinal, catalog_declaration_symbol_kind,
 };
 
 /// One exact association between a recognition descriptor and an ordinary imported declaration.
@@ -230,10 +229,7 @@ fn resolve_recognized_external_key(
             }
         };
 
-        let kind = declaration_symbol_kind(
-            DeclarationSurfaceKind::try_from(descriptor.kind()).ok()?,
-            owner.kind(),
-        );
+        let kind = catalog_declaration_symbol_kind(descriptor.kind(), owner.kind())?;
 
         match descriptor.identity() {
             RecognizedStandardLibraryDeclarationIdentity::Name(name) => {
@@ -341,9 +337,9 @@ mod tests {
 
         let descriptor = bray_compiler_known::COMPILER_KNOWN_CATALOG
             .recognized_standard_library_declaration_by_key(&recognized_key(
-                "StandardCharacterScalarValue",
+                "StandardCharacterCodePointPrimitive",
             ))
-            .unwrap_or_else(|| panic!("recognized catalog must contain scalar_value"));
+            .unwrap_or_else(|| panic!("recognized catalog must contain the character primitive"));
 
         assert_eq!(
             imported.symbol_by_external_key(&function_key),

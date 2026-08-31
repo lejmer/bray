@@ -19,6 +19,8 @@ func parses_minimal_input() -> Result<unit, ParseError>
 
 A test function has no receiver, generics, or parameters; returns `unit` or `Result<unit, E>`; may be `async`; and follows ordinary visibility, internal-use, trust, ownership, and capability rules. Integration-test products consume the tested library through its public compiled contract. Use test-only modules for reusable fixtures and helpers; only functions marked `@test` become entries.
 
+Name tests for observable behavior. Arrange the smallest local fixture, exercise the same API boundary its caller uses, and assert results rather than implementation steps. Cover successful, rejected, and boundary behavior when the contract includes them. Keep unrelated behaviors in separate tests. Prefer ordinary local state and deterministic inputs. Isolate process, clock, filesystem, scheduler, or platform state behind the narrowest available fixture.
+
 Use `assert(condition[, message])` for boolean invariants. Use `std.testing.assert_ok` and `assert_error` for `Result`, `assert_present` and `assert_absent` for nullable values, and `assert_completed`, `assert_panicked`, `assert_cancelled`, or `assert_not_completed` for `RunResult`. Payload-selecting helpers return the selected value. Keep an explicit match only when the test must inspect a more specific domain variant after selecting the outer state.
 
 Returning `unit` or `Ok(unit)` passes; `Error`, panic, or run cancellation produces the corresponding failed or cancelled outcome. Run the selected test product with `bray test`.

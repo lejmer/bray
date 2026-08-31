@@ -227,8 +227,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CheckedMemoryOperationKind::ByteBufferRead => {
                 self.translate_byte_buffer_read(operation, memory).map(Some)
             }
-            CheckedMemoryOperationKind::SliceLength => {
-                self.translate_slice_length(memory).map(Some)
+            CheckedMemoryOperationKind::SequenceLength => {
+                self.translate_sequence_length(memory).map(Some)
             }
             CheckedMemoryOperationKind::VolatileRead {
                 pointee,
@@ -338,7 +338,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | CheckedMemoryOperationKind::UninitMove { .. }
             | CheckedMemoryOperationKind::BorrowFrom { .. }
             | CheckedMemoryOperationKind::LayoutQuery { .. }
-            | CheckedMemoryOperationKind::SliceLength
+            | CheckedMemoryOperationKind::SequenceLength
             | CheckedMemoryOperationKind::CallbackState { .. }
             | CheckedMemoryOperationKind::Fence { .. }
             | CheckedMemoryOperationKind::CatastrophicAbort
@@ -545,6 +545,8 @@ mod tests {
         raw_buffer: TypeId,
         raw_buffer_borrow: TypeId,
         slice: TypeId,
+        array: TypeId,
+        array_borrow: TypeId,
     }
 
     #[test]
@@ -1428,12 +1430,35 @@ mod tests {
                 builder,
                 block,
                 source,
-                CheckedMemoryOperationKind::SliceLength,
+                CheckedMemoryOperationKind::SequenceLength,
                 [MirOperand::Value(slice)],
                 [types.slice],
                 Some(types.usize),
             );
         }
+
+        let array_storage = builder
+            .push_storage(source.clone(), MirStorageKind::Local, types.array)
+            .unwrap_or_else(|error| panic!("fixed-array storage must be valid: {error:?}"));
+
+        let array = push_borrow(
+            builder,
+            block,
+            source,
+            BorrowKind::Shared,
+            MirPlace::new(array_storage, [], types.array),
+            types.array_borrow,
+        );
+
+        push_memory(
+            builder,
+            block,
+            source,
+            CheckedMemoryOperationKind::SequenceLength,
+            [MirOperand::Value(array)],
+            [types.array_borrow],
+            Some(types.usize),
+        );
 
         push_memory(
             builder,
@@ -1612,6 +1637,8 @@ mod tests {
         let raw_buffer = intern_type(&store, TypeData::tuple([byte]));
         let raw_buffer_borrow = intern_type(&store, TypeData::tuple([raw_buffer]));
         let slice = intern_type(&store, TypeData::tuple([raw_buffer_borrow]));
+        let array = intern_type(&store, TypeData::tuple([slice]));
+        let array_borrow = intern_type(&store, TypeData::tuple([array]));
 
         MemoryTypes {
             value,
@@ -1637,6 +1664,8 @@ mod tests {
             raw_buffer,
             raw_buffer_borrow,
             slice,
+            array,
+            array_borrow,
         }
     }
 
@@ -2100,6 +2129,22 @@ mod tests {
                     CodegenFieldLayout::new(None, types.pointer, 0),
                     CodegenFieldLayout::new(None, types.usize, 8),
                 ]),
+            ),
+            CodegenTypeMapping::new(
+                types.array,
+                layout(4, align1),
+                CodegenTypeKind::Array {
+                    element: types.byte,
+                    length: 4,
+                },
+            ),
+            CodegenTypeMapping::new(
+                types.array_borrow,
+                layout(8, align8),
+                CodegenTypeKind::Pointer {
+                    target: types.array,
+                    address_space: TargetAddressSpaceKind::Default,
+                },
             ),
         ];
 

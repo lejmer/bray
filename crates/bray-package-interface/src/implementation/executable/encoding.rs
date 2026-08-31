@@ -1620,7 +1620,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.ty(element)?;
             }
             Kind::ByteBufferRead => self.wire.write_u32(24),
-            Kind::SliceLength => self.wire.write_u32(25),
+            Kind::SequenceLength => self.wire.write_u32(25),
             Kind::CallbackState { state } => {
                 self.wire.write_u32(26);
                 self.ty(state)?;

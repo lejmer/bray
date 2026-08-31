@@ -20,8 +20,8 @@ trusted internal func spawn_storage(
         case Error(status) { return Error(status); }
     };
 
-    let argument_count: usize = internal std.memory.slice_length<PlatformNativeText>(arguments);
-    let environment_count: usize = internal std.memory.slice_length<PlatformEnvironmentEntry>(environment);
+    let argument_count: usize = arguments.length();
+    let environment_count: usize = environment.length();
 
     let mut total: usize = match internal added_text_capacity(0, executable_length)
     {

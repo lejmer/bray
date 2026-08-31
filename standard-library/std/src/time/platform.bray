@@ -181,12 +181,12 @@ internal func platform_date_time(
 
 internal func native_text_span(pos text: &string) -> std.platform.NativeTextSpan
 {
-    let bytes: &[u8] = std.string.utf8(text);
+    let bytes: &[u8] = text.as_bytes();
 
     return
     {
         address = internal std.memory.byte_slice_pointer(bytes),
-        length = internal std.memory.slice_length<u8>(bytes) as u64,
+        length = bytes.length() as u64,
     };
 }
 

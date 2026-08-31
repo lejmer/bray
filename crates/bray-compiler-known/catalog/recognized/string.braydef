@@ -14,44 +14,127 @@ scope StandardString at std.string {
         surface { InvalidEncoding; }
     }
 
-    declaration StandardStringScalarCount {
-        identity name scalar_count;
-        implementation StringScalarCount;
+    declaration StandardStringImplementation {
+        identity ordinal 1;
 
-        surface { extern func scalar_count(pos value: &string) -> usize; }
+        surface { impl string {} }
+    }
+
+    declaration StandardStringLength {
+        owner StandardStringImplementation;
+        identity name length;
+
+        surface { func length() -> usize {} }
     }
 
     declaration StandardStringIsEmpty {
+        owner StandardStringImplementation;
         identity name is_empty;
-        implementation StringIsEmpty;
 
-        surface { extern func is_empty(pos value: &string) -> bool; }
+        surface { func is_empty() -> bool {} }
     }
 
-    declaration StandardStringEquals {
-        identity name equals;
-        implementation StringEquals;
+    declaration StandardStringGet {
+        owner StandardStringImplementation;
+        identity name get;
+
+        surface { func get(index: usize) -> char? {} }
+    }
+
+    declaration StandardStringSlice {
+        owner StandardStringImplementation;
+        identity name slice;
+
+        surface { func slice(start: usize, end: usize) -> string {} }
+    }
+
+    declaration StandardStringCharacters {
+        owner StandardStringImplementation;
+        identity name characters;
+
+        surface { func characters() -> ScalarCursor {} }
+    }
+
+    declaration StandardStringAsBytes {
+        owner StandardStringImplementation;
+        identity name as_bytes;
+
+        surface { func as_bytes() -> &[u8] {} }
+    }
+
+    declaration StandardStringFromUtf8 {
+        owner StandardStringImplementation;
+        identity name from_utf8;
 
         surface {
-            extern func equals(pos left: &string, pos right: &string) -> bool;
+            static func from_utf8(
+                pos bytes: &[u8],
+            ) -> Result<string, Utf8Error>
+            {}
         }
     }
 
-    declaration StandardStringScalarAt {
+    declaration StandardStringEquatableImplementation {
+        identity name StringEquatable;
+
+        surface {
+            impl StringEquatable = string(Equatable<string>) {}
+        }
+    }
+
+    declaration StandardStringEquatableEquals {
+        owner StandardStringEquatableImplementation;
+        identity name equals;
+
+        surface { func equals(pos rhs: &string) -> bool {} }
+    }
+
+    declaration StandardStringLengthPrimitive {
+        identity name scalar_count;
+        implementation StringScalarCount;
+
+        surface {
+            extern internal func scalar_count(pos value: &string) -> usize;
+        }
+    }
+
+    declaration StandardStringEmptyPrimitive {
+        identity name empty;
+        implementation StringIsEmpty;
+
+        surface { extern internal func empty(pos value: &string) -> bool; }
+    }
+
+    declaration StandardStringEqualityPrimitive {
+        identity name equal;
+        implementation StringEquals;
+
+        surface {
+            extern internal func equal(
+                pos left: &string,
+                pos right: &string,
+            ) -> bool;
+        }
+    }
+
+    declaration StandardStringGetPrimitive {
         identity name scalar_at;
         implementation StringScalarAt;
 
         surface {
-            extern func scalar_at(pos value: &string, index: usize) -> char?;
+            extern internal func scalar_at(
+                pos value: &string,
+                index: usize,
+            ) -> char?;
         }
     }
 
-    declaration StandardStringScalarSlice {
+    declaration StandardStringSlicePrimitive {
         identity name scalar_slice;
         implementation StringScalarSlice;
 
         surface {
-            extern func scalar_slice(
+            extern internal func scalar_slice(
                 pos value: &string,
                 start: usize,
                 end: usize,
@@ -59,19 +142,23 @@ scope StandardString at std.string {
         }
     }
 
-    declaration StandardStringUtf8 {
+    declaration StandardStringBytesPrimitive {
         identity name utf8;
         implementation StringUtf8;
 
-        surface { extern func utf8(pos value: &string) -> &[u8]; }
+        surface {
+            extern internal func utf8(pos value: &string) -> &[u8];
+        }
     }
 
-    declaration StandardStringFromUtf8 {
-        identity name from_utf8;
+    declaration StandardStringDecodeUtf8Primitive {
+        identity name decode_utf8;
         implementation StringFromUtf8;
 
         surface {
-            extern func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;
+            extern internal func decode_utf8(
+                pos bytes: &[u8],
+            ) -> Result<string, Utf8Error>;
         }
     }
 
@@ -79,12 +166,6 @@ scope StandardString at std.string {
         identity name ScalarCursor;
 
         surface { struct ScalarCursor {} }
-    }
-
-    declaration StandardStringScalars {
-        identity name scalars;
-
-        surface { func scalars(pos value: &string) -> ScalarCursor; }
     }
 
     declaration StandardScalarCursorIterator {

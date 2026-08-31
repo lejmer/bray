@@ -92,8 +92,10 @@ define_catalog_enum! {
         ByteBufferCopy => "ByteBufferCopy",
         /// Reads one initialized byte from byte-buffer storage.
         ByteBufferRead => "ByteBufferRead",
-        /// Reads the element count carried by a byte slice.
-        SliceLength => "SliceLength",
+        /// Reads the element count of a slice or fixed array.
+        SequenceLength => "SequenceLength",
+        /// Tests whether a slice or fixed array has no elements.
+        SequenceIsEmpty => "SequenceIsEmpty",
         /// Reconstructs a state borrow at a checked foreign-callback entry.
         CallbackState => "CallbackState",
         /// Reconstructs a mutable borrow to an exclusively transferred value.
@@ -291,7 +293,6 @@ impl ImplementationHook {
         Self::ByteBufferFill,
         Self::ByteBufferCopy,
         Self::ByteBufferRead,
-        Self::SliceLength,
         Self::CallbackState,
         Self::TransferredValueBorrow,
         Self::VolatileLoad,
@@ -369,6 +370,8 @@ mod tests {
             ImplementationHook::TaskEventDestruction,
             ImplementationHook::TaskEventWait,
             ImplementationHook::TaskYield,
+            ImplementationHook::SequenceLength,
+            ImplementationHook::SequenceIsEmpty,
             ImplementationHook::StringScalarCount,
             ImplementationHook::StringIsEmpty,
             ImplementationHook::StringEquals,

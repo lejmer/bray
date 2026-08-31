@@ -124,18 +124,18 @@ using std.string;
 
 func summarize(pos value: &string) -> (usize, bool)
 {
-    let scalar_count: usize = std.string.scalar_count(value);
-    let empty: bool = std.string.is_empty(value);
+    let scalar_count: usize = value.length();
+    let empty: bool = value.is_empty();
 
-    return(scalar_count, empty);
+    return (scalar_count, empty);
 }
 ```
 
-These calls are recognized only because the visible declarations have the exact standard-library identities. A user declaration named `scalar_count`, a declaration in another package, or a different visible declaration with the same surface remains ordinary code.
+These calls reach recognized behavior only because the selected inherent implementation and its members have the exact standard-library identities. A user method named `length`, an implementation in another package, or a different visible declaration with the same spelling and signature remains ordinary code.
 
 Recognition can provide specified checking, lowering, optimization, const eligibility, or contract behavior without making a declaration ambient. Current recognized families include numeric conversion policy, string operations, callback state, and the standard-library memory, layout, allocation, uninitialized-storage, and anchored-borrow surfaces listed by the conformance catalog. Safe atomic wrappers, channels, operating-system threads, child processes, task combinators, synchronization owners, run checkpoints, and runtime-selection types remain ordinary standard-library declarations rather than recognized names.
 
-Compiler lowering retains the recognized internal `std.runtime` allocation, owned-text, and character declarations by identity. These are ordinary Bray implementations, while their public operations keep the contracts of the owning visible declarations.
+Compiler lowering retains recognized internal string and character primitives and internal `std.runtime` allocation, owned-text, and character declarations by identity. Their public methods are ordinary Bray bodies over those primitives and keep the contracts of the owning visible declarations.
 
 A bodyless standard-library declaration shown in the specification describes the required surface. It is not special declaration syntax for a standard-library package.
 

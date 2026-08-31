@@ -5,7 +5,7 @@ trusted internal func windows_environment(
     pos entries: &[PlatformEnvironmentEntry],
 ) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
 {
-    let count: usize = internal std.memory.slice_length<PlatformEnvironmentEntry>(entries);
+    let count: usize = entries.length();
 
     let mut ordered: std.memory.RawBuffer<PlatformEnvironmentEntry> = match trusted std.memory.RawBuffer<
         PlatformEnvironmentEntry

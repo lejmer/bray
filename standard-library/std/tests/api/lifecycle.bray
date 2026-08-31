@@ -25,7 +25,7 @@ func imported_format_sinks_are_destroyed() -> Result<unit, std.memory.MemoryLayo
     let mut text: std.format.TextSink = try std.format.TextSink(capacity = 2);
     let text_bytes: &mut std.format.ByteSink = std.format.text_bytes(&mut text);
 
-    assert(std.bytes.slice_length(std.format.bytes(&sink)) == 0);
+    assert(std.format.bytes(&sink).is_empty());
 
     return Ok(unit);
 }

@@ -32,7 +32,7 @@ impl AsyncCountingWriterIo = AsyncCountingWriter(std.io.AsyncWriter)
     mut async func write_async(pos source: &[u8]) -> Result<usize, std.io.IoError>
         requires(blocking_execution())
     {
-        let requested: usize = std.bytes.slice_length(source);
+        let requested: usize = source.length();
         let accepted: usize = internal std.io.smaller(requested, self.limit);
 
         self.calls += 1;
@@ -75,7 +75,7 @@ impl AsyncCountingReaderIo = AsyncCountingReader(std.io.AsyncReader)
     mut async func read_async(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
         requires(blocking_execution())
     {
-        let requested: usize = std.bytes.slice_length(&destination);
+        let requested: usize = destination.length();
         let available: usize = internal std.io.smaller(self.remaining, self.limit);
         let transferred: usize = internal std.io.smaller(requested, available);
 
@@ -100,7 +100,7 @@ impl AsyncRecoveringWriterIo = AsyncRecoveringWriter(std.io.AsyncWriter)
     mut async func write_async(pos source: &[u8]) -> Result<usize, std.io.IoError>
         requires(blocking_execution())
     {
-        let requested: usize = std.bytes.slice_length(source);
+        let requested: usize = source.length();
         let mut accepted: usize = requested;
 
         if self.fail_drain

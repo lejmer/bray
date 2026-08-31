@@ -1,5 +1,5 @@
 use bray_bound_tree::MemoryCopyKind;
-use bray_codegen::CodegenFailure;
+use bray_codegen::{CodegenFailure, CodegenTypeKind};
 use bray_ir::{MirMemoryOperation, MirOperation};
 use inkwell::values::BasicValueEnum;
 
@@ -92,13 +92,32 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )
     }
 
-    pub(super) fn translate_slice_length(
+    pub(super) fn translate_sequence_length(
         &mut self,
         memory: &MirMemoryOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let [slice] = memory.operands() else {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
+
+        let [operand_type] = memory.operand_types() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let mapping = self
+            .type_mapping(*operand_type)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        if let CodegenTypeKind::Pointer { target, .. } = mapping.kind()
+            && let Some(CodegenTypeKind::Array { length, .. }) =
+                self.type_mapping(*target).map(|mapping| mapping.kind())
+        {
+            let result = memory
+                .result_type()
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+            return Ok(self.types.map(result)?.into_int_type().const_int(*length, false).into());
+        }
 
         let slice = self.operand(slice)?.into_struct_value();
 

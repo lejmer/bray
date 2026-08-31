@@ -651,6 +651,7 @@ mod tests {
         DiagnosticType,
     };
     use bray_messages::DiagnosticRenderer;
+    use bray_ir::{MirBinaryOperator, MirOperationKind};
     use bray_source::SourceSpan;
     use bray_symbols::{
         ConstantValueKind, NamedTypeSymbolId, PackageIdentity, SymbolKind, SymbolOrdinal, TypeData,
@@ -1168,7 +1169,7 @@ mod tests {
             "module std.test;\n",
             "func main(pos bytes: & mut [u8]) -> RawPointer<u8>\n",
             "{\n",
-            "    if std.memory.slice_length<u8>(&bytes) == 0\n",
+            "    if bytes.is_empty()\n",
             "    {\n",
             "        return std.memory.null<u8>();\n",
             "    }\n",
@@ -4503,6 +4504,91 @@ func compare(pos left: i32, pos right: i32) -> bool
             lowered.diagnostics().is_empty(),
             "{:#?}",
             lowered.diagnostics()
+        );
+    }
+
+    #[test]
+    fn slices_and_fixed_arrays_select_and_lower_sequence_operations() {
+        let compilation = compilation(
+            r#"module app;
+
+func inspect(pos slice: &[u8], pos array: [u8; 4]) -> (usize, bool, usize, bool)
+{
+    return (slice.length(), slice.is_empty(), array.length(), array.is_empty());
+}
+"#,
+        );
+
+        let key = source_callable_body_key(&compilation);
+
+        let selections = compilation
+            .semantic_selections(key.clone())
+            .unwrap_or_else(|error| panic!("sequence operations must be selectable: {error:?}"));
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "{:#?}",
+            selections.diagnostics()
+        );
+
+        let hooks = selections
+            .value()
+            .entries()
+            .iter()
+            .filter_map(|entry| match entry.selection() {
+                SemanticSelection::Call(call) => call.implementation_hook(),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            hooks,
+            [
+                ImplementationHook::SequenceLength,
+                ImplementationHook::SequenceIsEmpty,
+                ImplementationHook::SequenceLength,
+                ImplementationHook::SequenceIsEmpty,
+            ]
+        );
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .unwrap_or_else(|error| panic!("sequence operations must lower: {error:?}"));
+
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
+
+        let Some(mir) = lowered.value().as_ref().and_then(|unit| unit.mir()) else {
+            panic!("sequence operations must produce MIR");
+        };
+
+        assert_eq!(
+            mir.operations()
+                .iter()
+                .filter(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Memory(memory)
+                        if memory.kind() == CheckedMemoryOperationKind::SequenceLength
+                ))
+                .count(),
+            4
+        );
+
+        assert_eq!(
+            mir.operations()
+                .iter()
+                .filter(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Binary {
+                        operator: MirBinaryOperator::Equal,
+                        ..
+                    }
+                ))
+                .count(),
+            2
         );
     }
 

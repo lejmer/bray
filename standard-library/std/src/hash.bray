@@ -115,7 +115,7 @@ impl CharacterHashable = char(Hashable<Sink>)
 {
     func contribute(pos sink: &mut Sink) -> unit
     {
-        contribute_unsigned<u32, Sink>(std.character.scalar_value(value = self), sink);
+        contribute_unsigned<u32, Sink>(self.code_point(), sink);
     }
 }
 
@@ -178,8 +178,8 @@ impl StringHashable = string(Hashable<Sink>)
 {
     func contribute(pos sink: &mut Sink) -> unit
     {
-        let bytes: &[u8] = std.string.utf8(&self);
-        let count: usize = std.bytes.slice_length(bytes);
+        let bytes: &[u8] = self.as_bytes();
+        let count: usize = bytes.length();
 
         sink.write(count as u128);
 

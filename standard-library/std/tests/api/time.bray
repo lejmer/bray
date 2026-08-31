@@ -120,13 +120,13 @@ func civil_and_timestamp_text_round_trip() -> Result<unit, std.time.TimeError>
     let expanded_text: string = try expanded.iso8601();
     let expanded_round_trip: std.time.Date = try std.time.Date.parse(&expanded_text);
 
-    assert(std.string.equals(&date_text, &"2024-02-29"));
-    assert(std.string.equals(&time_text, &"12:34:56.125"));
+    assert(date_text == "2024-02-29");
+    assert(time_text == "12:34:56.125");
     assert(whole_second.nanosecond() == 0);
     assert(component_local.time().nanosecond() == 125000000);
-    assert(std.string.equals(&local_text, &"2024-02-29T12:34:56.125"));
-    assert(std.string.equals(&timestamp_text, &"2024-02-29T12:34:56.125+05:30"));
-    assert(std.string.equals(&expanded_text, &"+010000-01-02"));
+    assert(local_text == "2024-02-29T12:34:56.125");
+    assert(timestamp_text == "2024-02-29T12:34:56.125+05:30");
+    assert(expanded_text == "+010000-01-02");
     assert(expanded_round_trip.year() == 10000);
 
     return Ok(unit);
@@ -143,7 +143,7 @@ func fixed_offsets_convert_without_named_time_zone_data() -> Result<unit, std.ti
     let round_trip: std.time.LocalDateTime = try timestamp.local_at(round_trip_offset);
     let text: string = try round_trip.iso8601();
 
-    assert(std.string.equals(&text, &"2024-02-29T12:34:56.125"));
+    assert(text == "2024-02-29T12:34:56.125");
 
     let extreme: std.time.Timestamp = std.testing.assert_ok<std.time.Timestamp, std.time.ClockError>(
         std.time.Timestamp(seconds = 9223372036854775807)
@@ -170,11 +170,11 @@ func named_time_zones_use_pinned_aliases_and_rules() -> Result<unit, std.time.Ti
     let summer_local: std.time.ZonedDateTime = try zone.at(summer);
     let winter_local: std.time.ZonedDateTime = try zone.at(winter);
 
-    assert(std.string.equals(zone.name(), &"America/New_York"));
-    assert(std.string.equals(&zone.database_version(), &"2026c"));
+    assert(zone.name() == "America/New_York");
+    assert(zone.database_version() == "2026c");
     assert(summer_local.offset().seconds() == -14400);
     assert(summer_local.is_daylight_saving());
-    assert(std.string.equals(summer_local.abbreviation(), &"EDT"));
+    assert(summer_local.abbreviation() == "EDT");
     assert(summer_local.local().time().hour() == 8);
     assert(winter_local.offset().seconds() == -18000);
     assert(!winter_local.is_daylight_saving());

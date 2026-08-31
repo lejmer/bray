@@ -1,18 +1,76 @@
 module std.character;
 
-extern func scalar_value(value: char) -> u32;
+struct Utf8Encoding
+{
+    internal bytes: [u8; 4];
+    internal length: usize;
 
-extern func from_scalar_value(value: u32) -> char?;
+    func as_slice() -> &[u8]
+    {
+        return &self.bytes[0..self.length];
+    }
+}
 
-extern func utf8_length(value: char) -> usize;
+impl char
+{
+    func code_point() -> u32
+    {
+        return internal scalar_value(self);
+    }
 
-extern func utf8_byte(value: char, index: usize) -> u8;
+    static func from_code_point(pos value: u32) -> char?
+    {
+        return internal from_scalar_value(value);
+    }
 
-extern func is_alphabetic(value: char) -> bool;
+    func encode_utf8() -> Utf8Encoding
+    {
+        let length: usize = internal utf8_length(self);
+        let mut bytes: [u8; 4] = [0; 4];
+        let mut index: usize = 0;
 
-extern func is_numeric(value: char) -> bool;
+        while index < length
+        {
+            bytes[index] = internal utf8_byte(self, index = index);
+            index += 1;
+        }
 
-extern func is_whitespace(value: char) -> bool;
+        return Utf8Encoding
+        {
+            bytes = bytes,
+            length = length,
+        };
+    }
+
+    func is_alphabetic() -> bool
+    {
+        return internal alphabetic(self);
+    }
+
+    func is_numeric() -> bool
+    {
+        return internal numeric(self);
+    }
+
+    func is_whitespace() -> bool
+    {
+        return internal whitespace(self);
+    }
+}
+
+extern internal func scalar_value(pos value: char) -> u32;
+
+extern internal func from_scalar_value(pos value: u32) -> char?;
+
+extern internal func utf8_length(pos value: char) -> usize;
+
+extern internal func utf8_byte(pos value: char, index: usize) -> u8;
+
+extern internal func alphabetic(pos value: char) -> bool;
+
+extern internal func numeric(pos value: char) -> bool;
+
+extern internal func whitespace(pos value: char) -> bool;
 
 internal func utf16_units(pos scalar: u32) -> (u16, u16?)
 {

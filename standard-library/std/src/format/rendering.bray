@@ -32,7 +32,7 @@ internal func write_aligned<Destination, Failure>(
     with(Destination: Sink<Failure>)
     requires(blocking_execution())
 {
-    let length: usize = std.bytes.slice_length(content);
+    let length: usize = content.length();
 
     try destination.prepare(additional = maximum(length, options.width));
 
@@ -366,8 +366,8 @@ internal func escape_code(pos value: u8) -> u8
 
 internal func escaped_string_length(pos value: &string) -> usize
 {
-    let content: &[u8] = std.string.utf8(value);
-    let count: usize = std.bytes.slice_length(content);
+    let content: &[u8] = value.as_bytes();
+    let count: usize = content.length();
     let mut length: usize = 2;
     let mut index: usize = 0;
 
@@ -401,8 +401,8 @@ internal func write_escaped_string<Destination, Failure>(
 
     try destination.write(&quote[..]);
 
-    let content: &[u8] = std.string.utf8(value);
-    let count: usize = std.bytes.slice_length(content);
+    let content: &[u8] = value.as_bytes();
+    let count: usize = content.length();
     let mut index: usize = 0;
     let mut segment_start: usize = 0;
 
@@ -449,7 +449,7 @@ internal func write_string_value<Destination, Failure>(
     {
         case Raw
         {
-            let content: &[u8] = std.string.utf8(value);
+            let content: &[u8] = value.as_bytes();
 
             return write_aligned<Destination, Failure>(destination, content, options);
         }
@@ -512,23 +512,12 @@ internal func character_escape_byte(pos scalar: u32) -> u8
 
 internal func write_raw_character<Destination, Failure>(
     pos destination: &mut Destination,
-    pos value: char,
+    pos encoding: &std.character.Utf8Encoding,
 ) -> Result<unit, Failure>
     with(Destination: Sink<Failure>)
     requires(blocking_execution())
 {
-    let length: usize = std.character.utf8_length(value = value);
-    let mut encoded: [u8; 4] = [0; 4];
-    let mut index: usize = 0;
-
-    while index < length
-    {
-        encoded[index] = std.character.utf8_byte(value = value, index = index);
-
-        index += 1;
-    }
-
-    return destination.write(&encoded[0..length]);
+    return destination.write(encoding.as_slice());
 }
 
 internal func write_character_value<Destination, Failure>(
@@ -539,7 +528,8 @@ internal func write_character_value<Destination, Failure>(
     with(Destination: Sink<Failure>)
     requires(blocking_execution())
 {
-    let scalar: u32 = std.character.scalar_value(value = value);
+    let scalar: u32 = value.code_point();
+    let encoding: std.character.Utf8Encoding = value.encode_utf8();
     let mut quoted: bool = false;
 
     match options.escaping
@@ -549,7 +539,7 @@ internal func write_character_value<Destination, Failure>(
     }
 
     let escaped: bool = quoted && character_is_escaped(scalar);
-    let mut content_length: usize = std.character.utf8_length(value = value);
+    let mut content_length: usize = encoding.as_slice().length();
 
     if escaped
     {
@@ -582,7 +572,7 @@ internal func write_character_value<Destination, Failure>(
     }
     else
     {
-        try write_raw_character<Destination, Failure>(&mut destination, value);
+        try write_raw_character<Destination, Failure>(&mut destination, &encoding);
     }
 
     if quoted

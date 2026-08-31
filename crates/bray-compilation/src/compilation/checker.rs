@@ -13,8 +13,8 @@ use bray_checker::{
     resolve_type_expression_template,
 };
 use bray_compiler_known::{
-    COMPILER_KNOWN_CATALOG, RecognizedStandardLibraryDeclarationIdentity,
-    RecognizedStandardLibraryDeclarationOwner,
+    COMPILER_KNOWN_CATALOG, RecognizedStandardLibraryDeclarationDescriptor,
+    RecognizedStandardLibraryDeclarationIdentity, RecognizedStandardLibraryDeclarationOwner,
 };
 use bray_diagnostics::DiagnosticResult;
 use bray_source::{SourceSnapshot, SourceSpan};
@@ -27,8 +27,8 @@ use bray_symbols::{
     ImplementationRequirementKey, ImplementationSelection, MemberLookupResult, NamedTypeSymbolId,
     PackageIdentity, SemanticValueStore, StructSymbol, StructSymbolId, SymbolName,
     SymbolQueryContract, SymbolQueryRequest, TraitApplicationId, TraitSymbolId,
-    TraitTypeMemberSymbolId, TypeId, UnionSymbol, UnionSymbolId, UnionVariantSymbol,
-    UnionVariantSymbolId,
+    SymbolRelationshipKind, TraitTypeMemberSymbolId, TypeId, UnionSymbol, UnionSymbolId,
+    UnionVariantSymbol, UnionVariantSymbolId, catalog_declaration_symbol_kind,
 };
 use bray_target::{TargetAtomicRepresentation, TargetProfile};
 
@@ -298,11 +298,6 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         let mut declarations = BTreeMap::new();
 
         for descriptor in COMPILER_KNOWN_CATALOG.recognized_standard_library_declarations() {
-            let RecognizedStandardLibraryDeclarationIdentity::Name(name) = descriptor.identity()
-            else {
-                continue;
-            };
-
             let owner = match descriptor.owner() {
                 RecognizedStandardLibraryDeclarationOwner::Scope(scope) => {
                     let Some(owner) =
@@ -322,7 +317,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
                 }
             };
 
-            let MemberLookupResult::Found(symbol) = symbols.lookup_member(owner, name.as_ref())
+            let Some(symbol) = source_standard_library_declaration(symbols, owner, descriptor)
             else {
                 continue;
             };
@@ -343,6 +338,41 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         }
 
         Ok(implementations)
+    }
+}
+
+fn source_standard_library_declaration(
+    symbols: &bray_symbols::SymbolGraph,
+    owner: AnySymbolId,
+    descriptor: &RecognizedStandardLibraryDeclarationDescriptor,
+) -> Option<AnySymbolId> {
+    let kind = catalog_declaration_symbol_kind(descriptor.kind(), owner.kind())?;
+
+    match descriptor.identity() {
+        RecognizedStandardLibraryDeclarationIdentity::Name(name) => {
+            let MemberLookupResult::Found(symbol) = symbols.lookup_member(owner, name.as_ref())
+            else {
+                return None;
+            };
+
+            (symbol.kind() == kind).then_some(symbol)
+        }
+        RecognizedStandardLibraryDeclarationIdentity::Ordinal(ordinal) => {
+            let relationship = SymbolRelationshipKind::between(owner.kind(), kind)?;
+            let ordinal = usize::try_from(*ordinal).ok()?;
+
+            let symbol = symbols
+                .declaration_children(owner)
+                .iter()
+                .copied()
+                .filter(|member| {
+                    SymbolRelationshipKind::between(owner.kind(), member.kind())
+                        == Some(relationship)
+                })
+                .nth(ordinal)?;
+
+            (symbol.kind() == kind).then_some(symbol)
+        }
     }
 }
 

@@ -87,7 +87,7 @@ async func concurrent(pos first: Request, pos second: Request) -> (Response, Res
     let first_result: Response = try await first_task.join();
     let second_result: Response = try await second_task.join();
 
-    return(first_result, second_result);
+    return (first_result, second_result);
 }
 ```
 

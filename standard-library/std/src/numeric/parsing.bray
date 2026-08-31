@@ -35,8 +35,8 @@ internal func parse_magnitude(pos text: &string, pos start: usize, radix: u8) ->
         return Error(ParseError.InvalidRadix);
     }
 
-    let bytes: &[u8] = std.string.utf8(text);
-    let count: usize = std.bytes.slice_length(bytes);
+    let bytes: &[u8] = text.as_bytes();
+    let count: usize = bytes.length();
 
     if start >= count
     {
@@ -130,8 +130,8 @@ func parse_usize(pos text: &string, radix: u8 = 10) -> Result<usize, ParseError>
 
 func parse_i128(pos text: &string, radix: u8 = 10) -> Result<i128, ParseError>
 {
-    let bytes: &[u8] = std.string.utf8(text);
-    let count: usize = std.bytes.slice_length(bytes);
+    let bytes: &[u8] = text.as_bytes();
+    let count: usize = bytes.length();
 
     if count == 0
     {

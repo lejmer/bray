@@ -78,7 +78,7 @@ struct Generator
 
         mut func fill(pos destination: &mut [u8])
         {
-            let count: usize = std.memory.slice_length<u8>(&destination);
+            let count: usize = destination.length();
             let mut index: usize = 0;
             let mut value: u64 = 0;
             let mut available: usize = 0;
@@ -103,7 +103,7 @@ struct Generator
     func fill_entropy(pos destination: &mut [u8]) -> Result<unit, EntropyError>
         requires(blocking_execution())
     {
-        let count: usize = std.memory.slice_length<u8>(&destination);
+        let count: usize = destination.length();
         let pointer: RawPointer<u8> = std.memory.byte_slice_pointer_mut(destination);
 
         return trusted fill_entropy_from_platform(destination = pointer, count = count);

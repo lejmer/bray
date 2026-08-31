@@ -241,12 +241,6 @@
       "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/dispatch.rs", "symbol": "CheckedMemoryOperationKind::ByteBufferRead" }
     },
     {
-      "name": "SliceLength",
-      "checker": { "path": "crates/bray-checker/src/memory/classification.rs", "symbol": "ImplementationHook::SliceLength" },
-      "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },
-      "codegen": { "path": "crates/bray-codegen-llvm/src/translation/unit/memory/dispatch.rs", "symbol": "CheckedMemoryOperationKind::SliceLength" }
-    },
-    {
       "name": "CallbackState",
       "checker": { "path": "crates/bray-checker/src/memory/classification.rs", "symbol": "ImplementationHook::CallbackState" },
       "lowering": { "path": "crates/bray-lowering/src/lowering/expression/memory.rs", "symbol": "MirMemoryOperation::new" },

@@ -262,7 +262,7 @@ trusted func duplicate_words(
     let bytes: RawPointer<u8> = trusted core.memory.reinterpret<u8, u32>(next);
     let following: RawPointer<u8> = core.memory.byte_offset<u8>(bytes, bytes = 4);
 
-    return(first, following);
+    return (first, following);
 }
 
 trusted func initialize_byte(pos pointer: RawPointer<u8>, value: u8)
@@ -294,7 +294,7 @@ func observe_references(pos value: &u32, pos mutable: &mut u32) -> (RawPointer<u
     let mutable_pointer: RawPointer<u32> = core.memory.address_of_mut<u32>(mutable);
     let null: RawPointer<u32> = core.memory.null<u32>();
 
-    return(pointer, mutable_pointer, core.memory.is_null<u32>(null));
+    return (pointer, mutable_pointer, core.memory.is_null<u32>(null));
 }
 ```
 
@@ -458,7 +458,7 @@ trusted func observe_register(pos pointer: RawPointer<u32>) -> (u32, usize)
 
     let _: bool = trusted core.target.feature_enabled("sse2");
 
-    return(value, address);
+    return (value, address);
 }
 
 trusted func update_register(pos pointer: RawPointer<u32>, value: u32)

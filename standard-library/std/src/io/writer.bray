@@ -12,7 +12,7 @@ trait Writer
     mut func write_all(pos source: &[u8]) -> Result<unit, IoError>
         requires(blocking_execution())
     {
-        let length: usize = internal std.memory.slice_length<u8>(source);
+        let length: usize = source.length();
         let mut written: usize = 0;
 
         while written < length
@@ -48,7 +48,7 @@ trait AsyncWriter
     mut async func write_all_async(pos source: &[u8]) -> Result<unit, IoError>
         requires(blocking_execution())
     {
-        let length: usize = internal std.memory.slice_length<u8>(source);
+        let length: usize = source.length();
         let mut written: usize = 0;
 
         while written < length
@@ -91,7 +91,7 @@ internal func buffer_bytes<Sink>(pos writer: &mut BufferedWriter<Sink>, pos sour
 {
     let capacity: usize = writer.capacity;
     let available: usize = capacity - writer.length;
-    let source_length: usize = internal std.memory.slice_length<u8>(source);
+    let source_length: usize = source.length();
     let accepted: usize = smaller(source_length, available);
     let destination: &mut [u8] = writer.storage.as_slice_mut();
 
@@ -178,7 +178,7 @@ impl BufferedWriter<Sink>
         with(Sink: Writer)
         requires(blocking_execution())
     {
-        let source_length: usize = internal std.memory.slice_length<u8>(source);
+        let source_length: usize = source.length();
 
         if source_length == 0
         {
@@ -274,7 +274,7 @@ impl BufferedWriter<Sink>
         with(Sink: AsyncWriter)
         requires(blocking_execution())
     {
-        let source_length: usize = internal std.memory.slice_length<u8>(source);
+        let source_length: usize = source.length();
 
         if source_length == 0
         {

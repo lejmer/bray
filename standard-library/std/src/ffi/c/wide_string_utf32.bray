@@ -10,7 +10,7 @@ module std.ffi.c;
 trusted func decode_utf32(pos value: &BorrowedWideString) -> Result<string, StringError>
 {
     let units: &[WideChar] = value.units();
-    let count: usize = std.memory.slice_length<WideChar>(units);
+    let count: usize = units.length();
 
     let mut bytes: std.bytes.Buffer = match trusted std.bytes.Buffer(capacity = count)
     {
@@ -45,14 +45,14 @@ trusted func decode_utf32(pos value: &BorrowedWideString) -> Result<string, Stri
 trusted func encode_utf32(pos value: &string) -> Result<OwnedWideString, StringError>
 {
     let mut units: std.collection.List<WideChar> = match trusted std.collection.List<WideChar>(
-        capacity = std.string.scalar_count(value),
+        capacity = value.length(),
     )
     {
         case Ok(list) { yield list; }
         case Error(_) { return Error(StringError.Allocation); }
     };
 
-    let mut scalars: std.string.ScalarCursor = std.string.scalars(value);
+    let mut scalars: std.string.ScalarCursor = value.characters();
 
     loop
     {
@@ -62,7 +62,7 @@ trusted func encode_utf32(pos value: &string) -> Result<OwnedWideString, StringE
             case none { break; }
         };
 
-        let scalar: u32 = std.character.scalar_value(value = character);
+        let scalar: u32 = character.code_point();
 
         if scalar == 0
         {

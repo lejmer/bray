@@ -24,8 +24,8 @@ func print(pos text: string) -> Result<unit, IoError>
 {
     let lock: StandardOutputLock = try trusted acquire_standard_output();
     let mut output: UnlockedStandardOutput = unlocked_standard_output();
-    let bytes: &[u8] = std.string.utf8(&text);
-    let length: usize = internal std.memory.slice_length<u8>(bytes);
+    let bytes: &[u8] = text.as_bytes();
+    let length: usize = bytes.length();
 
     try output.write_all(bytes);
 
@@ -38,12 +38,12 @@ func print_line(pos text: string) -> Result<unit, IoError>
 {
     let lock: StandardOutputLock = try trusted acquire_standard_output();
     let mut output: UnlockedStandardOutput = unlocked_standard_output();
-    let bytes: &[u8] = std.string.utf8(&text);
-    let length: usize = internal std.memory.slice_length<u8>(bytes);
+    let bytes: &[u8] = text.as_bytes();
+    let length: usize = bytes.length();
 
     try output.write_all(bytes);
 
-    let newline: &[u8] = std.string.utf8(&"\n");
+    let newline: &[u8] = "\n".as_bytes();
     let newline_result: Result<unit, IoError> = output.write_all(newline);
 
     match consume newline_result

@@ -22,10 +22,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         operation_id: MirOperationId,
         operation: &MirTextOperation,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        self.invoke_character_helper(
+        let operands = self.text_operands(operation)?;
+        let arguments = operands.iter().map(|(value, _)| *value).collect::<Vec<_>>();
+
+        self.invoke_nullable_text_helper(
             operation_id,
             operation,
             MirStandardLibraryHelper::CharacterFromScalarValue,
+            &arguments,
         )
     }
 

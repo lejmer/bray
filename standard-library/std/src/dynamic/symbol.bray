@@ -26,7 +26,7 @@ trusted internal func resolve_dynamic_symbol<T>(
     let status: std.platform.PlatformStatus = trusted platform_dynamic_library_symbol(
         handle,
         name = internal std.memory.byte_slice_pointer(name),
-        length = std.bytes.slice_length(name) as u64,
+        length = name.length() as u64,
         address = std.memory.address_of_mut<RawPointer<u8>>(&mut address),
     );
 
@@ -47,7 +47,7 @@ trusted internal func resolve_dynamic_symbol<T>(
 
 internal func valid_symbol_name(pos name: &[u8]) -> bool
 {
-    let count: usize = std.bytes.slice_length(name);
+    let count: usize = name.length();
 
     if count == 0
     {

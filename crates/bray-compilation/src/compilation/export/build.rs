@@ -783,7 +783,9 @@ mod tests {
     use std::sync::Arc;
 
     use bray_bound_tree::CheckedTemplateKind;
-    use bray_compiler_known::CompilerKnownDeclarationKey;
+    use bray_compiler_known::{
+        CompilerKnownDeclarationKey, RecognizedStandardLibraryDeclarationKey,
+    };
     use bray_ir::{MirOperationKind, MirProjectionKind};
     use bray_package_interface::{
         InterfaceCheckedTemplateOperation, InterfaceConstantValueKind, InterfaceLanguageRevision,
@@ -794,10 +796,10 @@ mod tests {
     use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};
     use bray_source::{SourceIdentity, SourceInput, SourceVersion};
     use bray_symbols::{
-        AnySymbolId, CallableParameterDefaultValue, ExternalSymbolKey, IntegerConstant,
-        MemberLookupResult, ModulePathKey, PackageIdentity, ProductKind,
-        RuntimeDefaultTemplateReference, StaticStorageDuration, SymbolKey, SymbolKind, SymbolName,
-        TypeExpressionTemplate,
+        AnySymbolId, CallableParameterDefaultValue, ExternalSymbolKey,
+        InherentImplementationSymbolId, IntegerConstant, MemberLookupResult, ModulePathKey,
+        PackageIdentity, ProductKind, RuntimeDefaultTemplateReference, StaticStorageDuration,
+        SymbolKey, SymbolKind, SymbolName, TypeCallableMemberSymbolId, TypeExpressionTemplate,
     };
     use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
     use bray_testing::test_source_inputs;
@@ -1943,6 +1945,85 @@ trusted internal func flush() -> PlatformStatus
     }
 
     #[test]
+    fn standard_string_equality_satisfies_source_and_imported_generic_constraints() {
+        let provider = standard_library_compilation([
+            include_str!("../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../standard-library/std/src/string.bray"),
+            concat!(
+                "module bray.standard_library_tests.string_operations;\n",
+                "using std.string.StringEquatable;\n",
+                "func generic_equal<T>(pos left: T, pos right: T) -> bool\n",
+                "    with(T: Equatable<T>)\n",
+                "{\n",
+                "    return left == right;\n",
+                "}\n",
+                "func source_string_equality()\n",
+                "{\n",
+                "    assert(generic_equal<string>(\"same\", \"same\"));\n",
+                "}\n",
+            ),
+        ]);
+
+        assert!(
+            provider.check_diagnostics().is_empty(),
+            "source standard-library equality diagnostics: {:#?}",
+            provider.check_diagnostics()
+        );
+
+        let artifact = encode_package_interface(export(&provider))
+            .unwrap_or_else(|error| panic!("string interface must encode: {error:?}"));
+
+        let standard_library = PackageIdentity::try_new("std")
+            .unwrap_or_else(|| panic!("standard-library package identity must be valid"));
+
+        let product = InterfaceProductIdentity::try_new("library")
+            .unwrap_or_else(|| panic!("standard-library product identity must be valid"));
+
+        let dependency = DependencyInterfaceInput::new(
+            standard_library,
+            product,
+            "std.brayi",
+            artifact.shared_bytes(),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        );
+
+        let consumer_package = PackageIdentity::try_new("std.tests.api")
+            .unwrap_or_else(|| panic!("consumer package identity must be valid"));
+
+        let source = SourceInput::virtual_text(
+            SourceIdentity::new(0),
+            "consumer.bray",
+            SourceVersion::new(0),
+            concat!(
+                "module bray.standard_library_tests.string_operations;\n",
+                "using std.string.StringEquatable;\n",
+                "func generic_equal<T>(pos left: T, pos right: T) -> bool\n",
+                "    with(T: Equatable<T>)\n",
+                "{\n",
+                "    return left == right;\n",
+                "}\n",
+                "func imported_string_equality()\n",
+                "{\n",
+                "    assert(generic_equal<string>(\"same\", \"same\"));\n",
+                "}\n",
+            ),
+        );
+
+        let consumer = Compilation::load(
+            CompilationRequest::new(consumer_package, vec![source])
+                .with_dependency_interfaces([dependency])
+                .with_standard_library_source_authority(),
+        )
+        .unwrap_or_else(|error| panic!("consumer compilation must load: {error:?}"));
+
+        assert!(
+            consumer.check_diagnostics().is_empty(),
+            "imported standard-library equality diagnostics: {:#?}",
+            consumer.check_diagnostics()
+        );
+    }
+
+    #[test]
     fn standard_formatting_surface_round_trips_and_specializes_without_provider_source() {
         let provider = standard_library_compilation([
             include_str!("../../../../../standard-library/std/src/std.bray"),
@@ -1953,7 +2034,6 @@ trusted internal func flush() -> PlatformStatus
                 "    SizeOverflow;\n",
                 "    UnsupportedAlignment;\n",
                 "}\n",
-                "extern func slice_length<T>(pos values: &[T]) -> usize;\n",
                 "extern func byte_slice_pointer(pos bytes: &[u8]) -> RawPointer<u8>;\n",
                 "extern func byte_slice_pointer_mut(pos bytes: &mut [u8]) -> RawPointer<u8>;\n",
                 "extern trusted func byte_buffer_copy(\n",
@@ -1992,7 +2072,6 @@ trusted internal func flush() -> PlatformStatus
                 "}\n",
                 "extern func as_slice(pos buffer: &Buffer) -> &[u8];\n",
                 "extern func length(pos buffer: &Buffer) -> usize;\n",
-                "extern func slice_length(pos bytes: &[u8]) -> usize;\n",
                 "extern func push(pos buffer: &mut Buffer, value: u8)\n",
                 "    -> Result<unit, std.memory.MemoryLayoutError>;\n",
                 "extern internal func append_slice(pos buffer: &mut Buffer, pos bytes: &[u8])\n",
@@ -2015,8 +2094,19 @@ trusted internal func flush() -> PlatformStatus
                 "{\n",
                 "    InvalidEncoding;\n",
                 "}\n",
-                "extern func utf8(pos value: &string) -> &[u8];\n",
-                "extern func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;\n",
+                "impl string\n",
+                "{\n",
+                "    func as_bytes() -> &[u8]\n",
+                "    {\n",
+                "        return internal utf8(&self);\n",
+                "    }\n",
+                "    static func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>\n",
+                "    {\n",
+                "        return internal decode_utf8(bytes);\n",
+                "    }\n",
+                "}\n",
+                "extern internal func utf8(pos value: &string) -> &[u8];\n",
+                "extern internal func decode_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;\n",
             ),
             include_str!("../../../../../standard-library/std/src/character.bray"),
             include_str!("../../../../../standard-library/std/src/numeric/checked.bray"),
@@ -2046,7 +2136,7 @@ trusted internal func flush() -> PlatformStatus
                 "    mut func write_all(pos source: &[u8]) -> Result<unit, IoError>\n",
                 "        requires(blocking_execution())\n",
                 "    {\n",
-                "        let length: usize = std.bytes.slice_length(source);\n",
+                "        let length: usize = source.length();\n",
                 "        let mut written: usize = 0;\n",
                 "        while written < length\n",
                 "        {\n",
@@ -2221,7 +2311,7 @@ trusted internal func flush() -> PlatformStatus
                 "    mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>\n",
                 "        requires(blocking_execution())\n",
                 "    {\n",
-                "        let length: usize = std.bytes.slice_length(source);\n",
+                "        let length: usize = source.length();\n",
                 "        self.written += length;\n",
                 "        return Ok(length);\n",
                 "    }\n",
@@ -2298,6 +2388,37 @@ trusted internal func flush() -> PlatformStatus
             .as_deref()
             .unwrap_or_else(|| panic!("formatting interface must contribute a skeleton"));
 
+        let recognized = Arc::clone(
+            imported
+                .value()
+                .as_ref()
+                .unwrap_or_else(|| panic!("formatting interface must contribute a skeleton")),
+        )
+        .recognize_standard_library(&provider_package, |_| true);
+
+        let recognized_key = |value| {
+            RecognizedStandardLibraryDeclarationKey::try_new(value)
+                .unwrap_or_else(|| panic!("recognized standard-library key must be valid: {value}"))
+        };
+
+        assert!(
+            recognized
+                .declaration_symbol::<InherentImplementationSymbolId>(&recognized_key(
+                    "StandardStringImplementation",
+                ))
+                .is_some(),
+            "the string implementation must retain its imported identity"
+        );
+
+        for key in ["StandardStringAsBytes", "StandardStringFromUtf8"] {
+            assert!(
+                recognized
+                    .declaration_symbol::<TypeCallableMemberSymbolId>(&recognized_key(key))
+                    .is_some(),
+                "{key} must retain its nested imported identity"
+            );
+        }
+
         let package = skeleton
             .package_by_identity(&provider_package)
             .unwrap_or_else(|| panic!("standard-library package must be imported"));
@@ -2345,7 +2466,19 @@ trusted internal func flush() -> PlatformStatus
 
         assert!(matches!(
             skeleton.lookup(bytes.id().into(), "slice_length"),
-            MemberLookupResult::Found(_)
+            MemberLookupResult::NotFound
+        ));
+
+        let memory_path = ModulePathKey::try_new(["memory"])
+            .unwrap_or_else(|| panic!("memory module path must be valid"));
+
+        let memory = skeleton
+            .module_by_path(package.id(), &memory_path)
+            .unwrap_or_else(|| panic!("memory module must be imported"));
+
+        assert!(matches!(
+            skeleton.lookup(memory.id().into(), "slice_length"),
+            MemberLookupResult::NotFound
         ));
 
         let io_path = ModulePathKey::try_new(["io"])

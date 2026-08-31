@@ -253,7 +253,7 @@ fn render_range_search(output: &mut String) {
     output.push_str(
         r#"trusted internal func contains_encoded_ranges(pos value: u32, pos encoded: string, pos count: usize) -> bool
 {
-    let data: &[u8] = std.string.utf8(&encoded);
+    let data: &[u8] = encoded.as_bytes();
 
     let mut first: usize = 0;
     let mut remaining: usize = count;
@@ -319,17 +319,17 @@ internal func decode_range_digit(pos value: u8) -> u32
 {
     if value >= 65 && value <= 90
     {
-        return(value - 65) as u32;
+        return (value - 65) as u32;
     }
 
     if value >= 97 && value <= 122
     {
-        return(value - 97 + 26) as u32;
+        return (value - 97 + 26) as u32;
     }
 
     if value >= 48 && value <= 57
     {
-        return(value - 48 + 52) as u32;
+        return (value - 48 + 52) as u32;
     }
 
     assert(value == 45 || value == 95, "generated Unicode range data must use the range alphabet");

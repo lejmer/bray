@@ -200,7 +200,7 @@ func entry_name_equals(pos candidate: std.fs.DirectoryEntry?, pos expected: stri
 
             match consume text
             {
-                case Ok(actual) { return std.string.equals(&actual, &expected); }
+                case Ok(actual) { return actual == expected; }
                 case Error(_) { return false; }
             }
         }

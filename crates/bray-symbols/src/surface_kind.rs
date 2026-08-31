@@ -114,6 +114,16 @@ pub(crate) fn declaration_symbol_kind(
     }
 }
 
+/// Resolves the exact ordinary symbol category represented by a catalog declaration surface.
+pub fn catalog_declaration_symbol_kind(
+    declaration: CatalogDeclarationKind,
+    owner: SymbolKind,
+) -> Option<SymbolKind> {
+    DeclarationSurfaceKind::try_from(declaration)
+        .ok()
+        .map(|declaration| declaration_symbol_kind(declaration, owner))
+}
+
 impl TryFrom<CatalogDeclarationKind> for DeclarationSurfaceKind {
     type Error = ();
 

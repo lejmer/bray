@@ -1,53 +1,137 @@
 catalog recognized_standard_library revision 1;
 
 scope StandardCharacter at std.character {
-    declaration StandardCharacterScalarValue {
-        identity name scalar_value;
-        implementation CharacterScalarValue;
+    declaration StandardCharacterUtf8Encoding {
+        identity name Utf8Encoding;
 
-        surface { extern func scalar_value(value: char) -> u32; }
+        surface { struct Utf8Encoding {} }
     }
 
-    declaration StandardCharacterFromScalarValue {
-        identity name from_scalar_value;
-        implementation CharacterFromScalarValue;
+    declaration StandardCharacterUtf8EncodingBytes {
+        owner StandardCharacterUtf8Encoding;
+        identity name bytes;
 
-        surface { extern func from_scalar_value(value: u32) -> char?; }
+        surface { internal bytes: [u8; 4]; }
     }
 
-    declaration StandardCharacterUtf8Length {
-        identity name utf8_length;
-        implementation CharacterUtf8Length;
+    declaration StandardCharacterUtf8EncodingLength {
+        owner StandardCharacterUtf8Encoding;
+        identity name length;
 
-        surface { extern func utf8_length(value: char) -> usize; }
+        surface { internal length: usize; }
     }
 
-    declaration StandardCharacterUtf8Byte {
-        identity name utf8_byte;
-        implementation CharacterUtf8Byte;
+    declaration StandardCharacterUtf8EncodingAsSlice {
+        owner StandardCharacterUtf8Encoding;
+        identity name as_slice;
 
-        surface { extern func utf8_byte(value: char, index: usize) -> u8; }
+        surface { func as_slice() -> &[u8] {} }
+    }
+
+    declaration StandardCharacterImplementation {
+        identity ordinal 1;
+
+        surface { impl char {} }
+    }
+
+    declaration StandardCharacterCodePoint {
+        owner StandardCharacterImplementation;
+        identity name code_point;
+
+        surface { func code_point() -> u32 {} }
+    }
+
+    declaration StandardCharacterFromCodePoint {
+        owner StandardCharacterImplementation;
+        identity name from_code_point;
+
+        surface { static func from_code_point(pos value: u32) -> char? {} }
+    }
+
+    declaration StandardCharacterEncodeUtf8 {
+        owner StandardCharacterImplementation;
+        identity name encode_utf8;
+
+        surface { func encode_utf8() -> Utf8Encoding {} }
     }
 
     declaration StandardCharacterIsAlphabetic {
+        owner StandardCharacterImplementation;
         identity name is_alphabetic;
-        implementation CharacterIsAlphabetic;
 
-        surface { extern func is_alphabetic(value: char) -> bool; }
+        surface { func is_alphabetic() -> bool {} }
     }
 
     declaration StandardCharacterIsNumeric {
+        owner StandardCharacterImplementation;
         identity name is_numeric;
-        implementation CharacterIsNumeric;
 
-        surface { extern func is_numeric(value: char) -> bool; }
+        surface { func is_numeric() -> bool {} }
     }
 
     declaration StandardCharacterIsWhitespace {
+        owner StandardCharacterImplementation;
         identity name is_whitespace;
+
+        surface { func is_whitespace() -> bool {} }
+    }
+
+    declaration StandardCharacterCodePointPrimitive {
+        identity name scalar_value;
+        implementation CharacterScalarValue;
+
+        surface { extern internal func scalar_value(pos value: char) -> u32; }
+    }
+
+    declaration StandardCharacterFromCodePointPrimitive {
+        identity name from_scalar_value;
+        implementation CharacterFromScalarValue;
+
+        surface {
+            extern internal func from_scalar_value(pos value: u32) -> char?;
+        }
+    }
+
+    declaration StandardCharacterUtf8LengthPrimitive {
+        identity name utf8_length;
+        implementation CharacterUtf8Length;
+
+        surface {
+            extern internal func utf8_length(pos value: char) -> usize;
+        }
+    }
+
+    declaration StandardCharacterUtf8BytePrimitive {
+        identity name utf8_byte;
+        implementation CharacterUtf8Byte;
+
+        surface {
+            extern internal func utf8_byte(
+                pos value: char,
+                index: usize,
+            ) -> u8;
+        }
+    }
+
+    declaration StandardCharacterAlphabeticPrimitive {
+        identity name alphabetic;
+        implementation CharacterIsAlphabetic;
+
+        surface { extern internal func alphabetic(pos value: char) -> bool; }
+    }
+
+    declaration StandardCharacterNumericPrimitive {
+        identity name numeric;
+        implementation CharacterIsNumeric;
+
+        surface { extern internal func numeric(pos value: char) -> bool; }
+    }
+
+    declaration StandardCharacterWhitespacePrimitive {
+        identity name whitespace;
         implementation CharacterIsWhitespace;
 
-        surface { extern func is_whitespace(value: char) -> bool; }
+        surface { extern internal func whitespace(pos value: char) -> bool; }
     }
 }
 

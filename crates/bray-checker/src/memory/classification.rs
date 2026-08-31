@@ -113,8 +113,7 @@ where
         | ImplementationHook::RawBufferRelocate
         | ImplementationHook::ByteBufferFill
         | ImplementationHook::ByteBufferCopy
-        | ImplementationHook::ByteBufferRead
-        | ImplementationHook::SliceLength => classify_allocation_and_buffer_operation(hook, types),
+        | ImplementationHook::ByteBufferRead => classify_allocation_and_buffer_operation(hook, types),
         ImplementationHook::VolatileLoad
         | ImplementationHook::VolatileStore
         | ImplementationHook::DeviceVolatileLoad
@@ -170,6 +169,8 @@ where
         | ImplementationHook::TaskEventDestruction
         | ImplementationHook::TaskEventWait
         | ImplementationHook::TaskYield
+        | ImplementationHook::SequenceLength
+        | ImplementationHook::SequenceIsEmpty
         | ImplementationHook::StringScalarCount
         | ImplementationHook::StringIsEmpty
         | ImplementationHook::StringEquals
@@ -656,11 +657,6 @@ fn classify_allocation_and_buffer_operation(
             ensure_no_type_arguments(types)?;
 
             CheckedMemoryOperationKind::ByteBufferRead
-        }
-        ImplementationHook::SliceLength => {
-            one_type_argument(types)?;
-
-            CheckedMemoryOperationKind::SliceLength
         }
         _ => {
             return Err(CheckerOutcome::InfrastructureFailure(

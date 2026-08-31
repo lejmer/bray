@@ -924,8 +924,8 @@ pub enum CheckedMemoryOperationKind {
     ByteBufferCopy,
     /// Read one initialized byte from byte-buffer storage.
     ByteBufferRead,
-    /// Read the element count carried by a slice.
-    SliceLength,
+    /// Read the element count of a slice or fixed array.
+    SequenceLength,
     /// Reconstruct a state borrow from a checked foreign-callback context parameter.
     CallbackState {
         /// Borrowed callback state type.
@@ -1110,7 +1110,7 @@ impl CheckedMemoryOperationKind {
             | Self::RawBufferInitializedSliceMut
             | Self::RawBufferSparePointer { .. }
             | Self::RawBufferRelease { .. }
-            | Self::SliceLength
+            | Self::SequenceLength
             | Self::CallbackState { .. }
             | Self::AtomicInitialize { .. }
             | Self::AtomicLoad { .. }
@@ -1175,7 +1175,7 @@ impl CheckedMemoryOperationKind {
             | Self::RawBufferInitializedSliceMut
             | Self::RawBufferSparePointer { .. }
             | Self::RawBufferRelease { .. }
-            | Self::SliceLength
+            | Self::SequenceLength
             | Self::CallbackState { .. }
             | Self::AtomicInitialize { .. }
             | Self::AtomicLoad { .. }

@@ -506,7 +506,8 @@ mod tests {
     use std::sync::Arc;
 
     use bray_bound_tree::{
-        BoundUnitKey, BoundUnitKind, CheckedMemoryOperationKind, SemanticSelection,
+        BoundUnitKey, BoundUnitKind, CheckedMemoryOperationKind, OperatorTarget,
+        SelectedOperation, SemanticSelection,
     };
     use bray_compiler_known::ImplementationHook;
     use bray_diagnostics::DiagnosticResult;
@@ -2557,9 +2558,114 @@ func main(pos value: i32?) -> i32?
             compilation.check_diagnostics()
         );
 
-        let primitive_hooks = ["exercise_text_operations", "exercise_character_operations"]
+        for name in ["exercise_text_operations", "exercise_character_operations"] {
+            assert!(implementation_hooks(&compilation, name).is_empty(), "{name}");
+        }
+
+        let text_selections = compilation
+            .semantic_selections(source_function_body_key(
+                &compilation,
+                "exercise_text_operations",
+            ))
+            .unwrap_or_else(|error| panic!("text selections must be available: {error:?}"));
+
+        let string_operator_targets = text_selections
+            .value()
+            .entries()
+            .iter()
+            .filter_map(|entry| match entry.selection() {
+                SemanticSelection::Operation(SelectedOperation::Operator { target, .. }) => {
+                    Some(target)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(string_operator_targets.len(), 2);
+
+        assert!(
+            string_operator_targets
+                .iter()
+                .all(|target| matches!(target, OperatorTarget::BuiltIn(_)))
+        );
+
+        let text_operations = compilation
+            .lowered_unit(source_function_body_key(
+                &compilation,
+                "exercise_text_operations",
+            ))
+            .unwrap_or_else(|error| panic!("text operations must lower: {error:?}"));
+
+        assert_eq!(
+            lowered_mir(&text_operations)
+                .operations()
+                .iter()
+                .filter(|operation| {
+                    matches!(
+                        operation.kind(),
+                        MirOperationKind::Text(text)
+                            if text.kind() == MirTextOperationKind::Equals
+                    )
+                })
+                .count(),
+            2,
+        );
+
+        let string_hooks = [
+            ("length", ImplementationHook::StringScalarCount),
+            ("is_empty", ImplementationHook::StringIsEmpty),
+            ("get", ImplementationHook::StringScalarAt),
+            ("slice", ImplementationHook::StringScalarSlice),
+            ("as_bytes", ImplementationHook::StringUtf8),
+            ("from_utf8", ImplementationHook::StringFromUtf8),
+        ];
+
+        let character_hooks = [
+            ("code_point", ImplementationHook::CharacterScalarValue),
+            (
+                "from_code_point",
+                ImplementationHook::CharacterFromScalarValue,
+            ),
+            ("is_alphabetic", ImplementationHook::CharacterIsAlphabetic),
+            ("is_numeric", ImplementationHook::CharacterIsNumeric),
+            ("is_whitespace", ImplementationHook::CharacterIsWhitespace),
+        ];
+
+        let encode_utf8_hooks = implementation_hooks_for_key(
+            &compilation,
+            "encode_utf8",
+            source_type_callable_member_body_key(&compilation, "encode_utf8"),
+        );
+
+        assert_eq!(
+            encode_utf8_hooks,
+            [
+                ImplementationHook::CharacterUtf8Length,
+                ImplementationHook::CharacterUtf8Byte,
+            ]
+        );
+
+        let equals_hooks = implementation_hooks_for_key(
+            &compilation,
+            "equals",
+            source_trait_callable_fulfillment_body_key(&compilation, "equals"),
+        );
+
+        assert_eq!(equals_hooks, [ImplementationHook::StringEquals]);
+
+        let primitive_hooks = string_hooks
             .into_iter()
-            .flat_map(|name| implementation_hooks(&compilation, name))
+            .chain(character_hooks)
+            .flat_map(|(name, expected)| {
+                let key = source_type_callable_member_body_key(&compilation, name);
+                let hooks = implementation_hooks_for_key(&compilation, name, key);
+
+                assert_eq!(hooks, [expected], "{name}");
+
+                hooks
+            })
+            .chain(encode_utf8_hooks)
+            .chain(equals_hooks)
             .collect::<BTreeSet<_>>();
 
         assert_eq!(
@@ -2582,25 +2688,30 @@ func main(pos value: i32?) -> i32?
             ])
         );
 
-        assert_eq!(
-            implementation_hooks(&compilation, "scalars"),
-            [ImplementationHook::StringScalarCount]
+        assert!(
+            implementation_hooks_for_key(
+                &compilation,
+                "characters",
+                source_type_callable_member_body_key(&compilation, "characters"),
+            )
+            .is_empty()
         );
 
         let next_key = source_trait_callable_fulfillment_body_key(&compilation, "next");
 
-        assert_eq!(
-            implementation_hooks_for_key(&compilation, "next", next_key.clone()),
-            [ImplementationHook::StringScalarAt]
-        );
+        assert!(implementation_hooks_for_key(&compilation, "next", next_key).is_empty());
 
         for (name, key, expected) in [
             (
-                "scalars",
-                source_function_body_key(&compilation, "scalars"),
+                "length",
+                source_type_callable_member_body_key(&compilation, "length"),
                 MirTextOperationKind::ScalarCount,
             ),
-            ("next", next_key, MirTextOperationKind::ScalarAt),
+            (
+                "get",
+                source_type_callable_member_body_key(&compilation, "get"),
+                MirTextOperationKind::ScalarAt,
+            ),
         ] {
             let lowered = compilation.lowered_unit(key).unwrap_or_else(|error| {
                 panic!("{name} must lower through its Bray body: {error:?}")

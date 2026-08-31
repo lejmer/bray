@@ -79,8 +79,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let index = self.pointer_sized_integer(*index)?;
 
-        self.invoke_text_helper(
+        self.invoke_nullable_text_helper(
             operation_id,
+            operation,
             MirStandardLibraryHelper::StringScalarAt,
             &[data.into(), length.into(), index.into()],
         )
@@ -151,6 +152,37 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         Ok((result, result_type))
+    }
+
+    pub(super) fn invoke_nullable_text_helper(
+        &mut self,
+        operation_id: MirOperationId,
+        operation: &MirTextOperation,
+        helper: MirStandardLibraryHelper,
+        arguments: &[BasicValueEnum<'context>],
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let (value, source_type) =
+            self.invoke_text_helper_result(operation_id, helper, arguments)?;
+
+        let result_type = operation
+            .result_type()
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        if value.get_type() == self.types.map(result_type)? {
+            return Ok(value);
+        }
+
+        let present = self.nullable_present(value, source_type)?;
+        let payload = self.project_value(value, source_type, result_type)?;
+        let present_value = self.construct_nullable_present(result_type, payload)?;
+        let absent_value = self.types.map(result_type)?.const_zero();
+
+        llvm(self.builder.build_select(
+            present,
+            present_value,
+            absent_value,
+            "text.nullable.result",
+        ))
     }
 
     pub(super) fn owned_text(
