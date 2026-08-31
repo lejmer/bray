@@ -4,7 +4,14 @@ using std.string;
 using std.string.ScalarCursorIterator;
 using std.bytes;
 using std.iteration;
+using std.string.StringEquatable;
 using std.testing;
+
+func generically_equal<T>(pos left: T, pos right: T) -> bool
+    with(T: Equatable<T>)
+{
+    return left == right;
+}
 
 @test(serial)
 func string_operations()
@@ -41,6 +48,13 @@ func string_queries_and_slices()
     assert(middle_character == 'é');
 
     std.testing.assert_absent<char>(missing);
+}
+
+@test
+func strings_satisfy_generic_equality()
+{
+    assert(generically_equal<string>("same", "same"));
+    assert(!generically_equal<string>("left", "right"));
 }
 
 @test

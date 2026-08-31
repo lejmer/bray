@@ -11,7 +11,9 @@ use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
 use super::conversion::built_in_conversion_plan_for_context;
 
-/// Returns whether one trait application is satisfied by a compiler-defined operation.
+/// Returns a proof when one trait application is satisfied by a compiler-defined operation.
+///
+/// `None` leaves the requirement available for ordinary implementation selection.
 pub fn built_in_trait_constraint_outcome<C>(
     request: &C,
     subject: TypeId,
@@ -53,11 +55,7 @@ where
 
         let conversion = built_in_conversion_plan_for_context(request, subject, target)?;
 
-        return Ok(Some(if conversion.is_some() {
-            ProofOutcome::Proven
-        } else {
-            ProofOutcome::Disproven
-        }));
+        return Ok(conversion.map(|_| ProofOutcome::Proven));
     }
 
     let role = type_representation_for_context(request, subject)?;
@@ -70,15 +68,9 @@ where
         _ => false,
     };
 
-    Ok(Some(
-        if operands_match
-            && role.is_some_and(|role| representation_supports_operation(role, contract.role()))
-        {
-            ProofOutcome::Proven
-        } else {
-            ProofOutcome::Disproven
-        },
-    ))
+    Ok((operands_match
+        && role.is_some_and(|role| representation_supports_operation(role, contract.role())))
+    .then_some(ProofOutcome::Proven))
 }
 
 /// Returns whether the target representation supplies one source operator directly.

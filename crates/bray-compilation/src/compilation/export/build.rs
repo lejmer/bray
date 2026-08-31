@@ -1945,6 +1945,85 @@ trusted internal func flush() -> PlatformStatus
     }
 
     #[test]
+    fn standard_string_equality_satisfies_source_and_imported_generic_constraints() {
+        let provider = standard_library_compilation([
+            include_str!("../../../../../standard-library/std/src/std.bray"),
+            include_str!("../../../../../standard-library/std/src/string.bray"),
+            concat!(
+                "module bray.standard_library_tests.string_operations;\n",
+                "using std.string.StringEquatable;\n",
+                "func generic_equal<T>(pos left: T, pos right: T) -> bool\n",
+                "    with(T: Equatable<T>)\n",
+                "{\n",
+                "    return left == right;\n",
+                "}\n",
+                "func source_string_equality()\n",
+                "{\n",
+                "    assert(generic_equal<string>(\"same\", \"same\"));\n",
+                "}\n",
+            ),
+        ]);
+
+        assert!(
+            provider.check_diagnostics().is_empty(),
+            "source standard-library equality diagnostics: {:#?}",
+            provider.check_diagnostics()
+        );
+
+        let artifact = encode_package_interface(export(&provider))
+            .unwrap_or_else(|error| panic!("string interface must encode: {error:?}"));
+
+        let standard_library = PackageIdentity::try_new("std")
+            .unwrap_or_else(|| panic!("standard-library package identity must be valid"));
+
+        let product = InterfaceProductIdentity::try_new("library")
+            .unwrap_or_else(|| panic!("standard-library product identity must be valid"));
+
+        let dependency = DependencyInterfaceInput::new(
+            standard_library,
+            product,
+            "std.brayi",
+            artifact.shared_bytes(),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        );
+
+        let consumer_package = PackageIdentity::try_new("std.tests.api")
+            .unwrap_or_else(|| panic!("consumer package identity must be valid"));
+
+        let source = SourceInput::virtual_text(
+            SourceIdentity::new(0),
+            "consumer.bray",
+            SourceVersion::new(0),
+            concat!(
+                "module bray.standard_library_tests.string_operations;\n",
+                "using std.string.StringEquatable;\n",
+                "func generic_equal<T>(pos left: T, pos right: T) -> bool\n",
+                "    with(T: Equatable<T>)\n",
+                "{\n",
+                "    return left == right;\n",
+                "}\n",
+                "func imported_string_equality()\n",
+                "{\n",
+                "    assert(generic_equal<string>(\"same\", \"same\"));\n",
+                "}\n",
+            ),
+        );
+
+        let consumer = Compilation::load(
+            CompilationRequest::new(consumer_package, vec![source])
+                .with_dependency_interfaces([dependency])
+                .with_standard_library_source_authority(),
+        )
+        .unwrap_or_else(|error| panic!("consumer compilation must load: {error:?}"));
+
+        assert!(
+            consumer.check_diagnostics().is_empty(),
+            "imported standard-library equality diagnostics: {:#?}",
+            consumer.check_diagnostics()
+        );
+    }
+
+    #[test]
     fn standard_formatting_surface_round_trips_and_specializes_without_provider_source() {
         let provider = standard_library_compilation([
             include_str!("../../../../../standard-library/std/src/std.bray"),
