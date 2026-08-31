@@ -1,6 +1,6 @@
+use crate::compilation::binder::BindingQueryResult;
 use bray_binder::{
-    BindingQueryError, BindingQueryResult, TypeExpressionBinder, TypeExpressionScope,
-    TypeParameterBinding,
+    BindingQueryError, TypeExpressionBinder, TypeExpressionScope, TypeParameterBinding,
 };
 use bray_compiler_known::CatalogGenericParameterKind;
 use bray_symbols::{
@@ -14,7 +14,7 @@ use super::super::context::CompilationBindingContext;
 pub(in crate::compilation) fn type_binder<'binding>(
     context: &'binding CompilationBindingContext<'binding>,
     symbol: AnySymbolId,
-) -> BindingQueryResult<TypeExpressionBinder<'binding>> {
+) -> BindingQueryResult<TypeExpressionBinder<'binding, crate::fact::FactQueryError>> {
     let scope = type_scope(context, symbol)?;
 
     Ok(TypeExpressionBinder::new(

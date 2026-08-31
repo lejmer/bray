@@ -24,11 +24,9 @@ trait IteratorOperations
         {
             let skipped: Element? = self(Iterator).next();
 
-            match consume skipped
-            {
-                case ?_ { current += 1; }
-                case none { return none; }
-            }
+            let _: Element = skipped?;
+
+            current += 1;
         }
 
         let item: Element? = self(Iterator).next();

@@ -14,7 +14,9 @@ use bray_symbols::{
 };
 
 use crate::unit::semantic_inputs_match;
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
+};
 
 use super::{
     CallableCandidate, CallableCandidateState, CallableSelectionRequest, CandidateSelection,
@@ -34,7 +36,7 @@ pub(super) fn select<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     input: CallableSelectionRequest,
-) -> Result<Option<CandidateSelection<SelectedCall>>, CheckerInfrastructureError>
+) -> Result<Option<CandidateSelection<SelectedCall>>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -46,7 +48,7 @@ pub(super) fn select_candidates<C>(
     types: &CheckedExpressionTypes,
     input: &CallableSelectionRequest,
     candidates: &[CallableCandidate],
-) -> Result<Option<CandidateSelection<SelectedCall>>, CheckerInfrastructureError>
+) -> Result<Option<CandidateSelection<SelectedCall>>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -60,7 +62,7 @@ where
         .windows(2)
         .any(|pair| pair[0].key() >= pair[1].key())
     {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     }
 
     let mut applicable = Vec::new();
@@ -252,7 +254,7 @@ fn check_candidate<C>(
     request: CheckerUnitView<'_, C>,
     input: CandidateInput<'_>,
     candidate: &CallableCandidate,
-) -> Result<Option<CandidateCheck>, CheckerInfrastructureError>
+) -> Result<Option<CandidateCheck>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -289,8 +291,11 @@ where
                 Some(symbol) => match request.implementation_hook(symbol) {
                     Ok(Some(resolution)) if resolution.is_available() => Some(resolution.hook()),
                     Ok(_) => None,
-                    Err(crate::CheckerQueryError::Cancelled) => return Ok(None),
-                    Err(crate::CheckerQueryError::Infrastructure(error)) => return Err(error),
+                    Err(CheckerQueryError::Cancelled) => return Ok(None),
+                    Err(CheckerQueryError::Infrastructure(error)) => return Err(error.into()),
+                    Err(CheckerQueryError::Upstream(error)) => {
+                        return Err(CheckerQueryError::Upstream(error));
+                    }
                 },
                 None => None,
             };
@@ -1363,7 +1368,9 @@ mod tests {
 
         assert_eq!(
             super::select(request, &fixture.types, input),
-            Err(crate::CheckerInfrastructureError::InvalidSemanticSelectionInput)
+            Err(crate::CheckerQueryError::Infrastructure(
+                crate::CheckerInfrastructureError::InvalidSemanticSelectionInput,
+            ))
         );
     }
 

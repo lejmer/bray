@@ -67,7 +67,7 @@ macro_rules! define_pattern_binder {
             input_type: TypeId,
             error_type: TypeId,
             mode: PatternBindingMode,
-        ) -> BindingResult<BoundPatternBinding> {
+        ) -> BindingResult<BoundPatternBinding, C::UpstreamError> {
             let (alternatives_are_coherent, occurrences) = if $has_alternatives {
                 self.resolve_alternative_bindings(context, syntax, input_type, mode)?
             } else {
@@ -116,7 +116,7 @@ macro_rules! define_pattern_binder {
             syntax: &$syntax,
             input_type: TypeId,
             state: &mut PatternBindingState,
-        ) -> BindingResult<BoundPatternBinding> {
+        ) -> BindingResult<BoundPatternBinding, C::UpstreamError> {
             self.check_cancellation()?;
 
             let mut children = Vec::new();
@@ -276,7 +276,7 @@ where
         token: SyntaxToken,
         ordinal: &mut u32,
         state: &mut PatternBindingState,
-    ) -> BindingResult<Option<LocalBindingSymbolId>> {
+    ) -> BindingResult<Option<LocalBindingSymbolId>, C::UpstreamError> {
         if state.suppress_bindings
             || state.mode == PatternBindingMode::Assignment
             || token.is_missing()
@@ -339,7 +339,7 @@ where
         context: PathBindingContext,
         occurrences: Vec<BindingOccurrence>,
         mode: PatternBindingMode,
-    ) -> BindingResult<Vec<(SymbolName, LocalBindingSymbolId)>> {
+    ) -> BindingResult<Vec<(SymbolName, LocalBindingSymbolId)>, C::UpstreamError> {
         if mode == PatternBindingMode::Assignment {
             return Ok(Vec::new());
         }
@@ -404,7 +404,7 @@ where
         syntax: &impl PatternSyntax,
         input_type: TypeId,
         mode: PatternBindingMode,
-    ) -> BindingResult<(bool, Vec<BindingOccurrence>)> {
+    ) -> BindingResult<(bool, Vec<BindingOccurrence>), C::UpstreamError> {
         let alternatives = syntax.alternative_binding_occurrences();
 
         if alternatives.is_empty() {
@@ -466,7 +466,7 @@ where
         &mut self,
         scope: LocalScopeId,
         pattern: &BoundPatternBinding,
-    ) -> BindingResult<()> {
+    ) -> BindingResult<(), C::UpstreamError> {
         for binding in pattern.bindings() {
             let contextual = pattern
                 .contextual_bindings()
@@ -499,7 +499,7 @@ where
         syntax: &impl PatternSyntax,
         input_type: TypeId,
         mode: PatternBindingMode,
-    ) -> BindingResult<(Option<BoundPatternTarget>, bool, bool)> {
+    ) -> BindingResult<(Option<BoundPatternTarget>, bool, bool), C::UpstreamError> {
         let is_contextual_name = syntax.bare_name_token().is_some()
             && matches!(
                 mode,

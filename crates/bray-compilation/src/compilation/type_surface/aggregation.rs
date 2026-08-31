@@ -297,7 +297,7 @@ where
                 .or_else(|| imported.and_then(|symbols| symbols.symbol_key(erased)))
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
-            Ok((order(key), symbol))
+            Ok::<_, FactQueryError>((order(key), symbol))
         })
         .collect::<Result<Vec<_>, _>>()?;
 

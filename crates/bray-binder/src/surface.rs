@@ -61,7 +61,7 @@ pub fn bind_predicate_clause<C>(
     clause: SyntaxNodeView<'_>,
     expressions: impl IntoIterator<Item = ExpressionSyntax>,
     context: PredicateClauseBindingContext,
-) -> BindingQueryResult<DiagnosticResult<Box<[PredicateSemanticSummary]>>>
+) -> BindingQueryResult<DiagnosticResult<Box<[PredicateSemanticSummary]>>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
@@ -126,7 +126,7 @@ pub fn bind_trusted_capability_clause<C>(
     binding_context: &C,
     owner: AnySymbolId,
     clause: &UsesClauseSyntax,
-) -> BindingQueryResult<DiagnosticResult<Box<[BoundTrustedCapability]>>>
+) -> BindingQueryResult<DiagnosticResult<Box<[BoundTrustedCapability]>>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
@@ -162,8 +162,11 @@ fn bind_surface<C, T>(
     owner: AnySymbolId,
     syntax: SyntaxNodeView<'_>,
     unit_kind: SurfaceUnitKind,
-    bind: impl FnOnce(&mut Binder<'_, C>, PathBindingContext) -> Result<T, BindingError>,
-) -> BindingQueryResult<DiagnosticResult<T>>
+    bind: impl FnOnce(
+        &mut Binder<'_, C>,
+        PathBindingContext,
+    ) -> Result<T, BindingError<C::UpstreamError>>,
+) -> BindingQueryResult<DiagnosticResult<T>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
@@ -228,9 +231,13 @@ where
     Ok(DiagnosticResult::new(value, diagnostics))
 }
 
-const fn binding_error(error: BindingError) -> BindingQueryError {
+fn binding_error<Upstream>(error: BindingError<Upstream>) -> BindingQueryError<Upstream> {
     match error {
         BindingError::Cancelled => BindingQueryError::Cancelled,
+        BindingError::CheckerInfrastructure(error) => {
+            BindingQueryError::CheckerInfrastructure(error)
+        }
+        BindingError::Upstream(error) => BindingQueryError::Upstream(error),
         BindingError::DependencyUnavailable
         | BindingError::Construction(_)
         | BindingError::IdentityCapacityExceeded

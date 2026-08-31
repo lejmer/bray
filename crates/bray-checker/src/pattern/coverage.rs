@@ -21,8 +21,8 @@ use super::check::{PatternChecker, available_dependency, effective_pattern_kind}
 use crate::constant::constant_values_equal;
 use crate::diagnostic::{diagnostic_id, diagnostic_type, expression_span, pattern_span};
 use crate::{
-    CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticQueryProvider,
-    CheckerUnitView,
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 impl<C> PatternChecker<'_, '_, C>
@@ -32,7 +32,7 @@ where
         + CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
-    pub(super) fn check_matches(&mut self) -> Result<(), CheckerInfrastructureError> {
+    pub(super) fn check_matches(&mut self) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         let mut matches = Vec::new();
 
         walk_bound_unit_view(self.request.view(), self.request.unit().root(), |event| {
@@ -65,7 +65,7 @@ where
         &mut self,
         expression_id: BoundExpressionId,
         expression: &bray_bound_tree::BoundMatchExpression,
-    ) -> Result<(), CheckerInfrastructureError> {
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         let subject = self.expression_type(expression.subject())?;
 
         let subject_data = self
@@ -162,9 +162,14 @@ where
         Ok(())
     }
 
-    fn coverage(&mut self, id: BoundPatternId) -> Result<Coverage, CheckerInfrastructureError> {
+    fn coverage(
+        &mut self,
+        id: BoundPatternId,
+    ) -> Result<Coverage, CheckerQueryError<C::UpstreamError>> {
         let Some(pattern) = self.request.view().pattern(id) else {
-            return Err(CheckerInfrastructureError::InvalidBoundNode { node: id.into() });
+            return Err(CheckerQueryError::Infrastructure(
+                CheckerInfrastructureError::InvalidBoundNode { node: id.into() },
+            ));
         };
 
         let Some(checked) = self.patterns.get(&id) else {
@@ -239,7 +244,7 @@ where
         kind: DiagnosticKind,
         reason: DiagnosticPatternUnreachability,
         covering: Option<&BTreeSet<BoundPatternId>>,
-    ) -> Result<(), CheckerInfrastructureError> {
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         let span = pattern_span(self.request, pattern)?;
 
         let mut diagnostic = Diagnostic::new(
@@ -281,7 +286,7 @@ where
     fn constant_coverage(
         &self,
         pattern: BoundPatternId,
-    ) -> Result<Coverage, CheckerInfrastructureError> {
+    ) -> Result<Coverage, CheckerQueryError<C::UpstreamError>> {
         let Some(evidence) = self.constant_patterns.get(&pattern) else {
             return Ok(Coverage::unknown());
         };
@@ -312,7 +317,7 @@ where
     fn guard_truth(
         &self,
         guard: Option<BoundExpressionId>,
-    ) -> Result<GuardTruth, CheckerInfrastructureError> {
+    ) -> Result<GuardTruth, CheckerQueryError<C::UpstreamError>> {
         let Some(guard) = guard else {
             return Ok(GuardTruth::True);
         };
@@ -352,7 +357,7 @@ where
         &self,
         origin: BoundNodeOrigin,
         range: TextRange,
-    ) -> Result<Option<bool>, CheckerInfrastructureError> {
+    ) -> Result<Option<bool>, CheckerQueryError<C::UpstreamError>> {
         let source = self.request.source(origin.source_anchor())?;
 
         Ok(match source.text_for_range(range) {
@@ -455,7 +460,7 @@ impl Coverage {
         &self,
         request: CheckerUnitView<'_, C>,
         other: &Self,
-    ) -> Result<bool, CheckerInfrastructureError>
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>>
     where
         C: CheckerRequestContext + ?Sized,
     {
@@ -491,7 +496,7 @@ impl Coverage {
         &self,
         request: CheckerUnitView<'_, C>,
         other: &Self,
-    ) -> Result<Option<BTreeSet<BoundPatternId>>, CheckerInfrastructureError>
+    ) -> Result<Option<BTreeSet<BoundPatternId>>, CheckerQueryError<C::UpstreamError>>
     where
         C: CheckerRequestContext + ?Sized,
     {
@@ -540,7 +545,7 @@ impl Coverage {
         &self,
         request: CheckerUnitView<'_, C>,
         subject: &TypeData,
-    ) -> Result<(Vec<DiagnosticPatternMissingCase>, u64), CheckerInfrastructureError>
+    ) -> Result<(Vec<DiagnosticPatternMissingCase>, u64), CheckerQueryError<C::UpstreamError>>
     where
         C: CheckerRequestContext + ?Sized,
     {
@@ -646,7 +651,7 @@ impl Coverage {
         &self,
         request: CheckerUnitView<'_, C>,
         subject: &TypeData,
-    ) -> Result<bool, CheckerInfrastructureError>
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>>
     where
         C: CheckerRequestContext + ?Sized,
     {
@@ -717,7 +722,7 @@ fn constants_contain<C>(
     request: CheckerUnitView<'_, C>,
     current: &[(ConstantValueId, BoundPatternId)],
     other: &[(ConstantValueId, BoundPatternId)],
-) -> Result<bool, CheckerInfrastructureError>
+) -> Result<bool, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -744,7 +749,7 @@ fn nullable_contains<C>(
     request: CheckerUnitView<'_, C>,
     current: Option<&Coverage>,
     other: Option<&Coverage>,
-) -> Result<bool, CheckerInfrastructureError>
+) -> Result<bool, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {

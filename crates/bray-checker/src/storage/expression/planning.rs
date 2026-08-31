@@ -17,7 +17,7 @@ where
         &mut self,
         id: BoundExpressionId,
         purpose: Option<StorageAccessPurpose>,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         self.check_cancellation()?;
 
         if let Some(access) = self.expression_accesses.get(&id).copied() {
@@ -212,7 +212,10 @@ where
         Ok(access)
     }
 
-    fn is_compile_time_qualifier(&self, expression: BoundExpressionId) -> Result<bool, PlanError> {
+    fn is_compile_time_qualifier(
+        &self,
+        expression: BoundExpressionId,
+    ) -> Result<bool, PlanError<C::UpstreamError>> {
         let expression = self
             .request
             .view()
@@ -230,7 +233,7 @@ where
         id: BoundExpressionId,
         callee: BoundExpressionId,
         arguments: impl IntoIterator<Item = BoundExpressionId>,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let semantic_selection = self.selections.expression(id);
 
         let selection = semantic_selection.and_then(|selection| {
@@ -282,7 +285,7 @@ where
         &mut self,
         id: BoundExpressionId,
         operands: &[BoundExpressionId],
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let purpose = self.operator_operand_purpose(id);
 
         for operand in operands {
@@ -297,7 +300,7 @@ where
         id: BoundExpressionId,
         operator: bray_bound_tree::BoundAssignmentOperator,
         operands: &[BoundExpressionId],
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let Some((destination, values)) = operands.split_first() else {
             return self.recovery_access(id);
         };
@@ -359,7 +362,7 @@ where
         &mut self,
         destination: BoundExpressionId,
         access: StorageAccessId,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let destination_type = self.expression_type(destination)?;
 
         let data = self
@@ -382,7 +385,7 @@ where
         id: BoundExpressionId,
         kind: BoundStructuredExpressionKind,
         operands: &[BoundExpressionId],
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         match kind {
             BoundStructuredExpressionKind::TrustBoundary => {
                 let Some(operand) = operands.first().copied() else {
@@ -484,7 +487,7 @@ where
     fn plan_iteration_storage(
         &mut self,
         expression: BoundExpressionId,
-    ) -> Result<Option<(StorageAccessId, StorageAccessId)>, PlanError> {
+    ) -> Result<Option<(StorageAccessId, StorageAccessId)>, PlanError<C::UpstreamError>> {
         let Some(selection) = self.iterations.get(&expression) else {
             return Ok(None);
         };
@@ -515,7 +518,7 @@ where
         id: BoundExpressionId,
         kind: BoundStructuredExpressionKind,
         operands: &[BoundExpressionId],
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let Some(receiver) = operands.first().copied() else {
             return self.recovery_access(id);
         };
@@ -642,7 +645,7 @@ where
     fn selected_index_target(
         &self,
         expression: BoundExpressionId,
-    ) -> Result<Option<IndexTarget>, PlanError> {
+    ) -> Result<Option<IndexTarget>, PlanError<C::UpstreamError>> {
         match self.selections.expression(expression) {
             Some(SemanticSelection::Operation(SelectedOperation::Index { target, .. })) => {
                 Ok(Some(*target))

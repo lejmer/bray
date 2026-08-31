@@ -26,7 +26,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &TypeExpressionSyntax,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -64,7 +64,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &PrimaryExpressionSyntax,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -116,7 +116,7 @@ impl ExpressionBinder {
         scope: LocalScopeId,
         root: SyntaxNodeView<'_>,
         recovery_origin: &PrimaryExpressionSyntax,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -264,7 +264,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &AccessExpressionSyntax,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -277,7 +277,7 @@ impl ExpressionBinder {
         scope: LocalScopeId,
         syntax: &AccessExpressionSyntax,
         access: NameAccess,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -400,7 +400,7 @@ impl ExpressionBinder {
         syntax: &AccessExpressionSyntax,
         token: bray_syntax::SyntaxToken,
         access: NameAccess,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -497,7 +497,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         syntax: &impl SourceSyntaxNode,
         target: bray_bound_tree::BoundReferenceTarget,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {

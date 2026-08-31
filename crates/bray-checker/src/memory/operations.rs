@@ -28,7 +28,7 @@ pub(crate) fn check_memory_operations<C>(
     request: CheckerUnitView<'_, C>,
     selections: &CheckedSemanticSelections,
     literals: &CheckedLiteralValues,
-) -> CheckerOutcome<CheckedMemoryOperations>
+) -> CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>
 where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
@@ -73,6 +73,9 @@ where
             Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
             Err(crate::CheckerQueryError::Infrastructure(error)) => {
                 return CheckerOutcome::InfrastructureFailure(error);
+            }
+            Err(crate::CheckerQueryError::Upstream(error)) => {
+                return CheckerOutcome::UpstreamFailure(error);
             }
         };
 
@@ -129,7 +132,13 @@ where
             selections,
         ) {
             Ok(check) => check,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+            Err(crate::CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(crate::CheckerQueryError::Infrastructure(error)) => {
+                return CheckerOutcome::InfrastructureFailure(error);
+            }
+            Err(crate::CheckerQueryError::Upstream(error)) => {
+                return CheckerOutcome::UpstreamFailure(error);
+            }
         };
 
         let kind = match target_control {
@@ -243,7 +252,10 @@ where
 fn callback_state_problem<C>(
     request: CheckerUnitView<'_, C>,
     arguments: &[bray_bound_tree::BoundExpressionId],
-) -> Result<Option<DiagnosticCallbackStateProblem>, CheckerOutcome<CheckedMemoryOperations>>
+) -> Result<
+    Option<DiagnosticCallbackStateProblem>,
+    CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>,
+>
 where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
@@ -267,6 +279,9 @@ where
         Err(crate::CheckerQueryError::Cancelled) => return Err(CheckerOutcome::Cancelled),
         Err(crate::CheckerQueryError::Infrastructure(error)) => {
             return Err(CheckerOutcome::InfrastructureFailure(error));
+        }
+        Err(crate::CheckerQueryError::Upstream(error)) => {
+            return Err(CheckerOutcome::UpstreamFailure(error));
         }
     };
 
@@ -314,6 +329,9 @@ where
         Err(crate::CheckerQueryError::Cancelled) => return Err(CheckerOutcome::Cancelled),
         Err(crate::CheckerQueryError::Infrastructure(error)) => {
             return Err(CheckerOutcome::InfrastructureFailure(error));
+        }
+        Err(crate::CheckerQueryError::Upstream(error)) => {
+            return Err(CheckerOutcome::UpstreamFailure(error));
         }
     };
 

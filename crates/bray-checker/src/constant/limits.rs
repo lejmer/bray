@@ -152,7 +152,7 @@ pub(super) struct EvaluationBudget {
 }
 
 impl EvaluationBudget {
-    pub(super) fn new(input: &ConstantEvaluationInput<'_>) -> Self {
+    pub(super) fn new<Upstream>(input: &ConstantEvaluationInput<'_, Upstream>) -> Self {
         Self::from_limits(input.limits())
     }
 

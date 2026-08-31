@@ -117,7 +117,7 @@ pub(in crate::compilation) fn selected_storage_callable(
         callable.substitution(),
         checked.value(),
     )
-    .map_err(FactQueryError::CheckerInfrastructure)?;
+    .map_err(FactQueryError::from)?;
 
     Ok(DiagnosticResult::new(
         signature.map(|signature| (requirement, *witness, callable, signature)),

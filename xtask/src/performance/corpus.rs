@@ -65,7 +65,7 @@ pub(super) struct StorageExpectation {
     pub copied_bytes: u64,
 }
 
-pub(super) const WORKLOADS: [Workload; 17] = [
+pub(super) const WORKLOADS: [Workload; 19] = [
     Workload {
         id: "small_output",
         category: WorkloadCategory::Small,
@@ -155,6 +155,8 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         }),
     },
     super::workloads::DEQUE_MIXED_ENDS,
+    super::workloads::HASH_MAP_GROWTH_AND_HEALTHY_LOOKUP,
+    super::workloads::HASH_MAP_COLLISION_LOOKUP,
     Workload {
         id: "borrowed_text",
         category: WorkloadCategory::CoreData,
@@ -816,6 +818,25 @@ mod tests {
         assert_eq!(storage.allocation_count, 2);
         assert_eq!(storage.allocated_bytes, 1_536);
         assert_eq!(storage.copied_bytes, 0);
+    }
+
+    #[test]
+    fn hash_map_workloads_compare_healthy_and_collision_heavy_probe_behavior() {
+        let healthy = workload("hash_map_growth_and_healthy_lookup");
+        let collisions = workload("hash_map_collision_lookup");
+        let growth_storage = storage("hash_map_growth_and_healthy_lookup");
+        let collision_storage = storage("hash_map_collision_lookup");
+
+        assert_eq!(healthy.scale, collisions.scale);
+        assert_eq!(healthy.units, "insert-and-lookup pairs");
+        assert_eq!(collisions.units, "collision-chain lookups");
+        assert!(collisions.source.contains("sink.write(0)"));
+        assert_eq!(growth_storage.allocation_count, 33);
+        assert_eq!(growth_storage.allocated_bytes, 540_408);
+        assert_eq!(growth_storage.copied_bytes, 0);
+        assert_eq!(collision_storage.allocation_count, 3);
+        assert_eq!(collision_storage.allocated_bytes, 2_112);
+        assert_eq!(collision_storage.copied_bytes, 0);
     }
 
     #[test]

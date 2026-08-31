@@ -37,7 +37,7 @@ pub enum ConstantReferenceResolution {
 }
 
 /// Checked semantic inputs for one constant-expression checking or evaluation request.
-pub struct ConstantEvaluationInput<'input> {
+pub struct ConstantEvaluationInput<'input, Upstream = std::convert::Infallible> {
     expression_types: &'input CheckedExpressionTypes,
     semantic_selections: &'input CheckedSemanticSelections,
     patterns: Option<&'input CheckedPatterns>,
@@ -46,19 +46,19 @@ pub struct ConstantEvaluationInput<'input> {
     references: BTreeMap<BoundExpressionId, ConstantReferenceResolution>,
     local_terms: BTreeMap<AnyLocalSymbolId, ConstantTermId>,
     is_consistent: bool,
-    call_resolver: Option<&'input dyn ConstantCallResolver>,
+    call_resolver: Option<&'input dyn ConstantCallResolver<UpstreamError = Upstream>>,
     allow_static_address_borrows: bool,
     retain_nested_term_types: bool,
     limits: ConstantEvaluationLimits,
 }
 
-impl<'input> ConstantEvaluationInput<'input> {
+impl<'input, Upstream> ConstantEvaluationInput<'input, Upstream> {
     /// Creates an expression-rooted input from one semantic snapshot and its resolved dependencies.
     pub fn for_expression(
         semantics: &'input CheckedExpressionSemantics,
         root: BoundExpressionId,
         references: impl IntoIterator<Item = (BoundExpressionId, ConstantReferenceResolution)>,
-        resolver: &'input dyn ConstantCallResolver,
+        resolver: &'input dyn ConstantCallResolver<UpstreamError = Upstream>,
     ) -> Self {
         Self::new(semantics.types(), semantics.selections())
             .with_root(root)
@@ -110,7 +110,10 @@ impl<'input> ConstantEvaluationInput<'input> {
     }
 
     /// Supplies the demand-driven dependency boundary for selected constant calls.
-    pub const fn with_call_resolver(mut self, resolver: &'input dyn ConstantCallResolver) -> Self {
+    pub const fn with_call_resolver(
+        mut self,
+        resolver: &'input dyn ConstantCallResolver<UpstreamError = Upstream>,
+    ) -> Self {
         self.call_resolver = Some(resolver);
 
         self
@@ -206,7 +209,9 @@ impl<'input> ConstantEvaluationInput<'input> {
         self.local_terms.get(&local).copied()
     }
 
-    pub(crate) const fn call_resolver(&self) -> Option<&dyn ConstantCallResolver> {
+    pub(crate) const fn call_resolver(
+        &self,
+    ) -> Option<&dyn ConstantCallResolver<UpstreamError = Upstream>> {
         self.call_resolver
     }
 

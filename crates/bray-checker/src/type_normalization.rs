@@ -13,7 +13,7 @@ pub fn normalize_type_valued_members<C>(
     request: &C,
     ty: TypeId,
     diagnostics: &mut DiagnosticBag,
-) -> Result<TypeId, CheckerQueryError>
+) -> Result<TypeId, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -30,7 +30,7 @@ pub fn normalize_callable_signature_type_valued_members<C>(
     request: &C,
     signature: CallableSignature,
     diagnostics: &mut DiagnosticBag,
-) -> Result<CallableSignature, CheckerQueryError>
+) -> Result<CallableSignature, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -51,7 +51,10 @@ impl<C> TypeNormalizer<'_, '_, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    fn normalize_type(&mut self, ty: TypeId) -> Result<TypeId, CheckerQueryError> {
+    fn normalize_type(
+        &mut self,
+        ty: TypeId,
+    ) -> Result<TypeId, CheckerQueryError<C::UpstreamError>> {
         if let Some(normalized) = self.normalized.get(&ty).copied() {
             return Ok(normalized);
         }
@@ -202,7 +205,7 @@ where
     fn normalize_application(
         &mut self,
         application: TraitApplicationId,
-    ) -> Result<TraitApplicationId, CheckerQueryError> {
+    ) -> Result<TraitApplicationId, CheckerQueryError<C::UpstreamError>> {
         let data = self
             .request
             .semantic_values()
@@ -220,7 +223,7 @@ where
     fn normalize_substitution(
         &mut self,
         substitution: GenericSubstitutionId,
-    ) -> Result<GenericSubstitutionId, CheckerQueryError> {
+    ) -> Result<GenericSubstitutionId, CheckerQueryError<C::UpstreamError>> {
         let data = self
             .request
             .semantic_values()
@@ -251,7 +254,7 @@ where
             .map_err(semantic_value_error)
     }
 
-    fn intern(&self, data: TypeData) -> Result<TypeId, CheckerQueryError> {
+    fn intern(&self, data: TypeData) -> Result<TypeId, CheckerQueryError<C::UpstreamError>> {
         self.request
             .semantic_values()
             .intern_type(data)
@@ -259,6 +262,8 @@ where
     }
 }
 
-fn semantic_value_error(_: bray_symbols::SemanticValueStoreError) -> CheckerQueryError {
+fn semantic_value_error<Upstream>(
+    _: bray_symbols::SemanticValueStoreError,
+) -> CheckerQueryError<Upstream> {
     CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
 }

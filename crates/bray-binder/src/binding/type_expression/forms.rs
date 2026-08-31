@@ -6,11 +6,11 @@ use bray_syntax::TypeExpressionSyntax;
 use super::core::TypeExpressionBinder;
 use crate::{BindingQueryError, BindingQueryResult};
 
-impl TypeExpressionBinder<'_> {
+impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     pub(super) fn bind_type_valued_member_projection(
         &mut self,
         syntax: &TypeExpressionSyntax,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let mut subjects = syntax.type_expressions();
 
         let Some(subject) = subjects.next() else {
@@ -62,7 +62,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn bind_box_type(
         &mut self,
         syntax: &TypeExpressionSyntax,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let target = self.bind_only_nested_type(syntax)?;
 
         let storage = match syntax.type_form_argument_lists().next() {
@@ -107,7 +107,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn bind_view_type(
         &mut self,
         syntax: &TypeExpressionSyntax,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let mut applications = syntax.trait_applications();
 
         let Some(application) = applications.next() else {
@@ -131,7 +131,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn bind_grouped_or_tuple_type(
         &mut self,
         syntax: &TypeExpressionSyntax,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let mut elements = syntax
             .type_expressions()
             .map(|element| self.bind_type(&element))
@@ -161,7 +161,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn bind_array_type(
         &mut self,
         syntax: &TypeExpressionSyntax,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let mut elements = syntax.type_expressions();
 
         let Some(element) = elements.next() else {
@@ -196,7 +196,7 @@ impl TypeExpressionBinder<'_> {
         })
     }
 
-    fn bind_heap_storage_type(&mut self) -> BindingQueryResult<TypeExpressionTemplate> {
+    fn bind_heap_storage_type(&mut self) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let definition = self
             .symbols
             .compiler_known_provider()

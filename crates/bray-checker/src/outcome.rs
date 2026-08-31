@@ -55,16 +55,18 @@ impl ControlFlowCheckResult {
 /// Completed operations own their structured diagnostics alongside the typed
 /// value. Cancellation carries neither diagnostics nor partial results.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum CheckerOutcome<T> {
+pub enum CheckerOutcome<T, Upstream = std::convert::Infallible> {
     /// The operation completed with a typed value and its owned diagnostics.
     Complete(DiagnosticResult<T>),
     /// Cancellation was observed before the operation could complete.
     Cancelled,
     /// Compiler infrastructure prevented the operation from completing.
     InfrastructureFailure(CheckerInfrastructureError),
+    /// The coordinating query layer returned one of its own exact failures.
+    UpstreamFailure(Upstream),
 }
 
-impl<T> CheckerOutcome<T> {
+impl<T, Upstream> CheckerOutcome<T, Upstream> {
     /// Creates a completed checker outcome.
     pub const fn complete(value: T, diagnostics: DiagnosticBag) -> Self {
         Self::Complete(DiagnosticResult::new(value, diagnostics))
@@ -79,7 +81,7 @@ impl<T> CheckerOutcome<T> {
     pub const fn result(&self) -> Option<&DiagnosticResult<T>> {
         match self {
             Self::Complete(result) => Some(result),
-            Self::Cancelled | Self::InfrastructureFailure(_) => None,
+            Self::Cancelled | Self::InfrastructureFailure(_) | Self::UpstreamFailure(_) => None,
         }
     }
 
@@ -87,7 +89,7 @@ impl<T> CheckerOutcome<T> {
     pub fn into_result(self) -> Option<DiagnosticResult<T>> {
         match self {
             Self::Complete(result) => Some(result),
-            Self::Cancelled | Self::InfrastructureFailure(_) => None,
+            Self::Cancelled | Self::InfrastructureFailure(_) | Self::UpstreamFailure(_) => None,
         }
     }
 
@@ -100,7 +102,19 @@ impl<T> CheckerOutcome<T> {
     pub const fn infrastructure_failure(&self) -> Option<CheckerInfrastructureError> {
         match self {
             Self::InfrastructureFailure(error) => Some(*error),
-            Self::Complete(_) | Self::Cancelled => None,
+            Self::Complete(_) | Self::Cancelled | Self::UpstreamFailure(_) => None,
+        }
+    }
+}
+
+impl<T> CheckerOutcome<T> {
+    /// Widens a checker-local outcome to a boundary with an upstream error type.
+    pub fn with_upstream<Upstream>(self) -> CheckerOutcome<T, Upstream> {
+        match self {
+            Self::Complete(result) => CheckerOutcome::Complete(result),
+            Self::Cancelled => CheckerOutcome::Cancelled,
+            Self::InfrastructureFailure(error) => CheckerOutcome::InfrastructureFailure(error),
+            Self::UpstreamFailure(error) => match error {},
         }
     }
 }
@@ -144,7 +158,8 @@ mod tests {
             ControlCompletion::default(),
         );
 
-        let outcome = CheckerOutcome::complete(result, DiagnosticBag::single(diagnostic.clone()));
+        let outcome =
+            CheckerOutcome::<_>::complete(result, DiagnosticBag::single(diagnostic.clone()));
 
         let Some(completed) = outcome.result() else {
             panic!("completed checker outcomes retain their result");

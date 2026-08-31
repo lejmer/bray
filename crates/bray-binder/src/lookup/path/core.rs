@@ -104,7 +104,7 @@ pub(crate) fn bind_module_path<C>(
     module: ModuleSymbolId,
     path: &PathSyntax,
     access: NameAccess,
-) -> BindingQueryResult<NameLookupResult<ResolvedName>>
+) -> BindingQueryResult<NameLookupResult<ResolvedName>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -133,7 +133,7 @@ pub(crate) fn bind_source_path(
         return malformed_lookup();
     };
 
-    match bind_path_with_ordinary(
+    match bind_path_with_ordinary::<std::convert::Infallible>(
         symbols,
         imported_root,
         module.owner(),
@@ -151,7 +151,7 @@ pub(crate) fn visible_imported_path_root<'binding_context, C>(
     binding_context: &'binding_context C,
     module: ModuleSymbolId,
     components: &[&str],
-) -> BindingQueryResult<Option<ImportedPathRoot<'binding_context>>>
+) -> BindingQueryResult<Option<ImportedPathRoot<'binding_context>>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -166,7 +166,7 @@ fn module_uses_path<C>(
     binding_context: &C,
     module: ModuleSymbolId,
     components: &[&str],
-) -> BindingQueryResult<bool>
+) -> BindingQueryResult<bool, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -226,8 +226,9 @@ pub fn bind_surface_path_with_re_exports<C>(
         ModuleSymbolId,
         &str,
         NameAccess,
-    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>>,
-) -> BindingQueryResult<DiagnosticResult<MemberLookupResult<AnySymbolId>>>
+    )
+        -> BindingQueryResult<MemberLookupResult<AnySymbolId>, C::UpstreamError>,
+) -> BindingQueryResult<DiagnosticResult<MemberLookupResult<AnySymbolId>>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -290,8 +291,9 @@ fn bind_module_path_with_re_exports<C>(
         ModuleSymbolId,
         &str,
         NameAccess,
-    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>>,
-) -> BindingQueryResult<NameLookupResult<ResolvedName>>
+    )
+        -> BindingQueryResult<MemberLookupResult<AnySymbolId>, C::UpstreamError>,
+) -> BindingQueryResult<NameLookupResult<ResolvedName>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -307,8 +309,9 @@ pub(super) fn bind_module_path_lookup<C>(
         ModuleSymbolId,
         &str,
         NameAccess,
-    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>>,
-) -> BindingQueryResult<PathLookup>
+    )
+        -> BindingQueryResult<MemberLookupResult<AnySymbolId>, C::UpstreamError>,
+) -> BindingQueryResult<PathLookup, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -375,7 +378,7 @@ where
         &mut self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> BindingQueryResult<NameLookupResult<BoundPatternTarget>> {
+    ) -> BindingQueryResult<NameLookupResult<BoundPatternTarget>, C::UpstreamError> {
         let lookup = self.bind_path(context, path)?;
 
         let result = lookup.result.classify(classify_pattern_target);
@@ -397,7 +400,7 @@ where
         &mut self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> BindingQueryResult<NameLookupResult<BoundPatternTarget>> {
+    ) -> BindingQueryResult<NameLookupResult<BoundPatternTarget>, C::UpstreamError> {
         let lookup = self.bind_path(context, path)?;
 
         let result = lookup.result.map(
@@ -420,7 +423,7 @@ where
         &mut self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> BindingQueryResult<NameLookupResult<ModuleSymbolId>> {
+    ) -> BindingQueryResult<NameLookupResult<ModuleSymbolId>, C::UpstreamError> {
         let lookup = self.bind_path(context, path)?;
 
         let result = lookup.result.classify(|name| match name {
@@ -440,7 +443,7 @@ where
         &mut self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> BindingQueryResult<NameLookupResult<ResolvedTypeName>> {
+    ) -> BindingQueryResult<NameLookupResult<ResolvedTypeName>, C::UpstreamError> {
         self.bind_classified_path(context, path, DiagnosticNameKind::Type, classify_type)
     }
 
@@ -449,7 +452,7 @@ where
         &mut self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> BindingQueryResult<NameLookupResult<TraitSymbolId>> {
+    ) -> BindingQueryResult<NameLookupResult<TraitSymbolId>, C::UpstreamError> {
         self.bind_classified_path(context, path, DiagnosticNameKind::Trait, classify_trait)
     }
 
@@ -457,7 +460,7 @@ where
         &mut self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> BindingQueryResult<NameLookupResult<ResolvedValueName>> {
+    ) -> BindingQueryResult<NameLookupResult<ResolvedValueName>, C::UpstreamError> {
         self.bind_classified_path(context, path, DiagnosticNameKind::Value, classify_value)
     }
 
@@ -466,7 +469,7 @@ where
         &mut self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> BindingQueryResult<NameLookupResult<AnySymbolId>> {
+    ) -> BindingQueryResult<NameLookupResult<AnySymbolId>, C::UpstreamError> {
         self.bind_classified_path(
             context,
             path,
@@ -482,7 +485,10 @@ where
         &mut self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> BindingQueryResult<NameLookupResult<bray_symbols::TrustedCapabilitySymbolId>> {
+    ) -> BindingQueryResult<
+        NameLookupResult<bray_symbols::TrustedCapabilitySymbolId>,
+        C::UpstreamError,
+    > {
         self.bind_classified_path(
             context,
             path,
@@ -557,7 +563,7 @@ where
         &mut self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> BindingQueryResult<NameLookupResult<CallableOverloadSymbolId>> {
+    ) -> BindingQueryResult<NameLookupResult<CallableOverloadSymbolId>, C::UpstreamError> {
         self.bind_classified_path(
             context,
             path,
@@ -617,7 +623,7 @@ where
         path: &PathSyntax,
         expected: DiagnosticNameKind,
         classify: fn(ResolvedName) -> Option<T>,
-    ) -> BindingQueryResult<NameLookupResult<T>> {
+    ) -> BindingQueryResult<NameLookupResult<T>, C::UpstreamError> {
         let lookup = self.bind_path(context, path)?;
         let result = lookup.result.classify(classify);
 
@@ -632,7 +638,7 @@ where
         &self,
         context: PathBindingContext,
         path: &PathSyntax,
-    ) -> BindingQueryResult<PathLookup> {
+    ) -> BindingQueryResult<PathLookup, C::UpstreamError> {
         let Some(references) = path_references(path) else {
             return Ok(PathLookup {
                 result: malformed_lookup(),
@@ -696,7 +702,7 @@ pub(crate) fn classify_pattern_target(name: ResolvedName) -> Option<BoundPattern
     }
 }
 
-fn bind_path_with_ordinary(
+fn bind_path_with_ordinary<Upstream>(
     symbols: &SymbolGraph,
     imported_root: Option<ImportedPathRoot<'_>>,
     module_owner: ModuleOwnerId,
@@ -707,8 +713,8 @@ fn bind_path_with_ordinary(
         ModuleSymbolId,
         &str,
         NameAccess,
-    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>>,
-) -> BindingQueryResult<PathLookup> {
+    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>, Upstream>,
+) -> BindingQueryResult<PathLookup, Upstream> {
     let source_prefix = next_module_prefix(symbols, module_owner, None, &references, access);
     let compiler_known_owner = ModuleOwnerId::from(symbols.compiler_known_environment().id());
 
@@ -738,7 +744,7 @@ fn bind_path_with_ordinary(
     )
 }
 
-pub(super) fn bind_remaining_path(
+pub(super) fn bind_remaining_path<Upstream>(
     symbols: &SymbolGraph,
     imported_symbols: Option<&ImportedSymbolSkeleton>,
     access: NameAccess,
@@ -749,8 +755,8 @@ pub(super) fn bind_remaining_path(
         ModuleSymbolId,
         &str,
         NameAccess,
-    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>>,
-) -> BindingQueryResult<PathLookup> {
+    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>, Upstream>,
+) -> BindingQueryResult<PathLookup, Upstream> {
     while consumed < references.len() {
         let owner = match &result {
             MemberLookupResult::Found(ResolvedName::Surface(owner)) => *owner,

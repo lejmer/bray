@@ -1,4 +1,5 @@
 mod artifact;
+mod checker;
 mod dependency;
 mod document;
 mod external;

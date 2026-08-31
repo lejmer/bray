@@ -58,9 +58,9 @@ pub(crate) fn intrinsic_representation_role(
             BoundLiteralKind::Boolean => Some(RepresentationRole::ScalarBool),
             BoundLiteralKind::Character => Some(RepresentationRole::ScalarChar),
             BoundLiteralKind::String => Some(RepresentationRole::String),
-            BoundLiteralKind::Integer
-            | BoundLiteralKind::Real
-            | BoundLiteralKind::Imaginary => None,
+            BoundLiteralKind::Integer | BoundLiteralKind::Real | BoundLiteralKind::Imaginary => {
+                None
+            }
         },
         BoundExpression::Structured(structured) => match structured.kind() {
             BoundStructuredExpressionKind::Unit | BoundStructuredExpressionKind::Assertion => {

@@ -1,6 +1,5 @@
-use bray_binder::{
-    BindingQueryError, BindingQueryResult, CallableTypeQualifiers, bind_callable_abi,
-};
+use crate::compilation::binder::BindingQueryResult;
+use bray_binder::{BindingQueryError, CallableTypeQualifiers, bind_callable_abi};
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{

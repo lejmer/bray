@@ -20,7 +20,7 @@ use bray_symbols::{
 
 use super::binder::{
     CompilationBindingContext, bind_declared_execution_requirements,
-    bind_declared_trusted_capabilities,
+    bind_declared_trusted_capabilities, binding_query_error,
 };
 use super::state::Compilation;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult};
@@ -594,15 +594,6 @@ fn phase_behavior_for(
     match phase {
         BodyBehaviorPhase::Invocation => Some(behaviors.invocation()),
         BodyBehaviorPhase::DeferredExecution => behaviors.deferred_execution(),
-    }
-}
-
-const fn binding_query_error(error: bray_binder::BindingQueryError) -> FactQueryError {
-    match error {
-        bray_binder::BindingQueryError::Cancelled => FactQueryError::Cancelled,
-        bray_binder::BindingQueryError::DependencyUnavailable => {
-            FactQueryError::InfrastructureFailure
-        }
     }
 }
 

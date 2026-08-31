@@ -13,7 +13,9 @@ use bray_symbols::{
     GenericSubstitutionId, NamedTypeSymbolId, SymbolKey, SymbolKeyData, TypeData, TypeId,
 };
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
+};
 
 pub(crate) const fn expression_category(
     expression: &BoundExpression,
@@ -85,7 +87,7 @@ pub(crate) const fn expression_category(
 pub fn diagnostic_type<C>(
     context: &C,
     ty: TypeId,
-) -> Result<DiagnosticType, CheckerInfrastructureError>
+) -> Result<DiagnosticType, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -96,7 +98,7 @@ fn diagnostic_type_at_depth<C>(
     context: &C,
     ty: TypeId,
     depth: usize,
-) -> Result<DiagnosticType, CheckerInfrastructureError>
+) -> Result<DiagnosticType, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -104,10 +106,9 @@ where
         return Ok(DiagnosticType::Unknown);
     }
 
-    let data = context
-        .semantic_values()
-        .type_data(ty)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+    let data = context.semantic_values().type_data(ty).map_err(|_| {
+        CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+    })?;
 
     let diagnostic = match data.as_ref() {
         TypeData::Error => DiagnosticType::Error,
@@ -221,7 +222,7 @@ fn diagnostic_named_application<C>(
     definition: NamedTypeSymbolId,
     substitution: GenericSubstitutionId,
     depth: usize,
-) -> Result<DiagnosticType, CheckerInfrastructureError>
+) -> Result<DiagnosticType, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -238,7 +239,9 @@ where
     let substitution = context
         .semantic_values()
         .generic_substitution_data(substitution)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(|_| {
+            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+        })?;
 
     let path = diagnostic_symbol_path(key, name.as_str());
 
@@ -296,13 +299,16 @@ fn external_symbol_module_path(key: &ExternalSymbolKey) -> Option<&bray_symbols:
     }
 }
 
-fn available_diagnostic_value<T>(
-    result: crate::CheckerQueryResult<T>,
-) -> Result<Option<T>, CheckerInfrastructureError> {
+fn available_diagnostic_value<T, Upstream>(
+    result: crate::CheckerQueryResult<T, Upstream>,
+) -> Result<Option<T>, CheckerQueryError<Upstream>> {
     match result {
         Ok(value) => Ok(Some(value)),
         Err(crate::CheckerQueryError::Cancelled) => Ok(None),
-        Err(crate::CheckerQueryError::Infrastructure(error)) => Err(error),
+        Err(crate::CheckerQueryError::Infrastructure(error)) => {
+            Err(CheckerQueryError::Infrastructure(error))
+        }
+        Err(crate::CheckerQueryError::Upstream(error)) => Err(CheckerQueryError::Upstream(error)),
     }
 }
 

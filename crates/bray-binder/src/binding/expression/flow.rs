@@ -18,7 +18,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: SyntaxNodeView<'_>,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -54,7 +54,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: SyntaxNodeView<'_>,
-    ) -> BindingResult<Option<BoundExpressionId>>
+    ) -> BindingResult<Option<BoundExpressionId>, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {

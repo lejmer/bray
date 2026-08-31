@@ -19,10 +19,10 @@ use super::super::limits::{ConstantEvaluationLimits, EvaluationBudget};
 use super::super::operation::{fold_binary, fold_unary};
 use super::support::{
     TemplateEvaluationFailure, binary_operator, constant_definition, operation_failure,
-    query_failure, recovery_value, target_integer_width, template_index, unary_operator,
+    recovery_value, target_integer_width, template_index, unary_operator,
 };
-use crate::CheckerRequestContext;
 use crate::representation::type_representation_for_context;
+use crate::{CheckerQueryError, CheckerRequestContext};
 
 pub(super) struct TemplateEvaluator<'evaluation, C>
 where
@@ -33,11 +33,13 @@ where
     pub(super) substitution: ConcreteGenericSubstitutionId,
     pub(super) selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
     pub(super) arguments: &'evaluation [ConstantValueId],
-    pub(super) resolver: &'evaluation dyn ConstantTemplateResolver,
+    pub(super) resolver:
+        &'evaluation dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
     pub(super) limits: ConstantEvaluationLimits,
     pub(super) budget: EvaluationBudget,
     pub(super) values: Vec<Option<ConstantValueId>>,
     pub(super) diagnostics: DiagnosticBag,
+    pub(super) upstream_failure: Option<C::UpstreamError>,
     pub(super) static_initializer: bool,
 }
 
@@ -273,7 +275,7 @@ where
         let selection = self
             .resolver
             .resolve_static(declaration, substitution)
-            .map_err(query_failure)?;
+            .map_err(|error| self.record_query_failure(error))?;
 
         let (selection, diagnostics) = selection.into_parts();
 
@@ -416,7 +418,7 @@ where
         let result = self
             .resolver
             .resolve_constant(instance, self.budget.remaining_limits(self.limits))
-            .map_err(query_failure)?;
+            .map_err(|error| self.record_query_failure(error))?;
 
         self.diagnostics = self.diagnostics.merged(result.diagnostics());
 
@@ -528,7 +530,12 @@ where
         request: &ConstantCallRequest,
         result_type: TypeId,
     ) -> Result<ConstantValueId, TemplateEvaluationFailure> {
-        match self.resolver.resolve(request).map_err(query_failure)? {
+        let resolution = self
+            .resolver
+            .resolve(request)
+            .map_err(|error| self.record_query_failure(error))?;
+
+        match resolution {
             ConstantCallResolution::Evaluated(result) => {
                 self.budget
                     .try_charge_usage(result.value().usage())
@@ -675,5 +682,30 @@ where
         } else {
             Ok(())
         }
+    }
+
+    pub(super) fn record_query_failure(
+        &mut self,
+        error: CheckerQueryError<C::UpstreamError>,
+    ) -> TemplateEvaluationFailure {
+        match error {
+            CheckerQueryError::Cancelled => TemplateEvaluationFailure::Cancelled,
+            CheckerQueryError::Infrastructure(error) => {
+                TemplateEvaluationFailure::Infrastructure(error)
+            }
+            CheckerQueryError::Upstream(error) => {
+                self.upstream_failure = Some(error);
+
+                TemplateEvaluationFailure::Upstream
+            }
+        }
+    }
+
+    pub(super) fn take_upstream_failure(&mut self) -> C::UpstreamError {
+        let Some(error) = self.upstream_failure.take() else {
+            unreachable!("an upstream template-evaluation marker must retain its exact cause");
+        };
+
+        error
     }
 }

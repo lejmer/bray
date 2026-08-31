@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use super::checker::DiagnosticCheckerFailure;
 use crate::{
     DiagnosticArtifactDigest, DiagnosticArtifactKind, DiagnosticArtifactRequirement,
     DiagnosticAssemblySyntaxKind, DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
@@ -347,6 +348,7 @@ pub enum DiagnosticEmissionLinkPlanFailure {
 pub enum DiagnosticEmissionEvaluationFailure {
     Cycle,
     Infrastructure,
+    Binding(DiagnosticBindingFailure),
     LoweringInput(crate::DiagnosticLoweringInputFailure),
     Lowering(crate::DiagnosticLoweringFailure),
     ConstantCallableBodyUnavailable,
@@ -358,7 +360,31 @@ pub enum DiagnosticEmissionEvaluationFailure {
     UninitInitializerResultUnavailable,
     ImportedExecutableTemplateMismatch,
     SemanticContext,
-    CheckerInfrastructure,
+    Checker(DiagnosticCheckerFailure),
+}
+
+/// Exact compiler-owned failure observed while binding one source-level program element.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticBindingFailure {
+    DependencyUnavailable,
+    InvalidUnitKey,
+    MissingSyntax,
+    MissingOwner,
+    MissingModule,
+    SemanticValue(DiagnosticSemanticValueFailure),
+    Construction,
+    Binding,
+    Assembly,
+}
+
+/// Exact canonical-value failure that prevented semantic binding.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticSemanticValueFailure {
+    ForeignId,
+    UnknownId,
+    CapacityExhausted,
+    GenericOwnerMismatch,
+    OpenSubstitution,
 }
 
 impl DiagnosticEmissionFailure {
@@ -636,6 +662,7 @@ impl DiagnosticEmissionEvaluationFailure {
         match self {
             Self::Cycle => "cycle",
             Self::Infrastructure => "infrastructure",
+            Self::Binding(failure) => failure.as_str(),
             Self::LoweringInput(failure) => failure.as_str(),
             Self::Lowering(failure) => failure.as_str(),
             Self::ConstantCallableBodyUnavailable => "constant_callable_body_unavailable",
@@ -649,7 +676,35 @@ impl DiagnosticEmissionEvaluationFailure {
             Self::UninitInitializerResultUnavailable => "uninit_initializer_result_unavailable",
             Self::ImportedExecutableTemplateMismatch => "imported_executable_template_mismatch",
             Self::SemanticContext => "semantic_context",
-            Self::CheckerInfrastructure => "checker_infrastructure",
+            Self::Checker(failure) => failure.as_str(),
+        }
+    }
+}
+
+impl DiagnosticBindingFailure {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::DependencyUnavailable => "binding_dependency_unavailable",
+            Self::InvalidUnitKey => "binding_invalid_unit_key",
+            Self::MissingSyntax => "binding_missing_syntax",
+            Self::MissingOwner => "binding_missing_owner",
+            Self::MissingModule => "binding_missing_module",
+            Self::SemanticValue(failure) => failure.as_str(),
+            Self::Construction => "binding_construction",
+            Self::Binding => "binding_recovery_root",
+            Self::Assembly => "binding_assembly",
+        }
+    }
+}
+
+impl DiagnosticSemanticValueFailure {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ForeignId => "binding_semantic_value_foreign_id",
+            Self::UnknownId => "binding_semantic_value_unknown_id",
+            Self::CapacityExhausted => "binding_semantic_value_capacity_exhausted",
+            Self::GenericOwnerMismatch => "binding_semantic_value_generic_owner_mismatch",
+            Self::OpenSubstitution => "binding_semantic_value_open_substitution",
         }
     }
 }

@@ -514,7 +514,7 @@ impl Compilation {
             template,
             constants.value(),
         )
-        .map_err(FactQueryError::CheckerInfrastructure)?
+        .map_err(FactQueryError::from)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
         self.semantic_value_store()?

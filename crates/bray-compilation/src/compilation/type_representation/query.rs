@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_checker::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerQueryResult,
-    CheckerSource, DeclaredStorageMember, DeclaredTypeDefinition, DeclaredUnionVariant,
-    RepresentationIntegerType, TypeRepresentationContext, check_declared_type_representation,
+    CheckerInfrastructureError, CheckerOutcome, CheckerSource, DeclaredStorageMember,
+    DeclaredTypeDefinition, DeclaredUnionVariant, RepresentationIntegerType,
+    TypeRepresentationContext, check_declared_type_representation,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
@@ -27,6 +27,9 @@ use super::support::{checked_integer, checked_integer_constant, integer_role, sy
 use crate::fact::{
     CancellationToken, CompilationFactKey, FactQueryError, ImportedSemanticRecordKey,
 };
+
+type CheckerQueryError = bray_checker::CheckerQueryError<FactQueryError>;
+type CheckerQueryResult<T> = bray_checker::CheckerQueryResult<T, FactQueryError>;
 
 impl Compilation {
     /// Returns the checked source-level representation contract of one named type.
@@ -67,6 +70,7 @@ impl Compilation {
                     CheckerOutcome::InfrastructureFailure(error) => {
                         Err(FactQueryError::CheckerInfrastructure(error))
                     }
+                    CheckerOutcome::UpstreamFailure(error) => Err(error),
                 }
             },
         )?;
@@ -264,6 +268,8 @@ struct CompilationTypeRepresentationContext<'compilation> {
 }
 
 impl TypeRepresentationContext for CompilationTypeRepresentationContext<'_> {
+    type UpstreamError = FactQueryError;
+
     fn maximum_recursion_depth(&self) -> usize {
         self.compilation.semantic_recursion_limit()
     }

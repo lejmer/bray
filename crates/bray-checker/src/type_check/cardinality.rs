@@ -8,7 +8,9 @@ use bray_diagnostics::{
 };
 use bray_symbols::{ConstantTermId, TypeData};
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
+};
 
 pub(super) struct UnprovenArrayGenerator {
     pub(super) expression: BoundExpressionId,
@@ -19,7 +21,7 @@ pub(super) fn unproven_array_generators<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     iteration_sources: &[SelectedIterationSource],
-) -> Result<Vec<UnprovenArrayGenerator>, CheckerInfrastructureError>
+) -> Result<Vec<UnprovenArrayGenerator>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -63,7 +65,7 @@ fn array_generator_problem<C>(
     iteration_sources: &[SelectedIterationSource],
     expression_id: BoundExpressionId,
     expression: &bray_bound_tree::BoundStructuredExpression,
-) -> Result<Option<DiagnosticArrayGeneratorCardinalityProblem>, CheckerInfrastructureError>
+) -> Result<Option<DiagnosticArrayGeneratorCardinalityProblem>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -86,23 +88,24 @@ where
     else {
         return Err(CheckerInfrastructureError::InvalidExpressionTypeInput {
             expression: expression_id,
-        });
+        }
+        .into());
     };
 
     let Some(iteration_id) = expression.operands().first().copied() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
     let Some(BoundExpression::Generator(iteration)) = request.view().expression(iteration_id)
     else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
     let Some(selection) = iteration_sources
         .iter()
         .find(|selection| selection.expression() == iteration_id)
     else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
     let source = diagnostic_type(request, selection.source_type())?;
@@ -158,7 +161,7 @@ where
 fn diagnostic_type<C>(
     request: CheckerUnitView<'_, C>,
     ty: bray_symbols::TypeId,
-) -> Result<DiagnosticType, CheckerInfrastructureError>
+) -> Result<DiagnosticType, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {

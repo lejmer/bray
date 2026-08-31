@@ -23,7 +23,7 @@ where
         source: &SourceSnapshot,
         token: SyntaxToken,
         access: NameAccess,
-    ) -> BindingQueryResult<NameLookupResult<ResolvedMemberName>> {
+    ) -> BindingQueryResult<NameLookupResult<ResolvedMemberName>, C::UpstreamError> {
         let Some(reference) = token_reference(source, token) else {
             return Ok(malformed_lookup());
         };

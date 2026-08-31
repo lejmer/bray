@@ -19,7 +19,7 @@ pub(super) fn callable_declaration_template<C>(
     symbol: AnySymbolId,
     generic: GenericDeclarationTemplate,
     arguments: impl IntoIterator<Item = GenericArgumentTemplate>,
-) -> BindingQueryResult<Option<(CallableDeclarationTemplate, bool)>>
+) -> BindingQueryResult<Option<(CallableDeclarationTemplate, bool)>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>
@@ -77,7 +77,7 @@ pub fn bind_member_callable_template<C>(
     inherited: GenericSubstitutionId,
     arguments: &[GenericArgumentSyntax],
     scope: &TypeExpressionScope,
-) -> BindingQueryResult<DiagnosticResult<Option<CallableDeclarationTemplate>>>
+) -> BindingQueryResult<DiagnosticResult<Option<CallableDeclarationTemplate>>, C::UpstreamError>
 where
     C: BindingQueryContext,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>

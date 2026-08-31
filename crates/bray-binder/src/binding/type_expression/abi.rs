@@ -74,7 +74,7 @@ fn parse_abi(directive: &AbiDirectiveSyntax) -> Option<CallableAbi> {
     }
 }
 
-impl TypeExpressionBinder<'_> {
+impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     pub(super) fn bind_optional_callable_abi(
         &mut self,
         directives: Option<&CallableDirectivesSyntax>,

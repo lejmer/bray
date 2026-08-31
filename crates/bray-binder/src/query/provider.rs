@@ -4,11 +4,17 @@ use bray_symbols::{SymbolQueryContract, SymbolQueryRequest};
 
 use crate::{BindingQueryContext, BindingQueryResult};
 
+/// Owns the one upstream failure type shared by every symbol query contract a provider supports.
+pub trait SymbolQueryErrorProvider: Send + Sync {
+    /// Exact failures owned by the coordinating query layer.
+    type UpstreamError;
+}
+
 /// Provides shared immutable access to one category of symbol-facing semantic query.
 ///
 /// Implement this trait separately for each supported [`SymbolQueryContract`]. Equivalent completed
 /// requests must return equivalent results.
-pub trait SymbolQueryProvider<Contract>: Send + Sync
+pub trait SymbolQueryProvider<Contract>: SymbolQueryErrorProvider
 where
     Contract: SymbolQueryContract,
 {
@@ -22,6 +28,7 @@ where
                 <Contract as bray_symbols::SymbolQueryContract>::Value,
             >,
         >,
+        <Self as SymbolQueryErrorProvider>::UpstreamError,
     >;
 }
 
@@ -38,6 +45,7 @@ where
         request: SymbolQueryRequest<Contract>,
     ) -> BindingQueryResult<
         bray_diagnostics::DiagnosticResult<<Contract as bray_symbols::SymbolQueryContract>::Value>,
+        Context::UpstreamError,
     >;
 }
 

@@ -23,7 +23,7 @@ where
         token: SyntaxToken,
         assignment: bool,
         input_type: TypeId,
-    ) -> BindingQueryResult<NameLookupResult<BoundPatternTarget>> {
+    ) -> BindingQueryResult<NameLookupResult<BoundPatternTarget>, C::UpstreamError> {
         let Some(reference) = token_reference(source, token) else {
             return Ok(malformed_lookup());
         };
@@ -60,7 +60,7 @@ where
         name: &str,
         assignment: bool,
         input_type: TypeId,
-    ) -> BindingQueryResult<NameLookupResult<BoundPatternTarget>> {
+    ) -> BindingQueryResult<NameLookupResult<BoundPatternTarget>, C::UpstreamError> {
         let lookup = lookup_unqualified_name(
             self.unit(),
             self.binding_context().symbols(),
@@ -91,7 +91,7 @@ where
         context: PathBindingContext,
         input_type: TypeId,
         name: &str,
-    ) -> BindingQueryResult<NameLookupResult<BoundPatternTarget>> {
+    ) -> BindingQueryResult<NameLookupResult<BoundPatternTarget>, C::UpstreamError> {
         let input = self
             .binding_context()
             .semantic_values()

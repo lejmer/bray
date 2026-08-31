@@ -1,8 +1,7 @@
+use crate::compilation::binder::BindingQueryResult;
 use std::collections::BTreeMap;
 
-use bray_binder::{
-    BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider,
-};
+use bray_binder::{BindingQueryContext, BindingQueryError, SymbolQueryProvider};
 use bray_bound_tree::{BoundUnitKey, CheckedTemplateKind};
 use bray_diagnostics::DiagnosticResult;
 use bray_package_interface::InterfacePredicateDefinitionState;

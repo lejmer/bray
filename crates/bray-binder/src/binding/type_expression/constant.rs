@@ -9,11 +9,11 @@ use bray_syntax::{ExpressionSyntax, GenericArgumentSyntax, SourceSyntaxNode};
 use super::core::TypeExpressionBinder;
 use crate::{BindingQueryError, BindingQueryResult};
 
-impl TypeExpressionBinder<'_> {
+impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     pub(super) fn bind_array_length(
         &mut self,
         expression: &ExpressionSyntax,
-    ) -> BindingQueryResult<ConstantExpressionOccurrence> {
+    ) -> BindingQueryResult<ConstantExpressionOccurrence, Upstream> {
         let expected = self.bind_compiler_known_type_id(RepresentationRole::ScalarUsize)?;
 
         Ok(self.constant_expression_occurrence(
@@ -26,7 +26,7 @@ impl TypeExpressionBinder<'_> {
         &self,
         argument: &GenericArgumentSyntax,
         parameter: GenericConstParameterSymbolId,
-    ) -> BindingQueryResult<ConstantExpressionOccurrence> {
+    ) -> BindingQueryResult<ConstantExpressionOccurrence, Upstream> {
         let expected = ConstantExpressionExpectedType::GenericParameter(parameter);
 
         if let Some(expression) = argument.expressions().next() {

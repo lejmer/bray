@@ -1,8 +1,7 @@
+use crate::compilation::binder::BindingQueryResult;
 use std::sync::Arc;
 
-use bray_binder::{
-    BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider,
-};
+use bray_binder::{BindingQueryContext, BindingQueryError, SymbolQueryProvider};
 use bray_bound_tree::{
     BoundReferenceTarget, BoundUnitKind, BoundUnitRoot, DeclaredValueTypeConstraintKind,
     DeclaredValueTypeTerm,

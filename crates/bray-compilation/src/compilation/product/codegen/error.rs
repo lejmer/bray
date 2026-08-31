@@ -299,6 +299,12 @@ fn fact_query_failure_kind(error: &FactQueryError) -> Option<DiagnosticNativePro
         FactQueryError::Cancelled => None,
         FactQueryError::Cycle(_) => Some(Kind::EvaluationCycle),
         FactQueryError::InfrastructureFailure => Some(Kind::EvaluationInfrastructure),
+        FactQueryError::BindingDependencyUnavailable => Some(Kind::EvaluationBinding(
+            bray_diagnostics::DiagnosticBindingFailure::DependencyUnavailable,
+        )),
+        FactQueryError::Binding(error) => Some(Kind::EvaluationBinding(
+            crate::fact::diagnostic_binding_failure(error),
+        )),
         FactQueryError::LoweringInput(error) => Some(Kind::EvaluationLoweringInput(
             super::super::super::lowering_diagnostic::lowering_input_failure(error),
         )),
@@ -343,7 +349,7 @@ fn fact_query_failure_kind(error: &FactQueryError) -> Option<DiagnosticNativePro
             bray_checker::CheckerInfrastructureError::ImportedExecutableTemplateMismatch => {
                 Kind::EvaluationImportedExecutableTemplateMismatch
             }
-            _ => Kind::CheckingInfrastructureFailure,
+            error => Kind::EvaluationChecker(crate::fact::diagnostic_checker_failure(*error)),
         }),
     }
 }

@@ -506,15 +506,15 @@ mod tests {
     use std::sync::Arc;
 
     use bray_bound_tree::{
-        BoundUnitKey, BoundUnitKind, CheckedMemoryOperationKind, OperatorTarget,
-        SelectedOperation, SemanticSelection,
+        BoundUnitKey, BoundUnitKind, CheckedMemoryOperationKind, OperatorTarget, SelectedOperation,
+        SemanticSelection,
     };
     use bray_compiler_known::ImplementationHook;
     use bray_diagnostics::DiagnosticResult;
     use bray_ir::{
-        MirAggregateKind, MirCallTarget, MirImmediateValue, MirOperand, MirOperationKind,
-        MirPanicCause, MirProjectionKind, MirStoreKind, MirTerminatorKind, MirTextOperationKind,
-        MirUnit, MirValueOrigin,
+        MirAggregateKind, MirBinaryOperator, MirCallIntrinsic, MirCallTarget, MirImmediateValue,
+        MirOperand, MirOperationKind, MirPanicCause, MirProjectionKind, MirStoreKind,
+        MirTerminatorKind, MirTextOperationKind, MirUnit, MirValueOrigin,
     };
     use bray_lowering::LoweredUnit;
     use bray_runtime_interface::{ExecutionLaneRequirement, RuntimeAbiVersion};
@@ -2559,7 +2559,10 @@ func main(pos value: i32?) -> i32?
         );
 
         for name in ["exercise_text_operations", "exercise_character_operations"] {
-            assert!(implementation_hooks(&compilation, name).is_empty(), "{name}");
+            assert!(
+                implementation_hooks(&compilation, name).is_empty(),
+                "{name}"
+            );
         }
 
         let text_selections = compilation
@@ -2824,6 +2827,45 @@ func main(pos value: i32?) -> i32?
             .count();
 
         assert_eq!(mutable_receiver_borrows, 4);
+    }
+
+    #[test]
+    fn direct_compiler_known_trait_calls_retain_builtin_intrinsics() {
+        let compilation = standard_text_compilation(&[concat!(
+            "module std.direct_trait_call;\n",
+            "func generic_equal<T>(pos left: &T, pos right: &T) -> bool\n",
+            "    with(T: Equatable<T>)\n",
+            "{\n",
+            "    return left.equals(right);\n",
+            "}\n",
+        )]);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "generic_equal"))
+            .unwrap_or_else(|error| panic!("generic equality call must lower: {error:?}"));
+
+        let calls = lowered_mir(&lowered)
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                MirOperationKind::Call(call) => Some(call),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(calls.len(), 1);
+        assert!(calls[0].trait_dispatch().is_some());
+
+        assert_eq!(
+            calls[0].intrinsic(),
+            Some(MirCallIntrinsic::Binary(MirBinaryOperator::Equal))
+        );
     }
 
     #[test]
@@ -3186,10 +3228,8 @@ func main() -> i32?
 
         let mir = lowered_mir(&lowered);
 
-        let Some(MirTerminatorKind::Return(Some(MirOperand::Copy(place)))) = mir
-                .blocks()
-                .last()
-                .map(|block| block.terminator().kind())
+        let Some(MirTerminatorKind::Return(Some(MirOperand::Copy(place)))) =
+            mir.blocks().last().map(|block| block.terminator().kind())
         else {
             panic!("nullable local constant must lower through typed storage: {mir:#?}");
         };

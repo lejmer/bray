@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_binder::SymbolQueryProvider;
+use bray_binder::{SymbolQueryErrorProvider, SymbolQueryProvider};
 use bray_symbols::{
     DependencyContractTemplateId, DependencyRequirement, DependencyRequirementKind,
     DependencySubjectRoot, SymbolGraph, SymbolOrdinal, SymbolOrigin, SymbolQueryContract,
@@ -42,7 +42,8 @@ pub(super) fn resolved_query<C>(
 ) -> Arc<bray_diagnostics::DiagnosticResult<<C as bray_symbols::SymbolQueryContract>::Value>>
 where
     C: SymbolQueryContract,
-    for<'binding_context> CompilationBindingContext<'binding_context>: SymbolQueryProvider<C>,
+    for<'binding_context> CompilationBindingContext<'binding_context>: SymbolQueryErrorProvider<UpstreamError = crate::fact::FactQueryError>
+        + SymbolQueryProvider<C>,
 {
     match binding_context.resolve_symbol_query(request) {
         Ok(result) => result,

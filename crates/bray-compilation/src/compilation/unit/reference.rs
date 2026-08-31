@@ -26,7 +26,7 @@ impl Compilation {
         cancellation: &CancellationToken,
         bound: &BoundUnit,
         semantic_context: &bray_checker::SemanticUnitContext,
-        checker_context: &impl bray_checker::CheckerRequestContext,
+        checker_context: &impl bray_checker::CheckerRequestContext<UpstreamError = FactQueryError>,
     ) -> Result<(Vec<SemanticSelectionEntry>, DiagnosticBag), FactQueryError> {
         let binding_context = self.binding_context_for(key, cancellation)?;
 
@@ -108,6 +108,7 @@ impl Compilation {
     ) -> Result<Option<GenericSubstitutionId>, FactQueryError>
     where
         C: bray_checker::CheckerRequestContext + ?Sized,
+        C::UpstreamError: Into<FactQueryError>,
     {
         let parameters = generic_parameter_ids(binding_context.symbols(), symbol)
             .map_err(binding_query_error)?;

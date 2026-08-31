@@ -25,7 +25,7 @@ pub(crate) fn check_body_semantics<C>(
     patterns: &CheckedPatterns,
     storage: &StoragePlan,
     memory: &CheckedMemoryOperations,
-) -> CheckerOutcome<CheckedBodySemantics>
+) -> CheckerOutcome<CheckedBodySemantics, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -65,6 +65,9 @@ where
                 CheckerOutcome::InfrastructureFailure(error) => {
                     return CheckerOutcome::InfrastructureFailure(error);
                 }
+                CheckerOutcome::UpstreamFailure(error) => {
+                    return CheckerOutcome::UpstreamFailure(error);
+                }
             }
         };
     }
@@ -77,9 +80,9 @@ where
         &graph,
     ));
 
-    let refinements = complete!(check_refinements_with_graph(
-        request, patterns, storage, &graph,
-    ));
+    let refinements = complete!(
+        check_refinements_with_graph(request, patterns, storage, &graph,).with_upstream()
+    );
 
     let flow = complete!(check_storage_flow_with_graph(
         request,
@@ -109,12 +112,15 @@ where
         &graph,
     ));
 
-    let behavior = complete!(collect_body_behavior(
-        request,
-        control_flow,
-        expressions.selections(),
-        &asynchronous,
-    ));
+    let behavior = complete!(
+        collect_body_behavior(
+            request,
+            control_flow,
+            expressions.selections(),
+            &asynchronous,
+        )
+        .with_upstream()
+    );
 
     let semantics = match CheckedBodySemantics::try_new(
         liveness,

@@ -7,12 +7,12 @@ use bray_syntax::{
 use super::core::TypeExpressionBinder;
 use crate::BindingQueryResult;
 
-impl TypeExpressionBinder<'_> {
+impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     /// Binds an operand that may denote a type in static constraint context.
     pub fn bind_static_type_operand(
         mut self,
         operand: &StaticTypeOperandSyntax,
-    ) -> BindingQueryResult<Option<DiagnosticResult<TypeExpressionTemplate>>> {
+    ) -> BindingQueryResult<Option<DiagnosticResult<TypeExpressionTemplate>>, Upstream> {
         let syntax = match operand {
             StaticTypeOperandSyntax::Type(syntax) => syntax.clone(),
             StaticTypeOperandSyntax::Expression(expression) => {

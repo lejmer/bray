@@ -1,5 +1,4 @@
 use bray_binder::BindingQueryContext;
-use bray_checker::CheckerQueryError;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     CallableSignature, ImplementationInstanceId, ReceiverParameterSignature, SelfTypeContext,
@@ -50,7 +49,7 @@ pub(super) fn normalize_callable_type_valued_members(
         CompilationCheckerContext::new(*binding_context).with_implementation_witnesses([witness]);
 
     bray_checker::normalize_callable_signature_type_valued_members(&checker, signature, diagnostics)
-        .map_err(checker_query_error)
+        .map_err(FactQueryError::from)
 }
 
 pub(super) fn substitute_callable_self(
@@ -66,11 +65,4 @@ pub(super) fn substitute_callable_self(
             .substitute_contextual_self(ty, context, replacement)
             .map_err(|_| FactQueryError::InfrastructureFailure)
     })
-}
-
-const fn checker_query_error(error: CheckerQueryError) -> FactQueryError {
-    match error {
-        CheckerQueryError::Cancelled => FactQueryError::Cancelled,
-        CheckerQueryError::Infrastructure(error) => FactQueryError::CheckerInfrastructure(error),
-    }
 }

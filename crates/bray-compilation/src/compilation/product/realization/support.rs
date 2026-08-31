@@ -754,13 +754,14 @@ pub(super) fn nonzero_width(width: u16) -> NonZeroU16 {
 }
 
 pub(super) fn codegen_checker_error(
-    error: bray_checker::CheckerQueryError,
+    error: bray_checker::CheckerQueryError<FactQueryError>,
 ) -> CodegenPreparationError {
     match error {
         bray_checker::CheckerQueryError::Cancelled => FactQueryError::Cancelled.into(),
         bray_checker::CheckerQueryError::Infrastructure(error) => {
             FactQueryError::CheckerInfrastructure(error).into()
         }
+        bray_checker::CheckerQueryError::Upstream(error) => error.into(),
     }
 }
 

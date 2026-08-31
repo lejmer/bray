@@ -14,7 +14,7 @@ use crate::{
 pub(crate) fn type_supports_complete_fixed_layout<C>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
-) -> Result<bool, CheckerQueryError>
+) -> Result<bool, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -25,7 +25,7 @@ fn type_supports_complete_fixed_layout_inner<C>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
     pending: &mut BTreeSet<TypeId>,
-) -> Result<bool, CheckerQueryError>
+) -> Result<bool, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -89,7 +89,7 @@ where
 pub(crate) fn type_supports_flexible_c_layout<C>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
-) -> Result<bool, CheckerQueryError>
+) -> Result<bool, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {

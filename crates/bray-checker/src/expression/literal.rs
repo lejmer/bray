@@ -17,12 +17,15 @@ use crate::constant::{
 use crate::diagnostic::{diagnostic_id, diagnostic_type, expression_span};
 use crate::representation::type_representation;
 use crate::unit::semantic_inputs_match;
-use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
+use crate::{
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
+    CheckerUnitView,
+};
 
 pub(crate) fn check_literal_values<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
-) -> CheckerOutcome<CheckedLiteralValues>
+) -> CheckerOutcome<CheckedLiteralValues, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -132,8 +135,14 @@ where
                             produced.with_arg(DiagnosticArg::actual_type(
                                 match diagnostic_type(request.context(), result.ty()) {
                                     Ok(ty) => ty,
-                                    Err(error) => {
+                                    Err(CheckerQueryError::Cancelled) => {
+                                        return CheckerOutcome::Cancelled;
+                                    }
+                                    Err(CheckerQueryError::Infrastructure(error)) => {
                                         return CheckerOutcome::InfrastructureFailure(error);
+                                    }
+                                    Err(CheckerQueryError::Upstream(error)) => {
+                                        return CheckerOutcome::UpstreamFailure(error);
                                     }
                                 },
                             ))

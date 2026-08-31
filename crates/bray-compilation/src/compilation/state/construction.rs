@@ -400,6 +400,12 @@ impl Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("scheduled query infrastructure failed")
             }
+            Err(FactQueryError::BindingDependencyUnavailable) => {
+                panic!("scheduled query could not obtain a binding dependency")
+            }
+            Err(FactQueryError::Binding(error)) => {
+                panic!("scheduled query encountered a binding failure: {error:?}")
+            }
             Err(
                 error @ (FactQueryError::AtomicInitializerArgumentUnavailable
                 | FactQueryError::AtomicInitializerResultUnavailable
@@ -526,6 +532,12 @@ impl Compilation {
             }
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("compilation query infrastructure failed")
+            }
+            Err(FactQueryError::BindingDependencyUnavailable) => {
+                panic!("compilation query could not obtain a binding dependency")
+            }
+            Err(FactQueryError::Binding(error)) => {
+                panic!("compilation query encountered a binding failure: {error:?}")
             }
             Err(
                 error @ (FactQueryError::AtomicInitializerArgumentUnavailable

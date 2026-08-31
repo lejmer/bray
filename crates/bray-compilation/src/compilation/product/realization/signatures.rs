@@ -111,7 +111,7 @@ impl Compilation {
             substitution,
             constants.value(),
         )
-        .map_err(FactQueryError::CheckerInfrastructure)?
+        .map_err(FactQueryError::from)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let signature = signature
@@ -364,7 +364,7 @@ impl Compilation {
             substitution,
             constants.value(),
         )
-        .map_err(FactQueryError::CheckerInfrastructure)?
+        .map_err(FactQueryError::from)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let values = self.semantic_value_store()?;

@@ -13,7 +13,10 @@ use bray_symbols::TypeId;
 
 use crate::diagnostic::{diagnostic_id, expression_category, expression_span};
 use crate::representation::type_representation;
-use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
+use crate::{
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
+    CheckerUnitView,
+};
 
 use super::ExpressionTypeInput;
 use super::cardinality::unproven_array_generators;
@@ -29,7 +32,7 @@ struct DiagnosticConflict {
 pub(crate) fn check_expression_types<C>(
     request: CheckerUnitView<'_, C>,
     input: &ExpressionTypeInput,
-) -> CheckerOutcome<CheckedExpressionTypes>
+) -> CheckerOutcome<CheckedExpressionTypes, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -68,7 +71,7 @@ where
 pub(crate) fn finish_expression_types<C>(
     request: CheckerUnitView<'_, C>,
     session: ExpressionTypeSession<'_, C>,
-) -> CheckerOutcome<CheckedExpressionTypes>
+) -> CheckerOutcome<CheckedExpressionTypes, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -80,7 +83,7 @@ pub(crate) fn finish_expression_types_with_deferred<C>(
     session: ExpressionTypeSession<'_, C>,
     deferred: &BTreeSet<BoundExpressionId>,
     iteration_sources: &[SelectedIterationSource],
-) -> CheckerOutcome<CheckedExpressionTypes>
+) -> CheckerOutcome<CheckedExpressionTypes, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -94,12 +97,12 @@ where
 
         let mut expected = match diagnostic_type(request, conflict.expected) {
             Ok(expected) => expected,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+            Err(error) => return query_outcome(error),
         };
 
         let mut actual = match diagnostic_type(request, conflict.actual) {
             Ok(actual) => actual,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+            Err(error) => return query_outcome(error),
         };
 
         if !conflict.is_directional && actual < expected {
@@ -220,7 +223,7 @@ where
 
         let actual = match diagnostic_type(request, element) {
             Ok(actual) => actual,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+            Err(error) => return query_outcome(error),
         };
 
         diagnostics.push(
@@ -254,7 +257,7 @@ where
     let unproven_generators =
         match unproven_array_generators(request, &checked_types, iteration_sources) {
             Ok(expressions) => expressions,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+            Err(error) => return query_outcome(error),
         };
 
     for unproven in unproven_generators {
@@ -297,11 +300,19 @@ fn is_compile_time_path_expression(expression: &BoundExpression) -> bool {
 pub(crate) fn diagnostic_type<C>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
-) -> Result<DiagnosticType, CheckerInfrastructureError>
+) -> Result<DiagnosticType, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
     crate::diagnostic::diagnostic_type(request.context(), ty)
+}
+
+fn query_outcome<T, Upstream>(error: CheckerQueryError<Upstream>) -> CheckerOutcome<T, Upstream> {
+    match error {
+        CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
+        CheckerQueryError::Infrastructure(error) => CheckerOutcome::InfrastructureFailure(error),
+        CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
+    }
 }
 
 #[cfg(test)]

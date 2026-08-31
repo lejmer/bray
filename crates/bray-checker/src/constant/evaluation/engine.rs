@@ -30,14 +30,14 @@ use super::result::EvaluatedConstant;
 use super::support::EvaluationFailure;
 
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext, CheckerUnitRoot,
-    CheckerUnitView, ConstantEvaluationInput, ConstantReferenceResolution,
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
+    CheckerUnitRoot, CheckerUnitView, ConstantEvaluationInput, ConstantReferenceResolution,
 };
 
 pub(crate) fn evaluate_constant<C>(
     request: CheckerUnitView<'_, C>,
-    input: &ConstantEvaluationInput<'_>,
-) -> CheckerOutcome<ConstantValueId>
+    input: &ConstantEvaluationInput<'_, C::UpstreamError>,
+) -> CheckerOutcome<ConstantValueId, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -51,21 +51,25 @@ where
         CheckerOutcome::InfrastructureFailure(error) => {
             CheckerOutcome::InfrastructureFailure(error)
         }
+        CheckerOutcome::UpstreamFailure(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
 
 pub(crate) fn evaluate_constant_with_references<C>(
     request: CheckerUnitView<'_, C>,
-    input: &ConstantEvaluationInput<'_>,
-) -> CheckerOutcome<EvaluatedConstant>
+    input: &ConstantEvaluationInput<'_, C::UpstreamError>,
+) -> CheckerOutcome<EvaluatedConstant, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let evaluated = match evaluate_checked(request, input, false) {
+    let mut evaluated = match evaluate_checked(request, input, false) {
         Ok(evaluated) => evaluated,
         Err(EvaluationAbort::Cancelled) => return CheckerOutcome::Cancelled,
         Err(EvaluationAbort::Infrastructure(error)) => {
             return CheckerOutcome::InfrastructureFailure(error);
+        }
+        Err(EvaluationAbort::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
         }
     };
 
@@ -76,6 +80,11 @@ where
         Ok(value) => value,
         Err(EvaluationFailure::Infrastructure(error)) => {
             return CheckerOutcome::InfrastructureFailure(error);
+        }
+        Err(EvaluationFailure::Upstream) => {
+            return CheckerOutcome::UpstreamFailure(
+                evaluated.evaluator.take_upstream_failure(),
+            );
         }
         Err(EvaluationFailure::Cancelled) => return CheckerOutcome::Cancelled,
         Err(EvaluationFailure::Propagate(_)) => {
@@ -103,7 +112,13 @@ where
                 diagnostic_id(diagnostics.len()),
             ) {
                 Ok(diagnostic) => diagnostic,
-                Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+                Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+                Err(CheckerQueryError::Infrastructure(error)) => {
+                    return CheckerOutcome::InfrastructureFailure(error);
+                }
+                Err(CheckerQueryError::Upstream(error)) => {
+                    return CheckerOutcome::UpstreamFailure(error);
+                }
             };
 
             diagnostics.add(diagnostic);
@@ -127,8 +142,8 @@ where
 
 pub(crate) fn check_constant_term<C>(
     request: CheckerUnitView<'_, C>,
-    input: &ConstantEvaluationInput<'_>,
-) -> CheckerOutcome<ConstantTermId>
+    input: &ConstantEvaluationInput<'_, C::UpstreamError>,
+) -> CheckerOutcome<ConstantTermId, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -136,14 +151,15 @@ where
         Ok(evaluated) => CheckerOutcome::complete(evaluated.term, evaluated.evaluator.diagnostics),
         Err(EvaluationAbort::Cancelled) => CheckerOutcome::Cancelled,
         Err(EvaluationAbort::Infrastructure(error)) => CheckerOutcome::InfrastructureFailure(error),
+        Err(EvaluationAbort::Upstream(error)) => CheckerOutcome::UpstreamFailure(error),
     }
 }
 
 fn evaluate_checked<'view, 'input, 'types, C>(
     request: CheckerUnitView<'view, C>,
-    input: &'input ConstantEvaluationInput<'types>,
+    input: &'input ConstantEvaluationInput<'types, C::UpstreamError>,
     retain_target_literals: bool,
-) -> Result<EvaluationState<'view, 'input, 'types, C>, EvaluationAbort>
+) -> Result<EvaluationState<'view, 'input, 'types, C>, EvaluationAbort<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -234,10 +250,18 @@ where
         Err(EvaluationFailure::Infrastructure(error)) => {
             Err(EvaluationAbort::Infrastructure(error))
         }
+        Err(EvaluationFailure::Upstream) => {
+            Err(EvaluationAbort::Upstream(evaluator.take_upstream_failure()))
+        }
         Err(EvaluationFailure::Propagate(term)) => {
             let term = evaluator
                 .materialize_propagation(term, result_type)
-                .map_err(evaluation_abort)?
+                .map_err(|failure| match failure {
+                    EvaluationFailure::Upstream => {
+                        EvaluationAbort::Upstream(evaluator.take_upstream_failure())
+                    }
+                    failure => evaluation_abort(failure),
+                })?
                 .unwrap_or(term);
 
             Ok(EvaluationState {
@@ -258,7 +282,11 @@ where
                 diagnostic,
                 diagnostic_id(evaluator.diagnostics.len()),
             )
-            .map_err(EvaluationAbort::Infrastructure)?;
+            .map_err(|error| match error {
+                CheckerQueryError::Cancelled => EvaluationAbort::Cancelled,
+                CheckerQueryError::Infrastructure(error) => EvaluationAbort::Infrastructure(error),
+                CheckerQueryError::Upstream(error) => EvaluationAbort::Upstream(error),
+            })?;
 
             evaluator.diagnostics.add(diagnostic);
 
@@ -277,16 +305,16 @@ where
 
 fn source_failure_diagnostic<C>(
     request: CheckerUnitView<'_, C>,
-    input: &ConstantEvaluationInput<'_>,
+    input: &ConstantEvaluationInput<'_, C::UpstreamError>,
     expression: BoundExpressionId,
     problem: ConstantDiagnostic,
     id: DiagnosticId,
-) -> Result<Diagnostic, CheckerInfrastructureError>
+) -> Result<Diagnostic, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(bound) = request.view().expression(expression) else {
-        return Err(CheckerInfrastructureError::InvalidConstantEvaluationInput);
+        return Err(CheckerInfrastructureError::InvalidConstantEvaluationInput.into());
     };
 
     let span = expression_span(request, expression)?;
@@ -317,7 +345,7 @@ where
             ..
         } => {
             let Some(result) = input.expression_types().expression(expression) else {
-                return Err(CheckerInfrastructureError::InvalidConstantEvaluationInput);
+                return Err(CheckerInfrastructureError::InvalidConstantEvaluationInput.into());
             };
 
             diagnostic = diagnostic.with_arg(DiagnosticArg::actual_type(diagnostic_type(
@@ -377,23 +405,27 @@ where
     term: ConstantTermId,
 }
 
-enum EvaluationAbort {
+enum EvaluationAbort<Upstream> {
     Cancelled,
     Infrastructure(CheckerInfrastructureError),
+    Upstream(Upstream),
 }
 
-impl EvaluationAbort {
+impl<Upstream> EvaluationAbort<Upstream> {
     const fn invalid_input() -> Self {
         Self::Infrastructure(CheckerInfrastructureError::InvalidConstantEvaluationInput)
     }
 }
 
-fn evaluation_abort(failure: EvaluationFailure) -> EvaluationAbort {
+fn evaluation_abort<Upstream>(failure: EvaluationFailure) -> EvaluationAbort<Upstream> {
     match failure {
         EvaluationFailure::Cancelled => EvaluationAbort::Cancelled,
         EvaluationFailure::Infrastructure(error) => EvaluationAbort::Infrastructure(error),
         EvaluationFailure::Propagate(_) | EvaluationFailure::Source { .. } => {
             EvaluationAbort::invalid_input()
+        }
+        EvaluationFailure::Upstream => {
+            unreachable!("upstream failures must be extracted from evaluator state")
         }
     }
 }
@@ -403,11 +435,12 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     pub(super) request: CheckerUnitView<'view, C>,
-    pub(super) input: &'input ConstantEvaluationInput<'types>,
+    pub(super) input: &'input ConstantEvaluationInput<'types, C::UpstreamError>,
     pub(super) budget: EvaluationBudget,
     pub(super) diagnostics: DiagnosticBag,
     pub(super) locals: BTreeMap<AnyLocalSymbolId, ConstantTermId>,
     evaluated_references: BTreeSet<BoundExpressionId>,
+    pub(super) upstream_failure: Option<C::UpstreamError>,
     retain_target_literals: bool,
 }
 
@@ -417,7 +450,7 @@ where
 {
     pub(super) fn new(
         request: CheckerUnitView<'view, C>,
-        input: &'input ConstantEvaluationInput<'types>,
+        input: &'input ConstantEvaluationInput<'types, C::UpstreamError>,
         retain_target_literals: bool,
     ) -> Self {
         Self {
@@ -427,8 +460,17 @@ where
             diagnostics: DiagnosticBag::new(),
             locals: BTreeMap::new(),
             evaluated_references: BTreeSet::new(),
+            upstream_failure: None,
             retain_target_literals,
         }
+    }
+
+    fn take_upstream_failure(&mut self) -> C::UpstreamError {
+        let Some(error) = self.upstream_failure.take() else {
+            unreachable!("an upstream evaluation marker must retain its exact cause");
+        };
+
+        error
     }
 
     pub(super) fn evaluate(
@@ -1521,6 +1563,8 @@ mod tests {
     }
 
     impl ConstantCallResolver for CapturingCallResolver {
+        type UpstreamError = std::convert::Infallible;
+
         fn is_constant_callable(
             &self,
             _callable: bray_symbols::CallableInstanceData,
@@ -1548,6 +1592,8 @@ mod tests {
     struct CycleCallResolver;
 
     impl ConstantCallResolver for CycleCallResolver {
+        type UpstreamError = std::convert::Infallible;
+
         fn is_constant_callable(
             &self,
             _callable: bray_symbols::CallableInstanceData,
@@ -1566,6 +1612,8 @@ mod tests {
     struct IneligibleCallResolver;
 
     impl ConstantCallResolver for IneligibleCallResolver {
+        type UpstreamError = std::convert::Infallible;
+
         fn is_constant_callable(
             &self,
             _callable: bray_symbols::CallableInstanceData,

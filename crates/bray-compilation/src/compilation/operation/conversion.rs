@@ -77,13 +77,13 @@ impl Compilation {
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<ConversionPlan>, FactQueryError> {
         if let Some(conversion) = bray_checker::built_in_conversion_plan(request, source, target)
-            .map_err(FactQueryError::CheckerInfrastructure)?
+            .map_err(FactQueryError::from)?
         {
             return Ok(Some(ConversionPlan::built_in(conversion)));
         }
 
         if let Some(children) = bray_checker::composite_conversion_children(request, source, target)
-            .map_err(FactQueryError::CheckerInfrastructure)?
+            .map_err(FactQueryError::from)?
         {
             let mut plans = Vec::with_capacity(children.len());
 

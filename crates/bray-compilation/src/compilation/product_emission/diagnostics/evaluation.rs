@@ -32,6 +32,14 @@ pub(super) fn diagnostic_evaluation_failure(
         FactQueryError::InfrastructureFailure => {
             DiagnosticEmissionEvaluationFailure::Infrastructure
         }
+        FactQueryError::BindingDependencyUnavailable => {
+            DiagnosticEmissionEvaluationFailure::Binding(
+                bray_diagnostics::DiagnosticBindingFailure::DependencyUnavailable,
+            )
+        }
+        FactQueryError::Binding(error) => DiagnosticEmissionEvaluationFailure::Binding(
+            crate::fact::diagnostic_binding_failure(error),
+        ),
         FactQueryError::LoweringInput(error) => DiagnosticEmissionEvaluationFailure::LoweringInput(
             super::super::super::lowering_diagnostic::lowering_input_failure(error),
         ),
@@ -78,7 +86,9 @@ pub(super) fn diagnostic_evaluation_failure(
             bray_checker::CheckerInfrastructureError::ImportedExecutableTemplateMismatch => {
                 DiagnosticEmissionEvaluationFailure::ImportedExecutableTemplateMismatch
             }
-            _ => DiagnosticEmissionEvaluationFailure::CheckerInfrastructure,
+            error => DiagnosticEmissionEvaluationFailure::Checker(
+                crate::fact::diagnostic_checker_failure(*error),
+            ),
         },
     }
 }

@@ -63,7 +63,10 @@ where
         }
     }
 
-    pub(super) fn resolve(&mut self, ty: TypeId) -> Result<CleanupShape, CheckerQueryError> {
+    pub(super) fn resolve(
+        &mut self,
+        ty: TypeId,
+    ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
         if let Some(shape) = self.completed.get(&ty) {
             return Ok(*shape);
         }
@@ -117,7 +120,7 @@ where
         &mut self,
         definition: bray_symbols::NamedTypeSymbolId,
         substitution: bray_symbols::GenericSubstitutionId,
-    ) -> Result<CleanupShape, CheckerQueryError> {
+    ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
         let role = match definition {
             bray_symbols::NamedTypeSymbolId::Struct(definition) => self
                 .request
@@ -192,7 +195,7 @@ where
     fn aggregate(
         &mut self,
         types: impl IntoIterator<Item = TypeId>,
-    ) -> Result<CleanupShape, CheckerQueryError> {
+    ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
         let mut shape = CleanupShape::default();
 
         for ty in types {
@@ -211,12 +214,12 @@ pub(super) fn scope_exit_plans<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     flow: &StorageFlow,
-) -> Result<(Vec<AsyncScopeExitPlan>, DiagnosticBag), CheckerQueryError>
+) -> Result<(Vec<AsyncScopeExitPlan>, DiagnosticBag), CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let mut cleanup_shapes = CleanupShapeResolver::new(request);
-    let owners = StorageScopeOwners::collect(request)?;
+    let owners = StorageScopeOwners::collect(request).map_err(CheckerQueryError::with_upstream)?;
     let mut plans = Vec::new();
 
     for exit in flow.exits() {

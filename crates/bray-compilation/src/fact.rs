@@ -18,6 +18,7 @@ mod unit_identity;
 pub use cancellation::CancellationToken;
 pub use completion::SymbolCompletionError;
 pub use error::{FactCycle, FactQueryError, LocatedLoweringFailure};
+pub(crate) use error::{diagnostic_binding_failure, diagnostic_checker_failure};
 pub use key::ImportedSemanticRecordKey;
 pub use priority::QueryPriority;
 

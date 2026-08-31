@@ -13,7 +13,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &AwaitExpressionSyntax,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {

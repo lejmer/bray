@@ -25,7 +25,7 @@ pub(super) fn bind_unit(
     binding_context: &CompilationBindingContext<'_>,
     unit: bray_bound_tree::BoundUnitId,
     key: BoundUnitKey,
-) -> Result<BoundUnitComputation, BoundUnitBindingError> {
+) -> Result<BoundUnitComputation, BoundUnitBindingError<FactQueryError>> {
     match key.kind() {
         BoundUnitKind::CallableBody => bind_callable_body(binding_context, unit, key)?.finish(),
         BoundUnitKind::AnonymousCallable => {
@@ -170,16 +170,32 @@ pub(super) fn plan_storage(
     ))
 }
 
-pub(super) const fn map_binding_error(error: BoundUnitBindingError) -> FactQueryError {
+pub(super) fn map_binding_error(error: BoundUnitBindingError<FactQueryError>) -> FactQueryError {
     match error {
         BoundUnitBindingError::Cancelled => FactQueryError::Cancelled,
-        BoundUnitBindingError::InvalidUnitKey
-        | BoundUnitBindingError::MissingSyntax
-        | BoundUnitBindingError::MissingOwner
-        | BoundUnitBindingError::MissingModule
-        | BoundUnitBindingError::SemanticValue(_)
-        | BoundUnitBindingError::Construction
-        | BoundUnitBindingError::Binding
-        | BoundUnitBindingError::Assembly => FactQueryError::InfrastructureFailure,
+        BoundUnitBindingError::CheckerInfrastructure(error) => {
+            FactQueryError::CheckerInfrastructure(error)
+        }
+        BoundUnitBindingError::Upstream(error) => error,
+        BoundUnitBindingError::InvalidUnitKey => {
+            FactQueryError::Binding(BoundUnitBindingError::InvalidUnitKey)
+        }
+        BoundUnitBindingError::MissingSyntax => {
+            FactQueryError::Binding(BoundUnitBindingError::MissingSyntax)
+        }
+        BoundUnitBindingError::MissingOwner => {
+            FactQueryError::Binding(BoundUnitBindingError::MissingOwner)
+        }
+        BoundUnitBindingError::MissingModule => {
+            FactQueryError::Binding(BoundUnitBindingError::MissingModule)
+        }
+        BoundUnitBindingError::SemanticValue(error) => {
+            FactQueryError::Binding(BoundUnitBindingError::SemanticValue(error))
+        }
+        BoundUnitBindingError::Construction => {
+            FactQueryError::Binding(BoundUnitBindingError::Construction)
+        }
+        BoundUnitBindingError::Binding => FactQueryError::Binding(BoundUnitBindingError::Binding),
+        BoundUnitBindingError::Assembly => FactQueryError::Binding(BoundUnitBindingError::Assembly),
     }
 }

@@ -9,7 +9,10 @@ use bray_symbols::{
 
 use super::check::{PatternChecker, available_dependency};
 use crate::constant::integer_to_usize;
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticQueryProvider};
+use crate::{
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
+    CheckerSemanticQueryProvider,
+};
 
 impl<C> PatternChecker<'_, '_, C>
 where
@@ -26,7 +29,7 @@ where
         target: Option<BoundPatternTarget>,
         subject_type: bray_symbols::TypeId,
         subject: &TypeData,
-    ) -> Result<bool, CheckerInfrastructureError> {
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
         let compatible = match kind {
             BoundPatternKind::Binding
             | BoundPatternKind::Discard
@@ -65,7 +68,7 @@ where
         &self,
         pattern: BoundPatternId,
         target: Option<BoundPatternTarget>,
-    ) -> Result<Option<bray_symbols::TypeId>, CheckerInfrastructureError> {
+    ) -> Result<Option<bray_symbols::TypeId>, CheckerQueryError<C::UpstreamError>> {
         if !target.is_some_and(BoundPatternTarget::is_constant) {
             return Ok(None);
         }
@@ -97,7 +100,7 @@ where
         &self,
         pattern: BoundPatternId,
         target: Option<BoundPatternTarget>,
-    ) -> Result<bool, CheckerInfrastructureError> {
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
         let Some(evidence) = self.constant_patterns.get(&pattern) else {
             return Ok(target.is_some_and(BoundPatternTarget::is_constant));
         };
@@ -125,7 +128,7 @@ where
         &self,
         pattern: &BoundPattern,
         subject: &TypeData,
-    ) -> Result<bool, CheckerInfrastructureError> {
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
         let TypeData::Named {
             definition: NamedTypeSymbolId::Struct(structure),
             ..
@@ -193,7 +196,7 @@ where
         &self,
         pattern: &BoundPattern,
         subject: &TypeData,
-    ) -> Result<bool, CheckerInfrastructureError> {
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
         let explicit = pattern
             .entries()
             .iter()
@@ -225,7 +228,7 @@ where
     pub(super) fn fixed_array_length(
         &self,
         length: bray_symbols::ConstantTermId,
-    ) -> Result<Option<usize>, CheckerInfrastructureError> {
+    ) -> Result<Option<usize>, CheckerQueryError<C::UpstreamError>> {
         let values = self.request.semantic_values();
 
         let integer = values
@@ -239,7 +242,7 @@ where
         &self,
         subject: &TypeData,
         literal: bray_bound_tree::BoundLiteralKind,
-    ) -> Result<bool, CheckerInfrastructureError> {
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
         let TypeData::Named {
             definition: NamedTypeSymbolId::Struct(structure),
             ..
@@ -279,7 +282,7 @@ where
         pattern: &BoundPattern,
         target: Option<BoundPatternTarget>,
         subject: &TypeData,
-    ) -> Result<bool, CheckerInfrastructureError> {
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
         let (
             Some(BoundPatternTarget::Surface(AnySymbolId::UnionVariant(variant))),
             TypeData::Named {

@@ -10,8 +10,8 @@ where
     /// Runs an atomic binding operation whose failed state is never published.
     pub(crate) fn bind_transaction<T>(
         &mut self,
-        bind: impl FnOnce(&mut Self) -> BindingResult<T>,
-    ) -> BindingResult<T> {
+        bind: impl FnOnce(&mut Self) -> BindingResult<T, C::UpstreamError>,
+    ) -> BindingResult<T, C::UpstreamError> {
         let checkpoint = self.checkpoint();
 
         match bind(self) {
@@ -29,7 +29,10 @@ where
         }
     }
 
-    fn rollback_or_error(&mut self, checkpoint: BinderCheckpoint) -> BindingResult<()> {
+    fn rollback_or_error(
+        &mut self,
+        checkpoint: BinderCheckpoint,
+    ) -> BindingResult<(), C::UpstreamError> {
         if self.rollback(checkpoint) {
             Ok(())
         } else {

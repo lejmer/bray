@@ -102,11 +102,20 @@ pub enum ConstantCallResolution {
 
 /// Resolves selected constant calls through the caller's demand-driven query graph.
 pub trait ConstantCallResolver: Sync {
+    /// Exact failures owned by the coordinating query layer.
+    type UpstreamError;
+
     /// Returns whether the selected callable may execute in a constant context.
-    fn is_constant_callable(&self, callable: CallableInstanceData) -> CheckerQueryResult<bool>;
+    fn is_constant_callable(
+        &self,
+        callable: CallableInstanceData,
+    ) -> CheckerQueryResult<bool, Self::UpstreamError>;
 
     /// Evaluates one exact call without evaluating unrelated semantic queries.
-    fn resolve(&self, request: &ConstantCallRequest) -> CheckerQueryResult<ConstantCallResolution>;
+    fn resolve(
+        &self,
+        request: &ConstantCallRequest,
+    ) -> CheckerQueryResult<ConstantCallResolution, Self::UpstreamError>;
 }
 
 /// Resolves stable references used by an imported const-callable body template.
@@ -119,12 +128,15 @@ pub trait ConstantTemplateResolver: ConstantCallResolver {
         &self,
         instance: ConstantInstanceKey,
         limits: ConstantEvaluationLimits,
-    ) -> CheckerQueryResult<DiagnosticResult<ConstantReferenceResolution>>;
+    ) -> CheckerQueryResult<DiagnosticResult<ConstantReferenceResolution>, Self::UpstreamError>;
 
     /// Resolves one exact static reference retained by a checked initializer template.
     fn resolve_static(
         &self,
         declaration: bray_symbols::StaticSymbolId,
         substitution: bray_symbols::GenericSubstitutionId,
-    ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::StaticReferenceSelection>>;
+    ) -> CheckerQueryResult<
+        DiagnosticResult<bray_symbols::StaticReferenceSelection>,
+        Self::UpstreamError,
+    >;
 }

@@ -66,8 +66,7 @@ pub(in crate::compilation) fn template_diagnostic_type(
         TypeExpressionTemplate::Resolved(ty) => {
             let context = compilation.checker_context(cancellation)?;
 
-            bray_checker::diagnostic_type(&context, *ty)
-                .map_err(FactQueryError::CheckerInfrastructure)?
+            bray_checker::diagnostic_type(&context, *ty).map_err(FactQueryError::from)?
         }
         TypeExpressionTemplate::Named { .. } => DiagnosticType::Unknown,
         TypeExpressionTemplate::CallableContract { .. } => DiagnosticType::Callable,

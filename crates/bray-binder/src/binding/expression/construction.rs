@@ -18,7 +18,7 @@ impl ExpressionBinder {
         scope: LocalScopeId,
         syntax: &StructConstructionBodySyntax,
         head: Option<BoundExpressionId>,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {

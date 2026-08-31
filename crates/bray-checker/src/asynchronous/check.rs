@@ -43,7 +43,7 @@ pub(crate) fn check_async_analysis<C>(
     storage: &StoragePlan,
     refinements: &CheckedRefinements,
     flow: &StorageFlow,
-) -> CheckerOutcome<CheckedAsync>
+) -> CheckerOutcome<CheckedAsync, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -98,7 +98,7 @@ pub(crate) fn check_async_analysis_with_graph<C>(
     refinements: &CheckedRefinements,
     flow: &StorageFlow,
     graph: &crate::analysis::ControlFlowGraph,
-) -> CheckerOutcome<CheckedAsync>
+) -> CheckerOutcome<CheckedAsync, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -106,11 +106,14 @@ where
         return CheckerOutcome::Cancelled;
     }
 
-    let execution = match containing_execution(request) {
+    let execution = match containing_execution(request).map_err(CheckerQueryError::with_upstream) {
         Ok(execution) => execution,
         Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
         Err(CheckerQueryError::Infrastructure(error)) => {
             return CheckerOutcome::InfrastructureFailure(error);
+        }
+        Err(CheckerQueryError::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
         }
     };
 
@@ -282,6 +285,9 @@ where
         Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
         Err(CheckerQueryError::Infrastructure(error)) => {
             return CheckerOutcome::InfrastructureFailure(error);
+        }
+        Err(CheckerQueryError::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
         }
     };
 

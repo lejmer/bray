@@ -25,7 +25,7 @@ pub fn bind_expression_candidates<C>(
     unit: &BoundUnit,
     expression: BoundExpressionId,
     type_scope: &TypeExpressionScope,
-) -> BindingQueryResult<DiagnosticResult<ExpressionCandidateSet>>
+) -> BindingQueryResult<DiagnosticResult<ExpressionCandidateSet>, C::UpstreamError>
 where
     C: BindingQueryContext,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>
@@ -147,7 +147,7 @@ where
 fn generic_argument_syntax<C>(
     context: &C,
     arguments: &[bray_bound_tree::BoundGenericArgument],
-) -> BindingQueryResult<Vec<GenericArgumentSyntax>>
+) -> BindingQueryResult<Vec<GenericArgumentSyntax>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
 {

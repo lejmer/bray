@@ -13,8 +13,8 @@ use crate::analysis::storage_index::index_storage_roots;
 use crate::dependency::selected_call_contracts;
 use crate::storage::{local_initialization_bindings, value_transfer_bindings};
 use crate::{
-    CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticQueryProvider,
-    CheckerUnitView,
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -38,7 +38,7 @@ impl OperationEffects {
         selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
         memory: &CheckedMemoryOperations,
-    ) -> Result<Self, CheckerInfrastructureError>
+    ) -> Result<Self, CheckerQueryError<C::UpstreamError>>
     where
         C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
     {
@@ -203,7 +203,7 @@ impl OperationEffects {
         request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
-    ) -> Result<(), CheckerInfrastructureError>
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>>
     where
         C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
     {
@@ -216,7 +216,9 @@ impl OperationEffects {
                 match selected_call_contracts(request, storage, entry.expression(), call) {
                     Ok(contracts) => contracts,
                     Err(DependencyContractInstantiationError::Resolution(
-                        CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                        CheckerQueryError::Infrastructure(
+                            CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                        ),
                     )) => {
                         self.recovered_nodes
                             .insert(AnyBoundNodeId::Expression(entry.expression()));
@@ -227,7 +229,7 @@ impl OperationEffects {
                         return Err(error);
                     }
                     Err(DependencyContractInstantiationError::ForeignUnit) => {
-                        return Err(CheckerInfrastructureError::InvalidLiveness);
+                        return Err(CheckerInfrastructureError::InvalidLiveness.into());
                     }
                 };
 

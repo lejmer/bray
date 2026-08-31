@@ -1,6 +1,5 @@
-use bray_binder::{
-    BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider,
-};
+use crate::compilation::binder::BindingQueryResult;
+use bray_binder::{BindingQueryContext, BindingQueryError, SymbolQueryProvider};
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey, CheckedTemplate, CheckedTemplateKind};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{

@@ -16,7 +16,7 @@ where
     pub(crate) fn bind_anonymous_callable_reference(
         &mut self,
         syntax: &LambdaExpressionSyntax,
-    ) -> BindingResult<bray_bound_tree::BoundUnitKey> {
+    ) -> BindingResult<bray_bound_tree::BoundUnitKey, C::UpstreamError> {
         self.check_cancellation()?;
 
         let source = self.anonymous_source(syntax);
@@ -32,7 +32,7 @@ where
         &mut self,
         introduction_scope: LocalScopeId,
         syntax: &LambdaExpressionSyntax,
-    ) -> BindingResult<AnonymousCallableBoundary> {
+    ) -> BindingResult<AnonymousCallableBoundary, C::UpstreamError> {
         self.bind_transaction(|binder| {
             binder.bind_anonymous_callable_boundary_transaction(introduction_scope, syntax)
         })
@@ -42,7 +42,7 @@ where
         &mut self,
         introduction_scope: LocalScopeId,
         syntax: &LambdaExpressionSyntax,
-    ) -> BindingResult<AnonymousCallableBoundary> {
+    ) -> BindingResult<AnonymousCallableBoundary, C::UpstreamError> {
         self.check_cancellation()?;
 
         let source = self.anonymous_source(syntax);

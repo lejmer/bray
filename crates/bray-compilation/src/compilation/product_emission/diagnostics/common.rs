@@ -53,6 +53,9 @@ pub(super) fn emission_failure_diagnostic(
         Some(source) => {
             crate::compilation::diagnostics::with_compiler_defect_source(diagnostic, source)
         }
+        None if matches!(failure, DiagnosticEmissionFailure::Evaluation(_)) => {
+            crate::compilation::diagnostics::with_compiler_defect_note(diagnostic)
+        }
         None => diagnostic,
     }
 }
@@ -82,6 +85,44 @@ pub(super) fn codegen_unit_identity(
         DiagnosticArtifactDigestAlgorithm::Blake3,
         unit.content_identity(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{
+        DiagnosticCheckerFailure, DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure,
+        DiagnosticNoteKind,
+    };
+    use bray_symbols::{PackageIdentity, ProductIdentity};
+    use bray_target::TargetIdentity;
+
+    use super::emission_failure_diagnostic;
+
+    #[test]
+    fn evaluation_failures_without_source_locations_explain_how_to_report_the_defect() {
+        let package = PackageIdentity::try_new("example.package")
+            .unwrap_or_else(|| panic!("package identity must be valid"));
+
+        let product = ProductIdentity::try_new(package, "application")
+            .unwrap_or_else(|| panic!("product identity must be valid"));
+
+        let target = TargetIdentity::try_new("test-target")
+            .unwrap_or_else(|| panic!("target identity must be valid"));
+
+        let failure =
+            DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Checker(
+                DiagnosticCheckerFailure::CompilerKnownRepresentationUnavailable("ScalarU32"),
+            ));
+
+        let diagnostic = emission_failure_diagnostic(failure, &product, &target);
+
+        assert!(
+            diagnostic
+                .notes()
+                .iter()
+                .any(|note| note.kind() == DiagnosticNoteKind::ReportCompilerDefect)
+        );
+    }
 }
 
 pub(super) fn emission_artifact_diagnostic(

@@ -9,7 +9,7 @@ impl<C> Binder<'_, C>
 where
     C: BindingQueryContext + ?Sized,
 {
-    pub(super) fn check_cancellation(&self) -> BindingResult<()> {
+    pub(super) fn check_cancellation(&self) -> BindingResult<(), C::UpstreamError> {
         if self.binding_context().is_cancelled() {
             return Err(BindingError::Cancelled);
         }

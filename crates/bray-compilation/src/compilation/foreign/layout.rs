@@ -267,7 +267,7 @@ fn resolve_member_alignment(
         template,
         checked.value(),
     )
-    .map_err(FactQueryError::CheckerInfrastructure)?
+    .map_err(FactQueryError::from)?
     else {
         return Ok(Some(NonZeroU64::MIN));
     };

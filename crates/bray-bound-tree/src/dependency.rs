@@ -185,6 +185,19 @@ pub enum DependencyContractInstantiationError<E> {
     ForeignUnit,
 }
 
+impl<E> DependencyContractInstantiationError<E> {
+    /// Maps the exact resolver failure while preserving contract-owned failures.
+    pub fn map_resolution<F>(
+        self,
+        map: impl FnOnce(E) -> F,
+    ) -> DependencyContractInstantiationError<F> {
+        match self {
+            Self::Resolution(error) => DependencyContractInstantiationError::Resolution(map(error)),
+            Self::ForeignUnit => DependencyContractInstantiationError::ForeignUnit,
+        }
+    }
+}
+
 /// A semantic condition guarding nested instantiated requirements.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BoundDependencyGuard {

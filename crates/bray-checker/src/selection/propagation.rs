@@ -13,7 +13,10 @@ use bray_symbols::{GenericArgument, TypeData, TypeId};
 
 use crate::diagnostic::{diagnostic_id, expression_span};
 use crate::representation::type_representation;
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitRoot, CheckerUnitView};
+use crate::{
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitRoot,
+    CheckerUnitView,
+};
 
 use super::built_in_conversion_plan;
 
@@ -26,7 +29,7 @@ struct ResultBoundary {
 pub(crate) fn select_propagations<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
-) -> Result<Option<(Vec<SemanticSelectionEntry>, DiagnosticBag)>, CheckerInfrastructureError>
+) -> Result<Option<(Vec<SemanticSelectionEntry>, DiagnosticBag)>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -51,7 +54,7 @@ where
         BoundWalkOutcome::Completed => {}
         BoundWalkOutcome::Stopped => return Ok(None),
         BoundWalkOutcome::MissingNode(node) => {
-            return Err(CheckerInfrastructureError::InvalidBoundNode { node });
+            return Err(CheckerInfrastructureError::InvalidBoundNode { node }.into());
         }
     }
 
@@ -125,7 +128,7 @@ fn select_propagation<C>(
     boundaries: &[ResultBoundary],
 ) -> Result<
     Option<Result<SelectedPropagation, DiagnosticPropagationProblem>>,
-    CheckerInfrastructureError,
+    CheckerQueryError<C::UpstreamError>,
 >
 where
     C: CheckerRequestContext + ?Sized,
@@ -244,7 +247,7 @@ fn select_result_boundary<C>(
     error_type: TypeId,
 ) -> Result<
     Result<(ResultBoundary, bray_bound_tree::SelectedConversion), Vec<TypeId>>,
-    CheckerInfrastructureError,
+    CheckerQueryError<C::UpstreamError>,
 >
 where
     C: CheckerRequestContext + ?Sized,
@@ -284,7 +287,7 @@ fn diagnostic_boundary_types<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     boundaries: &[ResultBoundary],
-) -> Result<Vec<DiagnosticType>, CheckerInfrastructureError>
+) -> Result<Vec<DiagnosticType>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -301,7 +304,7 @@ where
 fn diagnostic_types<C>(
     request: CheckerUnitView<'_, C>,
     types: impl IntoIterator<Item = TypeId>,
-) -> Result<Vec<DiagnosticType>, CheckerInfrastructureError>
+) -> Result<Vec<DiagnosticType>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -321,7 +324,7 @@ where
 fn diagnostic_type<C>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
-) -> Result<DiagnosticType, CheckerInfrastructureError>
+) -> Result<DiagnosticType, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -331,7 +334,7 @@ where
 fn named_type_arguments<C>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
-) -> Result<Vec<TypeId>, CheckerInfrastructureError>
+) -> Result<Vec<TypeId>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -385,7 +388,7 @@ fn missing_boundary_diagnostic<C>(
     expression: BoundExpressionId,
     problem: DiagnosticPropagationProblem,
     index: usize,
-) -> Result<Diagnostic, CheckerInfrastructureError>
+) -> Result<Diagnostic, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {

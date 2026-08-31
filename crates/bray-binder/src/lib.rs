@@ -36,7 +36,7 @@ pub use lookup::{
 };
 pub use query::{
     BindingQueryContext, BindingQueryError, BindingQueryResult, BindingSymbolQueryEvaluator,
-    SymbolQueryProvider,
+    SymbolQueryErrorProvider, SymbolQueryProvider,
 };
 pub use result::BoundUnitComputation;
 pub use semantic_context::{SemanticUnitContextError, semantic_unit_context};

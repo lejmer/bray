@@ -1,6 +1,5 @@
-use bray_binder::{
-    BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider,
-};
+use crate::compilation::binder::BindingQueryResult;
+use bray_binder::{BindingQueryContext, BindingQueryError, SymbolQueryProvider};
 use bray_bound_tree::{
     BoundDependencyContract, BoundDependencyGuard, BoundDependencyRequirement,
     BoundDependencySubject, StorageAccessId, StorageIdentity, StoragePlan, StorageProjection,

@@ -269,16 +269,18 @@ mod tests {
         Diagnostic, DiagnosticAlignmentKind, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue,
         DiagnosticArrayGeneratorCardinalityProblem, DiagnosticArrayLength,
         DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm, DiagnosticArtifactKind,
-        DiagnosticBag, DiagnosticCallbackStateProblem, DiagnosticConstructionInputRejection,
-        DiagnosticDependencyRequirementKind, DiagnosticDependencySubjectKind,
-        DiagnosticExpressionCategory, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,
-        DiagnosticLabel, DiagnosticLabelKind, DiagnosticLabelStyle, DiagnosticLayoutOption,
-        DiagnosticLayoutProblem, DiagnosticMemoryOperation, DiagnosticModuleTrust,
-        DiagnosticNameKind, DiagnosticNamedType, DiagnosticNote, DiagnosticNoteKind,
-        DiagnosticOutputSink, DiagnosticPatternCoverage, DiagnosticPatternMissingCase,
-        DiagnosticProjectManifestField, DiagnosticPropagationProblem, DiagnosticRefinementCapacity,
-        DiagnosticRefinementCapacitySurface, DiagnosticRejectedSelectionCandidate,
-        DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticRuntimeAbiVersion,
+        DiagnosticBag, DiagnosticCallbackStateProblem, DiagnosticCheckerFailure,
+        DiagnosticConstructionInputRejection, DiagnosticDependencyRequirementKind,
+        DiagnosticDependencySubjectKind, DiagnosticEmissionEvaluationFailure,
+        DiagnosticEmissionFailure, DiagnosticExpressionCategory, DiagnosticId,
+        DiagnosticIoErrorKind, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+        DiagnosticLabelStyle, DiagnosticLayoutOption, DiagnosticLayoutProblem,
+        DiagnosticMemoryOperation, DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNamedType,
+        DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticPatternCoverage,
+        DiagnosticPatternMissingCase, DiagnosticProjectManifestField, DiagnosticPropagationProblem,
+        DiagnosticRefinementCapacity, DiagnosticRefinementCapacitySurface,
+        DiagnosticRejectedSelectionCandidate, DiagnosticRelatedLocation,
+        DiagnosticRelatedLocationKind, DiagnosticRuntimeAbiVersion,
         DiagnosticRuntimeArtifactProblem, DiagnosticSelectionCandidate,
         DiagnosticSelectionCandidateIdentity, DiagnosticSelectionCandidateSignature,
         DiagnosticSelectionCandidates, DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
@@ -440,6 +442,43 @@ mod tests {
             note.message(),
             "source files must be readable before compilation"
         );
+    }
+
+    #[test]
+    fn emission_checker_failures_name_the_product_type_and_reporting_action() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(8),
+            DiagnosticKind::EmissionFailed,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::actual_product_identity(
+            "example.application",
+        ))
+        .with_arg(DiagnosticArg::target_triple("x86_64-unknown-linux-gnu"))
+        .with_arg(DiagnosticArg::emission_failure(
+            DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Checker(
+                DiagnosticCheckerFailure::CompilerKnownRepresentationUnavailable("ScalarU32"),
+            )),
+        ))
+        .with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::ReportCompilerDefect,
+        ));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert!(rendered.message().contains("example.application"));
+        assert!(rendered.message().contains("x86_64-unknown-linux-gnu"));
+        assert!(rendered.message().contains("`u32`"));
+        assert!(!rendered.message().contains("ScalarU32"));
+        assert_eq!(rendered.notes().len(), 1);
+
+        assert!(
+            rendered.notes()[0]
+                .message()
+                .contains("report this compiler defect")
+        );
+
+        assert_eq!(forbidden_ordinary_diagnostic_term(rendered.message()), None);
     }
 
     #[test]

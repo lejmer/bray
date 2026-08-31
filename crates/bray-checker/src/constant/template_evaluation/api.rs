@@ -2,7 +2,7 @@ use super::super::call::{ConstantTemplateResolver, EvaluatedConstantCall};
 use super::super::limits::EvaluationBudget;
 use super::evaluator::TemplateEvaluator;
 use super::support::{TemplateEvaluationFailure, recovery_value};
-use crate::{CheckerOutcome, CheckerRequestContext, ConstantCallRequest};
+use crate::{CheckerOutcome, CheckerQueryError, CheckerRequestContext, ConstantCallRequest};
 use bray_bound_tree::{CheckedTemplate, CheckedTemplateKind};
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticLabel, DiagnosticLabelKind,
@@ -18,9 +18,9 @@ pub fn evaluate_constant_callable_template<C>(
     context: &C,
     template: &CheckedTemplate,
     request: &ConstantCallRequest,
-    resolver: &dyn ConstantTemplateResolver,
+    resolver: &dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
     diagnostic_span: Option<SourceSpan>,
-) -> CheckerOutcome<EvaluatedConstantCall>
+) -> CheckerOutcome<EvaluatedConstantCall, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -49,6 +49,7 @@ where
         budget: EvaluationBudget::from_limits(limits),
         values: vec![None; template.nodes().len()],
         diagnostics: DiagnosticBag::new(),
+        upstream_failure: None,
         static_initializer: false,
     };
 
@@ -75,7 +76,13 @@ where
                 diagnostic_span,
             ) {
                 Ok(diagnostic) => diagnostic,
-                Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+                Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+                Err(CheckerQueryError::Infrastructure(error)) => {
+                    return CheckerOutcome::InfrastructureFailure(error);
+                }
+                Err(CheckerQueryError::Upstream(error)) => {
+                    return CheckerOutcome::UpstreamFailure(error);
+                }
             };
 
             evaluator.diagnostics.add(diagnostic);
@@ -89,6 +96,9 @@ where
         Err(TemplateEvaluationFailure::Infrastructure(error)) => {
             CheckerOutcome::InfrastructureFailure(error)
         }
+        Err(TemplateEvaluationFailure::Upstream) => {
+            CheckerOutcome::UpstreamFailure(evaluator.take_upstream_failure())
+        }
     }
 }
 
@@ -98,9 +108,9 @@ pub fn evaluate_generic_constraint_template<C>(
     template: &CheckedTemplate,
     substitution: ConcreteGenericSubstitutionId,
     result_type: TypeId,
-    resolver: &dyn ConstantTemplateResolver,
+    resolver: &dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
     diagnostic_span: Option<SourceSpan>,
-) -> CheckerOutcome<Option<ConstantValueId>>
+) -> CheckerOutcome<Option<ConstantValueId>, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -121,6 +131,7 @@ where
         CheckerOutcome::InfrastructureFailure(error) => {
             CheckerOutcome::InfrastructureFailure(error)
         }
+        CheckerOutcome::UpstreamFailure(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
 
@@ -130,10 +141,10 @@ pub fn evaluate_constant_definition_template<C>(
     template: &CheckedTemplate,
     substitution: ConcreteGenericSubstitutionId,
     result_type: TypeId,
-    resolver: &dyn ConstantTemplateResolver,
+    resolver: &dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
     diagnostic_span: Option<SourceSpan>,
     limits: crate::ConstantEvaluationLimits,
-) -> CheckerOutcome<Option<EvaluatedConstantCall>>
+) -> CheckerOutcome<Option<EvaluatedConstantCall>, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -156,10 +167,10 @@ pub fn evaluate_static_initializer_template<C>(
     kind: CheckedTemplateKind,
     substitution: ConcreteGenericSubstitutionId,
     result_type: TypeId,
-    resolver: &dyn ConstantTemplateResolver,
+    resolver: &dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
     diagnostic_span: Option<SourceSpan>,
     limits: crate::ConstantEvaluationLimits,
-) -> CheckerOutcome<Option<EvaluatedConstantCall>>
+) -> CheckerOutcome<Option<EvaluatedConstantCall>, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -195,10 +206,10 @@ fn evaluate_closed_template<C>(
     kind: CheckedTemplateKind,
     substitution: ConcreteGenericSubstitutionId,
     result_type: TypeId,
-    resolver: &dyn ConstantTemplateResolver,
+    resolver: &dyn ConstantTemplateResolver<UpstreamError = C::UpstreamError>,
     diagnostic_span: Option<SourceSpan>,
     limits: crate::ConstantEvaluationLimits,
-) -> CheckerOutcome<Option<EvaluatedConstantCall>>
+) -> CheckerOutcome<Option<EvaluatedConstantCall>, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -213,6 +224,7 @@ where
         budget: EvaluationBudget::from_limits(limits),
         values: vec![None; template.nodes().len()],
         diagnostics: DiagnosticBag::new(),
+        upstream_failure: None,
         static_initializer: false,
     };
 
@@ -230,7 +242,13 @@ where
             let diagnostic =
                 match template_failure_diagnostic(context, result_type, problem, diagnostic_span) {
                     Ok(diagnostic) => diagnostic,
-                    Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+                    Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+                    Err(CheckerQueryError::Infrastructure(error)) => {
+                        return CheckerOutcome::InfrastructureFailure(error);
+                    }
+                    Err(CheckerQueryError::Upstream(error)) => {
+                        return CheckerOutcome::UpstreamFailure(error);
+                    }
                 };
 
             evaluator.diagnostics.add(diagnostic);
@@ -241,6 +259,9 @@ where
         Err(TemplateEvaluationFailure::Infrastructure(error)) => {
             CheckerOutcome::InfrastructureFailure(error)
         }
+        Err(TemplateEvaluationFailure::Upstream) => {
+            CheckerOutcome::UpstreamFailure(evaluator.take_upstream_failure())
+        }
     }
 }
 
@@ -249,7 +270,7 @@ fn template_failure_diagnostic<C>(
     result_type: TypeId,
     problem: super::super::diagnostic::ConstantDiagnostic,
     span: Option<SourceSpan>,
-) -> Result<Diagnostic, crate::CheckerInfrastructureError>
+) -> Result<Diagnostic, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -304,7 +325,7 @@ where
         super::super::diagnostic::ConstantDiagnostic::InvalidExpression
         | super::super::diagnostic::ConstantDiagnostic::Literal(
             crate::ConstantLiteralError::Invalid,
-        ) => return Err(crate::CheckerInfrastructureError::InvalidConstantEvaluationInput),
+        ) => return Err(crate::CheckerInfrastructureError::InvalidConstantEvaluationInput.into()),
         super::super::diagnostic::ConstantDiagnostic::Operation {
             error: super::super::operation::ConstantOperationError::DivisionByZero,
             ..
@@ -765,6 +786,8 @@ mod tests {
     }
 
     impl ConstantCallResolver for TypedCallResolver {
+        type UpstreamError = std::convert::Infallible;
+
         fn is_constant_callable(
             &self,
             _callable: CallableInstanceData,
@@ -812,6 +835,8 @@ mod tests {
     }
 
     impl ConstantCallResolver for UnusedTemplateResolver {
+        type UpstreamError = std::convert::Infallible;
+
         fn is_constant_callable(
             &self,
             _callable: CallableInstanceData,

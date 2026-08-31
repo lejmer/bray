@@ -23,7 +23,7 @@ impl ExpressionBinder {
         syntax: &S,
         iteration: &GeneratorIterationExpressionSyntax,
         kind: BoundStructuredExpressionKind,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
         S: SourceSyntaxNode + SyntaxWalkRoot,
@@ -47,7 +47,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &GeneratorIterationExpressionSyntax,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -114,7 +114,7 @@ impl ExpressionBinder {
         syntax: SyntaxNodeView<'_>,
         iteration: BoundExpressionId,
         kind: BoundStructuredExpressionKind,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {

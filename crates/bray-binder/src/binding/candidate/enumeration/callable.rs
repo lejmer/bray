@@ -87,7 +87,7 @@ pub(super) fn bind_call_candidates<C>(
     callee: BoundExpressionId,
     generic_arguments: &[GenericArgumentSyntax],
     type_scope: &TypeExpressionScope,
-) -> BindingQueryResult<DiagnosticResult<ExpressionCandidateSet>>
+) -> BindingQueryResult<DiagnosticResult<ExpressionCandidateSet>, C::UpstreamError>
 where
     C: BindingQueryContext,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>
@@ -180,7 +180,7 @@ fn bind_reference_target<C>(
     generic: CallGenericContext<'_>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
-) -> BindingQueryResult<CandidateAbsence>
+) -> BindingQueryResult<CandidateAbsence, C::UpstreamError>
 where
     C: BindingQueryContext,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>
@@ -260,7 +260,7 @@ fn bind_overload_candidates<C>(
     inherited_generic: Option<InheritedGenericContext<'_>>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
-) -> BindingQueryResult<CandidateAbsence>
+) -> BindingQueryResult<CandidateAbsence, C::UpstreamError>
 where
     C: BindingQueryContext,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>
@@ -321,7 +321,7 @@ fn bind_source_overload_arm<C>(
     inherited_generic: Option<InheritedGenericContext<'_>>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
-) -> BindingQueryResult<DeclarationCandidateOutcome>
+) -> BindingQueryResult<DeclarationCandidateOutcome, C::UpstreamError>
 where
     C: BindingQueryContext,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>
@@ -410,7 +410,7 @@ pub(super) fn bind_resolved_name_candidate<C>(
     inherited_generic: Option<InheritedGenericContext<'_>>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
-) -> BindingQueryResult<DeclarationCandidateOutcome>
+) -> BindingQueryResult<DeclarationCandidateOutcome, C::UpstreamError>
 where
     C: BindingQueryContext,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>
@@ -479,7 +479,7 @@ pub(super) fn bind_declaration_candidate<C>(
     inherited_generic: Option<InheritedGenericContext<'_>>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
-) -> BindingQueryResult<DeclarationCandidateOutcome>
+) -> BindingQueryResult<DeclarationCandidateOutcome, C::UpstreamError>
 where
     C: BindingQueryContext,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>
@@ -534,7 +534,7 @@ fn bind_declaration_generics<C>(
     call: CallGenericContext<'_>,
     inherited: Option<InheritedGenericContext<'_>>,
     diagnostics: &mut DiagnosticBag,
-) -> BindingQueryResult<Option<BoundDeclarationGenerics>>
+) -> BindingQueryResult<Option<BoundDeclarationGenerics>, C::UpstreamError>
 where
     C: BindingQueryContext,
     C::SymbolSemantics: SymbolQueryProvider<GenericDeclarationTemplateQuery>,
@@ -602,7 +602,7 @@ pub(super) fn bind_generic_arguments<C>(
     call: CallGenericContext<'_>,
     declaration: &GenericDeclarationTemplate,
     diagnostics: &mut DiagnosticBag,
-) -> BindingQueryResult<Option<BoundGenericArguments>>
+) -> BindingQueryResult<Option<BoundGenericArguments>, C::UpstreamError>
 where
     C: BindingQueryContext,
 {
@@ -627,6 +627,12 @@ where
         {
             Ok(arguments) => arguments,
             Err(BindingQueryError::Cancelled) => return Err(BindingQueryError::Cancelled),
+            Err(BindingQueryError::CheckerInfrastructure(error)) => {
+                return Err(BindingQueryError::CheckerInfrastructure(error));
+            }
+            Err(BindingQueryError::Upstream(error)) => {
+                return Err(BindingQueryError::Upstream(error));
+            }
             Err(BindingQueryError::DependencyUnavailable) => return Ok(None),
         }
     };
@@ -650,7 +656,7 @@ fn bind_predicate_candidate<C>(
     call_generic: CallGenericContext<'_>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
-) -> BindingQueryResult<DeclarationCandidateOutcome>
+) -> BindingQueryResult<DeclarationCandidateOutcome, C::UpstreamError>
 where
     C: BindingQueryContext,
     C::SymbolSemantics: SymbolQueryProvider<PredicateSignatureTemplateQuery>
@@ -707,7 +713,7 @@ where
 pub(super) fn resolve_symbol_query_value<C, F>(
     context: &C,
     owner: F::Owner,
-) -> BindingQueryResult<(F::Value, bool)>
+) -> BindingQueryResult<(F::Value, bool), C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
     F: SymbolQueryContract,

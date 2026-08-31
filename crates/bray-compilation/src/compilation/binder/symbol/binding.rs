@@ -1,4 +1,5 @@
-use bray_binder::{BindingQueryError, BindingQueryResult};
+use crate::compilation::binder::BindingQueryResult;
+use bray_binder::BindingQueryError;
 use bray_symbols::{SymbolQueryContract, SymbolQueryRequest};
 
 use crate::compilation::binder::CompilationBindingContext;
@@ -19,20 +20,11 @@ where
     >;
 }
 
-pub(super) fn binder_error(error: FactQueryError) -> BindingQueryError {
+pub(in crate::compilation) fn binder_error(
+    error: FactQueryError,
+) -> BindingQueryError<FactQueryError> {
     match error {
         FactQueryError::Cancelled => BindingQueryError::Cancelled,
-        FactQueryError::Cycle(_)
-        | FactQueryError::InfrastructureFailure
-        | FactQueryError::ConstantCallableBodyUnavailable
-        | FactQueryError::ConstantCallableRootUnavailable
-        | FactQueryError::AtomicInitializerArgumentUnavailable
-        | FactQueryError::AtomicInitializerResultUnavailable
-        | FactQueryError::UninitInitializerResultUnavailable
-        | FactQueryError::ImportedExecutableTemplateMismatch
-        | FactQueryError::SemanticUnitContext(_)
-        | FactQueryError::CheckerInfrastructure(_)
-        | FactQueryError::LoweringInput(_)
-        | FactQueryError::Lowering(_) => BindingQueryError::DependencyUnavailable,
+        error => BindingQueryError::Upstream(error),
     }
 }

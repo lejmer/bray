@@ -1,8 +1,9 @@
+use crate::compilation::binder::BindingQueryResult;
 use std::sync::Arc;
 
 use bray_binder::{
-    BindingQueryContext, BindingQueryError, BindingQueryResult, ImportedPathRoot, NameAccess,
-    SymbolQueryProvider, bind_owner_surface_path, bind_surface_path_with_re_exports,
+    BindingQueryContext, BindingQueryError, ImportedPathRoot, NameAccess, SymbolQueryProvider,
+    bind_owner_surface_path, bind_surface_path_with_re_exports,
 };
 use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticResult;
@@ -136,10 +137,7 @@ impl<'compilation> CompilationBindingContext<'compilation> {
         let result = self
             .compilation
             .imported_symbol_skeleton_result_with_cancellation(self.cancellation)
-            .map_err(|error| match error {
-                FactQueryError::Cancelled => BindingQueryError::Cancelled,
-                _ => BindingQueryError::DependencyUnavailable,
-            })?;
+            .map_err(super::symbol::binder_error)?;
 
         Ok(result.value().as_deref())
     }
@@ -292,6 +290,7 @@ impl<'compilation> CompilationBindingContext<'compilation> {
 }
 
 impl BindingQueryContext for CompilationBindingContext<'_> {
+    type UpstreamError = FactQueryError;
     type SymbolSemantics = Self;
     type Cancellation = CancellationToken;
 
@@ -421,10 +420,7 @@ impl BindingQueryContext for CompilationBindingContext<'_> {
     ) -> BindingQueryResult<Arc<DiagnosticResult<TypeAssociatedSurface>>> {
         self.compilation
             .type_associated_surface_result_with_cancellation(subject, self.cancellation)
-            .map_err(|error| match error {
-                FactQueryError::Cancelled => BindingQueryError::Cancelled,
-                _ => BindingQueryError::DependencyUnavailable,
-            })
+            .map_err(super::symbol::binder_error)
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {

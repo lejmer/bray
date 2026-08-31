@@ -29,7 +29,7 @@ impl PendingBoundCallableBody {
     }
 
     /// Completes and returns the bound callable unit.
-    pub fn finish(self) -> Result<BoundUnitComputation, BoundUnitBindingError> {
+    pub fn finish<Upstream>(self) -> Result<BoundUnitComputation, BoundUnitBindingError<Upstream>> {
         assemble_callable_body(self.output, self.nested_units, self.execution, self.root)
             .map_err(map_assembly_error)
     }
@@ -51,7 +51,7 @@ impl PendingBoundAnonymousCallable {
     }
 
     /// Completes and returns the bound anonymous callable unit.
-    pub fn finish(self) -> Result<BoundUnitComputation, BoundUnitBindingError> {
+    pub fn finish<Upstream>(self) -> Result<BoundUnitComputation, BoundUnitBindingError<Upstream>> {
         assemble_anonymous_callable(
             self.output,
             self.nested_units,
@@ -68,7 +68,7 @@ pub fn bind_callable_body<C>(
     binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-) -> Result<PendingBoundCallableBody, BoundUnitBindingError>
+) -> Result<PendingBoundCallableBody, BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
@@ -129,7 +129,7 @@ pub fn bind_anonymous_callable<C>(
     binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-) -> Result<PendingBoundAnonymousCallable, BoundUnitBindingError>
+) -> Result<PendingBoundAnonymousCallable, BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -220,7 +220,7 @@ mod tests {
             Err(error) => panic!("source callable body must bind: {error:?}"),
         };
 
-        let computation = match pending.finish() {
+        let computation = match pending.finish::<std::convert::Infallible>() {
             Ok(computation) => computation,
             Err(error) => panic!("source callable body must finalize: {error:?}"),
         };

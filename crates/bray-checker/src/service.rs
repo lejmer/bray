@@ -114,8 +114,8 @@ where
     fn check_control_flow(
         &self,
         request: CheckerUnitView<'_, C>,
-    ) -> CheckerOutcome<ControlFlowCheckResult> {
-        check_control_flow(request)
+    ) -> CheckerOutcome<ControlFlowCheckResult, C::UpstreamError> {
+        check_control_flow(request).with_upstream()
     }
 }
 
@@ -134,7 +134,7 @@ where
         &self,
         request: CheckerUnitView<'_, C>,
         input: &ExpressionTypeInput,
-    ) -> CheckerOutcome<CheckedExpressionTypes> {
+    ) -> CheckerOutcome<CheckedExpressionTypes, C::UpstreamError> {
         check_expression_types(request, input)
     }
 }
@@ -158,7 +158,7 @@ where
         request: CheckerUnitView<'_, C>,
         expression_types: &CheckedExpressionTypes,
         input: &PatternCheckInput,
-    ) -> CheckerOutcome<CheckedPatterns> {
+    ) -> CheckerOutcome<CheckedPatterns, C::UpstreamError> {
         check_patterns(request, expression_types, input)
     }
 }
@@ -184,7 +184,7 @@ where
         types: &CheckedExpressionTypes,
         patterns: &CheckedPatterns,
         selections: &CheckedSemanticSelections,
-    ) -> CheckerOutcome<StoragePlan> {
+    ) -> CheckerOutcome<StoragePlan, C::UpstreamError> {
         plan_storage(request, declared_types, types, patterns, selections)
     }
 }
@@ -206,7 +206,7 @@ where
         selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
         memory: &CheckedMemoryOperations,
-    ) -> CheckerOutcome<Liveness> {
+    ) -> CheckerOutcome<Liveness, C::UpstreamError> {
         analyze_storage_liveness(request, selections, storage, memory)
     }
 }
@@ -228,8 +228,8 @@ where
         patterns: &CheckedPatterns,
         selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
-    ) -> CheckerOutcome<CheckedRefinements> {
-        check_refinements(request, patterns, selections, storage)
+    ) -> CheckerOutcome<CheckedRefinements, C::UpstreamError> {
+        check_refinements(request, patterns, selections, storage).with_upstream()
     }
 }
 
@@ -249,7 +249,7 @@ where
         liveness: &Liveness,
         refinements: &CheckedRefinements,
         memory: &CheckedMemoryOperations,
-    ) -> CheckerOutcome<StorageFlow> {
+    ) -> CheckerOutcome<StorageFlow, C::UpstreamError> {
         check_storage_flow(request, selections, storage, liveness, refinements, memory)
     }
 }
@@ -271,7 +271,7 @@ where
         selections: &CheckedSemanticSelections,
         storage: &StoragePlan,
         flow: &StorageFlow,
-    ) -> CheckerOutcome<CheckedDependencyContracts> {
+    ) -> CheckerOutcome<CheckedDependencyContracts, C::UpstreamError> {
         check_dependency_contracts(request, selections, storage, flow)
     }
 }
@@ -295,7 +295,7 @@ where
         request: CheckerUnitView<'_, C>,
         selections: &CheckedSemanticSelections,
         literals: &bray_bound_tree::CheckedLiteralValues,
-    ) -> CheckerOutcome<CheckedMemoryOperations> {
+    ) -> CheckerOutcome<CheckedMemoryOperations, C::UpstreamError> {
         check_memory_operations(request, selections, literals)
     }
 }
@@ -328,7 +328,7 @@ where
         storage: &StoragePlan,
         refinements: &CheckedRefinements,
         flow: &StorageFlow,
-    ) -> CheckerOutcome<CheckedAsync> {
+    ) -> CheckerOutcome<CheckedAsync, C::UpstreamError> {
         check_async_analysis(
             request,
             types,
@@ -359,8 +359,8 @@ where
         control_flow: &CheckedControlFlow,
         selections: &CheckedSemanticSelections,
         async_analysis: &CheckedAsync,
-    ) -> CheckerOutcome<BodyBehaviorContributions> {
-        collect_body_behavior(request, control_flow, selections, async_analysis)
+    ) -> CheckerOutcome<BodyBehaviorContributions, C::UpstreamError> {
+        collect_body_behavior(request, control_flow, selections, async_analysis).with_upstream()
     }
 }
 
@@ -383,7 +383,7 @@ where
         patterns: &CheckedPatterns,
         storage: &StoragePlan,
         memory: &CheckedMemoryOperations,
-    ) -> CheckerOutcome<CheckedBodySemantics> {
+    ) -> CheckerOutcome<CheckedBodySemantics, C::UpstreamError> {
         check_body_semantics(
             request,
             control_flow,
@@ -419,11 +419,14 @@ where
         candidate_sets: &[ExpressionCandidateSet],
         pattern_input: &PatternCheckInput,
         operation_input: &ExpressionTypeInput,
-    ) -> CheckerOutcome<(
-        CheckedExpressionTypes,
-        CheckedSemanticSelections,
-        CheckedLiteralValues,
-    )> {
+    ) -> CheckerOutcome<
+        (
+            CheckedExpressionTypes,
+            CheckedSemanticSelections,
+            CheckedLiteralValues,
+        ),
+        C::UpstreamError,
+    > {
         check_expression_semantics(
             request,
             declared_types,
@@ -459,7 +462,7 @@ where
         request: CheckerUnitView<'_, C>,
         types: &CheckedExpressionTypes,
         input: CallableSelectionRequest,
-    ) -> CheckerOutcome<CandidateSelection<SelectedCall>> {
+    ) -> CheckerOutcome<CandidateSelection<SelectedCall>, C::UpstreamError> {
         select_callable(request, types, input)
     }
 
@@ -469,7 +472,7 @@ where
         request: CheckerUnitView<'_, C>,
         types: &CheckedExpressionTypes,
         input: OperationSelectionRequest,
-    ) -> CheckerOutcome<CandidateSelection<SelectedOperation>> {
+    ) -> CheckerOutcome<CandidateSelection<SelectedOperation>, C::UpstreamError> {
         select_operation(request, types, input)
     }
 
@@ -478,7 +481,7 @@ where
         &self,
         request: CheckerUnitView<'_, C>,
         input: &IterationSourceSelectionRequest,
-    ) -> CheckerOutcome<CandidateSelection<SelectedIterationSource>> {
+    ) -> CheckerOutcome<CandidateSelection<SelectedIterationSource>, C::UpstreamError> {
         select_iteration_source(request, input)
     }
 }
@@ -494,8 +497,8 @@ where
     fn evaluate_constant(
         &self,
         request: CheckerUnitView<'_, C>,
-        input: &ConstantEvaluationInput<'_>,
-    ) -> CheckerOutcome<ConstantValueId> {
+        input: &ConstantEvaluationInput<'_, C::UpstreamError>,
+    ) -> CheckerOutcome<ConstantValueId, C::UpstreamError> {
         evaluate_constant(request, input)
     }
 
@@ -503,8 +506,8 @@ where
     fn evaluate_constant_with_references(
         &self,
         request: CheckerUnitView<'_, C>,
-        input: &ConstantEvaluationInput<'_>,
-    ) -> CheckerOutcome<crate::EvaluatedConstant> {
+        input: &ConstantEvaluationInput<'_, C::UpstreamError>,
+    ) -> CheckerOutcome<crate::EvaluatedConstant, C::UpstreamError> {
         crate::constant::evaluate_constant_with_references(request, input)
     }
 }
@@ -520,8 +523,8 @@ where
     fn check_constant_term(
         &self,
         request: CheckerUnitView<'_, C>,
-        input: &ConstantEvaluationInput<'_>,
-    ) -> CheckerOutcome<ConstantTermId> {
+        input: &ConstantEvaluationInput<'_, C::UpstreamError>,
+    ) -> CheckerOutcome<ConstantTermId, C::UpstreamError> {
         check_constant_term(request, input)
     }
 }

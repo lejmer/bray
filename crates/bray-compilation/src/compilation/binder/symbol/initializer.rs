@@ -1,4 +1,5 @@
-use bray_binder::{BindingQueryContext, BindingQueryError, BindingQueryResult};
+use crate::compilation::binder::BindingQueryResult;
+use bray_binder::{BindingQueryContext, BindingQueryError};
 use bray_bound_tree::{BoundUnitKey, BoundUnitKind};
 use bray_checker::{
     CheckerUnitView, ConstantChecker, ConstantEvaluationInput, DefaultConstantChecker,

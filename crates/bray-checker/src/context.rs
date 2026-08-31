@@ -106,21 +106,35 @@ pub enum CheckerInfrastructureError {
 
 /// A failure while requesting a checker dependency.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub enum CheckerQueryError {
+pub enum CheckerQueryError<Upstream = std::convert::Infallible> {
     /// Cancellation was observed while obtaining the dependency.
     Cancelled,
     /// Compiler infrastructure could not supply the dependency.
     Infrastructure(CheckerInfrastructureError),
+    /// The coordinating query layer returned one of its own exact failures.
+    Upstream(Upstream),
 }
 
-impl From<CheckerInfrastructureError> for CheckerQueryError {
+impl CheckerQueryError {
+    /// Widens a checker-local failure to a boundary with an upstream error type.
+    pub fn with_upstream<Upstream>(self) -> CheckerQueryError<Upstream> {
+        match self {
+            Self::Cancelled => CheckerQueryError::Cancelled,
+            Self::Infrastructure(error) => CheckerQueryError::Infrastructure(error),
+            Self::Upstream(error) => match error {},
+        }
+    }
+}
+
+impl<Upstream> From<CheckerInfrastructureError> for CheckerQueryError<Upstream> {
     fn from(error: CheckerInfrastructureError) -> Self {
         Self::Infrastructure(error)
     }
 }
 
 /// The result of requesting one checker dependency.
-pub type CheckerQueryResult<T> = Result<T, CheckerQueryError>;
+pub type CheckerQueryResult<T, Upstream = std::convert::Infallible> =
+    Result<T, CheckerQueryError<Upstream>>;
 
 /// One recognized implementation hook and its availability for the selected target.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -188,6 +202,9 @@ impl<'source> CheckerSource<'source> {
 
 /// Narrow immutable services shared by checker unit views.
 pub trait CheckerRequestContext: Sync {
+    /// Exact failure type owned by the coordinating query layer.
+    type UpstreamError;
+
     /// Returns whether semantic context exactly describes the supplied bound unit.
     fn semantic_context_matches(&self, unit: &BoundUnit, context: &SemanticUnitContext) -> bool;
 
@@ -198,7 +215,10 @@ pub trait CheckerRequestContext: Sync {
     fn symbols(&self) -> &SymbolGraph;
 
     /// Returns the stable semantic key of a source or imported declaration.
-    fn symbol_key(&self, symbol: AnySymbolId) -> CheckerQueryResult<Option<&SymbolKey>> {
+    fn symbol_key(
+        &self,
+        symbol: AnySymbolId,
+    ) -> CheckerQueryResult<Option<&SymbolKey>, Self::UpstreamError> {
         Ok(self.symbols().symbol_key(symbol))
     }
 
@@ -207,22 +227,31 @@ pub trait CheckerRequestContext: Sync {
         &self,
         owner: AnySymbolId,
         name: &str,
-    ) -> CheckerQueryResult<MemberLookupResult<AnySymbolId>> {
+    ) -> CheckerQueryResult<MemberLookupResult<AnySymbolId>, Self::UpstreamError> {
         Ok(self.symbols().lookup_member(owner, name))
     }
 
     /// Returns the ordinary name of a source or imported declaration member.
-    fn member_name(&self, member: AnySymbolId) -> CheckerQueryResult<Option<&SymbolName>> {
+    fn member_name(
+        &self,
+        member: AnySymbolId,
+    ) -> CheckerQueryResult<Option<&SymbolName>, Self::UpstreamError> {
         Ok(self.symbols().member_name(member))
     }
 
     /// Returns a source or imported structure declaration.
-    fn structure(&self, id: StructSymbolId) -> CheckerQueryResult<Option<&StructSymbol>> {
+    fn structure(
+        &self,
+        id: StructSymbolId,
+    ) -> CheckerQueryResult<Option<&StructSymbol>, Self::UpstreamError> {
         Ok(self.symbols().structure(id))
     }
 
     /// Returns a source or imported union declaration.
-    fn union(&self, id: UnionSymbolId) -> CheckerQueryResult<Option<&UnionSymbol>> {
+    fn union(
+        &self,
+        id: UnionSymbolId,
+    ) -> CheckerQueryResult<Option<&UnionSymbol>, Self::UpstreamError> {
         Ok(self.symbols().union(id))
     }
 
@@ -230,7 +259,7 @@ pub trait CheckerRequestContext: Sync {
     fn union_variant(
         &self,
         id: UnionVariantSymbolId,
-    ) -> CheckerQueryResult<Option<&UnionVariantSymbol>> {
+    ) -> CheckerQueryResult<Option<&UnionVariantSymbol>, Self::UpstreamError> {
         Ok(self.symbols().union_variant(id))
     }
 
@@ -238,7 +267,7 @@ pub trait CheckerRequestContext: Sync {
     fn union_payload_field(
         &self,
         id: UnionPayloadFieldSymbolId,
-    ) -> CheckerQueryResult<Option<&UnionPayloadFieldSymbol>> {
+    ) -> CheckerQueryResult<Option<&UnionPayloadFieldSymbol>, Self::UpstreamError> {
         Ok(self.symbols().union_payload_field(id))
     }
 
@@ -249,7 +278,7 @@ pub trait CheckerRequestContext: Sync {
     fn implementation_hook(
         &self,
         symbol: AnySymbolId,
-    ) -> CheckerQueryResult<Option<ImplementationHookResolution>> {
+    ) -> CheckerQueryResult<Option<ImplementationHookResolution>, Self::UpstreamError> {
         let available = self.available_compiler_known_symbols();
 
         if let Some(hook) = available
@@ -270,7 +299,7 @@ pub trait CheckerRequestContext: Sync {
     fn recognized_standard_library_implementation_hook(
         &self,
         _symbol: AnySymbolId,
-    ) -> CheckerQueryResult<Option<ImplementationHookResolution>> {
+    ) -> CheckerQueryResult<Option<ImplementationHookResolution>, Self::UpstreamError> {
         Ok(None)
     }
 
@@ -281,19 +310,19 @@ pub trait CheckerRequestContext: Sync {
     fn checked_constant_expression(
         &self,
         occurrence: bray_symbols::ConstantExpressionOccurrence,
-    ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::ConstantTermId>>;
+    ) -> CheckerQueryResult<DiagnosticResult<bray_symbols::ConstantTermId>, Self::UpstreamError>;
 
     /// Proves the static constraints for one exact generic declaration instance.
     fn generic_constraints(
         &self,
         obligation: GenericConstraintObligationKey,
-    ) -> CheckerQueryResult<DiagnosticResult<ProofOutcome>>;
+    ) -> CheckerQueryResult<DiagnosticResult<ProofOutcome>, Self::UpstreamError>;
 
     /// Selects the implementation satisfying one exact subject and trait application.
     fn implementation_selection(
         &self,
         _requirement: ImplementationRequirementKey,
-    ) -> CheckerQueryResult<DiagnosticResult<ImplementationSelection>> {
+    ) -> CheckerQueryResult<DiagnosticResult<ImplementationSelection>, Self::UpstreamError> {
         Ok(DiagnosticResult::without_diagnostics(
             ImplementationSelection::Unavailable,
         ))
@@ -305,7 +334,7 @@ pub trait CheckerRequestContext: Sync {
         _subject: TypeId,
         _application: TraitApplicationId,
         _member: TraitTypeMemberSymbolId,
-    ) -> CheckerQueryResult<DiagnosticResult<Option<TypeId>>> {
+    ) -> CheckerQueryResult<DiagnosticResult<Option<TypeId>>, Self::UpstreamError> {
         Ok(DiagnosticResult::without_diagnostics(None))
     }
 
@@ -313,13 +342,14 @@ pub trait CheckerRequestContext: Sync {
     fn declared_type_representation(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> CheckerQueryResult<DiagnosticResult<DeclaredTypeRepresentation>>;
+    ) -> CheckerQueryResult<DiagnosticResult<DeclaredTypeRepresentation>, Self::UpstreamError>;
 
     /// Returns the target atomic representation selected for one concrete plain-storage type.
     fn plain_storage_atomic_representation(
         &self,
         _ty: TypeId,
-    ) -> CheckerQueryResult<Option<bray_target::TargetAtomicRepresentation>> {
+    ) -> CheckerQueryResult<Option<bray_target::TargetAtomicRepresentation>, Self::UpstreamError>
+    {
         Ok(None)
     }
 
@@ -327,14 +357,14 @@ pub trait CheckerRequestContext: Sync {
     fn declared_type_has_lifecycle(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> CheckerQueryResult<DiagnosticResult<bool>>;
+    ) -> CheckerQueryResult<DiagnosticResult<bool>, Self::UpstreamError>;
 
     /// Returns whether the enclosing static context establishes a copy contract for an open type.
     fn statically_establishes_copyability(
         &self,
         context: &SemanticUnitContext,
         ty: TypeId,
-    ) -> CheckerQueryResult<bool>;
+    ) -> CheckerQueryResult<bool, Self::UpstreamError>;
 
     /// Resolves a bound source anchor without exposing its source snapshot.
     fn source(
@@ -363,6 +393,7 @@ where
         request: SymbolQueryRequest<C>,
     ) -> CheckerQueryResult<
         Arc<bray_diagnostics::DiagnosticResult<<C as bray_symbols::SymbolQueryContract>::Value>>,
+        Self::UpstreamError,
     >;
 }
 
@@ -377,8 +408,14 @@ mod tests {
     fn request_context_contracts_are_shareable() {
         fn assert_sync<T: Sync + ?Sized>() {}
 
-        assert_sync::<dyn CheckerRequestContext>();
-        assert_sync::<dyn CheckerSemanticQueryProvider<CallableSignatureQuery>>();
+        assert_sync::<dyn CheckerRequestContext<UpstreamError = std::convert::Infallible>>();
+
+        assert_sync::<
+            dyn CheckerSemanticQueryProvider<
+                    CallableSignatureQuery,
+                    UpstreamError = std::convert::Infallible,
+                >,
+        >();
     }
 
     #[test]

@@ -27,7 +27,7 @@ pub(super) fn bind_type_member_candidates<C>(
     generic: CallGenericContext<'_>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
-) -> BindingQueryResult<CandidateAbsence>
+) -> BindingQueryResult<CandidateAbsence, C::UpstreamError>
 where
     C: BindingQueryContext,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>
@@ -103,7 +103,7 @@ fn receiver_generic_arguments<C>(
     context: &C,
     unit: &BoundUnit,
     receiver: BoundExpressionId,
-) -> BindingQueryResult<Vec<GenericArgumentSyntax>>
+) -> BindingQueryResult<Vec<GenericArgumentSyntax>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -148,7 +148,7 @@ pub(super) fn bind_primary_constructor_candidates<C>(
     generic: CallGenericContext<'_>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
-) -> BindingQueryResult<CandidateAbsence>
+) -> BindingQueryResult<CandidateAbsence, C::UpstreamError>
 where
     C: BindingQueryContext,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>
@@ -203,7 +203,7 @@ fn bind_member_candidates<C>(
     inherited_generic: InheritedGenericContext<'_>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
-) -> BindingQueryResult<DeclarationCandidateOutcome>
+) -> BindingQueryResult<DeclarationCandidateOutcome, C::UpstreamError>
 where
     C: BindingQueryContext,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>

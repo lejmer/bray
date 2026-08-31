@@ -25,21 +25,21 @@ where
         binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: Option<&ExpressionSyntax>,
-    ) -> BindingResult<BoundExpressionId>;
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>;
 
     fn bind_generator_expression(
         &mut self,
         binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &GeneratorIterationExpressionSyntax,
-    ) -> BindingResult<BoundExpressionId>;
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>;
 
     fn bind_type_expression(
         &mut self,
         binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: Option<&TypeExpressionSyntax>,
-    ) -> BindingResult<Option<BoundTypeReference>>;
+    ) -> BindingResult<Option<BoundTypeReference>, C::UpstreamError>;
 
     fn error_type(&self) -> TypeId;
 
@@ -47,7 +47,7 @@ where
         &self,
         binder: &Binder<'_, C>,
         scope: LocalScopeId,
-    ) -> BindingResult<PathBindingContext>;
+    ) -> BindingResult<PathBindingContext, C::UpstreamError>;
 }
 
 impl<C> Binder<'_, C>
@@ -59,7 +59,7 @@ where
         parent_scope: LocalScopeId,
         syntax: &BlockExpressionSyntax,
         operations: &mut impl BlockBindingOperations<C>,
-    ) -> BindingResult<BoundBlockId> {
+    ) -> BindingResult<BoundBlockId, C::UpstreamError> {
         self.bind_transaction(|binder| {
             binder.bind_block_transaction(parent_scope, syntax, operations, true)
         })
@@ -70,7 +70,7 @@ where
         parent_scope: LocalScopeId,
         syntax: &BlockExpressionSyntax,
         operations: &mut impl BlockBindingOperations<C>,
-    ) -> BindingResult<BoundBlockId> {
+    ) -> BindingResult<BoundBlockId, C::UpstreamError> {
         self.bind_transaction(|binder| {
             binder.bind_block_transaction(parent_scope, syntax, operations, false)
         })
@@ -82,7 +82,7 @@ where
         syntax: &BlockExpressionSyntax,
         operations: &mut impl BlockBindingOperations<C>,
         captures_yield: bool,
-    ) -> BindingResult<BoundBlockId> {
+    ) -> BindingResult<BoundBlockId, C::UpstreamError> {
         self.check_cancellation()?;
 
         let scope = self.unit_mut().push_scope(
@@ -152,7 +152,7 @@ where
         scope: LocalScopeId,
         syntax: &LocalBindingDeclarationSyntax,
         operations: &mut impl BlockBindingOperations<C>,
-    ) -> BindingResult<BoundLocalBinding> {
+    ) -> BindingResult<BoundLocalBinding, C::UpstreamError> {
         let declared_type = match syntax.type_annotation() {
             Some(annotation) => {
                 operations.bind_type_expression(self, scope, Some(&annotation.type_expression()))?
@@ -198,7 +198,7 @@ where
         scope: LocalScopeId,
         syntax: &ConstantDeclarationSyntax,
         operations: &mut impl BlockBindingOperations<C>,
-    ) -> BindingResult<BoundLocalConstant> {
+    ) -> BindingResult<BoundLocalConstant, C::UpstreamError> {
         let declared_type = operations
             .bind_type_expression(self, scope, Some(&syntax.type_expression()))?
             .unwrap_or_else(|| {
@@ -565,7 +565,7 @@ mod tests {
             binder: &mut Binder<'_, C>,
             scope: bray_symbols::LocalScopeId,
             syntax: Option<&ExpressionSyntax>,
-        ) -> BindingResult<bray_bound_tree::BoundExpressionId> {
+        ) -> BindingResult<bray_bound_tree::BoundExpressionId, C::UpstreamError> {
             let values = binder.unit().local_symbols_named(scope, "value")?.len();
             let constants = binder.unit().local_symbols_named(scope, "local")?.len();
 
@@ -605,7 +605,7 @@ mod tests {
             binder: &mut Binder<'_, C>,
             scope: bray_symbols::LocalScopeId,
             _syntax: &GeneratorIterationExpressionSyntax,
-        ) -> BindingResult<bray_bound_tree::BoundExpressionId> {
+        ) -> BindingResult<bray_bound_tree::BoundExpressionId, C::UpstreamError> {
             self.bind_expression(binder, scope, None)
         }
 
@@ -614,7 +614,7 @@ mod tests {
             _request: &mut Binder<'_, C>,
             _scope: bray_symbols::LocalScopeId,
             syntax: Option<&TypeExpressionSyntax>,
-        ) -> BindingResult<Option<BoundTypeReference>> {
+        ) -> BindingResult<Option<BoundTypeReference>, C::UpstreamError> {
             Ok(syntax.map(|syntax| {
                 BoundTypeReference::new(SyntaxAnchor::from_node(syntax), Some(self.error_type))
             }))
@@ -628,7 +628,7 @@ mod tests {
             &self,
             binder: &Binder<'_, C>,
             scope: bray_symbols::LocalScopeId,
-        ) -> BindingResult<crate::lookup::PathBindingContext> {
+        ) -> BindingResult<crate::lookup::PathBindingContext, C::UpstreamError> {
             Ok(crate::binding::test_support::internal_path_context(
                 binder.binding_context(),
                 scope,

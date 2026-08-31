@@ -1,6 +1,7 @@
+use crate::compilation::binder::BindingQueryResult;
 use std::sync::Arc;
 
-use bray_binder::{BindingQueryResult, SymbolQueryProvider};
+use bray_binder::{SymbolQueryErrorProvider, SymbolQueryProvider};
 use bray_symbols::{
     CallableContractTemplateQuery, CallableContractTypeQuery, CallableContractsQuery,
     CallableOverloadTemplateQuery, CallableParameterDefaultQuery,
@@ -22,7 +23,7 @@ use bray_symbols::{
 use super::super::binding_query_error;
 use super::super::context::CompilationBindingContext;
 use super::binding::{CompilationSymbolQueryEvaluator, binder_error};
-use crate::fact::{CompilationFactKey, SymbolQueryCache};
+use crate::fact::{CompilationFactKey, FactQueryError, SymbolQueryCache};
 
 macro_rules! define_compilation_symbol_semantics {
     ($($field:ident: $contract:ty),+ $(,)?) => {
@@ -87,6 +88,10 @@ define_compilation_symbol_semantics! {
     trait_predicate_fulfillment_definitions: TraitPredicateFulfillmentDefinitionQuery,
     callable_overload_templates: CallableOverloadTemplateQuery,
     implementation_overload_templates: ImplementationOverloadTemplateQuery,
+}
+
+impl SymbolQueryErrorProvider for CompilationBindingContext<'_> {
+    type UpstreamError = FactQueryError;
 }
 
 impl<C> SymbolQueryProvider<C> for CompilationBindingContext<'_>

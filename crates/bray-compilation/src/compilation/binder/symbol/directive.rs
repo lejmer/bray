@@ -1,7 +1,8 @@
+use crate::compilation::binder::BindingQueryResult;
 use std::sync::Arc;
 
 use bray_binder::{
-    BindingQueryError, BindingQueryResult, SymbolQueryProvider,
+    BindingQueryError, SymbolQueryProvider,
     bind_callable_type_directives as bind_callable_type_directive_surface, bind_directive_template,
 };
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey};
@@ -244,7 +245,9 @@ fn bind_anchors(
 ) -> BindingQueryResult<()> {
     for anchor in anchors {
         let syntax = syntax_node_for_anchor(context, *anchor)?;
-        let result = bind_directive_template(owner, attachment, syntax)?;
+
+        let result = bind_directive_template(owner, attachment, syntax)
+            .map_err(BindingQueryError::with_upstream)?;
 
         let (directive, result_diagnostics) = result.into_parts();
 
@@ -370,7 +373,7 @@ fn bind_compiler_known_directives(
         });
 
         match failed {
-            Some(error) => Err(error),
+            Some(error) => Err(error.with_upstream()),
             None => Ok(directives),
         }
     })

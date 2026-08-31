@@ -19,6 +19,9 @@ use crate::{CheckerQueryResult, CheckerSource};
 use super::check::{Copyability, MemberRepresentation, RepresentationChecker};
 use super::model::{DeclaredTypeDefinition, RepresentationIntegerType, TypeRepresentationContext};
 
+type RepresentationQueryResult<C, T> =
+    CheckerQueryResult<T, <C as TypeRepresentationContext>::UpstreamError>;
+
 impl<C> RepresentationChecker<'_, C>
 where
     C: TypeRepresentationContext + ?Sized,
@@ -28,7 +31,7 @@ where
         definition: &DeclaredTypeDefinition,
         members: &MemberRepresentation,
         recovered: &mut bool,
-    ) -> CheckerQueryResult<RequestedLayout> {
+    ) -> RepresentationQueryResult<C, RequestedLayout> {
         let Some(directive) = definition
             .directives()
             .directives()
@@ -207,7 +210,7 @@ where
         expression: DeclarationExpressionTemplate,
         option: DiagnosticLayoutOption,
         recovered: &mut bool,
-    ) -> CheckerQueryResult<Option<u64>> {
+    ) -> RepresentationQueryResult<C, Option<u64>> {
         let result = self.context.unsigned_integer(expression)?;
 
         self.diagnostics
@@ -250,7 +253,7 @@ where
         expression: DeclarationExpressionTemplate,
         option: DiagnosticLayoutOption,
         recovered: &mut bool,
-    ) -> CheckerQueryResult<Option<u64>> {
+    ) -> RepresentationQueryResult<C, Option<u64>> {
         let result = self.context.unsigned_integer(expression)?;
 
         self.diagnostics
@@ -281,7 +284,8 @@ where
         tag_type: Option<RepresentationIntegerType>,
         tagless: bool,
         recovered: &mut bool,
-    ) -> CheckerQueryResult<(Vec<DeclaredUnionTag>, Option<RepresentationIntegerType>)> {
+    ) -> RepresentationQueryResult<C, (Vec<DeclaredUnionTag>, Option<RepresentationIntegerType>)>
+    {
         if matches!(definition.subject(), NamedTypeSymbolId::Struct(_)) {
             return Ok((Vec::new(), None));
         }
@@ -630,7 +634,10 @@ where
             ))
     }
 
-    fn argument_text(&self, expression: DeclarationExpressionTemplate) -> CheckerQueryResult<&str> {
+    fn argument_text(
+        &self,
+        expression: DeclarationExpressionTemplate,
+    ) -> RepresentationQueryResult<C, &str> {
         self.context
             .source(expression.syntax())
             .map(CheckerSource::text)

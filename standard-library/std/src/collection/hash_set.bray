@@ -1,0 +1,309 @@
+module std.collection;
+
+using std.hash;
+
+internal struct SetItem<Value>
+{
+    value: Value;
+}
+
+/// An owning hash set with expected constant-time membership under healthy load.
+struct HashSet<Value>
+{
+    internal mut table: HashTable<SetItem<Value>>;
+
+    trusted internal func find(pos value: &Value, hash: u128) -> usize?
+        with(Value: Equatable<Value>)
+    {
+        let mut previous: usize? = none;
+
+        while true
+        {
+            let index: usize = (trusted hash_table_find_hash<SetItem<Value>>(&self.table, previous, hash = hash))?;
+
+            let item: &SetItem<Value> = trusted hash_table_item<SetItem<Value>>(&self.table, index = index);
+
+            if item.value.equals(value)
+            {
+                let mut result: usize? = none;
+
+                result = index;
+
+                return result;
+            }
+
+            previous = index;
+        }
+    }
+
+    /// Creates an empty set able to retain at least `capacity` values without growing.
+    trusted construct(capacity: usize = 0) -> Result<Self, std.memory.MemoryLayoutError>
+    {
+        let table: HashTable<SetItem<Value>> = try trusted HashTable<SetItem<Value>>(capacity = capacity);
+
+        return Ok(
+            {
+                table = table,
+            }
+        );
+    }
+
+    /// Returns the number of values in the set.
+    func length() -> usize
+    {
+        return hash_table_length<SetItem<Value>>(&self.table);
+    }
+
+    /// Returns the number of values that fit without growing the table.
+    func capacity() -> usize
+    {
+        return hash_table_capacity<SetItem<Value>>(&self.table);
+    }
+
+    /// Reports whether the set contains no values.
+    func is_empty() -> bool
+    {
+        return hash_table_is_empty<SetItem<Value>>(&self.table);
+    }
+
+    /// Reserves room for at least `additional` more values.
+    trusted mut func reserve(additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
+    {
+        return trusted hash_table_reserve<SetItem<Value>>(&mut self.table, additional = additional);
+    }
+
+    /// Borrows the stored value equal to `value` without allocating or copying it.
+    func get(pos value: &Value) -> (&Value)?
+        with(Value: std.hash.Hashable<std.hash.StableHasher>, Value: Equatable<Value>)
+    {
+        let hash: u128 = std.hash.stable_hash<Value>(value);
+
+        let index: usize = (trusted self.find(value, hash = hash))?;
+
+        let item: &SetItem<Value> = trusted hash_table_item<SetItem<Value>>(&self.table, index = index);
+        let stored: &Value = &item.value;
+        let mut result: (&Value)? = none;
+
+        result = stored;
+
+        return result;
+    }
+
+    /// Reports whether an equal value belongs to the set.
+    func contains(pos value: &Value) -> bool
+        with(Value: std.hash.Hashable<std.hash.StableHasher>, Value: Equatable<Value>)
+    {
+        let hash: u128 = std.hash.stable_hash<Value>(value);
+
+        return match trusted self.find(value, hash = hash)
+        {
+            case ?_ { yield true; }
+            case none { yield false; }
+        };
+    }
+
+    /// Inserts `value` and reports whether it was newly added.
+    trusted mut func insert(pos value: Value) -> Result<bool, std.memory.MemoryLayoutError>
+        with(Value: std.hash.Hashable<std.hash.StableHasher>, Value: Equatable<Value>)
+    {
+        let hash: u128 = std.hash.stable_hash<Value>(&value);
+
+        match trusted self.find(&value, hash = hash)
+        {
+            case ?_ { return Ok(false); }
+            case none {}
+        }
+
+        try trusted self.reserve(additional = 1);
+
+        let item: SetItem<Value> =
+        {
+            value = value,
+        };
+
+        let _: usize = trusted hash_table_insert_available<SetItem<Value>>(&mut self.table, item, hash = hash);
+
+        return Ok(true);
+    }
+
+    /// Inserts `value` and returns the equal value it replaced, if any.
+    trusted mut func replace(pos value: Value) -> Result<Value?, std.memory.MemoryLayoutError>
+        with(Value: std.hash.Hashable<std.hash.StableHasher>, Value: Equatable<Value>)
+    {
+        let hash: u128 = std.hash.stable_hash<Value>(&value);
+
+        match trusted self.find(&value, hash = hash)
+        {
+            case ?index
+            {
+                let item: SetItem<Value> = trusted hash_table_take<SetItem<Value>>(&mut self.table, index = index);
+
+                let replacement: SetItem<Value> =
+                {
+                    value = value,
+                };
+
+                trusted hash_table_write<SetItem<Value>>(&mut self.table, replacement, hash = hash, index = index);
+
+                let mut replaced: Value? = none;
+
+                replaced = item.value;
+
+                return Ok(replaced);
+            }
+            case none {}
+        }
+
+        try trusted self.reserve(additional = 1);
+
+        let item: SetItem<Value> =
+        {
+            value = value,
+        };
+
+        let _: usize = trusted hash_table_insert_available<SetItem<Value>>(&mut self.table, item, hash = hash);
+
+        return Ok(none);
+    }
+
+    /// Removes an equal value and reports whether it was present.
+    trusted mut func remove(pos value: &Value) -> bool
+        with(Value: std.hash.Hashable<std.hash.StableHasher>, Value: Equatable<Value>)
+    {
+        return match trusted self.take(value)
+        {
+            case ?_ { yield true; }
+            case none { yield false; }
+        };
+    }
+
+    /// Removes and returns the stored value equal to `value`.
+    trusted mut func take(pos value: &Value) -> Value?
+        with(Value: std.hash.Hashable<std.hash.StableHasher>, Value: Equatable<Value>)
+    {
+        let hash: u128 = std.hash.stable_hash<Value>(value);
+
+        let index: usize = (trusted self.find(value, hash = hash))?;
+
+        let item: SetItem<Value> = trusted hash_table_remove_at<SetItem<Value>>(&mut self.table, index = index);
+
+        let mut result: Value? = none;
+
+        result = item.value;
+
+        return result;
+    }
+
+    /// Removes all values while retaining the allocation.
+    trusted mut func clear()
+    {
+        trusted hash_table_clear<SetItem<Value>>(&mut self.table);
+    }
+}
+
+/// A cursor over shared hash-set values in unspecified order.
+struct HashSetReadCursor<Value>
+{
+    internal set: &HashSet<Value>;
+    internal mut index: usize = 0;
+}
+
+impl HashSetReadCursorIterator = HashSetReadCursor<Value>(Iterator)
+{
+    type Element = &Value;
+
+    mut func next() -> (&Value)?
+    {
+        let bucket_count: usize = std.memory.capacity<u8>(&self.set.table.states);
+        let states: &[u8] = trusted std.memory.initialized_slice<u8>(&self.set.table.states);
+
+        while self.index < bucket_count
+        {
+            let index: usize = self.index;
+
+            self.index += 1;
+
+            if states[index] == HASH_TABLE_OCCUPIED
+            {
+                let item: &SetItem<Value> = trusted hash_table_item<SetItem<Value>>(&self.set.table, index = index);
+
+                let value: &Value = &item.value;
+                let mut result: (&Value)? = none;
+
+                result = value;
+
+                return result;
+            }
+        }
+
+        return none;
+    }
+}
+
+impl HashSetReadIterable = &HashSet<Value>(Iterable)
+{
+    type Element = &Value;
+    type Cursor = HashSetReadCursor<Value>;
+
+    consume func iterate() -> HashSetReadCursor<Value>
+    {
+        return
+        {
+            set = self,
+        };
+    }
+}
+
+/// A cursor that consumes a hash set and produces owned values in unspecified order.
+struct HashSetMoveCursor<Value>
+{
+    internal mut set: HashSet<Value>;
+    internal mut index: usize = 0;
+}
+
+impl HashSetMoveCursorIterator = HashSetMoveCursor<Value>(Iterator)
+{
+    type Element = Value;
+
+    mut func next() -> Value?
+    {
+        let bucket_count: usize = std.memory.capacity<u8>(&self.set.table.states);
+
+        while self.index < bucket_count
+        {
+            let index: usize = self.index;
+            let occupied: bool = trusted hash_table_occupied(self.set.table.states.pointer, index = index);
+
+            self.index += 1;
+
+            if occupied
+            {
+                let item: SetItem<Value> = trusted hash_table_take<SetItem<Value>>(&mut self.set.table, index = index);
+
+                self.set.table.count -= 1;
+
+                let mut result: Value? = none;
+
+                result = item.value;
+
+                return result;
+            }
+        }
+
+        return none;
+    }
+}
+
+impl HashSetMoveIterable = HashSet<Value>(Iterable)
+{
+    type Element = Value;
+    type Cursor = HashSetMoveCursor<Value>;
+
+    consume func iterate() -> HashSetMoveCursor<Value>
+    {
+        return
+        {
+            set = self,
+        };
+    }
+}

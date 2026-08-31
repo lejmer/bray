@@ -47,7 +47,7 @@ pub(crate) fn check_storage_flow<C>(
     liveness: &Liveness,
     refinements: &CheckedRefinements,
     memory: &CheckedMemoryOperations,
-) -> CheckerOutcome<StorageFlow>
+) -> CheckerOutcome<StorageFlow, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -85,7 +85,7 @@ pub(crate) fn check_storage_flow_with_graph<C>(
     refinements: &CheckedRefinements,
     memory: &CheckedMemoryOperations,
     graph: &crate::analysis::model::ControlFlowGraph,
-) -> CheckerOutcome<StorageFlow>
+) -> CheckerOutcome<StorageFlow, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -111,6 +111,9 @@ where
             Err(CheckerQueryError::Infrastructure(error)) => {
                 return CheckerOutcome::InfrastructureFailure(error);
             }
+            Err(CheckerQueryError::Upstream(error)) => {
+                return CheckerOutcome::UpstreamFailure(error);
+            }
         }
     }
 
@@ -122,17 +125,24 @@ where
         Err(CheckerQueryError::Infrastructure(error)) => {
             return CheckerOutcome::InfrastructureFailure(error);
         }
+        Err(CheckerQueryError::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
     };
 
     let input = StorageFlowInput::new(request, storage, copyable_types, mutable_storage);
 
-    let owners = match StorageScopeOwners::collect(request) {
-        Ok(owners) => owners,
-        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
-    };
+    let owners =
+        match StorageScopeOwners::collect(request).map_err(CheckerQueryError::with_upstream) {
+            Ok(owners) => owners,
+            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(CheckerQueryError::Infrastructure(error)) => {
+                return CheckerOutcome::InfrastructureFailure(error);
+            }
+            Err(CheckerQueryError::Upstream(error)) => {
+                return CheckerOutcome::UpstreamFailure(error);
+            }
+        };
 
     let domain = StorageFlowDomain::new(
         &graph,
@@ -187,7 +197,13 @@ where
     }
 
     if let Some(error) = collector.infrastructure_failure.take() {
-        return CheckerOutcome::InfrastructureFailure(error);
+        return match error {
+            CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
+            CheckerQueryError::Infrastructure(error) => {
+                CheckerOutcome::InfrastructureFailure(error)
+            }
+            CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
+        };
     }
 
     let decisions = collector.decisions().collect::<Vec<_>>();
@@ -275,13 +291,17 @@ where
     pub(super) reported_memory_diagnostics: BTreeSet<(DiagnosticKind, BoundExpressionId)>,
     pub(super) publish: bool,
     pub(super) is_recovered: bool,
-    pub(super) infrastructure_failure: Option<CheckerInfrastructureError>,
+    pub(super) infrastructure_failure: Option<CheckerQueryError<C::UpstreamError>>,
 }
 
 impl<'analysis, C> StorageFlowCollector<'analysis, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    pub(super) fn record_infrastructure_failure(&mut self, error: CheckerInfrastructureError) {
+        self.infrastructure_failure = Some(CheckerQueryError::Infrastructure(error));
+    }
+
     fn new(
         request: CheckerUnitView<'analysis, C>,
         storage: &'analysis StoragePlan,
@@ -410,7 +430,9 @@ where
                 | StorageOperationStatus::InactiveProjection
                 | StorageOperationStatus::NotCopyable
         ) {
-            self.infrastructure_failure = Some(CheckerInfrastructureError::InvalidStorageFlow);
+            self.infrastructure_failure = Some(CheckerQueryError::Infrastructure(
+                CheckerInfrastructureError::InvalidStorageFlow,
+            ));
 
             return;
         }
@@ -826,14 +848,17 @@ where
         let access_id = plan.access();
 
         let Some(access) = self.storage.access(access_id) else {
-            self.infrastructure_failure = Some(CheckerInfrastructureError::InvalidStorageFlow);
+            self.infrastructure_failure = Some(CheckerQueryError::Infrastructure(
+                CheckerInfrastructureError::InvalidStorageFlow,
+            ));
+
             return;
         };
 
         let source = match self.request.source(access.source()) {
             Ok(source) => source,
             Err(error) => {
-                self.infrastructure_failure = Some(error);
+                self.infrastructure_failure = Some(CheckerQueryError::Infrastructure(error));
 
                 return;
             }
@@ -875,7 +900,7 @@ where
         &self,
         access_id: StorageAccessId,
         purpose: StorageAccessPurpose,
-    ) -> Result<DiagnosticStorageAccess, CheckerInfrastructureError> {
+    ) -> Result<DiagnosticStorageAccess, CheckerQueryError<C::UpstreamError>> {
         let access = self
             .storage
             .access(access_id)

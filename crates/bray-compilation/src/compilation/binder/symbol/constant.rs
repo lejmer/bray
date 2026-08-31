@@ -1,4 +1,4 @@
-use bray_binder::BindingQueryResult;
+use crate::compilation::binder::BindingQueryResult;
 use bray_symbols::{
     AnyConstantDefinitionId, ConstantDefinitionQuery, SymbolQueryRequest,
     TraitConstantFulfillmentDefinitionQuery, TraitConstantMemberDefinitionQuery,

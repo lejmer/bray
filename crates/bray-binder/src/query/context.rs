@@ -12,12 +12,14 @@ use bray_symbols::{
 use bray_syntax::SyntaxTree;
 use bray_target::TargetProfile;
 
-use crate::{BindingQueryResult, ImportedPathRoot, NameAccess};
+use crate::{BindingQueryResult, ImportedPathRoot, NameAccess, SymbolQueryErrorProvider};
 
 /// Injected read-only services available to one binding computation.
 pub trait BindingQueryContext: Send + Sync {
+    /// Exact failures owned by the coordinating query layer.
+    type UpstreamError;
     /// The origin-neutral provider for symbol-facing semantic queries.
-    type SymbolSemantics: Send + Sync + ?Sized;
+    type SymbolSemantics: SymbolQueryErrorProvider<UpstreamError = Self::UpstreamError> + ?Sized;
     /// The compilation-owned cancellation observer.
     type Cancellation: Cancellation + ?Sized;
 
@@ -31,17 +33,26 @@ pub trait BindingQueryContext: Send + Sync {
     fn symbols(&self) -> &SymbolGraph;
 
     /// Returns one exact symbol's stable semantic key across supported origins.
-    fn symbol_key(&self, symbol: AnySymbolId) -> BindingQueryResult<Option<&SymbolKey>> {
+    fn symbol_key(
+        &self,
+        symbol: AnySymbolId,
+    ) -> BindingQueryResult<Option<&SymbolKey>, Self::UpstreamError> {
         Ok(self.symbols().symbol_key(symbol))
     }
 
     /// Returns whether recovery contributed to one exact symbol's surface.
-    fn symbol_is_recovered(&self, symbol: AnySymbolId) -> BindingQueryResult<Option<bool>> {
+    fn symbol_is_recovered(
+        &self,
+        symbol: AnySymbolId,
+    ) -> BindingQueryResult<Option<bool>, Self::UpstreamError> {
         Ok(self.symbols().symbol_is_recovered(symbol))
     }
 
     /// Returns one exact symbol's immediate semantic owner across supported origins.
-    fn containing_symbol(&self, symbol: AnySymbolId) -> BindingQueryResult<Option<AnySymbolId>> {
+    fn containing_symbol(
+        &self,
+        symbol: AnySymbolId,
+    ) -> BindingQueryResult<Option<AnySymbolId>, Self::UpstreamError> {
         Ok(self.symbols().containing_symbol(symbol))
     }
 
@@ -49,7 +60,8 @@ pub trait BindingQueryContext: Send + Sync {
     fn callable_parameter_default_provider(
         &self,
         parameter: CallableParameterSymbolId,
-    ) -> BindingQueryResult<Option<CallableParameterDefaultProviderSymbolId>> {
+    ) -> BindingQueryResult<Option<CallableParameterDefaultProviderSymbolId>, Self::UpstreamError>
+    {
         Ok(self
             .symbols()
             .callable_parameter(parameter)
@@ -60,7 +72,7 @@ pub trait BindingQueryContext: Send + Sync {
     fn runtime_default_subject(
         &self,
         provider: AnySymbolId,
-    ) -> BindingQueryResult<Option<AnySymbolId>> {
+    ) -> BindingQueryResult<Option<AnySymbolId>, Self::UpstreamError> {
         Ok(self.symbols().runtime_default_subject(provider))
     }
 
@@ -69,7 +81,7 @@ pub trait BindingQueryContext: Send + Sync {
         &self,
         owner: AnySymbolId,
         name: &str,
-    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>> {
+    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>, Self::UpstreamError> {
         Ok(self.symbols().lookup_member(owner, name))
     }
 
@@ -77,16 +89,18 @@ pub trait BindingQueryContext: Send + Sync {
     fn imported_path_root(
         &self,
         components: &[&str],
-    ) -> BindingQueryResult<Option<ImportedPathRoot<'_>>>;
+    ) -> BindingQueryResult<Option<ImportedPathRoot<'_>>, Self::UpstreamError>;
 
     /// Returns the selected dependencies' immutable imported symbol surface.
-    fn imported_symbols(&self) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>>;
+    fn imported_symbols(
+        &self,
+    ) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>, Self::UpstreamError>;
 
     /// Returns the callable type named by one callable-contract declaration.
     fn callable_contract_type(
         &self,
         definition: CallableContractSymbolId,
-    ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>>;
+    ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>, Self::UpstreamError>;
 
     /// Resolves one name introduced by a source module export declaration.
     fn module_re_export_lookup(
@@ -94,13 +108,13 @@ pub trait BindingQueryContext: Send + Sync {
         module: ModuleSymbolId,
         name: &str,
         access: NameAccess,
-    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>>;
+    ) -> BindingQueryResult<MemberLookupResult<AnySymbolId>, Self::UpstreamError>;
 
     /// Returns the complete declaration-level member surface associated with a named type.
     fn type_associated_surface(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> BindingQueryResult<Arc<DiagnosticResult<TypeAssociatedSurface>>>;
+    ) -> BindingQueryResult<Arc<DiagnosticResult<TypeAssociatedSurface>>, Self::UpstreamError>;
 
     /// Returns the canonical semantic value store associated with the symbol graph.
     fn semantic_values(&self) -> &SemanticValueStore;

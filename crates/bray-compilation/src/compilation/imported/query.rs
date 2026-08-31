@@ -166,6 +166,12 @@ impl super::super::Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("dependency-interface query infrastructure failed")
             }
+            Err(FactQueryError::BindingDependencyUnavailable) => {
+                panic!("dependency-interface query could not obtain a binding dependency")
+            }
+            Err(FactQueryError::Binding(error)) => {
+                panic!("dependency-interface query encountered a binding failure: {error:?}")
+            }
             Err(
                 error @ (FactQueryError::AtomicInitializerArgumentUnavailable
                 | FactQueryError::AtomicInitializerResultUnavailable

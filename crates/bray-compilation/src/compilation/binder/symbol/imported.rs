@@ -1,4 +1,5 @@
-use bray_binder::{BindingQueryError, BindingQueryResult};
+use crate::compilation::binder::BindingQueryResult;
+use bray_binder::BindingQueryError;
 use bray_diagnostics::DiagnosticResult;
 use bray_package_interface::{
     ImportedImplementation, ImportedSemanticRecord, InterfacePredicateDefinitionState,
@@ -283,8 +284,5 @@ fn imported_records(
             ImportedSemanticRecordKey::new(address.interface(), address.symbol(), kind),
             context.cancellation,
         )
-        .map_err(|error| match error {
-            crate::fact::FactQueryError::Cancelled => BindingQueryError::Cancelled,
-            _ => BindingQueryError::DependencyUnavailable,
-        })
+        .map_err(super::binding::binder_error)
 }

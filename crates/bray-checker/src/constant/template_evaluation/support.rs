@@ -7,11 +7,12 @@ use bray_symbols::{
 
 use super::super::diagnostic::ConstantDiagnostic;
 use super::super::operation::ConstantOperationError;
-use crate::{CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext};
+use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
 pub(super) enum TemplateEvaluationFailure {
     Cancelled,
     Infrastructure(CheckerInfrastructureError),
+    Upstream,
     Diagnostic(ConstantDiagnostic),
 }
 
@@ -22,15 +23,6 @@ impl TemplateEvaluationFailure {
 
     pub(super) const fn semantic_value() -> Self {
         Self::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
-    }
-}
-
-pub(super) fn query_failure(error: CheckerQueryError) -> TemplateEvaluationFailure {
-    match error {
-        CheckerQueryError::Cancelled => TemplateEvaluationFailure::Cancelled,
-        CheckerQueryError::Infrastructure(error) => {
-            TemplateEvaluationFailure::Infrastructure(error)
-        }
     }
 }
 

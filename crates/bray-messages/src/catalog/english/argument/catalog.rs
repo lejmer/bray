@@ -38,6 +38,10 @@ pub(crate) const USER_FACING_SOURCES: &[(&str, &str)] = &[
         include_str!("native/artifact.rs"),
     ),
     (
+        "argument/native/checker.rs",
+        include_str!("native/checker.rs"),
+    ),
+    (
         "argument/native/dependency.rs",
         include_str!("native/dependency.rs"),
     ),
