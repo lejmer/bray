@@ -3,6 +3,7 @@ module bray.standard_library_tests.process;
 using std.io;
 using std.path;
 using std.process;
+using std.testing;
 using internal std.process.ChildOutputReader;
 
 @test
@@ -13,46 +14,24 @@ func process_context_accessors_observe_one_snapshot()
     let arguments: std.process.Arguments = std.process.arguments();
     let argument_count: usize = arguments.length();
 
-    match arguments.value_at(argument_count)
-    {
-        case ?_ { assert(false); }
-        case none {}
-    }
+    std.testing.assert_absent<std.path.NativeText>(arguments.value_at(argument_count));
 
     if argument_count > 0
     {
-        match arguments.value_at(0)
-        {
-            case ?_ {}
-            case none { assert(false); }
-        }
+        let _: std.path.NativeText = std.testing.assert_present<std.path.NativeText>(arguments.value_at(0));
     }
 
     let environment: std.process.Environment = std.process.environment();
     let environment_count: usize = environment.length();
 
-    match environment.entry_at(environment_count)
-    {
-        case ?_ { assert(false); }
-        case none {}
-    }
+    std.testing.assert_absent<std.process.EnvironmentEntry>(environment.entry_at(environment_count));
 
     if environment_count > 0
     {
         let first_entry: std.process.EnvironmentEntry? = environment.entry_at(0);
 
-        match first_entry
-        {
-            case ?entry
-            {
-                match environment.value(&entry.key)
-                {
-                    case ?_ {}
-                    case none { assert(false); }
-                }
-            }
-            case none { assert(false); }
-        }
+        let entry: std.process.EnvironmentEntry = std.testing.assert_present<std.process.EnvironmentEntry>(first_entry);
+        let _: std.path.NativeText = std.testing.assert_present<std.path.NativeText>(environment.value(&entry.key));
     }
 }
 
@@ -94,11 +73,9 @@ func child_processes_accept_an_empty_environment()
     let executable: std.path.Path = required_child_executable();
     let mut command: std.process.ChildCommand = required_child_command(executable);
 
-    match command.environment_policy(policy = std.process.EnvironmentPolicy.Empty)
-    {
-        case Ok(_) {}
-        case Error(_) { panic("child environment must be cleared"); }
-    }
+    std.testing.assert_ok<unit, std.process.ChildError>(
+        command.environment_policy(policy = std.process.EnvironmentPolicy.Empty)
+    );
 
     required_argument(&mut command, "--help");
     command.standard_input(policy = std.process.ChildStreamPolicy.Null);
@@ -120,63 +97,36 @@ func required_child_executable() -> std.path.Path
     let key: std.path.NativeText = required_native_text("BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE");
     let environment: std.process.Environment = std.process.environment();
 
-    return match consume environment.value(&key)
-    {
-        case ?value
-        {
-            yield match consume std.path.Path.new(value)
-            {
-                case Ok(path) { yield path; }
-                case Error(_) { panic("child executable path must be valid"); }
-            };
-        }
-        case none { panic("child executable path must be present"); }
-    };
+    let value: std.path.NativeText = std.testing.assert_present<std.path.NativeText>(environment.value(&key));
+
+    return std.testing.assert_ok<std.path.Path, std.path.PathError>(std.path.Path.from_native(value));
 }
 
 func required_native_text(pos value: string) -> std.path.NativeText
 {
-    return match consume std.path.NativeText.from_string(&value)
-    {
-        case Ok(text) { yield text; }
-        case Error(_) { panic("test native text must be valid"); }
-    };
+    return std.testing.assert_ok<std.path.NativeText, std.path.PathError>(std.path.NativeText.from_string(&value));
 }
 
 func required_child_command(pos executable: std.path.Path) -> std.process.ChildCommand
 {
-    return match consume std.process.ChildCommand(executable)
-    {
-        case Ok(command) { yield command; }
-        case Error(_) { panic("child command must be created"); }
-    };
+    return std.testing.assert_ok<std.process.ChildCommand, std.process.ChildError>(
+        std.process.ChildCommand(executable)
+    );
 }
 
 func required_argument(pos command: &mut std.process.ChildCommand, pos value: string)
 {
-    match command.argument(required_native_text(value))
-    {
-        case Ok(_) {}
-        case Error(_) { panic("child argument must be added"); }
-    }
+    std.testing.assert_ok<unit, std.process.ChildError>(command.argument(required_native_text(value)));
 }
 
 func required_child(pos command: std.process.ChildCommand) -> std.process.ChildProcess
 {
-    return match consume command.spawn()
-    {
-        case Ok(child) { yield child; }
-        case Error(_) { panic("child process must be created"); }
-    };
+    return std.testing.assert_ok<std.process.ChildProcess, std.process.ChildError>(command.spawn());
 }
 
 func required_output(pos output: std.process.ChildOutput?) -> std.process.ChildOutput
 {
-    return match consume output
-    {
-        case ?stream { yield stream; }
-        case none { panic("piped child output must be present"); }
-    };
+    return std.testing.assert_present<std.process.ChildOutput>(output);
 }
 
 func read_all(pos output: &mut std.process.ChildOutput) -> usize
@@ -197,18 +147,10 @@ func read_all(pos output: &mut std.process.ChildOutput) -> usize
 
 func required_close(pos mut output: std.process.ChildOutput)
 {
-    match output.close()
-    {
-        case Ok(_) {}
-        case Error(_) { panic("child output must close"); }
-    }
+    std.testing.assert_ok<unit, std.io.IoError>(output.close());
 }
 
 func required_wait(pos mut child: std.process.ChildProcess) -> std.process.ExitStatus
 {
-    return match consume child.wait()
-    {
-        case Ok(status) { yield status; }
-        case Error(_) { panic("child process must be reaped"); }
-    };
+    return std.testing.assert_ok<std.process.ExitStatus, std.process.ChildError>(child.wait());
 }

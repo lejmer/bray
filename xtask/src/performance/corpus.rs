@@ -244,7 +244,7 @@ func main()
 
     match consume trusted std.format.write<string>(
         &mut sink,
-        std.format.Argument.with_options<string>(&long, options = quoted),
+        std.format.Argument<string>(&long, options = quoted),
     )
     {
         case Ok(_) {}
@@ -338,7 +338,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
             escaping = std.format.Escaping.Raw,
         );
 
-        try trusted std.format.write<u32>(&mut sink, std.format.Argument.with_options<u32>(&value, options = options));
+        try trusted std.format.write<u32>(&mut sink, std.format.Argument<u32>(&value, options = options));
         formatted += 1;
     }
 

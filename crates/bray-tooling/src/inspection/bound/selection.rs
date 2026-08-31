@@ -235,6 +235,7 @@ impl InspectionConversion {
 #[serde(tag = "rule_kind", rename_all = "snake_case")]
 enum InspectionConversionRule {
     Identity,
+    NullablePresent,
     BuiltInScalar,
     CVariadicPromotion,
     Composite {
@@ -256,6 +257,7 @@ impl InspectionConversionRule {
     const fn kind_name(&self) -> &'static str {
         match self {
             Self::Identity => "identity",
+            Self::NullablePresent => "nullable present",
             Self::BuiltInScalar => "built-in scalar",
             Self::CVariadicPromotion => "C variadic promotion",
             Self::Composite { .. } => "composite",
@@ -564,6 +566,7 @@ fn inspection_conversion(
 ) -> Result<InspectionConversion, SelectionInspectionError> {
     let rule = match conversion.target() {
         ConversionTarget::Identity => InspectionConversionRule::Identity,
+        ConversionTarget::NullablePresent => InspectionConversionRule::NullablePresent,
         ConversionTarget::BuiltInScalar => InspectionConversionRule::BuiltInScalar,
         ConversionTarget::CVariadicPromotion => InspectionConversionRule::CVariadicPromotion,
         ConversionTarget::Composite(components) => InspectionConversionRule::Composite {

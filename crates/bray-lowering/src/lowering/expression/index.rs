@@ -1,9 +1,6 @@
 use bray_bound_tree::BoundStructuredExpressionKind;
 use bray_bound_tree::{BoundExpression, BoundExpressionId, IndexTarget, SelectedOperation};
-use bray_ir::{
-    MirAggregate, MirAggregateKind, MirBlockId, MirCall, MirCallTarget, MirCallableReference,
-    MirImmediateValue, MirOperand, MirOperationKind,
-};
+use bray_ir::{MirBlockId, MirCall, MirCallTarget, MirCallableReference, MirImmediateValue};
 use bray_symbols::{CallableAbi, GenericArgument, ImplementationRequirementKey, TypeData, TypeId};
 
 use super::super::LoweringError;
@@ -179,20 +176,13 @@ impl Lowerer<'_> {
 
                     block = continuation;
 
-                    let commit = self.builder.push_operation(
+                    let value = self.push_nullable_present(
+                        bound,
                         block,
                         Self::retained_source(&source),
-                        MirOperationKind::Aggregate(MirAggregate::new(
-                            MirAggregateKind::NullablePresent,
-                            [value],
-                        )),
-                        Some(nullable_type),
+                        value,
+                        nullable_type,
                     )?;
-
-                    let value = commit
-                        .result()
-                        .map(MirOperand::Value)
-                        .ok_or(LoweringError::MissingOperationResult(bound))?;
 
                     arguments.push(value);
                 }

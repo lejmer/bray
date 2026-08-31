@@ -62,6 +62,20 @@ func assert_error_rejects_success()
 }
 
 @test
+func assert_present_rejects_absence()
+{
+    let _: unit = std.testing.assert_present<unit>(none);
+}
+
+@test
+func assert_absent_rejects_presence()
+{
+    let value: unit? = unit;
+
+    std.testing.assert_absent<unit>(value);
+}
+
+@test
 func assert_completed_rejects_cancellation()
 {
     let _: unit = std.testing.assert_completed<unit>(RunResult.Cancelled);

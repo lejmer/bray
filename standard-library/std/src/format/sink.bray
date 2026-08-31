@@ -55,7 +55,7 @@ struct ByteSink
 
     construct(capacity: usize) -> Result<Self, std.memory.MemoryLayoutError>
     {
-        let buffer: std.bytes.Buffer = try std.bytes.Buffer.new(capacity);
+        let buffer: std.bytes.Buffer = try std.bytes.Buffer(capacity = capacity);
 
         let sink: ByteSink =
         {

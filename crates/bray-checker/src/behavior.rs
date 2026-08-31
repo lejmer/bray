@@ -227,6 +227,7 @@ fn collect_conversion_behavior(
             }
         }
         ConversionTarget::Identity
+        | ConversionTarget::NullablePresent
         | ConversionTarget::BuiltInScalar
         | ConversionTarget::CVariadicPromotion => {}
     }

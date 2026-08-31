@@ -39,10 +39,10 @@ impl DeclaredValueTypeEvidence {
     }
 }
 
-/// The source relationship establishing one declared value-type equality.
+/// The source relationship connecting declared and inferred value types.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DeclaredValueTypeConstraintKind {
-    /// A declaration initializer has the declared subject's type.
+    /// A declaration initializer is checked against the declared subject's type.
     Initializer,
     /// A pattern binding receives the type selected for its pattern occurrence.
     PatternBinding,
@@ -50,7 +50,7 @@ pub enum DeclaredValueTypeConstraintKind {
     DefinitionUse,
 }
 
-/// An equality between two subjects whose types are determined together.
+/// A directional initialization check or an equality between inferred subjects.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DeclaredValueTypeConstraint {
     kind: DeclaredValueTypeConstraintKind,
@@ -59,7 +59,7 @@ pub struct DeclaredValueTypeConstraint {
 }
 
 impl DeclaredValueTypeConstraint {
-    /// Creates one source-correlated value-type equality.
+    /// Creates one source-correlated value-type relationship.
     pub const fn new(
         kind: DeclaredValueTypeConstraintKind,
         left: DeclaredValueTypeTerm,

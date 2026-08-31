@@ -1,6 +1,7 @@
 module bray.standard_library_tests.character;
 
 using std.character;
+using std.testing;
 
 @test
 func character_operations()
@@ -24,11 +25,9 @@ func character_operations()
 
     let decoded: char? = std.character.from_scalar_value(value = scalar);
 
-    match decoded
-    {
-        case ?character { assert(character == value); }
-        case none { assert(false); }
-    }
+    let character: char = std.testing.assert_present<char>(decoded);
+
+    assert(character == value);
 }
 
 @test
@@ -52,9 +51,5 @@ func character_boundaries()
 
     let invalid: char? = std.character.from_scalar_value(value = 1114112);
 
-    match invalid
-    {
-        case ?_ { assert(false); }
-        case none {}
-    }
+    std.testing.assert_absent<char>(invalid);
 }

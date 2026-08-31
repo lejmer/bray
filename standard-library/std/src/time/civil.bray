@@ -27,23 +27,18 @@ struct Date
 {
     internal state: DateState;
 
-    internal construct components(pos year: i32, pos month: u32, pos day: u32) -> Result<Self, TimeError>
+    /// Creates a validated date from calendar components.
+    construct(pos year: i32, pos month: u32, pos day: u32) -> Result<Self, TimeError>
     {
         return trusted validate_date(year, month, day);
     }
 
-    internal construct text(pos text: &string) -> Result<Self, TimeError>
+    /// Parses an ISO 8601 date.
+    construct parse(pos text: &string) -> Result<Self, TimeError>
     {
         let value: PlatformTemporalValue = try trusted parse_temporal_value(kind = 0, text = text);
 
         return Ok(date_from_platform(&value.local));
-    }
-
-    /// Creates a date from calendar components or ISO 8601 text.
-    overload new =
-    {
-        components,
-        text,
     }
 
     func year() -> i32
@@ -126,17 +121,8 @@ struct TimeOfDay
 {
     internal state: TimeOfDayState;
 
-    internal construct components(pos hour: u32, pos minute: u32, pos second: u32) -> Result<Self, TimeError>
-    {
-        return TimeOfDay.components_with_nanoseconds(hour, minute, second, 0);
-    }
-
-    internal construct components_with_nanoseconds(
-        pos hour: u32,
-        pos minute: u32,
-        pos second: u32,
-        pos nanosecond: u32,
-    ) -> Result<Self, TimeError>
+    /// Creates a validated time from clock components.
+    construct(pos hour: u32, pos minute: u32, pos second: u32, nanosecond: u32 = 0) -> Result<Self, TimeError>
     {
         if hour >= 24 || minute >= 60 || second >= 60 || nanosecond >= NANOSECONDS_PER_SECOND
         {
@@ -146,19 +132,12 @@ struct TimeOfDay
         return Ok(time_from_parts(hour, minute, second, nanosecond));
     }
 
-    internal construct text(pos text: &string) -> Result<Self, TimeError>
+    /// Parses an ISO 8601 time.
+    construct parse(pos text: &string) -> Result<Self, TimeError>
     {
         let value: PlatformTemporalValue = try trusted parse_temporal_value(kind = 1, text = text);
 
         return Ok(time_from_platform(&value.local));
-    }
-
-    /// Creates a time from clock components or ISO 8601 text.
-    overload new =
-    {
-        components,
-        components_with_nanoseconds,
-        text,
     }
 
     func hour() -> u32
@@ -197,7 +176,8 @@ struct LocalDateTime
 {
     internal state: LocalDateTimeState;
 
-    internal construct components(pos date: Date, pos time: TimeOfDay) -> Self
+    /// Combines a date and time without changing either component.
+    construct(pos date: Date, pos time: TimeOfDay) -> Self
     {
         return
         {
@@ -209,18 +189,12 @@ struct LocalDateTime
         };
     }
 
-    internal construct text(pos text: &string) -> Result<Self, TimeError>
+    /// Parses an ISO 8601 local date-time.
+    construct parse(pos text: &string) -> Result<Self, TimeError>
     {
         let value: PlatformTemporalValue = try trusted parse_temporal_value(kind = 2, text = text);
 
         return Ok(local_from_platform(&value.local));
-    }
-
-    /// Creates a local date-time from components or ISO 8601 text.
-    overload new =
-    {
-        components,
-        text,
     }
 
     func date() -> &Date
@@ -260,7 +234,7 @@ struct LocalDateTime
             self.state.time.nanosecond(),
         );
 
-        return Ok(LocalDateTime.new(date, time));
+        return Ok(LocalDateTime(date, time));
     }
 
     func iso8601() -> Result<string, TimeError>
@@ -348,7 +322,7 @@ internal func time_from_platform(pos value: &PlatformDateTime) -> TimeOfDay
 
 internal func local_from_platform(pos value: &PlatformDateTime) -> LocalDateTime
 {
-    return LocalDateTime.new(date_from_platform(value), time_from_platform(value));
+    return LocalDateTime(date_from_platform(value), time_from_platform(value));
 }
 
 internal func date_to_platform(pos value: &Date) -> PlatformDateTime

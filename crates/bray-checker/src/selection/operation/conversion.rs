@@ -77,6 +77,14 @@ where
 
         let is_valid = match conversion.target() {
             ConversionTarget::Identity => source == target,
+            ConversionTarget::NullablePresent => {
+                let target = request
+                    .semantic_values()
+                    .type_data(target)
+                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+                matches!(target.as_ref(), TypeData::Nullable(contained) if *contained == source)
+            }
             ConversionTarget::BuiltInScalar => {
                 scalar_conversion_is_valid(request.context(), source, target)?
             }
@@ -359,6 +367,7 @@ pub(super) const fn is_builtin_conversion(operation: &SelectedOperation) -> bool
     matches!(
         conversion.target(),
         ConversionTarget::Identity
+            | ConversionTarget::NullablePresent
             | ConversionTarget::BuiltInScalar
             | ConversionTarget::CVariadicPromotion
             | ConversionTarget::Composite(_)

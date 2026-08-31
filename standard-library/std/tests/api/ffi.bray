@@ -93,8 +93,8 @@ trusted func c_strings_validate_termination_and_ownership() -> Result<unit, std.
     uses(layout_reinterpret, manual_alloc, raw_memory, unchecked_init)
 {
     let input: [u8; 3] = [65, 66, 67];
-    let owned: std.ffi.c.OwnedNarrowString = try trusted std.ffi.c.OwnedNarrowString.new(&input[..]);
-    let owned_text: std.ffi.c.OwnedNarrowString = try trusted std.ffi.c.OwnedNarrowString.new(&"ABC");
+    let owned: std.ffi.c.OwnedNarrowString = try trusted std.ffi.c.OwnedNarrowString.from_bytes(&input[..]);
+    let owned_text: std.ffi.c.OwnedNarrowString = try trusted std.ffi.c.OwnedNarrowString.from_utf8(&"ABC");
     let borrowed: std.ffi.c.BorrowedNarrowString = owned.borrow();
     let bytes: &[u8] = borrowed.bytes();
     let terminated: &[u8] = borrowed.bytes_with_nul();
@@ -136,7 +136,7 @@ trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.Strin
     let invalid: [u8; 3] = [65, 0, 66];
 
     match std.testing.assert_error<std.ffi.c.OwnedNarrowString, std.ffi.c.StringError>(
-        trusted std.ffi.c.OwnedNarrowString.new(&invalid[..]),
+        trusted std.ffi.c.OwnedNarrowString.from_bytes(&invalid[..]),
     )
     {
         case std.ffi.c.StringError.InteriorNul {}
@@ -208,11 +208,9 @@ func foreign_errors_preserve_structured_categories_and_codes()
         case _ { assert(false); }
     }
 
-    match error.native_code()
-    {
-        case ?value { assert(value == 13); }
-        case none { assert(false); }
-    }
+    let reported_code: i64 = std.testing.assert_present<i64>(error.native_code());
+
+    assert(reported_code == 13);
 }
 
 @test
@@ -233,11 +231,9 @@ trusted func foreign_resources_reject_invalid_handles() -> Result<unit, std.ffi.
         case _ { assert(false); }
     }
 
-    match error.native_code()
-    {
-        case ?value { assert(value == 6); }
-        case none { assert(false); }
-    }
+    let reported_code: i64 = std.testing.assert_present<i64>(error.native_code());
+
+    assert(reported_code == 6);
 
     return Ok(unit);
 }
@@ -337,11 +333,9 @@ trusted func foreign_resource_release_consumes_successful_and_failed_owners() ->
             case _ { assert(false); }
         }
 
-        match release_error.native_code()
-        {
-            case ?value { assert(value == 13); }
-            case none { assert(false); }
-        }
+        let native_code: i64 = std.testing.assert_present<i64>(release_error.native_code());
+
+        assert(native_code == 13);
 
         assert(!internal std.ffi.foreign_resource_is_owned(&failed));
 
@@ -379,11 +373,9 @@ func foreign_platform_statuses_preserve_stable_failures()
         case _ { assert(false); }
     }
 
-    match denied_error.native_code()
-    {
-        case ?value { assert(value == 13); }
-        case none { assert(false); }
-    }
+    let denied_code: i64 = std.testing.assert_present<i64>(denied_error.native_code());
+
+    assert(denied_code == 13);
 
     let malformed: std.platform.PlatformStatus =
     {
@@ -419,11 +411,9 @@ func foreign_platform_statuses_preserve_stable_failures()
         case _ { assert(false); }
     }
 
-    match library_error.native_code()
-    {
-        case ?value { assert(value == 126); }
-        case none { assert(false); }
-    }
+    let library_code: i64 = std.testing.assert_present<i64>(library_error.native_code());
+
+    assert(library_code == 126);
 
     let missing_symbol: std.platform.PlatformStatus =
     {

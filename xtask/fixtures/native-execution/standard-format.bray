@@ -58,7 +58,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         escaping = Raw,
     );
 
-    try write(&mut sink, Argument.with_options<bool>(&truth, options = centered));
+    try write(&mut sink, Argument<bool>(&truth, options = centered));
     try write(&mut sink, Argument<string>(&separator));
     try write(&mut sink, Argument<i32>(&decimal));
     try write(&mut sink, Argument<string>(&separator));
@@ -72,7 +72,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         escaping = Raw,
     );
 
-    try write(&mut sink, Argument.with_options<u8>(&binary, options = binary_options));
+    try write(&mut sink, Argument<u8>(&binary, options = binary_options));
     try write(&mut sink, Argument<string>(&separator));
 
     let octal_options: Options = Options(
@@ -84,7 +84,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         escaping = Raw,
     );
 
-    try write(&mut sink, Argument.with_options<u8>(&octal, options = octal_options));
+    try write(&mut sink, Argument<u8>(&octal, options = octal_options));
     try write(&mut sink, Argument<string>(&separator));
 
     let lowercase_options: Options = Options(
@@ -96,7 +96,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         escaping = Raw,
     );
 
-    try write(&mut sink, Argument.with_options<u8>(&hexadecimal_lowercase, options = lowercase_options));
+    try write(&mut sink, Argument<u8>(&hexadecimal_lowercase, options = lowercase_options));
     try write(&mut sink, Argument<string>(&separator));
 
     let uppercase_options: Options = Options(
@@ -108,7 +108,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         escaping = Raw,
     );
 
-    try write(&mut sink, Argument.with_options<u32>(&hexadecimal_uppercase, options = uppercase_options));
+    try write(&mut sink, Argument<u32>(&hexadecimal_uppercase, options = uppercase_options));
     try write(&mut sink, Argument<string>(&separator));
 
     let negative_options: Options = Options(
@@ -120,7 +120,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         escaping = Raw,
     );
 
-    try write(&mut sink, Argument.with_options<i32>(&negative, options = negative_options));
+    try write(&mut sink, Argument<i32>(&negative, options = negative_options));
     try write(&mut sink, Argument<string>(&separator));
 
     let spaced_options: Options = Options(
@@ -132,7 +132,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         escaping = Raw,
     );
 
-    try write(&mut sink, Argument.with_options<u8>(&spaced, options = spaced_options));
+    try write(&mut sink, Argument<u8>(&spaced, options = spaced_options));
     try write(&mut sink, Argument<string>(&separator));
 
     let aligned_options: Options = Options(
@@ -144,7 +144,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         escaping = Raw,
     );
 
-    try write(&mut sink, Argument.with_options<string>(&aligned, options = aligned_options));
+    try write(&mut sink, Argument<string>(&aligned, options = aligned_options));
     try write(&mut sink, Argument<string>(&separator));
 
     let escaped_text_options: Options = Options(
@@ -156,7 +156,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         escaping = Quoted,
     );
 
-    try write(&mut sink, Argument.with_options<string>(&escaped, options = escaped_text_options));
+    try write(&mut sink, Argument<string>(&escaped, options = escaped_text_options));
     try write(&mut sink, Argument<string>(&separator));
     try write(&mut sink, Argument<char>(&character));
     try write(&mut sink, Argument<string>(&separator));
@@ -170,7 +170,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         escaping = Quoted,
     );
 
-    try write(&mut sink, Argument.with_options<char>(&escaped_character, options = escaped_character_options));
+    try write(&mut sink, Argument<char>(&escaped_character, options = escaped_character_options));
     let formatted: &[u8] = bytes(&sink);
 
     assert(std.bytes.slice_length(formatted) == 81, "formatted length differs");

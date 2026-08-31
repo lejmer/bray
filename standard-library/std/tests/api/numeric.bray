@@ -32,59 +32,21 @@ func integer_limits_and_checked_arithmetic()
     let division_by_zero: i32? = (10 as i32).checked_divide(0);
     let division_overflow: i32? = std.numeric.I32_MIN.checked_divide(-1);
 
-    match sum
-    {
-        case ?value { assert(value == 42); }
-        case none { assert(false); }
-    }
+    let sum_value: u8 = std.testing.assert_present<u8>(sum);
+    let signed_sum_value: i32 = std.testing.assert_present<i32>(signed_sum);
+    let signed_product_value: i32 = std.testing.assert_present<i32>(signed_product);
+    let difference_value: u8 = std.testing.assert_present<u8>(difference);
 
-    match overflow
-    {
-        case ?_ { assert(false); }
-        case none {}
-    }
+    assert(sum_value == 42);
+    assert(signed_sum_value == -42);
+    assert(signed_product_value == -42);
+    assert(difference_value == 42);
 
-    match signed_sum
-    {
-        case ?value { assert(value == -42); }
-        case none { assert(false); }
-    }
-
-    match signed_product
-    {
-        case ?value { assert(value == -42); }
-        case none { assert(false); }
-    }
-
-    match difference
-    {
-        case ?value { assert(value == 42); }
-        case none { assert(false); }
-    }
-
-    match underflow
-    {
-        case ?_ { assert(false); }
-        case none {}
-    }
-
-    match product_overflow
-    {
-        case ?_ { assert(false); }
-        case none {}
-    }
-
-    match division_by_zero
-    {
-        case ?_ { assert(false); }
-        case none {}
-    }
-
-    match division_overflow
-    {
-        case ?_ { assert(false); }
-        case none {}
-    }
+    std.testing.assert_absent<u8>(overflow);
+    std.testing.assert_absent<u8>(underflow);
+    std.testing.assert_absent<u8>(product_overflow);
+    std.testing.assert_absent<i32>(division_by_zero);
+    std.testing.assert_absent<i32>(division_overflow);
 }
 
 @test

@@ -32,19 +32,20 @@ union Escaping
 struct Options
 {
     radix: Radix;
-    precision: usize;
+    precision: usize?;
     width: usize;
     alignment: Alignment;
     sign: Sign;
     escaping: Escaping;
 
-    internal construct explicit(
-        pos radix: Radix,
-        pos precision: usize,
-        pos width: usize,
-        pos alignment: Alignment,
-        pos sign: Sign,
-        pos escaping: Escaping,
+    /// Creates formatting options with ordinary defaults and selected overrides.
+    construct(
+        radix: Radix = Radix.Decimal,
+        precision: usize? = none,
+        width: usize = 0,
+        alignment: Alignment = Alignment.Right,
+        sign: Sign = Sign.NegativeOnly,
+        escaping: Escaping = Escaping.Raw,
     ) -> Self
     {
         return
@@ -57,24 +58,9 @@ struct Options
             escaping = escaping,
         };
     }
+}
 
-    internal construct defaults() -> Self
-    {
-        return Options
-        {
-            radix = Radix.Decimal,
-            precision = 0,
-            width = 0,
-            alignment = Alignment.Right,
-            sign = Sign.NegativeOnly,
-            escaping = Escaping.Raw,
-        };
-    }
-
-    /// Creates default formatting options or a complete explicit option set.
-    overload new =
-    {
-        defaults,
-        explicit,
-    }
+internal func default_options() -> Options
+{
+    return Options();
 }

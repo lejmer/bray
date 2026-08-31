@@ -12,7 +12,7 @@ trusted func decode_utf32(pos value: &BorrowedWideString) -> Result<string, Stri
     let units: &[WideChar] = value.units();
     let count: usize = std.memory.slice_length<WideChar>(units);
 
-    let mut bytes: std.bytes.Buffer = match trusted std.bytes.Buffer.new(count)
+    let mut bytes: std.bytes.Buffer = match trusted std.bytes.Buffer(capacity = count)
     {
         case Ok(buffer) { yield buffer; }
         case Error(_) { return Error(StringError.Allocation); }

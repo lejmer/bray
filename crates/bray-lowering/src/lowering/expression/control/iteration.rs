@@ -5,9 +5,9 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::{ImplementationHook, RepresentationRole};
 use bray_ir::{
-    MirAggregate, MirAggregateKind, MirBlockId, MirBlockKind, MirCall, MirCallTarget,
-    MirCallableReference, MirEdge, MirGeneratorKind, MirGeneratorOperation, MirImmediateValue,
-    MirOperand, MirOperationKind, MirPlace, MirStorageKind, MirStoreKind, MirTerminatorKind,
+    MirBlockId, MirBlockKind, MirCall, MirCallTarget, MirCallableReference, MirEdge,
+    MirGeneratorKind, MirGeneratorOperation, MirImmediateValue, MirOperand, MirOperationKind,
+    MirPlace, MirStorageKind, MirStoreKind, MirTerminatorKind,
 };
 use bray_symbols::{BorrowKind, CallableAbi, ReceiverMode};
 
@@ -633,20 +633,13 @@ impl Lowerer<'_> {
             },
         )?;
 
-        let present = self.builder.push_operation(
+        let present = self.push_nullable_present(
+            id,
             item,
             Self::retained_source(&source),
-            MirOperationKind::Aggregate(MirAggregate::new(
-                MirAggregateKind::NullablePresent,
-                [MirOperand::Value(item_value)],
-            )),
-            Some(result_type),
+            MirOperand::Value(item_value),
+            result_type,
         )?;
-
-        let present = present
-            .result()
-            .map(MirOperand::Value)
-            .ok_or(LoweringError::MissingOperationResult(id))?;
 
         self.builder.set_terminator(
             item,

@@ -295,7 +295,7 @@ mod tests {
     use crate::representation::representation_type;
     use crate::test_support::{
         TestCheckerContext, array_type, callable_entry, completed_expression_check,
-        expression_unit, literal_expression, push_expression, tuple_type,
+        expression_unit, literal_expression, nullable_type, push_expression, tuple_type,
     };
     use crate::{
         CheckerUnitView, ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput,
@@ -369,6 +369,35 @@ mod tests {
 
         let input = ExpressionTypeInput::new().with_expectations(expectations);
 
+        let result = completed_expression_check(&unit, &input);
+
+        assert!(result.diagnostics().is_empty());
+        assert_expression_types(result.value(), &expressions, &expected);
+    }
+
+    #[test]
+    fn expected_nullable_numeric_types_adapt_present_literals() {
+        let kinds = [
+            BoundLiteralKind::Integer,
+            BoundLiteralKind::Real,
+            BoundLiteralKind::Imaginary,
+        ];
+
+        let (unit, expressions) = literal_unit(BoundUnitId::new(81), kinds);
+
+        let expected = [
+            representation(&unit, RepresentationRole::ScalarU64),
+            representation(&unit, RepresentationRole::ScalarR32),
+            representation(&unit, RepresentationRole::ScalarC64),
+        ];
+
+        let expectations = expressions
+            .iter()
+            .copied()
+            .zip(expected)
+            .map(|(expression, ty)| ExpressionTypeExpectation::new(expression, nullable_type(ty)));
+
+        let input = ExpressionTypeInput::new().with_expectations(expectations);
         let result = completed_expression_check(&unit, &input);
 
         assert!(result.diagnostics().is_empty());

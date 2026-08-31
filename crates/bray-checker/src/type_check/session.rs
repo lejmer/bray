@@ -156,10 +156,25 @@ where
         &mut self,
         input: &ExpressionTypeInput,
     ) -> Result<(), CheckerInfrastructureError> {
+        self.apply_input_replacing_evidence(input, &BTreeSet::new())
+    }
+
+    pub(crate) fn apply_input_replacing_evidence(
+        &mut self,
+        input: &ExpressionTypeInput,
+        replacements: &BTreeSet<BoundExpressionId>,
+    ) -> Result<(), CheckerInfrastructureError> {
         validate_input(self.request, input)?;
+        let mut applied_replacements = BTreeSet::new();
 
         for evidence in input.evidence() {
-            self.apply_evidence(*evidence)?;
+            if replacements.contains(&evidence.expression())
+                && applied_replacements.insert(evidence.expression())
+            {
+                self.replace_evidence(evidence.expression(), evidence.ty())?;
+            } else {
+                self.apply_evidence(*evidence)?;
+            }
         }
 
         for expectation in input.expectations() {
@@ -186,6 +201,22 @@ where
         };
 
         self.inference.add_evidence(variable, ty, expression);
+
+        Ok(())
+    }
+
+    fn replace_evidence(
+        &mut self,
+        expression: BoundExpressionId,
+        ty: TypeId,
+    ) -> Result<(), CheckerInfrastructureError> {
+        self.validate_expression_and_type(expression, ty)?;
+
+        let Some(variable) = self.variables.get(&expression).copied() else {
+            return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
+        };
+
+        self.inference.replace_evidence(variable, ty);
 
         Ok(())
     }

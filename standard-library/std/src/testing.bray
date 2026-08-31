@@ -20,6 +20,26 @@ func assert_error<T, E>(pos result: Result<T, E>) -> E
     }
 }
 
+/// Returns the contained value or fails the current test when the nullable value is absent.
+func assert_present<T>(pos value: T?) -> T
+{
+    match consume value
+    {
+        case ?present { return present; }
+        case none { fail(&"expected a present nullable value"); }
+    }
+}
+
+/// Fails the current test when the nullable value is present.
+func assert_absent<T>(pos value: T?)
+{
+    match consume value
+    {
+        case ?_ { fail(&"expected an absent nullable value"); }
+        case none {}
+    }
+}
+
 /// Returns the completed value or fails the current test when the run panicked or was cancelled.
 func assert_completed<T>(pos result: RunResult<T>) -> T
 {

@@ -340,8 +340,17 @@ Strict RFC 3339 and ISO 8601 interchange is locale-independent. Named-zone behav
 toolchain's pinned timezone database, so compilation and execution do not depend on the host's database version or
 perform runtime downloads.
 
-`Date.new`, `TimeOfDay.new`, `LocalDateTime.new`, and `Timestamp.new` select component construction or strict text
-parsing from explicit argument types and arity. The shape-specific constructor arms remain internal.
+```bray
+let date = try std.time.Date(year = 2026, month = 8, day = 30);
+let time = try std.time.TimeOfDay(14, 45, 0, nanosecond = 125000000);
+let local = std.time.LocalDateTime(date, time);
+let timestamp = try std.time.Timestamp(seconds = 0);
+let parsed = try std.time.Timestamp.parse(&"2026-08-30T14:45:00.125Z");
+```
+
+`Date`, `TimeOfDay`, `LocalDateTime`, and `Timestamp` use primary constructors for component values. Defaulted
+nanosecond parameters remove redundant arity variants. Their `parse` constructors keep strict ISO 8601 and RFC 3339 text
+parsing visible at call sites.
 
 Clock resolution is explicit target information. Arithmetic detects overflow and does not silently wrap. Reading either
 clock is an I/O effect and can return a typed failure when the selected service cannot provide a valid reading.

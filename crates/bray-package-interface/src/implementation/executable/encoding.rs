@@ -1317,6 +1317,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
 
         match conversion.target() {
             ConversionTarget::Identity => self.wire.write_u32(0),
+            ConversionTarget::NullablePresent => self.wire.write_u32(6),
             ConversionTarget::BuiltInScalar => self.wire.write_u32(1),
             ConversionTarget::CVariadicPromotion => self.wire.write_u32(5),
             ConversionTarget::Composite(conversions) => {

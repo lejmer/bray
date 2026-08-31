@@ -157,22 +157,18 @@ func synchronization_signals_cover_immediate_progress()
 
     automatic.wait();
 
-    let semaphore: std.sync.Semaphore = match std.sync.Semaphore(initial = 1, maximum = 2)
-    {
-        case Ok(value) { yield value; }
-        case Error(_) { panic("semaphore construction failed"); }
-    };
+    let semaphore: std.sync.Semaphore = std.testing.assert_ok<std.sync.Semaphore, std.sync.SemaphoreError>(
+        std.sync.Semaphore(initial = 1, maximum = 2)
+    );
 
     assert(semaphore.try_acquire());
     assert(!semaphore.try_acquire());
 
     std.testing.assert_ok<unit, std.sync.SemaphoreError>(semaphore.release());
 
-    let barrier: std.sync.Barrier = match std.sync.Barrier(participants = 1)
-    {
-        case Ok(value) { yield value; }
-        case Error(_) { panic("barrier construction failed"); }
-    };
+    let barrier: std.sync.Barrier = std.testing.assert_ok<std.sync.Barrier, std.sync.BarrierError>(
+        std.sync.Barrier(participants = 1)
+    );
 
     match barrier.wait()
     {
@@ -201,22 +197,15 @@ async func concurrency_stress_mutex_contention_and_panic_cleanup_preserve_progre
 
     let _: PanicReport = std.testing.assert_panicked<unit>(await panicked.join());
 
-    match consume counter.try_lock()
     {
-        case ?_ {}
-        case none { assert(false); }
+        let _: std.sync.MutexGuard<u32> = std.testing.assert_present<std.sync.MutexGuard<u32>>(counter.try_lock());
     }
 
-    match counter.try_lock()
-    {
-        case ?guard
-        {
-            let mut acquired = guard;
+    let mut acquired: std.sync.MutexGuard<u32> = std.testing.assert_present<std.sync.MutexGuard<u32>>(
+        counter.try_lock()
+    );
 
-            acquired.unlock();
-        }
-        case none { assert(false); }
-    }
+    acquired.unlock();
 }
 
 @test
@@ -257,11 +246,9 @@ async func concurrency_model_reader_writer_lock_admits_a_pending_writer_before_l
 @test
 async func concurrency_stress_barrier_reuses_its_generation_across_contended_rounds()
 {
-    let barrier: std.sync.Barrier = match std.sync.Barrier(participants = 3)
-    {
-        case Ok(value) { yield value; }
-        case Error(_) { panic("barrier construction failed"); }
-    };
+    let barrier: std.sync.Barrier = std.testing.assert_ok<std.sync.Barrier, std.sync.BarrierError>(
+        std.sync.Barrier(participants = 3)
+    );
 
     let crossings: std.atomic.Atomic<u32> = std.atomic.Atomic<u32>(0);
 

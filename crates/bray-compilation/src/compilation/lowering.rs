@@ -2306,7 +2306,7 @@ trusted func main() -> Result<unit, std.memory.MemoryLayoutError>
 
         try trusted values.push_back(
             {
-                bytes = try std.bytes.Buffer.new(&bytes[..]),
+                bytes = try std.bytes.Buffer.from_slice(&bytes[..]),
             }
         );
     }
@@ -2991,6 +2991,107 @@ func main(pos value: i32?) -> i32?
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn annotated_nullable_local_initializers_materialize_presence() {
+        let compilation = compilation(
+            r#"module app;
+
+func from_literal() -> i32?
+{
+    let value: i32? = 1;
+
+    return value;
+}
+
+func from_name(pos input: i32) -> i32?
+{
+    let value: i32? = input;
+
+    return value;
+}
+
+func from_unit() -> unit?
+{
+    let value: unit? = unit;
+
+    return value;
+}
+"#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        for name in ["from_literal", "from_name", "from_unit"] {
+            let key = source_function_body_key(&compilation, name);
+
+            let lowered = compilation.lowered_unit(key).unwrap_or_else(|error| {
+                panic!("nullable initializer MIR for {name} must be available: {error:?}")
+            });
+
+            let mir = lowered_mir(&lowered);
+
+            assert!(
+                mir.operations().iter().any(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Aggregate(aggregate)
+                        if aggregate.kind() == MirAggregateKind::NullablePresent
+                )),
+                "{mir:#?}"
+            );
+        }
+    }
+
+    #[test]
+    fn annotated_nullable_local_constant_initializers_retain_nullable_storage() {
+        let compilation = compilation(
+            r#"module app;
+
+func main() -> i32?
+{
+    const value: i32? = 1;
+
+    return value;
+}
+"#,
+        );
+
+        let key = source_function_body_key(&compilation, "main");
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let lowered = compilation.lowered_unit(key).unwrap_or_else(|error| {
+            panic!("nullable local constant MIR must be available: {error:?}")
+        });
+
+        let mir = lowered_mir(&lowered);
+
+        let Some(MirTerminatorKind::Return(Some(MirOperand::Copy(place)))) = mir
+                .blocks()
+                .last()
+                .map(|block| block.terminator().kind())
+        else {
+            panic!("nullable local constant must lower through typed storage: {mir:#?}");
+        };
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
+
+        let ty = values
+            .type_data(place.ty())
+            .unwrap_or_else(|error| panic!("nullable storage type must be available: {error:?}"));
+
+        assert!(matches!(ty.as_ref(), TypeData::Nullable(_)));
     }
 
     fn lowering_compilation() -> Compilation {

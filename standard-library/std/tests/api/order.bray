@@ -1,6 +1,7 @@
 module bray.standard_library_tests.order;
 
 using std.order;
+using std.testing;
 using std.order.OrderingEquatable;
 
 struct NumberSequence
@@ -90,33 +91,18 @@ func ordering_algorithms()
     let found: usize? = stable.find(&found_value);
     let searched: usize? = stable.binary_search(&searched_value);
 
-    match found
-    {
-        case ?index { assert(index == 2); }
-        case none { assert(false); }
-    }
+    let found_index: usize = std.testing.assert_present<usize>(found);
+    let searched_index: usize = std.testing.assert_present<usize>(searched);
 
-    match searched
-    {
-        case ?index { assert(index == 3); }
-        case none { assert(false); }
-    }
+    assert(found_index == 2);
+    assert(searched_index == 3);
 
     let absent_value: i32 = 8;
     let absent: usize? = stable.find(&absent_value);
     let unsearchable: usize? = stable.binary_search(&absent_value);
 
-    match absent
-    {
-        case ?_ { assert(false); }
-        case none {}
-    }
-
-    match unsearchable
-    {
-        case ?_ { assert(false); }
-        case none {}
-    }
+    std.testing.assert_absent<usize>(absent);
+    std.testing.assert_absent<usize>(unsearchable);
 
     let mut unstable: NumberSequence = NumberSequence
     {

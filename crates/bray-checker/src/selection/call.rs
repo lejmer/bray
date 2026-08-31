@@ -745,7 +745,10 @@ fn map_arguments(
             continue;
         };
 
-        if !actual.is_recovered() && actual.ty() != parameters[parameter_index].ty() {
+        let expected = parameters[parameter_index].ty();
+        let conversion = argument_conversion(request, actual.ty(), expected)?;
+
+        if !actual.is_recovered() && conversion.is_none() {
             let ordinal = u64::try_from(source_ordinal)
                 .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
@@ -753,7 +756,7 @@ fn map_arguments(
                 SelectionCallableArgumentRejection::Type {
                     name: argument.name().map(|name| name.as_str().to_owned()),
                     ordinal,
-                    expected: parameters[parameter_index].ty(),
+                    expected,
                     actual: actual.ty(),
                 },
             ));
@@ -770,11 +773,9 @@ fn map_arguments(
             expression: argument.expression(),
             parameter,
             ordinal,
-            conversion: SelectedConversion::new(
-                actual.ty(),
-                parameters[parameter_index].ty(),
-                ConversionTarget::Identity,
-            ),
+            conversion: conversion.unwrap_or_else(|| {
+                SelectedConversion::new(actual.ty(), expected, ConversionTarget::Identity)
+            }),
         });
     }
 
@@ -848,6 +849,33 @@ fn map_arguments(
     }
 
     Ok(ArgumentMapping::Mapped { recovered })
+}
+
+fn argument_conversion<C>(
+    request: CheckerUnitView<'_, C>,
+    actual: bray_symbols::TypeId,
+    expected: bray_symbols::TypeId,
+) -> Result<Option<SelectedConversion>, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if actual == expected {
+        return Ok(Some(SelectedConversion::new(
+            actual,
+            expected,
+            ConversionTarget::Identity,
+        )));
+    }
+
+    let data = request
+        .semantic_values()
+        .type_data(expected)
+        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+
+    Ok(
+        matches!(data.as_ref(), TypeData::Nullable(contained) if *contained == actual)
+            .then(|| SelectedConversion::new(actual, expected, ConversionTarget::NullablePresent)),
+    )
 }
 
 fn map_argument_parameter_indices_for_diagnostic(
@@ -1132,7 +1160,7 @@ mod tests {
 
     use crate::test_support::{
         TestCheckerContext, callable_entry, checked_expression_types, declaration_key,
-        expression_unit, push_expression, semantic_values, symbol_name, tuple_type,
+        expression_unit, nullable_type, push_expression, semantic_values, symbol_name, tuple_type,
     };
     use crate::{
         CallableCandidate, CallableCandidateState, CallableSelectionRequest, CandidateSelection,
@@ -1176,6 +1204,43 @@ mod tests {
                 },
             ]
         );
+    }
+
+    #[test]
+    fn direct_calls_initialize_nullable_parameters_from_present_values() {
+        let fixture = call_fixture(BoundUnitId::new(91), true);
+        let nullable = nullable_type(fixture.value_type);
+
+        let candidate = callable_candidate_with_types(
+            1,
+            nullable,
+            fixture.value_type,
+            true,
+            CallableCandidateState::Available,
+        );
+
+        let input = named_request(&fixture, [candidate]);
+        let result = select(&fixture.unit, &fixture.types, input);
+
+        let CandidateSelection::Selected(call) = result.value() else {
+            panic!("call with a present nullable argument must be selected");
+        };
+
+        assert!(matches!(
+            call.arguments(),
+            [
+                SelectedArgument::Explicit {
+                    conversion,
+                    ordinal: 1,
+                    ..
+                },
+                SelectedArgument::Default { ordinal: 0, .. },
+            ] if conversion == &SelectedConversion::new(
+                fixture.value_type,
+                nullable,
+                ConversionTarget::NullablePresent,
+            )
+        ));
     }
 
     #[test]

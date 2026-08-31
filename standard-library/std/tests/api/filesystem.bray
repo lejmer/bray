@@ -34,11 +34,7 @@ func files_and_directories_follow_the_portable_contract() -> Result<unit, std.io
     assert(entry_name_equals(first, "alpha"));
     assert(entry_name_equals(second, "zeta"));
 
-    match exhausted
-    {
-        case ?_ { assert(false); }
-        case none {}
-    }
+    std.testing.assert_absent<std.fs.DirectoryEntry>(exhausted);
 
     try traversal.close();
 
@@ -161,7 +157,7 @@ func missing_files_report_the_portable_error_kind()
 
 func test_path(pos value: string) -> std.path.Path
 {
-    return std.testing.assert_ok<std.path.Path, std.path.PathError>(std.path.Path.new(&value));
+    return std.testing.assert_ok<std.path.Path, std.path.PathError>(std.path.Path.from_string(&value));
 }
 
 func write_file(pos path: &std.path.Path, value: u8) -> Result<unit, std.io.IoError>

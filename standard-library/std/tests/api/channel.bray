@@ -50,11 +50,10 @@ async func independently_started_computation_completes()
 @test
 async func buffered_send_completes_before_receiving()
 {
-    let (mut sender, mut receiver) = match std.channel.bounded<i32>(capacity = 1)
-    {
-        case Ok(endpoints) { yield endpoints; }
-        case Error(_) { panic("bounded channel construction failed"); }
-    };
+    let (mut sender, mut receiver) = std.testing.assert_ok<
+        (std.channel.Sender<i32>, std.channel.Receiver<i32>),
+        std.channel.ChannelError
+    >(std.channel.bounded<i32>(capacity = 1));
 
     let send: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(13).start();
 
@@ -74,11 +73,10 @@ async func buffered_send_completes_before_receiving()
 @test
 async func buffered_channel_transfers_messages_in_commit_order()
 {
-    let (mut sender, mut receiver) = match std.channel.bounded<i32>(capacity = 2)
-    {
-        case Ok(endpoints) { yield endpoints; }
-        case Error(_) { panic("bounded channel construction failed"); }
-    };
+    let (mut sender, mut receiver) = std.testing.assert_ok<
+        (std.channel.Sender<i32>, std.channel.Receiver<i32>),
+        std.channel.ChannelError
+    >(std.channel.bounded<i32>(capacity = 2));
 
     std.testing.assert_ok<unit, std.channel.SendError<i32>>(await sender.send(11));
     std.testing.assert_ok<unit, std.channel.SendError<i32>>(await sender.send(29));
@@ -102,11 +100,10 @@ async func buffered_channel_transfers_messages_in_commit_order()
 @test
 async func rendezvous_send_suspends_until_a_receiver_is_registered()
 {
-    let (mut sender, mut receiver) = match std.channel.bounded<i32>(capacity = 0)
-    {
-        case Ok(endpoints) { yield endpoints; }
-        case Error(_) { panic("rendezvous channel construction failed"); }
-    };
+    let (mut sender, mut receiver) = std.testing.assert_ok<
+        (std.channel.Sender<i32>, std.channel.Receiver<i32>),
+        std.channel.ChannelError
+    >(std.channel.bounded<i32>(capacity = 0));
 
     let send: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(41).start();
 
@@ -125,11 +122,10 @@ async func rendezvous_send_suspends_until_a_receiver_is_registered()
 @test
 async func cancelling_a_rendezvous_wait_withdraws_it_before_reuse()
 {
-    let (mut sender, mut receiver) = match std.channel.bounded<i32>(capacity = 0)
-    {
-        case Ok(endpoints) { yield endpoints; }
-        case Error(_) { panic("rendezvous channel construction failed"); }
-    };
+    let (mut sender, mut receiver) = std.testing.assert_ok<
+        (std.channel.Sender<i32>, std.channel.Receiver<i32>),
+        std.channel.ChannelError
+    >(std.channel.bounded<i32>(capacity = 0));
 
     let blocked: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(17).start();
 
@@ -152,11 +148,10 @@ async func cancelling_a_rendezvous_wait_withdraws_it_before_reuse()
 @test
 async func cancelling_a_registered_receiver_preserves_a_committed_rendezvous_value()
 {
-    let (mut sender, mut receiver) = match std.channel.bounded<i32>(capacity = 0)
-    {
-        case Ok(endpoints) { yield endpoints; }
-        case Error(_) { panic("rendezvous channel construction failed"); }
-    };
+    let (mut sender, mut receiver) = std.testing.assert_ok<
+        (std.channel.Sender<i32>, std.channel.Receiver<i32>),
+        std.channel.ChannelError
+    >(std.channel.bounded<i32>(capacity = 0));
 
     let waiting: Task<std.channel.ReceiveResult<i32>> = receiver.receive().start();
     let mut pending: i32 = 31;
@@ -211,11 +206,10 @@ async func cancelling_a_registered_receiver_preserves_a_committed_rendezvous_val
 @test
 async func concurrency_stress_contended_producers_preserve_each_senders_commit_order()
 {
-    let (mut sender, mut receiver) = match std.channel.bounded<i32>(capacity = 4)
-    {
-        case Ok(endpoints) { yield endpoints; }
-        case Error(_) { panic("bounded channel construction failed"); }
-    };
+    let (mut sender, mut receiver) = std.testing.assert_ok<
+        (std.channel.Sender<i32>, std.channel.Receiver<i32>),
+        std.channel.ChannelError
+    >(std.channel.bounded<i32>(capacity = 4));
 
     let first_sender: std.channel.Sender<i32> = sender.duplicate();
     let second_sender: std.channel.Sender<i32> = sender.duplicate();
@@ -261,11 +255,10 @@ async func concurrency_stress_contended_producers_preserve_each_senders_commit_o
 @test
 func endpoint_closure_preserves_unsent_values_and_terminal_receives()
 {
-    let (mut sender, mut receiver) = match std.channel.bounded<i32>(capacity = 1)
-    {
-        case Ok(endpoints) { yield endpoints; }
-        case Error(_) { panic("bounded channel construction failed"); }
-    };
+    let (mut sender, mut receiver) = std.testing.assert_ok<
+        (std.channel.Sender<i32>, std.channel.Receiver<i32>),
+        std.channel.ChannelError
+    >(std.channel.bounded<i32>(capacity = 1));
 
     let mut duplicate: std.channel.Sender<i32> = sender.duplicate();
 
@@ -286,11 +279,10 @@ func concurrency_model_receiver_close_resolves_buffered_messages()
 {
     core.atomic.store<u32, 4>(&CHANNEL_CLEANUP_COUNT, 0);
 
-    let (mut sender, mut receiver) = match std.channel.bounded<ChannelCleanupProbe>(capacity = 2)
-    {
-        case Ok(endpoints) { yield endpoints; }
-        case Error(_) { panic("bounded channel construction failed"); }
-    };
+    let (mut sender, mut receiver) = std.testing.assert_ok<
+        (std.channel.Sender<ChannelCleanupProbe>, std.channel.Receiver<ChannelCleanupProbe>),
+        std.channel.ChannelError
+    >(std.channel.bounded<ChannelCleanupProbe>(capacity = 2));
 
     std.testing.assert_ok<unit, std.channel.TrySendError<ChannelCleanupProbe>>(
         sender.try_send(

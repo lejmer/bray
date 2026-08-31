@@ -323,8 +323,8 @@ mod tests {
     use crate::test_support::{
         callable_entry, callable_key, callable_unit, completed_expression_check as completed_check,
         distinct_source_origins, error_type, expression_unit,
-        integer_literal_expression as literal, push_block, push_callable, push_expression,
-        semantic_values, test_source_origins, tuple_type, type_data,
+        integer_literal_expression as literal, nullable_type, push_block, push_callable,
+        push_expression, semantic_values, test_source_origins, tuple_type, type_data,
         unselected_name_expression as unselected_name,
     };
     use crate::{
@@ -534,6 +534,32 @@ mod tests {
             Some(ExpressionTypeResult::new(
                 actual,
                 ExpressionTypeStatus::Recovered,
+            ))
+        );
+    }
+
+    #[test]
+    fn present_values_satisfy_nullable_expectations() {
+        let actual = tuple_type([]);
+        let expected = nullable_type(actual);
+
+        let (unit, expressions) = expression_unit(BoundUnitId::new(59), |tree, origin| {
+            vec![push_expression(tree, unselected_name(origin))]
+        });
+
+        let input = ExpressionTypeInput::new()
+            .with_evidence([ExpressionTypeEvidence::new(expressions[0], actual)])
+            .with_expectations([ExpressionTypeExpectation::new(expressions[0], expected)]);
+
+        let result = completed_check(&unit, &input);
+
+        assert!(result.diagnostics().is_empty());
+
+        assert_eq!(
+            result.value().expression(expressions[0]),
+            Some(ExpressionTypeResult::new(
+                actual,
+                ExpressionTypeStatus::Valid,
             ))
         );
     }

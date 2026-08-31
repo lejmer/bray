@@ -69,7 +69,7 @@ internal func buffer_allocation_error() -> IoError
 
 internal func allocate_fixed_buffer(capacity: usize) -> Result<std.bytes.Buffer, IoError>
 {
-    let created: Result<std.bytes.Buffer, std.memory.MemoryLayoutError> = std.bytes.Buffer.new(capacity);
+    let created: Result<std.bytes.Buffer, std.memory.MemoryLayoutError> = std.bytes.Buffer(capacity = capacity);
 
     match consume created
     {

@@ -15,7 +15,8 @@ use super::built_in_operator;
 use super::candidate::{PreparedExpressions, converge, final_selections, prepare_calls};
 use super::declared::{PreparedDeclaredTypes, defer_return_operands, prepare_declared_types};
 use super::pattern_reference::{
-    PreparedPatternReferences, pattern_binding_reference_expressions,
+    PreparedPatternReferences, expression_uses_pattern_binding,
+    pattern_binding_reference_expressions,
     prepare_pattern_binding_references, resolved_pattern_binding_evidence,
 };
 use crate::expression::check_literal_values;
@@ -55,6 +56,11 @@ where
         );
     }
 
+    // Provisional checks need an owned enrichment while the caller retains its reusable input.
+    let pattern_input = pattern_input
+        .clone()
+        .with_declared_pattern_types(declared_types);
+
     let pending = match pattern_binding_reference_expressions(request) {
         Ok(pending) => pending,
         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
@@ -91,7 +97,7 @@ where
             }
         };
 
-        let patterns = match crate::pattern::check_patterns(request, &types, pattern_input) {
+        let patterns = match crate::pattern::check_patterns(request, &types, &pattern_input) {
             CheckerOutcome::Complete(result) => result.into_parts().0,
             CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
             CheckerOutcome::InfrastructureFailure(error) => {
@@ -261,7 +267,16 @@ where
         defer_return_operands(request, session.expressions(), prepared.deferred_mut());
     }
 
-    session.apply_input(&input)?;
+    let replaced_evidence = input
+        .evidence()
+        .iter()
+        .filter_map(|evidence| {
+            expression_uses_pattern_binding(request, evidence.expression())
+                .then_some(evidence.expression())
+        })
+        .collect::<BTreeSet<_>>();
+
+    session.apply_input_replacing_evidence(&input, &replaced_evidence)?;
     session.apply_input(operation_input)?;
 
     for evidence in supplemental_evidence {

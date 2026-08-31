@@ -157,14 +157,12 @@ func concurrency_model_atomic_wait_observes_notification()
     let value: std.atomic.Atomic<u32> = std.atomic.Atomic<u32>(0);
     let ready: std.atomic.Atomic<u32> = std.atomic.Atomic<u32>(0);
 
-    let mut waiting: std.thread.Thread<unit> = match std.thread.start<
-        (&std.atomic.Atomic<u32>, &std.atomic.Atomic<u32>),
-        unit
-    >(wait_for_atomic_change, (&value, &ready))
-    {
-        case Ok(created) { yield created; }
-        case Error(_) { panic("native atomic waiter creation failed"); }
-    };
+    let mut waiting: std.thread.Thread<unit> = std.testing.assert_ok<std.thread.Thread<unit>, std.thread.ThreadError>(
+        std.thread.start<(&std.atomic.Atomic<u32>, &std.atomic.Atomic<u32>), unit>(
+            wait_for_atomic_change,
+            (&value, &ready),
+        )
+    );
 
     let mut publishing: std.thread.Thread<unit> = match std.thread.start<
         (&std.atomic.Atomic<u32>, &std.atomic.Atomic<u32>),
