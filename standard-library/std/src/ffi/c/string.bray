@@ -15,7 +15,7 @@ struct BorrowedNarrowString
 
     func bytes() -> &[u8]
     {
-        let count: usize = std.bytes.slice_length(self.units);
+        let count: usize = self.units.length();
 
         return &self.units[0..count - 1];
     }
@@ -32,7 +32,7 @@ struct BorrowedNarrowString
 
     func decode_utf8() -> Result<string, StringError>
     {
-        match std.string.from_utf8(self.bytes())
+        match string.from_utf8(self.bytes())
         {
             case Ok(value) { return Ok(value); }
             case Error(_) { return Error(StringError.InvalidEncoding); }
@@ -42,7 +42,7 @@ struct BorrowedNarrowString
 
 internal func borrow_narrow_string(pos units: &[u8]) -> Result<BorrowedNarrowString, StringError>
 {
-    let count: usize = std.bytes.slice_length(units);
+    let count: usize = units.length();
 
     if count == 0 || units[count - 1] != 0
     {
@@ -106,7 +106,7 @@ struct OwnedNarrowString
     /// Encodes UTF-8 text as an owned NUL-terminated narrow C string.
     trusted construct from_utf8(pos value: &string) -> Result<Self, StringError>
     {
-        return OwnedNarrowString.from_bytes(std.string.utf8(value));
+        return OwnedNarrowString.from_bytes(value.as_bytes());
     }
 
     func borrow() -> BorrowedNarrowString
@@ -120,7 +120,7 @@ struct OwnedNarrowString
 
 internal func contains_nul(pos bytes: &[u8]) -> bool
 {
-    let count: usize = std.bytes.slice_length(bytes);
+    let count: usize = bytes.length();
     let mut index: usize = 0;
 
     while index < count

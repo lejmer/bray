@@ -2,13 +2,14 @@ module std.string;
 
 func exercise_text_operations(pos value: &string, pos bytes: &[u8])
 {
-    let count: usize = scalar_count(value);
-    let empty: bool = is_empty(value);
-    let equal: bool = equals(value, value);
-    let scalar: char? = scalar_at(value, index = 0);
-    let slice: string = scalar_slice(value, start = 0, end = count);
-    let encoded: &[u8] = utf8(value);
-    let decoded: Result<string, Utf8Error> = from_utf8(bytes);
-    let mut cursor: ScalarCursor = scalars(value);
+    let count: usize = value.length();
+    let observed_empty: bool = value.is_empty();
+    let scalar: char? = value.get(index = 0);
+    let slice: string = value.slice(start = 0, end = count);
+    let encoded: &[u8] = value.as_bytes();
+    let decoded: Result<string, Utf8Error> = string.from_utf8(bytes);
+    let mut cursor: ScalarCursor = value.characters();
     let next: char? = cursor(Iterator).next();
+    let same: bool = slice == "fixture";
+    let different: bool = slice != "fixture";
 }

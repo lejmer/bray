@@ -86,7 +86,7 @@ pub(super) fn validate_memory_operation(
         CheckedMemoryOperationKind::ByteBufferFill
         | CheckedMemoryOperationKind::ByteBufferCopy
         | CheckedMemoryOperationKind::ByteBufferRead
-        | CheckedMemoryOperationKind::SliceLength
+        | CheckedMemoryOperationKind::SequenceLength
         | CheckedMemoryOperationKind::CallbackState { .. }
         | CheckedMemoryOperationKind::Fence { .. }
         | CheckedMemoryOperationKind::CatastrophicAbort

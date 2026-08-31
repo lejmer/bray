@@ -10,7 +10,7 @@ func byte_slice_operations()
     let first: u8 = 65;
     let second: u8 = 66;
     let bytes: [u8; 2] = [first, second];
-    let length: usize = std.bytes.slice_length(&bytes[..]);
+    let length: usize = bytes[..].length();
     let equal: bool = std.bytes.equals(&bytes[..], &bytes[..]);
 
     assert(length == 2);

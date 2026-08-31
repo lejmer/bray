@@ -5,34 +5,75 @@ union Utf8Error
     InvalidEncoding;
 }
 
-extern func scalar_count(pos value: &string) -> usize;
+impl string
+{
+    func length() -> usize
+    {
+        return internal scalar_count(&self);
+    }
 
-extern func is_empty(pos value: &string) -> bool;
+    func is_empty() -> bool
+    {
+        return internal empty(&self);
+    }
 
-extern func equals(pos left: &string, pos right: &string) -> bool;
+    func get(index: usize) -> char?
+    {
+        return internal scalar_at(&self, index = index);
+    }
 
-extern func scalar_at(pos value: &string, index: usize) -> char?;
+    func slice(start: usize, end: usize) -> string
+    {
+        return internal scalar_slice(&self, start = start, end = end);
+    }
 
-extern func scalar_slice(pos value: &string, start: usize, end: usize) -> string;
+    func characters() -> ScalarCursor
+    {
+        return ScalarCursor
+        {
+            value = &self,
+            count = self.length(),
+        };
+    }
 
-extern func utf8(pos value: &string) -> &[u8];
+    func as_bytes() -> &[u8]
+    {
+        return internal utf8(&self);
+    }
 
-extern func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;
+    static func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>
+    {
+        return internal decode_utf8(bytes);
+    }
+}
+
+impl StringEquatable = string(Equatable<string>)
+{
+    func equals(pos rhs: &string) -> bool
+    {
+        return internal equal(&self, rhs);
+    }
+}
+
+extern internal func scalar_count(pos value: &string) -> usize;
+
+extern internal func empty(pos value: &string) -> bool;
+
+extern internal func equal(pos left: &string, pos right: &string) -> bool;
+
+extern internal func scalar_at(pos value: &string, index: usize) -> char?;
+
+extern internal func scalar_slice(pos value: &string, start: usize, end: usize) -> string;
+
+extern internal func utf8(pos value: &string) -> &[u8];
+
+extern internal func decode_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;
 
 struct ScalarCursor
 {
     value: &string;
     mut index: usize = 0;
     count: usize;
-}
-
-func scalars(pos value: &string) -> ScalarCursor
-{
-    return ScalarCursor
-    {
-        value = value,
-        count = scalar_count(value),
-    };
 }
 
 impl ScalarCursorIterator = ScalarCursor(Iterator)
@@ -55,7 +96,7 @@ impl ScalarCursorIterator = ScalarCursor(Iterator)
 
         self.index = next_index;
 
-        let scalar: char? = scalar_at(self.value, index = index);
+        let scalar: char? = self.value.get(index = index);
 
         return scalar;
     }

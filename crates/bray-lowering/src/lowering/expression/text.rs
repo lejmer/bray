@@ -1,8 +1,8 @@
-use bray_bound_tree::{BoundExpressionId, SelectedArgument};
+use bray_bound_tree::{BoundExpressionId, BoundOperator, SelectedArgument};
 use bray_compiler_known::ImplementationHook;
 use bray_ir::{
     MirBlockId, MirOperand, MirOperationKind, MirSourceAnchor, MirTextOperation,
-    MirTextOperationKind,
+    MirTextOperationKind, MirUnaryOperator,
 };
 
 use super::super::LoweringError;
@@ -38,6 +38,48 @@ pub(super) const fn text_operation_kind(hook: ImplementationHook) -> Option<MirT
 }
 
 impl Lowerer<'_> {
+    pub(super) fn lower_string_equality(
+        &mut self,
+        id: BoundExpressionId,
+        current: MirBlockId,
+        source: MirSourceAnchor,
+        operator: BoundOperator,
+        operand_type: bray_symbols::TypeId,
+        operands: [MirOperand; 2],
+    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        let result_type = self.expression_type(id)?;
+
+        let equal = self.push_typed_value_operation(
+            id,
+            current,
+            Self::retained_source(&source),
+            MirOperationKind::Text(MirTextOperation::new(
+                MirTextOperationKind::Equals,
+                operands,
+                [operand_type, operand_type],
+                Some(result_type),
+            )),
+            result_type,
+        )?;
+
+        if operator == BoundOperator::Equal {
+            return Ok((current, equal));
+        }
+
+        let not_equal = self.push_typed_value_operation(
+            id,
+            current,
+            Self::retained_source(&source),
+            MirOperationKind::Unary {
+                operator: MirUnaryOperator::Not,
+                operand: equal,
+            },
+            result_type,
+        )?;
+
+        Ok((current, not_equal))
+    }
+
     pub(super) fn lower_text_call(
         &mut self,
         id: BoundExpressionId,

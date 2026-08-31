@@ -131,7 +131,7 @@ impl CountingSinkFormatting = CountingSink(Sink<CountingSinkError>)
     mut func write(pos source: &[u8]) -> Result<unit, CountingSinkError>
         requires(blocking_execution())
     {
-        let count: usize = std.bytes.slice_length(source);
+        let count: usize = source.length();
 
         self.length = try checked_count(length = self.length, additional = count);
 
@@ -181,7 +181,7 @@ struct FixedSink
 
     construct(pos destination: &mut [u8]) -> Self
     {
-        let capacity: usize = internal std.memory.slice_length<u8>(&destination);
+        let capacity: usize = destination.length();
 
         return
         {
@@ -203,7 +203,7 @@ impl FixedSinkFormatting = FixedSink(Sink<FixedSinkError>)
     mut func write(pos source: &[u8]) -> Result<unit, FixedSinkError>
         requires(blocking_execution())
     {
-        let count: usize = std.bytes.slice_length(source);
+        let count: usize = source.length();
 
         try ensure_fixed_capacity(length = self.length, capacity = self.capacity, count = count);
 
@@ -304,7 +304,7 @@ impl TextSinkFormatting = TextSink(Sink<std.memory.MemoryLayoutError>)
 
 func text(pos sink: &TextSink) -> Result<string, std.string.Utf8Error>
 {
-    return std.string.from_utf8(bytes(&sink.bytes));
+    return string.from_utf8(bytes(&sink.bytes));
 }
 
 func text_bytes(pos sink: &mut TextSink) -> &mut ByteSink

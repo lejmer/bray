@@ -18,7 +18,7 @@ trusted internal func platform_set_current_thread_name(pos name: &string) -> Res
 
     let mut terminated: std.memory.RawBuffer<u8> = match trusted internal std.platform.terminated_native_text(
         internal std.memory.byte_slice_pointer(bytes),
-        length = std.bytes.slice_length(bytes) as u64,
+        length = bytes.length() as u64,
         terminator_bytes = 2,
     )
     {

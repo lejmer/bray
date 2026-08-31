@@ -519,7 +519,7 @@ mod tests {
             (CheckedMemoryOperationKind::ByteBufferFill, 3, false),
             (CheckedMemoryOperationKind::ByteBufferCopy, 3, false),
             (CheckedMemoryOperationKind::ByteBufferRead, 2, true),
-            (CheckedMemoryOperationKind::SliceLength, 1, true),
+            (CheckedMemoryOperationKind::SequenceLength, 1, true),
             (
                 CheckedMemoryOperationKind::VolatileRead {
                     pointee: ty,

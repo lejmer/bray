@@ -1,0 +1,21 @@
+catalog compiler_known revision 1;
+
+scope Ambient at ambient {
+    declaration SequenceSurface {
+        surface { internal struct SequenceSurface {} }
+    }
+
+    declaration SequenceLength {
+        owner SequenceSurface;
+        implementation SequenceLength;
+
+        surface { func length() -> usize {} }
+    }
+
+    declaration SequenceIsEmpty {
+        owner SequenceSurface;
+        implementation SequenceIsEmpty;
+
+        surface { func is_empty() -> bool {} }
+    }
+}

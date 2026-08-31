@@ -55,7 +55,7 @@ trusted internal func environment_storage() -> std.memory.RawBuffer<u8>
 
 trusted internal func environment_key_equals_span(pos left: &[u8], right: NativeTextSpan) -> bool
 {
-    let left_length: usize = internal std.memory.slice_length<u8>(left);
+    let left_length: usize = left.length();
     let right_length: usize = std.truncate_to<usize>(right.length);
 
     if right_length as u64 != right.length || left_length != right_length

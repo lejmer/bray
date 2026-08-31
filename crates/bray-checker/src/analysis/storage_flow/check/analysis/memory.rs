@@ -425,7 +425,7 @@ where
             CheckedMemoryOperationKind::ByteBufferFill
             | CheckedMemoryOperationKind::ByteBufferCopy
             | CheckedMemoryOperationKind::ByteBufferRead
-            | CheckedMemoryOperationKind::SliceLength
+            | CheckedMemoryOperationKind::SequenceLength
             | CheckedMemoryOperationKind::RawBufferCapacity
             | CheckedMemoryOperationKind::RawBufferInitializedCount
             | CheckedMemoryOperationKind::RawBufferPointer

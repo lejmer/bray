@@ -135,6 +135,12 @@ pub(crate) const fn representation_supports_operator(
     role: RepresentationRole,
     operator: BoundOperator,
 ) -> bool {
+    if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual)
+        && matches!(role, RepresentationRole::String)
+    {
+        return true;
+    }
+
     match operator {
         BoundOperator::LogicalNot | BoundOperator::LogicalAnd | BoundOperator::LogicalOr => {
             matches!(role, RepresentationRole::ScalarBool)
@@ -218,19 +224,14 @@ const fn representation_supports_operation(
             role.numeric_kind().is_some()
                 || matches!(
                     role,
-                    RepresentationRole::ScalarBool
-                        | RepresentationRole::ScalarChar
-                        | RepresentationRole::String
+                    RepresentationRole::ScalarBool | RepresentationRole::ScalarChar
                 )
         }
         CompilerKnownOperationRole::Comparison => {
             matches!(
                 role.numeric_kind(),
                 Some(NumericRepresentationKind::Integer | NumericRepresentationKind::Real)
-            ) || matches!(
-                role,
-                RepresentationRole::ScalarChar | RepresentationRole::String
-            )
+            ) || matches!(role, RepresentationRole::ScalarChar)
         }
         CompilerKnownOperationRole::BinaryMatrixMultiply
         | CompilerKnownOperationRole::PlainConversion
@@ -239,5 +240,53 @@ const fn representation_supports_operation(
         | CompilerKnownOperationRole::SliceIndex
         | CompilerKnownOperationRole::MutableSliceIndex
         | CompilerKnownOperationRole::BoxConstruction => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_compiler_known::{CompilerKnownOperationRole, RepresentationRole};
+
+    use super::representation_supports_operation;
+
+    #[test]
+    fn string_trait_satisfaction_requires_standard_library_implementations() {
+        assert!(!representation_supports_operation(
+            RepresentationRole::String,
+            CompilerKnownOperationRole::Equality,
+        ));
+
+        assert!(!representation_supports_operation(
+            RepresentationRole::String,
+            CompilerKnownOperationRole::Comparison,
+        ));
+
+        assert!(representation_supports_operation(
+            RepresentationRole::ScalarChar,
+            CompilerKnownOperationRole::Equality,
+        ));
+
+        assert!(representation_supports_operation(
+            RepresentationRole::ScalarChar,
+            CompilerKnownOperationRole::Comparison,
+        ));
+    }
+
+    #[test]
+    fn concrete_string_equality_remains_a_direct_operator() {
+        assert!(super::representation_supports_operator(
+            RepresentationRole::String,
+            bray_bound_tree::BoundOperator::Equal,
+        ));
+
+        assert!(super::representation_supports_operator(
+            RepresentationRole::String,
+            bray_bound_tree::BoundOperator::NotEqual,
+        ));
+
+        assert!(!super::representation_supports_operator(
+            RepresentationRole::String,
+            bray_bound_tree::BoundOperator::Less,
+        ));
     }
 }

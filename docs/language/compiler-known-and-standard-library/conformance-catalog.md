@@ -68,6 +68,16 @@ The compiler-provided inherent async member entries are:
 - `Task<T>.join()`,
 - `Task<T>.cancel()`.
 
+The compiler-provided structural sequence member entries are:
+
+- `[T; N].length()`,
+- `[T; N].is_empty()`,
+- `[T].length()`,
+- `[T].is_empty()`.
+
+The fixed-array members use the compile-time extent `N`. The slice members observe the runtime extent carried by the
+slice indirection.
+
 ## Static-storage conformance requirements
 
 Product-static and `@thread_local` static declarations are language declaration forms. They are not compiler-known
@@ -180,15 +190,24 @@ The recognized declarations under `std.string` are:
 
 - `Utf8Error`,
 - `Utf8Error.InvalidEncoding`,
-- `scalar_count(value)`,
-- `is_empty(value)`,
-- `equals(left, right)`,
-- `scalar_at(value, index)`,
-- `scalar_slice(value, start, end)`,
-- `utf8(value)`,
-- `from_utf8(bytes)`.
+- the inherent `impl string` and its `length`, `is_empty`, `get`, `slice`, `characters`, `as_bytes`, and static
+  `from_utf8` members,
+- `impl StringEquatable = string(Equatable<string>)` and its `equals` fulfillment,
+- the internal primitives `scalar_count`, `empty`, `equal`, `scalar_at`, `scalar_slice`, `utf8`, and `decode_utf8`,
+- `ScalarCursor`, `impl ScalarCursorIterator = ScalarCursor(Iterator)`, and its `next` fulfillment.
 
 `Utf8Error.InvalidEncoding` has ordinal zero.
+
+The recognized declarations under `std.character` are:
+
+- `Utf8Encoding`, its internal `bytes` and `length` fields, and its public `as_slice` member,
+- the inherent `impl char` and its `code_point`, static `from_code_point`, `encode_utf8`, `is_alphabetic`, `is_numeric`,
+  and `is_whitespace` members,
+- the internal primitives `scalar_value`, `from_scalar_value`, `utf8_length`, `utf8_byte`, `alphabetic`, `numeric`, and
+  `whitespace`.
+
+The public string and character members are ordinary Bray bodies. Their internal primitive calls carry the
+compiler-provided behavior; source spelling alone never receives that behavior.
 
 The recognized declarations under `std.memory` are:
 

@@ -117,7 +117,7 @@ trusted internal func temporal_text(
 
     let bytes: &[u8] = trusted std.memory.initialized_slice<u8>(&buffer);
 
-    match std.string.from_utf8(bytes)
+    match string.from_utf8(bytes)
     {
         case Ok(text) { return Ok(text); }
         case Error(_) { return Error(TimeError.Platform(error = internal std.io.invalid_transfer_error())); }

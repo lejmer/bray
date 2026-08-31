@@ -35,7 +35,7 @@ impl CountingWriterIo = CountingWriter(std.io.Writer)
     mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
         requires(blocking_execution())
     {
-        let requested: usize = std.bytes.slice_length(source);
+        let requested: usize = source.length();
         let accepted: usize = internal std.io.smaller(requested, self.limit);
 
         self.calls += 1;
@@ -120,7 +120,7 @@ impl RecoveringWriterIo = RecoveringWriter(std.io.Writer)
     mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
         requires(blocking_execution())
     {
-        let requested: usize = std.bytes.slice_length(source);
+        let requested: usize = source.length();
         let mut accepted: usize = requested;
 
         if self.fail_drain
@@ -181,7 +181,7 @@ impl CountingReaderIo = CountingReader(std.io.Reader)
     mut func read(pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
         requires(blocking_execution())
     {
-        let requested: usize = std.bytes.slice_length(&destination);
+        let requested: usize = destination.length();
         let available: usize = internal std.io.smaller(self.remaining, self.limit);
         let transferred: usize = internal std.io.smaller(requested, available);
 
@@ -207,11 +207,11 @@ func standard_output_is_captured()
 func standard_error_is_captured() -> Result<unit, std.io.IoError>
 {
     let text: string = "captured-standard-error";
-    let bytes: &[u8] = std.string.utf8(&text);
+    let bytes: &[u8] = text.as_bytes();
     let mut error: std.io.StandardError = std.io.standard_error();
     let written: usize = try error(std.io.Writer).write(bytes);
 
-    assert(written == std.bytes.slice_length(bytes));
+    assert(written == bytes.length());
 
     return error(std.io.Writer).flush();
 }

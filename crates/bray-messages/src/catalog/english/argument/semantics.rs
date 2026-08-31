@@ -411,7 +411,7 @@ pub(super) const fn format_english_memory_operation(
         DiagnosticMemoryOperation::ByteBufferFill => "byte buffer fill",
         DiagnosticMemoryOperation::ByteBufferCopy => "byte buffer copy",
         DiagnosticMemoryOperation::ByteBufferRead => "byte buffer read",
-        DiagnosticMemoryOperation::SliceLength => "slice length access",
+        DiagnosticMemoryOperation::SequenceLength => "sequence length access",
         DiagnosticMemoryOperation::VolatileRead => "volatile read",
         DiagnosticMemoryOperation::VolatileWrite => "volatile write",
         DiagnosticMemoryOperation::PointerExposeAddress => "pointer address exposure",

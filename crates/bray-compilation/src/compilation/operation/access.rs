@@ -161,19 +161,23 @@ impl Compilation {
             );
         }
 
-        let (
-            TypeData::Named {
-                definition,
-                substitution,
-            },
-            Some(BoundMemberSelector::Name(name)),
-        ) = (data.as_ref(), selector)
-        else {
+        let Some(BoundMemberSelector::Name(name)) = selector else {
             return Ok(None);
         };
 
+        let (definition, substitution) = match data.as_ref() {
+            TypeData::Named {
+                definition,
+                substitution,
+            } => (*definition, *substitution),
+            TypeData::Array { .. } | TypeData::Slice(_) => {
+                self.sequence_surface(binding_context)?
+            }
+            _ => return Ok(None),
+        };
+
         let surface = binding_context
-            .type_associated_surface(*definition)
+            .type_associated_surface(definition)
             .map_err(binding_query_error)?;
 
         *diagnostics = diagnostics.merged(surface.diagnostics());
@@ -210,7 +214,7 @@ impl Compilation {
                 let result_type = self.resolve_member_type(
                     binding_context,
                     SymbolQueryRequest::<StructFieldTypeQuery>::new(field),
-                    *substitution,
+                    substitution,
                     diagnostics,
                 )?;
 
@@ -225,7 +229,7 @@ impl Compilation {
             }
             member if CallableDefinitionId::try_new(member).is_some() => {
                 let member_substitution = match member_origin {
-                    TypeAssociatedMemberOrigin::Direct => *substitution,
+                    TypeAssociatedMemberOrigin::Direct => substitution,
                     TypeAssociatedMemberOrigin::InherentImplementation(implementation) => {
                         let contribution = surface
                             .value()
@@ -300,6 +304,26 @@ impl Compilation {
             [],
             operation,
         )))
+    }
+
+    fn sequence_surface(
+        &self,
+        binding_context: &CompilationBindingContext<'_>,
+    ) -> Result<(NamedTypeSymbolId, bray_symbols::GenericSubstitutionId), FactQueryError> {
+        let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new("SequenceSurface")
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let definition = self
+            .available_compiler_known_symbols()
+            .declaration_symbol::<bray_symbols::StructSymbolId>(&key)
+            .ok_or(FactQueryError::InfrastructureFailure)?;
+
+        let substitution = super::super::substitution::empty_substitution(
+            binding_context.semantic_values(),
+            definition.into(),
+        )?;
+
+        Ok((NamedTypeSymbolId::Struct(definition), substitution))
     }
 
     fn resolve_participating_trait_member_operation(

@@ -191,11 +191,11 @@ func main()
     let long: string =
         "Bray immutable text pipeline repeated across a deliberately long UTF-8 literal for stable throughput coverage.";
 
-    let long_bytes: &[u8] = std.string.utf8(&long);
-    let byte_count: usize = std.bytes.slice_length(long_bytes);
+    let long_bytes: &[u8] = long.as_bytes();
+    let byte_count: usize = long_bytes.length();
     let middle: &[u8] = &long_bytes[1.. byte_count - 1];
 
-    let decoded: Result<string, std.string.Utf8Error> = std.string.from_utf8(std.string.utf8(&"owned text"));
+    let decoded: Result<string, std.string.Utf8Error> = string.from_utf8("owned text".as_bytes());
 
     let owned: string = match consume decoded
     {
@@ -224,9 +224,9 @@ func main()
 
     let mut index: usize = 0;
 
-    assert(std.bytes.slice_length(middle) == byte_count - 2);
-    assert(std.string.equals(&literal, &duplicate));
-    assert(std.string.equals(&owned, &"owned text"));
+    assert(middle.length() == byte_count - 2);
+    assert(literal == duplicate);
+    assert(owned == "owned text");
     assert(std.hash.stable_hash(&literal) == std.hash.stable_hash(&duplicate));
     assert(std.hash.stable_hash(&literal) != std.hash.stable_hash(&long));
     assert(parsed_literal());
@@ -251,7 +251,7 @@ func main()
         case Error(_) { panic("escaped text formatting failed"); }
     }
 
-    assert(std.bytes.slice_length(std.format.bytes(&sink)) > 0);
+    assert(std.format.bytes(&sink).length() > 0);
 }
 "#,
         expected_output: ExpectedOutput::Empty,
@@ -291,7 +291,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
         value += 1;
     }
 
-    assert(std.bytes.slice_length(std.format.bytes(&sink)) == 2986);
+    assert(std.format.bytes(&sink).length() == 2986);
 
     return Ok(unit);
 }
@@ -343,7 +343,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     }
 
     let output: &[u8] = std.format.bytes(&sink);
-    let length: usize = std.bytes.slice_length(output);
+    let length: usize = output.length();
     let mut index: usize = 0;
 
     assert(length == 133120);
@@ -415,7 +415,7 @@ impl ValidatingWriterIo = ValidatingWriter(std.io.Writer)
     mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
         requires(blocking_execution())
     {
-        let count: usize = std.bytes.slice_length(source);
+        let count: usize = source.length();
         let mut index: usize = 0;
 
         while index < count

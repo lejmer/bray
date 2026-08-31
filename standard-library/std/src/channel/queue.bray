@@ -118,7 +118,7 @@ internal struct WaitQueue
         {
             let mut index: usize = self.head;
             let entries: &mut [WaiterEntry] = self.entries.as_slice_mut();
-            let length: usize = internal std.memory.slice_length<WaiterEntry>(&entries);
+            let length: usize = entries.length();
 
             while index < length
             {

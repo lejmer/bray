@@ -689,15 +689,6 @@ scope StandardMemory at std.memory {
         }
     }
 
-    declaration StandardMemorySliceLength {
-        identity name slice_length;
-        availability Allocation;
-        implementation SliceLength;
-
-        surface {
-            internal func slice_length<T>(pos values: &[T]) -> usize;
-        }
-    }
 }
 
 scope StandardRuntimeMemory at std.runtime.memory {

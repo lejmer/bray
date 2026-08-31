@@ -56,8 +56,8 @@ trusted internal func thread_storage_control_pointer<T>(
 
 internal func thread_name_contains_nul(pos name: &string) -> bool
 {
-    let bytes: &[u8] = std.string.utf8(name);
-    let count: usize = std.bytes.slice_length(bytes);
+    let bytes: &[u8] = name.as_bytes();
+    let count: usize = bytes.length();
     let mut index: usize = 0;
 
     while index < count

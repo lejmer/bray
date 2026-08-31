@@ -60,9 +60,9 @@ struct TimeZone
         let _: std.platform.PlatformStatus = trusted platform_time_zone_close(self.state.handle);
     }
 
-    func name() -> &string
+    func name() -> string
     {
-        return &self.state.name;
+        return self.state.name;
     }
 
     func database_version() -> string
@@ -164,9 +164,9 @@ struct ZonedDateTime
         return self.state.is_daylight_saving;
     }
 
-    func abbreviation() -> &string
+    func abbreviation() -> string
     {
-        return &self.state.abbreviation;
+        return self.state.abbreviation;
     }
 
     func add(pos period: CalendarPeriod, adjustment: DateAdjustment = Reject) -> Result<LocalTimeResolution, TimeError>

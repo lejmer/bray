@@ -16,3 +16,4 @@ recognized/run.braydef
 recognized/testing.braydef
 recognized/ffi.braydef
 ambient/capabilities.braydef
+ambient/sequence.braydef

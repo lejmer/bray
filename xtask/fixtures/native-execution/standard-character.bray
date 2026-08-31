@@ -2,11 +2,11 @@ module std.character;
 
 func exercise_character_operations(value: char, scalar: u32)
 {
-    let scalar_code: u32 = scalar_value(value = value);
-    let character: char? = from_scalar_value(value = scalar);
-    let encoded_length: usize = utf8_length(value = value);
-    let first_byte: u8 = utf8_byte(value = value, index = 0);
-    let alphabetic: bool = is_alphabetic(value = value);
-    let numeric: bool = is_numeric(value = value);
-    let whitespace: bool = is_whitespace(value = value);
+    let scalar_code: u32 = value.code_point();
+    let character: char? = char.from_code_point(scalar);
+    let encoding: Utf8Encoding = value.encode_utf8();
+    let encoded: &[u8] = encoding.as_slice();
+    let observed_alphabetic: bool = value.is_alphabetic();
+    let observed_numeric: bool = value.is_numeric();
+    let observed_whitespace: bool = value.is_whitespace();
 }

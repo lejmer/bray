@@ -2,10 +2,10 @@ module std.format;
 
 func matches_text_at(pos bytes: &[u8], pos expected: &string, offset: usize) -> bool
 {
-    let expected_bytes: &[u8] = std.string.utf8(expected);
-    let expected_count: usize = std.bytes.slice_length(expected_bytes);
+    let expected_bytes: &[u8] = expected.as_bytes();
+    let expected_count: usize = expected_bytes.length();
 
-    if offset + expected_count > std.bytes.slice_length(bytes)
+    if offset + expected_count > bytes.length()
     {
         return false;
     }
@@ -173,7 +173,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     try write(&mut sink, Argument<char>(&escaped_character, options = escaped_character_options));
     let formatted: &[u8] = bytes(&sink);
 
-    assert(std.bytes.slice_length(formatted) == 81, "formatted length differs");
+    assert(formatted.length() == 81, "formatted length differs");
     assert(matches_text_at(formatted, offset = 0, expected = &"Hello, world!|"), "string formatting differs");
     assert(matches_text_at(formatted, offset = 14, expected = &" true  |"), "boolean formatting differs");
     assert(matches_text_at(formatted, offset = 22, expected = &"42|"), "decimal formatting differs");

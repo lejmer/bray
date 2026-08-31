@@ -937,7 +937,7 @@ fn memory_operation_parts(
         CheckedMemoryOperationKind::ByteBufferFill => ("byte_buffer_fill", Vec::new()),
         CheckedMemoryOperationKind::ByteBufferCopy => ("byte_buffer_copy", Vec::new()),
         CheckedMemoryOperationKind::ByteBufferRead => ("byte_buffer_read", Vec::new()),
-        CheckedMemoryOperationKind::SliceLength => ("slice_length", Vec::new()),
+        CheckedMemoryOperationKind::SequenceLength => ("sequence_length", Vec::new()),
         CheckedMemoryOperationKind::CallbackState { state } => {
             ("callback_state", vec![("state", state)])
         }

@@ -1299,7 +1299,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 element: self.ty()?,
             }),
             24 => Ok(Kind::ByteBufferRead),
-            25 => Ok(Kind::SliceLength),
+            25 => Ok(Kind::SequenceLength),
             26 => Ok(Kind::CallbackState { state: self.ty()? }),
             27 => Ok(Kind::ByteBufferCopy),
             28 => Ok(Kind::VolatileRead {

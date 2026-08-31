@@ -37,7 +37,7 @@ impl DefaultMemberSinkFormatting = DefaultMemberSink(std.format.Sink<std.format.
     mut func write(pos source: &[u8]) -> Result<unit, std.format.CountingSinkError>
         requires(blocking_execution())
     {
-        self.length += std.bytes.slice_length(source);
+        self.length += source.length();
         self.writes += 1;
 
         return Ok(unit);
@@ -71,7 +71,7 @@ trusted func assert_default_integer_format<Value>(
 
     try trusted std.format.write<Value>(&mut sink, std.format.Argument<Value>(value));
 
-    assert(std.bytes.equals(std.format.bytes(&sink), std.string.utf8(&expected)));
+    assert(std.bytes.equals(std.format.bytes(&sink), expected.as_bytes()));
 
     return Ok(unit);
 }
@@ -162,7 +162,7 @@ trusted func wide_integer_formatting_is_total() -> Result<unit, std.memory.Memor
 
     let expected_decimal: string = "-170141183460469231731687303715884105728";
 
-    assert(std.bytes.equals(std.format.bytes(&decimal_sink), std.string.utf8(&expected_decimal)));
+    assert(std.bytes.equals(std.format.bytes(&decimal_sink), expected_decimal.as_bytes()));
 
     let hexadecimal_options: std.format.Options = std.format.Options(
         radix = std.format.Radix.HexadecimalLowercase,
@@ -184,7 +184,7 @@ trusted func wide_integer_formatting_is_total() -> Result<unit, std.memory.Memor
 
     let expected_hexadecimal: string = "-80000000000000000000000000000000";
 
-    assert(std.bytes.equals(std.format.bytes(&hexadecimal_sink), std.string.utf8(&expected_hexadecimal)));
+    assert(std.bytes.equals(std.format.bytes(&hexadecimal_sink), expected_hexadecimal.as_bytes()));
 
     let maximum: u128 = 340282366920938463463374607431768211455;
     let mut maximum_sink: std.format.ByteSink = try std.format.ByteSink(capacity = 32);
@@ -207,7 +207,7 @@ trusted func wide_integer_formatting_is_total() -> Result<unit, std.memory.Memor
 
     let expected_maximum: string = "ffffffffffffffffffffffffffffffff";
 
-    assert(std.bytes.equals(std.format.bytes(&maximum_sink), std.string.utf8(&expected_maximum)));
+    assert(std.bytes.equals(std.format.bytes(&maximum_sink), expected_maximum.as_bytes()));
 
     return Ok(unit);
 }
@@ -505,7 +505,7 @@ impl RecordingWriterIo = RecordingWriter(std.io.Writer)
     mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>
         requires(blocking_execution())
     {
-        let length: usize = std.bytes.slice_length(source);
+        let length: usize = source.length();
         let mut index: usize = 0;
 
         while index < length

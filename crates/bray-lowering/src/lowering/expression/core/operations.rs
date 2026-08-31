@@ -6,6 +6,7 @@ use bray_bound_tree::{
     SelectedArgument, SelectedOperation, SemanticSelection, StorageAccessPurpose, StorageIdentity,
     StorageIdentityId,
 };
+use bray_compiler_known::RepresentationRole;
 use bray_ir::{
     MirBinaryOperator, MirBlockId, MirBlockKind, MirCall, MirCallArgument, MirCallIntrinsic,
     MirCallTarget, MirCallableReference, MirEdge, MirImmediateValue, MirOperand, MirOperationKind,
@@ -405,6 +406,7 @@ impl Lowerer<'_> {
             operator,
             selection,
             result_type,
+            left_type,
             left,
             right,
             current,
@@ -424,6 +426,7 @@ impl Lowerer<'_> {
         operator: BoundOperator,
         selection: OperatorTarget,
         result_type: TypeId,
+        operand_type: TypeId,
         left: MirOperand,
         right: MirOperand,
         current: MirBlockId,
@@ -431,6 +434,19 @@ impl Lowerer<'_> {
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
         match selection {
             OperatorTarget::BuiltIn(_) => {
+                if matches!(operator, BoundOperator::Equal | BoundOperator::NotEqual)
+                    && self.type_representation(operand_type)? == Some(RepresentationRole::String)
+                {
+                    return self.lower_string_equality(
+                        id,
+                        current,
+                        source,
+                        operator,
+                        operand_type,
+                        [left, right],
+                    );
+                }
+
                 let operator =
                     binary_operator(operator).ok_or(LoweringError::UnsupportedOperator {
                         expression: id,
@@ -700,6 +716,7 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let source = self.expression_source(id)?;
+        let operand_type = destination.ty();
 
         let left = match selection {
             OperatorTarget::BuiltIn(_) => MirOperand::Copy(destination),
@@ -741,6 +758,7 @@ impl Lowerer<'_> {
             operator,
             selection,
             result_type,
+            operand_type,
             left,
             right,
             current,
@@ -809,6 +827,12 @@ impl Lowerer<'_> {
             .cloned()
         {
             return self.lower_memory_call(id, current, source, &selection, operation);
+        }
+
+        if let Some(hook) = selection.implementation_hook()
+            && let Some(kind) = super::super::sequence::sequence_operation_kind(hook)
+        {
+            return self.lower_sequence_call(id, current, source, &selection, kind);
         }
 
         if let Some(hook) = selection.implementation_hook()

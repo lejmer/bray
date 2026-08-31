@@ -22,7 +22,7 @@ struct Buffer
     /// Copies a byte slice into an owned buffer.
     trusted construct from_slice(pos bytes: &[u8]) -> Result<Self, std.memory.MemoryLayoutError>
     {
-        let byte_count: usize = internal std.memory.slice_length<u8>(bytes);
+        let byte_count: usize = bytes.length();
 
         if byte_count == 0
         {
@@ -64,16 +64,11 @@ func capacity(pos buffer: &Buffer) -> usize
     return std.memory.capacity<u8>(&buffer.storage);
 }
 
-func slice_length(pos bytes: &[u8]) -> usize
-{
-    return internal std.memory.slice_length<u8>(bytes);
-}
-
 func equals(pos left: &[u8], pos right: &[u8]) -> bool
 {
-    let count: usize = slice_length(left);
+    let count: usize = left.length();
 
-    if count != slice_length(right)
+    if count != right.length()
     {
         return false;
     }
@@ -189,7 +184,7 @@ trusted internal func append_slice(
     pos bytes: &[u8],
 ) -> Result<unit, std.memory.MemoryLayoutError>
 {
-    let byte_count: usize = internal std.memory.slice_length<u8>(bytes);
+    let byte_count: usize = bytes.length();
 
     if byte_count == 0
     {

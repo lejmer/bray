@@ -18,6 +18,8 @@ Bray's standard library is the ordinary `std` package. It provides public module
 
 For text output, pass string directly to print or print_line and handle their IoError result only when needed. Call `writer.write_all`, `reader.read_exact`, or their async methods to complete an entire borrowed byte range with exact failure progress. These are default trait methods over the individual partial-transfer operations. Buffered streams coalesce small writes, bypass empty buffers for transfers at least as large as their capacity, and flush only when requested. I/O that can block requires blocking_execution(). See [I/O and platform services][io-platform] for detailed transfer, synchronization, and cleanup rules.
 
+Use `string` methods for text: `length`, `is_empty`, `get`, `slice`, `characters`, and `as_bytes`; construct validated text with `string.from_utf8`. Characters expose `code_point`, `char.from_code_point`, `encode_utf8`, and Unicode classification methods. `encode_utf8` returns `std.character.Utf8Encoding`; borrow its initialized bytes with `as_slice`.
+
 Import `std.iteration.IteratorDefaultOperations` to use `first`, `nth`, `take`, `skip`, and `enumerate` as methods on any iterator. `OrderedSequence` supplies its search and sort algorithms as default members, and `std.numeric.Integer` supplies checked arithmetic from its required named `IntegerBounds` contract.
 
 For shared mutable state, use `std.sync` guards or `std.atomic` operations. Synchronous waits require `blocking_execution()` and defer pending cancellation to the next checkpoint. Use `std.channel.bounded<T>` for cancellation-safe async transfer with explicit backpressure, including capacity-zero rendezvous.

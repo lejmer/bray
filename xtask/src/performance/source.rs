@@ -136,7 +136,7 @@ impl CapturedOutputWriter = CapturedOutput(std.io.Writer)
     {
         match trusted std.bytes.append(buffer = &mut self.bytes, bytes = source)
         {
-            case Ok(_) { return Ok(std.bytes.slice_length(source)); }
+            case Ok(_) { return Ok(source.length()); }
             case Error(_) { panic("captured output storage must remain available"); }
         }
     }

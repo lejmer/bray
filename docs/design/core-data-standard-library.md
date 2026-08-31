@@ -105,7 +105,7 @@ The text surface uses `&string` as its borrowed text view and `&[u8]` as its bor
 introduce `StringView`, `TextView`, `ByteView`, or index-wrapper types that add no invariant beyond those structural
 forms. Scalar positions and UTF-8 byte offsets use `usize` and remain distinguished by the operation that accepts them.
 
-The recognized declarations have these exact signatures:
+The public text surface has these exact signatures:
 
 ```bray
 module std.string;
@@ -115,25 +115,33 @@ union Utf8Error
     InvalidEncoding;
 }
 
-extern func scalar_count(pos value: &string) -> usize;
+impl string
+{
+    func length() -> usize;
+    func is_empty() -> bool;
+    func get(index: usize) -> char?;
+    func slice(start: usize, end: usize) -> string;
+    func characters() -> ScalarCursor;
+    func as_bytes() -> &[u8];
+    static func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;
+}
 
-extern func is_empty(pos value: &string) -> bool;
+impl StringEquatable = string(Equatable<string>)
+{
+    func equals(pos rhs: &string) -> bool;
+}
 
-extern func equals(pos left: &string, pos right: &string) -> bool;
-
-extern func scalar_at(pos value: &string, index: usize) -> char?;
-
-extern func scalar_slice(pos value: &string, start: usize, end: usize) -> string;
-
-extern func utf8(pos value: &string) -> &[u8];
-
-extern func from_utf8(pos bytes: &[u8]) -> Result<string, Utf8Error>;
 ```
 
-`scalar_at` returns `none` when `index` is outside the scalar sequence. `scalar_slice` uses the half-open scalar range
-`[start, end)`, allocates an owning result, and panics when `start > end` or either bound exceeds `scalar_count(value)`.
-`utf8` returns a view dependent on `value`. `from_utf8` returns `Utf8Error.InvalidEncoding` for malformed UTF-8 and
-otherwise constructs an owning `string` whose scalar sequence is the decoded input.
+`get` returns `none` when `index` is outside the scalar sequence. `slice` uses the half-open scalar range `[start, end)`,
+allocates an owning result, and panics when `start > end` or either bound exceeds `length()`. `as_bytes` returns a view
+dependent on the receiver. `from_utf8` returns `Utf8Error.InvalidEncoding` for malformed UTF-8 and otherwise constructs
+an owning `string` whose scalar sequence is the decoded input. `Equatable<string>` defines ordinary `==` and `!=`
+behavior for strings.
+
+These methods are ordinary Bray bodies over internal recognized primitives. The primitives retain the compiler hooks
+for scalar counting, emptiness, equality, scalar access and slicing, UTF-8 byte observation, and validated decoding;
+they are not part of the public API.
 
 Scalar iteration uses one public cursor identity and an ordinary named implementation:
 
@@ -141,8 +149,6 @@ Scalar iteration uses one public cursor identity and an ordinary named implement
 module std.string;
 
 struct ScalarCursor;
-
-func scalars(pos value: &string) -> ScalarCursor;
 
 impl ScalarCursorIterator = ScalarCursor(Iterator)
 {
@@ -152,35 +158,40 @@ impl ScalarCursorIterator = ScalarCursor(Iterator)
 }
 ```
 
-The cursor representation is private. The value returned by `scalars` carries the dependency of `value`, advances in
-Unicode scalar order, and remains exhausted after returning `none`. Byte iteration uses the slice returned by `utf8` and
-the ordinary slice iteration contract rather than a second string-specific byte cursor.
+The cursor representation is private. The value returned by `characters` carries the dependency of its receiver,
+advances in Unicode scalar order, and remains exhausted after returning `none`. Byte iteration uses the slice returned
+by `as_bytes` and the ordinary slice iteration contract rather than a second string-specific byte cursor.
 
 The `std.character` surface is:
 
 ```bray
 module std.character;
 
-extern func scalar_value(value: char) -> u32;
+struct Utf8Encoding
+{
+    internal bytes: [u8; 4];
+    internal length: usize;
 
-extern func from_scalar_value(value: u32) -> char?;
+    func as_slice() -> &[u8];
+}
 
-extern func utf8_length(value: char) -> usize;
-
-extern func utf8_byte(value: char, index: usize) -> u8;
-
-extern func is_alphabetic(value: char) -> bool;
-
-extern func is_numeric(value: char) -> bool;
-
-extern func is_whitespace(value: char) -> bool;
+impl char
+{
+    func code_point() -> u32;
+    static func from_code_point(pos value: u32) -> char?;
+    func encode_utf8() -> Utf8Encoding;
+    func is_alphabetic() -> bool;
+    func is_numeric() -> bool;
+    func is_whitespace() -> bool;
+}
 ```
 
-`from_scalar_value` returns `none` for values that are not Unicode scalar values. The character-classification contract
-uses Unicode 17.0.0 and is independent of the host locale. The selected standard-library artifact owns the exact data
-used by these operations. Changing the classification data requires rebuilt standard-library artifacts, so an unchanged
-artifact cannot silently acquire new classification behavior from a host toolchain update. Case conversion and
-normalization remain separate policy-bearing additions because one input scalar can produce multiple output scalars.
+`from_code_point` returns `none` for values that are not Unicode scalar values. `encode_utf8` returns a value containing
+exactly one character's UTF-8 encoding; `as_slice` exposes only its initialized prefix. The character-classification
+contract uses Unicode 17.0.0 and is independent of the host locale. The selected standard-library artifact owns the
+exact data used by these operations. Changing the classification data requires rebuilt standard-library artifacts, so
+an unchanged artifact cannot silently acquire new classification behavior from a host toolchain update. Case conversion
+and normalization remain separate policy-bearing additions because one input scalar can produce multiple output scalars.
 
 The standard-library artifact metadata records the Unicode data version, the digests of every Unicode Character Database
 input, and the revision of the deterministic table generator. Generated tables are checked against those identities

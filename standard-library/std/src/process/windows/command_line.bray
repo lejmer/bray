@@ -7,7 +7,7 @@ trusted internal func windows_command_line(
 ) -> Result<std.memory.RawBuffer<u8>, std.platform.PlatformStatus>
 {
     let mut units: usize = try internal quoted_windows_units(executable);
-    let count: usize = internal std.memory.slice_length<PlatformNativeText>(arguments);
+    let count: usize = arguments.length();
     let mut index: usize = 0;
 
     while index < count

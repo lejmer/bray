@@ -8,6 +8,7 @@ mod numeric;
 mod operand;
 mod projection;
 mod run;
+mod sequence;
 mod static_access;
 mod testing;
 mod text;

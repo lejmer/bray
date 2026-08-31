@@ -7,23 +7,22 @@ using std.testing;
 func character_operations()
 {
     let value: char = 'é';
-    let scalar: u32 = std.character.scalar_value(value = value);
-    let encoded_length: usize = std.character.utf8_length(value = value);
-    let first_byte: u8 = std.character.utf8_byte(value = value, index = 0);
-    let second_byte: u8 = std.character.utf8_byte(value = value, index = 1);
-    let alphabetic: bool = std.character.is_alphabetic(value = value);
-    let numeric: bool = std.character.is_numeric(value = value);
-    let whitespace: bool = std.character.is_whitespace(value = value);
+    let scalar: u32 = value.code_point();
+    let encoding: std.character.Utf8Encoding = value.encode_utf8();
+    let encoded: &[u8] = encoding.as_slice();
+    let alphabetic: bool = value.is_alphabetic();
+    let numeric: bool = value.is_numeric();
+    let whitespace: bool = value.is_whitespace();
 
     assert(scalar == 233);
-    assert(encoded_length == 2);
-    assert(first_byte == 195);
-    assert(second_byte == 169);
+    assert(encoded.length() == 2);
+    assert(encoded[0] == 195);
+    assert(encoded[1] == 169);
     assert(alphabetic);
     assert(!numeric);
     assert(!whitespace);
 
-    let decoded: char? = std.character.from_scalar_value(value = scalar);
+    let decoded: char? = char.from_code_point(scalar);
 
     let character: char = std.testing.assert_present<char>(decoded);
 
@@ -35,21 +34,25 @@ func character_boundaries()
 {
     let ascii: char = 'A';
     let supplementary: char = '😀';
+    let ascii_encoding: std.character.Utf8Encoding = ascii.encode_utf8();
+    let supplementary_encoding: std.character.Utf8Encoding = supplementary.encode_utf8();
+    let ascii_bytes: &[u8] = ascii_encoding.as_slice();
+    let supplementary_bytes: &[u8] = supplementary_encoding.as_slice();
 
-    assert(std.character.utf8_length(value = ascii) == 1);
-    assert(std.character.utf8_byte(value = ascii, index = 0) == 65);
-    assert(std.character.utf8_length(value = supplementary) == 4);
-    assert(std.character.utf8_byte(value = supplementary, index = 0) == 240);
-    assert(std.character.utf8_byte(value = supplementary, index = 1) == 159);
-    assert(std.character.utf8_byte(value = supplementary, index = 2) == 152);
-    assert(std.character.utf8_byte(value = supplementary, index = 3) == 128);
-    assert(std.character.is_numeric(value = '7'));
-    assert(std.character.is_numeric(value = '٧'));
-    assert(std.character.is_alphabetic(value = '界'));
-    assert(std.character.is_whitespace(value = ' '));
-    assert(std.character.is_whitespace(value = ' '));
+    assert(ascii_bytes.length() == 1);
+    assert(ascii_bytes[0] == 65);
+    assert(supplementary_bytes.length() == 4);
+    assert(supplementary_bytes[0] == 240);
+    assert(supplementary_bytes[1] == 159);
+    assert(supplementary_bytes[2] == 152);
+    assert(supplementary_bytes[3] == 128);
+    assert('7'.is_numeric());
+    assert('٧'.is_numeric());
+    assert('界'.is_alphabetic());
+    assert(' '.is_whitespace());
+    assert(' '.is_whitespace());
 
-    let invalid: char? = std.character.from_scalar_value(value = 1114112);
+    let invalid: char? = char.from_code_point(1114112);
 
     std.testing.assert_absent<char>(invalid);
 }
