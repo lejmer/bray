@@ -93,7 +93,7 @@ impl Compilation {
 
             for operand in std::iter::once(subject).chain(arguments.iter().copied()) {
                 built_in |= bray_checker::built_in_operator_supported(&context, operand, operator)
-                    .map_err(FactQueryError::CheckerInfrastructure)?;
+                    .map_err(FactQueryError::from)?;
             }
 
             if built_in {

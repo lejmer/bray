@@ -3,14 +3,15 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, OnceLock};
 
-use bray_binder::{BindingQueryContext, BindingQueryError, SymbolQueryProvider};
+use bray_binder::{
+    BindingQueryContext, BindingQueryError, SymbolQueryErrorProvider, SymbolQueryProvider,
+};
 use bray_bound_tree::{BoundSourceAnchor, BoundUnit, BoundUnitKey};
 use bray_checker::{
-    CheckedConstantTerms, CheckerInfrastructureError, CheckerOutcome, CheckerQueryError,
-    CheckerQueryResult, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerSource,
-    DefaultTargetValidityChecker, ImplementationHookResolution, TargetValidity,
-    TargetValidityChecker, TargetValidityContext, TargetValidityRequest,
-    resolve_type_expression_template,
+    CheckedConstantTerms, CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerSource, DefaultTargetValidityChecker,
+    ImplementationHookResolution, TargetValidity, TargetValidityChecker, TargetValidityContext,
+    TargetValidityRequest, resolve_type_expression_template,
 };
 use bray_compiler_known::{
     COMPILER_KNOWN_CATALOG, RecognizedStandardLibraryDeclarationDescriptor,
@@ -26,9 +27,9 @@ use bray_symbols::{
     GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationInstanceId,
     ImplementationRequirementKey, ImplementationSelection, MemberLookupResult, NamedTypeSymbolId,
     PackageIdentity, SemanticValueStore, StructSymbol, StructSymbolId, SymbolName,
-    SymbolQueryContract, SymbolQueryRequest, TraitApplicationId, TraitSymbolId,
-    SymbolRelationshipKind, TraitTypeMemberSymbolId, TypeId, UnionSymbol, UnionSymbolId,
-    UnionVariantSymbol, UnionVariantSymbolId, catalog_declaration_symbol_kind,
+    SymbolQueryContract, SymbolQueryRequest, SymbolRelationshipKind, TraitApplicationId,
+    TraitSymbolId, TraitTypeMemberSymbolId, TypeId, UnionSymbol, UnionSymbolId, UnionVariantSymbol,
+    UnionVariantSymbolId, catalog_declaration_symbol_kind,
 };
 use bray_target::{TargetAtomicRepresentation, TargetProfile};
 
@@ -40,6 +41,9 @@ use super::implementation::{
 };
 use super::standard_library::source_standard_library_scope_owner;
 use crate::fact::{CancellationToken, FactQueryError};
+
+type CheckerQueryError = bray_checker::CheckerQueryError<FactQueryError>;
+type CheckerQueryResult<T> = bray_checker::CheckerQueryResult<T, FactQueryError>;
 
 pub(super) struct CompilationCheckerContext<'compilation> {
     binding_context: CompilationBindingContext<'compilation>,
@@ -143,9 +147,13 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
             ))
             .map_err(|error| match error {
                 BindingQueryError::Cancelled => CheckerQueryError::Cancelled,
-                BindingQueryError::DependencyUnavailable => CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
-                ),
+                BindingQueryError::CheckerInfrastructure(error) => {
+                    CheckerQueryError::Infrastructure(error)
+                }
+                BindingQueryError::DependencyUnavailable => {
+                    CheckerQueryError::Upstream(FactQueryError::BindingDependencyUnavailable)
+                }
+                BindingQueryError::Upstream(error) => CheckerQueryError::Upstream(error),
             })?;
 
         for constraint in generic.value().constraints() {
@@ -216,7 +224,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         self.recognized_standard_library_implementations
             .get_or_init(|| self.build_recognized_standard_library_implementations())
             .as_ref()
-            .map_err(|error| *error)
+            .map_err(Clone::clone)
     }
 
     fn build_recognized_standard_library_implementations(
@@ -388,6 +396,8 @@ fn standard_library_package_identity() -> CheckerQueryResult<PackageIdentity> {
 }
 
 impl CheckerRequestContext for CompilationCheckerContext<'_> {
+    type UpstreamError = FactQueryError;
+
     fn semantic_context_matches(
         &self,
         unit: &BoundUnit,
@@ -678,35 +688,10 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
 }
 
 pub(in crate::compilation) fn checker_query_error(error: FactQueryError) -> CheckerQueryError {
-    query_error_with_fallback(error, CheckerInfrastructureError::SemanticValueUnavailable)
-}
-
-pub(in crate::compilation) fn query_error_with_fallback(
-    error: FactQueryError,
-    fallback: CheckerInfrastructureError,
-) -> CheckerQueryError {
     match error {
         FactQueryError::Cancelled => CheckerQueryError::Cancelled,
         FactQueryError::CheckerInfrastructure(error) => CheckerQueryError::Infrastructure(error),
-        FactQueryError::AtomicInitializerArgumentUnavailable => CheckerQueryError::Infrastructure(
-            CheckerInfrastructureError::AtomicInitializerArgumentUnavailable,
-        ),
-        FactQueryError::AtomicInitializerResultUnavailable => CheckerQueryError::Infrastructure(
-            CheckerInfrastructureError::AtomicInitializerResultUnavailable,
-        ),
-        FactQueryError::UninitInitializerResultUnavailable => CheckerQueryError::Infrastructure(
-            CheckerInfrastructureError::UninitInitializerResultUnavailable,
-        ),
-        FactQueryError::ImportedExecutableTemplateMismatch => CheckerQueryError::Infrastructure(
-            CheckerInfrastructureError::ImportedExecutableTemplateMismatch,
-        ),
-        FactQueryError::Cycle(_)
-        | FactQueryError::InfrastructureFailure
-        | FactQueryError::ConstantCallableBodyUnavailable
-        | FactQueryError::ConstantCallableRootUnavailable
-        | FactQueryError::SemanticUnitContext(_)
-        | FactQueryError::LoweringInput(_)
-        | FactQueryError::Lowering(_) => CheckerQueryError::Infrastructure(fallback),
+        error => CheckerQueryError::Upstream(error),
     }
 }
 
@@ -787,19 +772,22 @@ fn checker_syntax_source(
     Ok(CheckerSource::new(span, text))
 }
 
-fn checker_binder_error(error: BindingQueryError) -> CheckerQueryError {
+fn checker_binder_error(error: BindingQueryError<FactQueryError>) -> CheckerQueryError {
     match error {
         BindingQueryError::Cancelled => CheckerQueryError::Cancelled,
+        BindingQueryError::CheckerInfrastructure(error) => CheckerQueryError::Infrastructure(error),
         BindingQueryError::DependencyUnavailable => {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+            CheckerQueryError::Upstream(FactQueryError::BindingDependencyUnavailable)
         }
+        BindingQueryError::Upstream(error) => CheckerQueryError::Upstream(error),
     }
 }
 
 impl<'compilation, C> CheckerSemanticQueryProvider<C> for CompilationCheckerContext<'compilation>
 where
     C: SymbolQueryContract,
-    CompilationBindingContext<'compilation>: SymbolQueryProvider<C>,
+    CompilationBindingContext<'compilation>:
+        SymbolQueryErrorProvider<UpstreamError = FactQueryError> + SymbolQueryProvider<C>,
 {
     fn resolve_symbol_query(
         &self,
@@ -811,12 +799,16 @@ where
             .resolve_symbol_query(request)
             .map_err(|error| match error {
                 BindingQueryError::Cancelled => CheckerQueryError::Cancelled,
+                BindingQueryError::CheckerInfrastructure(error) => {
+                    CheckerQueryError::Infrastructure(error)
+                }
                 BindingQueryError::DependencyUnavailable => CheckerQueryError::Infrastructure(
                     CheckerInfrastructureError::SemanticQueryUnavailable {
                         symbol: request.symbol(),
                         kind: request.kind(),
                     },
                 ),
+                BindingQueryError::Upstream(error) => CheckerQueryError::Upstream(error),
             })
     }
 }
@@ -878,15 +870,19 @@ impl Compilation {
     }
 }
 
-pub(in crate::compilation) fn checker_result<T>(
-    outcome: CheckerOutcome<T>,
-) -> Result<DiagnosticResult<T>, FactQueryError> {
+pub(in crate::compilation) fn checker_result<T, Upstream>(
+    outcome: CheckerOutcome<T, Upstream>,
+) -> Result<DiagnosticResult<T>, FactQueryError>
+where
+    Upstream: Into<FactQueryError>,
+{
     match outcome {
         CheckerOutcome::Complete(result) => Ok(result),
         CheckerOutcome::Cancelled => Err(FactQueryError::Cancelled),
         CheckerOutcome::InfrastructureFailure(error) => {
             Err(FactQueryError::CheckerInfrastructure(error))
         }
+        CheckerOutcome::UpstreamFailure(error) => Err(error.into()),
     }
 }
 
@@ -907,9 +903,26 @@ mod tests {
         CallableSignatureQuery, CallableSymbolId, PackageIdentity, SymbolOrigin, SymbolQueryRequest,
     };
 
-    use super::{Compilation, is_public_standard_library_source};
-    use crate::fact::CompilationFactKey;
+    use super::{
+        Compilation, checker_query_error, checker_result, is_public_standard_library_source,
+    };
+    use crate::fact::{CompilationFactKey, FactQueryError};
     use crate::request::CompilationRequest;
+
+    #[test]
+    fn checker_boundaries_preserve_exact_compilation_failures() {
+        let error = FactQueryError::Binding(bray_binder::BoundUnitBindingError::MissingOwner);
+
+        assert_eq!(
+            checker_query_error(error.clone()),
+            bray_checker::CheckerQueryError::Upstream(error.clone()),
+        );
+
+        assert_eq!(
+            checker_result::<(), _>(bray_checker::CheckerOutcome::UpstreamFailure(error.clone())),
+            Err(error),
+        );
+    }
     use crate::test_support::{compilation, source_callable_body_key, source_input};
 
     #[test]

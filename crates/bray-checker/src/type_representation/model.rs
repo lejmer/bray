@@ -292,6 +292,9 @@ impl DeclaredTypeDefinition {
 
 /// Dependencies used while checking declared type representation contracts.
 pub trait TypeRepresentationContext: Sync {
+    /// Exact failures owned by the coordinating query layer.
+    type UpstreamError;
+
     /// Returns the maximum active recursion depth for this request.
     fn maximum_recursion_depth(&self) -> usize;
 
@@ -305,13 +308,16 @@ pub trait TypeRepresentationContext: Sync {
     fn type_definition(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> CheckerQueryResult<DiagnosticResult<DeclaredTypeDefinition>>;
+    ) -> CheckerQueryResult<DiagnosticResult<DeclaredTypeDefinition>, Self::UpstreamError>;
 
     /// Returns an imported representation contract when the subject is dependency-owned.
     fn imported_type_representation(
         &self,
         subject: NamedTypeSymbolId,
-    ) -> CheckerQueryResult<DiagnosticResult<Option<bray_symbols::DeclaredTypeRepresentation>>>;
+    ) -> CheckerQueryResult<
+        DiagnosticResult<Option<bray_symbols::DeclaredTypeRepresentation>>,
+        Self::UpstreamError,
+    >;
 
     /// Resolves one directive expression to its exact source text.
     fn source(&self, syntax: SyntaxAnchor)
@@ -321,26 +327,26 @@ pub trait TypeRepresentationContext: Sync {
     fn unsigned_integer(
         &self,
         expression: DeclarationExpressionTemplate,
-    ) -> CheckerQueryResult<DiagnosticResult<Option<u64>>>;
+    ) -> CheckerQueryResult<DiagnosticResult<Option<u64>>, Self::UpstreamError>;
 
     /// Evaluates one union tag expression using its selected integer type.
     fn integer_constant(
         &self,
         expression: DeclarationExpressionTemplate,
         expected: Option<RepresentationIntegerType>,
-    ) -> CheckerQueryResult<DiagnosticResult<Option<IntegerConstant>>>;
+    ) -> CheckerQueryResult<DiagnosticResult<Option<IntegerConstant>>, Self::UpstreamError>;
 
     /// Resolves one directive expression as a built-in integer type.
     fn integer_type(
         &self,
         expression: DeclarationExpressionTemplate,
-    ) -> CheckerQueryResult<Option<RepresentationIntegerType>>;
+    ) -> CheckerQueryResult<Option<RepresentationIntegerType>, Self::UpstreamError>;
 
     /// Resolves one fixed-width integer representation role.
     fn integer_type_for_role(
         &self,
         role: RepresentationRole,
-    ) -> CheckerQueryResult<RepresentationIntegerType>;
+    ) -> CheckerQueryResult<RepresentationIntegerType, Self::UpstreamError>;
 
     /// Returns the cancellation source for this request.
     fn cancellation(&self) -> &dyn Cancellation;

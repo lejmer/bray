@@ -13,7 +13,7 @@ impl ExpressionBinder {
         &mut self,
         binder: &mut Binder<'_, C>,
         syntax: &LiteralExpressionSyntax,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {

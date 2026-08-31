@@ -2,10 +2,11 @@ mod failure;
 mod unsupported;
 
 pub use failure::{
-    DiagnosticEmissionArtifact, DiagnosticEmissionCodegenFailure,
-    DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure,
-    DiagnosticEmissionLinkPlanFailure, DiagnosticEmissionPlanningFailure,
-    DiagnosticEmissionStagingFailure, DiagnosticPackageInterfaceFailure,
+    DiagnosticBindingFailure, DiagnosticCheckerFailure, DiagnosticEmissionArtifact,
+    DiagnosticEmissionCodegenFailure, DiagnosticEmissionEvaluationFailure,
+    DiagnosticEmissionFailure, DiagnosticEmissionLinkPlanFailure,
+    DiagnosticEmissionPlanningFailure, DiagnosticEmissionStagingFailure,
+    DiagnosticPackageInterfaceFailure, DiagnosticSemanticValueFailure,
 };
 pub use unsupported::{
     DiagnosticHostEnvironmentVariable, DiagnosticLlvmToolRole, DiagnosticUnsupportedEmissionReason,

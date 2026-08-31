@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, DeclaredValueTypeConstraintKind,
-    DeclaredValueTypeEvidence, DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
+    BoundExpression, BoundExpressionId, DeclaredValueTypeConstraintKind, DeclaredValueTypeEvidence,
+    DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{TypeData, TypeId};
@@ -11,8 +11,8 @@ use super::template::{TemplateResolution, resolve_type_template};
 use crate::representation::representation_type;
 use crate::type_check::{SessionProgress, intrinsic_representation_role};
 use crate::{
-    CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView, ExpressionTypeEvidence,
-    ExpressionTypeExpectation, ExpressionTypeInput,
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
+    ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput,
 };
 
 pub(super) struct PreparedDeclaredTypes {
@@ -76,7 +76,7 @@ pub(super) fn prepare_declared_types<C>(
     request: CheckerUnitView<'_, C>,
     declared: &DeclaredValueTypeTemplates,
     supplemental: &[DeclaredValueTypeEvidence],
-) -> Result<SessionProgress<PreparedDeclaredTypes>, CheckerInfrastructureError>
+) -> Result<SessionProgress<PreparedDeclaredTypes>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -147,10 +147,9 @@ where
                 .type_data(declared_type)
                 .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-            initializes_nullable_from_present =
-                matches!((data.as_ref(), initializer_type), (TypeData::Nullable(contained), Some(actual)) if *contained == actual)
-                    || matches!(data.as_ref(), TypeData::Nullable(_))
-                        && is_contextual_numeric_literal(request, expression);
+            initializes_nullable_from_present = matches!((data.as_ref(), initializer_type), (TypeData::Nullable(contained), Some(actual)) if *contained == actual)
+                || matches!(data.as_ref(), TypeData::Nullable(_))
+                    && is_contextual_numeric_literal(request, expression);
 
             if initializes_nullable_from_present {
                 break;
@@ -210,10 +209,10 @@ where
 
         evidence.extend(
             component_types
-            .get(&representative)
-            .into_iter()
-            .flat_map(|types| types.iter().copied())
-            .map(|ty| ExpressionTypeEvidence::new(expression, ty)),
+                .get(&representative)
+                .into_iter()
+                .flat_map(|types| types.iter().copied())
+                .map(|ty| ExpressionTypeEvidence::new(expression, ty)),
         );
     }
 
@@ -261,12 +260,12 @@ where
 fn intrinsic_initializer_type<C>(
     request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
-) -> Result<Option<TypeId>, CheckerInfrastructureError>
+) -> Result<Option<TypeId>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(expression) = request.view().expression(expression) else {
-        return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
+        return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression }.into());
     };
 
     if let Some(ty) = expression.ty() {
@@ -280,6 +279,7 @@ where
     intrinsic_representation_role(expression)
         .map(|role| representation_type(request, role))
         .transpose()
+        .map_err(CheckerQueryError::Infrastructure)
 }
 
 fn is_contextual_numeric_literal<C>(

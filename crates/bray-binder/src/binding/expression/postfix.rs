@@ -25,7 +25,7 @@ impl ExpressionBinder {
         scope: LocalScopeId,
         syntax: &ExpressionSyntax,
         mut current: BoundExpressionId,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -125,7 +125,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         syntax: &GenericArgumentListSyntax,
         subject: BoundExpressionId,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -145,7 +145,7 @@ impl ExpressionBinder {
         scope: LocalScopeId,
         syntax: &CallOperationSyntax,
         callee: BoundExpressionId,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -193,7 +193,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &ArgumentListSyntax,
-    ) -> BindingResult<Vec<BoundArgument>>
+    ) -> BindingResult<Vec<BoundArgument>, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -221,7 +221,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         syntax: &ConversionOperationSyntax,
         operand: BoundExpressionId,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {

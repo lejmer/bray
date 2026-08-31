@@ -30,7 +30,7 @@ pub(super) fn resolve_predicate_candidate<C>(
     request: crate::CheckerUnitView<'_, C>,
     template: &PredicateCandidateTemplate,
     diagnostics: &mut DiagnosticBag,
-) -> Result<TemplateResolution<CallableCandidate>, CheckerInfrastructureError>
+) -> Result<TemplateResolution<CallableCandidate>, CheckerQueryError<C::UpstreamError>>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -52,7 +52,7 @@ pub(super) fn resolve_open_predicate_candidate<C>(
     template: &PredicateCandidateTemplate,
     explicit: &[GenericArgument],
     diagnostics: &mut DiagnosticBag,
-) -> Result<CallableCandidate, CheckerInfrastructureError>
+) -> Result<CallableCandidate, CheckerQueryError<C::UpstreamError>>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -62,7 +62,7 @@ where
     match resolve_predicate_candidate_with_arguments(request, template, arguments, diagnostics)? {
         TemplateResolution::Resolved(candidate) => Ok(candidate),
         TemplateResolution::Unsupported => {
-            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput)
+            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
         }
     }
 }
@@ -72,7 +72,7 @@ pub(super) fn resolve_predicate_candidate_with_arguments<C>(
     template: &PredicateCandidateTemplate,
     arguments: Vec<GenericArgument>,
     diagnostics: &mut DiagnosticBag,
-) -> Result<TemplateResolution<CallableCandidate>, CheckerInfrastructureError>
+) -> Result<TemplateResolution<CallableCandidate>, CheckerQueryError<C::UpstreamError>>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -202,7 +202,7 @@ pub(super) fn resolve_declaration_candidate<C>(
     request: crate::CheckerUnitView<'_, C>,
     template: &CallableDeclarationCandidateTemplate,
     diagnostics: &mut DiagnosticBag,
-) -> CheckerQueryResult<TemplateResolution<CallableCandidate>>
+) -> CheckerQueryResult<TemplateResolution<CallableCandidate>, C::UpstreamError>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -224,7 +224,7 @@ pub(super) fn resolve_open_declaration_candidate<C>(
     template: &CallableDeclarationCandidateTemplate,
     explicit: &[GenericArgument],
     diagnostics: &mut DiagnosticBag,
-) -> CheckerQueryResult<CallableCandidate>
+) -> CheckerQueryResult<CallableCandidate, C::UpstreamError>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -244,7 +244,7 @@ pub(super) fn resolve_declaration_candidate_with_arguments<C>(
     template: &CallableDeclarationCandidateTemplate,
     arguments: Vec<GenericArgument>,
     diagnostics: &mut DiagnosticBag,
-) -> CheckerQueryResult<TemplateResolution<CallableCandidate>>
+) -> CheckerQueryResult<TemplateResolution<CallableCandidate>, C::UpstreamError>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -334,7 +334,7 @@ pub(crate) fn resolve_type_template<C>(
     request: crate::CheckerUnitView<'_, C>,
     template: &TypeExpressionTemplate,
     diagnostics: &mut DiagnosticBag,
-) -> Result<TemplateResolution<TypeId>, CheckerInfrastructureError>
+) -> Result<TemplateResolution<TypeId>, CheckerQueryError<C::UpstreamError>>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -343,12 +343,14 @@ where
         TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
     };
 
-    resolve_type_expression_template(request.semantic_values(), template, &constants).map(|ty| {
-        ty.map_or(
-            TemplateResolution::Unsupported,
-            TemplateResolution::Resolved,
-        )
-    })
+    resolve_type_expression_template(request.semantic_values(), template, &constants)
+        .map(|ty| {
+            ty.map_or(
+                TemplateResolution::Unsupported,
+                TemplateResolution::Resolved,
+            )
+        })
+        .map_err(CheckerQueryError::Infrastructure)
 }
 
 pub(crate) fn resolve_signature<C>(
@@ -356,7 +358,7 @@ pub(crate) fn resolve_signature<C>(
     template: &CallableSignatureTemplate,
     substitution: GenericSubstitutionId,
     diagnostics: &mut DiagnosticBag,
-) -> CheckerQueryResult<TemplateResolution<CallableSignature>>
+) -> CheckerQueryResult<TemplateResolution<CallableSignature>, C::UpstreamError>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -364,9 +366,7 @@ where
         request,
         [template.callable_type(), template.result()],
         diagnostics,
-    )
-    .map_err(CheckerQueryError::Infrastructure)?
-    {
+    )? {
         TemplateResolution::Resolved(constants) => constants,
         TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
     };
@@ -392,7 +392,7 @@ pub(super) fn resolve_generic_arguments<C>(
     request: crate::CheckerUnitView<'_, C>,
     arguments: &[bray_symbols::GenericArgumentTemplate],
     diagnostics: &mut DiagnosticBag,
-) -> Result<TemplateResolution<Vec<GenericArgument>>, CheckerInfrastructureError>
+) -> Result<TemplateResolution<Vec<GenericArgument>>, CheckerQueryError<C::UpstreamError>>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -418,7 +418,12 @@ where
                     Err(CheckerQueryError::Cancelled) => {
                         return Ok(TemplateResolution::Unsupported);
                     }
-                    Err(CheckerQueryError::Infrastructure(error)) => return Err(error),
+                    Err(CheckerQueryError::Infrastructure(error)) => {
+                        return Err(CheckerQueryError::Infrastructure(error));
+                    }
+                    Err(CheckerQueryError::Upstream(error)) => {
+                        return Err(CheckerQueryError::Upstream(error));
+                    }
                 };
 
                 // Candidate preparation owns dependency diagnostics after the query result drops.
@@ -435,7 +440,7 @@ where
 pub fn check_generic_arguments<C>(
     request: crate::CheckerUnitView<'_, C>,
     arguments: &[bray_symbols::GenericArgumentTemplate],
-) -> crate::CheckerOutcome<Option<Vec<GenericArgument>>>
+) -> crate::CheckerOutcome<Option<Vec<GenericArgument>>, C::UpstreamError>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -446,7 +451,11 @@ where
             crate::CheckerOutcome::complete(Some(arguments), diagnostics)
         }
         Ok(TemplateResolution::Unsupported) => crate::CheckerOutcome::complete(None, diagnostics),
-        Err(error) => crate::CheckerOutcome::InfrastructureFailure(error),
+        Err(CheckerQueryError::Cancelled) => crate::CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Infrastructure(error)) => {
+            crate::CheckerOutcome::InfrastructureFailure(error)
+        }
+        Err(CheckerQueryError::Upstream(error)) => crate::CheckerOutcome::UpstreamFailure(error),
     }
 }
 
@@ -454,7 +463,7 @@ fn checked_terms<'template, C>(
     request: crate::CheckerUnitView<'_, C>,
     templates: impl IntoIterator<Item = &'template TypeExpressionTemplate>,
     diagnostics: &mut DiagnosticBag,
-) -> Result<TemplateResolution<CheckedConstantTerms>, CheckerInfrastructureError>
+) -> Result<TemplateResolution<CheckedConstantTerms>, CheckerQueryError<C::UpstreamError>>
 where
     C: crate::CheckerRequestContext + ?Sized,
 {
@@ -467,7 +476,12 @@ where
                 Err(CheckerQueryError::Cancelled) => {
                     return Ok(TemplateResolution::Unsupported);
                 }
-                Err(CheckerQueryError::Infrastructure(error)) => return Err(error),
+                Err(CheckerQueryError::Infrastructure(error)) => {
+                    return Err(CheckerQueryError::Infrastructure(error));
+                }
+                Err(CheckerQueryError::Upstream(error)) => {
+                    return Err(CheckerQueryError::Upstream(error));
+                }
             };
 
             // Template resolution owns dependency diagnostics after the query result drops.
@@ -478,7 +492,9 @@ where
 
     CheckedConstantTerms::try_from_terms(terms)
         .map(TemplateResolution::Resolved)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+        .map_err(|_| {
+            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+        })
 }
 
 pub(super) fn call_result<C>(

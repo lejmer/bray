@@ -34,7 +34,7 @@ pub(super) fn target_abi_value(
         template,
         checked.value(),
     )
-    .map_err(FactQueryError::CheckerInfrastructure)?
+    .map_err(FactQueryError::from)?
     else {
         return Ok(None);
     };

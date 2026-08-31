@@ -27,7 +27,7 @@ pub(crate) fn check_patterns<C>(
     request: CheckerUnitView<'_, C>,
     expression_types: &CheckedExpressionTypes,
     input: &PatternCheckInput,
-) -> CheckerOutcome<CheckedPatterns>
+) -> CheckerOutcome<CheckedPatterns, C::UpstreamError>
 where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<StructFieldTypeQuery>
@@ -36,7 +36,7 @@ where
 {
     let mut checker = match PatternChecker::new(request, expression_types, input) {
         Ok(checker) => checker,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        Err(error) => return query_outcome(error),
     };
 
     if checker.request.is_cancelled() {
@@ -44,7 +44,7 @@ where
     }
 
     if let Err(error) = checker.collect_subjects() {
-        return CheckerOutcome::InfrastructureFailure(error);
+        return query_outcome(error);
     }
 
     if checker.request.is_cancelled() {
@@ -52,7 +52,7 @@ where
     }
 
     if let Err(error) = checker.check_subjects() {
-        return CheckerOutcome::InfrastructureFailure(error);
+        return query_outcome(error);
     }
 
     if checker.request.is_cancelled() {
@@ -60,7 +60,7 @@ where
     }
 
     if let Err(error) = checker.check_matches() {
-        return CheckerOutcome::InfrastructureFailure(error);
+        return query_outcome(error);
     }
 
     if checker.request.is_cancelled() {
@@ -92,13 +92,24 @@ pub(super) struct PatternChildren {
     pub(super) is_recovered: bool,
 }
 
-pub(in crate::pattern) fn available_dependency<T>(
-    result: CheckerQueryResult<T>,
-) -> Result<Option<T>, CheckerInfrastructureError> {
+pub(in crate::pattern) fn available_dependency<T, Upstream>(
+    result: CheckerQueryResult<T, Upstream>,
+) -> Result<Option<T>, CheckerQueryError<Upstream>> {
     match result {
         Ok(value) => Ok(Some(value)),
         Err(CheckerQueryError::Cancelled) => Ok(None),
-        Err(CheckerQueryError::Infrastructure(error)) => Err(error),
+        Err(CheckerQueryError::Infrastructure(error)) => {
+            Err(CheckerQueryError::Infrastructure(error))
+        }
+        Err(CheckerQueryError::Upstream(error)) => Err(CheckerQueryError::Upstream(error)),
+    }
+}
+
+fn query_outcome<T, Upstream>(error: CheckerQueryError<Upstream>) -> CheckerOutcome<T, Upstream> {
+    match error {
+        CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
+        CheckerQueryError::Infrastructure(error) => CheckerOutcome::InfrastructureFailure(error),
+        CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
 
@@ -136,9 +147,11 @@ where
         request: CheckerUnitView<'view, C>,
         expression_types: &'view CheckedExpressionTypes,
         input: &'input PatternCheckInput,
-    ) -> Result<Self, CheckerInfrastructureError> {
+    ) -> Result<Self, CheckerQueryError<C::UpstreamError>> {
         if !input.is_consistent() {
-            return Err(CheckerInfrastructureError::InvalidPatternCheckInput);
+            return Err(CheckerQueryError::Infrastructure(
+                CheckerInfrastructureError::InvalidPatternCheckInput,
+            ));
         }
 
         let error_type = request
@@ -188,7 +201,7 @@ where
         })
     }
 
-    fn collect_subjects(&mut self) -> Result<(), CheckerInfrastructureError> {
+    fn collect_subjects(&mut self) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         let mut failure = None;
 
         walk_bound_unit_view(self.request.view(), self.request.unit().root(), |event| {
@@ -199,9 +212,9 @@ where
             match event {
                 BoundWalkEvent::Enter(AnyBoundNodeId::Block(block)) => {
                     let Some(block) = self.request.view().block(block) else {
-                        failure = Some(CheckerInfrastructureError::InvalidBoundNode {
-                            node: block.into(),
-                        });
+                        failure = Some(CheckerQueryError::Infrastructure(
+                            CheckerInfrastructureError::InvalidBoundNode { node: block.into() },
+                        ));
 
                         return BoundWalkControl::Stop;
                     };
@@ -219,9 +232,9 @@ where
                                     let Ok(data) =
                                         self.request.semantic_values().type_data(declared)
                                     else {
-                                        failure = Some(
+                                        failure = Some(CheckerQueryError::Infrastructure(
                                             CheckerInfrastructureError::SemanticValueUnavailable,
-                                        );
+                                        ));
 
                                         return BoundWalkControl::Stop;
                                     };
@@ -244,9 +257,11 @@ where
                 }
                 BoundWalkEvent::Enter(AnyBoundNodeId::Expression(expression)) => {
                     let Some(bound) = self.request.view().expression(expression) else {
-                        failure = Some(CheckerInfrastructureError::InvalidBoundNode {
-                            node: expression.into(),
-                        });
+                        failure = Some(CheckerQueryError::Infrastructure(
+                            CheckerInfrastructureError::InvalidBoundNode {
+                                node: expression.into(),
+                            },
+                        ));
 
                         return BoundWalkControl::Stop;
                     };
@@ -273,7 +288,7 @@ where
     fn collect_expression_subjects(
         &mut self,
         expression: &BoundExpression,
-    ) -> Result<(), CheckerInfrastructureError> {
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         match expression {
             BoundExpression::Match(expression) => {
                 let subject = self.expression_type(expression.subject())?;
@@ -324,9 +339,11 @@ where
     pub(in crate::pattern) fn expression_type(
         &self,
         expression: BoundExpressionId,
-    ) -> Result<PatternSubject, CheckerInfrastructureError> {
+    ) -> Result<PatternSubject, CheckerQueryError<C::UpstreamError>> {
         let Some(result) = self.expression_types.expression(expression) else {
-            return Err(CheckerInfrastructureError::InvalidExpressionTypeInput { expression });
+            return Err(CheckerQueryError::Infrastructure(
+                CheckerInfrastructureError::InvalidExpressionTypeInput { expression },
+            ));
         };
 
         Ok(PatternSubject {
@@ -340,7 +357,7 @@ where
         })
     }
 
-    fn check_subjects(&mut self) -> Result<(), CheckerInfrastructureError> {
+    fn check_subjects(&mut self) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         let subjects = self
             .subjects
             .iter()
@@ -363,13 +380,15 @@ where
         id: BoundPatternId,
         subject: PatternSubject,
         projection: Option<PatternProjection>,
-    ) -> Result<PatternCheckEntry, CheckerInfrastructureError> {
+    ) -> Result<PatternCheckEntry, CheckerQueryError<C::UpstreamError>> {
         if let Some(entry) = self.patterns.get(&id).copied() {
             return Ok(entry);
         }
 
         let Some(pattern) = self.request.view().pattern(id) else {
-            return Err(CheckerInfrastructureError::InvalidBoundNode { node: id.into() });
+            return Err(CheckerQueryError::Infrastructure(
+                CheckerInfrastructureError::InvalidBoundNode { node: id.into() },
+            ));
         };
 
         let (matched_subject, type_data) = self.matched_subject(subject)?;
@@ -496,7 +515,8 @@ where
     fn matched_subject(
         &self,
         subject: PatternSubject,
-    ) -> Result<(PatternSubject, std::sync::Arc<TypeData>), CheckerInfrastructureError> {
+    ) -> Result<(PatternSubject, std::sync::Arc<TypeData>), CheckerQueryError<C::UpstreamError>>
+    {
         let mut matched = subject;
 
         loop {
@@ -518,7 +538,7 @@ where
         &self,
         pattern: &BoundPattern,
         subject: &TypeData,
-    ) -> Result<(Option<BoundPatternTarget>, bool), CheckerInfrastructureError> {
+    ) -> Result<(Option<BoundPatternTarget>, bool), CheckerQueryError<C::UpstreamError>> {
         let expected = self
             .expected_subject_variant(pattern, subject)?
             .map(|variant| BoundPatternTarget::Surface(variant.into()));
@@ -550,7 +570,7 @@ where
         &self,
         pattern: &BoundPattern,
         subject: &TypeData,
-    ) -> Result<Option<UnionVariantSymbolId>, CheckerInfrastructureError> {
+    ) -> Result<Option<UnionVariantSymbolId>, CheckerQueryError<C::UpstreamError>> {
         let (
             TypeData::Named {
                 definition: NamedTypeSymbolId::Union(union),
@@ -577,7 +597,7 @@ where
         &self,
         target: BoundPatternTarget,
         subject: &TypeData,
-    ) -> Result<bool, CheckerInfrastructureError> {
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
         let (
             BoundPatternTarget::Surface(AnySymbolId::UnionVariant(variant)),
             TypeData::Named {

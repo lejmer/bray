@@ -12,7 +12,7 @@ use super::call::{selected_call_contracts, selected_iteration_contract};
 use super::operation::{operation_access_requirements, operation_requirements};
 use crate::unit::semantic_inputs_match;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
@@ -21,7 +21,7 @@ pub(crate) fn check_dependency_contracts<C>(
     selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
     flow: &StorageFlow,
-) -> CheckerOutcome<CheckedDependencyContracts>
+) -> CheckerOutcome<CheckedDependencyContracts, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -109,11 +109,19 @@ where
                 .or_insert_with(Vec::new)
                 .extend(contract.requirements().iter().cloned()),
             Err(DependencyContractInstantiationError::Resolution(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                CheckerQueryError::Infrastructure(
+                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                ),
             )) => is_recovered = true,
-            Err(DependencyContractInstantiationError::Resolution(error)) => {
-                return CheckerOutcome::InfrastructureFailure(error);
+            Err(DependencyContractInstantiationError::Resolution(CheckerQueryError::Cancelled)) => {
+                return CheckerOutcome::Cancelled;
             }
+            Err(DependencyContractInstantiationError::Resolution(
+                CheckerQueryError::Infrastructure(error),
+            )) => return CheckerOutcome::InfrastructureFailure(error),
+            Err(DependencyContractInstantiationError::Resolution(CheckerQueryError::Upstream(
+                error,
+            ))) => return CheckerOutcome::UpstreamFailure(error),
             Err(DependencyContractInstantiationError::ForeignUnit) => {
                 return CheckerOutcome::InfrastructureFailure(
                     CheckerInfrastructureError::InvalidStorageFlow,

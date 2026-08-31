@@ -75,6 +75,12 @@ pub(super) fn with_compiler_defect_source(
         ))
 }
 
+pub(super) fn with_compiler_defect_note(diagnostic: Diagnostic) -> Diagnostic {
+    diagnostic.with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::ReportCompilerDefect,
+    ))
+}
+
 pub(super) const fn code_production_failure_source(
     failure: DiagnosticEmissionEvaluationFailure,
 ) -> Option<SourceSpan> {
@@ -154,6 +160,12 @@ impl Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("semantic diagnostic infrastructure failed")
             }
+            Err(FactQueryError::BindingDependencyUnavailable) => {
+                panic!("semantic diagnostics could not obtain a binding dependency")
+            }
+            Err(FactQueryError::Binding(error)) => {
+                panic!("semantic diagnostics encountered a binding failure: {error:?}")
+            }
             Err(
                 error @ (FactQueryError::AtomicInitializerArgumentUnavailable
                 | FactQueryError::AtomicInitializerResultUnavailable
@@ -203,6 +215,12 @@ impl Compilation {
             }
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("check diagnostic infrastructure failed")
+            }
+            Err(FactQueryError::BindingDependencyUnavailable) => {
+                panic!("check diagnostics could not obtain a binding dependency")
+            }
+            Err(FactQueryError::Binding(error)) => {
+                panic!("check diagnostics encountered a binding failure: {error:?}")
             }
             Err(
                 error @ (FactQueryError::AtomicInitializerArgumentUnavailable
@@ -258,7 +276,7 @@ impl Compilation {
 
             cancellation.check()?;
 
-            Ok(diagnostics)
+            Ok::<_, FactQueryError>(diagnostics)
         })?;
 
         let diagnostics = diagnostics.into_iter().collect::<Result<Vec<_>, _>>()?;

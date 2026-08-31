@@ -218,7 +218,8 @@ fn validate_type_template<C>(
 ) -> Result<Option<AnySymbolId>, FactQueryError>
 where
     C: SymbolQueryContract<Value = TypeExpressionTemplate>,
-    for<'binding> CompilationBindingContext<'binding>: SymbolQueryProvider<C>,
+    for<'binding> CompilationBindingContext<'binding>: bray_binder::SymbolQueryErrorProvider<UpstreamError = FactQueryError>
+        + SymbolQueryProvider<C>,
 {
     let result = binder
         .resolve_symbol_query(SymbolQueryRequest::<C>::new(owner))

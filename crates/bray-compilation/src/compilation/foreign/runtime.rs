@@ -1,4 +1,4 @@
-use bray_checker::{CheckerQueryError, CheckerRequestContext};
+use bray_checker::CheckerRequestContext;
 use bray_compiler_known::ImplementationHook;
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::FunctionSymbolId;
@@ -25,12 +25,7 @@ pub(super) fn runtime_import_role(
     let hook = compilation
         .checker_context(cancellation)?
         .implementation_hook(function.into())
-        .map_err(|error| match error {
-            CheckerQueryError::Cancelled => FactQueryError::Cancelled,
-            CheckerQueryError::Infrastructure(error) => {
-                FactQueryError::CheckerInfrastructure(error)
-            }
-        })?;
+        .map_err(FactQueryError::from)?;
 
     Ok(
         match hook

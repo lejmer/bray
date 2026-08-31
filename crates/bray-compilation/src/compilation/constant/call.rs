@@ -2,12 +2,11 @@ use std::sync::Arc;
 
 use bray_binder::SymbolQueryProvider;
 use bray_checker::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
-    ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantChecker,
-    ConstantEvaluationInput, ConstantEvaluationUsage, ConstantEvaluator,
-    ConstantReferenceResolution, ConstantTemplateResolver, DefaultConstantChecker,
-    DefaultConstantEvaluator, EvaluatedConstantCall, evaluate_constant_callable_template,
-    resolve_callable_signature_template,
+    CheckerInfrastructureError, CheckerRequestContext, ConstantCallRequest, ConstantCallResolution,
+    ConstantCallResolver, ConstantChecker, ConstantEvaluationInput, ConstantEvaluationUsage,
+    ConstantEvaluator, ConstantReferenceResolution, ConstantTemplateResolver,
+    DefaultConstantChecker, DefaultConstantEvaluator, EvaluatedConstantCall,
+    evaluate_constant_callable_template, resolve_callable_signature_template,
 };
 use bray_compiler_known::ImplementationHook;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
@@ -19,12 +18,15 @@ use bray_symbols::{
 
 use super::super::Compilation;
 use super::super::binder::binding_query_error;
-use super::super::checker::{checker_result, query_error_with_fallback};
+use super::super::checker::{checker_query_error, checker_result};
 use super::super::unit::semantic_unit_context_for;
 use super::definition::{
     call_parameter_values, constant_callable_root, substitute_expression_types,
 };
 use crate::fact::{CancellationToken, CompilationFactKey, ConstantCallQueryKey, FactQueryError};
+
+type CheckerQueryError = bray_checker::CheckerQueryError<FactQueryError>;
+type CheckerQueryResult<T> = bray_checker::CheckerQueryResult<T, FactQueryError>;
 
 pub(in crate::compilation) struct CompilationConstantCallResolver<'compilation> {
     compilation: &'compilation Compilation,
@@ -44,6 +46,8 @@ impl<'compilation> CompilationConstantCallResolver<'compilation> {
 }
 
 impl ConstantCallResolver for CompilationConstantCallResolver<'_> {
+    type UpstreamError = FactQueryError;
+
     fn is_constant_callable(
         &self,
         callable: bray_symbols::CallableInstanceData,
@@ -92,6 +96,8 @@ impl<'compilation> CompilationConstantTemplateResolver<'compilation> {
 }
 
 impl ConstantCallResolver for CompilationConstantTemplateResolver<'_> {
+    type UpstreamError = FactQueryError;
+
     fn is_constant_callable(
         &self,
         callable: bray_symbols::CallableInstanceData,
@@ -187,10 +193,7 @@ impl ConstantTemplateResolver for CompilationConstantTemplateResolver<'_> {
 }
 
 fn checker_call_query_error(error: FactQueryError) -> CheckerQueryError {
-    query_error_with_fallback(
-        error,
-        CheckerInfrastructureError::InvalidConstantEvaluationInput,
-    )
+    checker_query_error(error)
 }
 
 impl Compilation {
@@ -350,7 +353,7 @@ impl Compilation {
             callable.substitution(),
             checked_terms.value(),
         )
-        .map_err(FactQueryError::CheckerInfrastructure)?
+        .map_err(FactQueryError::from)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
         if signature.result() != key.result_type() {
@@ -587,8 +590,5 @@ impl Compilation {
 }
 
 fn checker_constant_query_error(error: CheckerQueryError) -> FactQueryError {
-    match error {
-        CheckerQueryError::Cancelled => FactQueryError::Cancelled,
-        CheckerQueryError::Infrastructure(error) => FactQueryError::CheckerInfrastructure(error),
-    }
+    error.into()
 }

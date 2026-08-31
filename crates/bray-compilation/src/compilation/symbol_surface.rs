@@ -89,7 +89,9 @@ impl Compilation {
     ) -> Result<Arc<DiagnosticResult<C::Value>>, FactQueryError>
     where
         C: SymbolQueryContract,
-        for<'binding_context> CompilationBindingContext<'binding_context>: SymbolQueryProvider<C>,
+        for<'binding_context> CompilationBindingContext<'binding_context>:
+            bray_binder::SymbolQueryErrorProvider<UpstreamError = FactQueryError>
+                + SymbolQueryProvider<C>,
     {
         let binding_context = self.binding_context(&self.state.cancellation)?;
 

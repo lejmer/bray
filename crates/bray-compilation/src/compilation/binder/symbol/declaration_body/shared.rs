@@ -1,4 +1,5 @@
-use bray_binder::{BindingQueryError, BindingQueryResult};
+use crate::compilation::binder::BindingQueryResult;
+use bray_binder::BindingQueryError;
 use bray_bound_tree::{
     BoundUnit, BoundUnitKey, BoundUnitRoot, CheckedBodySemantics, CheckedExpressionSemantics,
     SemanticSelection, StoragePlan,

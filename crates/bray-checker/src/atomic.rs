@@ -114,7 +114,10 @@ pub(crate) fn classify_atomic_operation<C>(
     arguments: &[GenericArgument],
     expression: BoundExpressionId,
     diagnostics: &mut DiagnosticBag,
-) -> Result<Option<CheckedMemoryOperationKind>, CheckerOutcome<CheckedMemoryOperations>>
+) -> Result<
+    Option<CheckedMemoryOperationKind>,
+    CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>,
+>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -328,7 +331,10 @@ enum AtomicGenericArgument {
 fn parse_atomic_arguments<C>(
     request: CheckerUnitView<'_, C>,
     arguments: &[GenericArgument],
-) -> Result<Option<Vec<AtomicGenericArgument>>, CheckerOutcome<CheckedMemoryOperations>>
+) -> Result<
+    Option<Vec<AtomicGenericArgument>>,
+    CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>,
+>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -361,7 +367,10 @@ fn operation_representation<C>(
     request: CheckerUnitView<'_, C>,
     arguments: &[AtomicGenericArgument],
     diagnostics: &mut DiagnosticBag,
-) -> Result<Option<AtomicRepresentationResolution>, CheckerOutcome<CheckedMemoryOperations>>
+) -> Result<
+    Option<AtomicRepresentationResolution>,
+    CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>,
+>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -382,7 +391,10 @@ fn atomic_value_representation<C>(
     value: TypeId,
     diagnostics: &mut DiagnosticBag,
     pending: &mut BTreeSet<TypeId>,
-) -> Result<Option<AtomicRepresentationResolution>, CheckerOutcome<CheckedMemoryOperations>>
+) -> Result<
+    Option<AtomicRepresentationResolution>,
+    CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>,
+>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -479,7 +491,10 @@ fn transparent_atomic_representation<C>(
     substitution: GenericSubstitutionId,
     diagnostics: &mut DiagnosticBag,
     pending: &mut BTreeSet<TypeId>,
-) -> Result<Option<AtomicRepresentationResolution>, CheckerOutcome<CheckedMemoryOperations>>
+) -> Result<
+    Option<AtomicRepresentationResolution>,
+    CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>,
+>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -520,14 +535,15 @@ where
     atomic_value_representation(request, member_type, diagnostics, pending)
 }
 
-const fn atomic_query_outcome(
-    error: crate::CheckerQueryError,
-) -> CheckerOutcome<CheckedMemoryOperations> {
+fn atomic_query_outcome<Upstream>(
+    error: crate::CheckerQueryError<Upstream>,
+) -> CheckerOutcome<CheckedMemoryOperations, Upstream> {
     match error {
         crate::CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
         crate::CheckerQueryError::Infrastructure(error) => {
             CheckerOutcome::InfrastructureFailure(error)
         }
+        crate::CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
 
@@ -590,7 +606,7 @@ fn add_invalid_atomic_order_diagnostic<C>(
     expression: BoundExpressionId,
     operation: DiagnosticMemoryOperation,
     diagnostics: &mut DiagnosticBag,
-) -> Result<(), CheckerOutcome<CheckedMemoryOperations>>
+) -> Result<(), CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -619,7 +635,7 @@ fn add_unavailable_atomic_operation_diagnostic<C>(
     expression: BoundExpressionId,
     operation: DiagnosticMemoryOperation,
     diagnostics: &mut DiagnosticBag,
-) -> Result<(), CheckerOutcome<CheckedMemoryOperations>>
+) -> Result<(), CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {

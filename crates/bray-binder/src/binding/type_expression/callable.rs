@@ -17,12 +17,12 @@ use super::core::{TypeExpressionBinder, token_text};
 use super::diagnostic::source_diagnostic;
 use crate::{BindingQueryError, BindingQueryResult};
 
-impl TypeExpressionBinder<'_> {
+impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     /// Binds the callable type owned by one anonymous callable semantic unit.
     pub fn bind_anonymous_callable_type(
         mut self,
         syntax: &LambdaExpressionSyntax,
-    ) -> BindingQueryResult<DiagnosticResult<TypeExpressionTemplate>> {
+    ) -> BindingQueryResult<DiagnosticResult<TypeExpressionTemplate>, Upstream> {
         self.check_cancellation()?;
 
         let result = syntax
@@ -50,7 +50,7 @@ impl TypeExpressionBinder<'_> {
         parameter_list: &ParameterListSyntax,
         result_type: Option<&TypeExpressionSyntax>,
         qualifiers: DiagnosticResult<CallableTypeQualifiers>,
-    ) -> BindingQueryResult<DiagnosticResult<CallableSignatureTemplate>> {
+    ) -> BindingQueryResult<DiagnosticResult<CallableSignatureTemplate>, Upstream> {
         self.check_cancellation()?;
 
         let (qualifiers, diagnostics) = qualifiers.into_parts();
@@ -141,7 +141,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn bind_callable_type(
         &mut self,
         syntax: &TypeExpressionSyntax,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let parameters = syntax.parameter_lists().next();
         let modifiers = syntax.callable_modifiers().next();
         let directives = syntax.callable_directives().next();
@@ -195,7 +195,7 @@ impl TypeExpressionBinder<'_> {
         result: Option<&TypeExpressionSyntax>,
         modifiers: Option<&CallableModifiersSyntax>,
         directives: Option<&CallableDirectivesSyntax>,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let variadic = parameters.is_some_and(|parameters| parameters.ellipsis_token().is_some());
 
         let parameters = parameters
@@ -256,7 +256,7 @@ impl TypeExpressionBinder<'_> {
         trust: CallableTrust,
         abi: bray_symbols::CallableAbi,
         dependencies: CallableDependencyContracts,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let parameters_are_resolved = parameters
             .iter()
             .all(|parameter| parameter.ty().resolved_type().is_some());
@@ -271,7 +271,7 @@ impl TypeExpressionBinder<'_> {
 
                     Ok(CallableParameterData::new(name, position, mode, ty))
                 })
-                .collect::<BindingQueryResult<Vec<_>>>()?;
+                .collect::<BindingQueryResult<Vec<_>, Upstream>>()?;
 
             let result = self.require_resolved_type(&result)?;
 
@@ -293,7 +293,7 @@ impl TypeExpressionBinder<'_> {
     fn bind_callable_parameter(
         &mut self,
         syntax: &ParameterSyntax,
-    ) -> BindingQueryResult<CallableParameterTypeTemplate> {
+    ) -> BindingQueryResult<CallableParameterTypeTemplate, Upstream> {
         let name = token_text(syntax.source(), &syntax.identifier_token())
             .and_then(CallableParameterName::try_new)
             .ok_or(BindingQueryError::DependencyUnavailable)?;
@@ -319,17 +319,17 @@ impl TypeExpressionBinder<'_> {
 
     fn empty_dependency_contract(
         &self,
-    ) -> BindingQueryResult<bray_symbols::DependencyContractTemplateId> {
+    ) -> BindingQueryResult<bray_symbols::DependencyContractTemplateId, Upstream> {
         self.semantic_values
             .empty_dependency_contract_template()
             .map_err(|_| BindingQueryError::DependencyUnavailable)
     }
 }
 
-fn callable_template_abi(
+fn callable_template_abi<Upstream>(
     values: &bray_symbols::SemanticValueStore,
     template: &TypeExpressionTemplate,
-) -> BindingQueryResult<bray_symbols::CallableAbi> {
+) -> BindingQueryResult<bray_symbols::CallableAbi, Upstream> {
     match template {
         TypeExpressionTemplate::Callable(callable) => Ok(callable.abi()),
         TypeExpressionTemplate::Resolved(ty) => {

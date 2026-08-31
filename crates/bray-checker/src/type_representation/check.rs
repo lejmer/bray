@@ -24,11 +24,14 @@ use super::model::{
     DeclaredUnionVariant, TypeRepresentationContext,
 };
 
+type RepresentationQueryResult<C, T> =
+    CheckerQueryResult<T, <C as TypeRepresentationContext>::UpstreamError>;
+
 /// Derives one source-level named type representation contract.
 pub fn check_declared_type_representation<C>(
     context: &C,
     subject: NamedTypeSymbolId,
-) -> CheckerOutcome<DeclaredTypeRepresentation>
+) -> CheckerOutcome<DeclaredTypeRepresentation, C::UpstreamError>
 where
     C: TypeRepresentationContext + ?Sized,
 {
@@ -43,6 +46,7 @@ where
         Err(CheckerQueryError::Infrastructure(error)) => {
             CheckerOutcome::InfrastructureFailure(error)
         }
+        Err(CheckerQueryError::Upstream(error)) => CheckerOutcome::UpstreamFailure(error),
     }
 }
 
@@ -197,7 +201,7 @@ where
         &mut self,
         subject: NamedTypeSymbolId,
         incoming_member: Option<SourceSpan>,
-    ) -> CheckerQueryResult<CheckedRepresentation> {
+    ) -> RepresentationQueryResult<C, CheckedRepresentation> {
         if let Some(result) = self.completed.get(&subject) {
             // Completed contracts own Arc-backed tag storage and are cheap to share.
             return Ok(CheckedRepresentation {
@@ -291,7 +295,7 @@ where
     fn check_definition(
         &mut self,
         definition: &DeclaredTypeDefinition,
-    ) -> CheckerQueryResult<CheckedRepresentation> {
+    ) -> RepresentationQueryResult<C, CheckedRepresentation> {
         let members = definition
             .fields()
             .iter()
@@ -424,7 +428,7 @@ where
     fn check_member(
         &mut self,
         member: &DeclaredStorageMember,
-    ) -> CheckerQueryResult<MemberRepresentation> {
+    ) -> RepresentationQueryResult<C, MemberRepresentation> {
         let mut result = self.check_template(member.ty(), Some(member.span()))?;
 
         if result.copyable == Copyability::Never {
@@ -454,7 +458,7 @@ where
         &mut self,
         template: &TypeExpressionTemplate,
         origin: Option<SourceSpan>,
-    ) -> CheckerQueryResult<MemberRepresentation> {
+    ) -> RepresentationQueryResult<C, MemberRepresentation> {
         match template {
             TypeExpressionTemplate::Resolved(ty) => self.check_type(*ty, origin),
             TypeExpressionTemplate::Named {
@@ -556,7 +560,7 @@ where
         parameters: &[GenericParameterSymbolId],
         arguments: &[GenericArgumentTemplate],
         origin: Option<SourceSpan>,
-    ) -> CheckerQueryResult<MemberRepresentation> {
+    ) -> RepresentationQueryResult<C, MemberRepresentation> {
         if named_representation_role(self.context.available_compiler_known_symbols(), subject)
             == Some(RepresentationRole::Uninit)
         {
@@ -621,7 +625,7 @@ where
         &mut self,
         ty: TypeId,
         origin: Option<SourceSpan>,
-    ) -> CheckerQueryResult<MemberRepresentation> {
+    ) -> RepresentationQueryResult<C, MemberRepresentation> {
         let data = self.context.semantic_values().type_data(ty).map_err(|_| {
             CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
         })?;
@@ -801,7 +805,7 @@ where
         &mut self,
         element: TypeId,
         origin: Option<SourceSpan>,
-    ) -> CheckerQueryResult<()> {
+    ) -> RepresentationQueryResult<C, ()> {
         let role = crate::representation::type_representation_for_values(
             self.context.semantic_values(),
             self.context.available_compiler_known_symbols(),

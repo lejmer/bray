@@ -1,4 +1,5 @@
-use bray_binder::{BindingQueryError, BindingQueryResult, SymbolQueryProvider};
+use crate::compilation::binder::BindingQueryResult;
+use bray_binder::{BindingQueryError, SymbolQueryProvider};
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{

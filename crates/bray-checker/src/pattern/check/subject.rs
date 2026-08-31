@@ -30,7 +30,7 @@ where
         parent: PatternSubject,
         target: Option<BoundPatternTarget>,
         subject: &TypeData,
-    ) -> Result<PatternChildren, CheckerInfrastructureError> {
+    ) -> Result<PatternChildren, CheckerQueryError<C::UpstreamError>> {
         let mut children = PatternChildren {
             patterns: BTreeMap::new(),
             entries: Vec::new(),
@@ -266,7 +266,8 @@ where
         variant: UnionVariantSymbolId,
         entry: &BoundPatternEntry,
         position: usize,
-    ) -> Result<Option<(UnionPayloadFieldSymbolId, bool)>, CheckerInfrastructureError> {
+    ) -> Result<Option<(UnionPayloadFieldSymbolId, bool)>, CheckerQueryError<C::UpstreamError>>
+    {
         let positional = available_dependency(self.request.union_variant(variant))?
             .flatten()
             .and_then(|variant| variant.payload_fields().get(position).copied());
@@ -302,7 +303,7 @@ where
         &mut self,
         request: SymbolQueryRequest<F>,
         substitution: GenericSubstitutionId,
-    ) -> Result<PatternSubject, CheckerInfrastructureError>
+    ) -> Result<PatternSubject, CheckerQueryError<C::UpstreamError>>
     where
         F: SymbolQueryContract<Value = TypeExpressionTemplate>,
         C: CheckerSemanticQueryProvider<F>,
@@ -310,7 +311,12 @@ where
         let result = match self.request.resolve_symbol_query(request) {
             Ok(result) => result,
             Err(CheckerQueryError::Cancelled) => return Ok(self.recovered_subject()),
-            Err(CheckerQueryError::Infrastructure(error)) => return Err(error),
+            Err(CheckerQueryError::Infrastructure(error)) => {
+                return Err(CheckerQueryError::Infrastructure(error));
+            }
+            Err(CheckerQueryError::Upstream(error)) => {
+                return Err(CheckerQueryError::Upstream(error));
+            }
         };
 
         self.diagnostics
@@ -328,11 +334,16 @@ where
         template: &TypeExpressionTemplate,
         substitution: GenericSubstitutionId,
         mut is_recovered: bool,
-    ) -> Result<PatternSubject, CheckerInfrastructureError> {
+    ) -> Result<PatternSubject, CheckerQueryError<C::UpstreamError>> {
         let constants = match self.request.checked_constant_terms(template) {
             Ok(constants) => constants,
             Err(CheckerQueryError::Cancelled) => return Ok(self.recovered_subject()),
-            Err(CheckerQueryError::Infrastructure(error)) => return Err(error),
+            Err(CheckerQueryError::Infrastructure(error)) => {
+                return Err(CheckerQueryError::Infrastructure(error));
+            }
+            Err(CheckerQueryError::Upstream(error)) => {
+                return Err(CheckerQueryError::Upstream(error));
+            }
         };
 
         is_recovered |= constants.diagnostics().has_errors();

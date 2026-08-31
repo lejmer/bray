@@ -864,7 +864,7 @@ impl Compilation {
             subject.value().ty(),
             checked.value(),
         )
-        .map_err(FactQueryError::CheckerInfrastructure)?
+        .map_err(FactQueryError::from)?
         .ok_or(FactQueryError::InfrastructureFailure)
     }
 
@@ -1192,7 +1192,7 @@ impl Compilation {
             instance.substitution(),
             checked.value(),
         )
-        .map_err(FactQueryError::CheckerInfrastructure)?;
+        .map_err(FactQueryError::from)?;
 
         Ok(signature.map(|signature| ResolvedCallableMember {
             signature,
@@ -1210,7 +1210,8 @@ impl Compilation {
     ) -> Result<Option<TypeId>, FactQueryError>
     where
         F: SymbolQueryContract<Value = TypeExpressionTemplate>,
-        CompilationBindingContext<'binding_context>: SymbolQueryProvider<F>,
+        CompilationBindingContext<'binding_context>: bray_binder::SymbolQueryErrorProvider<UpstreamError = FactQueryError>
+            + SymbolQueryProvider<F>,
     {
         let result = binding_context
             .resolve_symbol_query(request)
@@ -1227,7 +1228,7 @@ impl Compilation {
             result.value(),
             checked.value(),
         )
-        .map_err(FactQueryError::CheckerInfrastructure)?
+        .map_err(FactQueryError::from)?
         else {
             return Ok(None);
         };

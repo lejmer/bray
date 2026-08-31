@@ -18,7 +18,7 @@ where
         id: BoundPatternId,
         subject_expression: BoundExpressionId,
         parent_access: StorageAccessId,
-    ) -> Result<(), PlanError> {
+    ) -> Result<(), PlanError<C::UpstreamError>> {
         self.check_cancellation()?;
 
         if !self.planned_patterns.insert(id) {
@@ -152,7 +152,7 @@ where
         pattern: BoundPatternId,
         subject_expression: BoundExpressionId,
         access: StorageAccessId,
-    ) -> Result<(), PlanError> {
+    ) -> Result<(), PlanError<C::UpstreamError>> {
         let checked = self
             .patterns
             .binding_type(binding)
@@ -223,7 +223,7 @@ where
         pattern: BoundPatternId,
         ty: bray_symbols::TypeId,
         is_recovered: bool,
-    ) -> Result<(), PlanError> {
+    ) -> Result<(), PlanError<C::UpstreamError>> {
         let identity = self.bind_identity(
             target,
             StorageIdentity::LocalOwned(pattern.into()),
@@ -255,7 +255,10 @@ where
         Ok(())
     }
 
-    fn type_is_borrow(&self, ty: bray_symbols::TypeId) -> Result<bool, PlanError> {
+    fn type_is_borrow(
+        &self,
+        ty: bray_symbols::TypeId,
+    ) -> Result<bool, PlanError<C::UpstreamError>> {
         let data = self
             .request
             .semantic_values()
@@ -265,7 +268,10 @@ where
         Ok(matches!(data.as_ref(), TypeData::Borrow { .. }))
     }
 
-    fn install_alternative_bindings(&mut self, pattern: &BoundPattern) -> Result<(), PlanError> {
+    fn install_alternative_bindings(
+        &mut self,
+        pattern: &BoundPattern,
+    ) -> Result<(), PlanError<C::UpstreamError>> {
         let bindings = self.descendant_bindings(pattern)?;
 
         for binding in bindings {
@@ -296,7 +302,7 @@ where
         &mut self,
         pattern_id: BoundPatternId,
         pattern: &BoundPattern,
-    ) -> Result<(), PlanError> {
+    ) -> Result<(), PlanError<C::UpstreamError>> {
         for binding in self.descendant_bindings(pattern)? {
             let Some(alternatives) = self.alternative_pattern_bindings.get_mut(&binding) else {
                 continue;
@@ -357,7 +363,7 @@ where
     fn descendant_bindings(
         &self,
         pattern: &BoundPattern,
-    ) -> Result<Vec<bray_symbols::LocalBindingSymbolId>, PlanError> {
+    ) -> Result<Vec<bray_symbols::LocalBindingSymbolId>, PlanError<C::UpstreamError>> {
         let mut bindings = pattern.bindings().to_vec();
 
         bindings.extend(pattern.entries().iter().filter_map(|entry| entry.binding()));
@@ -389,7 +395,7 @@ where
         subject_expression: BoundExpressionId,
         mode: BoundPatternMode,
         target: BoundPatternTarget,
-    ) -> Result<(), PlanError> {
+    ) -> Result<(), PlanError<C::UpstreamError>> {
         let target = match target {
             BoundPatternTarget::Local(target) => BoundReferenceTarget::Local(target),
             BoundPatternTarget::Surface(target) => BoundReferenceTarget::Surface(target),
@@ -414,7 +420,7 @@ where
         projection: PatternProjection,
         reached_type: bray_symbols::TypeId,
         is_recovered: bool,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let projection = match projection {
             PatternProjection::ProductField(field) => StorageProjection::ProductField(field),
             PatternProjection::TupleElement(ordinal) => StorageProjection::TupleElement(ordinal),

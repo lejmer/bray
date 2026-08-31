@@ -3,8 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_binder::{
-    BindingQueryContext, BindingQueryError, BindingQueryResult, PredicateClauseBindingContext,
-    SymbolQueryProvider, bind_predicate_clause, bind_trusted_capability_clause,
+    BindingQueryContext, BindingQueryError, PredicateClauseBindingContext, SymbolQueryProvider,
+    bind_predicate_clause, bind_trusted_capability_clause,
 };
 use bray_diagnostics::{
     DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
@@ -29,7 +29,7 @@ use super::cache::CompilationSymbolSemantics;
 use super::declaration_body::{CheckedSourcePredicateSequence, checked_source_predicate_sequence};
 use super::environment::type_binder;
 use super::surface::{symbol_ordinal, with_declaration_root};
-use crate::compilation::binder::CompilationBindingContext;
+use crate::compilation::binder::{BindingQueryResult, CompilationBindingContext};
 use crate::compilation::diagnostics::source_diagnostic;
 use crate::fact::SymbolQueryCache;
 

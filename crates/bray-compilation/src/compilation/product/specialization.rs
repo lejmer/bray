@@ -767,7 +767,7 @@ impl Compilation {
 
             let outcome =
                 bray_checker::built_in_trait_constraint_outcome(&context, subject, application)
-                    .map_err(FactQueryError::CheckerInfrastructure)?;
+                    .map_err(FactQueryError::from)?;
 
             if outcome != Some(ProofOutcome::Proven) {
                 return Err(FactQueryError::InfrastructureFailure.into());
@@ -786,7 +786,7 @@ impl Compilation {
                     let conversion = bray_checker::built_in_conversion_plan_for_context(
                         &context, subject, target,
                     )
-                    .map_err(FactQueryError::CheckerInfrastructure)?
+                    .map_err(FactQueryError::from)?
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
                     IntrinsicCall::Conversion(conversion)
@@ -1020,7 +1020,7 @@ impl Compilation {
                 .map_err(|_| FactQueryError::InfrastructureFailure)?;
 
             if bray_checker::built_in_trait_constraint_outcome(&context, subject, application)
-                .map_err(FactQueryError::CheckerInfrastructure)?
+                .map_err(FactQueryError::from)?
                 == Some(ProofOutcome::Proven)
                 || self.is_copyable_trait(application_data.definition())?
             {

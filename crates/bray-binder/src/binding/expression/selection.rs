@@ -22,7 +22,7 @@ impl ExpressionBinder {
         &self,
         binder: &mut Binder<'_, C>,
         syntax: &LeadingDotVariantExpressionSyntax,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -44,7 +44,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         syntax: &MemberAccessOperationSyntax,
         receiver: BoundExpressionId,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -103,7 +103,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         syntax: &TraitQualifiedMemberOperationSyntax,
         receiver: BoundExpressionId,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {

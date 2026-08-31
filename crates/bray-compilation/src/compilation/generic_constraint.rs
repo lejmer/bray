@@ -293,11 +293,11 @@ impl Compilation {
         let values = self.semantic_value_store()?;
 
         let left = resolve_type_expression_template(values, left, &constants)
-            .map_err(FactQueryError::CheckerInfrastructure)?
+            .map_err(FactQueryError::from)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let right = resolve_type_expression_template(values, right, &constants)
-            .map_err(FactQueryError::CheckerInfrastructure)?
+            .map_err(FactQueryError::from)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let left = values
@@ -348,7 +348,7 @@ impl Compilation {
 
         if let Some(result) =
             bray_checker::built_in_operation_result_type(&context, *subject, *application, *member)
-                .map_err(FactQueryError::CheckerInfrastructure)?
+                .map_err(FactQueryError::from)?
         {
             return Ok(DiagnosticResult::without_diagnostics(result));
         }
@@ -547,11 +547,11 @@ impl Compilation {
         let values = self.semantic_value_store()?;
 
         let subject = resolve_type_expression_template(values, subject, &constants)
-            .map_err(FactQueryError::CheckerInfrastructure)?
+            .map_err(FactQueryError::from)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let application = resolve_trait_application_template(values, application, &constants)
-            .map_err(FactQueryError::CheckerInfrastructure)?
+            .map_err(FactQueryError::from)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let subject = values
@@ -591,7 +591,7 @@ impl Compilation {
 
         let built_in =
             bray_checker::built_in_trait_constraint_outcome(&context, subject, application)
-                .map_err(FactQueryError::CheckerInfrastructure)?;
+                .map_err(FactQueryError::from)?;
 
         let outcome = if let Some(outcome) = built_in {
             outcome
@@ -706,10 +706,11 @@ impl Compilation {
     }
 }
 
-fn checker_dependency_error(error: CheckerQueryError) -> FactQueryError {
+fn checker_dependency_error(error: CheckerQueryError<FactQueryError>) -> FactQueryError {
     match error {
         CheckerQueryError::Cancelled => FactQueryError::Cancelled,
         CheckerQueryError::Infrastructure(error) => FactQueryError::CheckerInfrastructure(error),
+        CheckerQueryError::Upstream(error) => error,
     }
 }
 

@@ -14,7 +14,7 @@ pub(crate) fn push_contract_scope<C>(
     parent: LocalScopeId,
     syntax: SyntaxAnchor,
     has_result: bool,
-) -> BindingResult<LocalScopeId>
+) -> BindingResult<LocalScopeId, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -37,7 +37,7 @@ where
 pub(crate) fn callable_normal_completion_has_value<C>(
     binding_context: &C,
     owner: AnySymbolId,
-) -> BindingQueryResult<bool>
+) -> BindingQueryResult<bool, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,

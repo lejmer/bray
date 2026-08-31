@@ -128,7 +128,6 @@ pub use record::{
     UnionSymbol, UnionVariantSymbol, UnnamedTraitImplementationSymbol,
 };
 pub use relationship::RuntimeDefaultPresence;
-pub use surface_kind::catalog_declaration_symbol_kind;
 pub use semantic::CallableSignatureTemplateError;
 pub use semantic::{
     CallableCapabilityRequirement, CallableContractClause, CallableContractClauseKind,
@@ -197,6 +196,7 @@ pub use semantic::{
     UnionPayloadFieldDefaultQuery, UnionPayloadFieldDefaultTemplateQuery,
     UnionPayloadFieldTypeQuery,
 };
+pub use surface_kind::catalog_declaration_symbol_kind;
 pub use value::{
     AnyConstantDefinitionId, BorrowKind, CallableAbi, CallableConstness, CallableDefinitionId,
     CallableDependencyContracts, CallableExecution, CallableInstanceData, CallableInstanceId,

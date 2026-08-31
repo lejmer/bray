@@ -62,7 +62,8 @@ mod tests {
             SeverityKind::Error,
         );
 
-        let outcome = BindingOutcome::complete(7_u32, DiagnosticBag::single(diagnostic.clone()));
+        let outcome: BindingOutcome<u32> =
+            BindingOutcome::complete(7_u32, DiagnosticBag::single(diagnostic.clone()));
 
         let Some(result) = outcome.result() else {
             panic!("completed binding must retain its atomic result");

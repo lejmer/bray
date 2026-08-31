@@ -17,7 +17,7 @@ where
         context: PathBindingContext,
         source: &SourceSnapshot,
         tokens: impl IntoIterator<Item = SyntaxToken>,
-    ) -> BindingQueryResult<Option<(ModuleSymbolId, usize)>> {
+    ) -> BindingQueryResult<Option<(ModuleSymbolId, usize)>, C::UpstreamError> {
         let references = tokens
             .into_iter()
             .map(|token| token_reference(source, token))

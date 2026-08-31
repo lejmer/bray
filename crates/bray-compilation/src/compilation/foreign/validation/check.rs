@@ -481,7 +481,7 @@ fn resolve_template_type(
         template,
         constants.value(),
     )
-    .map_err(FactQueryError::CheckerInfrastructure)
+    .map_err(FactQueryError::from)
 }
 
 fn type_has_representation(

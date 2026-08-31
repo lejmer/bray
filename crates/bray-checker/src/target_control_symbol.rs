@@ -16,7 +16,7 @@ pub(super) fn callable_symbol<C>(
     request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
     expected: TypeId,
-) -> Result<Option<InlineAssemblySymbol>, CheckerInfrastructureError>
+) -> Result<Option<InlineAssemblySymbol>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -33,14 +33,14 @@ where
     };
 
     let Some(owner) = GenericOwnerId::try_new(definition.symbol()) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
     let Some(parameters) = request
         .symbols()
         .callable_generic_parameters(definition.callable_symbol())
     else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
     let open_arguments = parameters
@@ -56,17 +56,14 @@ where
 
     let open = intern_substitution(request, owner, &parameters, open_arguments)?;
 
-    let template = request
-        .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
-            definition.callable_symbol(),
-        ))
-        .map_err(query_error)?;
+    let template = request.resolve_symbol_query(
+        SymbolQueryRequest::<CallableSignatureQuery>::new(definition.callable_symbol()),
+    )?;
 
     let mut diagnostics = DiagnosticBag::new();
 
     let crate::expression::TemplateResolution::Resolved(open_signature) =
-        crate::expression::resolve_signature(request, template.value(), open, &mut diagnostics)
-            .map_err(query_error)?
+        crate::expression::resolve_signature(request, template.value(), open, &mut diagnostics)?
     else {
         return Ok(None);
     };
@@ -89,8 +86,7 @@ where
             template.value(),
             substitution,
             &mut diagnostics,
-        )
-        .map_err(query_error)?
+        )?
     else {
         return Ok(None);
     };
@@ -113,7 +109,6 @@ where
         callable.abi(),
     )))
 }
-
 fn intern_substitution<C>(
     request: CheckerUnitView<'_, C>,
     owner: GenericOwnerId,
@@ -131,11 +126,4 @@ where
         .semantic_values()
         .intern_generic_substitution(substitution)
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
-}
-
-fn query_error(error: CheckerQueryError) -> CheckerInfrastructureError {
-    match error {
-        CheckerQueryError::Cancelled => CheckerInfrastructureError::InvalidSemanticSelectionInput,
-        CheckerQueryError::Infrastructure(error) => error,
-    }
 }

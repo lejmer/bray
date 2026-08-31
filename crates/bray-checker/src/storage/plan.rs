@@ -31,7 +31,7 @@ pub(crate) fn plan_storage<C>(
     types: &CheckedExpressionTypes,
     patterns: &CheckedPatterns,
     selections: &CheckedSemanticSelections,
-) -> CheckerOutcome<StoragePlan>
+) -> CheckerOutcome<StoragePlan, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -68,6 +68,9 @@ where
             Err(CheckerQueryError::Infrastructure(error)) => {
                 return CheckerOutcome::InfrastructureFailure(error);
             }
+            Err(CheckerQueryError::Upstream(error)) => {
+                return CheckerOutcome::UpstreamFailure(error);
+            }
         },
     ) {
         Ok(planner) => planner,
@@ -78,6 +81,7 @@ where
         Ok(plan) => CheckerOutcome::without_diagnostics(plan),
         Err(PlanError::Cancelled) => CheckerOutcome::Cancelled,
         Err(PlanError::Infrastructure(error)) => CheckerOutcome::InfrastructureFailure(error),
+        Err(PlanError::Upstream(error)) => CheckerOutcome::UpstreamFailure(error),
     }
 }
 
@@ -104,9 +108,10 @@ where
     )>,
 }
 
-pub(super) enum PlanError {
+pub(super) enum PlanError<Upstream = std::convert::Infallible> {
     Cancelled,
     Infrastructure(CheckerInfrastructureError),
+    Upstream(Upstream),
 }
 
 impl<C> Planner<'_, C>
@@ -118,17 +123,18 @@ where
     }
 }
 
-impl From<CheckerInfrastructureError> for PlanError {
+impl<Upstream> From<CheckerInfrastructureError> for PlanError<Upstream> {
     fn from(error: CheckerInfrastructureError) -> Self {
         Self::Infrastructure(error)
     }
 }
 
-impl From<CheckerQueryError> for PlanError {
-    fn from(error: CheckerQueryError) -> Self {
+impl<Upstream> From<CheckerQueryError<Upstream>> for PlanError<Upstream> {
+    fn from(error: CheckerQueryError<Upstream>) -> Self {
         match error {
             CheckerQueryError::Cancelled => Self::Cancelled,
             CheckerQueryError::Infrastructure(error) => Self::Infrastructure(error),
+            CheckerQueryError::Upstream(error) => Self::Upstream(error),
         }
     }
 }
@@ -195,7 +201,7 @@ where
         })
     }
 
-    fn plan(&mut self) -> Result<StoragePlan, PlanError> {
+    fn plan(&mut self) -> Result<StoragePlan, PlanError<C::UpstreamError>> {
         self.install_entry_storage()?;
 
         match self.request.root() {
@@ -230,7 +236,7 @@ where
         Ok(builder.finish())
     }
 
-    fn install_entry_storage(&mut self) -> Result<(), PlanError> {
+    fn install_entry_storage(&mut self) -> Result<(), PlanError<C::UpstreamError>> {
         match self.request.semantic_context() {
             SemanticUnitContext::AnonymousCallable(context) => {
                 for parameter in context.parameters() {
@@ -287,7 +293,10 @@ where
         Ok(())
     }
 
-    fn install_declared_inputs(&mut self, mut symbol: AnySymbolId) -> Result<(), PlanError> {
+    fn install_declared_inputs(
+        &mut self,
+        mut symbol: AnySymbolId,
+    ) -> Result<(), PlanError<C::UpstreamError>> {
         loop {
             if let Some(callable) = CallableSymbolId::try_from_any(symbol) {
                 let Some((parameters, receiver)) = self
@@ -392,7 +401,7 @@ where
         target: StorageBindingTarget,
         identity: StorageIdentity,
         ty: Option<TypeId>,
-    ) -> Result<Option<bray_bound_tree::StorageIdentityId>, PlanError> {
+    ) -> Result<Option<bray_bound_tree::StorageIdentityId>, PlanError<C::UpstreamError>> {
         if self.builder()?.binding(target).is_some() {
             return Ok(None);
         }
@@ -420,7 +429,7 @@ where
         target: StorageBindingTarget,
         identity: StorageIdentity,
         entry: Option<EntryStorage>,
-    ) -> Result<(), PlanError> {
+    ) -> Result<(), PlanError<C::UpstreamError>> {
         if self.builder()?.binding(target).is_some() {
             return Ok(());
         }
@@ -497,7 +506,7 @@ where
     fn entry_storage(
         &self,
         target: BoundReferenceTarget,
-    ) -> Result<Option<EntryStorage>, PlanError> {
+    ) -> Result<Option<EntryStorage>, PlanError<C::UpstreamError>> {
         let Some(template) = self
             .declared_types
             .evidence()
@@ -567,7 +576,7 @@ where
         }
     }
 
-    fn install_recovered_local_storage(&mut self) -> Result<(), PlanError> {
+    fn install_recovered_local_storage(&mut self) -> Result<(), PlanError<C::UpstreamError>> {
         let root = self.request.unit().root().into();
 
         let bindings = self
@@ -590,7 +599,10 @@ where
         Ok(())
     }
 
-    pub(super) fn plan_block(&mut self, id: BoundBlockId) -> Result<(), PlanError> {
+    pub(super) fn plan_block(
+        &mut self,
+        id: BoundBlockId,
+    ) -> Result<(), PlanError<C::UpstreamError>> {
         self.check_cancellation()?;
 
         if !self.planned_blocks.insert(id) {
@@ -634,7 +646,7 @@ where
     pub(super) fn expression_type(
         &self,
         expression: BoundExpressionId,
-    ) -> Result<ExpressionTypeResult, PlanError> {
+    ) -> Result<ExpressionTypeResult, PlanError<C::UpstreamError>> {
         self.types
             .expression(expression)
             .ok_or_else(|| CheckerInfrastructureError::InvalidStoragePlan.into())
@@ -645,7 +657,7 @@ where
         expression: BoundExpressionId,
         purpose: Option<StorageAccessPurpose>,
         access: StorageAccessId,
-    ) -> Result<(), PlanError> {
+    ) -> Result<(), PlanError<C::UpstreamError>> {
         let Some(purpose) = purpose else {
             return Ok(());
         };
@@ -655,19 +667,21 @@ where
             .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan.into())
     }
 
-    pub(super) fn builder(&self) -> Result<&StoragePlanBuilder, PlanError> {
+    pub(super) fn builder(&self) -> Result<&StoragePlanBuilder, PlanError<C::UpstreamError>> {
         self.builder
             .as_ref()
             .ok_or_else(|| CheckerInfrastructureError::InvalidStoragePlan.into())
     }
 
-    pub(super) fn builder_mut(&mut self) -> Result<&mut StoragePlanBuilder, PlanError> {
+    pub(super) fn builder_mut(
+        &mut self,
+    ) -> Result<&mut StoragePlanBuilder, PlanError<C::UpstreamError>> {
         self.builder
             .as_mut()
             .ok_or_else(|| CheckerInfrastructureError::InvalidStoragePlan.into())
     }
 
-    pub(super) fn check_cancellation(&self) -> Result<(), PlanError> {
+    pub(super) fn check_cancellation(&self) -> Result<(), PlanError<C::UpstreamError>> {
         if self.request.is_cancelled() {
             Err(PlanError::Cancelled)
         } else {
@@ -687,7 +701,7 @@ fn receiver_entry<C>(
         bray_symbols::ReceiverParameterSymbolId,
         Option<(BorrowKind, TypeId)>,
     )>,
-    CheckerQueryError,
+    CheckerQueryError<C::UpstreamError>,
 >
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
@@ -710,7 +724,9 @@ where
     }))
 }
 
-pub(super) fn invalid_node(id: impl Into<bray_bound_tree::AnyBoundNodeId>) -> PlanError {
+pub(super) fn invalid_node<Upstream>(
+    id: impl Into<bray_bound_tree::AnyBoundNodeId>,
+) -> PlanError<Upstream> {
     CheckerInfrastructureError::InvalidBoundNode { node: id.into() }.into()
 }
 

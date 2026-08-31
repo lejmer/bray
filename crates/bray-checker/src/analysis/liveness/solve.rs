@@ -17,7 +17,7 @@ use crate::analysis::model::{
 use crate::analysis::reachability::{ReachabilityResult, analyze_reachability};
 use crate::unit::semantic_inputs_match;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
@@ -28,7 +28,7 @@ pub(crate) fn analyze_storage_liveness<C>(
     selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
     memory: &CheckedMemoryOperations,
-) -> CheckerOutcome<Liveness>
+) -> CheckerOutcome<Liveness, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -58,7 +58,7 @@ pub(crate) fn analyze_storage_liveness_with_graph<C>(
     storage: &StoragePlan,
     memory: &CheckedMemoryOperations,
     graph: &ControlFlowGraph,
-) -> CheckerOutcome<Liveness>
+) -> CheckerOutcome<Liveness, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -69,7 +69,13 @@ where
     let effects = match OperationEffects::from_checked_inputs(request, selections, storage, memory)
     {
         Ok(effects) => effects,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Infrastructure(error)) => {
+            return CheckerOutcome::InfrastructureFailure(error);
+        }
+        Err(CheckerQueryError::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
     };
 
     let Some(reachability) = analyze_reachability(&graph, request) else {

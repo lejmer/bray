@@ -8,7 +8,7 @@ pub enum SemanticValueStoreCreateError {
 }
 
 /// Reports a typed semantic-store construction or access failure.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum SemanticValueStoreError {
     /// An ID issued by another store was supplied to this store.
     ForeignId {

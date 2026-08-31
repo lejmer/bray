@@ -171,42 +171,46 @@ where
         self,
         owner: bray_symbols::AnySymbolId,
         name: &str,
-    ) -> CheckerQueryResult<bray_symbols::MemberLookupResult<bray_symbols::AnySymbolId>> {
+    ) -> CheckerQueryResult<
+        bray_symbols::MemberLookupResult<bray_symbols::AnySymbolId>,
+        C::UpstreamError,
+    > {
         self.context.lookup_member(owner, name)
     }
 
     pub(crate) fn member_name(
         self,
         member: bray_symbols::AnySymbolId,
-    ) -> CheckerQueryResult<Option<&'view bray_symbols::SymbolName>> {
+    ) -> CheckerQueryResult<Option<&'view bray_symbols::SymbolName>, C::UpstreamError> {
         self.context.member_name(member)
     }
 
     pub(crate) fn structure(
         self,
         id: bray_symbols::StructSymbolId,
-    ) -> CheckerQueryResult<Option<&'view bray_symbols::StructSymbol>> {
+    ) -> CheckerQueryResult<Option<&'view bray_symbols::StructSymbol>, C::UpstreamError> {
         self.context.structure(id)
     }
 
     pub(crate) fn union(
         self,
         id: bray_symbols::UnionSymbolId,
-    ) -> CheckerQueryResult<Option<&'view bray_symbols::UnionSymbol>> {
+    ) -> CheckerQueryResult<Option<&'view bray_symbols::UnionSymbol>, C::UpstreamError> {
         self.context.union(id)
     }
 
     pub(crate) fn union_variant(
         self,
         id: bray_symbols::UnionVariantSymbolId,
-    ) -> CheckerQueryResult<Option<&'view bray_symbols::UnionVariantSymbol>> {
+    ) -> CheckerQueryResult<Option<&'view bray_symbols::UnionVariantSymbol>, C::UpstreamError> {
         self.context.union_variant(id)
     }
 
     pub(crate) fn union_payload_field(
         self,
         id: bray_symbols::UnionPayloadFieldSymbolId,
-    ) -> CheckerQueryResult<Option<&'view bray_symbols::UnionPayloadFieldSymbol>> {
+    ) -> CheckerQueryResult<Option<&'view bray_symbols::UnionPayloadFieldSymbol>, C::UpstreamError>
+    {
         self.context.union_payload_field(id)
     }
 
@@ -219,7 +223,7 @@ where
     pub(crate) fn implementation_hook(
         self,
         symbol: bray_symbols::AnySymbolId,
-    ) -> CheckerQueryResult<Option<ImplementationHookResolution>> {
+    ) -> CheckerQueryResult<Option<ImplementationHookResolution>, C::UpstreamError> {
         self.context.implementation_hook(symbol)
     }
 
@@ -232,7 +236,10 @@ where
     pub(crate) fn checked_constant_expression(
         self,
         occurrence: bray_symbols::ConstantExpressionOccurrence,
-    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bray_symbols::ConstantTermId>> {
+    ) -> CheckerQueryResult<
+        bray_diagnostics::DiagnosticResult<bray_symbols::ConstantTermId>,
+        C::UpstreamError,
+    > {
         self.context.checked_constant_expression(occurrence)
     }
 
@@ -240,15 +247,20 @@ where
     pub(crate) fn generic_constraints(
         self,
         obligation: bray_symbols::GenericConstraintObligationKey,
-    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bray_symbols::ProofOutcome>> {
+    ) -> CheckerQueryResult<
+        bray_diagnostics::DiagnosticResult<bray_symbols::ProofOutcome>,
+        C::UpstreamError,
+    > {
         self.context.generic_constraints(obligation)
     }
 
     pub(crate) fn implementation_selection(
         self,
         requirement: bray_symbols::ImplementationRequirementKey,
-    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bray_symbols::ImplementationSelection>>
-    {
+    ) -> CheckerQueryResult<
+        bray_diagnostics::DiagnosticResult<bray_symbols::ImplementationSelection>,
+        C::UpstreamError,
+    > {
         self.context.implementation_selection(requirement)
     }
 
@@ -258,6 +270,7 @@ where
         subject: bray_symbols::NamedTypeSymbolId,
     ) -> CheckerQueryResult<
         bray_diagnostics::DiagnosticResult<bray_symbols::DeclaredTypeRepresentation>,
+        C::UpstreamError,
     > {
         self.context.declared_type_representation(subject)
     }
@@ -265,14 +278,14 @@ where
     pub(crate) fn plain_storage_atomic_representation(
         self,
         ty: bray_symbols::TypeId,
-    ) -> CheckerQueryResult<Option<bray_target::TargetAtomicRepresentation>> {
+    ) -> CheckerQueryResult<Option<bray_target::TargetAtomicRepresentation>, C::UpstreamError> {
         self.context.plain_storage_atomic_representation(ty)
     }
 
     pub(crate) fn declared_type_has_lifecycle(
         self,
         subject: bray_symbols::NamedTypeSymbolId,
-    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bool>> {
+    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bool>, C::UpstreamError> {
         self.context.declared_type_has_lifecycle(subject)
     }
 
@@ -280,7 +293,10 @@ where
     pub(crate) fn checked_constant_terms(
         self,
         template: &bray_symbols::TypeExpressionTemplate,
-    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<crate::CheckedConstantTerms>> {
+    ) -> CheckerQueryResult<
+        bray_diagnostics::DiagnosticResult<crate::CheckedConstantTerms>,
+        C::UpstreamError,
+    > {
         let mut terms = BTreeMap::new();
         let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
 
@@ -326,6 +342,7 @@ where
         request: SymbolQueryRequest<F>,
     ) -> CheckerQueryResult<
         Arc<bray_diagnostics::DiagnosticResult<<F as bray_symbols::SymbolQueryContract>::Value>>,
+        C::UpstreamError,
     >
     where
         F: SymbolQueryContract,

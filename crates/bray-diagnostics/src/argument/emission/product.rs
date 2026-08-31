@@ -81,6 +81,7 @@ pub enum DiagnosticNativeProductFailureKind {
     InvalidNativeLinkInput,
     EvaluationCycle,
     EvaluationInfrastructure,
+    EvaluationBinding(crate::DiagnosticBindingFailure),
     EvaluationLoweringInput(super::DiagnosticLoweringInputFailure),
     EvaluationLowering(super::DiagnosticLoweringFailure),
     EvaluationConstantCallableBodyUnavailable,
@@ -93,6 +94,7 @@ pub enum DiagnosticNativeProductFailureKind {
     EvaluationImportedExecutableTemplateMismatch,
     SemanticContextFailure,
     CheckingInfrastructureFailure,
+    EvaluationChecker(crate::DiagnosticCheckerFailure),
     CodegenTargetUnsupportedProfile,
     CodegenTargetEmptyTriple,
     CodegenTargetEmptyCpu,
@@ -164,6 +166,7 @@ impl DiagnosticNativeProductFailureKind {
             Self::InvalidNativeLinkInput => "invalid_native_link_input",
             Self::EvaluationCycle => "evaluation_cycle",
             Self::EvaluationInfrastructure => "evaluation_infrastructure",
+            Self::EvaluationBinding(failure) => failure.as_str(),
             Self::EvaluationLoweringInput(failure) => failure.as_str(),
             Self::EvaluationLowering(failure) => failure.as_str(),
             Self::EvaluationConstantCallableBodyUnavailable => {
@@ -192,6 +195,7 @@ impl DiagnosticNativeProductFailureKind {
             }
             Self::SemanticContextFailure => "semantic_context_failure",
             Self::CheckingInfrastructureFailure => "checking_infrastructure_failure",
+            Self::EvaluationChecker(failure) => failure.as_str(),
             Self::CodegenTargetUnsupportedProfile => "codegen_target_unsupported_profile",
             Self::CodegenTargetEmptyTriple => "codegen_target_empty_triple",
             Self::CodegenTargetEmptyCpu => "codegen_target_empty_cpu",

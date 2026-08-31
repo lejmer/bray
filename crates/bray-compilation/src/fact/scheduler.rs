@@ -488,7 +488,7 @@ impl ActiveSchedulerGuard {
 
                 active.push(ActiveScheduler { identity, priority });
 
-                Ok(())
+                Ok::<_, FactQueryError>(())
             })
             .map_err(|_| FactQueryError::InfrastructureFailure)??;
 

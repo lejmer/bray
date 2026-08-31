@@ -34,8 +34,9 @@ use crate::{
     NestedCallableEvidence,
 };
 
-const INVALID_SELECTION_INPUT_ERROR: CheckerQueryError =
-    CheckerQueryError::Infrastructure(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+fn invalid_selection_input<Upstream>() -> CheckerQueryError<Upstream> {
+    CheckerQueryError::Infrastructure(CheckerInfrastructureError::InvalidSemanticSelectionInput)
+}
 
 struct PreparedCall {
     expression: BoundExpressionId,
@@ -98,7 +99,7 @@ pub(super) fn prepare_calls<C>(
     request: CheckerUnitView<'_, C>,
     nested_callables: &[NestedCallableEvidence],
     candidate_sets: &[ExpressionCandidateSet],
-) -> Result<SessionProgress<PreparedExpressions>, CheckerInfrastructureError>
+) -> Result<SessionProgress<PreparedExpressions>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
 {
@@ -113,7 +114,7 @@ where
         }
 
         let Some(expression) = request.view().expression(candidate_set.expression()) else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
         };
 
         if matches!(candidate_set, ExpressionCandidateSet::Callable(_))
@@ -277,7 +278,7 @@ fn prepare_resolved_candidate<C>(
     materialized: TemplateResolution<CallableCandidate>,
     resolved: &mut Vec<CallableCandidate>,
     diagnostics: &mut DiagnosticBag,
-) -> Result<bool, CheckerInfrastructureError>
+) -> Result<bool, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
 {
@@ -321,7 +322,7 @@ fn generic_constraint_outcome<C>(
     request: CheckerUnitView<'_, C>,
     candidate: &CallableCandidate,
     diagnostics: &mut DiagnosticBag,
-) -> Result<ProofOutcome, CheckerInfrastructureError>
+) -> Result<ProofOutcome, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
 {
@@ -330,7 +331,7 @@ where
     }
 
     let Some(substitution_id) = candidate.generic_substitution() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
     let substitution = request
@@ -344,13 +345,23 @@ where
         Ok(true) => return Ok(ProofOutcome::Proven),
         Ok(false) => {}
         Err(CheckerQueryError::Cancelled) => return Ok(ProofOutcome::Unknown),
-        Err(CheckerQueryError::Infrastructure(error)) => return Err(error),
+        Err(CheckerQueryError::Infrastructure(error)) => {
+            return Err(CheckerQueryError::Infrastructure(error));
+        }
+        Err(CheckerQueryError::Upstream(error)) => {
+            return Err(CheckerQueryError::Upstream(error));
+        }
     }
 
     let result = match request.generic_constraints(obligation) {
         Ok(result) => result,
         Err(CheckerQueryError::Cancelled) => return Ok(ProofOutcome::Unknown),
-        Err(CheckerQueryError::Infrastructure(error)) => return Err(error),
+        Err(CheckerQueryError::Infrastructure(error)) => {
+            return Err(CheckerQueryError::Infrastructure(error));
+        }
+        Err(CheckerQueryError::Upstream(error)) => {
+            return Err(CheckerQueryError::Upstream(error));
+        }
     };
 
     diagnostics.extend(result.diagnostics().iter().cloned());
@@ -362,7 +373,7 @@ fn active_constraints_prove<C>(
     request: CheckerUnitView<'_, C>,
     obligation: GenericConstraintObligationKey,
     diagnostics: &mut DiagnosticBag,
-) -> CheckerQueryResult<bool>
+) -> CheckerQueryResult<bool, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
 {
@@ -465,14 +476,14 @@ fn defer_callable_selection<C>(
     request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
     deferred: &mut BTreeSet<BoundExpressionId>,
-) -> Result<SessionProgress<()>, CheckerInfrastructureError>
+) -> Result<SessionProgress<()>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let callee = match request.view().expression(expression) {
         Some(BoundExpression::Call(call)) => call.callee(),
         Some(BoundExpression::ErrorCall(call)) => call.callee(),
-        _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput),
+        _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into()),
     };
 
     deferred.insert(expression);
@@ -484,12 +495,12 @@ fn nested_callable_target<C>(
     request: CheckerUnitView<'_, C>,
     expression: BoundExpressionId,
     nested_callables: &[NestedCallableEvidence],
-) -> Result<Option<bray_symbols::AnonymousCallableSymbolId>, CheckerInfrastructureError>
+) -> Result<Option<bray_symbols::AnonymousCallableSymbolId>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(BoundExpression::Call(call)) = request.view().expression(expression) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
     if !matches!(
@@ -504,11 +515,11 @@ where
         .filter(|evidence| evidence.expression() == call.callee());
 
     let Some(evidence) = matching.next() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
     if matching.next().is_some() {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     }
 
     Ok(Some(evidence.callable()))
@@ -518,7 +529,7 @@ fn defer_expression_tree<C>(
     request: CheckerUnitView<'_, C>,
     root: BoundExpressionId,
     deferred: &mut BTreeSet<BoundExpressionId>,
-) -> Result<SessionProgress<()>, CheckerInfrastructureError>
+) -> Result<SessionProgress<()>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -534,7 +545,7 @@ where
         }
 
         let Some(bound) = request.view().expression(expression) else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
         };
 
         pending.extend(bound.child_expressions());
@@ -548,7 +559,7 @@ fn add_candidate_expectations<C>(
     types: &bray_bound_tree::CheckedExpressionTypes,
     prepared: &PreparedExpressions,
     session: &mut ExpressionTypeSession<'_, C>,
-) -> Result<SessionProgress<()>, CheckerInfrastructureError>
+) -> Result<SessionProgress<()>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
@@ -578,7 +589,7 @@ where
 
         let Some(BoundExpression::Call(call)) = request.view().expression(prepared_call.expression)
         else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
         };
 
         let available = candidates.iter().collect::<Vec<_>>();
@@ -632,7 +643,7 @@ fn viable_candidates<'candidate, C>(
     prepared: &PreparedCall,
     member_targets: &BTreeMap<BoundExpressionId, bray_bound_tree::MemberTarget>,
     candidates: &'candidate [CallableCandidate],
-) -> Result<Option<Vec<&'candidate CallableCandidate>>, CheckerInfrastructureError>
+) -> Result<Option<Vec<&'candidate CallableCandidate>>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -640,7 +651,12 @@ where
     let input = match call_selection_request(request, types, prepared, member_targets, []) {
         Ok(input) => input,
         Err(CheckerQueryError::Cancelled) => return Ok(None),
-        Err(CheckerQueryError::Infrastructure(error)) => return Err(error),
+        Err(CheckerQueryError::Infrastructure(error)) => {
+            return Err(CheckerQueryError::Infrastructure(error));
+        }
+        Err(CheckerQueryError::Upstream(error)) => {
+            return Err(CheckerQueryError::Upstream(error));
+        }
     };
 
     let Some(indices) =
@@ -666,7 +682,7 @@ fn common_parameter_type<C>(
     candidates: &[&CallableCandidate],
     arguments: &[bray_bound_tree::BoundArgument],
     ordinal: usize,
-) -> Result<Option<TypeId>, CheckerInfrastructureError>
+) -> Result<Option<TypeId>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -679,7 +695,7 @@ where
             .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
         let TypeData::Callable(callable) = callable.as_ref() else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
         };
 
         let Some(mapping) = crate::selection::map_argument_parameter_indices(
@@ -691,7 +707,7 @@ where
         };
 
         let Some(parameter_index) = mapping.get(ordinal).copied() else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
         };
 
         let Some(parameter_index) = parameter_index else {
@@ -699,7 +715,7 @@ where
         };
 
         let Some(parameter) = callable.parameters().get(parameter_index) else {
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
         };
 
         match expected {
@@ -751,13 +767,16 @@ struct MaterializedCallCandidates<'prepared> {
     diagnostics: DiagnosticBag,
 }
 
-fn dependency_progress<T>(
-    result: CheckerQueryResult<T>,
-) -> Result<SessionProgress<T>, CheckerInfrastructureError> {
+fn dependency_progress<T, Upstream>(
+    result: CheckerQueryResult<T, Upstream>,
+) -> Result<SessionProgress<T>, CheckerQueryError<Upstream>> {
     match result {
         Ok(value) => Ok(SessionProgress::Complete(value)),
         Err(CheckerQueryError::Cancelled) => Ok(SessionProgress::Cancelled),
-        Err(CheckerQueryError::Infrastructure(error)) => Err(error),
+        Err(CheckerQueryError::Infrastructure(error)) => {
+            Err(CheckerQueryError::Infrastructure(error))
+        }
+        Err(CheckerQueryError::Upstream(error)) => Err(CheckerQueryError::Upstream(error)),
     }
 }
 
@@ -766,7 +785,7 @@ fn materialize_call_candidates<'prepared, C>(
     types: &bray_bound_tree::CheckedExpressionTypes,
     prepared: &'prepared PreparedCall,
     member_targets: &BTreeMap<BoundExpressionId, bray_bound_tree::MemberTarget>,
-) -> CheckerQueryResult<Option<MaterializedCallCandidates<'prepared>>>
+) -> CheckerQueryResult<Option<MaterializedCallCandidates<'prepared>>, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
 {
@@ -986,7 +1005,7 @@ pub(super) fn converge<C>(
     request: CheckerUnitView<'_, C>,
     prepared: &PreparedExpressions,
     session: &mut ExpressionTypeSession<'_, C>,
-) -> Result<SessionProgress<()>, CheckerInfrastructureError>
+) -> Result<SessionProgress<()>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
@@ -1034,7 +1053,7 @@ fn apply_selected_call_evidence<C>(
     types: &bray_bound_tree::CheckedExpressionTypes,
     prepared: &PreparedExpressions,
     session: &mut ExpressionTypeSession<'_, C>,
-) -> Result<SessionProgress<()>, CheckerInfrastructureError>
+) -> Result<SessionProgress<()>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
@@ -1083,7 +1102,12 @@ where
                 }
             }
             CheckerOutcome::Cancelled => return Ok(SessionProgress::Cancelled),
-            CheckerOutcome::InfrastructureFailure(error) => return Err(error),
+            CheckerOutcome::InfrastructureFailure(error) => {
+                return Err(CheckerQueryError::Infrastructure(error));
+            }
+            CheckerOutcome::UpstreamFailure(error) => {
+                return Err(CheckerQueryError::Upstream(error));
+            }
         }
     }
 
@@ -1096,19 +1120,19 @@ fn apply_selected_signature<C>(
     candidates: &[CallableCandidate],
     selection: &bray_bound_tree::SelectedCall,
     session: &mut ExpressionTypeSession<'_, C>,
-) -> Result<(), CheckerInfrastructureError>
+) -> Result<(), CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(BoundExpression::Call(call)) = request.view().expression(prepared.expression) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
     let Some(candidate) = candidates
         .iter()
         .find(|candidate| candidate.resolution() == selection.resolution())
     else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
     session.add_evidence(call.callee(), candidate.callable_type())?;
@@ -1119,7 +1143,7 @@ where
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
     let TypeData::Callable(callable) = callable.as_ref() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
     for argument in selection.arguments() {
@@ -1138,12 +1162,12 @@ where
                 continue;
             }
 
-            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+            return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
         };
 
         if let Some(parameter) = parameter {
             let Some(signature) = candidate.declaration_signature() else {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
             };
 
             if signature
@@ -1151,7 +1175,7 @@ where
                 .get(*ordinal as usize)
                 .is_none_or(|signature| signature.parameter() != *parameter)
             {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
             }
         }
 
@@ -1167,7 +1191,7 @@ pub(super) fn final_selections<C>(
     request: CheckerUnitView<'_, C>,
     types: &bray_bound_tree::CheckedExpressionTypes,
     prepared: &PreparedExpressions,
-) -> Result<Option<(Vec<SemanticSelectionEntry>, DiagnosticBag)>, CheckerInfrastructureError>
+) -> Result<Option<(Vec<SemanticSelectionEntry>, DiagnosticBag)>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
@@ -1186,7 +1210,12 @@ where
         ) {
             Ok(materialized) => materialized,
             Err(CheckerQueryError::Cancelled) => return Ok(None),
-            Err(CheckerQueryError::Infrastructure(error)) => return Err(error),
+            Err(CheckerQueryError::Infrastructure(error)) => {
+                return Err(CheckerQueryError::Infrastructure(error));
+            }
+            Err(CheckerQueryError::Upstream(error)) => {
+                return Err(CheckerQueryError::Upstream(error));
+            }
         };
 
         let Some(materialized) = materialized else {
@@ -1215,7 +1244,12 @@ where
                 }
             }
             CheckerOutcome::Cancelled => return Ok(None),
-            CheckerOutcome::InfrastructureFailure(error) => return Err(error),
+            CheckerOutcome::InfrastructureFailure(error) => {
+                return Err(CheckerQueryError::Infrastructure(error));
+            }
+            CheckerOutcome::UpstreamFailure(error) => {
+                return Err(CheckerQueryError::Upstream(error));
+            }
         }
     }
 
@@ -1234,7 +1268,7 @@ fn select_prepared_call<C>(
     prepared: &PreparedCall,
     member_targets: &BTreeMap<BoundExpressionId, bray_bound_tree::MemberTarget>,
     candidates: &[CallableCandidate],
-) -> CheckerOutcome<CandidateSelection<bray_bound_tree::SelectedCall>>
+) -> CheckerOutcome<CandidateSelection<bray_bound_tree::SelectedCall>, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -1243,6 +1277,9 @@ where
         Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
         Err(CheckerQueryError::Infrastructure(error)) => {
             return CheckerOutcome::InfrastructureFailure(error);
+        }
+        Err(CheckerQueryError::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
         }
     };
 
@@ -1255,7 +1292,7 @@ fn call_selection_request<C>(
     prepared: &PreparedCall,
     member_targets: &BTreeMap<BoundExpressionId, bray_bound_tree::MemberTarget>,
     candidates: impl IntoIterator<Item = CallableCandidate>,
-) -> CheckerQueryResult<CallableSelectionRequest>
+) -> CheckerQueryResult<CallableSelectionRequest, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -1297,7 +1334,7 @@ fn receiver_capability<C>(
     types: &bray_bound_tree::CheckedExpressionTypes,
     member_targets: &BTreeMap<BoundExpressionId, bray_bound_tree::MemberTarget>,
     receiver: BoundExpressionId,
-) -> CheckerQueryResult<crate::ReceiverCapability>
+) -> CheckerQueryResult<crate::ReceiverCapability, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -1307,7 +1344,7 @@ where
     loop {
         let ty = types
             .expression(expression)
-            .ok_or(INVALID_SELECTION_INPUT_ERROR)?;
+            .ok_or_else(invalid_selection_input)?;
 
         let data = request.semantic_values().type_data(ty.ty()).map_err(|_| {
             CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
@@ -1321,7 +1358,7 @@ where
             Some(BoundExpression::MemberAccess(member)) => {
                 let target = member_targets
                     .get(&expression)
-                    .ok_or(INVALID_SELECTION_INPUT_ERROR)?;
+                    .ok_or_else(invalid_selection_input)?;
 
                 mutable_projection &= member_allows_mutation(request, target.member());
                 expression = member.receiver();
@@ -1348,7 +1385,7 @@ fn generic_constraint_implementation_selections<C>(
     request: CheckerUnitView<'_, C>,
     candidate: &CallableCandidate,
     diagnostics: &mut DiagnosticBag,
-) -> Result<Vec<crate::ImplementationSelectionEvidence>, CheckerInfrastructureError>
+) -> Result<Vec<crate::ImplementationSelectionEvidence>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<GenericConstraintsQuery> + ?Sized,
 {
@@ -1357,7 +1394,7 @@ where
     }
 
     let Some(substitution) = candidate.generic_substitution() else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
     let substitution_data = request
@@ -1365,16 +1402,9 @@ where
         .generic_substitution_data(substitution)
         .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-    let constraints = request
-        .resolve_symbol_query(SymbolQueryRequest::<GenericConstraintsQuery>::new(
-            substitution_data.owner(),
-        ))
-        .map_err(|error| match error {
-            CheckerQueryError::Cancelled => {
-                CheckerInfrastructureError::InvalidSemanticSelectionInput
-            }
-            CheckerQueryError::Infrastructure(error) => error,
-        })?;
+    let constraints = request.resolve_symbol_query(
+        SymbolQueryRequest::<GenericConstraintsQuery>::new(substitution_data.owner()),
+    )?;
 
     diagnostics.extend(constraints.diagnostics().iter().cloned());
 
@@ -1411,15 +1441,7 @@ where
 
         let requirement = ImplementationRequirementKey::new(subject, application);
 
-        let selection =
-            request
-                .implementation_selection(requirement)
-                .map_err(|error| match error {
-                    CheckerQueryError::Cancelled => {
-                        CheckerInfrastructureError::InvalidSemanticSelectionInput
-                    }
-                    CheckerQueryError::Infrastructure(error) => error,
-                })?;
+        let selection = request.implementation_selection(requirement)?;
 
         diagnostics.extend(selection.diagnostics().iter().cloned());
 
@@ -1450,7 +1472,7 @@ const fn borrow_receiver_capability(
 fn name_receiver_capability<C>(
     request: CheckerUnitView<'_, C>,
     target: BoundReferenceTarget,
-) -> CheckerQueryResult<crate::ReceiverCapability>
+) -> CheckerQueryResult<crate::ReceiverCapability, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -1471,7 +1493,7 @@ where
             let receiver = request
                 .symbols()
                 .receiver_parameter(parameter)
-                .ok_or(INVALID_SELECTION_INPUT_ERROR)?;
+                .ok_or_else(invalid_selection_input)?;
 
             let signature = request.resolve_symbol_query(SymbolQueryRequest::<
                 CallableSignatureQuery,
@@ -1482,7 +1504,7 @@ where
                 .receiver()
                 .filter(|signature| signature.parameter() == parameter)
                 .map(bray_symbols::ReceiverParameterSignature::mode)
-                .ok_or(INVALID_SELECTION_INPUT_ERROR)?;
+                .ok_or_else(invalid_selection_input)?;
 
             Ok(receiver_mode_capability(mode))
         }
@@ -1490,7 +1512,7 @@ where
             let parameter = request
                 .symbols()
                 .callable_parameter(parameter)
-                .ok_or(INVALID_SELECTION_INPUT_ERROR)?;
+                .ok_or_else(invalid_selection_input)?;
 
             let signature = request.resolve_symbol_query(SymbolQueryRequest::<
                 CallableSignatureQuery,
@@ -1524,7 +1546,7 @@ where
                 }
                 _ => None,
             }
-            .ok_or(INVALID_SELECTION_INPUT_ERROR)?;
+            .ok_or_else(invalid_selection_input)?;
 
             Ok(match mode {
                 CallableParameterMode::Immutable => crate::ReceiverCapability::Owned,

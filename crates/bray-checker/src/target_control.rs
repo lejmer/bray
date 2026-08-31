@@ -18,7 +18,7 @@ use crate::target_control_contract::{
     clobbers_valid, feature_name_valid, parse_constraint, separated_values,
 };
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
@@ -41,7 +41,10 @@ pub(crate) fn classify_operation<C>(
     types: &[TypeId],
     read_kinds: &mut BTreeMap<TypeId, MemoryReadKind>,
     diagnostics: &mut DiagnosticBag,
-) -> Result<Option<CheckedMemoryOperationKind>, CheckerOutcome<CheckedMemoryOperations>>
+) -> Result<
+    Option<CheckedMemoryOperationKind>,
+    CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>,
+>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -145,7 +148,7 @@ pub(crate) fn check_contract<C>(
     arguments: &[BoundExpressionId],
     literals: &CheckedLiteralValues,
     selections: &CheckedSemanticSelections,
-) -> Result<TargetControlCheck, CheckerInfrastructureError>
+) -> Result<TargetControlCheck, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<bray_symbols::CallableSignatureQuery>
@@ -156,11 +159,11 @@ where
     match hook {
         ImplementationHook::TargetFeatureEnabled => {
             if !types.is_empty() {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
             }
 
             let [feature] = arguments else {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
             };
 
             Ok(match literal_string(request, literals, *feature)? {
@@ -174,11 +177,11 @@ where
         }
         ImplementationHook::CompilerFence | ImplementationHook::HardwareFence => {
             if !types.is_empty() {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
             }
 
             let [order] = arguments else {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
             };
 
             Ok(
@@ -212,7 +215,9 @@ where
                     Some(*labels),
                     AssemblyContinuation::Branching,
                 ),
-                _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput),
+                _ => {
+                    return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+                }
             };
 
             Ok(
@@ -251,7 +256,7 @@ fn assembly_contract<C>(
     output_type: Option<TypeId>,
     labels_type: Option<TypeId>,
     continuation: AssemblyContinuation,
-) -> Result<Option<InlineAssemblyContract>, CheckerInfrastructureError>
+) -> Result<Option<InlineAssemblyContract>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<bray_symbols::CallableSignatureQuery>
@@ -282,7 +287,7 @@ where
             *options,
             *inputs,
         ),
-        _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput),
+        _ => return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into()),
     };
 
     let Some((template_value, template)) = literal_string(request, literals, template)? else {
@@ -383,7 +388,7 @@ fn checked_operands<C>(
         [Option<InlineAssemblyOperand>; MAX_INLINE_ASSEMBLY_OPERANDS],
         u8,
     )>,
-    CheckerInfrastructureError,
+    CheckerQueryError<C::UpstreamError>,
 >
 where
     C: CheckerRequestContext
@@ -822,7 +827,7 @@ fn literal_memory_order<C>(
     literals: &CheckedLiteralValues,
     selections: &CheckedSemanticSelections,
     expression: BoundExpressionId,
-) -> Result<Option<MemoryOrder>, CheckerInfrastructureError>
+) -> Result<Option<MemoryOrder>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -859,15 +864,7 @@ where
         variant
     };
 
-    let Some(name) = request
-        .member_name(variant.into())
-        .map_err(|error| match error {
-            crate::CheckerQueryError::Infrastructure(error) => error,
-            crate::CheckerQueryError::Cancelled => {
-                CheckerInfrastructureError::SemanticValueUnavailable
-            }
-        })?
-    else {
+    let Some(name) = request.member_name(variant.into())? else {
         return Ok(None);
     };
 

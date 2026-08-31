@@ -14,7 +14,7 @@ fn bind_owner_path_lookup<C>(
     owner: AnySymbolId,
     path: &PathSyntax,
     access: NameAccess,
-) -> BindingQueryResult<PathLookup>
+) -> BindingQueryResult<PathLookup, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -66,7 +66,7 @@ pub(crate) fn bind_owner_path<C>(
     owner: AnySymbolId,
     path: &PathSyntax,
     access: NameAccess,
-) -> BindingQueryResult<NameLookupResult<ResolvedName>>
+) -> BindingQueryResult<NameLookupResult<ResolvedName>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -79,7 +79,7 @@ pub fn bind_owner_surface_path<C>(
     owner: AnySymbolId,
     path: &PathSyntax,
     access: NameAccess,
-) -> BindingQueryResult<DiagnosticResult<MemberLookupResult<AnySymbolId>>>
+) -> BindingQueryResult<DiagnosticResult<MemberLookupResult<AnySymbolId>>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
 {

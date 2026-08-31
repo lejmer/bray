@@ -13,7 +13,7 @@ use bray_diagnostics::{
 };
 
 use crate::diagnostic::{diagnostic_id, expression_span};
-use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
+use crate::{CheckerOutcome, CheckerQueryError, CheckerRequestContext, CheckerUnitView};
 
 use super::{
     CallableCandidate, CallableSelectionRequest, CandidateSelection,
@@ -27,7 +27,7 @@ pub(crate) fn select_callable<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     input: CallableSelectionRequest,
-) -> CheckerOutcome<CandidateSelection<SelectedCall>>
+) -> CheckerOutcome<CandidateSelection<SelectedCall>, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -45,7 +45,7 @@ pub(crate) fn select_callable_candidates<C>(
     types: &CheckedExpressionTypes,
     input: &CallableSelectionRequest,
     candidates: &[CallableCandidate],
-) -> CheckerOutcome<CandidateSelection<SelectedCall>>
+) -> CheckerOutcome<CandidateSelection<SelectedCall>, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -54,13 +54,14 @@ where
     callable_outcome(request, input.expression(), result)
 }
 
-fn callable_outcome<C>(
+fn callable_outcome<C, Error>(
     request: CheckerUnitView<'_, C>,
     expression: bray_bound_tree::BoundExpressionId,
-    result: Result<Option<CandidateSelection<SelectedCall>>, crate::CheckerInfrastructureError>,
-) -> CheckerOutcome<CandidateSelection<SelectedCall>>
+    result: Result<Option<CandidateSelection<SelectedCall>>, Error>,
+) -> CheckerOutcome<CandidateSelection<SelectedCall>, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
+    Error: Into<CheckerQueryError<C::UpstreamError>>,
 {
     match result {
         Ok(Some(selection)) => complete(
@@ -70,7 +71,17 @@ where
             selection,
         ),
         Ok(None) => CheckerOutcome::Cancelled,
-        Err(error) => CheckerOutcome::InfrastructureFailure(error),
+        Err(error) => query_outcome(error),
+    }
+}
+
+fn query_outcome<T, Upstream>(
+    error: impl Into<CheckerQueryError<Upstream>>,
+) -> CheckerOutcome<T, Upstream> {
+    match error.into() {
+        CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
+        CheckerQueryError::Infrastructure(error) => CheckerOutcome::InfrastructureFailure(error),
+        CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
 
@@ -78,7 +89,7 @@ pub(crate) fn select_operation<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     input: OperationSelectionRequest,
-) -> CheckerOutcome<CandidateSelection<SelectedOperation>>
+) -> CheckerOutcome<CandidateSelection<SelectedOperation>, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -93,14 +104,14 @@ where
             selection,
         ),
         Ok(None) => CheckerOutcome::Cancelled,
-        Err(error) => CheckerOutcome::InfrastructureFailure(error),
+        Err(error) => query_outcome(error),
     }
 }
 
 pub(crate) fn select_iteration_source<C>(
     request: CheckerUnitView<'_, C>,
     input: &IterationSourceSelectionRequest,
-) -> CheckerOutcome<CandidateSelection<bray_bound_tree::SelectedIterationSource>>
+) -> CheckerOutcome<CandidateSelection<bray_bound_tree::SelectedIterationSource>, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -111,7 +122,7 @@ where
             DiagnosticSelectionKind::IterationSource,
             selection,
         ),
-        Err(error) => CheckerOutcome::InfrastructureFailure(error),
+        Err(error) => query_outcome(error),
     }
 }
 
@@ -120,7 +131,7 @@ fn complete<C, T>(
     expression: bray_bound_tree::BoundExpressionId,
     kind: DiagnosticSelectionKind,
     selection: CandidateSelection<T>,
-) -> CheckerOutcome<CandidateSelection<T>>
+) -> CheckerOutcome<CandidateSelection<T>, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -154,7 +165,7 @@ where
 
         let retained = match retained {
             Ok(candidates) => candidates,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+            Err(error) => return query_outcome(error),
         };
 
         let diagnostic_candidates =
@@ -178,7 +189,7 @@ where
             span,
         ) {
             Ok(related) => related,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+            Err(error) => return query_outcome(error),
         };
 
         for location in related {
@@ -198,7 +209,7 @@ where
 
         let retained = match retained {
             Ok(rejections) => rejections,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+            Err(error) => return query_outcome(error),
         };
 
         let diagnostic_rejections =
@@ -223,7 +234,7 @@ where
 
         let related = match selection_candidate_locations(request, &retained_candidates, span) {
             Ok(related) => related,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+            Err(error) => return query_outcome(error),
         };
 
         for location in related {
@@ -252,7 +263,7 @@ where
 fn diagnostic_rejection<C>(
     request: CheckerUnitView<'_, C>,
     rejection: &SelectionRejectedCandidate,
-) -> Result<DiagnosticRejectedSelectionCandidate, crate::CheckerInfrastructureError>
+) -> Result<DiagnosticRejectedSelectionCandidate, crate::CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -265,7 +276,7 @@ where
 fn diagnostic_rejection_reason<C>(
     request: CheckerUnitView<'_, C>,
     reason: &SelectionCandidateRejectionReason,
-) -> Result<DiagnosticSelectionRejectionReason, crate::CheckerInfrastructureError>
+) -> Result<DiagnosticSelectionRejectionReason, crate::CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -345,7 +356,7 @@ where
 fn diagnostic_callable_argument_rejection<C>(
     request: CheckerUnitView<'_, C>,
     reason: &SelectionCallableArgumentRejection,
-) -> Result<DiagnosticCallableArgumentRejection, crate::CheckerInfrastructureError>
+) -> Result<DiagnosticCallableArgumentRejection, crate::CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -396,7 +407,7 @@ where
 fn diagnostic_construction_input_rejection<C>(
     request: CheckerUnitView<'_, C>,
     reason: &SelectionConstructionInputRejection,
-) -> Result<DiagnosticConstructionInputRejection, crate::CheckerInfrastructureError>
+) -> Result<DiagnosticConstructionInputRejection, crate::CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -457,7 +468,7 @@ fn failure_candidates(failure: &SelectionFailure) -> Option<&[SelectionFailureCa
 fn diagnostic_candidate<C>(
     request: CheckerUnitView<'_, C>,
     candidate: &SelectionFailureCandidate,
-) -> Result<DiagnosticSelectionCandidate, crate::CheckerInfrastructureError>
+) -> Result<DiagnosticSelectionCandidate, crate::CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -474,7 +485,9 @@ where
                 .map_err(|_| crate::CheckerInfrastructureError::SemanticValueUnavailable)?;
 
             let bray_symbols::TypeData::Callable(callable) = callable.as_ref() else {
-                return Err(crate::CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                return Err(
+                    crate::CheckerInfrastructureError::InvalidSemanticSelectionInput.into(),
+                );
             };
 
             DiagnosticSelectionCandidateSignature::Callable {
@@ -520,7 +533,7 @@ where
 fn diagnostic_candidate_identity<C>(
     request: CheckerUnitView<'_, C>,
     key: &SelectionCandidateKey,
-) -> Result<DiagnosticSelectionCandidateIdentity, crate::CheckerInfrastructureError>
+) -> Result<DiagnosticSelectionCandidateIdentity, crate::CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -558,7 +571,7 @@ where
             BoundReferenceTarget::Surface(symbol),
         )) => {
             let Some(key) = request.symbols().symbol_key(*symbol) else {
-                return Err(crate::CheckerInfrastructureError::SemanticValueUnavailable);
+                return Err(crate::CheckerInfrastructureError::SemanticValueUnavailable.into());
             };
 
             let identity = bray_symbols::diagnostic_symbol_identity(key);
@@ -578,14 +591,19 @@ where
 fn diagnostic_member_name<C>(
     request: CheckerUnitView<'_, C>,
     symbol: bray_symbols::AnySymbolId,
-) -> Result<Option<String>, crate::CheckerInfrastructureError>
+) -> Result<Option<String>, crate::CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
     match request.member_name(symbol) {
         Ok(name) => Ok(name.map(|name| name.as_str().to_owned())),
         Err(crate::CheckerQueryError::Cancelled) => Ok(None),
-        Err(crate::CheckerQueryError::Infrastructure(error)) => Err(error),
+        Err(crate::CheckerQueryError::Infrastructure(error)) => {
+            Err(crate::CheckerQueryError::Infrastructure(error))
+        }
+        Err(crate::CheckerQueryError::Upstream(error)) => {
+            Err(crate::CheckerQueryError::Upstream(error))
+        }
     }
 }
 
@@ -593,7 +611,7 @@ fn selection_candidate_locations<C>(
     request: CheckerUnitView<'_, C>,
     candidates: &[SelectionFailureCandidate],
     primary: bray_source::SourceSpan,
-) -> Result<Vec<bray_source::SourceSpan>, crate::CheckerInfrastructureError>
+) -> Result<Vec<bray_source::SourceSpan>, crate::CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -612,7 +630,7 @@ fn candidate_source_locations<C>(
     request: CheckerUnitView<'_, C>,
     key: &SelectionCandidateKey,
     locations: &mut std::collections::BTreeSet<bray_source::SourceSpan>,
-) -> Result<(), crate::CheckerInfrastructureError>
+) -> Result<(), crate::CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -627,14 +645,18 @@ where
         }
         SelectionCandidateKey::Value(DeclaredValueTypeTerm::Expression(expression)) => {
             let Some(expression) = request.view().expression(*expression) else {
-                return Err(crate::CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                return Err(
+                    crate::CheckerInfrastructureError::InvalidSemanticSelectionInput.into(),
+                );
             };
 
             locations.insert(request.source(expression.origin().source_anchor())?.span());
         }
         SelectionCandidateKey::Value(DeclaredValueTypeTerm::Pattern(pattern)) => {
             let Some(pattern) = request.view().pattern(*pattern) else {
-                return Err(crate::CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                return Err(
+                    crate::CheckerInfrastructureError::InvalidSemanticSelectionInput.into(),
+                );
             };
 
             locations.insert(request.source(pattern.origin().source_anchor())?.span());
@@ -643,7 +665,9 @@ where
             BoundReferenceTarget::Local(symbol),
         )) => {
             let Some(anchor) = request.unit().local_symbols().syntax_anchor(*symbol) else {
-                return Err(crate::CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                return Err(
+                    crate::CheckerInfrastructureError::InvalidSemanticSelectionInput.into(),
+                );
             };
 
             locations.insert(request.source_syntax(anchor)?.span());
@@ -664,7 +688,7 @@ fn add_symbol_key_location<C>(
     request: CheckerUnitView<'_, C>,
     key: &bray_symbols::SymbolKey,
     locations: &mut std::collections::BTreeSet<bray_source::SourceSpan>,
-) -> Result<(), crate::CheckerInfrastructureError>
+) -> Result<(), crate::CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {

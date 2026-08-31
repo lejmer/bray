@@ -130,7 +130,7 @@ pub(in crate::compilation) fn selected_type_valued_member(
         result.value(),
         checked.value(),
     )
-    .map_err(FactQueryError::CheckerInfrastructure)?
+    .map_err(FactQueryError::from)?
     else {
         return Ok(TypeValuedMemberResolution::Deferred);
     };

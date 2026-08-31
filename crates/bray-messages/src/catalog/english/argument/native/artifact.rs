@@ -27,6 +27,7 @@ pub(crate) fn format_english_emission_evaluation_failure(
     let message = match failure {
         Failure::Cycle => "compiler evaluation encountered a dependency cycle",
         Failure::Infrastructure => "the compiler evaluation state became inconsistent",
+        Failure::Binding(failure) => return format_english_binding_failure(failure).to_owned(),
         Failure::LoweringInput(failure) => return format_english_lowering_input_failure(failure),
         Failure::Lowering(failure) => return format_english_lowering_failure(failure),
         Failure::ConstantCallableBodyUnavailable => {
@@ -56,7 +57,7 @@ pub(crate) fn format_english_emission_evaluation_failure(
         Failure::SemanticContext => {
             "the selected program element has inconsistent checking context"
         }
-        Failure::CheckerInfrastructure => "semantic checking could not complete a dependency",
+        Failure::Checker(failure) => return format_english_checker_failure(failure),
     };
 
     message.to_owned()
@@ -78,6 +79,9 @@ pub(crate) fn format_english_native_product_failure(
         Kind::InvalidNativeLinkInput => "a configured native link input is invalid",
         Kind::EvaluationCycle => "compiler evaluation encountered a dependency cycle",
         Kind::EvaluationInfrastructure => "the compiler could not complete product construction",
+        Kind::EvaluationBinding(failure) => {
+            return format_english_binding_failure(failure).to_owned();
+        }
         Kind::EvaluationLoweringInput(failure) => {
             return format_english_lowering_input_failure(failure);
         }
@@ -108,6 +112,9 @@ pub(crate) fn format_english_native_product_failure(
         }
         Kind::SemanticContextFailure => "a program element has inconsistent checking context",
         Kind::CheckingInfrastructureFailure => "semantic checking could not complete",
+        Kind::EvaluationChecker(failure) => {
+            return format_english_checker_failure(failure);
+        }
         Kind::CodegenTargetUnsupportedProfile => {
             "the selected target profile cannot generate native code"
         }
@@ -573,5 +580,217 @@ const fn format_english_runtime_artifact_purpose(
     match purpose {
         bray_diagnostics::DiagnosticRuntimeArtifactPurpose::Product => "product",
         bray_diagnostics::DiagnosticRuntimeArtifactPurpose::TestRunner => "test-runner",
+    }
+}
+
+fn format_english_binding_failure(
+    failure: bray_diagnostics::DiagnosticBindingFailure,
+) -> &'static str {
+    use bray_diagnostics::DiagnosticBindingFailure as Failure;
+
+    match failure {
+        Failure::DependencyUnavailable => {
+            "an internal compiler error prevented Bray from resolving a name required by this product"
+        }
+        Failure::InvalidUnitKey => {
+            "an internal compiler error prevented Bray from identifying the source declaration or body to compile"
+        }
+        Failure::MissingSyntax => {
+            "an internal compiler error prevented Bray from reading source syntax required by this product"
+        }
+        Failure::MissingOwner => {
+            "an internal compiler error prevented Bray from identifying the declaration that owns a source body"
+        }
+        Failure::MissingModule => {
+            "an internal compiler error prevented Bray from identifying the module that contains a declaration"
+        }
+        Failure::SemanticValue(failure) => format_english_semantic_value_failure(failure),
+        Failure::Construction => {
+            "an internal compiler error prevented Bray from understanding a source declaration or body"
+        }
+        Failure::Binding => {
+            "an internal compiler error prevented Bray from recovering a source declaration or body after an earlier error"
+        }
+        Failure::Assembly => {
+            "an internal compiler error prevented Bray from validating a source declaration or body"
+        }
+    }
+}
+
+fn format_english_semantic_value_failure(
+    failure: bray_diagnostics::DiagnosticSemanticValueFailure,
+) -> &'static str {
+    use bray_diagnostics::DiagnosticSemanticValueFailure as Failure;
+
+    match failure {
+        Failure::ForeignId => {
+            "an internal compiler error mixed values from different compilations while understanding a source declaration or body"
+        }
+        Failure::UnknownId => {
+            "an internal compiler error lost a value required to understand a source declaration or body"
+        }
+        Failure::CapacityExhausted => {
+            "an internal compiler limit prevented Bray from retaining another value required by this product"
+        }
+        Failure::GenericOwnerMismatch => {
+            "an internal compiler error associated generic arguments with the wrong declaration"
+        }
+        Failure::OpenSubstitution => {
+            "an internal compiler error required unresolved generic arguments where concrete arguments were needed"
+        }
+    }
+}
+
+fn format_english_checker_failure(failure: bray_diagnostics::DiagnosticCheckerFailure) -> String {
+    use bray_diagnostics::DiagnosticCheckerFailure as Failure;
+
+    let message = match failure {
+        Failure::MissingSource => {
+            "an internal compiler error prevented Bray from finding a source file required by this product"
+        }
+        Failure::SourceVersionMismatch => {
+            "an internal compiler error mixed different revisions of a source file while compiling this product"
+        }
+        Failure::InvalidSourceRange => {
+            "an internal compiler error retained a source location outside its source file"
+        }
+        Failure::SemanticQueryUnavailable => {
+            "an internal compiler error prevented Bray from resolving declaration information required by this product"
+        }
+        Failure::SemanticValueUnavailable => {
+            "an internal compiler error prevented Bray from retaining declaration information required by this product"
+        }
+        Failure::AtomicRepresentationTypeUnavailable => {
+            "the selected atomic value has no available representation type"
+        }
+        Failure::AtomicRepresentationArgumentsUnavailable => {
+            "the selected atomic value has no available representation arguments"
+        }
+        Failure::AtomicInitializerArgumentUnavailable => {
+            "the atomic initializer argument has no compile-time value"
+        }
+        Failure::AtomicInitializerResultUnavailable => {
+            "the atomic initializer result cannot be represented as a compile-time value"
+        }
+        Failure::UninitInitializerResultUnavailable => {
+            "the uninitialized-storage initializer result cannot be represented as a compile-time value"
+        }
+        Failure::ImportedExecutableTemplateMismatch => {
+            "an imported native operation does not match its compiled definition"
+        }
+        Failure::CompilerKnownRepresentationUnavailable(role) => {
+            return format!(
+                "an internal compiler error prevented Bray from finding the language-defined `{}` type required for the selected target",
+                format_compiler_known_representation(role),
+            );
+        }
+        Failure::InvalidExpressionTypeInput => {
+            "an internal compiler error associated an expression with the wrong source body while determining its type"
+        }
+        Failure::InvalidSemanticSelectionInput => {
+            "an internal compiler error prevented Bray from selecting the operation or call for an expression"
+        }
+        Failure::InvalidLiteralValueInput => {
+            "an internal compiler error associated a literal with the wrong source body while determining its value"
+        }
+        Failure::InvalidConstantEvaluationInput => {
+            "an internal compiler error supplied incompatible source information while evaluating a constant expression"
+        }
+        Failure::InvalidPatternCheckInput => {
+            "an internal compiler error supplied incompatible source information while checking a pattern"
+        }
+        Failure::InvalidStoragePlan => {
+            "an internal compiler error prevented Bray from arranging the local values used by a source body"
+        }
+        Failure::InvalidLiveness => {
+            "an internal compiler error prevented Bray from determining how long a value remains usable"
+        }
+        Failure::InvalidRefinementInput => {
+            "an internal compiler error prevented Bray from tracking what a condition or pattern proves about a value"
+        }
+        Failure::RefinementCapacityUnrepresentable => {
+            "an internal compiler limit prevented Bray from retaining everything a condition or pattern proves about a value"
+        }
+        Failure::RefinementStorageUnavailable => {
+            "the compiler could not allocate memory needed to track what a condition or pattern proves about a value"
+        }
+        Failure::InvalidStorageFlow => {
+            "an internal compiler error prevented Bray from tracking how a source body uses its values"
+        }
+        Failure::InvalidBodySemantics => {
+            "an internal compiler error found incompatible analysis results for a source body"
+        }
+        Failure::InvalidBoundNode => {
+            "an internal compiler error lost a source construct required to compile a source body"
+        }
+        Failure::ExpressionTypeCapacityExceeded => {
+            "an internal compiler limit prevented Bray from determining every expression type in a source body"
+        }
+        Failure::InvalidUnitView => {
+            "an internal compiler error associated analysis results with the wrong source declaration or body"
+        }
+    };
+
+    message.to_owned()
+}
+
+fn format_compiler_known_representation(role: &str) -> &str {
+    match role {
+        "ScalarBool" => "bool",
+        "ScalarChar" => "char",
+        "ScalarI8" => "i8",
+        "ScalarI16" => "i16",
+        "ScalarI32" => "i32",
+        "ScalarI64" => "i64",
+        "ScalarI128" => "i128",
+        "ScalarU8" => "u8",
+        "ScalarU16" => "u16",
+        "ScalarU32" => "u32",
+        "ScalarU64" => "u64",
+        "ScalarU128" => "u128",
+        "ScalarIsize" => "isize",
+        "ScalarUsize" => "usize",
+        "ScalarR16" => "r16",
+        "ScalarR32" => "r32",
+        "ScalarR64" => "r64",
+        "ScalarR128" => "r128",
+        "ScalarC32" => "c32",
+        "ScalarC64" => "c64",
+        "ScalarC128" => "c128",
+        "ScalarC256" => "c256",
+        role => role,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{format_english_binding_failure, format_english_checker_failure};
+
+    #[test]
+    fn binding_failures_render_distinct_user_facing_causes() {
+        use bray_diagnostics::DiagnosticBindingFailure as Failure;
+
+        let syntax = format_english_binding_failure(Failure::MissingSyntax);
+        let owner = format_english_binding_failure(Failure::MissingOwner);
+
+        assert_ne!(syntax, owner);
+        assert!(syntax.contains("source syntax"));
+        assert!(owner.contains("declaration"));
+        assert!(syntax.starts_with("an internal compiler error"));
+        assert!(owner.starts_with("an internal compiler error"));
+    }
+
+    #[test]
+    fn checker_failures_render_distinct_source_level_operations() {
+        use bray_diagnostics::DiagnosticCheckerFailure as Failure;
+
+        let pattern = format_english_checker_failure(Failure::InvalidPatternCheckInput);
+        let storage = format_english_checker_failure(Failure::InvalidStoragePlan);
+
+        assert_ne!(pattern, storage);
+        assert!(pattern.contains("pattern"));
+        assert!(storage.contains("local values"));
+        assert!(!pattern.contains("checked"));
+        assert!(!storage.contains("storage plan"));
     }
 }

@@ -17,7 +17,7 @@ where
         syntax: &bray_syntax::BlockExpressionSyntax,
         path_context: PathBindingContext,
         error_type: TypeId,
-    ) -> BindingResult<BoundBlockId> {
+    ) -> BindingResult<BoundBlockId, C::UpstreamError> {
         let mut binder = ExpressionBinder::new(path_context, error_type);
 
         let target = ControlTarget::new(

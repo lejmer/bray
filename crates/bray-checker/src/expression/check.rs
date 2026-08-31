@@ -16,8 +16,8 @@ use super::candidate::{PreparedExpressions, converge, final_selections, prepare_
 use super::declared::{PreparedDeclaredTypes, defer_return_operands, prepare_declared_types};
 use super::pattern_reference::{
     PreparedPatternReferences, expression_uses_pattern_binding,
-    pattern_binding_reference_expressions,
-    prepare_pattern_binding_references, resolved_pattern_binding_evidence,
+    pattern_binding_reference_expressions, prepare_pattern_binding_references,
+    resolved_pattern_binding_evidence,
 };
 use crate::expression::check_literal_values;
 use crate::type_check::{
@@ -25,7 +25,7 @@ use crate::type_check::{
 };
 use crate::unit::semantic_inputs_match;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
+    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView, ExpressionCandidateSet, ExpressionTypeEvidence,
     NestedCallableEvidence, PatternCheckInput,
 };
@@ -37,11 +37,14 @@ pub(crate) fn check_expression_semantics<C>(
     candidate_sets: &[ExpressionCandidateSet],
     pattern_input: &PatternCheckInput,
     operation_input: &crate::ExpressionTypeInput,
-) -> CheckerOutcome<(
-    bray_bound_tree::CheckedExpressionTypes,
-    CheckedSemanticSelections,
-    bray_bound_tree::CheckedLiteralValues,
-)>
+) -> CheckerOutcome<
+    (
+        bray_bound_tree::CheckedExpressionTypes,
+        CheckedSemanticSelections,
+        bray_bound_tree::CheckedLiteralValues,
+    ),
+    C::UpstreamError,
+>
 where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
@@ -95,6 +98,9 @@ where
             CheckerOutcome::InfrastructureFailure(error) => {
                 return CheckerOutcome::InfrastructureFailure(error);
             }
+            CheckerOutcome::UpstreamFailure(error) => {
+                return CheckerOutcome::UpstreamFailure(error);
+            }
         };
 
         let patterns = match crate::pattern::check_patterns(request, &types, &pattern_input) {
@@ -102,6 +108,9 @@ where
             CheckerOutcome::Cancelled => return CheckerOutcome::Cancelled,
             CheckerOutcome::InfrastructureFailure(error) => {
                 return CheckerOutcome::InfrastructureFailure(error);
+            }
+            CheckerOutcome::UpstreamFailure(error) => {
+                return CheckerOutcome::UpstreamFailure(error);
             }
         };
 
@@ -144,7 +153,7 @@ fn check_provisional_expression_types<C>(
     evidence: &[ExpressionTypeEvidence],
     deferred: &BTreeSet<bray_bound_tree::BoundExpressionId>,
     operation_input: &crate::ExpressionTypeInput,
-) -> CheckerOutcome<bray_bound_tree::CheckedExpressionTypes>
+) -> CheckerOutcome<bray_bound_tree::CheckedExpressionTypes, C::UpstreamError>
 where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
@@ -162,7 +171,7 @@ where
     ) {
         Ok(SessionProgress::Complete(prepared)) => prepared,
         Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        Err(error) => return query_outcome(error),
     };
 
     finish_expression_types_with_deferred(request, session, prepared.deferred(), &[])
@@ -175,11 +184,14 @@ fn check_expression_semantics_once<C>(
     candidate_sets: &[ExpressionCandidateSet],
     supplemental: PreparedPatternReferences,
     operation_input: &crate::ExpressionTypeInput,
-) -> CheckerOutcome<(
-    bray_bound_tree::CheckedExpressionTypes,
-    CheckedSemanticSelections,
-    bray_bound_tree::CheckedLiteralValues,
-)>
+) -> CheckerOutcome<
+    (
+        bray_bound_tree::CheckedExpressionTypes,
+        CheckedSemanticSelections,
+        bray_bound_tree::CheckedLiteralValues,
+    ),
+    C::UpstreamError,
+>
 where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
@@ -197,7 +209,7 @@ where
     ) {
         Ok(SessionProgress::Complete(prepared)) => prepared,
         Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        Err(error) => return query_outcome(error),
     };
 
     finish_expression_check(
@@ -221,7 +233,7 @@ fn prepare_expression_check<'view, C>(
     operation_input: &crate::ExpressionTypeInput,
 ) -> Result<
     SessionProgress<(ExpressionTypeSession<'view, C>, PreparedExpressions)>,
-    CheckerInfrastructureError,
+    crate::CheckerQueryError<C::UpstreamError>,
 >
 where
     C: CheckerRequestContext
@@ -347,11 +359,14 @@ fn finish_expression_check<C>(
     supplemental_diagnostics: DiagnosticBag,
     iteration_sources: &[SelectedIterationSource],
     operation_selections: &[SemanticSelectionEntry],
-) -> CheckerOutcome<(
-    bray_bound_tree::CheckedExpressionTypes,
-    CheckedSemanticSelections,
-    bray_bound_tree::CheckedLiteralValues,
-)>
+) -> CheckerOutcome<
+    (
+        bray_bound_tree::CheckedExpressionTypes,
+        CheckedSemanticSelections,
+        bray_bound_tree::CheckedLiteralValues,
+    ),
+    C::UpstreamError,
+>
 where
     C: CheckerRequestContext
         + CheckerSemanticQueryProvider<CallableSignatureQuery>
@@ -369,6 +384,9 @@ where
         CheckerOutcome::InfrastructureFailure(error) => {
             return CheckerOutcome::InfrastructureFailure(error);
         }
+        CheckerOutcome::UpstreamFailure(error) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
     };
 
     let (types, type_diagnostics) = type_result.into_parts();
@@ -376,14 +394,14 @@ where
     let (mut entries, selection_diagnostics) = match final_selections(request, &types, &prepared) {
         Ok(Some(result)) => result,
         Ok(None) => return CheckerOutcome::Cancelled,
-        Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+        Err(error) => return query_outcome(error),
     };
 
     let (mut propagation_entries, propagation_diagnostics) =
         match crate::selection::select_propagations(request, &types) {
             Ok(Some(result)) => result,
             Ok(None) => return CheckerOutcome::Cancelled,
-            Err(error) => return CheckerOutcome::InfrastructureFailure(error),
+            Err(error) => return query_outcome(error),
         };
 
     entries.append(&mut propagation_entries);
@@ -420,6 +438,9 @@ where
         CheckerOutcome::InfrastructureFailure(error) => {
             return CheckerOutcome::InfrastructureFailure(error);
         }
+        CheckerOutcome::UpstreamFailure(error) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
     };
 
     let (literal_values, literal_diagnostics) = literal_result.into_parts();
@@ -433,6 +454,14 @@ where
             .merged(&supplemental_diagnostics)
             .merged(&literal_diagnostics),
     )
+}
+
+fn query_outcome<T, Upstream>(error: CheckerQueryError<Upstream>) -> CheckerOutcome<T, Upstream> {
+    match error {
+        CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
+        CheckerQueryError::Infrastructure(error) => CheckerOutcome::InfrastructureFailure(error),
+        CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
+    }
 }
 
 #[cfg(test)]

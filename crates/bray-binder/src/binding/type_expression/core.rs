@@ -20,25 +20,25 @@ use super::contract::TypeExpressionScope;
 use crate::{BindingQueryContext, BindingQueryError, BindingQueryResult, ImportedPathRoot};
 
 /// Supplies imported symbols only when type binding reaches an imported path or declaration.
-pub trait TypeExpressionImports {
+pub trait TypeExpressionImports<Upstream = std::convert::Infallible> {
     /// Selects an imported package root for a qualified source path.
     fn imported_path_root(
         &self,
         module: ModuleSymbolId,
         components: &[&str],
-    ) -> BindingQueryResult<Option<ImportedPathRoot<'_>>>;
+    ) -> BindingQueryResult<Option<ImportedPathRoot<'_>>, Upstream>;
 
     /// Returns the imported identity skeleton when imported declaration details are required.
-    fn imported_symbols(&self) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>>;
+    fn imported_symbols(&self) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>, Upstream>;
 
     /// Returns the callable type named by one callable-contract declaration.
     fn callable_contract_type(
         &self,
         definition: CallableContractSymbolId,
-    ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>>;
+    ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>, Upstream>;
 }
 
-impl<T> TypeExpressionImports for T
+impl<T> TypeExpressionImports<T::UpstreamError> for T
 where
     T: BindingQueryContext + ?Sized,
 {
@@ -46,26 +46,28 @@ where
         &self,
         module: ModuleSymbolId,
         components: &[&str],
-    ) -> BindingQueryResult<Option<ImportedPathRoot<'_>>> {
+    ) -> BindingQueryResult<Option<ImportedPathRoot<'_>>, T::UpstreamError> {
         crate::lookup::visible_imported_path_root(self, module, components)
     }
 
-    fn imported_symbols(&self) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>> {
+    fn imported_symbols(
+        &self,
+    ) -> BindingQueryResult<Option<&ImportedSymbolSkeleton>, T::UpstreamError> {
         BindingQueryContext::imported_symbols(self)
     }
 
     fn callable_contract_type(
         &self,
         definition: CallableContractSymbolId,
-    ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>> {
+    ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>, T::UpstreamError> {
         BindingQueryContext::callable_contract_type(self, definition)
     }
 }
 
 /// Binds declaration type syntax while preserving unchecked constant-expression occurrences.
-pub struct TypeExpressionBinder<'binding_context> {
+pub struct TypeExpressionBinder<'binding_context, Upstream = std::convert::Infallible> {
     pub(super) symbols: &'binding_context SymbolGraph,
-    pub(super) imports: &'binding_context dyn TypeExpressionImports,
+    pub(super) imports: &'binding_context dyn TypeExpressionImports<Upstream>,
     pub(super) semantic_values: &'binding_context SemanticValueStore,
     pub(super) owner: AnySymbolId,
     pub(super) module: Option<ModuleSymbolId>,
@@ -75,11 +77,11 @@ pub struct TypeExpressionBinder<'binding_context> {
     pub(super) diagnostics: DiagnosticBag,
 }
 
-impl<'binding_context> TypeExpressionBinder<'binding_context> {
+impl<'binding_context, Upstream> TypeExpressionBinder<'binding_context, Upstream> {
     /// Creates a binder for one declaration surface and its lexical generic scope.
     pub fn new(
         symbols: &'binding_context SymbolGraph,
-        imports: &'binding_context dyn TypeExpressionImports,
+        imports: &'binding_context dyn TypeExpressionImports<Upstream>,
         semantic_values: &'binding_context SemanticValueStore,
         scope: TypeExpressionScope,
         cancellation: &'binding_context dyn Cancellation,
@@ -107,7 +109,7 @@ impl<'binding_context> TypeExpressionBinder<'binding_context> {
     pub fn bind_type_expression(
         mut self,
         syntax: &TypeExpressionSyntax,
-    ) -> BindingQueryResult<DiagnosticResult<TypeExpressionTemplate>> {
+    ) -> BindingQueryResult<DiagnosticResult<TypeExpressionTemplate>, Upstream> {
         self.check_cancellation()?;
 
         let ty = self.bind_type(syntax)?;
@@ -121,7 +123,7 @@ impl<'binding_context> TypeExpressionBinder<'binding_context> {
     pub fn bind_type_expressions<'syntax>(
         mut self,
         syntax: impl IntoIterator<Item = &'syntax TypeExpressionSyntax>,
-    ) -> BindingQueryResult<DiagnosticResult<Vec<TypeExpressionTemplate>>> {
+    ) -> BindingQueryResult<DiagnosticResult<Vec<TypeExpressionTemplate>>, Upstream> {
         self.check_cancellation()?;
 
         let mut types = Vec::new();
@@ -138,7 +140,7 @@ impl<'binding_context> TypeExpressionBinder<'binding_context> {
     /// Binds the implicit unit result of a callable with no result clause.
     pub fn bind_omitted_callable_result(
         mut self,
-    ) -> BindingQueryResult<DiagnosticResult<TypeExpressionTemplate>> {
+    ) -> BindingQueryResult<DiagnosticResult<TypeExpressionTemplate>, Upstream> {
         self.check_cancellation()?;
 
         let result = self.bind_compiler_known_type(RepresentationRole::Unit)?;
@@ -152,7 +154,7 @@ impl<'binding_context> TypeExpressionBinder<'binding_context> {
     pub fn bind_trait_application(
         mut self,
         syntax: &TraitApplicationSyntax,
-    ) -> BindingQueryResult<DiagnosticResult<TraitApplicationTemplate>> {
+    ) -> BindingQueryResult<DiagnosticResult<TraitApplicationTemplate>, Upstream> {
         self.check_cancellation()?;
 
         let application = self.bind_trait(syntax)?;
@@ -166,7 +168,7 @@ impl<'binding_context> TypeExpressionBinder<'binding_context> {
     pub fn bind_implementation_subject(
         mut self,
         syntax: &ImplementationSubjectSyntax,
-    ) -> BindingQueryResult<DiagnosticResult<TypeExpressionTemplate>> {
+    ) -> BindingQueryResult<DiagnosticResult<TypeExpressionTemplate>, Upstream> {
         self.check_cancellation()?;
 
         let arguments = syntax.generic_argument_lists().next();
@@ -190,7 +192,7 @@ impl<'binding_context> TypeExpressionBinder<'binding_context> {
     pub(super) fn bind_type(
         &mut self,
         syntax: &TypeExpressionSyntax,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         self.check_cancellation()?;
 
         if syntax.is_recovered() {
@@ -264,7 +266,7 @@ impl<'binding_context> TypeExpressionBinder<'binding_context> {
     fn bind_borrow_type(
         &mut self,
         syntax: &TypeExpressionSyntax,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let target = self.bind_only_nested_type(syntax)?;
 
         let kind = if syntax.mut_token().is_some() {
@@ -281,7 +283,7 @@ impl<'binding_context> TypeExpressionBinder<'binding_context> {
         syntax: &TypeExpressionSyntax,
         resolved: impl FnOnce(TypeId) -> TypeData,
         deferred: impl FnOnce(Arc<TypeExpressionTemplate>) -> TypeExpressionTemplate,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let target = self.bind_only_nested_type(syntax)?;
 
         match target.resolved_type() {
@@ -295,7 +297,7 @@ impl<'binding_context> TypeExpressionBinder<'binding_context> {
     pub(super) fn bind_only_nested_type(
         &mut self,
         syntax: &TypeExpressionSyntax,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let mut nested = syntax.type_expressions();
 
         let Some(target) = nested.next() else {
@@ -309,7 +311,10 @@ impl<'binding_context> TypeExpressionBinder<'binding_context> {
         self.bind_type(&target)
     }
 
-    fn bind_path_type(&mut self, path: &PathSyntax) -> BindingQueryResult<TypeExpressionTemplate> {
+    fn bind_path_type(
+        &mut self,
+        path: &PathSyntax,
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let resolved = self.bind_type_path(path)?;
 
         match resolved {
@@ -339,7 +344,7 @@ impl<'binding_context> TypeExpressionBinder<'binding_context> {
     fn bind_contextual_trait_type_member(
         &self,
         member: TraitTypeMemberSymbolId,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let Some(context @ SelfTypeContext::Trait(trait_definition)) = self.self_type else {
             return self.error_type_template();
         };
@@ -350,7 +355,7 @@ impl<'binding_context> TypeExpressionBinder<'binding_context> {
             .iter()
             .copied()
             .map(|parameter| self.contextual_generic_argument(parameter))
-            .collect::<BindingQueryResult<Vec<_>>>()?;
+            .collect::<BindingQueryResult<Vec<_>, Upstream>>()?;
 
         let owner = GenericOwnerId::try_new(trait_definition.into())
             .ok_or(BindingQueryError::DependencyUnavailable)?;
@@ -379,7 +384,7 @@ impl<'binding_context> TypeExpressionBinder<'binding_context> {
     fn contextual_generic_argument(
         &self,
         parameter: GenericParameterSymbolId,
-    ) -> BindingQueryResult<GenericArgument> {
+    ) -> BindingQueryResult<GenericArgument, Upstream> {
         match parameter {
             GenericParameterSymbolId::Type(parameter) => self
                 .intern_type(TypeData::TypeParameter(parameter))
@@ -392,24 +397,26 @@ impl<'binding_context> TypeExpressionBinder<'binding_context> {
         }
     }
 
-    pub(super) fn intern_type(&self, data: TypeData) -> BindingQueryResult<TypeId> {
+    pub(super) fn intern_type(&self, data: TypeData) -> BindingQueryResult<TypeId, Upstream> {
         self.semantic_values
             .intern_type(data)
             .map_err(|_| BindingQueryError::DependencyUnavailable)
     }
 
-    pub(super) fn error_type(&self) -> BindingQueryResult<TypeId> {
+    pub(super) fn error_type(&self) -> BindingQueryResult<TypeId, Upstream> {
         self.intern_type(TypeData::Error)
     }
 
-    pub(super) fn error_type_template(&self) -> BindingQueryResult<TypeExpressionTemplate> {
+    pub(super) fn error_type_template(
+        &self,
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         self.error_type().map(TypeExpressionTemplate::Resolved)
     }
 
     pub(super) fn require_resolved_type(
         &self,
         template: &TypeExpressionTemplate,
-    ) -> BindingQueryResult<TypeId> {
+    ) -> BindingQueryResult<TypeId, Upstream> {
         template
             .resolved_type()
             .ok_or(BindingQueryError::DependencyUnavailable)
@@ -419,7 +426,7 @@ impl<'binding_context> TypeExpressionBinder<'binding_context> {
         &self,
         kind: BorrowKind,
         target: TypeExpressionTemplate,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         match target.resolved_type() {
             Some(target) => self
                 .intern_type(TypeData::Borrow { kind, target })
@@ -431,7 +438,7 @@ impl<'binding_context> TypeExpressionBinder<'binding_context> {
         }
     }
 
-    pub(super) fn check_cancellation(&self) -> BindingQueryResult<()> {
+    pub(super) fn check_cancellation(&self) -> BindingQueryResult<(), Upstream> {
         if self.cancellation.is_cancelled() {
             return Err(BindingQueryError::Cancelled);
         }

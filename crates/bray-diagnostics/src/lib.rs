@@ -75,11 +75,12 @@ pub use checking::{
 pub use code::DiagnosticCode;
 pub use diagnostic::Diagnostic;
 pub use emission::{
-    DiagnosticEmissionArtifact, DiagnosticEmissionCodegenFailure,
-    DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure,
-    DiagnosticEmissionLinkPlanFailure, DiagnosticEmissionPlanningFailure,
-    DiagnosticEmissionStagingFailure, DiagnosticHostEnvironmentVariable, DiagnosticLlvmToolRole,
-    DiagnosticPackageInterfaceFailure, DiagnosticUnsupportedEmissionReason,
+    DiagnosticBindingFailure, DiagnosticCheckerFailure, DiagnosticEmissionArtifact,
+    DiagnosticEmissionCodegenFailure, DiagnosticEmissionEvaluationFailure,
+    DiagnosticEmissionFailure, DiagnosticEmissionLinkPlanFailure,
+    DiagnosticEmissionPlanningFailure, DiagnosticEmissionStagingFailure,
+    DiagnosticHostEnvironmentVariable, DiagnosticLlvmToolRole, DiagnosticPackageInterfaceFailure,
+    DiagnosticSemanticValueFailure, DiagnosticUnsupportedEmissionReason,
 };
 pub use id::DiagnosticId;
 pub use inspection::{

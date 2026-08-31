@@ -13,13 +13,16 @@ use bray_syntax::{
 use super::core::TypeExpressionBinder;
 use crate::{BindingQueryError, BindingQueryResult};
 
-impl TypeExpressionBinder<'_> {
+impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     /// Binds explicit call arguments against one candidate's generic parameter list.
     pub fn bind_call_generic_arguments(
         mut self,
         arguments: &[GenericArgumentSyntax],
         parameters: &[GenericParameterSymbolId],
-    ) -> BindingQueryResult<bray_diagnostics::DiagnosticResult<Vec<GenericArgumentTemplate>>> {
+    ) -> BindingQueryResult<
+        bray_diagnostics::DiagnosticResult<Vec<GenericArgumentTemplate>>,
+        Upstream,
+    > {
         self.check_cancellation()?;
 
         let Some(parameters) = parameters.get(..arguments.len()) else {
@@ -39,7 +42,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn bind_generic_named_type(
         &mut self,
         syntax: &TypeExpressionSyntax,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let mut nested = syntax.type_expressions();
 
         let Some(base) = nested.next() else {
@@ -65,7 +68,7 @@ impl TypeExpressionBinder<'_> {
         &mut self,
         path: &PathSyntax,
         arguments: Option<&GenericArgumentListSyntax>,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let resolved = self.bind_type_path(path)?;
 
         match resolved {
@@ -93,7 +96,7 @@ impl TypeExpressionBinder<'_> {
         &mut self,
         definition: CallableContractSymbolId,
         arguments: Option<&GenericArgumentListSyntax>,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let parameters = self.callable_contract_parameters(definition)?;
         let arguments = self.bind_generic_arguments(arguments, &parameters)?;
         let target = self.imports.callable_contract_type(definition)?;
@@ -117,7 +120,7 @@ impl TypeExpressionBinder<'_> {
         &mut self,
         definition: NamedTypeSymbolId,
         arguments: Option<&GenericArgumentListSyntax>,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let parameters = self.named_type_parameters(definition)?;
         let arguments = self.bind_generic_arguments(arguments, &parameters)?;
 
@@ -156,7 +159,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn bind_compiler_known_type(
         &mut self,
         role: RepresentationRole,
-    ) -> BindingQueryResult<TypeExpressionTemplate> {
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let definition = self
             .symbols
             .compiler_known_provider()
@@ -170,7 +173,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn bind_compiler_known_type_id(
         &mut self,
         role: RepresentationRole,
-    ) -> BindingQueryResult<TypeId> {
+    ) -> BindingQueryResult<TypeId, Upstream> {
         let template = self.bind_compiler_known_type(role)?;
 
         self.require_resolved_type(&template)
@@ -180,7 +183,7 @@ impl TypeExpressionBinder<'_> {
         &mut self,
         arguments: Option<&GenericArgumentListSyntax>,
         parameters: &[GenericParameterSymbolId],
-    ) -> BindingQueryResult<Vec<GenericArgumentTemplate>> {
+    ) -> BindingQueryResult<Vec<GenericArgumentTemplate>, Upstream> {
         let Some(arguments) = arguments else {
             return if parameters.is_empty() {
                 Ok(Vec::new())
@@ -198,7 +201,7 @@ impl TypeExpressionBinder<'_> {
         &mut self,
         arguments: &[GenericArgumentSyntax],
         parameters: &[GenericParameterSymbolId],
-    ) -> BindingQueryResult<Vec<GenericArgumentTemplate>> {
+    ) -> BindingQueryResult<Vec<GenericArgumentTemplate>, Upstream> {
         if arguments.len() != parameters.len() {
             return Err(BindingQueryError::DependencyUnavailable);
         }

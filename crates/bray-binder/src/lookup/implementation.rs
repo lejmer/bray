@@ -36,7 +36,10 @@ pub fn bind_named_trait_implementation_path<C>(
     module: ModuleSymbolId,
     path: &PathSyntax,
     access: NameAccess,
-) -> BindingQueryResult<MemberLookupResult<NamedTraitImplementationSymbolId, AnySymbolId>>
+) -> BindingQueryResult<
+    MemberLookupResult<NamedTraitImplementationSymbolId, AnySymbolId>,
+    C::UpstreamError,
+>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -56,7 +59,7 @@ pub fn bind_implementation_using<C>(
     binding_context: &C,
     module: ModuleSymbolId,
     declaration: &UsingDeclarationSyntax,
-) -> BindingQueryResult<DiagnosticResult<Option<BoundImplementationUsing>>>
+) -> BindingQueryResult<DiagnosticResult<Option<BoundImplementationUsing>>, C::UpstreamError>
 where
     C: BindingQueryContext + ?Sized,
 {

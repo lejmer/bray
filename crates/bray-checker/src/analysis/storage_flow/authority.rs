@@ -15,7 +15,7 @@ use crate::{
 pub(super) fn mutable_storage<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
-) -> CheckerQueryResult<(BTreeSet<StorageIdentityId>, DiagnosticBag)>
+) -> CheckerQueryResult<(BTreeSet<StorageIdentityId>, DiagnosticBag), C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -85,7 +85,7 @@ where
 fn parameter_modes<C>(
     request: CheckerUnitView<'_, C>,
     callable: &TypeExpressionTemplate,
-) -> CheckerQueryResult<Vec<CallableParameterMode>>
+) -> CheckerQueryResult<Vec<CallableParameterMode>, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {

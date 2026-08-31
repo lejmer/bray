@@ -1,8 +1,8 @@
+use crate::compilation::binder::BindingQueryResult;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_binder::{
-    BindingQueryContext, BindingQueryError, BindingQueryResult, NameAccess,
-    bind_surface_path_with_re_exports,
+    BindingQueryContext, BindingQueryError, NameAccess, bind_surface_path_with_re_exports,
 };
 use bray_declarations::{DeclarationKind, DeclarationRecord};
 use bray_diagnostics::{

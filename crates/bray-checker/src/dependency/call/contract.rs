@@ -12,8 +12,8 @@ use bray_symbols::{
 
 use super::instantiation::{CallInstantiationContext, expression_access, identity_access};
 use crate::{
-    CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticQueryProvider,
-    CheckerUnitView,
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 pub(crate) struct InstantiatedCallContracts {
@@ -38,7 +38,7 @@ pub(crate) fn selected_call_contracts<C>(
     call: &SelectedCall,
 ) -> Result<
     InstantiatedCallContracts,
-    DependencyContractInstantiationError<CheckerInfrastructureError>,
+    DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
 >
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
@@ -59,7 +59,7 @@ fn callable_dependencies_for_implementation<C>(
     request: CheckerUnitView<'_, C>,
     contracts: CallableDependencyContracts,
     implementation: Option<bray_compiler_known::ImplementationHook>,
-) -> Result<CallableDependencyContracts, CheckerInfrastructureError>
+) -> Result<CallableDependencyContracts, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -131,13 +131,16 @@ pub(in crate::dependency) fn selected_iteration_contract<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     selection: &SelectedIterationSource,
-) -> Result<BoundDependencyContract, DependencyContractInstantiationError<CheckerInfrastructureError>>
+) -> Result<
+    BoundDependencyContract,
+    DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
+>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     let source = expression_access(storage, selection.source()).ok_or(
         DependencyContractInstantiationError::Resolution(
-            CheckerInfrastructureError::InvalidSemanticSelectionInput,
+            CheckerInfrastructureError::InvalidSemanticSelectionInput.into(),
         ),
     )?;
 
@@ -146,7 +149,7 @@ where
         StorageIdentity::IterationCursor(selection.expression()),
     )
     .ok_or(DependencyContractInstantiationError::Resolution(
-        CheckerInfrastructureError::InvalidSemanticSelectionInput,
+        CheckerInfrastructureError::InvalidSemanticSelectionInput.into(),
     ))?;
 
     let element = identity_access(
@@ -154,7 +157,7 @@ where
         StorageIdentity::IterationElement(selection.expression()),
     )
     .ok_or(DependencyContractInstantiationError::Resolution(
-        CheckerInfrastructureError::InvalidSemanticSelectionInput,
+        CheckerInfrastructureError::InvalidSemanticSelectionInput.into(),
     ))?;
 
     let iterate =
@@ -178,7 +181,10 @@ fn instantiate_hidden_iteration_call<C>(
     callable: CallableInstanceData,
     receiver: bray_bound_tree::StorageAccessId,
     result: bray_bound_tree::StorageAccessId,
-) -> Result<BoundDependencyContract, DependencyContractInstantiationError<CheckerInfrastructureError>>
+) -> Result<
+    BoundDependencyContract,
+    DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
+>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
@@ -198,7 +204,7 @@ fn instantiate_callable_contracts<C>(
     context: &mut CallInstantiationContext<'_, C>,
 ) -> Result<
     InstantiatedCallContracts,
-    DependencyContractInstantiationError<CheckerInfrastructureError>,
+    DependencyContractInstantiationError<CheckerQueryError<C::UpstreamError>>,
 >
 where
     C: CheckerRequestContext + ?Sized,
@@ -208,11 +214,12 @@ where
         .dependency_contract_template_data(contracts.invocation())
         .map_err(|_| {
             DependencyContractInstantiationError::Resolution(
-                CheckerInfrastructureError::SemanticValueUnavailable,
+                CheckerInfrastructureError::SemanticValueUnavailable.into(),
             )
         })?;
 
-    let invocation = BoundDependencyContract::try_instantiate(&invocation, context)?;
+    let invocation = BoundDependencyContract::try_instantiate(&invocation, context)
+        .map_err(|error| error.map_resolution(CheckerQueryError::Infrastructure))?;
 
     let deferred = contracts
         .deferred_execution()
@@ -224,11 +231,12 @@ where
                 .dependency_contract_template_data(deferred)
                 .map_err(|_| {
                     DependencyContractInstantiationError::Resolution(
-                        CheckerInfrastructureError::SemanticValueUnavailable,
+                        CheckerInfrastructureError::SemanticValueUnavailable.into(),
                     )
                 })?;
 
             BoundDependencyContract::try_instantiate(&deferred, context)
+                .map_err(|error| error.map_resolution(CheckerQueryError::Infrastructure))
         })
         .transpose()?;
 
@@ -241,22 +249,16 @@ where
 fn callable_dependency_contracts<C>(
     request: CheckerUnitView<'_, C>,
     target: BoundCallableTarget,
-) -> Result<CallableDependencyContracts, CheckerInfrastructureError>
+) -> Result<CallableDependencyContracts, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     match target {
         BoundCallableTarget::Declaration(instance) => {
-            let signature = request
-                .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
+            let signature =
+                request.resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
                     instance.definition().callable_symbol(),
-                ))
-                .map_err(|error| match error {
-                    crate::CheckerQueryError::Cancelled => {
-                        CheckerInfrastructureError::InvalidSemanticSelectionInput
-                    }
-                    crate::CheckerQueryError::Infrastructure(error) => error,
-                })?;
+                ))?;
 
             let dependencies =
                 callable_type_dependencies(request, signature.value().callable_type())?;
@@ -288,7 +290,7 @@ where
                 .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
             let TypeData::Callable(callable) = data.as_ref() else {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
             };
 
             Ok(callable.dependency_contracts())
@@ -297,14 +299,14 @@ where
             .semantic_values()
             .empty_dependency_contract_template()
             .map(CallableDependencyContracts::synchronous)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable),
+            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable.into()),
     }
 }
 
 fn callable_type_dependencies<C>(
     request: CheckerUnitView<'_, C>,
     callable: &TypeExpressionTemplate,
-) -> Result<CallableDependencyContracts, CheckerInfrastructureError>
+) -> Result<CallableDependencyContracts, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -317,7 +319,7 @@ where
                 .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
             let TypeData::Callable(callable) = data.as_ref() else {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
             };
 
             Ok(callable.dependency_contracts())
@@ -335,7 +337,7 @@ where
         | TypeExpressionTemplate::Borrow { .. }
         | TypeExpressionTemplate::TraitView(_)
         | TypeExpressionTemplate::OwnedIndirection { .. } => {
-            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput)
+            Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into())
         }
     }
 }

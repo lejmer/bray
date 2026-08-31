@@ -102,6 +102,8 @@ impl bray_base::Cancellation for TestCheckerContext {
 }
 
 impl CheckerRequestContext for TestCheckerContext {
+    type UpstreamError = std::convert::Infallible;
+
     fn semantic_context_matches(&self, unit: &BoundUnit, context: &SemanticUnitContext) -> bool {
         match context {
             SemanticUnitContext::CallableBody(_) => callable_entry(unit.key()) == *context,

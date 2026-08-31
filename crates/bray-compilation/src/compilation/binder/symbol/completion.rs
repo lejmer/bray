@@ -288,7 +288,9 @@ fn evaluate_exact<C, O>(
 where
     C: SymbolQueryContract<Owner = O>,
     O: ExactSymbolId,
-    for<'binding_context> CompilationBindingContext<'binding_context>: SymbolQueryProvider<C>,
+    for<'binding_context> CompilationBindingContext<'binding_context>:
+        bray_binder::SymbolQueryErrorProvider<UpstreamError = FactQueryError>
+            + SymbolQueryProvider<C>,
 {
     let owner = O::try_from_any(symbol).ok_or(FactQueryError::InfrastructureFailure)?;
 
@@ -301,7 +303,9 @@ fn evaluate_typed<C>(
 ) -> Result<DiagnosticBag, FactQueryError>
 where
     C: SymbolQueryContract,
-    for<'binding_context> CompilationBindingContext<'binding_context>: SymbolQueryProvider<C>,
+    for<'binding_context> CompilationBindingContext<'binding_context>:
+        bray_binder::SymbolQueryErrorProvider<UpstreamError = FactQueryError>
+            + SymbolQueryProvider<C>,
 {
     let result = binding_context
         .resolve_symbol_query(SymbolQueryRequest::<C>::new(owner))

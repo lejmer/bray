@@ -21,13 +21,20 @@ use bray_symbols::{
 use bray_syntax::SyntaxTree;
 use bray_target::TargetProfile;
 
-use super::{BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider};
+use super::{
+    BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryErrorProvider,
+    SymbolQueryProvider,
+};
 use crate::ImportedPathRoot;
 
 pub(crate) struct TestSymbolSemantics {
     symbol: ConstantSymbolId,
     pub(super) result: Arc<DiagnosticResult<TypeExpressionTemplate>>,
     callable_signature: Arc<DiagnosticResult<CallableSignatureTemplate>>,
+}
+
+impl SymbolQueryErrorProvider for TestSymbolSemantics {
+    type UpstreamError = std::convert::Infallible;
 }
 
 impl SymbolQueryProvider<ConstantDeclaredTypeQuery> for TestSymbolSemantics {
@@ -80,6 +87,7 @@ pub(crate) struct TestContext<'binding_context> {
 }
 
 impl BindingQueryContext for TestContext<'_> {
+    type UpstreamError = std::convert::Infallible;
     type SymbolSemantics = TestSymbolSemantics;
     type Cancellation = TestCancellation;
 

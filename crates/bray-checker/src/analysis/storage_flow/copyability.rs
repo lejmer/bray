@@ -11,7 +11,10 @@ use crate::{
 };
 
 /// Checks whether one semantic type has a copy contract in the supplied static context.
-pub fn type_is_copyable<C>(request: CheckerUnitView<'_, C>, ty: TypeId) -> CheckerOutcome<bool>
+pub fn type_is_copyable<C>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+) -> CheckerOutcome<bool, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -29,7 +32,7 @@ pub fn type_is_copyable_in_context<C>(
     context: &C,
     semantic_context: &SemanticUnitContext,
     ty: TypeId,
-) -> CheckerOutcome<bool>
+) -> CheckerOutcome<bool, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -43,7 +46,7 @@ where
 }
 
 /// Checks whether one closed semantic type has a copy contract.
-pub fn closed_type_is_copyable<C>(context: &C, ty: TypeId) -> CheckerOutcome<bool>
+pub fn closed_type_is_copyable<C>(context: &C, ty: TypeId) -> CheckerOutcome<bool, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -59,7 +62,7 @@ where
 fn copyability_outcome<C>(
     resolver: &mut CopyabilityResolver<'_, C>,
     ty: TypeId,
-) -> CheckerOutcome<bool>
+) -> CheckerOutcome<bool, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -76,6 +79,7 @@ where
         Err(CheckerQueryError::Infrastructure(error)) => {
             CheckerOutcome::InfrastructureFailure(error)
         }
+        Err(CheckerQueryError::Upstream(error)) => CheckerOutcome::UpstreamFailure(error),
     }
 }
 
@@ -121,7 +125,7 @@ where
         }
     }
 
-    pub(super) fn resolve(&mut self, ty: TypeId) -> CheckerQueryResult<bool> {
+    pub(super) fn resolve(&mut self, ty: TypeId) -> CheckerQueryResult<bool, C::UpstreamError> {
         if let Some(copyable) = self.cache.get(&ty) {
             return Ok(*copyable);
         }
@@ -148,7 +152,7 @@ where
         (copyable, self.diagnostics)
     }
 
-    fn resolve_uncached(&mut self, ty: TypeId) -> CheckerQueryResult<bool> {
+    fn resolve_uncached(&mut self, ty: TypeId) -> CheckerQueryResult<bool, C::UpstreamError> {
         let data = self.context.semantic_values().type_data(ty).map_err(|_| {
             CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
         })?;

@@ -285,6 +285,7 @@ impl Compilation {
             CheckerOutcome::InfrastructureFailure(error) => {
                 return Err(FactQueryError::CheckerInfrastructure(error));
             }
+            CheckerOutcome::UpstreamFailure(error) => return Err(error),
         };
 
         if result.diagnostics().has_errors() {

@@ -17,7 +17,10 @@ use crate::constant::check_constant_literal;
 use crate::diagnostic::{diagnostic_id, pattern_span};
 use crate::representation::type_representation;
 use crate::type_check::diagnostic_type;
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerSemanticQueryProvider};
+use crate::{
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext,
+    CheckerSemanticQueryProvider,
+};
 
 impl<C> PatternChecker<'_, '_, C>
 where
@@ -34,7 +37,7 @@ where
         compatible: bool,
         trusted_variant: bool,
         only_union_variant: bool,
-    ) -> Result<bool, CheckerInfrastructureError> {
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
         if !compatible {
             return Ok(false);
         }
@@ -62,7 +65,7 @@ where
         &self,
         subject: &TypeData,
         target: Option<BoundPatternTarget>,
-    ) -> Result<bool, CheckerInfrastructureError> {
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
         let (
             TypeData::Named {
                 definition: NamedTypeSymbolId::Union(union),
@@ -82,7 +85,7 @@ where
     pub(super) fn tagless_union(
         &self,
         subject: &TypeData,
-    ) -> Result<bool, CheckerInfrastructureError> {
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
         let TypeData::Named {
             definition: NamedTypeSymbolId::Union(union),
             ..
@@ -105,7 +108,7 @@ where
         target: Option<BoundPatternTarget>,
         input_type: TypeId,
         subject: &TypeData,
-    ) -> Result<Option<PatternPredicate>, CheckerInfrastructureError> {
+    ) -> Result<Option<PatternPredicate>, CheckerQueryError<C::UpstreamError>> {
         let predicate = match (kind, subject) {
             (BoundPatternKind::Literal, _) => self
                 .literal_predicate(pattern, input_type)?
@@ -159,7 +162,7 @@ where
         &self,
         pattern: &BoundPattern,
         input_type: TypeId,
-    ) -> Result<Option<PatternLiteralPredicate>, CheckerInfrastructureError> {
+    ) -> Result<Option<PatternLiteralPredicate>, CheckerQueryError<C::UpstreamError>> {
         let Some(literal) = pattern.literal() else {
             return Ok(None);
         };
@@ -167,9 +170,11 @@ where
         let source = self.request.source(pattern.origin().source_anchor())?;
 
         let Some(spelling) = source.text_for_range(literal.range()) else {
-            return Err(CheckerInfrastructureError::InvalidSourceRange {
-                span: bray_source::SourceSpan::new(source.span().source_id(), literal.range()),
-            });
+            return Err(CheckerQueryError::Infrastructure(
+                CheckerInfrastructureError::InvalidSourceRange {
+                    span: bray_source::SourceSpan::new(source.span().source_id(), literal.range()),
+                },
+            ));
         };
 
         let Some(representation) = type_representation(self.request, input_type)? else {
@@ -253,7 +258,7 @@ where
         &mut self,
         pattern: BoundPatternId,
         actual: TypeId,
-    ) -> Result<(), CheckerInfrastructureError> {
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         let actual = diagnostic_type(self.request, actual)?;
         let span = pattern_span(self.request, pattern)?;
 
@@ -277,7 +282,7 @@ where
     pub(super) fn report_tagless_union_pattern(
         &mut self,
         pattern: BoundPatternId,
-    ) -> Result<(), CheckerInfrastructureError> {
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         let span = pattern_span(self.request, pattern)?;
 
         self.diagnostics.push(
@@ -300,7 +305,7 @@ where
         &mut self,
         pattern: BoundPatternId,
         actual: TypeId,
-    ) -> Result<(), CheckerInfrastructureError> {
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         let actual = diagnostic_type(self.request, actual)?;
         let span = pattern_span(self.request, pattern)?;
 
@@ -328,7 +333,7 @@ where
         &mut self,
         pattern: BoundPatternId,
         source: &BoundPattern,
-    ) -> Result<(), CheckerInfrastructureError> {
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         let span = pattern_span(self.request, pattern)?;
         let name = source.name().map_or("", bray_symbols::SymbolName::as_str);
 

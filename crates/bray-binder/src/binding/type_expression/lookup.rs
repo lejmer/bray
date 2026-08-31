@@ -14,11 +14,11 @@ use crate::lookup::{
 };
 use crate::{BindingQueryError, BindingQueryResult};
 
-impl TypeExpressionBinder<'_> {
+impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     pub(super) fn bind_trait(
         &mut self,
         syntax: &TraitApplicationSyntax,
-    ) -> BindingQueryResult<TraitApplicationTemplate> {
+    ) -> BindingQueryResult<TraitApplicationTemplate, Upstream> {
         let definition = self.bind_trait_path(&syntax.path())?;
 
         let MemberLookupResult::Found(definition) = definition else {
@@ -39,7 +39,7 @@ impl TypeExpressionBinder<'_> {
     pub fn resolve_trait_application_template(
         &self,
         template: &TraitApplicationTemplate,
-    ) -> BindingQueryResult<Option<TraitApplicationId>> {
+    ) -> BindingQueryResult<Option<TraitApplicationId>, Upstream> {
         let arguments = template
             .arguments()
             .iter()
@@ -80,7 +80,10 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn bind_type_path(
         &mut self,
         path: &PathSyntax,
-    ) -> BindingQueryResult<MemberLookupResult<crate::lookup::ResolvedTypeName, ResolvedName>> {
+    ) -> BindingQueryResult<
+        MemberLookupResult<crate::lookup::ResolvedTypeName, ResolvedName>,
+        Upstream,
+    > {
         let lookup = self.bind_path(path)?.classify(classify_type);
 
         self.report_lookup(path, DiagnosticNameKind::Type, &lookup);
@@ -91,7 +94,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn bind_trait_path(
         &mut self,
         path: &PathSyntax,
-    ) -> BindingQueryResult<MemberLookupResult<TraitSymbolId, ResolvedName>> {
+    ) -> BindingQueryResult<MemberLookupResult<TraitSymbolId, ResolvedName>, Upstream> {
         let lookup = self.bind_path(path)?.classify(|name| match name {
             ResolvedName::Surface(AnySymbolId::Trait(id)) => Some(id),
             ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
@@ -106,7 +109,8 @@ impl TypeExpressionBinder<'_> {
         &mut self,
         definition: TraitSymbolId,
         syntax: &TypeExpressionSyntax,
-    ) -> BindingQueryResult<MemberLookupResult<TraitTypeMemberSymbolId, ResolvedName>> {
+    ) -> BindingQueryResult<MemberLookupResult<TraitTypeMemberSymbolId, ResolvedName>, Upstream>
+    {
         let Some(token) = syntax.identifier_token() else {
             return Ok(MemberLookupResult::Malformed(Box::new([])));
         };
@@ -138,7 +142,10 @@ impl TypeExpressionBinder<'_> {
         Ok(lookup)
     }
 
-    fn bind_path(&self, path: &PathSyntax) -> BindingQueryResult<MemberLookupResult<ResolvedName>> {
+    fn bind_path(
+        &self,
+        path: &PathSyntax,
+    ) -> BindingQueryResult<MemberLookupResult<ResolvedName>, Upstream> {
         let references = path
             .identifier_tokens()
             .filter_map(|token| token_text(path.source(), &token))
@@ -228,7 +235,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn named_type_parameters(
         &self,
         definition: NamedTypeSymbolId,
-    ) -> BindingQueryResult<Vec<GenericParameterSymbolId>> {
+    ) -> BindingQueryResult<Vec<GenericParameterSymbolId>, Upstream> {
         let (type_parameters, const_parameters) = match definition {
             NamedTypeSymbolId::Struct(id) => match self.symbols.structure(id) {
                 Some(symbol) => Some((
@@ -267,7 +274,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn callable_contract_parameters(
         &self,
         definition: bray_symbols::CallableContractSymbolId,
-    ) -> BindingQueryResult<Vec<GenericParameterSymbolId>> {
+    ) -> BindingQueryResult<Vec<GenericParameterSymbolId>, Upstream> {
         let parameters = match self.symbols.callable_contract(definition) {
             Some(symbol) => Some((
                 symbol.generic_type_parameters(),
@@ -290,7 +297,7 @@ impl TypeExpressionBinder<'_> {
     pub(super) fn trait_parameters(
         &self,
         definition: TraitSymbolId,
-    ) -> BindingQueryResult<Vec<GenericParameterSymbolId>> {
+    ) -> BindingQueryResult<Vec<GenericParameterSymbolId>, Upstream> {
         let parameters = match self.symbols.trait_symbol(definition) {
             Some(symbol) => Some((
                 symbol.generic_type_parameters(),
@@ -314,7 +321,7 @@ impl TypeExpressionBinder<'_> {
         &self,
         type_parameters: &[GenericTypeParameterSymbolId],
         const_parameters: &[GenericConstParameterSymbolId],
-    ) -> BindingQueryResult<Vec<GenericParameterSymbolId>> {
+    ) -> BindingQueryResult<Vec<GenericParameterSymbolId>, Upstream> {
         let mut parameters = Vec::with_capacity(type_parameters.len() + const_parameters.len());
 
         for parameter in type_parameters {

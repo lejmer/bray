@@ -20,7 +20,10 @@ pub(super) fn classify_operation<C>(
     expression: bray_bound_tree::BoundExpressionId,
     read_kinds: &mut BTreeMap<TypeId, MemoryReadKind>,
     diagnostics: &mut DiagnosticBag,
-) -> Result<Option<CheckedMemoryOperationKind>, CheckerOutcome<CheckedMemoryOperations>>
+) -> Result<
+    Option<CheckedMemoryOperationKind>,
+    CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>,
+>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -45,9 +48,9 @@ where
     classify_core_operation(request, hook, &types, expression, read_kinds, diagnostics)
 }
 
-fn memory_type_arguments(
+fn memory_type_arguments<Upstream>(
     arguments: &[GenericArgument],
-) -> Result<Vec<TypeId>, CheckerOutcome<CheckedMemoryOperations>> {
+) -> Result<Vec<TypeId>, CheckerOutcome<CheckedMemoryOperations, Upstream>> {
     arguments
         .iter()
         .map(|argument| match argument {
@@ -66,7 +69,10 @@ fn classify_core_operation<C>(
     expression: bray_bound_tree::BoundExpressionId,
     read_kinds: &mut BTreeMap<TypeId, MemoryReadKind>,
     diagnostics: &mut DiagnosticBag,
-) -> Result<Option<CheckedMemoryOperationKind>, CheckerOutcome<CheckedMemoryOperations>>
+) -> Result<
+    Option<CheckedMemoryOperationKind>,
+    CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>,
+>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -113,7 +119,9 @@ where
         | ImplementationHook::RawBufferRelocate
         | ImplementationHook::ByteBufferFill
         | ImplementationHook::ByteBufferCopy
-        | ImplementationHook::ByteBufferRead => classify_allocation_and_buffer_operation(hook, types),
+        | ImplementationHook::ByteBufferRead => {
+            classify_allocation_and_buffer_operation(hook, types)
+        }
         ImplementationHook::VolatileLoad
         | ImplementationHook::VolatileStore
         | ImplementationHook::DeviceVolatileLoad
@@ -202,7 +210,10 @@ fn classify_direct_memory_operation<C>(
     types: &[TypeId],
     read_kinds: &mut BTreeMap<TypeId, MemoryReadKind>,
     diagnostics: &mut DiagnosticBag,
-) -> Result<Option<CheckedMemoryOperationKind>, CheckerOutcome<CheckedMemoryOperations>>
+) -> Result<
+    Option<CheckedMemoryOperationKind>,
+    CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>,
+>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -335,7 +346,9 @@ where
     Ok(Some(kind))
 }
 
-fn one_type_argument(types: &[TypeId]) -> Result<TypeId, CheckerOutcome<CheckedMemoryOperations>> {
+fn one_type_argument<Upstream>(
+    types: &[TypeId],
+) -> Result<TypeId, CheckerOutcome<CheckedMemoryOperations, Upstream>> {
     let [ty] = types else {
         return Err(CheckerOutcome::InfrastructureFailure(
             CheckerInfrastructureError::InvalidSemanticSelectionInput,
@@ -381,7 +394,7 @@ fn validate_memory_pointee_type<C>(
     types: &[TypeId],
     expression: bray_bound_tree::BoundExpressionId,
     diagnostics: &mut DiagnosticBag,
-) -> Result<bool, CheckerOutcome<CheckedMemoryOperations>>
+) -> Result<bool, CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -434,7 +447,7 @@ fn validate_layout_query_type<C>(
     types: &[TypeId],
     expression: bray_bound_tree::BoundExpressionId,
     diagnostics: &mut DiagnosticBag,
-) -> Result<bool, CheckerOutcome<CheckedMemoryOperations>>
+) -> Result<bool, CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -492,12 +505,15 @@ where
     Ok(false)
 }
 
-const fn query_outcome(error: crate::CheckerQueryError) -> CheckerOutcome<CheckedMemoryOperations> {
+fn query_outcome<Upstream>(
+    error: crate::CheckerQueryError<Upstream>,
+) -> CheckerOutcome<CheckedMemoryOperations, Upstream> {
     match error {
         crate::CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
         crate::CheckerQueryError::Infrastructure(error) => {
             CheckerOutcome::InfrastructureFailure(error)
         }
+        crate::CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
 
@@ -507,7 +523,7 @@ fn validate_callable_address_type<C>(
     types: &[TypeId],
     expression: bray_bound_tree::BoundExpressionId,
     diagnostics: &mut DiagnosticBag,
-) -> Result<bool, CheckerOutcome<CheckedMemoryOperations>>
+) -> Result<bool, CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -574,10 +590,10 @@ where
     Ok(true)
 }
 
-fn classify_allocation_and_buffer_operation(
+fn classify_allocation_and_buffer_operation<Upstream>(
     hook: ImplementationHook,
     types: &[TypeId],
-) -> Result<Option<CheckedMemoryOperationKind>, CheckerOutcome<CheckedMemoryOperations>> {
+) -> Result<Option<CheckedMemoryOperationKind>, CheckerOutcome<CheckedMemoryOperations, Upstream>> {
     let kind = match hook {
         ImplementationHook::RawAllocate => {
             ensure_no_type_arguments(types)?;
@@ -673,7 +689,7 @@ pub(crate) fn memory_read_kind<C>(
     pointee: TypeId,
     read_kinds: &mut BTreeMap<TypeId, MemoryReadKind>,
     diagnostics: &mut DiagnosticBag,
-) -> Result<MemoryReadKind, CheckerOutcome<CheckedMemoryOperations>>
+) -> Result<MemoryReadKind, CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -686,6 +702,9 @@ where
         CheckerOutcome::Cancelled => return Err(CheckerOutcome::Cancelled),
         CheckerOutcome::InfrastructureFailure(error) => {
             return Err(CheckerOutcome::InfrastructureFailure(error));
+        }
+        CheckerOutcome::UpstreamFailure(error) => {
+            return Err(CheckerOutcome::UpstreamFailure(error));
         }
     };
 
@@ -702,9 +721,9 @@ where
     Ok(kind)
 }
 
-fn ensure_no_type_arguments(
+fn ensure_no_type_arguments<Upstream>(
     types: &[TypeId],
-) -> Result<(), CheckerOutcome<CheckedMemoryOperations>> {
+) -> Result<(), CheckerOutcome<CheckedMemoryOperations, Upstream>> {
     if !types.is_empty() {
         return Err(CheckerOutcome::InfrastructureFailure(
             CheckerInfrastructureError::InvalidSemanticSelectionInput,

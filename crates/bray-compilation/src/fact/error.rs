@@ -1,5 +1,8 @@
 use bray_binder::SemanticUnitContextError;
 use bray_checker::CheckerInfrastructureError;
+use bray_diagnostics::{
+    DiagnosticBindingFailure, DiagnosticCheckerFailure, DiagnosticSemanticValueFailure,
+};
 use bray_lowering::{LoweringError, LoweringInputError};
 use bray_source::SourceSpan;
 
@@ -114,6 +117,10 @@ pub enum FactQueryError {
     Cycle(FactCycle),
     /// The fact request could not complete because compiler coordination failed.
     InfrastructureFailure,
+    /// Name binding could not obtain a required semantic dependency.
+    BindingDependencyUnavailable,
+    /// Binding one semantic unit violated a typed binding contract.
+    Binding(bray_binder::BoundUnitBindingError),
     /// A selected constant callable has no body available for durable evaluation.
     ConstantCallableBodyUnavailable,
     /// A selected constant callable body has no evaluable result expression.
@@ -136,6 +143,134 @@ pub enum FactQueryError {
     Lowering(LocatedLoweringFailure<LoweringError>),
 }
 
+impl From<std::convert::Infallible> for FactQueryError {
+    fn from(error: std::convert::Infallible) -> Self {
+        match error {}
+    }
+}
+
+impl From<CheckerInfrastructureError> for FactQueryError {
+    fn from(error: CheckerInfrastructureError) -> Self {
+        Self::CheckerInfrastructure(error)
+    }
+}
+
+impl<Upstream> From<bray_checker::CheckerQueryError<Upstream>> for FactQueryError
+where
+    Upstream: Into<Self>,
+{
+    fn from(error: bray_checker::CheckerQueryError<Upstream>) -> Self {
+        match error {
+            bray_checker::CheckerQueryError::Cancelled => Self::Cancelled,
+            bray_checker::CheckerQueryError::Infrastructure(error) => {
+                Self::CheckerInfrastructure(error)
+            }
+            bray_checker::CheckerQueryError::Upstream(error) => error.into(),
+        }
+    }
+}
+
+pub(crate) fn diagnostic_binding_failure(
+    error: &bray_binder::BoundUnitBindingError,
+) -> DiagnosticBindingFailure {
+    use bray_binder::BoundUnitBindingError as Error;
+
+    match error {
+        Error::Cancelled | Error::CheckerInfrastructure(_) => {
+            unreachable!("fact binding failures contain only binding-owned causes")
+        }
+        Error::Upstream(error) => match *error {},
+        Error::InvalidUnitKey => DiagnosticBindingFailure::InvalidUnitKey,
+        Error::MissingSyntax => DiagnosticBindingFailure::MissingSyntax,
+        Error::MissingOwner => DiagnosticBindingFailure::MissingOwner,
+        Error::MissingModule => DiagnosticBindingFailure::MissingModule,
+        Error::SemanticValue(error) => {
+            DiagnosticBindingFailure::SemanticValue(diagnostic_semantic_value_failure(*error))
+        }
+        Error::Construction => DiagnosticBindingFailure::Construction,
+        Error::Binding => DiagnosticBindingFailure::Binding,
+        Error::Assembly => DiagnosticBindingFailure::Assembly,
+    }
+}
+
+const fn diagnostic_semantic_value_failure(
+    error: bray_symbols::SemanticValueStoreError,
+) -> DiagnosticSemanticValueFailure {
+    use bray_symbols::SemanticValueStoreError as Error;
+
+    match error {
+        Error::ForeignId { .. } => DiagnosticSemanticValueFailure::ForeignId,
+        Error::UnknownId { .. } => DiagnosticSemanticValueFailure::UnknownId,
+        Error::CapacityExhausted { .. } => DiagnosticSemanticValueFailure::CapacityExhausted,
+        Error::GenericOwnerMismatch { .. } => DiagnosticSemanticValueFailure::GenericOwnerMismatch,
+        Error::OpenSubstitution => DiagnosticSemanticValueFailure::OpenSubstitution,
+    }
+}
+
+pub(crate) const fn diagnostic_checker_failure(
+    error: CheckerInfrastructureError,
+) -> DiagnosticCheckerFailure {
+    use CheckerInfrastructureError as Error;
+
+    match error {
+        Error::MissingSource { .. } => DiagnosticCheckerFailure::MissingSource,
+        Error::SourceVersionMismatch { .. } => DiagnosticCheckerFailure::SourceVersionMismatch,
+        Error::InvalidSourceRange { .. } => DiagnosticCheckerFailure::InvalidSourceRange,
+        Error::SemanticQueryUnavailable { .. } => {
+            DiagnosticCheckerFailure::SemanticQueryUnavailable
+        }
+        Error::SemanticValueUnavailable => DiagnosticCheckerFailure::SemanticValueUnavailable,
+        Error::AtomicRepresentationTypeUnavailable => {
+            DiagnosticCheckerFailure::AtomicRepresentationTypeUnavailable
+        }
+        Error::AtomicRepresentationArgumentsUnavailable => {
+            DiagnosticCheckerFailure::AtomicRepresentationArgumentsUnavailable
+        }
+        Error::AtomicInitializerArgumentUnavailable => {
+            DiagnosticCheckerFailure::AtomicInitializerArgumentUnavailable
+        }
+        Error::AtomicInitializerResultUnavailable => {
+            DiagnosticCheckerFailure::AtomicInitializerResultUnavailable
+        }
+        Error::UninitInitializerResultUnavailable => {
+            DiagnosticCheckerFailure::UninitInitializerResultUnavailable
+        }
+        Error::ImportedExecutableTemplateMismatch => {
+            DiagnosticCheckerFailure::ImportedExecutableTemplateMismatch
+        }
+        Error::CompilerKnownRepresentationUnavailable { role } => {
+            DiagnosticCheckerFailure::CompilerKnownRepresentationUnavailable(role.as_str())
+        }
+        Error::InvalidExpressionTypeInput { .. } => {
+            DiagnosticCheckerFailure::InvalidExpressionTypeInput
+        }
+        Error::InvalidSemanticSelectionInput => {
+            DiagnosticCheckerFailure::InvalidSemanticSelectionInput
+        }
+        Error::InvalidLiteralValueInput => DiagnosticCheckerFailure::InvalidLiteralValueInput,
+        Error::InvalidConstantEvaluationInput => {
+            DiagnosticCheckerFailure::InvalidConstantEvaluationInput
+        }
+        Error::InvalidPatternCheckInput => DiagnosticCheckerFailure::InvalidPatternCheckInput,
+        Error::InvalidStoragePlan => DiagnosticCheckerFailure::InvalidStoragePlan,
+        Error::InvalidLiveness => DiagnosticCheckerFailure::InvalidLiveness,
+        Error::InvalidRefinementInput => DiagnosticCheckerFailure::InvalidRefinementInput,
+        Error::RefinementCapacityUnrepresentable => {
+            DiagnosticCheckerFailure::RefinementCapacityUnrepresentable
+        }
+        Error::RefinementStorageUnavailable => {
+            DiagnosticCheckerFailure::RefinementStorageUnavailable
+        }
+        Error::InvalidStorageFlow => DiagnosticCheckerFailure::InvalidStorageFlow,
+        Error::InvalidBodySemantics => DiagnosticCheckerFailure::InvalidBodySemantics,
+        Error::InvalidBoundNode { .. } => DiagnosticCheckerFailure::InvalidBoundNode,
+        Error::ExpressionTypeCapacityExceeded => {
+            DiagnosticCheckerFailure::ExpressionTypeCapacityExceeded
+        }
+        Error::InvalidUnitView(_) => DiagnosticCheckerFailure::InvalidUnitView,
+    }
+}
+
 impl std::fmt::Display for FactQueryError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -148,6 +283,10 @@ impl std::fmt::Display for FactQueryError {
             Self::InfrastructureFailure => {
                 formatter.write_str("fact evaluation encountered an infrastructure failure")
             }
+            Self::BindingDependencyUnavailable => {
+                formatter.write_str("name binding could not obtain a required dependency")
+            }
+            Self::Binding(error) => write!(formatter, "semantic unit binding failed: {error:?}"),
             Self::ConstantCallableBodyUnavailable => {
                 formatter.write_str("the constant callable has no available body")
             }

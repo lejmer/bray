@@ -25,7 +25,7 @@ where
         &mut self,
         expression: BoundExpressionId,
         target: BoundReferenceTarget,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let binding = match target {
             BoundReferenceTarget::Local(AnyLocalSymbolId::Binding(id)) => {
                 self.builder()?.binding(StorageBindingTarget::Local(id))
@@ -89,7 +89,7 @@ where
         &mut self,
         expression: BoundExpressionId,
         projection: StorageProjection,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let Some(receiver) = self.receiver_parameter() else {
             return self.recovery_access(expression);
         };
@@ -110,7 +110,7 @@ where
         &self,
         expression: BoundExpressionId,
         selector: Option<&BoundMemberSelector>,
-    ) -> Result<MemberStorage, PlanError> {
+    ) -> Result<MemberStorage, PlanError<C::UpstreamError>> {
         match selector {
             Some(BoundMemberSelector::TupleElement(index)) => Ok(MemberStorage::Projection(
                 StorageProjection::TupleElement(SymbolOrdinal::new(*index)),
@@ -124,7 +124,7 @@ where
     pub(super) fn selected_member_projection(
         &self,
         expression: BoundExpressionId,
-    ) -> Result<MemberStorage, PlanError> {
+    ) -> Result<MemberStorage, PlanError<C::UpstreamError>> {
         let member = match self.selections.expression(expression) {
             Some(SemanticSelection::Operation(SelectedOperation::Member(target))) => {
                 target.member()
@@ -154,7 +154,7 @@ where
     fn member_from_checked_receiver(
         &self,
         expression: BoundExpressionId,
-    ) -> Result<MemberStorage, PlanError> {
+    ) -> Result<MemberStorage, PlanError<C::UpstreamError>> {
         let bound = self
             .request
             .view()
@@ -239,7 +239,7 @@ where
         expression: BoundExpressionId,
         receiver: StorageAccessId,
         storage: MemberStorage,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         match storage {
             MemberStorage::Projection(projection) => {
                 self.project_access(expression, receiver, Some(projection))
@@ -254,7 +254,7 @@ where
         expression: BoundExpressionId,
         base: StorageAccessId,
         projection: Option<StorageProjection>,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let Some(projection) = projection else {
             return self.temporary_access(expression);
         };
@@ -281,7 +281,7 @@ where
         &mut self,
         expression: BoundExpressionId,
         storage: bray_bound_tree::StorageIdentityId,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let root = match self.builder()?.identity(storage) {
             Some(StorageIdentity::Error(_)) => StorageAccessRoot::Recovery(storage),
             Some(_) => StorageAccessRoot::Storage(storage),
@@ -295,7 +295,7 @@ where
         &mut self,
         expression: BoundExpressionId,
         access: StorageAccessId,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let access = self
             .builder()?
             .access(access)
@@ -317,7 +317,7 @@ where
         expression: BoundExpressionId,
         access: StorageAccessId,
         reached_type: TypeId,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let access = self
             .builder()?
             .access(access)
@@ -340,7 +340,7 @@ where
         expression: BoundExpressionId,
         access: StorageAccessId,
         kind: bray_symbols::BorrowKind,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let borrowed = self
             .builder()?
             .access(access)
@@ -380,7 +380,7 @@ where
         &mut self,
         expression: BoundExpressionId,
         subject: StorageAccessId,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let subject = self
             .builder()?
             .access(subject)
@@ -413,7 +413,7 @@ where
     pub(super) fn temporary_access(
         &mut self,
         expression: BoundExpressionId,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let ty = self.expression_type(expression)?.ty();
 
         let storage = self
@@ -433,7 +433,7 @@ where
         expression: BoundExpressionId,
         receiver_access: StorageAccessId,
         kind: bray_symbols::BorrowKind,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let result = self.expression_type(expression)?;
 
         let receiver = self
@@ -495,7 +495,7 @@ where
         expression: BoundExpressionId,
         identity: StorageIdentity,
         ty: bray_symbols::TypeId,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let node = self
             .request
             .view()
@@ -525,7 +525,7 @@ where
     pub(super) fn recovery_access(
         &mut self,
         expression: BoundExpressionId,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let node = self
             .request
             .view()
@@ -555,7 +555,7 @@ where
         &mut self,
         expression: BoundExpressionId,
         value: Option<BoundExpressionId>,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let result = match value {
             Some(value) => self.expression_type(value)?,
             None => self.expression_type(expression)?,
@@ -575,7 +575,7 @@ where
         root: StorageAccessRoot,
         projections: impl IntoIterator<Item = StorageProjection>,
         result: bray_bound_tree::ExpressionTypeResult,
-    ) -> Result<StorageAccessId, PlanError> {
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let node = self
             .request
             .view()

@@ -43,6 +43,11 @@ where
                 Err(CheckerQueryError::Infrastructure(error)) => {
                     return Err(EvaluationFailure::Infrastructure(error));
                 }
+                Err(CheckerQueryError::Upstream(error)) => {
+                    self.upstream_failure = Some(error);
+
+                    return Err(EvaluationFailure::Upstream);
+                }
             }
 
             let callable = self
@@ -141,6 +146,11 @@ where
             Err(CheckerQueryError::Cancelled) => Err(EvaluationFailure::Cancelled),
             Err(CheckerQueryError::Infrastructure(error)) => {
                 Err(EvaluationFailure::Infrastructure(error))
+            }
+            Err(CheckerQueryError::Upstream(error)) => {
+                self.upstream_failure = Some(error);
+
+                Err(EvaluationFailure::Upstream)
             }
         }
     }

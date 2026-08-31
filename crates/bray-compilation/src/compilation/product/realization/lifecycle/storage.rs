@@ -610,7 +610,7 @@ impl Compilation {
             callable.substitution(),
             constants.value(),
         )
-        .map_err(FactQueryError::CheckerInfrastructure)?
+        .map_err(FactQueryError::from)?
         .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let receiver = signature

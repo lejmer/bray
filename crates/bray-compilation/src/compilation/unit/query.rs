@@ -650,8 +650,8 @@ mod tests {
         DiagnosticSelectionRejections, DiagnosticStorageProjection, DiagnosticStorageRoot,
         DiagnosticType,
     };
-    use bray_messages::DiagnosticRenderer;
     use bray_ir::{MirBinaryOperator, MirOperationKind};
+    use bray_messages::DiagnosticRenderer;
     use bray_source::SourceSpan;
     use bray_symbols::{
         ConstantValueKind, NamedTypeSymbolId, PackageIdentity, SymbolKind, SymbolOrdinal, TypeData,

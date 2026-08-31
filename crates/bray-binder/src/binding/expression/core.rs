@@ -55,7 +55,7 @@ impl ExpressionBinder {
         binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: Option<&ExpressionSyntax>,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -84,7 +84,7 @@ impl ExpressionBinder {
         scope: LocalScopeId,
         syntax: &ExpressionSyntax,
         operator_kind: SyntaxKind,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -141,7 +141,7 @@ impl ExpressionBinder {
         scope: LocalScopeId,
         syntax: SyntaxNodeView<'_>,
         kind: BoundStructuredExpressionKind,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -210,7 +210,7 @@ impl ExpressionBinder {
         syntax: SyntaxNodeView<'_>,
         kind: BoundStructuredExpressionKind,
         operand: BoundExpressionId,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -252,7 +252,7 @@ impl ExpressionBinder {
         scope: LocalScopeId,
         syntax: SyntaxNodeView<'_>,
         captures_yield: bool,
-    ) -> BindingResult<(Vec<BoundExpressionId>, Vec<bray_bound_tree::BoundBlockId>)>
+    ) -> BindingResult<(Vec<BoundExpressionId>, Vec<bray_bound_tree::BoundBlockId>), C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -331,7 +331,7 @@ impl ExpressionBinder {
         scope: LocalScopeId,
         syntax: SyntaxNodeView<'_>,
         recovery_origin: &PrimaryExpressionSyntax,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -389,7 +389,7 @@ impl ExpressionBinder {
         &self,
         binder: &mut Binder<'_, C>,
         expression: BoundExpression,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -405,7 +405,7 @@ impl ExpressionBinder {
         &self,
         binder: &mut Binder<'_, C>,
         syntax: Option<&impl SourceSyntaxNode>,
-    ) -> BindingResult<BoundExpressionId>
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -420,7 +420,10 @@ impl ExpressionBinder {
         )
     }
 
-    fn push_missing_error<C>(&self, binder: &mut Binder<'_, C>) -> BindingResult<BoundExpressionId>
+    fn push_missing_error<C>(
+        &self,
+        binder: &mut Binder<'_, C>,
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
     where
         C: BindingQueryContext + ?Sized,
     {
@@ -433,10 +436,10 @@ impl ExpressionBinder {
     }
 }
 
-fn slice_bounds(
+fn slice_bounds<Upstream>(
     syntax: &SliceIndexOperationSyntax,
     operands: &[BoundExpressionId],
-) -> BindingResult<BoundSliceBounds> {
+) -> BindingResult<BoundSliceBounds, Upstream> {
     let Some((_, bounds)) = operands.split_first() else {
         return Err(BindingError::UnsupportedSyntax);
     };
@@ -466,7 +469,7 @@ where
         binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: Option<&ExpressionSyntax>,
-    ) -> BindingResult<BoundExpressionId> {
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError> {
         ExpressionBinder::bind_expression(self, binder, scope, syntax)
     }
 
@@ -475,7 +478,7 @@ where
         binder: &mut Binder<'_, C>,
         scope: LocalScopeId,
         syntax: &bray_syntax::GeneratorIterationExpressionSyntax,
-    ) -> BindingResult<BoundExpressionId> {
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError> {
         self.bind_generator_iteration(binder, scope, syntax)
     }
 
@@ -484,7 +487,7 @@ where
         _request: &mut Binder<'_, C>,
         _scope: LocalScopeId,
         _syntax: Option<&TypeExpressionSyntax>,
-    ) -> BindingResult<Option<BoundTypeReference>> {
+    ) -> BindingResult<Option<BoundTypeReference>, C::UpstreamError> {
         Ok(_syntax.map(|syntax| BoundTypeReference::new(SyntaxAnchor::from_node(syntax), None)))
     }
 
@@ -496,7 +499,7 @@ where
         &self,
         _request: &Binder<'_, C>,
         scope: LocalScopeId,
-    ) -> BindingResult<PathBindingContext> {
+    ) -> BindingResult<PathBindingContext, C::UpstreamError> {
         Ok(self.path_context_for(scope, self.path_context.access()))
     }
 }

@@ -347,6 +347,7 @@ pub enum DiagnosticEmissionLinkPlanFailure {
 pub enum DiagnosticEmissionEvaluationFailure {
     Cycle,
     Infrastructure,
+    Binding(DiagnosticBindingFailure),
     LoweringInput(crate::DiagnosticLoweringInputFailure),
     Lowering(crate::DiagnosticLoweringFailure),
     ConstantCallableBodyUnavailable,
@@ -358,7 +359,63 @@ pub enum DiagnosticEmissionEvaluationFailure {
     UninitInitializerResultUnavailable,
     ImportedExecutableTemplateMismatch,
     SemanticContext,
-    CheckerInfrastructure,
+    Checker(DiagnosticCheckerFailure),
+}
+
+/// Exact checker contract failure observed while compiling a product.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticCheckerFailure {
+    MissingSource,
+    SourceVersionMismatch,
+    InvalidSourceRange,
+    SemanticQueryUnavailable,
+    SemanticValueUnavailable,
+    AtomicRepresentationTypeUnavailable,
+    AtomicRepresentationArgumentsUnavailable,
+    AtomicInitializerArgumentUnavailable,
+    AtomicInitializerResultUnavailable,
+    UninitInitializerResultUnavailable,
+    ImportedExecutableTemplateMismatch,
+    CompilerKnownRepresentationUnavailable(&'static str),
+    InvalidExpressionTypeInput,
+    InvalidSemanticSelectionInput,
+    InvalidLiteralValueInput,
+    InvalidConstantEvaluationInput,
+    InvalidPatternCheckInput,
+    InvalidStoragePlan,
+    InvalidLiveness,
+    InvalidRefinementInput,
+    RefinementCapacityUnrepresentable,
+    RefinementStorageUnavailable,
+    InvalidStorageFlow,
+    InvalidBodySemantics,
+    InvalidBoundNode,
+    ExpressionTypeCapacityExceeded,
+    InvalidUnitView,
+}
+
+/// Exact compiler-owned failure observed while binding one source-level program element.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticBindingFailure {
+    DependencyUnavailable,
+    InvalidUnitKey,
+    MissingSyntax,
+    MissingOwner,
+    MissingModule,
+    SemanticValue(DiagnosticSemanticValueFailure),
+    Construction,
+    Binding,
+    Assembly,
+}
+
+/// Exact canonical-value failure that prevented semantic binding.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticSemanticValueFailure {
+    ForeignId,
+    UnknownId,
+    CapacityExhausted,
+    GenericOwnerMismatch,
+    OpenSubstitution,
 }
 
 impl DiagnosticEmissionFailure {
@@ -636,6 +693,7 @@ impl DiagnosticEmissionEvaluationFailure {
         match self {
             Self::Cycle => "cycle",
             Self::Infrastructure => "infrastructure",
+            Self::Binding(failure) => failure.as_str(),
             Self::LoweringInput(failure) => failure.as_str(),
             Self::Lowering(failure) => failure.as_str(),
             Self::ConstantCallableBodyUnavailable => "constant_callable_body_unavailable",
@@ -649,7 +707,75 @@ impl DiagnosticEmissionEvaluationFailure {
             Self::UninitInitializerResultUnavailable => "uninit_initializer_result_unavailable",
             Self::ImportedExecutableTemplateMismatch => "imported_executable_template_mismatch",
             Self::SemanticContext => "semantic_context",
-            Self::CheckerInfrastructure => "checker_infrastructure",
+            Self::Checker(failure) => failure.as_str(),
+        }
+    }
+}
+
+impl DiagnosticBindingFailure {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::DependencyUnavailable => "binding_dependency_unavailable",
+            Self::InvalidUnitKey => "binding_invalid_unit_key",
+            Self::MissingSyntax => "binding_missing_syntax",
+            Self::MissingOwner => "binding_missing_owner",
+            Self::MissingModule => "binding_missing_module",
+            Self::SemanticValue(failure) => failure.as_str(),
+            Self::Construction => "binding_construction",
+            Self::Binding => "binding_recovery_root",
+            Self::Assembly => "binding_assembly",
+        }
+    }
+}
+
+impl DiagnosticCheckerFailure {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::MissingSource => "checker_missing_source",
+            Self::SourceVersionMismatch => "checker_source_version_mismatch",
+            Self::InvalidSourceRange => "checker_invalid_source_range",
+            Self::SemanticQueryUnavailable => "checker_semantic_query_unavailable",
+            Self::SemanticValueUnavailable => "checker_semantic_value_unavailable",
+            Self::AtomicRepresentationTypeUnavailable => "atomic_representation_type_unavailable",
+            Self::AtomicRepresentationArgumentsUnavailable => {
+                "atomic_representation_arguments_unavailable"
+            }
+            Self::AtomicInitializerArgumentUnavailable => "atomic_initializer_argument_unavailable",
+            Self::AtomicInitializerResultUnavailable => "atomic_initializer_result_unavailable",
+            Self::UninitInitializerResultUnavailable => "uninit_initializer_result_unavailable",
+            Self::ImportedExecutableTemplateMismatch => "imported_executable_template_mismatch",
+            Self::CompilerKnownRepresentationUnavailable(_) => {
+                "checker_compiler_known_representation_unavailable"
+            }
+            Self::InvalidExpressionTypeInput => "checker_invalid_expression_type_input",
+            Self::InvalidSemanticSelectionInput => "checker_invalid_semantic_selection_input",
+            Self::InvalidLiteralValueInput => "checker_invalid_literal_value_input",
+            Self::InvalidConstantEvaluationInput => "checker_invalid_constant_evaluation_input",
+            Self::InvalidPatternCheckInput => "checker_invalid_pattern_check_input",
+            Self::InvalidStoragePlan => "checker_invalid_storage_plan",
+            Self::InvalidLiveness => "checker_invalid_liveness",
+            Self::InvalidRefinementInput => "checker_invalid_refinement_input",
+            Self::RefinementCapacityUnrepresentable => {
+                "checker_refinement_capacity_unrepresentable"
+            }
+            Self::RefinementStorageUnavailable => "checker_refinement_storage_unavailable",
+            Self::InvalidStorageFlow => "checker_invalid_storage_flow",
+            Self::InvalidBodySemantics => "checker_invalid_body_semantics",
+            Self::InvalidBoundNode => "checker_invalid_bound_node",
+            Self::ExpressionTypeCapacityExceeded => "checker_expression_type_capacity_exceeded",
+            Self::InvalidUnitView => "checker_invalid_unit_view",
+        }
+    }
+}
+
+impl DiagnosticSemanticValueFailure {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ForeignId => "binding_semantic_value_foreign_id",
+            Self::UnknownId => "binding_semantic_value_unknown_id",
+            Self::CapacityExhausted => "binding_semantic_value_capacity_exhausted",
+            Self::GenericOwnerMismatch => "binding_semantic_value_generic_owner_mismatch",
+            Self::OpenSubstitution => "binding_semantic_value_open_substitution",
         }
     }
 }

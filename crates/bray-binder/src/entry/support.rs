@@ -18,7 +18,7 @@ pub(super) fn create_binder<C>(
     binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-) -> Result<Binder<'_, C>, BoundUnitBindingError>
+) -> Result<Binder<'_, C>, BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -34,7 +34,7 @@ where
 pub(super) fn path_context<C>(
     binder: &Binder<'_, C>,
     scope: LocalScopeId,
-) -> Result<PathBindingContext, BoundUnitBindingError>
+) -> Result<PathBindingContext, BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -61,7 +61,7 @@ where
 pub(crate) fn push_callable_inputs<C>(
     binder: &mut Binder<'_, C>,
     scope: LocalScopeId,
-) -> Result<CallableExecution, BoundUnitBindingError>
+) -> Result<CallableExecution, BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
@@ -80,7 +80,7 @@ pub(crate) fn push_callable_inputs_for<C>(
     binder: &mut Binder<'_, C>,
     scope: LocalScopeId,
     callable: CallableSymbolId,
-) -> Result<CallableExecution, BoundUnitBindingError>
+) -> Result<CallableExecution, BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
@@ -109,7 +109,7 @@ pub(super) fn insert_callable_inputs<C>(
     scope: LocalScopeId,
     signature: &CallableSignatureTemplate,
     parameter_count: usize,
-) -> Result<(), BoundUnitBindingError>
+) -> Result<(), BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -155,7 +155,7 @@ where
 fn receiver_type<C>(
     binder: &Binder<'_, C>,
     ty: bray_symbols::TypeId,
-) -> Result<bray_symbols::TypeId, BoundUnitBindingError>
+) -> Result<bray_symbols::TypeId, BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -179,7 +179,7 @@ pub(super) fn insert_surface<C>(
     binder: &mut Binder<'_, C>,
     scope: LocalScopeId,
     symbol: AnySymbolId,
-) -> Result<(), BoundUnitBindingError>
+) -> Result<(), BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -216,7 +216,7 @@ pub(super) fn insert_named_surface<C>(
     scope: LocalScopeId,
     symbol: AnySymbolId,
     name: &str,
-) -> Result<(), BoundUnitBindingError>
+) -> Result<(), BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -230,7 +230,7 @@ where
 
 pub(super) fn error_type<C>(
     binding_context: &C,
-) -> Result<bray_symbols::TypeId, BoundUnitBindingError>
+) -> Result<bray_symbols::TypeId, BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -248,9 +248,15 @@ where
     anchor.find_descendant(binding_context.syntax())
 }
 
-pub(super) fn map_binding_error(error: BindingError) -> BoundUnitBindingError {
+pub(super) fn map_binding_error<Upstream>(
+    error: BindingError<Upstream>,
+) -> BoundUnitBindingError<Upstream> {
     match error {
         BindingError::Cancelled => BoundUnitBindingError::Cancelled,
+        BindingError::CheckerInfrastructure(error) => {
+            BoundUnitBindingError::CheckerInfrastructure(error)
+        }
+        BindingError::Upstream(error) => BoundUnitBindingError::Upstream(error),
         BindingError::Construction(BoundUnitConstructionError::BoundTree(_))
         | BindingError::Construction(BoundUnitConstructionError::LocalSymbol(_))
         | BindingError::Construction(BoundUnitConstructionError::LocalAlreadyActivated(_))
@@ -270,15 +276,23 @@ pub(super) fn map_binding_error(error: BindingError) -> BoundUnitBindingError {
     }
 }
 
-pub(super) fn map_assembly_error(error: BoundUnitAssemblyError) -> BoundUnitBindingError {
+pub(super) fn map_assembly_error<Upstream>(
+    error: BoundUnitAssemblyError,
+) -> BoundUnitBindingError<Upstream> {
     match error {
         BoundUnitAssemblyError::InvalidBoundUnit(_) => BoundUnitBindingError::Assembly,
     }
 }
 
-pub(super) const fn map_query_error(error: crate::BindingQueryError) -> BoundUnitBindingError {
+pub(super) fn map_query_error<Upstream>(
+    error: crate::BindingQueryError<Upstream>,
+) -> BoundUnitBindingError<Upstream> {
     match error {
         crate::BindingQueryError::Cancelled => BoundUnitBindingError::Cancelled,
+        crate::BindingQueryError::CheckerInfrastructure(error) => {
+            BoundUnitBindingError::CheckerInfrastructure(error)
+        }
+        crate::BindingQueryError::Upstream(error) => BoundUnitBindingError::Upstream(error),
         crate::BindingQueryError::DependencyUnavailable => BoundUnitBindingError::Binding,
     }
 }

@@ -239,7 +239,7 @@ impl Compilation {
         let checker = self.checker_context(cancellation)?;
 
         let subject = bray_checker::diagnostic_type(&checker, header.subject())
-            .map_err(FactQueryError::CheckerInfrastructure)?;
+            .map_err(FactQueryError::from)?;
 
         let application = self
             .semantic_value_store()?

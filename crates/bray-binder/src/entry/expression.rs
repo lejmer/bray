@@ -50,7 +50,9 @@ macro_rules! define_pending_expression_unit {
             }
 
             /// Completes and returns the bound semantic unit.
-            pub fn finish(self) -> Result<BoundUnitComputation, BoundUnitBindingError> {
+            pub fn finish<Upstream>(
+                self,
+            ) -> Result<BoundUnitComputation, BoundUnitBindingError<Upstream>> {
                 $assemble(self.output, self.nested_units, self.root).map_err(map_assembly_error)
             }
         }
@@ -60,7 +62,7 @@ macro_rules! define_pending_expression_unit {
             binding_context: &C,
             unit: BoundUnitId,
             key: BoundUnitKey,
-        ) -> Result<$pending, BoundUnitBindingError>
+        ) -> Result<$pending, BoundUnitBindingError<C::UpstreamError>>
         where
             C: BindingQueryContext + ?Sized,
             $(C::SymbolSemantics: SymbolQueryProvider<$query_contract>,)*
@@ -153,7 +155,7 @@ fn bind_constraint_unit<C>(
     binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-) -> Result<(BinderOutput, BoundBlockId), BoundUnitBindingError>
+) -> Result<(BinderOutput, BoundBlockId), BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -164,7 +166,7 @@ fn bind_contract_clause_unit<C>(
     binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-) -> Result<(BinderOutput, BoundBlockId), BoundUnitBindingError>
+) -> Result<(BinderOutput, BoundBlockId), BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
@@ -194,7 +196,7 @@ fn bind_expression_unit<C>(
     binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
+) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -205,7 +207,7 @@ fn bind_embedded_constant_unit<C>(
     binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
+) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -242,7 +244,7 @@ fn bind_runtime_default_unit<C>(
     binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
+) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
@@ -254,7 +256,7 @@ fn bind_predicate_definition_unit<C>(
     binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
+) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
     C::SymbolSemantics: SymbolQueryProvider<PredicateSignatureTemplateQuery>,
@@ -266,8 +268,11 @@ fn bind_expression_unit_with_scope<C>(
     binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-    configure_scope: impl FnOnce(&mut Binder<'_, C>, LocalScopeId) -> Result<(), BoundUnitBindingError>,
-) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
+    configure_scope: impl FnOnce(
+        &mut Binder<'_, C>,
+        LocalScopeId,
+    ) -> Result<(), BoundUnitBindingError<C::UpstreamError>>,
+) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -289,13 +294,17 @@ fn bind_expression_root_unit<C>(
     binding_context: &C,
     unit: BoundUnitId,
     key: BoundUnitKey,
-    configure_scope: impl FnOnce(&mut Binder<'_, C>, LocalScopeId) -> Result<(), BoundUnitBindingError>,
+    configure_scope: impl FnOnce(
+        &mut Binder<'_, C>,
+        LocalScopeId,
+    ) -> Result<(), BoundUnitBindingError<C::UpstreamError>>,
     bind_root: impl FnOnce(
         &mut ExpressionBinder,
         &mut Binder<'_, C>,
         LocalScopeId,
-    ) -> Result<BoundExpressionId, crate::binding::BindingError>,
-) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError>
+    )
+        -> Result<BoundExpressionId, crate::binding::BindingError<C::UpstreamError>>,
+) -> Result<(BinderOutput, BoundExpressionId), BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -327,7 +336,7 @@ where
 fn push_runtime_default_inputs<C>(
     binder: &mut Binder<'_, C>,
     scope: LocalScopeId,
-) -> Result<(), BoundUnitBindingError>
+) -> Result<(), BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
@@ -373,7 +382,7 @@ where
 fn push_predicate_inputs<C>(
     binder: &mut Binder<'_, C>,
     scope: LocalScopeId,
-) -> Result<(), BoundUnitBindingError>
+) -> Result<(), BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
     C::SymbolSemantics: SymbolQueryProvider<PredicateSignatureTemplateQuery>,
@@ -412,8 +421,11 @@ fn bind_expression_sequence_unit<C>(
     key: BoundUnitKey,
     uses_contract_scope: bool,
     has_contract_result: bool,
-    configure_scope: impl FnOnce(&mut Binder<'_, C>, LocalScopeId) -> Result<(), BoundUnitBindingError>,
-) -> Result<(BinderOutput, BoundBlockId), BoundUnitBindingError>
+    configure_scope: impl FnOnce(
+        &mut Binder<'_, C>,
+        LocalScopeId,
+    ) -> Result<(), BoundUnitBindingError<C::UpstreamError>>,
+) -> Result<(BinderOutput, BoundBlockId), BoundUnitBindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
 {

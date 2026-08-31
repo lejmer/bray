@@ -5,7 +5,9 @@ use bray_bound_tree::{
 };
 
 use crate::unit::semantic_inputs_match;
-use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
+use crate::{
+    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
+};
 
 use super::super::{
     CandidateSelection, ImplementationSelectionEvidence, OperationCandidate,
@@ -21,7 +23,7 @@ pub(in crate::selection) fn select<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     input: OperationSelectionRequest,
-) -> Result<Option<CandidateSelection<SelectedOperation>>, CheckerInfrastructureError>
+) -> Result<Option<CandidateSelection<SelectedOperation>>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -39,7 +41,7 @@ where
     } = input;
 
     if !super::super::order::canonicalize_by_key(&mut candidates, OperationCandidate::key) {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     }
 
     let actual_types = expression_types(types, &operands)?;
@@ -192,7 +194,7 @@ fn check_candidate<C>(
     plan: OperationCandidatePlan,
     evidence: &[ImplementationSelectionEvidence],
     compiler_known_operations: &[super::super::CompilerKnownOperationEvidence],
-) -> Result<CandidateCheck, CheckerInfrastructureError>
+) -> Result<CandidateCheck, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -210,7 +212,7 @@ where
             operand_types,
         } => {
             if operation.kind() != kind || operand_types.len() != actual_types.len() {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
             }
 
             if !operand_types
@@ -233,16 +235,19 @@ where
             inputs,
         } => {
             if kind != SelectionKind::Construction {
-                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+                return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
             }
 
             if let ConstructionTarget::Struct(structure) = target {
                 let representation = match request.declared_type_representation(structure.into()) {
                     Ok(representation) => representation,
                     Err(crate::CheckerQueryError::Cancelled) => {
-                        return Ok(CandidateCheck::Recovered);
+                        return Err(CheckerQueryError::Cancelled);
                     }
-                    Err(crate::CheckerQueryError::Infrastructure(error)) => return Err(error),
+                    Err(CheckerQueryError::Infrastructure(error)) => return Err(error.into()),
+                    Err(CheckerQueryError::Upstream(error)) => {
+                        return Err(CheckerQueryError::Upstream(error));
+                    }
                 };
 
                 if representation.value().has_flexible_trailing_member() {
@@ -275,7 +280,7 @@ where
     };
 
     let Some(source_expression) = request.view().expression(expression) else {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
     };
 
     if !operation.matches_expression(source_expression)
