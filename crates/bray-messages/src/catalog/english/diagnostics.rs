@@ -122,7 +122,9 @@ const EMISSION_TARGET_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedTargetTriple),
 ];
 const CHECKING_COMPILER_DEFECT: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("the compiler could not check the highlighted source: "),
+    MessageTemplatePart::Text(
+        "an internal compiler error prevented Bray from checking the highlighted source: ",
+    ),
     MessageTemplatePart::Arg(DiagnosticArgName::EmissionFailure),
 ];
 const EMISSION_PRODUCT_MISMATCH: &[MessageTemplatePart] = &[

@@ -5,9 +5,10 @@ use std::sync::Arc;
 
 use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{
-    BoundExpression, BoundUnit, BoundUnitKey, BoundUnitKind, CheckedBodyBehavior,
-    CheckedBodySemantics, CheckedControlFlow, CheckedExpressionSemantics, CheckedMemoryOperations,
-    CheckedPatterns, DeclaredValueTypeTemplates, SelectedArgument, SemanticSelection, StoragePlan,
+    AnyBoundNodeId, BoundBlock, BoundCallableBody, BoundExpression, BoundPattern, BoundUnit,
+    BoundUnitKey, BoundUnitKind, CheckedBodyBehavior, CheckedBodySemantics, CheckedControlFlow,
+    CheckedExpressionSemantics, CheckedMemoryOperations, CheckedPatterns,
+    DeclaredValueTypeTemplates, SelectedArgument, SemanticSelection, StoragePlan,
 };
 use bray_checker::{
     TargetAbiValue, TargetCallableAbiRequirement, TargetValidityRequest, TargetValidityRequirement,
@@ -84,9 +85,14 @@ pub(super) fn with_compiler_defect_note(diagnostic: Diagnostic) -> Diagnostic {
 
 fn checker_failure_diagnostics(
     key: &BoundUnitKey,
+    bound: Option<&BoundUnit>,
     error: bray_checker::CheckerInfrastructureError,
 ) -> DiagnosticBag {
     let anchor = key.source().syntax();
+
+    let source = checker_failure_node(&error)
+        .and_then(|node| bound.and_then(|bound| bound_node_source(bound, node)))
+        .unwrap_or_else(|| SourceSpan::new(anchor.source_id(), anchor.full_range()));
 
     let failure = DiagnosticEmissionFailure::Evaluation(
         DiagnosticEmissionEvaluationFailure::Checker(crate::fact::diagnostic_checker_failure(
@@ -103,8 +109,49 @@ fn checker_failure_diagnostics(
 
     DiagnosticBag::single(with_compiler_defect_source(
         diagnostic,
-        SourceSpan::new(anchor.source_id(), anchor.full_range()),
+        source,
     ))
+}
+
+fn checker_failure_node(
+    error: &bray_checker::CheckerInfrastructureError,
+) -> Option<AnyBoundNodeId> {
+    use bray_checker::{CheckerInfrastructureError as Error, CheckerStorageFlowFailure as Flow};
+
+    match error {
+        Error::InvalidExpressionTypeInput { expression }
+        | Error::InvalidStorageOperation { expression, .. } => Some((*expression).into()),
+        Error::InvalidBoundNode { node } => Some(*node),
+        Error::StorageFlow(failure) => match failure {
+            Flow::MissingAwaitDependencyContract { expression }
+            | Flow::MissingDependencyContract { expression, .. } => Some((*expression).into()),
+            Flow::MissingExitOrigin { exit } => Some(*exit),
+            Flow::MissingBlock { block } | Flow::UnbalancedScopes {
+                open_scope: Some(block),
+            } => Some((*block).into()),
+            Flow::MissingPattern { pattern } => Some((*pattern).into()),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+fn bound_node_source(bound: &BoundUnit, node: AnyBoundNodeId) -> Option<SourceSpan> {
+    let view = bound.view();
+
+    let origin = match node {
+        AnyBoundNodeId::Expression(expression) => view.expression(expression).map(BoundExpression::origin),
+        AnyBoundNodeId::Pattern(pattern) => view.pattern(pattern).map(BoundPattern::origin),
+        AnyBoundNodeId::Block(block) => view.block(block).map(BoundBlock::origin),
+        AnyBoundNodeId::CallableBody(body) => view
+            .callable_body(body)
+            .copied()
+            .map(BoundCallableBody::origin),
+    }?;
+
+    let anchor = origin.source_anchor().syntax();
+
+    Some(SourceSpan::new(anchor.source_id(), anchor.full_range()))
 }
 
 pub(super) const fn code_production_failure_source(
@@ -410,9 +457,12 @@ impl Compilation {
                 {
                     Ok(result) => result,
                     Err(FactQueryError::CheckerInfrastructure(error)) => {
-                        let nested = self
+                        let bound = self
                             .bound_unit_with_cancellation(key.clone(), cancellation)
-                            .ok()
+                            .ok();
+
+                        let nested = bound
+                            .as_ref()
                             .into_iter()
                             .flat_map(|bound| {
                                 bound
@@ -427,7 +477,11 @@ impl Compilation {
 
                         return Ok::<_, FactQueryError>(BatchWork::new(
                             vec![SemanticDiagnosticSource::Failure(
-                                checker_failure_diagnostics(&key, error),
+                                checker_failure_diagnostics(
+                                    &key,
+                                    bound.as_ref().map(|bound| bound.result().value()),
+                                    error,
+                                ),
                             )],
                             nested,
                         ));

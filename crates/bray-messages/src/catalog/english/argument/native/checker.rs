@@ -5,37 +5,29 @@ pub(super) fn format_english_checker_failure(
 
     let message = match failure {
         Failure::MissingSource { source_id } => {
-            return format!(
-                "an internal compiler error prevented Bray from finding source snapshot #{} required by this product",
-                source_id.raw(),
-            );
+            let _ = source_id;
+
+            "an internal compiler error prevented Bray from finding source text required by this product"
         }
         Failure::SourceVersionMismatch {
             source_id,
             expected,
             actual,
         } => {
-            return format!(
-                "an internal compiler error expected revision {} of source snapshot #{} but found revision {} while compiling this product",
-                expected.raw(),
-                source_id.raw(),
-                actual.raw(),
-            );
+            let _ = (source_id, expected, actual);
+
+            "an internal compiler error used the wrong revision of source text while compiling this product"
         }
         Failure::InvalidSourceRange { span } => {
-            return format!(
-                "an internal compiler error retained bytes {} through {} outside source snapshot #{}",
-                span.start().bytes(),
-                span.end().bytes(),
-                span.source_id().raw(),
-            );
+            let _ = span;
+
+            "an internal compiler error retained a source range outside the available source text"
         }
         Failure::SemanticQueryUnavailable { symbol, query } => {
             return format!(
-                "an internal compiler error could not obtain {} for {} declaration #{}",
+                "an internal compiler error could not obtain {} for the highlighted {} declaration",
                 format_checker_query(query),
                 format_checker_symbol_kind(symbol.kind()),
-                symbol.ordinal(),
             );
         }
         Failure::SemanticValueUnavailable => {
@@ -66,10 +58,10 @@ pub(super) fn format_english_checker_failure(
             );
         }
         Failure::InvalidExpressionTypeInput { expression } => {
+            let _ = expression;
+
             return format!(
-                "an internal compiler error associated expression #{} in source body #{} with the wrong source body while determining its type",
-                expression.ordinal(),
-                expression.unit(),
+                "an internal compiler error associated the highlighted expression with the wrong source body while determining its type",
             );
         }
         Failure::InvalidSemanticSelectionInput => {
@@ -105,11 +97,12 @@ pub(super) fn format_english_checker_failure(
             access,
             status,
         } => {
+            let _ = access;
+
             return format!(
-                "an internal compiler error produced `{status}` while analyzing storage access #{access} for {} #{} in source body #{}",
+                "an internal compiler error classified a local-value access by the highlighted {} as {}",
                 format_checker_node_kind(expression.kind()),
-                expression.ordinal(),
-                expression.unit(),
+                format_storage_operation_status(status),
             );
         }
         Failure::InvalidBodySemantics => {
@@ -117,10 +110,8 @@ pub(super) fn format_english_checker_failure(
         }
         Failure::InvalidBoundNode { node } => {
             return format!(
-                "an internal compiler error lost {} #{} required to compile source body #{}",
+                "an internal compiler error lost the highlighted {} required to compile its source body",
                 format_checker_node_kind(node.kind()),
-                node.ordinal(),
-                node.unit(),
             );
         }
         Failure::ExpressionTypeCapacityExceeded => {
@@ -147,16 +138,13 @@ fn format_storage_flow_failure(
     match failure {
         Failure::IncompatibleInput {
             input,
-            expected_unit,
             expected_kind,
-            actual_unit,
             actual_kind,
+            ..
         } => format!(
-            "an internal compiler error associated {} for source body #{} ({}) with source body #{} ({})",
+            "an internal compiler error associated {} for the highlighted {} with a different {}",
             format_storage_flow_input(input),
-            actual_unit,
             format_bound_unit_kind(actual_kind),
-            expected_unit,
             format_bound_unit_kind(expected_kind),
         ),
         Failure::FlowConstruction(reason) => format!(
@@ -175,75 +163,65 @@ fn format_storage_flow_failure(
             format_async_construction(reason),
         ),
         Failure::MissingAwaitDependencyContract { expression } => format!(
-            "an internal compiler error did not determine which values await expression #{} in source body #{} requires",
-            expression.ordinal(),
-            expression.unit(),
+            "an internal compiler error did not determine which values the highlighted {} requires",
+            format_checker_node_kind(expression.kind()),
         ),
         Failure::MissingDependencyContract {
             expression,
-            contract_unit,
-            contract,
+            ..
         } => format!(
-            "an internal compiler error associated await expression #{} in source body #{} with missing dependency #{} from source body #{}",
-            expression.ordinal(),
-            expression.unit(),
-            contract,
-            contract_unit,
+            "an internal compiler error associated the highlighted {} with a value dependency that does not exist in its source body",
+            format_checker_node_kind(expression.kind()),
         ),
         Failure::CallableParameterCountMismatch {
             callable,
             signature_parameters,
             type_parameters,
         } => format!(
-            "an internal compiler error retained {signature_parameters} declared parameters but {type_parameters} parameter modes for {} declaration #{}",
+            "an internal compiler error retained {signature_parameters} declared parameters but {type_parameters} parameter modes for the highlighted {} declaration",
             format_checker_symbol_kind(callable.kind()),
-            callable.ordinal(),
         ),
         Failure::CallableTypeNotCallable { callable } => format!(
-            "an internal compiler error retained a non-callable type for {} declaration #{}",
+            "an internal compiler error retained a non-callable type for the highlighted {} declaration",
             format_checker_symbol_kind(callable.kind()),
-            callable.ordinal(),
         ),
-        Failure::MissingBorrowCapability { unit, borrow } => format!(
-            "an internal compiler error lost borrow #{} while checking whether a value escapes source body #{}",
-            borrow, unit,
-        ),
+        Failure::MissingBorrowCapability { unit, borrow } => {
+            let _ = (unit, borrow);
+
+            "an internal compiler error lost a borrow operation while checking whether a value escapes the highlighted source body".to_owned()
+        }
         Failure::MissingExitOrigin { exit } => format!(
-            "an internal compiler error lost the source location for {} #{} in source body #{}",
+            "an internal compiler error lost the source location for the highlighted {}",
             format_checker_node_kind(exit.kind()),
-            exit.ordinal(),
-            exit.unit(),
         ),
         Failure::MissingBlock { block } => format!(
-            "an internal compiler error lost block #{} targeted by a control-flow transfer in source body #{}",
-            block.ordinal(),
-            block.unit(),
+            "an internal compiler error lost the highlighted {} targeted by a control-flow transfer",
+            format_checker_node_kind(block.kind()),
         ),
-        Failure::MissingStorageAccess { unit, access } => format!(
-            "an internal compiler error lost value access #{} required by source body #{}",
-            access, unit,
-        ),
-        Failure::MissingStorageIdentity { unit, identity } => format!(
-            "an internal compiler error lost local value #{} required by source body #{}",
-            identity, unit,
-        ),
+        Failure::MissingStorageAccess { unit, access } => {
+            let _ = (unit, access);
+
+            "an internal compiler error lost a local-value access required by the highlighted source body".to_owned()
+        }
+        Failure::MissingStorageIdentity { unit, identity } => {
+            let _ = (unit, identity);
+
+            "an internal compiler error lost a local value required by the highlighted source body".to_owned()
+        }
         Failure::MissingStorageSymbolName { symbol } => format!(
-            "an internal compiler error lost the declared name of {} declaration #{} while describing an invalid value access",
+            "an internal compiler error lost the declared name of the highlighted {} declaration while describing a local-value access",
             format_checker_symbol_kind(symbol.kind()),
-            symbol.ordinal(),
         ),
         Failure::UnbalancedScopes { open_scope: Some(scope) } => format!(
-            "an internal compiler error left block #{} open while examining the lexical scopes of source body #{}",
-            scope.ordinal(),
-            scope.unit(),
+            "an internal compiler error left the highlighted {} open while examining its source body's lexical scopes",
+            format_checker_node_kind(scope.kind()),
         ),
         Failure::UnbalancedScopes { open_scope: None } => {
             "an internal compiler error encountered inconsistent block boundaries while examining this source body".to_owned()
         }
         Failure::MissingPattern { pattern } => format!(
-            "an internal compiler error lost pattern #{} while examining the lexical scopes of source body #{}",
-            pattern.ordinal(),
-            pattern.unit(),
+            "an internal compiler error lost the highlighted {} while examining its source body's lexical scopes",
+            format_checker_node_kind(pattern.kind()),
         ),
     }
 }
@@ -258,7 +236,7 @@ fn format_storage_flow_input(input: &str) -> &str {
         "memory_operations" => "memory operations",
         "storage_flow" => "ownership results",
         "dependency_contracts" => "value dependencies",
-        input => input,
+        _ => "ownership information",
     }
 }
 
@@ -273,7 +251,7 @@ fn format_bound_unit_kind(kind: &str) -> &str {
         "constraint" => "constraint",
         "contract_clause" => "contract clause",
         "target_gate" => "target condition",
-        kind => kind,
+        _ => "source body",
     }
 }
 
@@ -282,7 +260,7 @@ fn format_storage_flow_construction(reason: &str) -> &str {
         "foreign_unit" => "one recorded operation belongs to another source body",
         "duplicate_suspension" => "one await or yield expression has two saved states",
         "duplicate_memory_operation" => "one expression has two recorded memory operations",
-        reason => reason,
+        _ => "the compiler could not represent one ownership operation",
     }
 }
 
@@ -294,14 +272,14 @@ fn format_dependency_contract_construction(reason: &str) -> &str {
         "invalid_borrow" => "a dependency refers to a missing borrow",
         "foreign_contract" => "a dependency refers to another source body",
         "contract_capacity_exceeded" => "the number of distinct dependencies exceeds the compiler's supported limit",
-        reason => reason,
+        _ => "the compiler could not represent one value dependency",
     }
 }
 
 fn format_async_construction(reason: &str) -> &str {
     match reason {
         "foreign_unit" => "one recorded operation belongs to another source body",
-        reason => reason,
+        _ => "the compiler could not represent one asynchronous operation",
     }
 }
 
@@ -336,7 +314,7 @@ fn format_checker_query(query: &str) -> &str {
         "implementation_coherence" => "its implementation coherence information",
         "overload_arms" => "its resolved overload alternatives",
         "overload_signature_template" => "its overload signatures",
-        query => query,
+        _ => "required declaration information",
     }
 }
 
@@ -344,6 +322,7 @@ fn format_checker_symbol_kind(kind: &str) -> &str {
     match kind {
         "callable_overload" | "implementation_overload" => "overload",
         "callable_parameter" => "parameter",
+        "module" => "module",
         "inherent_implementation" | "named_trait_implementation"
         | "unnamed_trait_implementation" => "implementation",
         "struct_field" => "struct field",
@@ -354,14 +333,18 @@ fn format_checker_symbol_kind(kind: &str) -> &str {
         "trait_type_valued_fulfillment" | "trait_type_valued_member" => "type member",
         "union_payload_field" => "union payload field",
         "union_variant" => "union variant",
-        kind => kind,
+        _ => "source",
     }
 }
 
 fn format_checker_node_kind(kind: &str) -> &str {
     match kind {
         "callable_body" => "callable body",
-        kind => kind,
+        "expression" => "expression",
+        "await_expression" => "await expression",
+        "block" => "block",
+        "pattern" => "pattern",
+        _ => "source construct",
     }
 }
 
@@ -389,6 +372,22 @@ fn format_compiler_known_representation(role: &str) -> &str {
         "ScalarC64" => "c64",
         "ScalarC128" => "c128",
         "ScalarC256" => "c256",
-        role => role,
+        _ => "language-defined representation",
+    }
+}
+
+fn format_storage_operation_status(status: &str) -> &str {
+    match status {
+        "unreachable" => "unreachable",
+        "valid" => "valid",
+        "recovered" => "recovered from an earlier source error",
+        "uninitialized" => "an access to an uninitialized value",
+        "moved" => "an access after ownership moved",
+        "conflicting_borrow" => "a conflicting borrow",
+        "missing_mutation_authority" => "a mutation without mutable access",
+        "missing_ownership" => "an operation without ownership",
+        "inactive_projection" => "an access through an inactive union variant",
+        "not_copyable" => "an implicit copy of a non-copyable value",
+        _ => "a state the compiler does not recognize",
     }
 }
