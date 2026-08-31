@@ -95,11 +95,8 @@ internal func utf16_scalar(pos first: u16, second: u16?) -> (u32, bool)?
 
     if first_value >= 55_296 && first_value <= 56_319
     {
-        let second_value: u32 = match second
-        {
-            case ?value { yield value as u32; }
-            case none { return none; }
-        };
+        let second_unit: u16 = second?;
+        let second_value: u32 = second_unit as u32;
 
         if second_value < 56_320 || second_value > 57_343
         {

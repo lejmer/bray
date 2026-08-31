@@ -92,20 +92,14 @@ impl EnumerateIterator = Enumerate<I, E>(Iterator)
     {
         let item: E? = self.source(Iterator).next();
 
-        match consume item
-        {
-            case ?value
-            {
-                let index: usize = self.index;
-                let pair: (usize, E) = (index, value);
-                let mut result: (usize, E)? = none;
+        let value: E = item?;
+        let index: usize = self.index;
+        let pair: (usize, E) = (index, value);
+        let mut result: (usize, E)? = none;
 
-                self.index = index + 1;
-                result = pair;
+        self.index = index + 1;
+        result = pair;
 
-                return result;
-            }
-            case none { return none; }
-        }
+        return result;
     }
 }
