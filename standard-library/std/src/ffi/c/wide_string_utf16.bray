@@ -1,15 +1,11 @@
 @target(target.c.WCHAR == "u16")
 module std.ffi.c;
 
-/// Decodes borrowed target C wide units as UTF-16.
-///
-/// Available when `target.c.WCHAR` selects `u16`.
-///
 /// Returns `StringError.InvalidEncoding` for an invalid surrogate sequence and
 /// `StringError.Allocation` when the decoded Bray string cannot be allocated.
-trusted func decode_utf16(pos value: &BorrowedWideString) -> Result<string, StringError>
+trusted internal func decode_wide_string(pos value: &BorrowedWideString) -> Result<string, StringError>
 {
-    let units: &[WideChar] = value.units();
+    let units: &[WideChar] = value.as_units();
     let count: usize = units.length();
 
     let mut bytes: std.bytes.Buffer = match trusted std.bytes.Buffer(capacity = count)
@@ -51,13 +47,9 @@ trusted func decode_utf16(pos value: &BorrowedWideString) -> Result<string, Stri
     return internal decoded_wide_string(&bytes);
 }
 
-/// Encodes Bray text as an owned NUL-terminated UTF-16 C wide string.
-///
-/// Available when `target.c.WCHAR` selects `u16`.
-///
 /// Returns `StringError.InteriorNul` when the text contains NUL and
 /// `StringError.Allocation` when the owned wide string cannot be allocated.
-trusted func encode_utf16(pos value: &string) -> Result<OwnedWideString, StringError>
+trusted internal func encode_wide_string(pos value: &string) -> Result<OwnedWideString, StringError>
 {
     let mut units: std.collection.List<WideChar> = match trusted std.collection.List<WideChar>(
         capacity = value.length(),

@@ -1,13 +1,6 @@
 @target(target.platform.dynamic_loading)
 trusted module std.dynamic;
 
-trusted func symbol<T>(pos library: &DynamicLibrary, pos name: &[u8]) -> Result<DynamicSymbol<T>, std.ffi.ForeignError>
-    requires(blocking_execution())
-    uses(foreign_call, layout_reinterpret)
-{
-    return trusted resolve_dynamic_symbol<T>(library, name);
-}
-
 trusted internal func resolve_dynamic_symbol<T>(
     pos library: &DynamicLibrary,
     pos name: &[u8],

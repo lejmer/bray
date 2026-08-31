@@ -121,26 +121,31 @@ Checked range failure returns `ConversionError.OutOfRange`. Boolean and real wra
 - Wide C strings use separately named unit-width types and do not inherit UTF-8 behavior.
 
 Construction from bytes or text validates interior NUL units, terminal NUL storage, capacity arithmetic, and the
-selected encoding policy. Conversion to Bray `string` is fallible and names the encoding being decoded. A C string is
-not assumed to contain UTF-8, and a native path is not silently converted through a C string.
+selected encoding policy. Conversion to Bray `string` is fallible. A narrow C string is interpreted as UTF-8 only when
+the caller requests text conversion, and a native path is not silently converted through a C string.
 
 ```bray
 let bytes = try trusted std.ffi.c.OwnedNarrowString.from_bytes(source);
 let text = try trusted std.ffi.c.OwnedNarrowString.from_utf8(&value);
 let borrowed = try std.ffi.c.borrow_string(terminated_units);
+let decoded = try borrowed.to_string();
 ```
 
 `OwnedNarrowString.from_bytes` copies raw narrow units, while `OwnedNarrowString.from_utf8` names text encoding.
-`BorrowedNarrowString.decode_utf8` performs explicit text decoding. The `borrow_string` overload accepts a validated
-narrow byte slice and, when the target has a wide C character type, a validated wide-unit slice. When `target.c.WCHAR`
-is `u16`, wide text conversion uses `encode_utf16` and
-`decode_utf16`. When it is `i32`, wide text conversion uses `encode_utf32` and `decode_utf32`. Invalid surrogate
-sequences, invalid Unicode scalar values, and interior NUL characters return `StringError` rather than being replaced
-or reinterpreted.
+`BorrowedNarrowString.to_string` decodes those units as UTF-8. The `borrow_string` overload accepts a validated narrow
+byte slice and, when the target has a wide C character type, a validated wide-unit slice. `OwnedWideString.from_string`
+and `BorrowedWideString.to_string` select UTF-16 or UTF-32 from the target's `WCHAR` representation without exposing
+platform-specific operation names. Invalid surrogate sequences, invalid Unicode scalar values, and interior NUL
+characters return `StringError` rather than being replaced or reinterpreted.
 
-Borrowing a raw pointer from `BorrowedNarrowString` or `OwnedNarrowString` retains the source dependency. Constructing a
-borrowed C string from a raw pointer is trusted and requires an explicit readable extent or a caller obligation that
-permits bounded terminator search. The safe surface never performs an unbounded scan of untrusted storage.
+Borrowed narrow strings expose raw storage through `as_bytes` and `as_bytes_with_nul`. Borrowed wide strings use
+`as_units` and `as_units_with_nul`. Owned narrow and wide strings produce their dependency-preserving views through
+`as_borrowed`.
+
+Borrowing a raw pointer from a borrowed narrow or wide string retains the source dependency, including when the view
+came from an owned C string. Constructing a borrowed C string from a raw pointer is trusted and requires an explicit
+readable extent or a caller obligation that permits bounded terminator search. The safe surface never performs an
+unbounded scan of untrusted storage.
 
 ### Error Boundaries
 
@@ -206,9 +211,10 @@ explicit default policy whose meaning is fixed for that target artifact.
 `DynamicLibrary.open` overloads the path and system-library forms. The explicit first argument selects the arm, while
 the load policy remains named and shared by both forms.
 
-Symbol lookup accepts an exact native symbol name and an ABI-qualified requested type. A successful lookup returns a
-`DynamicSymbol<T>` borrowed from the library owner. The symbol cannot outlive the library, and the library cannot be
-closed while a symbol borrow remains active.
+`library.symbol<T>(name)` accepts an exact native symbol name and an ABI-qualified requested type. A successful lookup
+returns a `DynamicSymbol<T>` borrowed from the library owner. The symbol cannot outlive the library, and the library
+cannot be closed while a symbol borrow remains active. Consuming `library.close()` releases the module explicitly,
+while consuming `library.into_handle()` transfers its native handle and disables owner cleanup.
 
 The requested type is part of the trusted lookup boundary. The loader can establish only that an address exists. It
 cannot prove a foreign function's signature, data layout, ownership, effects, or failure behavior. Safe wrappers

@@ -793,7 +793,7 @@ trusted func dynamic_clock_gettime(
 {
     let name: [u8; 13] = [99, 108, 111, 99, 107, 95, 103, 101, 116, 116, 105, 109, 101];
 
-    return trusted std.dynamic.symbol<ClockGetTime>(library, &name[..]);
+    return trusted library.symbol<ClockGetTime>(&name[..]);
 }
 
 // Dynamic data symbol `environ` comes from `libc.so.6`.
@@ -807,5 +807,5 @@ trusted func dynamic_environ(
 {
     let name: [u8; 7] = [101, 110, 118, 105, 114, 111, 110];
 
-    return trusted std.dynamic.symbol<RawPointer<RawPointer<u8>>>(library, &name[..]);
+    return trusted library.symbol<RawPointer<RawPointer<u8>>>(&name[..]);
 }

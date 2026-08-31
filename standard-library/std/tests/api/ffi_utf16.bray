@@ -2,12 +2,12 @@
 module bray.standard_library_tests.ffi;
 
 @test
-trusted func c_utf16_strings_name_and_validate_their_encoding() -> Result<unit, std.ffi.c.StringError>
+trusted func c_wide_strings_encode_and_validate_target_text() -> Result<unit, std.ffi.c.StringError>
 {
-    let encoded: std.ffi.c.OwnedWideString = try trusted std.ffi.c.encode_utf16(&"A😀");
-    let borrowed: std.ffi.c.BorrowedWideString = encoded.borrow();
-    let units: &[std.ffi.c.WideChar] = borrowed.units_with_nul();
-    let decoded: string = try trusted std.ffi.c.decode_utf16(&borrowed);
+    let encoded: std.ffi.c.OwnedWideString = try trusted std.ffi.c.OwnedWideString.from_string(&"A😀");
+    let borrowed: std.ffi.c.BorrowedWideString = encoded.as_borrowed();
+    let units: &[std.ffi.c.WideChar] = borrowed.as_units_with_nul();
+    let decoded: string = try trusted borrowed.to_string();
 
     assert(units.length() == 4);
     assert(units[0].value() == 65);
@@ -23,9 +23,7 @@ trusted func c_utf16_strings_name_and_validate_their_encoding() -> Result<unit, 
 
     let invalid: std.ffi.c.BorrowedWideString = try std.ffi.c.borrow_string(&invalid_units[..]);
 
-    let _: std.ffi.c.StringError = std.testing.assert_error<string, std.ffi.c.StringError>(
-        trusted std.ffi.c.decode_utf16(&invalid),
-    );
+    let _: std.ffi.c.StringError = std.testing.assert_error<string, std.ffi.c.StringError>(trusted invalid.to_string());
 
     return Ok(unit);
 }

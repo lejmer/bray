@@ -6,14 +6,16 @@ struct BorrowedWideString
 {
     internal units_value: &[WideChar];
 
-    func units() -> &[WideChar]
+    /// Borrows the target-width wide units without the terminating NUL.
+    func as_units() -> &[WideChar]
     {
         let count: usize = self.units_value.length();
 
         return &self.units_value[0..count - 1];
     }
 
-    func units_with_nul() -> &[WideChar]
+    /// Borrows the target-width wide units including the terminating NUL.
+    func as_units_with_nul() -> &[WideChar]
     {
         return self.units_value;
     }
@@ -21,6 +23,15 @@ struct BorrowedWideString
     func pointer() -> RawPointer<WideChar>
     {
         return std.memory.address_of<WideChar>(&self.units_value[0]);
+    }
+
+    /// Interprets the target-width wide units and copies them into owned Bray text.
+    ///
+    /// Returns `StringError.InvalidEncoding` for an invalid UTF-16 surrogate sequence or UTF-32 scalar value. Returns
+    /// `StringError.Allocation` when the Bray string cannot be allocated.
+    trusted func to_string() -> Result<string, StringError>
+    {
+        return trusted decode_wide_string(&self);
     }
 }
 
@@ -55,6 +66,15 @@ internal func borrow_wide_string(pos units: &[WideChar]) -> Result<BorrowedWideS
 struct OwnedWideString
 {
     internal storage: std.collection.List<WideChar>;
+
+    /// Encodes Bray text as an owned NUL-terminated target C wide string.
+    ///
+    /// Returns `StringError.InteriorNul` when the text contains NUL and `StringError.Allocation` when the owned string
+    /// cannot be allocated.
+    trusted construct from_string(pos value: &string) -> Result<Self, StringError>
+    {
+        return trusted encode_wide_string(value);
+    }
 
     trusted construct from_units(pos units: &[WideChar]) -> Result<Self, StringError>
     {
@@ -101,7 +121,8 @@ struct OwnedWideString
         );
     }
 
-    func borrow() -> BorrowedWideString
+    /// Borrows this owned string as a NUL-terminated target C wide string.
+    func as_borrowed() -> BorrowedWideString
     {
         return
         {
