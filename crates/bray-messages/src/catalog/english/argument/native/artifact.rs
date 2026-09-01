@@ -75,33 +75,21 @@ pub(crate) fn format_english_emission_evaluation_failure(
 
 fn format_english_semantic_query_failure(
     failure: bray_diagnostics::DiagnosticSemanticQueryFailure,
-) -> &'static str {
+) -> String {
     use bray_diagnostics::DiagnosticSemanticQueryFailure as Failure;
 
-    match failure {
-        Failure::ContractViolation => {
-            "an internal compiler error found inconsistent declaration information"
-        }
-        Failure::CallableSignature => {
-            "an internal compiler error found an inconsistent callable signature"
-        }
-        Failure::GenericSubstitution => {
-            "an internal compiler error found inconsistent generic arguments"
-        }
-        Failure::BoundUnit => "an internal compiler error found an inconsistent bound source unit",
-        Failure::Implementation => {
-            "an internal compiler error found inconsistent implementation evidence"
-        }
-        Failure::CheckedConstantTerms => {
-            "an internal compiler error found inconsistent checked constant terms"
-        }
-        Failure::TypeSurface => {
-            "an internal compiler error found inconsistent type-member information"
-        }
-        Failure::PreparsedSyntax => {
-            "an internal compiler error found inconsistent generated syntax"
-        }
-    }
+    let detail = match failure {
+        Failure::ContractViolation => "found inconsistent declaration information",
+        Failure::CallableSignature => "found an inconsistent callable signature",
+        Failure::GenericSubstitution => "found inconsistent generic arguments",
+        Failure::BoundUnit => "found an inconsistent bound source unit",
+        Failure::Implementation => "found inconsistent implementation evidence",
+        Failure::CheckedConstantTerms => "found inconsistent checked constant terms",
+        Failure::TypeSurface => "found inconsistent type-member information",
+        Failure::PreparsedSyntax => "found inconsistent generated syntax",
+    };
+
+    super::format_internal_compiler_error(detail)
 }
 
 pub(crate) fn format_english_native_product_failure(
@@ -181,7 +169,9 @@ pub(crate) fn format_english_native_product_failure(
         }
         Kind::ReachabilityIncomplete => "native-code selection is incomplete",
         Kind::InstanceTemplateMismatch => {
-            "an internal compiler error prevented Bray from compiling the selected declaration consistently"
+            return super::format_internal_compiler_error(
+                "the selected declaration could not be compiled consistently",
+            );
         }
         Kind::InstanceTargetMismatch => "a compiled item does not match the selected target",
         Kind::InstanceDependencyTargetMismatch => {
@@ -307,7 +297,7 @@ fn format_english_lowering_input_failure(
             "generating executable code for the highlighted declaration because required analysis refers to another declaration".to_owned()
         }
         Failure::SemanticValue(failure) => {
-            return format_english_semantic_value_failure(failure).to_owned();
+            return format_english_semantic_value_failure(failure);
         }
         Failure::InvalidStorageOperation => {
             "generating ownership-safe code for the highlighted expression because its read, borrow, move, or write behavior is unavailable".to_owned()
@@ -323,7 +313,7 @@ fn format_english_lowering_input_failure(
         }
     };
 
-    format!("an internal compiler error prevented Bray from {prevented_operation}")
+    super::format_internal_compiler_error(format!("could not complete {prevented_operation}"))
 }
 
 fn format_english_lowering_failure(failure: bray_diagnostics::DiagnosticLoweringFailure) -> String {
@@ -334,16 +324,16 @@ fn format_english_lowering_failure(failure: bray_diagnostics::DiagnosticLowering
             "generating executable code for the highlighted declaration because it has no executable body"
         }
         Failure::MissingSourceNode(kind) => {
-            return format!(
-                "an internal compiler error prevented Bray from generating executable code for the highlighted {}",
+            return super::format_internal_compiler_error(format!(
+                "could not generate executable code for the highlighted {}",
                 format_source_construct(kind),
-            );
+            ));
         }
         Failure::RecoveredSourceNode(kind) => {
-            return format!(
-                "an internal compiler error prevented Bray from generating executable code for the highlighted {} after an earlier error",
+            return super::format_internal_compiler_error(format!(
+                "could not generate executable code for the highlighted {} after an earlier error",
                 format_source_construct(kind),
-            );
+            ));
         }
         Failure::MissingExpressionType => {
             "generating executable code for the highlighted expression because the type established for it is unavailable"
@@ -402,7 +392,7 @@ fn format_english_lowering_failure(failure: bray_diagnostics::DiagnosticLowering
             "generating executable code for the highlighted declaration because a required type or constant value is unavailable"
         }
         Failure::SemanticValue(failure) => {
-            return format_english_semantic_value_failure(failure).to_owned();
+            return format_english_semantic_value_failure(failure);
         }
         Failure::InvalidFrameDescriptor => {
             "generating resumable code for the highlighted callable because its state-preservation requirements conflict"
@@ -410,7 +400,7 @@ fn format_english_lowering_failure(failure: bray_diagnostics::DiagnosticLowering
         Failure::Mir(failure) => return format_english_mir_unit_failure(failure),
     };
 
-    format!("an internal compiler error prevented Bray from {prevented_operation}")
+    super::format_internal_compiler_error(format!("could not complete {prevented_operation}"))
 }
 
 const fn format_source_construct(
@@ -539,7 +529,7 @@ fn format_english_mir_unit_failure(
         }
     };
 
-    format!("an internal compiler error prevented Bray from {prevented_operation}")
+    super::format_internal_compiler_error(format!("could not complete {prevented_operation}"))
 }
 
 pub(crate) fn format_english_runtime_artifact_problem(
@@ -636,65 +626,55 @@ const fn format_english_runtime_artifact_purpose(
     }
 }
 
-fn format_english_binding_failure(
-    failure: bray_diagnostics::DiagnosticBindingFailure,
-) -> &'static str {
+fn format_english_binding_failure(failure: bray_diagnostics::DiagnosticBindingFailure) -> String {
     use bray_diagnostics::DiagnosticBindingFailure as Failure;
 
-    match failure {
-        Failure::DependencyUnavailable => {
-            "an internal compiler error prevented Bray from resolving a name required by this product"
-        }
+    let detail = match failure {
+        Failure::DependencyUnavailable => "a name required by this product could not be resolved",
         Failure::InvalidUnitKey => {
-            "an internal compiler error prevented Bray from identifying the source declaration or body to compile"
+            "the source declaration or body to compile could not be identified"
         }
-        Failure::MissingSyntax => {
-            "an internal compiler error prevented Bray from reading source syntax required by this product"
+        Failure::MissingSyntax => "source syntax required by this product was unavailable",
+        Failure::MissingOwner => "the declaration that owns a source body could not be identified",
+        Failure::MissingModule => "the module containing a declaration could not be identified",
+        Failure::InvalidSurfaceName => "found a declaration without a valid local lookup name",
+        Failure::SemanticValue(failure) => {
+            return format_english_semantic_value_failure(failure);
         }
-        Failure::MissingOwner => {
-            "an internal compiler error prevented Bray from identifying the declaration that owns a source body"
-        }
-        Failure::MissingModule => {
-            "an internal compiler error prevented Bray from identifying the module that contains a declaration"
-        }
-        Failure::InvalidSurfaceName => {
-            "an internal compiler error found a declaration without a valid local lookup name"
-        }
-        Failure::SemanticValue(failure) => format_english_semantic_value_failure(failure),
-        Failure::Construction => {
-            "an internal compiler error prevented Bray from understanding a source declaration or body"
-        }
+        Failure::Construction => "a source declaration or body could not be analyzed",
         Failure::Binding => {
-            "an internal compiler error prevented Bray from recovering a source declaration or body after an earlier error"
+            "a source declaration or body could not be recovered after an earlier error"
         }
-        Failure::Assembly => {
-            "an internal compiler error prevented Bray from validating a source declaration or body"
-        }
-    }
+        Failure::Assembly => "a source declaration or body could not be validated",
+    };
+
+    super::format_internal_compiler_error(detail)
 }
 
 pub(crate) fn format_english_semantic_value_failure(
     failure: bray_diagnostics::DiagnosticSemanticValueFailure,
-) -> &'static str {
+) -> String {
     use bray_diagnostics::DiagnosticSemanticValueFailure as Failure;
 
-    match failure {
+    let detail = match failure {
         Failure::ForeignId { .. } => {
-            "an internal compiler error mixed values from different compilations while understanding a source declaration or body"
+            "mixed values from different compilations while understanding a source declaration or body"
         }
         Failure::UnknownId { .. } => {
-            "an internal compiler error lost a value required to understand a source declaration or body"
+            "lost a value required to understand a source declaration or body"
         }
         Failure::CapacityExhausted { .. } => {
-            "an internal compiler limit prevented Bray from retaining another value required by this product"
+            return "an internal compiler limit prevented Bray from retaining another value required by this product".to_owned();
         }
         Failure::GenericOwnerMismatch { .. } => {
-            "an internal compiler error associated generic arguments with the wrong declaration"
+            "associated generic arguments with the wrong declaration"
         }
         Failure::OpenSubstitution => {
-            "an internal compiler error required unresolved generic arguments where concrete arguments were needed"
+            "required unresolved generic arguments where concrete arguments were needed"
         }
-    }
+    };
+
+    super::format_internal_compiler_error(detail)
 }
 
 #[cfg(test)]
@@ -703,6 +683,7 @@ mod tests {
     use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 
     use super::{format_english_binding_failure, format_english_checker_failure};
+    use crate::catalog::english::argument::native::INTERNAL_COMPILER_ERROR_PREFIX;
 
     #[test]
     fn binding_failures_render_distinct_user_facing_causes() {
@@ -714,8 +695,8 @@ mod tests {
         assert_ne!(syntax, owner);
         assert!(syntax.contains("source syntax"));
         assert!(owner.contains("declaration"));
-        assert!(syntax.starts_with("an internal compiler error"));
-        assert!(owner.starts_with("an internal compiler error"));
+        assert!(syntax.starts_with(INTERNAL_COMPILER_ERROR_PREFIX));
+        assert!(owner.starts_with(INTERNAL_COMPILER_ERROR_PREFIX));
     }
 
     #[test]
@@ -772,12 +753,12 @@ mod tests {
         });
 
         for message in [&missing, &version, &range, &query, &expression, &node] {
-            assert!(message.starts_with("an internal compiler error"));
+            assert!(message.starts_with(INTERNAL_COMPILER_ERROR_PREFIX));
             assert!(!message.contains('#'));
         }
 
         assert!(missing.contains("source text"));
-        assert!(version.contains("wrong revision of source text"));
+        assert!(version.contains("wrong source-text revision"));
         assert!(range.contains("source range"));
         assert!(query.contains("member declarations"));
         assert!(query.contains("highlighted module declaration"));

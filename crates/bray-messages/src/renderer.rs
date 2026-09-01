@@ -504,7 +504,7 @@ mod tests {
 
         let rendered = DiagnosticRenderer::english().render(&diagnostic);
 
-        assert!(rendered.message().starts_with("an internal compiler error"));
+        assert!(rendered.message().starts_with("internal compiler error:"));
         assert!(rendered.message().contains("x86_64-unknown-linux-gnu"));
         assert!(rendered.message().contains("value representation mismatch"));
         assert!(rendered.message().contains("before optimization"));
@@ -552,7 +552,7 @@ mod tests {
                     actual_unit: 2,
                     actual_kind: "constant_template",
                 }),
-                "an internal compiler error associated expression types for the highlighted constant definition with a different callable body",
+                "internal compiler error: associated expression types for the highlighted constant definition with a different callable body",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::IncompatibleInput {
@@ -562,47 +562,47 @@ mod tests {
                     actual_unit: 2,
                     actual_kind: "future_actual_kind",
                 }),
-                "an internal compiler error associated ownership information for the highlighted source body with a different source body",
+                "internal compiler error: associated ownership information for the highlighted source body with a different source body",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::FlowConstruction(
                     "duplicate_suspension",
                 )),
-                "an internal compiler error could not retain the ownership result for this source body because one await or yield expression has two saved states",
+                "internal compiler error: could not retain the ownership result for this source body because one await or yield expression has two saved states",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::FlowConstruction("future_reason")),
-                "an internal compiler error could not retain the ownership result for this source body because the compiler could not represent one ownership operation",
+                "internal compiler error: could not retain the ownership result for this source body because the compiler could not represent one ownership operation",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::ForeignDependencyContract),
-                "an internal compiler error selected a call or iteration dependency belonging to another source body",
+                "internal compiler error: selected a call or iteration dependency belonging to another source body",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::DependencyContractsConstruction(
                     "invalid_borrow",
                 )),
-                "an internal compiler error could not retain this source body's value dependencies because a dependency refers to a missing borrow",
+                "internal compiler error: could not retain this source body's value dependencies because a dependency refers to a missing borrow",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::DependencyContractsConstruction(
                     "future_reason",
                 )),
-                "an internal compiler error could not retain this source body's value dependencies because the compiler could not represent one value dependency",
+                "internal compiler error: could not retain this source body's value dependencies because the compiler could not represent one value dependency",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::AsyncConstruction("foreign_unit")),
-                "an internal compiler error could not retain this source body's asynchronous behavior because one recorded operation belongs to another source body",
+                "internal compiler error: could not retain this source body's asynchronous behavior because one recorded operation belongs to another source body",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::AsyncConstruction("future_reason")),
-                "an internal compiler error could not retain this source body's asynchronous behavior because the compiler could not represent one asynchronous operation",
+                "internal compiler error: could not retain this source body's asynchronous behavior because the compiler could not represent one asynchronous operation",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::MissingAwaitDependencyContract {
                     expression,
                 }),
-                "an internal compiler error did not determine which values the highlighted expression requires",
+                "internal compiler error: did not determine which values the highlighted expression requires",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::MissingDependencyContract {
@@ -610,7 +610,7 @@ mod tests {
                     contract_unit: 43,
                     contract: 47,
                 }),
-                "an internal compiler error associated the highlighted expression with a value dependency that does not exist in its source body",
+                "internal compiler error: associated the highlighted expression with a value dependency that does not exist in its source body",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::CallableParameterCountMismatch {
@@ -618,66 +618,66 @@ mod tests {
                     signature_parameters: 3,
                     type_parameters: 2,
                 }),
-                "an internal compiler error retained 3 declared parameters but 2 parameter modes for the highlighted overload declaration",
+                "internal compiler error: retained 3 declared parameters but 2 parameter modes for the highlighted overload declaration",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::CallableTypeNotCallable {
                     callable,
                 }),
-                "an internal compiler error retained a non-callable type for the highlighted overload declaration",
+                "internal compiler error: retained a non-callable type for the highlighted overload declaration",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::MissingBorrowCapability {
                     unit: 53,
                     borrow: 59,
                 }),
-                "an internal compiler error lost a borrow operation while checking whether a value escapes the highlighted source body",
+                "internal compiler error: lost a borrow operation while checking whether a value escapes the highlighted source body",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::MissingExitOrigin {
                     exit: expression,
                 }),
-                "an internal compiler error lost the source location for the highlighted expression",
+                "internal compiler error: lost the source location for the highlighted expression",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::MissingBlock { block }),
-                "an internal compiler error lost the highlighted block targeted by a control-flow transfer",
+                "internal compiler error: lost the highlighted block targeted by a control-flow transfer",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::MissingStorageAccess {
                     unit: 61,
                     access: 67,
                 }),
-                "an internal compiler error lost a local-value access required by the highlighted source body",
+                "internal compiler error: lost a local-value access required by the highlighted source body",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::MissingStorageIdentity {
                     unit: 71,
                     identity: 73,
                 }),
-                "an internal compiler error lost a local value required by the highlighted source body",
+                "internal compiler error: lost a local value required by the highlighted source body",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::MissingStorageSymbolName {
                     symbol: callable,
                 }),
-                "an internal compiler error lost the declared name of the highlighted overload declaration while describing a local-value access",
+                "internal compiler error: lost the declared name of the highlighted overload declaration while describing a local-value access",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::UnbalancedScopes {
                     open_scope: Some(block),
                 }),
-                "an internal compiler error left the highlighted block open while examining its source body's lexical scopes",
+                "internal compiler error: left the highlighted block open while examining its source body's lexical scopes",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::UnbalancedScopes {
                     open_scope: None,
                 }),
-                "an internal compiler error encountered inconsistent block boundaries while examining this source body",
+                "internal compiler error: encountered inconsistent block boundaries while examining this source body",
             ),
             (
                 CheckerFailure::StorageFlow(StorageFlowFailure::MissingPattern { pattern }),
-                "an internal compiler error lost the highlighted pattern while examining its source body's lexical scopes",
+                "internal compiler error: lost the highlighted pattern while examining its source body's lexical scopes",
             ),
             (
                 CheckerFailure::InvalidStorageOperation {
@@ -685,7 +685,7 @@ mod tests {
                     access: 79,
                     status: "conflicting_borrow",
                 },
-                "an internal compiler error classified a local-value access by the highlighted expression as a conflicting borrow",
+                "internal compiler error: classified a local-value access by the highlighted expression as a conflicting borrow",
             ),
             (
                 CheckerFailure::InvalidStorageOperation {
@@ -693,7 +693,7 @@ mod tests {
                     access: 83,
                     status: "future_status",
                 },
-                "an internal compiler error classified a local-value access by the highlighted expression as a state the compiler does not recognize",
+                "internal compiler error: classified a local-value access by the highlighted expression as a state the compiler does not recognize",
             ),
         ];
 
@@ -730,12 +730,7 @@ mod tests {
 
             assert_eq!(rendered.primary_span(), Some(span));
 
-            assert_eq!(
-                rendered.message(),
-                format!(
-                    "an internal compiler error prevented Bray from checking the highlighted source: {detail}"
-                )
-            );
+            assert_eq!(rendered.message(), detail);
 
             let [label] = rendered.labels() else {
                 panic!("expected one compiler-defect source label: {rendered:?}");
