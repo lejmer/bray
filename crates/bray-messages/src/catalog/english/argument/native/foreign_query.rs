@@ -3,9 +3,9 @@ pub(super) fn format_english_foreign_query_failure(
 ) -> String {
     use bray_diagnostics::DiagnosticForeignQueryFailure as Failure;
 
-    match failure {
+    let detail = match failure {
         Failure::Missing { context, data } => format!(
-            "an internal compiler error could not obtain {} for {} '{}'",
+            "{} was unavailable for {} '{}'",
             foreign_query_name(data.as_str()),
             foreign_query_name(context.kind().as_str()),
             context.identity(),
@@ -16,7 +16,7 @@ pub(super) fn format_english_foreign_query_failure(
             expected,
             actual,
         } => format!(
-            "an internal compiler error found {actual} {} values instead of {expected} for {} '{}'",
+            "{actual} {} values were available instead of {expected} for {} '{}'",
             foreign_query_name(data.as_str()),
             foreign_query_name(context.kind().as_str()),
             context.identity(),
@@ -26,14 +26,14 @@ pub(super) fn format_english_foreign_query_failure(
             expected,
             actual,
         } => format!(
-            "an internal compiler error found semantic type data '{actual}' instead of {expected} for type '{ty}'"
+            "semantic type data '{actual}' was retained instead of {expected} for type '{ty}'"
         ),
         Failure::UnexpectedTypeTemplate {
             context,
             expected,
             actual,
         } => format!(
-            "an internal compiler error found type template '{actual}' instead of {expected} for {} '{}'",
+            "type template '{actual}' was retained instead of {expected} for {} '{}'",
             foreign_query_name(context.kind().as_str()),
             context.identity(),
         ),
@@ -42,38 +42,40 @@ pub(super) fn format_english_foreign_query_failure(
             expected,
             actual,
         } => format!(
-            "an internal compiler error found generic argument category '{actual}' instead of '{expected}' in substitution '{substitution}'"
+            "generic argument category '{actual}' was retained instead of '{expected}' in substitution '{substitution}'"
         ),
         Failure::NumericOverflow {
             context,
             value,
             target,
         } => format!(
-            "an internal compiler error cannot represent value {value} as {target} for {} '{}'",
+            "value {value} cannot be represented as {target} for {} '{}'",
             foreign_query_name(context.kind().as_str()),
             context.identity(),
         ),
         Failure::InvalidPlatformServiceRole { role } => {
-            format!("an internal compiler error found unsupported platform service role '{role}'")
+            format!("platform service role '{role}' is unsupported")
         }
-        Failure::CallableSignature { function, cause } => format!(
-            "an internal compiler error found invalid foreign callable signature for function '{function}': {cause}"
-        ),
+        Failure::CallableSignature { function, cause } => {
+            format!("function '{function}' has an invalid foreign callable signature: {cause}")
+        }
         Failure::ConflictingSourceRoles {
             function,
             runtime,
             platform,
         } => format!(
-            "an internal compiler error assigned runtime role '{runtime}' and platform role '{platform}' to function '{function}'"
+            "function '{function}' has both runtime role '{runtime}' and platform role '{platform}'"
         ),
         Failure::DuplicateSourceRole {
             function,
             first,
             duplicate,
-        } => format!(
-            "an internal compiler error assigned duplicate source roles '{first}' and '{duplicate}' to function '{function}'"
-        ),
-    }
+        } => {
+            format!("function '{function}' has duplicate source roles '{first}' and '{duplicate}'")
+        }
+    };
+
+    super::format_internal_compiler_error(detail)
 }
 
 fn foreign_query_name(name: &str) -> String {
