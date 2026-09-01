@@ -162,14 +162,14 @@ where
         let TypeData::Nullable(_) = request
             .semantic_values()
             .type_data(operand_type.ty())
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?
             .as_ref()
         else {
             return Ok(None);
         };
 
         return Ok(Some(
-            match select_nullable_boundary(request, types, boundaries) {
+            match select_nullable_boundary(request, types, boundaries)? {
                 Some(boundary) => Ok(SelectedPropagation::Nullable {
                     boundary: boundary.target,
                     result_type: boundary.ty,
@@ -220,24 +220,24 @@ fn select_nullable_boundary<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     boundaries: &[ResultBoundary],
-) -> Option<ResultBoundary>
+) -> Result<Option<ResultBoundary>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    boundaries
-        .iter()
-        .rev()
-        .copied()
-        .find(|boundary| is_nullable(request, boundary.ty))
-        .or_else(|| {
-            types
-                .callable_result_type()
-                .filter(|ty| is_nullable(request, *ty))
-                .map(|ty| ResultBoundary {
-                    target: SelectedPropagationBoundary::Callable,
-                    ty,
-                })
-        })
+    for boundary in boundaries.iter().rev().copied() {
+        if is_nullable(request, boundary.ty)? {
+            return Ok(Some(boundary));
+        }
+    }
+
+    let Some(ty) = types.callable_result_type() else {
+        return Ok(None);
+    };
+
+    Ok(is_nullable(request, ty)?.then_some(ResultBoundary {
+        target: SelectedPropagationBoundary::Callable,
+        ty,
+    }))
 }
 
 fn select_result_boundary<C>(
@@ -341,7 +341,7 @@ where
     let data = request
         .semantic_values()
         .type_data(ty)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let TypeData::Named { substitution, .. } = data.as_ref() else {
         return Ok(Vec::new());
@@ -350,7 +350,7 @@ where
     let substitution = request
         .semantic_values()
         .generic_substitution_data(*substitution)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     Ok(substitution
         .bindings()
@@ -362,14 +362,19 @@ where
         .collect())
 }
 
-fn is_nullable<C>(request: CheckerUnitView<'_, C>, ty: TypeId) -> bool
+fn is_nullable<C>(
+    request: CheckerUnitView<'_, C>,
+    ty: TypeId,
+) -> Result<bool, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    request
+    let data = request
         .semantic_values()
         .type_data(ty)
-        .is_ok_and(|data| matches!(data.as_ref(), TypeData::Nullable(_)))
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+    Ok(matches!(data.as_ref(), TypeData::Nullable(_)))
 }
 
 const fn walk_root<C>(request: CheckerUnitView<'_, C>) -> AnyBoundNodeId

@@ -50,7 +50,7 @@ pub(in crate::compilation) fn target_abi_value_from_type(
     let data = compilation
         .semantic_value_store()?
         .type_data(ty)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     target_abi_value_from_data(compilation, data.as_ref(), cancellation)
 }

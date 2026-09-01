@@ -299,6 +299,12 @@ fn fact_query_failure_kind(error: &FactQueryError) -> Option<DiagnosticNativePro
         FactQueryError::Cancelled => None,
         FactQueryError::Cycle(_) => Some(Kind::EvaluationCycle),
         FactQueryError::InfrastructureFailure => Some(Kind::EvaluationInfrastructure),
+        FactQueryError::SemanticValueStoreCreate(_) => {
+            Some(Kind::EvaluationSemanticValueStoreCreate)
+        }
+        FactQueryError::SemanticValueStore(error) => Some(Kind::EvaluationSemanticValue(
+            crate::fact::diagnostic_semantic_value_failure(*error),
+        )),
         FactQueryError::BindingDependencyUnavailable => Some(Kind::EvaluationBinding(
             bray_diagnostics::DiagnosticBindingFailure::DependencyUnavailable,
         )),

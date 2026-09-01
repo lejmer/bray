@@ -4,7 +4,10 @@ use bray_package_interface::{
     PackageInterfaceExportSurfaceError,
 };
 use bray_source::SourceSpan;
-use bray_symbols::{ExternalSymbolKey, SymbolKind};
+use bray_symbols::{
+    CallableSignatureTemplateError, ExternalSymbolKey, SemanticValueStoreCreateError,
+    SemanticValueStoreError, SymbolKind,
+};
 
 use crate::fact::FactQueryError;
 
@@ -15,6 +18,10 @@ pub enum PackageInterfaceExportError {
     Cancelled,
     /// Source or semantic errors make the product invalid.
     InvalidCompilation,
+    /// The semantic-value store identity space was exhausted while preparing the interface.
+    SemanticValueStoreCreate(SemanticValueStoreCreateError),
+    /// A semantic-value operation failed while preparing the interface.
+    SemanticValueStore(SemanticValueStoreError),
     /// A recovered public symbol cannot supply a stable external identity.
     RecoveredPublicSymbol(SymbolKind),
     /// Constant body evaluation could not complete for one exported callable.
@@ -57,4 +64,47 @@ pub enum PackageInterfaceExportError {
     Surface(PackageInterfaceExportSurfaceError),
     /// Semantic or support-graph validation rejected the export bundle.
     Bundle(PackageInterfaceExportBuildError),
+}
+
+pub(in crate::compilation::export) const fn semantic_value_export_error(
+    error: SemanticValueStoreError,
+) -> PackageInterfaceExportError {
+    PackageInterfaceExportError::SemanticValueStore(error)
+}
+
+pub(in crate::compilation::export) fn callable_signature_export_error(
+    error: CallableSignatureTemplateError,
+    fallback: PackageInterfaceExportError,
+) -> PackageInterfaceExportError {
+    match error {
+        CallableSignatureTemplateError::SemanticValue(error) => semantic_value_export_error(error),
+        CallableSignatureTemplateError::InvalidCallableType
+        | CallableSignatureTemplateError::ParameterCountMismatch
+        | CallableSignatureTemplateError::ParameterIdentityMismatch => fallback,
+    }
+}
+
+pub(in crate::compilation::export) fn checker_infrastructure_export_error(
+    error: bray_checker::CheckerInfrastructureError,
+    fallback: PackageInterfaceExportError,
+) -> PackageInterfaceExportError {
+    match error {
+        bray_checker::CheckerInfrastructureError::SemanticValueStore(error) => {
+            semantic_value_export_error(error)
+        }
+        _ => fallback,
+    }
+}
+
+pub(in crate::compilation::export) fn fact_query_export_error(
+    error: FactQueryError,
+    fallback: PackageInterfaceExportError,
+) -> PackageInterfaceExportError {
+    match error {
+        FactQueryError::SemanticValueStoreCreate(error) => {
+            PackageInterfaceExportError::SemanticValueStoreCreate(error)
+        }
+        FactQueryError::SemanticValueStore(error) => semantic_value_export_error(error),
+        _ => fallback,
+    }
 }

@@ -286,19 +286,19 @@ impl TextSinkFormatting = TextSink(Sink<std.memory.MemoryLayoutError>)
     mut func prepare(additional: usize) -> Result<unit, std.memory.MemoryLayoutError>
         requires(blocking_execution())
     {
-        return (&mut self.bytes)(Sink<std.memory.MemoryLayoutError>).prepare(additional = additional);
+        return(&mut self.bytes)(Sink<std.memory.MemoryLayoutError>).prepare(additional = additional);
     }
 
     mut func write(pos source: &[u8]) -> Result<unit, std.memory.MemoryLayoutError>
         requires(blocking_execution())
     {
-        return (&mut self.bytes)(Sink<std.memory.MemoryLayoutError>).write(source);
+        return(&mut self.bytes)(Sink<std.memory.MemoryLayoutError>).write(source);
     }
 
     mut func write_repeated(value: u8, count: usize) -> Result<unit, std.memory.MemoryLayoutError>
         requires(blocking_execution())
     {
-        return (&mut self.bytes)(Sink<std.memory.MemoryLayoutError>).write_repeated(value = value, count = count);
+        return(&mut self.bytes)(Sink<std.memory.MemoryLayoutError>).write_repeated(value = value, count = count);
     }
 }
 

@@ -79,7 +79,7 @@ where
     let result_data = request
         .semantic_values()
         .type_data(result.ty())
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let TypeData::Array {
         element,
@@ -178,7 +178,7 @@ where
     let exact = request
         .semantic_values()
         .constant_term_integer(term)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     Ok(exact.and_then(|value| value.to_u64()).map_or(
         DiagnosticArrayLength::Symbolic,

@@ -146,7 +146,7 @@ where
             let data = request
                 .semantic_values()
                 .type_data(declared_type)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
             let TypeData::Nullable(contained) = data.as_ref() else {
                 continue;

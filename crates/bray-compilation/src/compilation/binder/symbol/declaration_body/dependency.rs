@@ -28,7 +28,7 @@ pub(in crate::compilation::binder::symbol) fn portable_dependency_contract(
     context
         .semantic_values()
         .intern_dependency_contract_template(DependencyContractTemplateData::new(requirements))
-        .map_err(|_| BindingQueryError::DependencyUnavailable)
+        .map_err(crate::compilation::binder::semantic_value_binding_error)
 }
 
 fn portable_requirement(

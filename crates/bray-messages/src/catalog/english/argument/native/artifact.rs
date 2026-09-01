@@ -28,6 +28,12 @@ pub(crate) fn format_english_emission_evaluation_failure(
     let message = match failure {
         Failure::Cycle => "compiler evaluation encountered a dependency cycle",
         Failure::Infrastructure => "the compiler evaluation state became inconsistent",
+        Failure::SemanticValueStoreCreate => {
+            "the compiler exhausted its process-local semantic value store identities"
+        }
+        Failure::SemanticValue(failure) => {
+            return format_english_semantic_value_failure(failure).to_owned();
+        }
         Failure::Binding(failure) => return format_english_binding_failure(failure).to_owned(),
         Failure::LoweringInput(failure) => return format_english_lowering_input_failure(failure),
         Failure::Lowering(failure) => return format_english_lowering_failure(failure),
@@ -80,6 +86,12 @@ pub(crate) fn format_english_native_product_failure(
         Kind::InvalidNativeLinkInput => "a configured native link input is invalid",
         Kind::EvaluationCycle => "compiler evaluation encountered a dependency cycle",
         Kind::EvaluationInfrastructure => "the compiler could not complete product construction",
+        Kind::EvaluationSemanticValueStoreCreate => {
+            "the compiler exhausted its process-local semantic value store identities"
+        }
+        Kind::EvaluationSemanticValue(failure) => {
+            return format_english_semantic_value_failure(failure).to_owned();
+        }
         Kind::EvaluationBinding(failure) => {
             return format_english_binding_failure(failure).to_owned();
         }
@@ -618,22 +630,22 @@ fn format_english_binding_failure(
     }
 }
 
-fn format_english_semantic_value_failure(
+pub(crate) fn format_english_semantic_value_failure(
     failure: bray_diagnostics::DiagnosticSemanticValueFailure,
 ) -> &'static str {
     use bray_diagnostics::DiagnosticSemanticValueFailure as Failure;
 
     match failure {
-        Failure::ForeignId => {
+        Failure::ForeignId { .. } => {
             "an internal compiler error mixed values from different compilations while understanding a source declaration or body"
         }
-        Failure::UnknownId => {
+        Failure::UnknownId { .. } => {
             "an internal compiler error lost a value required to understand a source declaration or body"
         }
-        Failure::CapacityExhausted => {
+        Failure::CapacityExhausted { .. } => {
             "an internal compiler limit prevented Bray from retaining another value required by this product"
         }
-        Failure::GenericOwnerMismatch => {
+        Failure::GenericOwnerMismatch { .. } => {
             "an internal compiler error associated generic arguments with the wrong declaration"
         }
         Failure::OpenSubstitution => {

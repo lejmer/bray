@@ -103,9 +103,9 @@ where
             .map(|parameter| parameter.mode())
             .collect()),
         TypeExpressionTemplate::Resolved(ty) => {
-            let data = request.semantic_values().type_data(*ty).map_err(|_| {
+            let data = request.semantic_values().type_data(*ty).map_err(|error| {
                 CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::SemanticValueStore(error),
                 )
             })?;
 

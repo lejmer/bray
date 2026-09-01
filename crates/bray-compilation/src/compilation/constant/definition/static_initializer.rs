@@ -153,7 +153,7 @@ impl Compilation {
         let value = self
             .semantic_value_store()?
             .intern_error_constant_value(result_type)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         Ok(DiagnosticResult::new(
             EvaluatedConstantCall::new(value, Default::default()),

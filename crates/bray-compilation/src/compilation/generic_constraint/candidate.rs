@@ -41,7 +41,7 @@ impl Compilation {
 
         let substitution = values
             .generic_substitution_data(candidate.substitution())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let obligation =
             GenericConstraintObligationKey::new(substitution.owner(), candidate.substitution());
@@ -82,11 +82,11 @@ impl Compilation {
 
                     let subject = values
                         .substitute_type(subject, candidate.substitution())
-                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                        .map_err(FactQueryError::SemanticValueStore)?;
 
                     let application = values
                         .substitute_trait_application(application, candidate.substitution())
-                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                        .map_err(FactQueryError::SemanticValueStore)?;
 
                     (subject, application)
                 }

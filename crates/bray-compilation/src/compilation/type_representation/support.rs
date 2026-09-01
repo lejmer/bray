@@ -18,7 +18,7 @@ pub(super) fn checked_integer_constant(
 ) -> Result<Option<IntegerConstant>, FactQueryError> {
     values
         .constant_term_integer(term)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }
 
 pub(super) fn integer_role(text: &str) -> Option<RepresentationRole> {

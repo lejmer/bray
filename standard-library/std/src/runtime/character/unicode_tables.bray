@@ -1483,17 +1483,17 @@ internal func decode_range_digit(pos value: u8) -> u32
 {
     if value >= 65 && value <= 90
     {
-        return (value - 65) as u32;
+        return(value - 65) as u32;
     }
 
     if value >= 97 && value <= 122
     {
-        return (value - 97 + 26) as u32;
+        return(value - 97 + 26) as u32;
     }
 
     if value >= 48 && value <= 57
     {
-        return (value - 48 + 52) as u32;
+        return(value - 48 + 52) as u32;
     }
 
     assert(value == 45 || value == 95, "generated Unicode range data must use the range alphabet");

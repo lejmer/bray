@@ -15,7 +15,7 @@ use bray_symbols::{
 use super::super::PackageInterfaceExportError;
 
 use super::context::{SemanticExporter, export_acyclic_semantic_value};
-use super::implementation::{dependency_requirement_kind, incomplete_type};
+use super::implementation::dependency_requirement_kind;
 use super::templates::index;
 
 impl<'a> SemanticExporter<'a> {
@@ -30,7 +30,7 @@ impl<'a> SemanticExporter<'a> {
         let data = self
             .values
             .dependency_contract_template_data(id)
-            .map_err(|_| incomplete_type())?;
+            .map_err(super::super::semantic_value_export_error)?;
 
         let requirements = data
             .requirements()
@@ -159,7 +159,7 @@ impl<'a> SemanticExporter<'a> {
                 let data = self
                     .values
                     .generic_substitution_data(id)
-                    .map_err(|_| incomplete_type())?;
+                    .map_err(super::super::semantic_value_export_error)?;
 
                 let bindings = data
                     .bindings()
@@ -207,7 +207,7 @@ impl<'a> SemanticExporter<'a> {
         let data = self
             .values
             .trait_application_data(id)
-            .map_err(|_| incomplete_type())?;
+            .map_err(super::super::semantic_value_export_error)?;
 
         let application = InterfaceTraitApplication::new(
             self.symbol_reference(data.definition().into())?,
@@ -233,7 +233,7 @@ impl<'a> SemanticExporter<'a> {
         let data = self
             .values
             .callable_instance_data(id)
-            .map_err(|_| incomplete_type())?;
+            .map_err(super::super::semantic_value_export_error)?;
 
         let instance = InterfaceCallableInstance::new(
             self.symbol_reference(data.definition().symbol())?,
@@ -259,7 +259,7 @@ impl<'a> SemanticExporter<'a> {
         let data = self
             .values
             .implementation_instance_data(id)
-            .map_err(|_| incomplete_type())?;
+            .map_err(super::super::semantic_value_export_error)?;
 
         let instance = InterfaceImplementationInstance::new(
             self.symbol_reference(data.definition().into_any())?,

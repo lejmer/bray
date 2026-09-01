@@ -246,12 +246,12 @@ pub(super) fn imported_implemented_trait_application(
     let application = context
         .semantic_values
         .trait_application_data(application)
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
 
     let substitution = context
         .semantic_values
         .generic_substitution_data(application.substitution())
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
 
     let template = TraitApplicationTemplate::new(
         application.definition(),

@@ -162,7 +162,7 @@ where
 
                         let operand = await_expression.operand();
 
-                        let calls = expression_deferred_calls(
+                        let calls = match expression_deferred_calls(
                             request,
                             selections,
                             types,
@@ -170,7 +170,12 @@ where
                             operand,
                             &mut deferred_calls,
                             &mut active,
-                        );
+                        ) {
+                            Ok(calls) => calls,
+                            Err(error) => {
+                                return CheckerOutcome::InfrastructureFailure(error);
+                            }
+                        };
 
                         (
                             AsyncSuspensionKind::Await { operand },
@@ -488,17 +493,17 @@ fn expression_deferred_calls<C>(
     expression: BoundExpressionId,
     memoized: &mut BTreeMap<BoundExpressionId, BTreeSet<BodyBehaviorCall>>,
     active: &mut BTreeSet<BoundExpressionId>,
-) -> BTreeSet<BodyBehaviorCall>
+    ) -> Result<BTreeSet<BodyBehaviorCall>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
     if let Some(calls) = memoized.get(&expression) {
         // The cached set remains available while each caller combines an independent result.
-        return calls.clone();
+        return Ok(calls.clone());
     }
 
     if !active.insert(expression) {
-        return BTreeSet::new();
+        return Ok(BTreeSet::new());
     }
 
     let mut calls = BTreeSet::new();
@@ -527,7 +532,7 @@ where
     }
 
     if let Some(node) = request.view().expression(expression)
-        && is_future_expression(request, types, expression)
+        && is_future_expression(request, types, expression)?
     {
         if let BoundExpression::Name(name) = node
             && let bray_bound_tree::BoundReferenceTarget::Local(local) = name.target()
@@ -541,7 +546,7 @@ where
                 *initializer,
                 memoized,
                 active,
-            ));
+            )?);
         }
 
         if let BoundExpression::PatternReference(reference) = node
@@ -556,7 +561,7 @@ where
                 *initializer,
                 memoized,
                 active,
-            ));
+            )?);
         }
 
         for child in node.child_expressions() {
@@ -568,7 +573,7 @@ where
                 child,
                 memoized,
                 active,
-            ));
+            )?);
         }
 
         for block in node.child_blocks() {
@@ -586,7 +591,7 @@ where
                     result,
                     memoized,
                     active,
-                ));
+                )?);
             }
         }
     }
@@ -596,37 +601,38 @@ where
     // The cached set remains available while this caller takes ownership of its result.
     memoized.insert(expression, calls.clone());
 
-    calls
+    Ok(calls)
 }
 
 fn is_future_expression<C>(
     request: CheckerUnitView<'_, C>,
     types: &CheckedExpressionTypes,
     expression: BoundExpressionId,
-) -> bool
+) -> Result<bool, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let Some(result) = types.expression(expression) else {
-        return false;
+        return Ok(false);
     };
 
-    let Ok(data) = request.semantic_values().type_data(result.ty()) else {
-        return false;
-    };
+    let data = request
+        .semantic_values()
+        .type_data(result.ty())
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let TypeData::Named { definition, .. } = data.as_ref() else {
-        return false;
+        return Ok(false);
     };
 
     let bray_symbols::NamedTypeSymbolId::Struct(definition) = definition else {
-        return false;
+        return Ok(false);
     };
 
-    request
+    Ok(request
         .available_compiler_known_symbols()
         .symbol_representation(*definition)
-        == Some(RepresentationRole::Future)
+        == Some(RepresentationRole::Future))
 }
 
 const fn task_operation_kind(kind: AnalysisTaskOperationKind) -> AsyncTaskOperationKind {

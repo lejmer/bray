@@ -48,7 +48,7 @@ impl Compilation {
             let callable = self
                 .semantic_value_store()?
                 .type_data(callable_type)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let TypeData::Callable(callable) = callable.as_ref() else {
                 return Err(FactQueryError::InfrastructureFailure.into());
@@ -135,7 +135,7 @@ impl Compilation {
 
         let callable = values
             .type_data(signature.callable_type())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let TypeData::Callable(callable) = callable.as_ref() else {
             return Err(FactQueryError::InfrastructureFailure.into());
@@ -439,7 +439,7 @@ impl Compilation {
                 kind: BorrowKind::Mutable,
                 target: ty,
             })
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let result = if matches!(reference, MirHelperReference::StaticFinalize(_)) {
             let Some((_, _, result, execution)) =

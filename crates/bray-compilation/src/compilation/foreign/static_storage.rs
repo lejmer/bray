@@ -265,7 +265,7 @@ fn native_static_type_is_incomplete(
             let data = compilation
                 .semantic_value_store()?
                 .type_data(*ty)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let TypeData::Named { definition, .. } = data.as_ref() else {
                 return Ok(false);

@@ -29,7 +29,7 @@ trusted internal func decode_wide_string(pos value: &BorrowedWideString) -> Resu
             second = second_value;
         }
 
-        let (scalar, consumed_second): (u32, bool) = match internal std.character.utf16_scalar(first, second = second)
+        let(scalar, consumed_second): (u32, bool) = match internal std.character.utf16_scalar(first, second = second)
         {
             case ?decoded { yield decoded; }
             case none { return Error(StringError.InvalidEncoding); }
@@ -76,7 +76,7 @@ trusted internal func encode_wide_string(pos value: &string) -> Result<OwnedWide
             return Error(StringError.InteriorNul);
         }
 
-        let (first, second) = internal std.character.utf16_units(scalar);
+        let(first, second) = internal std.character.utf16_units(scalar);
 
         try trusted push_utf16_unit(&mut units, scalar = first as u32);
 

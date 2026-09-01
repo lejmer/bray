@@ -328,7 +328,7 @@ impl Compilation {
         let value = self
             .semantic_value_store()?
             .constant_value_data(value)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         match value.kind() {
             ConstantValueKind::Boolean(value) => Ok(*value),
@@ -355,7 +355,7 @@ impl Compilation {
 
         self.semantic_value_store()?
             .intern_constant_value(ConstantValueData::new(ty, value))
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+            .map_err(FactQueryError::SemanticValueStore)
     }
 
     pub(in crate::compilation) fn target_property_type(

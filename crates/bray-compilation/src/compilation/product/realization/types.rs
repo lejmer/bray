@@ -156,11 +156,11 @@ impl Compilation {
 
         let ty = values
             .substitute_type(ty, substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let data = values
             .type_data(ty)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         match data.as_ref() {
             TypeData::ContextualSelf(SelfTypeContext::NamedType(definition)) => {
@@ -172,7 +172,7 @@ impl Compilation {
                         definition: *definition,
                         substitution,
                     })
-                    .map_err(|_| FactQueryError::InfrastructureFailure)
+                    .map_err(FactQueryError::SemanticValueStore)
             }
             TypeData::Borrow { kind, target } => {
                 let target =
@@ -183,7 +183,7 @@ impl Compilation {
                         kind: *kind,
                         target,
                     })
-                    .map_err(|_| FactQueryError::InfrastructureFailure)
+                    .map_err(FactQueryError::SemanticValueStore)
             }
             _ => Ok(ty),
         }
@@ -198,7 +198,7 @@ impl Compilation {
 
         let data = values
             .type_data(ty)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let TypeData::ContextualSelf(SelfTypeContext::Implementation(implementation)) =
             data.as_ref()
@@ -219,7 +219,7 @@ impl Compilation {
         let term = if let Some(substitution) = substitution {
             self.semantic_value_store()?
                 .substitute_constant_term(term, substitution)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?
+                .map_err(FactQueryError::SemanticValueStore)?
         } else {
             term
         };
@@ -309,7 +309,7 @@ impl Compilation {
 
         let data = values
             .type_data(ty)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let mapping = match data.as_ref() {
             TypeData::Named {
@@ -414,17 +414,25 @@ impl Compilation {
                 CodegenTypeMapping::new_unsized(ty, CodegenTypeKind::UnsizedTraitView)
             }
             TypeData::ContextualSelf(SelfTypeContext::NamedType(definition)) => {
-                let mut candidates = mappings.values().filter(|mapping| {
-                    values.type_data(mapping.ty()).is_ok_and(|data| {
-                        matches!(
-                            data.as_ref(),
-                            TypeData::Named {
-                                definition: candidate,
-                                ..
-                            } if candidate == definition
-                        )
-                    })
-                });
+                let mut candidates = Vec::new();
+
+                for mapping in mappings.values() {
+                    let data = values
+                        .type_data(mapping.ty())
+                        .map_err(FactQueryError::SemanticValueStore)?;
+
+                    if matches!(
+                        data.as_ref(),
+                        TypeData::Named {
+                            definition: candidate,
+                            ..
+                        } if candidate == definition
+                    ) {
+                        candidates.push(mapping);
+                    }
+                }
+
+                let mut candidates = candidates.into_iter();
 
                 let mapping = candidates
                     .next()
@@ -556,7 +564,7 @@ impl Compilation {
                     && let TypeData::FlexibleArray(element) = self
                         .semantic_value_store()?
                         .type_data(*flexible)
-                        .map_err(|_| FactQueryError::InfrastructureFailure)?
+                        .map_err(FactQueryError::SemanticValueStore)?
                         .as_ref()
                 {
                     return self.codegen_flexible_aggregate_type(

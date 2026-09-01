@@ -124,7 +124,7 @@ pub(super) fn export_constant_semantics(
     let dependency_contract = export
         .values
         .empty_dependency_contract_template()
-        .map_err(|_| incomplete(symbol))?;
+        .map_err(super::super::semantic_value_export_error)?;
 
     let checked = export.checked_constant_template(
         kind,

@@ -67,7 +67,7 @@ where
         self.request
             .semantic_values()
             .intern_error_constant_value(ty)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)
     }
 
     pub(super) fn recovery_term(
@@ -79,7 +79,7 @@ where
         self.request
             .semantic_values()
             .intern_constant_term(ConstantTermData::Value(value))
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)
     }
 
     pub(super) fn intern_value(
@@ -90,9 +90,9 @@ where
         self.request
             .semantic_values()
             .intern_constant_value(ConstantValueData::new(ty, kind))
-            .map_err(|_| {
+            .map_err(|error| {
                 EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::SemanticValueStore(error),
                 )
             })
     }
@@ -114,9 +114,9 @@ where
         self.request
             .semantic_values()
             .intern_constant_term(data)
-            .map_err(|_| {
+            .map_err(|error| {
                 EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::SemanticValueStore(error),
                 )
             })
     }
@@ -135,9 +135,9 @@ where
             .request
             .semantic_values()
             .type_data(target_type)
-            .map_err(|_| {
+            .map_err(|error| {
                 EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::SemanticValueStore(error),
                 )
             })?;
 
@@ -186,9 +186,9 @@ where
             .request
             .semantic_values()
             .constant_term_data(term)
-            .map_err(|_| {
+            .map_err(|error| {
                 EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::SemanticValueStore(error),
                 )
             })?;
 
@@ -319,10 +319,10 @@ where
 
         let values = self.request.semantic_values();
 
-        let data = values.type_data(ty).map_err(|_| {
-            EvaluationFailure::Infrastructure(
-                CheckerInfrastructureError::AtomicRepresentationTypeUnavailable,
-            )
+        let data = values.type_data(ty).map_err(|error| {
+            EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                error,
+            ))
         })?;
 
         let TypeData::Named { substitution, .. } = data.as_ref() else {
@@ -331,10 +331,10 @@ where
 
         let substitution = values
             .generic_substitution_data(*substitution)
-            .map_err(|_| {
-                EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::AtomicRepresentationArgumentsUnavailable,
-                )
+            .map_err(|error| {
+                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
             })?;
 
         let [binding] = substitution.bindings() else {
@@ -358,9 +358,9 @@ where
         self.request
             .semantic_values()
             .constant_value_data(value)
-            .map_err(|_| {
+            .map_err(|error| {
                 EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::SemanticValueStore(error),
                 )
             })
     }

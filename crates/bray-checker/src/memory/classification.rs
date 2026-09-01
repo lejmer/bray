@@ -409,8 +409,8 @@ where
     let complete = crate::representation::type_supports_complete_fixed_layout(request, pointee)
         .map_err(query_outcome)?;
 
-    let data = request.semantic_values().type_data(pointee).map_err(|_| {
-        CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::SemanticValueUnavailable)
+    let data = request.semantic_values().type_data(pointee).map_err(|error| {
+        CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::SemanticValueStore(error))
     })?;
 
     if matches!(data.as_ref(), bray_symbols::TypeData::Error)
@@ -538,9 +538,9 @@ where
     let data = request
         .semantic_values()
         .type_data(*callable)
-        .map_err(|_| {
+        .map_err(|error| {
             CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::SemanticValueUnavailable,
+                CheckerInfrastructureError::SemanticValueStore(error),
             )
         })?;
 

@@ -558,7 +558,7 @@ impl Compilation {
         let error_type = self
             .semantic_value_store()?
             .intern_type(bray_symbols::TypeData::Error)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let has_iterations = !iterations.is_empty();
         let mut inputs = Vec::with_capacity(iterations.len());

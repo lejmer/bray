@@ -219,7 +219,7 @@ fn bind_callable_contracts(
     let dependency = context
         .semantic_values
         .empty_dependency_contract_template()
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
 
     let signature =
         context.resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(owner))?;
@@ -232,7 +232,7 @@ fn bind_callable_contracts(
             let data = context
                 .semantic_values
                 .type_data(*ty)
-                .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+                .map_err(crate::compilation::binder::semantic_value_binding_error)?;
 
             match &*data {
                 TypeData::Callable(callable) => (callable.execution(), callable.trust()),
@@ -767,7 +767,7 @@ fn resolve_type_template(
         .map_err(|_| BindingQueryError::DependencyUnavailable)?;
 
     bray_checker::resolve_type_expression_template(context.semantic_values, template, &constants)
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?
+        .map_err(BindingQueryError::CheckerInfrastructure)?
         .ok_or(BindingQueryError::DependencyUnavailable)
 }
 
@@ -801,7 +801,7 @@ fn resolve_trait_satisfaction_templates(
         subject,
         &constants,
     )
-    .map_err(|_| BindingQueryError::DependencyUnavailable)?
+    .map_err(BindingQueryError::CheckerInfrastructure)?
     .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let application = bray_checker::resolve_trait_application_template(
@@ -809,7 +809,7 @@ fn resolve_trait_satisfaction_templates(
         application,
         &constants,
     )
-    .map_err(|_| BindingQueryError::DependencyUnavailable)?
+    .map_err(BindingQueryError::CheckerInfrastructure)?
     .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     Ok((subject, application))

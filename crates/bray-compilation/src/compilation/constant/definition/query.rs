@@ -69,7 +69,7 @@ impl Compilation {
         let term_data = self
             .semantic_value_store()?
             .constant_term_data(term)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         if let ConstantTermData::Value(value) = term_data.as_ref() {
             return Ok(Some((ty, ConstantReferenceResolution::Value(*value))));
@@ -175,12 +175,12 @@ impl Compilation {
 
             let ty = values
                 .constant_value_data(value)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?
+                .map_err(FactQueryError::SemanticValueStore)?
                 .ty();
 
             let term = values
                 .intern_constant_term(ConstantTermData::Value(value))
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             return Ok(DiagnosticResult::without_diagnostics(
                 ConstantDefinitionState::Defined(ConstantDefinition::new(ty, term)),
@@ -382,7 +382,7 @@ impl Compilation {
             let value = self
                 .semantic_value_store()?
                 .intern_error_constant_value(ty)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             return Ok(DiagnosticResult::without_diagnostics(
                 EvaluatedConstantCall::new(value, Default::default()),
@@ -494,7 +494,7 @@ impl Compilation {
         let value = self
             .semantic_value_store()?
             .intern_error_constant_value(definition.ty())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         Ok(DiagnosticResult::new(
             EvaluatedConstantCall::new(value, Default::default()),
@@ -526,7 +526,7 @@ impl Compilation {
                 return values
                     .intern_constant_term(ConstantTermData::CallableArgument(*ordinal))
                     .map(ConstantReferenceResolution::Term)
-                    .map_err(|_| FactQueryError::InfrastructureFailure);
+                    .map_err(FactQueryError::SemanticValueStore);
             }
 
             match target {
@@ -534,7 +534,7 @@ impl Compilation {
                     values
                         .intern_constant_term(ConstantTermData::Parameter(parameter))
                         .map(ConstantReferenceResolution::Term)
-                        .map_err(|_| FactQueryError::InfrastructureFailure)
+                        .map_err(FactQueryError::SemanticValueStore)
                 }
                 BoundReferenceTarget::Surface(symbol) => {
                     let Some(definition) = constant_definition_id(symbol) else {
@@ -549,7 +549,7 @@ impl Compilation {
                             substitution,
                             selected_implementation: None,
                         })
-                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                        .map_err(FactQueryError::SemanticValueStore)?;
 
                     Ok(ConstantReferenceResolution::Term(term))
                 }
@@ -668,7 +668,7 @@ impl Compilation {
             .map(|substitution| {
                 values
                     .generic_substitution_data(substitution)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)
+                    .map_err(FactQueryError::SemanticValueStore)
             })
             .transpose()?;
 
@@ -699,7 +699,7 @@ impl Compilation {
 
                     let data = values
                         .constant_term_data(term)
-                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                        .map_err(FactQueryError::SemanticValueStore)?;
 
                     match data.as_ref() {
                         ConstantTermData::Value(value) => {
@@ -1393,7 +1393,7 @@ mod tests {
             .and_then(|values| {
                 values
                     .constant_term_data(*term.value())
-                    .map_err(|_| crate::FactQueryError::InfrastructureFailure)
+                    .map_err(crate::FactQueryError::SemanticValueStore)
             })
             .unwrap_or_else(|error| panic!("symbolic constant term must be interned: {error:?}"));
 
@@ -1698,7 +1698,7 @@ mod tests {
             .and_then(|values| {
                 values
                     .intern_generic_substitution(substitution)
-                    .map_err(|_| crate::FactQueryError::InfrastructureFailure)
+                    .map_err(crate::FactQueryError::SemanticValueStore)
             })
             .unwrap_or_else(|error| panic!("empty function substitution must intern: {error:?}"));
 
@@ -1868,7 +1868,7 @@ mod tests {
                             [value],
                         )),
                     ))
-                    .map_err(|_| crate::FactQueryError::InfrastructureFailure)
+                    .map_err(crate::FactQueryError::SemanticValueStore)
             })
             .unwrap_or_else(|error| panic!("constant value must be interned: {error:?}"))
     }
@@ -1886,7 +1886,7 @@ mod tests {
                         ty,
                         ConstantValueKind::Boolean(value),
                     ))
-                    .map_err(|_| crate::FactQueryError::InfrastructureFailure)
+                    .map_err(crate::FactQueryError::SemanticValueStore)
             })
             .unwrap_or_else(|error| panic!("constant value must be interned: {error:?}"))
     }
@@ -1914,7 +1914,7 @@ mod tests {
             .and_then(|values| {
                 values
                     .constant_value_data(value)
-                    .map_err(|_| crate::FactQueryError::InfrastructureFailure)
+                    .map_err(crate::FactQueryError::SemanticValueStore)
             })
             .unwrap_or_else(|error| panic!("constant value must be interned: {error:?}"))
     }

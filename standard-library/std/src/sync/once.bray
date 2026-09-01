@@ -160,7 +160,7 @@ trusted internal func claim_initialization<T>(pos once: &Once<T>) -> bool
             continue;
         }
 
-        let (_, acquired) = core.atomic.compare_exchange<u32, 1, 1>(
+        let(_, acquired) = core.atomic.compare_exchange<u32, 1, 1>(
             &once.state,
             expected = ONCE_EMPTY,
             desired = ONCE_INITIALIZING,

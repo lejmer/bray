@@ -72,14 +72,14 @@ where
             .request
             .semantic_values()
             .type_data(subject.ty)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         let subject_data = match subject_data.as_ref() {
             TypeData::Borrow { target, .. } => self
                 .request
                 .semantic_values()
                 .type_data(*target)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?,
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?,
             _ => subject_data,
         };
 
@@ -295,7 +295,7 @@ where
             .request
             .semantic_values()
             .constant_term_data(evidence.term())
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         let bray_symbols::ConstantTermData::Value(value) = term.as_ref() else {
             return Ok(Coverage::unknown());
@@ -305,7 +305,7 @@ where
             .request
             .semantic_values()
             .constant_value_data(*value)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         if matches!(data.kind(), ConstantValueKind::Error) {
             return Ok(Coverage::unknown());
@@ -327,7 +327,7 @@ where
                 .request
                 .semantic_values()
                 .constant_value_data(*value)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
             return Ok(match value.kind() {
                 ConstantValueKind::Boolean(true) => GuardTruth::True,
@@ -564,7 +564,7 @@ impl Coverage {
                         let target = request
                             .semantic_values()
                             .type_data(*target)
-                            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
                         coverage.is_exhaustive(request, target.as_ref())?
                     }
@@ -614,7 +614,7 @@ impl Coverage {
                     let value = request
                         .semantic_values()
                         .constant_value_data(*value)
-                        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
                     if let ConstantValueKind::Boolean(value) = value.kind() {
                         covered.insert(*value);
@@ -668,7 +668,7 @@ impl Coverage {
                 let target = request
                     .semantic_values()
                     .type_data(*target)
-                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
                 self.nullable_absent.is_some()
                     && coverage.is_exhaustive(request, target.as_ref())?
@@ -702,7 +702,7 @@ impl Coverage {
                     let value = request
                         .semantic_values()
                         .constant_value_data(*value)
-                        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
                     if let ConstantValueKind::Boolean(value) = value.kind() {
                         values.insert(*value);

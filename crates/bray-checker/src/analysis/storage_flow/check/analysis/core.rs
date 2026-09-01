@@ -432,7 +432,15 @@ where
         refinements: &[Refinement],
     ) {
         let purpose = self.effective_purpose(plan);
-        let outcome = self.operation_status(state, plan, purpose, refinements);
+
+        let outcome = match self.operation_status(state, plan, purpose, refinements) {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                self.infrastructure_failure = Some(CheckerQueryError::Infrastructure(error));
+                return;
+            }
+        };
+
         let status = outcome.status;
         let borrow = self.input.borrow(plan);
 
@@ -479,23 +487,31 @@ where
         plan: StorageAccessPlan,
         purpose: StorageAccessPurpose,
         refinements: &[Refinement],
-    ) -> StorageOperationOutcome {
+    ) -> Result<StorageOperationOutcome, CheckerInfrastructureError> {
         let Some(access) = self.storage.access(plan.access()) else {
-            return StorageOperationOutcome::status(StorageOperationStatus::Recovered);
+            return Ok(StorageOperationOutcome::status(
+                StorageOperationStatus::Recovered,
+            ));
         };
 
         if access.is_recovered() {
-            return StorageOperationOutcome::status(StorageOperationStatus::Recovered);
+            return Ok(StorageOperationOutcome::status(
+                StorageOperationStatus::Recovered,
+            ));
         }
 
         if !self.pattern_establishes_projection(plan.access())
             && !self.refinements_allow_access(plan.access(), refinements)
         {
-            return StorageOperationOutcome::status(StorageOperationStatus::InactiveProjection);
+            return Ok(StorageOperationOutcome::status(
+                StorageOperationStatus::InactiveProjection,
+            ));
         }
 
         let Some(root) = self.storage.root_identity(plan.access()) else {
-            return StorageOperationOutcome::status(StorageOperationStatus::Recovered);
+            return Ok(StorageOperationOutcome::status(
+                StorageOperationStatus::Recovered,
+            ));
         };
 
         let requires_value = matches!(
@@ -507,46 +523,54 @@ where
         );
 
         if requires_value && !state.initialized.contains(&root) {
-            return StorageOperationOutcome::status(StorageOperationStatus::Uninitialized);
+            return Ok(StorageOperationOutcome::status(
+                StorageOperationStatus::Uninitialized,
+            ));
         }
 
         if requires_value && !self.pattern_establishes_projection(plan.access()) {
             let origins = self.moved_origins(state, plan.access());
 
             if !origins.is_empty() {
-                return StorageOperationOutcome::moved(origins);
+                return Ok(StorageOperationOutcome::moved(origins));
             }
         }
 
         let operation_access = self.operation_access(plan, purpose);
 
         if purpose == StorageAccessPurpose::Move
-            && self.access_uses_borrow(operation_access)
-            && !self.type_is_borrow(access.reached_type())
+            && self.access_uses_borrow(operation_access)?
+            && !self.type_is_borrow(access.reached_type())?
         {
-            return StorageOperationOutcome::status(StorageOperationStatus::MissingOwnership);
+            return Ok(StorageOperationOutcome::status(
+                StorageOperationStatus::MissingOwnership,
+            ));
         }
 
-        if let Some(conflict) = self.borrow_conflict(state, plan, purpose) {
-            return StorageOperationOutcome::borrow_conflict(conflict);
+        if let Some(conflict) = self.borrow_conflict(state, plan, purpose)? {
+            return Ok(StorageOperationOutcome::borrow_conflict(conflict));
         }
 
         if let Some(authority_access) = self.mutation_authority_access(plan, purpose)
-            && (!self.has_mutation_authority(authority_access)
+            && (!self.has_mutation_authority(authority_access)?
                 || !self.fields_allow_mutation(authority_access))
         {
-            return StorageOperationOutcome::status(
+            return Ok(StorageOperationOutcome::status(
                 StorageOperationStatus::MissingMutationAuthority,
-            );
+            ));
         }
 
         if purpose == StorageAccessPurpose::Copy
             && !self.input.type_is_copyable(access.reached_type())
         {
-            return StorageOperationOutcome::status(StorageOperationStatus::NotCopyable);
+            return Ok(StorageOperationOutcome::status(
+                StorageOperationStatus::NotCopyable,
+            ));
         }
 
-        StorageOperationOutcome::status(StorageOperationStatus::Valid)
+        Ok(StorageOperationOutcome::status(
+            StorageOperationStatus::Valid,
+        ))
     }
 
     fn apply_valid_operation(

@@ -596,9 +596,9 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         let instance = self
             .semantic_values()
             .implementation_instance_data(instance)
-            .map_err(|_| {
+            .map_err(|error| {
                 CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::SemanticValueStore(error),
                 )
             })?;
 

@@ -55,7 +55,7 @@ impl Compilation {
 
             let substitution = values
                 .generic_substitution_data(substitution)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let [binding] = substitution.bindings() else {
                 return Err(CodegenPreparationError::UnresolvedType(ty));
@@ -262,7 +262,7 @@ impl Compilation {
         let substitution = self
             .semantic_value_store()?
             .generic_substitution_data(substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let [binding] = substitution.bindings() else {
             return Err(CodegenPreparationError::UnresolvedType(ty));

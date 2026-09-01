@@ -21,7 +21,7 @@ pub(in crate::compilation::product) fn substitute_contextual_self(
 
     values
         .substitute_contextual_self(ty, context, replacement)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }
 
 pub(in crate::compilation::product) fn substitute_contextual_self_in_application(
@@ -35,7 +35,7 @@ pub(in crate::compilation::product) fn substitute_contextual_self_in_application
 
     values
         .substitute_contextual_self_in_application(application, context, replacement)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }
 
 pub(in crate::compilation::product) fn substitute_contextual_self_in_substitution(
@@ -49,7 +49,7 @@ pub(in crate::compilation::product) fn substitute_contextual_self_in_substitutio
 
     values
         .substitute_contextual_self_in_substitution(substitution, context, replacement)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }
 
 pub(in crate::compilation::product) fn codegen_instance_contextual_self(
@@ -62,7 +62,7 @@ pub(in crate::compilation::product) fn codegen_instance_contextual_self(
         let application = binding_context
             .semantic_values()
             .trait_application_data(requirement.trait_application())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         if let Some(callable) = instance.callable_instance() {
             let container = binding_context

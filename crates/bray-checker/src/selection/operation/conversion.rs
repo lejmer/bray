@@ -81,7 +81,7 @@ where
                 let target = request
                     .semantic_values()
                     .type_data(target)
-                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
                 matches!(target.as_ref(), TypeData::Nullable(contained) if *contained == source)
             }
@@ -219,12 +219,12 @@ where
     let source_data = request
         .semantic_values()
         .type_data(source)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let target_data = request
         .semantic_values()
         .type_data(target)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let expected = match (source_data.as_ref(), target_data.as_ref()) {
         (TypeData::Tuple(source), TypeData::Tuple(target)) if source.len() == target.len() => {
@@ -297,12 +297,12 @@ where
     let application = request
         .semantic_values()
         .trait_application_data(application)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let substitution = request
         .semantic_values()
         .generic_substitution_data(application.substitution())
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     Ok(matches!(
         substitution.bindings(),

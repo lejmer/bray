@@ -106,7 +106,7 @@ impl Compilation {
                     candidate.implementation(),
                     candidate.substitution(),
                 ))
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             applicable.push(ImplementationSelectionCandidate::new(
                 candidate.key().clone(),

@@ -123,7 +123,7 @@ impl Compilation {
             let data = binding_context
                 .semantic_values()
                 .type_data(subject)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let TypeData::Named { definition, .. } = data.as_ref() else {
                 continue;

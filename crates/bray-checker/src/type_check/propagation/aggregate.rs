@@ -37,7 +37,7 @@ where
     let ty = request
         .semantic_values()
         .intern_type(TypeData::tuple(elements))
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     add_aggregate_evidence(expression_id, ty, operands, variables, inference);
 
@@ -98,7 +98,7 @@ where
     let ty = request
         .semantic_values()
         .intern_type(TypeData::Array { element, length })
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     add_aggregate_evidence(expression_id, ty, operands, variables, inference);
 
@@ -266,7 +266,7 @@ where
     let ty = request
         .semantic_values()
         .intern_type(TypeData::Generator(element))
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     inference.add_evidence(variable, ty, expression_id);
 
@@ -345,7 +345,7 @@ where
     let data = request
         .semantic_values()
         .type_data(expected)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let TypeData::Named { substitution, .. } = data.as_ref() else {
         return Ok(None);
@@ -354,7 +354,7 @@ where
     let substitution = request
         .semantic_values()
         .generic_substitution_data(*substitution)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     match substitution
         .bindings()
@@ -409,7 +409,7 @@ where
     let ty = request
         .semantic_values()
         .intern_type(TypeData::Array { element, length })
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     add_aggregate_evidence(
         expression_id,
@@ -440,7 +440,7 @@ where
             .semantic_values()
             .type_data(ty)
             .map(|data| element(data.as_ref()).is_some())
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)
     })?;
 
     let expected = expected.or_else(|| inference.evidence(variable));
@@ -452,7 +452,7 @@ where
     let data = request
         .semantic_values()
         .type_data(expected)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     Ok(element(data.as_ref()).map(|element| (expected, element)))
 }
@@ -515,7 +515,7 @@ where
     let data = request
         .semantic_values()
         .type_data(source)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     match data.as_ref() {
         TypeData::Array { length, .. } => Ok(Some(*length)),
@@ -606,5 +606,5 @@ where
             ty: TargetSizedIntegerType::Usize,
             value: integer,
         })
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+        .map_err(CheckerInfrastructureError::SemanticValueStore)
 }

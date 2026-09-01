@@ -25,7 +25,7 @@ where
     let application = request
         .semantic_values()
         .trait_application_data(application)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let Some(contract) = CompilerKnownOperationRole::ALL
         .iter()
@@ -42,7 +42,7 @@ where
     let substitution = request
         .semantic_values()
         .generic_substitution_data(application.substitution())
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     if contract.role() == CompilerKnownOperationRole::PlainConversion {
         let [binding] = substitution.bindings() else {
@@ -99,7 +99,7 @@ where
     let application_data = request
         .semantic_values()
         .trait_application_data(application)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let Some(contract) = CompilerKnownOperationRole::ALL
         .iter()

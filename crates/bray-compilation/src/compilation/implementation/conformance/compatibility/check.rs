@@ -373,7 +373,7 @@ fn callable_type_template(
         TypeExpressionTemplate::Resolved(ty) => {
             let data = values
                 .type_data(*ty)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let TypeData::Callable(callable) = data.as_ref() else {
                 return Err(FactQueryError::InfrastructureFailure);
@@ -381,7 +381,7 @@ fn callable_type_template(
 
             let parameter_types = signature
                 .parameter_type_templates(values)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::from)?;
 
             let parameters =
                 callable
@@ -473,14 +473,14 @@ fn generic_surfaces_are_compatible(
             (GenericParameterSymbolId::Type(_), GenericParameterSymbolId::Type(fulfillment)) => {
                 let ty = values
                     .intern_type(TypeData::TypeParameter(*fulfillment))
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 arguments.push(GenericArgument::Type(ty));
             }
             (GenericParameterSymbolId::Const(_), GenericParameterSymbolId::Const(fulfillment)) => {
                 let term = values
                     .intern_constant_term(ConstantTermData::Parameter(*fulfillment))
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 arguments.push(GenericArgument::Constant(term));
             }
@@ -511,7 +511,7 @@ fn generic_surfaces_are_compatible(
 
     let substitution = values
         .intern_generic_substitution(substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     for (ordinal, (requirement, fulfillment)) in requirement
         .value()

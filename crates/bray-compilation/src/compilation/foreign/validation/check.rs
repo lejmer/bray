@@ -36,7 +36,7 @@ pub(in crate::compilation::foreign) fn callable_surface(
 ) -> Result<CallableBoundarySurface, FactQueryError> {
     let parameters = signature
         .parameter_type_templates(values)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::from)?;
 
     let (abi, trust, execution, variadic) = match signature.callable_type() {
         TypeExpressionTemplate::Callable(callable) => (
@@ -48,7 +48,7 @@ pub(in crate::compilation::foreign) fn callable_surface(
         TypeExpressionTemplate::Resolved(ty) => {
             let data = values
                 .type_data(*ty)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let TypeData::Callable(callable) = data.as_ref() else {
                 return Err(FactQueryError::InfrastructureFailure);
@@ -493,7 +493,7 @@ fn type_has_representation(
 
     let data = values
         .type_data(ty)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let TypeData::Named { definition, .. } = data.as_ref() else {
         return Ok(false);
@@ -522,7 +522,7 @@ fn raw_pointer_target(
 
     let data = values
         .type_data(ty)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let TypeData::Named {
         definition,
@@ -540,7 +540,7 @@ fn raw_pointer_target(
 
     let substitution = values
         .generic_substitution_data(*substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let [binding] = substitution.bindings() else {
         return Ok(None);
@@ -621,7 +621,7 @@ pub(in crate::compilation) fn c_struct_matches(
 
     let data = values
         .type_data(ty)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let TypeData::Named {
         definition: NamedTypeSymbolId::Struct(structure),
@@ -654,7 +654,7 @@ pub(in crate::compilation) fn c_struct_matches(
 
     let substitution = values
         .generic_substitution_data(*substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     if !substitution.bindings().is_empty() {
         return Ok(false);
@@ -709,7 +709,7 @@ fn platform_status_matches(
 
     let data = values
         .type_data(ty)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let TypeData::Named {
         definition: NamedTypeSymbolId::Struct(structure),
@@ -742,7 +742,7 @@ fn platform_status_matches(
 
     let substitution = values
         .generic_substitution_data(*substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     if !substitution.bindings().is_empty() {
         return Ok(false);
@@ -812,7 +812,7 @@ fn foreign_aggregate_alignment_is_supported(
             let data = compilation
                 .semantic_value_store()?
                 .type_data(*ty)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let TypeData::Named { definition, .. } = data.as_ref() else {
                 return Ok(true);
@@ -852,7 +852,7 @@ pub(in crate::compilation::foreign) fn foreign_type_is_supported(
             let data = compilation
                 .semantic_value_store()?
                 .type_data(*ty)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             foreign_type_data_is_supported(compilation, data.as_ref(), abi, cancellation)
         }
@@ -964,7 +964,7 @@ fn is_unit_template(
     let data = compilation
         .semantic_value_store()?
         .type_data(*ty)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     Ok(matches!(
         data.as_ref(),

@@ -233,6 +233,12 @@ impl Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("semantic diagnostic infrastructure failed")
             }
+            Err(
+                error @ (FactQueryError::SemanticValueStoreCreate(_)
+                | FactQueryError::SemanticValueStore(_)),
+            ) => {
+                panic!("semantic diagnostic semantic-value operation failed: {error}")
+            }
             Err(FactQueryError::BindingDependencyUnavailable) => {
                 panic!("semantic diagnostics could not obtain a binding dependency")
             }
@@ -288,6 +294,12 @@ impl Compilation {
             }
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("check diagnostic infrastructure failed")
+            }
+            Err(
+                error @ (FactQueryError::SemanticValueStoreCreate(_)
+                | FactQueryError::SemanticValueStore(_)),
+            ) => {
+                panic!("check diagnostic semantic-value operation failed: {error}")
             }
             Err(FactQueryError::BindingDependencyUnavailable) => {
                 panic!("check diagnostics could not obtain a binding dependency")
@@ -792,7 +804,7 @@ impl Compilation {
 
             let data = values
                 .type_data(entry.result().ty())
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let bray_symbols::TypeData::Named { definition, .. } = data.as_ref() else {
                 continue;
@@ -849,7 +861,7 @@ impl Compilation {
 
             let data = values
                 .type_data(callee.ty())
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
                 return Err(FactQueryError::InfrastructureFailure);

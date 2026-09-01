@@ -166,6 +166,12 @@ impl super::super::Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("dependency-interface query infrastructure failed")
             }
+            Err(
+                error @ (FactQueryError::SemanticValueStoreCreate(_)
+                | FactQueryError::SemanticValueStore(_)),
+            ) => {
+                panic!("dependency-interface semantic-value operation failed: {error}")
+            }
             Err(FactQueryError::BindingDependencyUnavailable) => {
                 panic!("dependency-interface query could not obtain a binding dependency")
             }

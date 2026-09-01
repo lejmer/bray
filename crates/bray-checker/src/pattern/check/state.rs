@@ -157,7 +157,7 @@ where
         let error_type = request
             .semantic_values()
             .intern_type(TypeData::Error)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         let iteration_patterns = input
             .iteration_patterns()
@@ -524,7 +524,7 @@ where
                 .request
                 .semantic_values()
                 .type_data(matched.ty)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
             let TypeData::Borrow { target, .. } = data.as_ref() else {
                 return Ok((matched, data));

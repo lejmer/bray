@@ -388,7 +388,7 @@ where
         let data = request
             .semantic_values()
             .type_data(expectation.ty())
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         if is_contextual_numeric_literal(request, expectation.expression())
             && let TypeData::Nullable(contained) = data.as_ref()

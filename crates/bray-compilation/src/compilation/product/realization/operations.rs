@@ -538,7 +538,7 @@ impl Compilation {
                 kind: BorrowKind::Mutable,
                 target: ty,
             })
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let source = MirSourceAnchor::generated_lifecycle(reference.clone());
 

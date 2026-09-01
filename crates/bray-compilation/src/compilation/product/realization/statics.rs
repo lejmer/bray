@@ -61,7 +61,7 @@ impl Compilation {
 
         let data = values
             .type_data(ty)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let TypeData::Named {
             definition,
@@ -81,7 +81,7 @@ impl Compilation {
 
                 let substitution = values
                     .generic_substitution_data(*substitution)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 let [success, error] = substitution.bindings() else {
                     return Err(FactQueryError::InfrastructureFailure.into());
@@ -93,7 +93,7 @@ impl Compilation {
 
                 let success = values
                     .type_data(success)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 let TypeData::Named { definition, .. } = success.as_ref() else {
                     return Err(FactQueryError::InfrastructureFailure.into());
@@ -648,7 +648,7 @@ impl Compilation {
 
             let data = values
                 .constant_value_data(value)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             match data.kind() {
                 bray_symbols::ConstantValueKind::StaticAddress(reference) => {

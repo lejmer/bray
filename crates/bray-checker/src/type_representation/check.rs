@@ -626,8 +626,8 @@ where
         ty: TypeId,
         origin: Option<SourceSpan>,
     ) -> RepresentationQueryResult<C, MemberRepresentation> {
-        let data = self.context.semantic_values().type_data(ty).map_err(|_| {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+        let data = self.context.semantic_values().type_data(ty).map_err(|error| {
+            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
         })?;
 
         match data.as_ref() {
@@ -681,9 +681,9 @@ where
                     .context
                     .semantic_values()
                     .generic_substitution_data(*substitution)
-                    .map_err(|_| {
+                    .map_err(|error| {
                         CheckerQueryError::Infrastructure(
-                            CheckerInfrastructureError::SemanticValueUnavailable,
+                            CheckerInfrastructureError::SemanticValueStore(error),
                         )
                     })?;
 
@@ -823,9 +823,9 @@ where
             .context
             .semantic_values()
             .type_data(element)
-            .map_err(|_| {
+            .map_err(|error| {
                 CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::SemanticValueStore(error),
                 )
             })?;
 

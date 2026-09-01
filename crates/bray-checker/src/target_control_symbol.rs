@@ -50,7 +50,7 @@ where
             request
                 .semantic_values()
                 .intern_generic_parameter_argument(parameter)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+                .map_err(CheckerInfrastructureError::SemanticValueStore)
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -98,7 +98,7 @@ where
     let data = request
         .semantic_values()
         .type_data(expected)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let TypeData::Callable(callable) = data.as_ref() else {
         return Ok(None);
@@ -125,5 +125,5 @@ where
     request
         .semantic_values()
         .intern_generic_substitution(substitution)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+        .map_err(CheckerInfrastructureError::SemanticValueStore)
 }

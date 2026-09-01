@@ -69,9 +69,16 @@ fn canonical_cycle(facts: Box<[CompilationFactKey]>) -> Box<[CompilationFactKey]
 
 #[cfg(test)]
 mod tests {
+    use bray_diagnostics::DiagnosticSemanticValueFailure;
     use bray_source::SourceId;
+    use bray_symbols::{
+        FunctionSymbolId, GenericOwnerId, SemanticValueKind, SemanticValueStore,
+        SemanticValueStoreCreateError, SemanticValueStoreError, SymbolId,
+    };
 
-    use super::{CompilationFactKey, FactCycle};
+    use super::{
+        CompilationFactKey, FactCycle, FactQueryError, diagnostic_semantic_value_failure,
+    };
 
     #[test]
     fn cycle_paths_remove_prefixes_and_use_a_canonical_start() {
@@ -82,6 +89,86 @@ mod tests {
         let cycle = FactCycle::new([prefix, syntax.clone(), declaration.clone(), syntax.clone()]);
 
         assert_eq!(cycle.facts(), &[declaration.clone(), syntax, declaration]);
+    }
+
+    #[test]
+    fn semantic_value_failures_retain_every_leaf_payload() {
+        let first = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("first semantic store must build: {error:?}"));
+
+        let second = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("second semantic store must build: {error:?}"));
+
+        let foreign = SemanticValueStoreError::ForeignId {
+            expected: first.id(),
+            actual: second.id(),
+        };
+
+        assert_eq!(
+            diagnostic_semantic_value_failure(foreign),
+            DiagnosticSemanticValueFailure::ForeignId {
+                expected_store: first.id().raw(),
+                actual_store: second.id().raw(),
+            }
+        );
+
+        assert_eq!(
+            FactQueryError::from(foreign),
+            FactQueryError::SemanticValueStore(foreign)
+        );
+
+        let unknown = SemanticValueStoreError::UnknownId {
+            kind: SemanticValueKind::Type,
+        };
+
+        let capacity = SemanticValueStoreError::CapacityExhausted {
+            kind: SemanticValueKind::ConstantTerm,
+        };
+
+        assert_eq!(
+            diagnostic_semantic_value_failure(unknown),
+            DiagnosticSemanticValueFailure::UnknownId { kind: "type" }
+        );
+
+        assert_eq!(
+            diagnostic_semantic_value_failure(capacity),
+            DiagnosticSemanticValueFailure::CapacityExhausted {
+                kind: "constant_term",
+            }
+        );
+
+        let expected_symbol = FunctionSymbolId::from_symbol_id(SymbolId::new(1));
+        let actual_symbol = FunctionSymbolId::from_symbol_id(SymbolId::new(2));
+
+        let expected = GenericOwnerId::try_new(expected_symbol.into())
+            .unwrap_or_else(|| panic!("function must be a generic owner"));
+
+        let actual = GenericOwnerId::try_new(actual_symbol.into())
+            .unwrap_or_else(|| panic!("function must be a generic owner"));
+
+        assert_eq!(
+            diagnostic_semantic_value_failure(
+                SemanticValueStoreError::GenericOwnerMismatch { expected, actual }
+            ),
+            DiagnosticSemanticValueFailure::GenericOwnerMismatch {
+                expected_kind: expected_symbol.kind().as_str(),
+                expected: expected_symbol.symbol_id().raw(),
+                actual_kind: actual_symbol.kind().as_str(),
+                actual: actual_symbol.symbol_id().raw(),
+            }
+        );
+
+        assert_eq!(
+            diagnostic_semantic_value_failure(SemanticValueStoreError::OpenSubstitution),
+            DiagnosticSemanticValueFailure::OpenSubstitution
+        );
+
+        assert_eq!(
+            FactQueryError::from(SemanticValueStoreCreateError::IdentitySpaceExhausted),
+            FactQueryError::SemanticValueStoreCreate(
+                SemanticValueStoreCreateError::IdentitySpaceExhausted,
+            )
+        );
     }
 }
 
@@ -117,6 +204,10 @@ pub enum FactQueryError {
     Cycle(FactCycle),
     /// The fact request could not complete because compiler coordination failed.
     InfrastructureFailure,
+    /// The compilation could not allocate its canonical semantic-value store identity.
+    SemanticValueStoreCreate(bray_symbols::SemanticValueStoreCreateError),
+    /// The canonical semantic-value store rejected a construction or lookup operation.
+    SemanticValueStore(bray_symbols::SemanticValueStoreError),
     /// Name binding could not obtain a required semantic dependency.
     BindingDependencyUnavailable,
     /// Binding one semantic unit violated a typed binding contract.
@@ -152,6 +243,33 @@ impl From<std::convert::Infallible> for FactQueryError {
 impl From<CheckerInfrastructureError> for FactQueryError {
     fn from(error: CheckerInfrastructureError) -> Self {
         Self::CheckerInfrastructure(error)
+    }
+}
+
+impl From<bray_symbols::SemanticValueStoreCreateError> for FactQueryError {
+    fn from(error: bray_symbols::SemanticValueStoreCreateError) -> Self {
+        Self::SemanticValueStoreCreate(error)
+    }
+}
+
+impl From<bray_symbols::SemanticValueStoreError> for FactQueryError {
+    fn from(error: bray_symbols::SemanticValueStoreError) -> Self {
+        Self::SemanticValueStore(error)
+    }
+}
+
+impl From<bray_symbols::CallableSignatureTemplateError> for FactQueryError {
+    fn from(error: bray_symbols::CallableSignatureTemplateError) -> Self {
+        match error {
+            bray_symbols::CallableSignatureTemplateError::SemanticValue(error) => {
+                Self::SemanticValueStore(error)
+            }
+            bray_symbols::CallableSignatureTemplateError::InvalidCallableType
+            | bray_symbols::CallableSignatureTemplateError::ParameterCountMismatch
+            | bray_symbols::CallableSignatureTemplateError::ParameterIdentityMismatch => {
+                Self::InfrastructureFailure
+            }
+        }
     }
 }
 
@@ -193,17 +311,49 @@ pub(crate) fn diagnostic_binding_failure(
     }
 }
 
-const fn diagnostic_semantic_value_failure(
+pub(crate) const fn diagnostic_semantic_value_failure(
     error: bray_symbols::SemanticValueStoreError,
 ) -> DiagnosticSemanticValueFailure {
     use bray_symbols::SemanticValueStoreError as Error;
 
     match error {
-        Error::ForeignId { .. } => DiagnosticSemanticValueFailure::ForeignId,
-        Error::UnknownId { .. } => DiagnosticSemanticValueFailure::UnknownId,
-        Error::CapacityExhausted { .. } => DiagnosticSemanticValueFailure::CapacityExhausted,
-        Error::GenericOwnerMismatch { .. } => DiagnosticSemanticValueFailure::GenericOwnerMismatch,
+        Error::ForeignId { expected, actual } => DiagnosticSemanticValueFailure::ForeignId {
+            expected_store: expected.raw(),
+            actual_store: actual.raw(),
+        },
+        Error::UnknownId { kind } => DiagnosticSemanticValueFailure::UnknownId {
+            kind: diagnostic_semantic_value_kind(kind),
+        },
+        Error::CapacityExhausted { kind } => DiagnosticSemanticValueFailure::CapacityExhausted {
+            kind: diagnostic_semantic_value_kind(kind),
+        },
+        Error::GenericOwnerMismatch { expected, actual } => {
+            let expected = expected.symbol();
+            let actual = actual.symbol();
+
+            DiagnosticSemanticValueFailure::GenericOwnerMismatch {
+                expected_kind: expected.kind().as_str(),
+                expected: expected.symbol_id().raw(),
+                actual_kind: actual.kind().as_str(),
+                actual: actual.symbol_id().raw(),
+            }
+        }
         Error::OpenSubstitution => DiagnosticSemanticValueFailure::OpenSubstitution,
+    }
+}
+
+const fn diagnostic_semantic_value_kind(kind: bray_symbols::SemanticValueKind) -> &'static str {
+    use bray_symbols::SemanticValueKind as Kind;
+
+    match kind {
+        Kind::Type => "type",
+        Kind::ConstantValue => "constant_value",
+        Kind::ConstantTerm => "constant_term",
+        Kind::GenericSubstitution => "generic_substitution",
+        Kind::TraitApplication => "trait_application",
+        Kind::CallableInstance => "callable_instance",
+        Kind::ImplementationInstance => "implementation_instance",
+        Kind::DependencyContractTemplate => "dependency_contract_template",
     }
 }
 
@@ -234,6 +384,9 @@ pub(crate) fn diagnostic_checker_failure(
             }
         }
         Error::SemanticValueUnavailable => DiagnosticCheckerFailure::SemanticValueUnavailable,
+        Error::SemanticValueStore(error) => {
+            DiagnosticCheckerFailure::SemanticValue(diagnostic_semantic_value_failure(error))
+        }
         Error::AtomicRepresentationTypeUnavailable => {
             DiagnosticCheckerFailure::AtomicRepresentationTypeUnavailable
         }
@@ -522,6 +675,12 @@ impl std::fmt::Display for FactQueryError {
             ),
             Self::InfrastructureFailure => {
                 formatter.write_str("fact evaluation encountered an infrastructure failure")
+            }
+            Self::SemanticValueStoreCreate(error) => {
+                write!(formatter, "semantic value store creation failed: {error:?}")
+            }
+            Self::SemanticValueStore(error) => {
+                write!(formatter, "semantic value store operation failed: {error:?}")
             }
             Self::BindingDependencyUnavailable => {
                 formatter.write_str("name binding could not obtain a required dependency")

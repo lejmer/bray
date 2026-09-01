@@ -36,7 +36,7 @@ struct RwLock<T>
 
             if state & READER_BLOCKED_MASK == 0 && state & READER_COUNT_MASK < READER_COUNT_MASK
             {
-                let (_, acquired) = core.atomic.compare_exchange<u64, 1, 0>(
+                let(_, acquired) = core.atomic.compare_exchange<u64, 1, 0>(
                     &self.state,
                     expected = state,
                     desired = state + 1,
@@ -70,7 +70,7 @@ struct RwLock<T>
 
             if state & (WRITE_LOCKED | READER_COUNT_MASK) == 0
             {
-                let (_, acquired) = core.atomic.compare_exchange<u64, 1, 0>(
+                let(_, acquired) = core.atomic.compare_exchange<u64, 1, 0>(
                     &self.state,
                     expected = state,
                     desired = (state - WRITER_PENDING_ONE) | WRITE_LOCKED,
@@ -101,7 +101,7 @@ struct RwLock<T>
             return none;
         }
 
-        let (_, acquired) = core.atomic.compare_exchange<u64, 1, 0>(&self.state, expected = state, desired = state + 1);
+        let(_, acquired) = core.atomic.compare_exchange<u64, 1, 0>(&self.state, expected = state, desired = state + 1);
 
         if !acquired
         {
@@ -123,7 +123,7 @@ struct RwLock<T>
 
     func try_write() -> RwLockWriteGuard<T>?
     {
-        let (_, acquired) = core.atomic.compare_exchange<u64, 1, 0>(&self.state, expected = 0, desired = WRITE_LOCKED);
+        let(_, acquired) = core.atomic.compare_exchange<u64, 1, 0>(&self.state, expected = 0, desired = WRITE_LOCKED);
 
         if !acquired
         {
@@ -230,7 +230,7 @@ trusted internal func register_writer<T>(pos lock: &RwLock<T>)
             panic("reader-writer lock pending writer count exceeded the target range");
         }
 
-        let (_, registered) = core.atomic.compare_exchange<u64, 1, 0>(
+        let(_, registered) = core.atomic.compare_exchange<u64, 1, 0>(
             &lock.state,
             expected = state,
             desired = state + WRITER_PENDING_ONE,

@@ -361,7 +361,7 @@ where
         request
             .semantic_values()
             .intern_callable_instance(callable)
-            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
     }
 
     match generic_arguments_are_compatible(
@@ -454,13 +454,13 @@ where
         BoundCallableTarget::Declaration(callable) => request
             .semantic_values()
             .generic_substitution_data(callable.substitution())
-            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?
             .bindings()
             .len(),
         BoundCallableTarget::Predicate(predicate) => request
             .semantic_values()
             .generic_substitution_data(predicate.substitution())
-            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?
             .bindings()
             .len(),
         BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_) => 0,
@@ -549,7 +549,7 @@ where
         request
             .semantic_values()
             .implementation_instance_data(*witness)
-            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         if resolution
             .implementation_witnesses()
@@ -581,7 +581,7 @@ where
     let data = request
         .semantic_values()
         .type_data(callable_type)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let TypeData::Callable(_) = data.as_ref() else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
@@ -668,7 +668,7 @@ where
     let data = request
         .semantic_values()
         .type_data(actual)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     Ok(matches!(
         data.as_ref(),
@@ -875,7 +875,7 @@ where
     let data = request
         .semantic_values()
         .type_data(expected)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     Ok(
         matches!(data.as_ref(), TypeData::Nullable(contained) if *contained == actual)

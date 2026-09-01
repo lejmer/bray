@@ -33,6 +33,9 @@ pub(super) fn format_english_checker_failure(
         Failure::SemanticValueUnavailable => {
             "an internal compiler error prevented Bray from retaining declaration information required by this product"
         }
+        Failure::SemanticValue(failure) => {
+            return super::artifact::format_english_semantic_value_failure(failure).to_owned();
+        }
         Failure::AtomicRepresentationTypeUnavailable => {
             "the selected atomic value has no available representation type"
         }

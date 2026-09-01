@@ -340,8 +340,8 @@ where
                                 .request
                                 .semantic_values()
                                 .intern_type(TypeData::Borrow { kind, target })
-                                .map_err(|_| {
-                                    CheckerInfrastructureError::SemanticValueUnavailable
+                                .map_err(|error| {
+                                    CheckerInfrastructureError::SemanticValueStore(error)
                                 })?;
 
                             Some(EntryStorage {
@@ -523,7 +523,7 @@ where
                     .request
                     .semantic_values()
                     .type_data(*ty)
-                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
                 let borrow = match data.as_ref() {
                     TypeData::Borrow { kind, target } => Some((*kind, *target)),
@@ -545,7 +545,7 @@ where
                         .request
                         .semantic_values()
                         .intern_type(TypeData::Error)
-                        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?,
+                        .map_err(CheckerInfrastructureError::SemanticValueStore)?,
                 };
 
                 let ty = self
@@ -555,7 +555,7 @@ where
                         kind: *kind,
                         target: reached_type,
                     })
-                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
                 Ok(Some(EntryStorage {
                     ty,

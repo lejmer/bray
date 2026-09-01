@@ -393,7 +393,7 @@ where
         self.request
             .semantic_values()
             .type_data(ty)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         Ok(())
     }
@@ -551,7 +551,7 @@ where
             request
                 .semantic_values()
                 .type_data(ty)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
             inference.add_evidence(variable, ty, expression);
         }
@@ -627,7 +627,7 @@ where
         request
             .semantic_values()
             .type_data(result_type)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
     }
 
     Ok(())
@@ -648,7 +648,7 @@ where
     request
         .semantic_values()
         .type_data(ty)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     Ok(())
 }

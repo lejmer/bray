@@ -371,7 +371,7 @@ impl Compilation {
                 let data = binding_context
                     .semantic_values()
                     .type_data(ty)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 let TypeData::Callable(callable) = data.as_ref() else {
                     return Err(FactQueryError::InfrastructureFailure);
@@ -556,7 +556,7 @@ fn callable_execution(
             let data = binding_context
                 .semantic_values()
                 .type_data(*ty)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             match data.as_ref() {
                 TypeData::Callable(callable) => Ok(callable.execution()),

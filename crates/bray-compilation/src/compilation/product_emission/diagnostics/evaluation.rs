@@ -32,6 +32,14 @@ pub(super) fn diagnostic_evaluation_failure(
         FactQueryError::InfrastructureFailure => {
             DiagnosticEmissionEvaluationFailure::Infrastructure
         }
+        FactQueryError::SemanticValueStoreCreate(_) => {
+            DiagnosticEmissionEvaluationFailure::SemanticValueStoreCreate
+        }
+        FactQueryError::SemanticValueStore(error) => {
+            DiagnosticEmissionEvaluationFailure::SemanticValue(
+                crate::fact::diagnostic_semantic_value_failure(*error),
+            )
+        }
         FactQueryError::BindingDependencyUnavailable => {
             DiagnosticEmissionEvaluationFailure::Binding(
                 bray_diagnostics::DiagnosticBindingFailure::DependencyUnavailable,

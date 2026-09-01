@@ -284,7 +284,7 @@ impl Compilation {
             .value()
             .constness(values)
             .map(|constness| constness == CallableConstness::Constant)
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+            .map_err(FactQueryError::from)
     }
 
     pub(in crate::compilation) fn constant_call_with_cancellation(
@@ -296,7 +296,7 @@ impl Compilation {
 
         let callable = values
             .intern_callable_instance(request.callable())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let key = ConstantCallQueryKey::new(
             callable,
@@ -329,7 +329,7 @@ impl Compilation {
 
         let callable = values
             .callable_instance_data(key.callable())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let binding_context = self.binding_context(cancellation)?;
 
@@ -362,7 +362,7 @@ impl Compilation {
 
         let callable_type = values
             .type_data(signature.callable_type())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let TypeData::Callable(callable_type) = callable_type.as_ref() else {
             return Err(FactQueryError::InfrastructureFailure);
@@ -555,17 +555,13 @@ impl Compilation {
                 ImplementationHook::NullableIsPresent | ImplementationHook::NullableIsAbsent,
                 [receiver],
             ) => {
-                let receiver = values.constant_value_data(*receiver).map_err(|_| {
-                    FactQueryError::CheckerInfrastructure(
-                        CheckerInfrastructureError::SemanticValueUnavailable,
-                    )
-                })?;
+                let receiver = values
+                    .constant_value_data(*receiver)
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
-                let receiver_type = values.type_data(receiver.ty()).map_err(|_| {
-                    FactQueryError::CheckerInfrastructure(
-                        CheckerInfrastructureError::SemanticValueUnavailable,
-                    )
-                })?;
+                let receiver_type = values
+                    .type_data(receiver.ty())
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 if !matches!(receiver_type.as_ref(), TypeData::Nullable(_)) {
                     return Ok(None);
@@ -588,16 +584,12 @@ impl Compilation {
                         result_type,
                         ConstantValueKind::Boolean(value),
                     ))
-                    .map_err(|_| {
-                        FactQueryError::CheckerInfrastructure(
-                            CheckerInfrastructureError::SemanticValueUnavailable,
-                        )
-                    })?
+                    .map_err(FactQueryError::SemanticValueStore)?
             }
             (ImplementationHook::AtomicInitialize, [argument]) => {
                 let argument = values
                     .constant_value_data(*argument)
-                    .map_err(|_| FactQueryError::AtomicInitializerArgumentUnavailable)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 if !matches!(
                     argument.kind(),
@@ -614,14 +606,14 @@ impl Compilation {
                         result_type,
                         argument.kind().clone(),
                     ))
-                    .map_err(|_| FactQueryError::AtomicInitializerResultUnavailable)?
+                    .map_err(FactQueryError::SemanticValueStore)?
             }
             (ImplementationHook::UninitNew, []) => values
                 .intern_constant_value(ConstantValueData::new(
                     result_type,
                     ConstantValueKind::product([]),
                 ))
-                .map_err(|_| FactQueryError::UninitInitializerResultUnavailable)?,
+                .map_err(FactQueryError::SemanticValueStore)?,
             _ => return Ok(None),
         };
 

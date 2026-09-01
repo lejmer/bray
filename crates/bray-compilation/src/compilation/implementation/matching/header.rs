@@ -8,15 +8,15 @@ use bray_symbols::{
 
 use super::super::index::ImplementationHeader;
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::compilation) enum ImplementationMatchError {
     InvalidSubstitution,
-    SemanticValue,
+    SemanticValue(SemanticValueStoreError),
 }
 
 impl From<SemanticValueStoreError> for ImplementationMatchError {
-    fn from(_error: SemanticValueStoreError) -> Self {
-        Self::SemanticValue
+    fn from(error: SemanticValueStoreError) -> Self {
+        Self::SemanticValue(error)
     }
 }
 
@@ -84,7 +84,7 @@ impl<'values> HeaderMatcher<'values> {
             let argument = self
                 .values
                 .intern_generic_parameter_argument(*parameter)
-                .map_err(|_| ImplementationMatchError::SemanticValue)?;
+                .map_err(ImplementationMatchError::SemanticValue)?;
 
             self.arguments.insert(*parameter, argument);
         }
@@ -108,7 +108,7 @@ impl<'values> HeaderMatcher<'values> {
         self.values
             .intern_generic_substitution(substitution)
             .map(Some)
-            .map_err(|_| ImplementationMatchError::SemanticValue)
+            .map_err(ImplementationMatchError::SemanticValue)
     }
 
     pub(super) fn match_type(
@@ -383,7 +383,9 @@ mod tests {
         SemanticValueStore, SymbolId, TypeData,
     };
 
-    use super::HeaderMatcher;
+    use super::{
+        HeaderMatcher, ImplementationMatchError, match_implementation_subject,
+    };
 
     #[test]
     fn equal_generic_parameters_are_recorded_as_substitution_arguments() {
@@ -453,5 +455,32 @@ mod tests {
             .unwrap_or_else(|error| panic!("identity substitution must be stored: {error:?}"));
 
         assert_eq!(substitution.bindings()[0].argument(), argument);
+    }
+
+    #[test]
+    fn implementation_matching_retains_foreign_semantic_value_ids() {
+        let first = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("first semantic store must build: {error:?}"));
+
+        let second = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("second semantic store must build: {error:?}"));
+
+        let pattern = first
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("pattern type must build: {error:?}"));
+
+        let implementation = ImplementationSymbolId::Inherent(
+            InherentImplementationSymbolId::from_symbol_id(SymbolId::new(1)),
+        );
+
+        assert_eq!(
+            match_implementation_subject(implementation, &[], pattern, pattern, &second),
+            Err(ImplementationMatchError::SemanticValue(
+                bray_symbols::SemanticValueStoreError::ForeignId {
+                    expected: second.id(),
+                    actual: first.id(),
+                }
+            ))
+        );
     }
 }

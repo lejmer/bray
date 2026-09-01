@@ -640,9 +640,9 @@ where
                 self.request
                     .semantic_values()
                     .constant_term_data(term)
-                    .map_err(|_| {
+                    .map_err(|error| {
                         EvaluationFailure::Infrastructure(
-                            CheckerInfrastructureError::SemanticValueUnavailable,
+                            CheckerInfrastructureError::SemanticValueStore(error),
                         )
                     })?;
 
@@ -846,9 +846,9 @@ where
             .request
             .semantic_values()
             .constant_value_data(value)
-            .map_err(|_| {
+            .map_err(|error| {
                 EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::SemanticValueStore(error),
                 )
             })?;
 
@@ -909,9 +909,9 @@ where
             .request
             .semantic_values()
             .constant_value_data(value)
-            .map_err(|_| {
+            .map_err(|error| {
                 EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::SemanticValueStore(error),
                 )
             })?;
 

@@ -21,6 +21,18 @@ where
     }
 }
 
+pub(in crate::compilation) fn semantic_value_binding_error(
+    error: bray_symbols::SemanticValueStoreError,
+) -> BindingQueryError<FactQueryError> {
+    BindingQueryError::Upstream(FactQueryError::SemanticValueStore(error))
+}
+
+pub(in crate::compilation) fn callable_signature_binding_error(
+    error: bray_symbols::CallableSignatureTemplateError,
+) -> BindingQueryError<FactQueryError> {
+    BindingQueryError::Upstream(error.into())
+}
+
 #[cfg(test)]
 mod tests {
     use bray_checker::CheckerInfrastructureError;

@@ -80,7 +80,7 @@ fn normalize_type(
 
     let data = values
         .type_data(ty)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let normalized = match data.as_ref() {
         TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => ty,
@@ -92,7 +92,7 @@ fn normalize_type(
                 definition: *definition,
                 substitution: normalize_substitution(values, *substitution, constraints, active)?,
             })
-            .map_err(|_| FactQueryError::InfrastructureFailure)?,
+            .map_err(FactQueryError::SemanticValueStore)?,
         TypeData::TypeValuedMemberProjection {
             subject,
             application,
@@ -103,7 +103,7 @@ fn normalize_type(
                 application: normalize_application(values, *application, constraints, active)?,
                 member: *member,
             })
-            .map_err(|_| FactQueryError::InfrastructureFailure)?,
+            .map_err(FactQueryError::SemanticValueStore)?,
         TypeData::Tuple(elements) => {
             let elements = elements
                 .iter()
@@ -113,14 +113,14 @@ fn normalize_type(
 
             values
                 .intern_type(TypeData::tuple(elements))
-                .map_err(|_| FactQueryError::InfrastructureFailure)?
+                .map_err(FactQueryError::SemanticValueStore)?
         }
         TypeData::Array { element, length } => values
             .intern_type(TypeData::Array {
                 element: normalize_type(values, *element, constraints, active)?,
                 length: *length,
             })
-            .map_err(|_| FactQueryError::InfrastructureFailure)?,
+            .map_err(FactQueryError::SemanticValueStore)?,
         TypeData::FlexibleArray(element) => values
             .intern_type(TypeData::FlexibleArray(normalize_type(
                 values,
@@ -128,7 +128,7 @@ fn normalize_type(
                 constraints,
                 active,
             )?))
-            .map_err(|_| FactQueryError::InfrastructureFailure)?,
+            .map_err(FactQueryError::SemanticValueStore)?,
         TypeData::Slice(element) => values
             .intern_type(TypeData::Slice(normalize_type(
                 values,
@@ -136,7 +136,7 @@ fn normalize_type(
                 constraints,
                 active,
             )?))
-            .map_err(|_| FactQueryError::InfrastructureFailure)?,
+            .map_err(FactQueryError::SemanticValueStore)?,
         TypeData::Generator(element) => values
             .intern_type(TypeData::Generator(normalize_type(
                 values,
@@ -144,7 +144,7 @@ fn normalize_type(
                 constraints,
                 active,
             )?))
-            .map_err(|_| FactQueryError::InfrastructureFailure)?,
+            .map_err(FactQueryError::SemanticValueStore)?,
         TypeData::Nullable(target) => values
             .intern_type(TypeData::Nullable(normalize_type(
                 values,
@@ -152,13 +152,13 @@ fn normalize_type(
                 constraints,
                 active,
             )?))
-            .map_err(|_| FactQueryError::InfrastructureFailure)?,
+            .map_err(FactQueryError::SemanticValueStore)?,
         TypeData::Borrow { kind, target } => values
             .intern_type(TypeData::Borrow {
                 kind: *kind,
                 target: normalize_type(values, *target, constraints, active)?,
             })
-            .map_err(|_| FactQueryError::InfrastructureFailure)?,
+            .map_err(FactQueryError::SemanticValueStore)?,
         TypeData::TraitView(application) => values
             .intern_type(TypeData::TraitView(normalize_application(
                 values,
@@ -166,13 +166,13 @@ fn normalize_type(
                 constraints,
                 active,
             )?))
-            .map_err(|_| FactQueryError::InfrastructureFailure)?,
+            .map_err(FactQueryError::SemanticValueStore)?,
         TypeData::OwnedIndirection { storage, target } => values
             .intern_type(TypeData::OwnedIndirection {
                 storage: normalize_type(values, *storage, constraints, active)?,
                 target: normalize_type(values, *target, constraints, active)?,
             })
-            .map_err(|_| FactQueryError::InfrastructureFailure)?,
+            .map_err(FactQueryError::SemanticValueStore)?,
         TypeData::Callable(callable) => {
             let parameters = callable
                 .parameters()
@@ -202,7 +202,7 @@ fn normalize_type(
 
             values
                 .intern_type(TypeData::Callable(callable))
-                .map_err(|_| FactQueryError::InfrastructureFailure)?
+                .map_err(FactQueryError::SemanticValueStore)?
         }
     };
 
@@ -239,7 +239,7 @@ fn canonical_equal_type(
         .map(|candidate| {
             let data = values
                 .type_data(candidate)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let is_projection =
                 matches!(data.as_ref(), TypeData::TypeValuedMemberProjection { .. });
@@ -261,7 +261,7 @@ fn normalize_application(
 ) -> Result<bray_symbols::TraitApplicationId, FactQueryError> {
     let application = values
         .trait_application_data(application)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let substitution =
         normalize_substitution(values, application.substitution(), constraints, active)?;
@@ -271,7 +271,7 @@ fn normalize_application(
             application.definition(),
             substitution,
         ))
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }
 
 fn normalize_substitution(
@@ -282,7 +282,7 @@ fn normalize_substitution(
 ) -> Result<bray_symbols::GenericSubstitutionId, FactQueryError> {
     let substitution = values
         .generic_substitution_data(substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let (parameters, arguments): (Vec<_>, Vec<_>) = substitution
         .bindings()
@@ -307,5 +307,5 @@ fn normalize_substitution(
 
     values
         .intern_generic_substitution(substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }

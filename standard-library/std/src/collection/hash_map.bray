@@ -115,7 +115,7 @@ struct HashMap<Key, Value>
     {
         let hash: u128 = std.hash.stable_hash<Key>(key);
 
-        return (trusted self.find(key, hash = hash)).is_present();
+        return(trusted self.find(key, hash = hash)).is_present();
     }
 
     /// Inserts an entry and returns the replaced value when the key was already present.
@@ -166,7 +166,7 @@ struct HashMap<Key, Value>
     {
         let entry: (Key, Value) = (trusted self.remove_entry(key))?;
 
-        let (_, value) = entry;
+        let(_, value) = entry;
 
         let mut result: Value? = none;
 
@@ -321,7 +321,7 @@ struct OccupiedEntry<Key, Value>
             index = self.index,
         );
 
-        return (item.key, item.value);
+        return(item.key, item.value);
     }
 }
 

@@ -148,14 +148,18 @@ pub(super) fn checked_constraint_expression(
 
     let values = compilation
         .semantic_value_store()
-        .map_err(|_| incomplete(expression.owner()))?;
+        .map_err(|error| {
+            super::super::fact_query_export_error(error, incomplete(expression.owner()))
+        })?;
 
     let substitution = crate::compilation::substitution::identity_substitution(
         values,
         generic.owner(),
         generic.parameters(),
     )
-    .map_err(|_| incomplete(expression.owner()))?;
+    .map_err(|error| {
+        super::super::fact_query_export_error(error, incomplete(expression.owner()))
+    })?;
 
     let (references, reference_diagnostics) = compilation
         .concrete_call_references(

@@ -400,6 +400,12 @@ impl Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("scheduled query infrastructure failed")
             }
+            Err(
+                error @ (FactQueryError::SemanticValueStoreCreate(_)
+                | FactQueryError::SemanticValueStore(_)),
+            ) => {
+                panic!("scheduled semantic-value operation failed: {error}")
+            }
             Err(FactQueryError::BindingDependencyUnavailable) => {
                 panic!("scheduled query could not obtain a binding dependency")
             }
@@ -491,7 +497,7 @@ impl Compilation {
             .semantic_values
             .get_or_init(SemanticValueStore::try_new)
             .as_ref()
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+            .map_err(|error| FactQueryError::SemanticValueStoreCreate(*error))
     }
 
     pub(in crate::compilation) fn bound_unit_id(
@@ -532,6 +538,12 @@ impl Compilation {
             }
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("compilation query infrastructure failed")
+            }
+            Err(
+                error @ (FactQueryError::SemanticValueStoreCreate(_)
+                | FactQueryError::SemanticValueStore(_)),
+            ) => {
+                panic!("compilation semantic-value operation failed: {error}")
             }
             Err(FactQueryError::BindingDependencyUnavailable) => {
                 panic!("compilation query could not obtain a binding dependency")

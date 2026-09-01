@@ -204,7 +204,9 @@ pub(super) fn callable_template_inputs(
 
     let parameter_types = signature
         .parameter_type_templates(export.values)
-        .map_err(|_| incomplete(callable))?;
+        .map_err(|error| {
+            super::super::callable_signature_export_error(error, incomplete(callable))
+        })?;
 
     for (index, (parameter, ty)) in signature
         .parameters()
@@ -247,7 +249,7 @@ pub(super) fn generic_template_inputs(
                 let ty = export
                     .values
                     .intern_type(TypeData::TypeParameter(parameter))
-                    .map_err(|_| incomplete(symbol))?;
+                    .map_err(super::super::semantic_value_export_error)?;
 
                 Ok(SourceTemplateInput::new(
                     InterfaceCheckedTemplateInputKind::GenericType(
@@ -338,7 +340,9 @@ pub(super) fn callable_input_type(
     let parameter_types = signature
         .value()
         .parameter_type_templates(export.values)
-        .map_err(|_| incomplete(symbol))?;
+        .map_err(|error| {
+            super::super::callable_signature_export_error(error, incomplete(symbol))
+        })?;
 
     let template = parameter_types
         .get(usize::try_from(ordinal).map_err(|_| incomplete(symbol))?)

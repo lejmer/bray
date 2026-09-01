@@ -304,7 +304,7 @@ impl Compilation {
         let parameter_types = signature
             .value()
             .parameter_type_templates(self.semantic_value_store()?)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?
+            .map_err(FactQueryError::from)?
             .iter()
             .map(|ty| template_diagnostic_type(self, ty, cancellation))
             .collect::<Result<Vec<_>, _>>()?;

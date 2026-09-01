@@ -94,7 +94,7 @@ impl Compilation {
 
             let application = values
                 .trait_application_data(header.trait_application())
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             by_trait
                 .entry(application.definition())
@@ -244,7 +244,7 @@ impl Compilation {
         let application = self
             .semantic_value_store()?
             .trait_application_data(header.trait_application())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let trait_definition =
             symbol_diagnostic_identity(symbols, imported, application.definition().into())?;

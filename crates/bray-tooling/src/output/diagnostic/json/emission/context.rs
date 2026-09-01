@@ -112,6 +112,8 @@ pub(super) fn package_interface_failure_context(
     use bray_diagnostics::DiagnosticPackageInterfaceFailure as Failure;
 
     match failure {
+        Failure::SemanticValueStoreCreate => Vec::new(),
+        Failure::SemanticValue(failure) => vec![text_field("cause", failure.as_str())],
         Failure::RecoveredPublicSymbol(kind)
         | Failure::IncompletePublicDeclaration(kind)
         | Failure::DuplicateSymbol(kind)

@@ -54,7 +54,7 @@ impl Compilation {
                 kind: BorrowKind::Mutable,
                 target,
             })
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let temporary = builder
             .push_storage(source.clone(), MirStorageKind::Temporary, pointer)
@@ -173,7 +173,7 @@ impl Compilation {
 
         let callable_type = values
             .type_data(signature.callable_type())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let TypeData::Callable(callable_type) = callable_type.as_ref() else {
             return Err(FactQueryError::InfrastructureFailure.into());
@@ -204,7 +204,7 @@ impl Compilation {
 
         let data = values
             .type_data(ty)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let TypeData::Named {
             definition,
@@ -223,7 +223,7 @@ impl Compilation {
                     kind: BorrowKind::Mutable,
                     target: ty,
                 })
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let buffer = builder
                 .push_operation(
@@ -507,7 +507,7 @@ impl Compilation {
 
         let receiver_data = values
             .type_data(receiver)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         match receiver_data.as_ref() {
             TypeData::Borrow { kind, .. } => {
@@ -554,7 +554,7 @@ impl Compilation {
 
         let data = values
             .type_data(ty)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let TypeData::Named {
             definition,
@@ -631,7 +631,7 @@ impl Compilation {
 
         let callable_type = values
             .type_data(signature.callable_type())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let TypeData::Callable(callable_type) = callable_type.as_ref() else {
             return Err(FactQueryError::InfrastructureFailure.into());
@@ -654,7 +654,7 @@ impl Compilation {
 
         let data = values
             .type_data(place.ty())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let children = match data.as_ref() {
             TypeData::Named {

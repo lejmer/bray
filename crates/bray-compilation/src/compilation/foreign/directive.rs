@@ -376,7 +376,7 @@ fn directive_integer_argument(
     let data = compilation
         .semantic_value_store()?
         .constant_value_data(*value.value())
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let bray_symbols::ConstantValueKind::Integer(value) = data.kind() else {
         return Ok(None);
@@ -450,7 +450,7 @@ fn directive_string_argument(
     let data = compilation
         .semantic_value_store()?
         .constant_value_data(*value.value())
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let bray_symbols::ConstantValueKind::String(value) = data.kind() else {
         return Ok(DirectiveStringValue::Recovered);

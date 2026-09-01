@@ -67,7 +67,7 @@ impl Compilation {
 
         let substitution = values
             .generic_substitution_data(key.substitution())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         if substitution.owner() != key.owner() {
             return Err(FactQueryError::InfrastructureFailure);

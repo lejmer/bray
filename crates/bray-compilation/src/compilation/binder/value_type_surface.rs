@@ -85,14 +85,14 @@ impl DeclaredValueTypeBinding<'_> {
                         .context
                         .semantic_values()
                         .type_data(receiver.ty())
-                        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+                        .map_err(super::semantic_value_binding_error)?;
 
                     match receiver_type.as_ref() {
                         bray_symbols::TypeData::ContextualSelf(
                             context @ bray_symbols::SelfTypeContext::NamedType(_),
                         ) => TypeExpressionTemplate::Resolved(
                             contextual_self_type(self.context, *context)
-                                .map_err(|_| BindingQueryError::DependencyUnavailable)?,
+                                .map_err(super::symbol::binder_error)?,
                         ),
                         bray_symbols::TypeData::ContextualSelf(
                             bray_symbols::SelfTypeContext::Implementation(implementation),
@@ -134,13 +134,13 @@ impl DeclaredValueTypeBinding<'_> {
                 self.context,
                 bray_symbols::SelfTypeContext::NamedType(definition),
             )
-            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+            .map_err(super::symbol::binder_error)?;
 
             let self_data = self
                 .context
                 .semantic_values()
                 .type_data(self_ty)
-                .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+                .map_err(super::semantic_value_binding_error)?;
 
             let bray_symbols::TypeData::Named { substitution, .. } = self_data.as_ref() else {
                 return Err(BindingQueryError::DependencyUnavailable);
@@ -150,7 +150,7 @@ impl DeclaredValueTypeBinding<'_> {
                 .context
                 .semantic_values()
                 .substitute_type(*ty, *substitution)
-                .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+                .map_err(super::semantic_value_binding_error)?;
 
             return Ok(TypeExpressionTemplate::Resolved(result));
         }
@@ -159,14 +159,14 @@ impl DeclaredValueTypeBinding<'_> {
             .context
             .semantic_values()
             .type_data(*ty)
-            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+            .map_err(super::semantic_value_binding_error)?;
 
         match data.as_ref() {
             bray_symbols::TypeData::ContextualSelf(
                 context @ bray_symbols::SelfTypeContext::NamedType(_),
             ) => contextual_self_type(self.context, *context)
                 .map(TypeExpressionTemplate::Resolved)
-                .map_err(|_| BindingQueryError::DependencyUnavailable),
+                .map_err(super::symbol::binder_error),
             bray_symbols::TypeData::ContextualSelf(
                 bray_symbols::SelfTypeContext::Implementation(implementation),
             ) => self.implementation_subject_type(*implementation),
@@ -365,7 +365,7 @@ impl DeclaredValueTypeBinding<'_> {
             .context
             .compilation()
             .target_property_type(TargetPropertyKind::ScalarBool)
-            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+            .map_err(super::symbol::binder_error)?;
 
         self.add_evidence(
             DeclaredValueTypeTerm::Expression(expression),
@@ -408,7 +408,7 @@ impl DeclaredValueTypeBinding<'_> {
                         record.ordinal(),
                         self.context.semantic_values(),
                     )
-                    .map_err(|_| BindingQueryError::DependencyUnavailable)
+                    .map_err(super::callable_signature_binding_error)
             }
             AnySymbolId::StructField(field) => self
                 .context
@@ -489,7 +489,7 @@ impl DeclaredValueTypeBinding<'_> {
                     declaration.into(),
                     self.context.cancellation(),
                 )
-                .map_err(|_| BindingQueryError::DependencyUnavailable)?
+                .map_err(super::symbol::binder_error)?
                 .is_some_and(|boundary| {
                     matches!(
                         boundary.kind(),
@@ -570,7 +570,7 @@ fn callable_parameter_templates(
 ) -> BindingQueryResult<Vec<(CallableParameterSymbolId, TypeExpressionTemplate)>> {
     let types = signature
         .parameter_type_templates(context.semantic_values())
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+        .map_err(super::callable_signature_binding_error)?;
 
     Ok(signature.parameters().iter().copied().zip(types).collect())
 }

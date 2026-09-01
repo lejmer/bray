@@ -110,6 +110,8 @@ pub enum DiagnosticEmissionPlanningFailure {
 pub enum DiagnosticPackageInterfaceFailure {
     Unavailable,
     InvalidCompilation,
+    SemanticValueStoreCreate,
+    SemanticValue(DiagnosticSemanticValueFailure),
     RecoveredPublicSymbol(String),
     ConstantCallableEvaluation {
         declaration: crate::DiagnosticInterfaceSymbolIdentity,
@@ -352,6 +354,8 @@ pub enum DiagnosticEmissionLinkPlanFailure {
 pub enum DiagnosticEmissionEvaluationFailure {
     Cycle,
     Infrastructure,
+    SemanticValueStoreCreate,
+    SemanticValue(DiagnosticSemanticValueFailure),
     Binding(DiagnosticBindingFailure),
     LoweringInput(crate::DiagnosticLoweringInputFailure),
     Lowering(crate::DiagnosticLoweringFailure),
@@ -384,10 +388,22 @@ pub enum DiagnosticBindingFailure {
 /// Exact canonical-value failure that prevented semantic binding.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticSemanticValueFailure {
-    ForeignId,
-    UnknownId,
-    CapacityExhausted,
-    GenericOwnerMismatch,
+    ForeignId {
+        expected_store: u64,
+        actual_store: u64,
+    },
+    UnknownId {
+        kind: &'static str,
+    },
+    CapacityExhausted {
+        kind: &'static str,
+    },
+    GenericOwnerMismatch {
+        expected_kind: &'static str,
+        expected: u32,
+        actual_kind: &'static str,
+        actual: u32,
+    },
     OpenSubstitution,
 }
 
@@ -490,6 +506,8 @@ impl DiagnosticPackageInterfaceFailure {
         match self {
             Self::Unavailable => "unavailable",
             Self::InvalidCompilation => "invalid_compilation",
+            Self::SemanticValueStoreCreate => "semantic_value_store_create",
+            Self::SemanticValue(_) => "semantic_value",
             Self::RecoveredPublicSymbol(_) => "recovered_public_symbol",
             Self::ConstantCallableEvaluation { .. } => "constant_callable_evaluation",
             Self::ExecutableTemplateEvaluation { .. } => "executable_template_evaluation",
@@ -667,6 +685,8 @@ impl DiagnosticEmissionEvaluationFailure {
         match self {
             Self::Cycle => "cycle",
             Self::Infrastructure => "infrastructure",
+            Self::SemanticValueStoreCreate => "semantic_value_store_create",
+            Self::SemanticValue(failure) => failure.as_str(),
             Self::Binding(failure) => failure.as_str(),
             Self::LoweringInput(failure) => failure.as_str(),
             Self::Lowering(failure) => failure.as_str(),
@@ -705,10 +725,10 @@ impl DiagnosticBindingFailure {
 impl DiagnosticSemanticValueFailure {
     pub const fn as_str(self) -> &'static str {
         match self {
-            Self::ForeignId => "binding_semantic_value_foreign_id",
-            Self::UnknownId => "binding_semantic_value_unknown_id",
-            Self::CapacityExhausted => "binding_semantic_value_capacity_exhausted",
-            Self::GenericOwnerMismatch => "binding_semantic_value_generic_owner_mismatch",
+            Self::ForeignId { .. } => "binding_semantic_value_foreign_id",
+            Self::UnknownId { .. } => "binding_semantic_value_unknown_id",
+            Self::CapacityExhausted { .. } => "binding_semantic_value_capacity_exhausted",
+            Self::GenericOwnerMismatch { .. } => "binding_semantic_value_generic_owner_mismatch",
             Self::OpenSubstitution => "binding_semantic_value_open_substitution",
         }
     }

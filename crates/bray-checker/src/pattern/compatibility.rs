@@ -81,14 +81,14 @@ where
             .request
             .semantic_values()
             .constant_term_data(evidence.term())
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         let is_error = match term.as_ref() {
             ConstantTermData::Value(value) => self
                 .request
                 .semantic_values()
                 .constant_value_data(*value)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+                .map_err(CheckerInfrastructureError::SemanticValueStore)
                 .map(|value| matches!(value.kind(), ConstantValueKind::Error))?,
             _ => false,
         };
@@ -109,7 +109,7 @@ where
             .request
             .semantic_values()
             .constant_term_data(evidence.term())
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         let ConstantTermData::Value(value) = term.as_ref() else {
             return Ok(false);
@@ -119,7 +119,7 @@ where
             .request
             .semantic_values()
             .constant_value_data(*value)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         Ok(matches!(value.kind(), ConstantValueKind::Error))
     }
@@ -233,7 +233,7 @@ where
 
         let integer = values
             .constant_term_integer(length)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         Ok(integer.as_ref().and_then(integer_to_usize))
     }

@@ -28,7 +28,7 @@ pub(super) fn type_templates_are_compatible(
 
             let requirement_data = values
                 .type_data(requirement)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             if let TypeData::Nullable(requirement) = requirement_data.as_ref() {
                 let Some(fulfillment) = fulfillment.resolved_type() else {
@@ -37,7 +37,7 @@ pub(super) fn type_templates_are_compatible(
 
                 let fulfillment_data = values
                     .type_data(fulfillment)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 let TypeData::Nullable(fulfillment) = fulfillment_data.as_ref() else {
                     return Ok(false);
@@ -65,7 +65,7 @@ pub(super) fn type_templates_are_compatible(
 
                 let fulfillment_data = values
                     .type_data(fulfillment)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 let TypeData::Borrow {
                     kind: fulfillment_kind,
@@ -158,7 +158,7 @@ fn nullable_templates_are_compatible(
         TypeExpressionTemplate::Resolved(fulfillment) => {
             let data = values
                 .type_data(*fulfillment)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let TypeData::Nullable(fulfillment) = data.as_ref() else {
                 return Ok(false);
@@ -187,11 +187,11 @@ pub(super) fn substitute_requirement_type(
 ) -> Result<TypeId, FactQueryError> {
     let application = values
         .trait_application_data(trait_application)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let requirement = values
         .substitute_type(requirement, application.substitution())
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let requirement = values
         .substitute_contextual_self(
@@ -199,12 +199,12 @@ pub(super) fn substitute_requirement_type(
             bray_symbols::SelfTypeContext::Trait(application.definition()),
             subject,
         )
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     match generic_substitution {
         Some(substitution) => values
             .substitute_type(requirement, substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure),
+            .map_err(FactQueryError::SemanticValueStore),
         None => Ok(requirement),
     }
 }
@@ -218,17 +218,17 @@ pub(super) fn dependency_contracts_are_compatible(
 ) -> Result<bool, FactQueryError> {
     let trait_substitution = values
         .trait_application_data(trait_application)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?
+        .map_err(FactQueryError::SemanticValueStore)?
         .substitution();
 
     let requirement = values
         .substitute_dependency_contract(requirement, trait_substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let requirement = match generic_substitution {
         Some(substitution) => values
             .substitute_dependency_contract(requirement, substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?,
+            .map_err(FactQueryError::SemanticValueStore)?,
         None => requirement,
     };
 

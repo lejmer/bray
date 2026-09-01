@@ -360,7 +360,7 @@ fn generic_context(
         generic_owner,
         &parameters,
     )
-    .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+    .map_err(crate::compilation::binder::symbol::binder_error)?;
 
     RuntimeDefaultGenericContext::generic(parameters, substitution)
         .ok_or(BindingQueryError::DependencyUnavailable)
@@ -487,7 +487,7 @@ fn runtime_default_ownership(
     let result = context
         .semantic_values()
         .type_data(result)
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
 
     Ok(match result.as_ref() {
         TypeData::Borrow { kind, .. } => RuntimeDefaultOwnership::Borrowed(*kind),

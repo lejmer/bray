@@ -215,6 +215,8 @@ fn format_english_package_interface_failure(
         Failure::InvalidCompilation => {
             "source or semantic errors prevent package-interface export".to_owned()
         }
+        Failure::SemanticValueStoreCreate => format_english_package_interface_store_create(),
+        Failure::SemanticValue(failure) => format_english_package_interface_semantic_value(*failure),
         Failure::RecoveredPublicSymbol(kind) => {
             format!("a recovered public {kind} declaration has no stable external identity")
         }
@@ -444,6 +446,20 @@ fn format_english_package_interface_failure(
             "the implementation payload exceeds the representable artifact length".to_owned()
         }
     }
+}
+
+fn format_english_package_interface_store_create() -> String {
+    "the compiler exhausted semantic-value store identities while preparing the package interface"
+        .to_owned()
+}
+
+fn format_english_package_interface_semantic_value(
+    failure: bray_diagnostics::DiagnosticSemanticValueFailure,
+) -> String {
+    format!(
+        "the compiler could not prepare the package interface because {}",
+        super::super::native::format_english_semantic_value_failure(failure),
+    )
 }
 
 #[cfg(test)]

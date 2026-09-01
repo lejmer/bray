@@ -276,7 +276,7 @@ impl Compilation {
 
         let application = values
             .trait_application_data(header.trait_application())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let implementation_substitution = empty_substitution(values, implementation.into_any())?;
 
@@ -292,7 +292,7 @@ impl Compilation {
                 implementation,
                 implementation_substitution,
             ))
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         Ok((callable, vec![witness]))
     }

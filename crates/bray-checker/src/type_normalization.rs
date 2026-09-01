@@ -263,7 +263,30 @@ where
 }
 
 fn semantic_value_error<Upstream>(
-    _: bray_symbols::SemanticValueStoreError,
+    error: bray_symbols::SemanticValueStoreError,
 ) -> CheckerQueryError<Upstream> {
-    CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+    CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::{SemanticValueKind, SemanticValueStoreError};
+
+    use super::{
+        CheckerInfrastructureError, CheckerQueryError, semantic_value_error,
+    };
+
+    #[test]
+    fn normalization_retains_the_exact_semantic_value_store_failure() {
+        let error = SemanticValueStoreError::UnknownId {
+            kind: SemanticValueKind::TraitApplication,
+        };
+
+        assert_eq!(
+            semantic_value_error::<()>(error),
+            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                error,
+            ))
+        );
+    }
 }

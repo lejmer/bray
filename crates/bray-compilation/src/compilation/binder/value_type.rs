@@ -236,7 +236,7 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
             .semantic_values()
             .intern_type(TypeData::Error)
             .map(TypeExpressionTemplate::Resolved)
-            .map_err(|_| BindingQueryError::DependencyUnavailable)
+            .map_err(super::semantic_value_binding_error)
     }
 
     pub(super) fn add_evidence(

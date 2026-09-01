@@ -84,7 +84,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         let data = self
             .values
             .type_data(id)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         match data.as_ref() {
             TypeData::Error => self.tag(0),
@@ -198,7 +198,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         let data = self
             .values
             .constant_term_data(id)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         match data.as_ref() {
             ConstantTermData::Typed { term, ty } => {
@@ -320,7 +320,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         let data = self
             .values
             .constant_value_data(id)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         self.ty(data.ty())?;
 
@@ -396,7 +396,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         let data = self
             .values
             .generic_substitution_data(id)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         self.symbol(data.owner().symbol())?;
         self.length(data.bindings().len());
@@ -423,7 +423,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         let data = self
             .values
             .trait_application_data(id)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         self.symbol(data.definition().into())?;
 
@@ -434,7 +434,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         let data = self
             .values
             .callable_instance_data(id)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         self.symbol(data.definition().symbol())?;
 
@@ -466,7 +466,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         let data = self
             .values
             .implementation_instance_data(id)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         self.symbol(data.definition().into_any())?;
 
@@ -521,7 +521,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         let data = self
             .values
             .dependency_contract_template_data(id)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         self.length(data.requirements().len());
 

@@ -85,7 +85,7 @@ internal func name_current_thread(pos name: string) -> bool
 
 internal func generic_thread_values(pos ignored: unit) -> (u64, u64)
 {
-    return (GENERIC_THREAD_VALUE<7>, GENERIC_THREAD_VALUE<11>);
+    return(GENERIC_THREAD_VALUE<7>, GENERIC_THREAD_VALUE<11>);
 }
 
 @test
@@ -234,7 +234,7 @@ func native_thread_realizes_distinct_generic_thread_statics()
 
     let values: (u64, u64) = std.testing.assert_completed<(u64, u64)>(thread.join());
 
-    let (first, second) = values;
+    let(first, second) = values;
 
     assert(first == 7);
     assert(second == 11);

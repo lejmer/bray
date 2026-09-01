@@ -74,7 +74,7 @@ struct AutoResetEvent
     {
         while true
         {
-            let (_, acquired) = core.atomic.compare_exchange<u32, 1, 1>(&self.state, expected = 1, desired = 0);
+            let(_, acquired) = core.atomic.compare_exchange<u32, 1, 1>(&self.state, expected = 1, desired = 0);
 
             if acquired
             {

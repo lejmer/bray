@@ -86,7 +86,7 @@ where
     let substitution = request
         .semantic_values()
         .intern_generic_substitution(substitution)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let mut parameters = Vec::with_capacity(template.signature().parameters().len());
 
@@ -100,7 +100,7 @@ where
         let ty = request
             .semantic_values()
             .substitute_type(ty, substitution)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         parameters.push(CallableParameterData::new(
             parameter.name().clone(),
@@ -116,7 +116,7 @@ where
     let dependencies = request
         .semantic_values()
         .empty_dependency_contract_template()
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let trust = if template.signature().is_trusted() {
         CallableTrust::Trusted
@@ -136,7 +136,7 @@ where
     let callable_type = request
         .semantic_values()
         .intern_type(TypeData::Callable(callable))
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let resolution = BoundResolvedCall::new(
         BoundCallableTarget::Predicate(PredicateInstanceData::new(
@@ -174,7 +174,7 @@ where
             request
                 .semantic_values()
                 .intern_generic_parameter_argument(parameter)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+                .map_err(CheckerInfrastructureError::SemanticValueStore)
         })
         .collect()
 }
@@ -259,7 +259,7 @@ where
 
     let substitution = values
         .intern_generic_substitution(substitution)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let signature =
         match resolve_signature(request, template.signature(), substitution, diagnostics)? {
@@ -269,7 +269,7 @@ where
 
     let callable_type = values
         .type_data(signature.callable_type())
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let TypeData::Callable(callable_type) = callable_type.as_ref() else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
@@ -283,9 +283,9 @@ where
     } else {
         values
             .inherit_generic_substitution(substitution, callable_owner)
-            .map_err(|_| {
+            .map_err(|error| {
                 CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::SemanticValueStore(error),
                 )
             })?
     };
@@ -377,9 +377,7 @@ where
         substitution,
         &constants,
     )
-    .map_err(|_| {
-        CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
-    })?
+    .map_err(CheckerQueryError::Infrastructure)?
     else {
         return Ok(TemplateResolution::Unsupported);
     };

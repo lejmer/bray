@@ -192,7 +192,7 @@ where
             .request
             .semantic_values()
             .type_data(receiver.ty())
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         let TypeData::Named { definition, .. } = data.as_ref() else {
             return Ok(MemberStorage::Value);
@@ -468,7 +468,7 @@ where
                 kind,
                 target: result.ty(),
             })
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         let storage = self
             .builder_mut()?
