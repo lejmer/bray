@@ -17,10 +17,10 @@ use super::{
     DiagnosticSourceInputJson, DiagnosticStorageAccessJson, DiagnosticTraitFulfillmentMismatchJson,
     DiagnosticTypeJson, DiagnosticUnsupportedEmissionReasonJson, SourceSpanJson,
     array_generator_problem_json, callback_state_problem_json, copy_contract_problem_json,
-    interface_semantic_problem_json, interface_symbol_graph_problem_json, layout_problem_json,
-    native_link_directive_problem_json, native_symbol_directive_problem_json,
-    platform_service_signature_problem_json, propagation_problem_json, refinement_capacity_json,
-    union_tag_problem_json,
+    interface_semantic_problem_json, interface_symbol_graph_problem_json,
+    interface_validation_failure_json, layout_problem_json, native_link_directive_problem_json,
+    native_symbol_directive_problem_json, platform_service_signature_problem_json,
+    propagation_problem_json, refinement_capacity_json, union_tag_problem_json,
 };
 use crate::output::diagnostic::source_map::DiagnosticSourceMap;
 use crate::output::path_to_output_string;
@@ -68,6 +68,7 @@ pub(in crate::output::diagnostic::json) enum DiagnosticArgValueJson {
     InterfaceSymbolIdentity(DiagnosticInterfaceSymbolIdentityJson),
     InterfaceSymbolGraphProblem(DiagnosticProblemJson),
     InterfaceSemanticProblem(DiagnosticProblemJson),
+    InterfaceValidationFailure(DiagnosticProblemJson),
     ProjectSelectionProblem(DiagnosticProjectSelectionJson),
     ProjectCommandFailure(DiagnosticProjectCommandFailureJson),
     ProjectManifestField(&'static str),
@@ -209,6 +210,9 @@ impl DiagnosticArgValueJson {
             }
             DiagnosticArgValue::InterfaceSemanticProblem(problem) => {
                 Self::InterfaceSemanticProblem(interface_semantic_problem_json(problem))
+            }
+            DiagnosticArgValue::InterfaceValidationFailure(failure) => {
+                Self::InterfaceValidationFailure(interface_validation_failure_json(failure))
             }
             DiagnosticArgValue::ProjectSelectionProblem(problem) => {
                 Self::ProjectSelectionProblem(DiagnosticProjectSelectionJson::from_problem(problem))

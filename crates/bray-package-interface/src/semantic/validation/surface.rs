@@ -72,7 +72,9 @@ impl InterfaceSemantics {
                 .all(|pair| pair[0].owner < pair[1].owner)
             || !is_strictly_sorted(&self.provenance)
         {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         self.validate_constraints(symbol_count, dependency_count)?;
@@ -91,7 +93,9 @@ impl InterfaceSemantics {
 
         for default in &*self.callable_parameter_defaults {
             if validate_symbol_kind(&default.parameter, surface)? != SymbolKind::CallableParameter {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
             }
 
             let parameter = local_symbol(&default.parameter)?;
@@ -102,7 +106,9 @@ impl InterfaceSemantics {
             });
 
             if default.is_present != has_provider {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
             }
         }
 
@@ -127,7 +133,9 @@ impl InterfaceSemantics {
                     .packing
                     .is_some_and(|value| !value.is_power_of_two())
             {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
             }
 
             if let Some(tag_type) = representation.union_tag_type {
@@ -138,7 +146,9 @@ impl InterfaceSemantics {
                 && (representation.union_tag_type.is_some()
                     || !representation.union_tags.is_empty())
             {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
             }
 
             for tag in &*representation.union_tags {
@@ -151,7 +161,9 @@ impl InterfaceSemantics {
                             && relationship.member() == variant
                     })
                 {
-                    return Err(InterfaceValidationError::Malformed);
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Reference,
+                    ));
                 }
             }
 
@@ -167,10 +179,14 @@ impl InterfaceSemantics {
                 if representation.copy_dependencies.is_empty()
                     || !is_strictly_sorted(&representation.copy_dependencies)
                 {
-                    return Err(InterfaceValidationError::Malformed);
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Reference,
+                    ));
                 }
             } else if !representation.copy_dependencies.is_empty() {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
             }
 
             for dependency in &*representation.copy_dependencies {
@@ -184,7 +200,9 @@ impl InterfaceSemantics {
                             && relationship.member() == parameter
                     })
                 {
-                    return Err(InterfaceValidationError::Malformed);
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Reference,
+                    ));
                 }
             }
         }
@@ -212,7 +230,9 @@ impl InterfaceSemantics {
             )?;
 
             if coherence.implementations.is_empty() {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
             }
 
             if !coherence
@@ -220,7 +240,9 @@ impl InterfaceSemantics {
                 .windows(2)
                 .all(|pair| pair[0] < pair[1])
             {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
             }
 
             for implementation in &*coherence.implementations {
@@ -249,7 +271,9 @@ impl InterfaceSemantics {
             )?;
 
             if provenance.start > provenance.end {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
             }
         }
 
@@ -304,7 +328,9 @@ impl InterfaceSemantics {
                 || !runtime.requirements().roles().is_empty()
                 || runtime.frames().is_empty() != runtime.requirements().frame_abi().is_none()
             {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
             }
 
             for value in [
@@ -334,7 +360,9 @@ impl InterfaceSemantics {
         let owner_kind = validate_symbol_kind(&signature.owner, surface)?;
 
         if !owner_kind.is_callable() {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         validate_index(signature.callable_type.to_index(), self.types.len())?;
@@ -347,11 +375,15 @@ impl InterfaceSemantics {
             .to_index()
             .and_then(|index| self.types.get(index))
         else {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         };
 
         if parameters.len() != signature.parameters.len() || *result != signature.result {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         if let Some(receiver) = &signature.receiver {
@@ -382,7 +414,9 @@ impl InterfaceSemantics {
         );
 
         if signature.parameters.as_ref() != relationship_parameters.as_slice() {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         let relationship_receivers = relationship_members(
@@ -395,7 +429,11 @@ impl InterfaceSemantics {
         let expected_receiver = match relationship_receivers.as_slice() {
             [] => None,
             [receiver] => Some(receiver),
-            _ => return Err(InterfaceValidationError::Malformed),
+            _ => {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
+            }
         };
 
         if signature
@@ -404,7 +442,9 @@ impl InterfaceSemantics {
             .map(|receiver| &receiver.parameter)
             != expected_receiver
         {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         Ok(())
@@ -421,7 +461,9 @@ impl InterfaceSemantics {
         if !owner_kind.supports_generic_substitutions()
             || !declaration.parameters.is_empty() && !owner_kind.admits_generic_parameters()
         {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         for parameter in &*declaration.parameters {
@@ -432,7 +474,9 @@ impl InterfaceSemantics {
                 || reference_owner(parameter, surface)?
                     != Some(reference_key(&declaration.owner, surface)?)
             {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
             }
         }
 
@@ -447,7 +491,9 @@ impl InterfaceSemantics {
             .collect::<Vec<_>>();
 
         if declaration.parameters.as_ref() != relationship_parameters.as_slice() {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         Ok(())
@@ -473,7 +519,9 @@ impl InterfaceSemantics {
             .chain(contract.normal_completion_postconditions.iter())
         {
             if !clause_ordinals.insert(clause.ordinal) {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
             }
         }
 
@@ -498,7 +546,9 @@ impl InterfaceSemantics {
             .windows(2)
             .all(|pair| pair[0].ordinal < pair[1].ordinal)
         {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         for clause in clauses {
@@ -514,7 +564,9 @@ impl InterfaceSemantics {
                     application,
                 } => {
                     if clause.kind != bray_symbols::CallableContractClauseKind::Static {
-                        return Err(InterfaceValidationError::Malformed);
+                        return Err(crate::semantic::codec::invalid_value(
+                            crate::InterfaceValidationField::Reference,
+                        ));
                     }
 
                     validate_index(subject.to_index(), self.types.len())?;
@@ -538,7 +590,9 @@ impl InterfaceSemantics {
             &behavior.execution_requirements,
         ] {
             if !is_strictly_sorted(requirements) {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
             }
 
             for requirement in &**requirements {
@@ -551,7 +605,9 @@ impl InterfaceSemantics {
             .windows(2)
             .all(|pair| pair[0].ordinal < pair[1].ordinal)
         {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         for requirement in &*behavior.trusted_capabilities {
@@ -559,7 +615,9 @@ impl InterfaceSemantics {
         }
 
         if !is_strictly_sorted(&behavior.lifecycle_obligations) {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         validate_index(
@@ -620,7 +678,9 @@ fn validate_storage_shape(
             }
         }
         crate::InterfaceStorageShape::Structure(_) | crate::InterfaceStorageShape::Union(_) => {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
     }
 
@@ -643,7 +703,9 @@ fn validate_storage_member(
                 && relationship.member() == member_id
         })
     {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Reference,
+        ));
     }
 
     Ok(())
@@ -658,7 +720,9 @@ fn validate_owned_parameter(
     if validate_symbol_kind(parameter, surface)? != expected_kind
         || !reference_is_owned_by(parameter, owner, surface)?
     {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Reference,
+        ));
     }
 
     Ok(())
@@ -686,7 +750,9 @@ pub(super) fn local_symbol(
     match reference {
         InterfaceSymbolReference::Local(symbol) => Ok(*symbol),
         InterfaceSymbolReference::Dependency { .. }
-        | InterfaceSymbolReference::CompilerKnown(_) => Err(InterfaceValidationError::Malformed),
+        | InterfaceSymbolReference::CompilerKnown(_) => Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Reference,
+        )),
     }
 }
 
@@ -727,9 +793,13 @@ fn reference_key<'surface>(
             .symbols()
             .symbol(*id)
             .map(|symbol| symbol.key())
-            .ok_or(InterfaceValidationError::Malformed),
+            .ok_or(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            )),
         InterfaceSymbolReference::Dependency { key, .. } => Ok(key),
-        InterfaceSymbolReference::CompilerKnown(_) => Err(InterfaceValidationError::Malformed),
+        InterfaceSymbolReference::CompilerKnown(_) => Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Reference,
+        )),
     }
 }
 
@@ -756,17 +826,23 @@ pub(super) fn validate_symbol_kind(
             .symbols()
             .symbol(*id)
             .map(|symbol| symbol.kind())
-            .ok_or(InterfaceValidationError::Malformed),
+            .ok_or(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            )),
         InterfaceSymbolReference::Dependency { dependency, key } => {
             let Some(dependency) = dependency
                 .to_index()
                 .and_then(|index| surface.dependencies().get(index))
             else {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
             };
 
             if key.package_identity() != dependency.package() {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
             }
 
             Ok(key.kind())

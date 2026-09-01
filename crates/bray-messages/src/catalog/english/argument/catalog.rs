@@ -32,6 +32,10 @@ pub(crate) const USER_FACING_SOURCES: &[(&str, &str)] = &[
         "argument/interface/source.rs",
         include_str!("interface/source.rs"),
     ),
+    (
+        "argument/interface/validation.rs",
+        include_str!("interface/validation.rs"),
+    ),
     ("argument/native.rs", include_str!("native.rs")),
     (
         "argument/native/artifact.rs",

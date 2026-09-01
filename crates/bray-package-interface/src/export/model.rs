@@ -489,10 +489,23 @@ mod tests {
 
     use crate::test_support::package_interface_export_bundle;
     use crate::{
-        InterfaceAbiDependency, InterfaceLanguageRevision, InterfaceSemanticRecordKind,
-        InterfaceSemantics, InterfaceSymbolReference, InterfaceValidationError,
-        PackageInterfaceExportBuildError, PackageInterfaceExportBundle, encode_package_interface,
+        InterfaceAbiDependency, InterfaceLanguageRevision, InterfaceMalformedCause,
+        InterfaceSectionTag, InterfaceSemanticRecordKind, InterfaceSemantics,
+        InterfaceSymbolReference, InterfaceValidationContext, InterfaceValidationError,
+        InterfaceValidationField, PackageInterfaceExportBuildError, PackageInterfaceExportBundle,
+        encode_package_interface,
     };
+
+    fn malformed_template_validation_error() -> PackageInterfaceExportBuildError {
+        PackageInterfaceExportBuildError::Validation(InterfaceValidationError::Malformed {
+            context: InterfaceValidationContext::Section(
+                InterfaceSectionTag::SemanticRecordDirectory,
+            ),
+            cause: InterfaceMalformedCause::InvalidValue {
+                field: InterfaceValidationField::Template,
+            },
+        })
+    }
 
     #[test]
     fn overload_sets_are_fully_described_by_surface_relationships() {
@@ -522,9 +535,7 @@ mod tests {
                 InterfaceLanguageRevision::new(0),
                 crate::test_support::implementation_configuration(),
             ),
-            Err(PackageInterfaceExportBuildError::Validation(
-                InterfaceValidationError::Malformed
-            ))
+            Err(malformed_template_validation_error())
         );
     }
 
@@ -560,9 +571,7 @@ mod tests {
                 InterfaceLanguageRevision::new(0),
                 crate::test_support::implementation_configuration(),
             ),
-            Err(PackageInterfaceExportBuildError::Validation(
-                InterfaceValidationError::Malformed
-            ))
+            Err(malformed_template_validation_error())
         );
     }
 

@@ -248,6 +248,161 @@ pub enum DiagnosticInterfaceSymbolIdentity {
     },
 }
 
+/// Exact imported identity-surface contract rejected during interface validation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticInterfaceIdentitySurfaceProblem {
+    /// The identity surface contains no package root.
+    Empty,
+    /// The identity table is too large for compact interface IDs.
+    SymbolCountOverflow,
+    /// A record ID does not match its table position.
+    NonCanonicalSymbolId {
+        /// Required table-position ID.
+        expected: u32,
+        /// ID supplied by the record.
+        actual: u32,
+    },
+    /// The first identity record is not a package root.
+    MissingPackageRoot {
+        /// Symbol category found at the root position.
+        actual: DiagnosticInterfaceSymbolKind,
+    },
+    /// The package root names a semantic container.
+    PackageRootHasContainer {
+        /// Invalid container ID.
+        container: u32,
+    },
+    /// A key belongs to a different package.
+    PackageIdentityMismatch {
+        /// Record containing the mismatched key.
+        symbol: u32,
+    },
+    /// A record category disagrees with its structured key.
+    SymbolKindMismatch {
+        /// Mismatched record.
+        symbol: u32,
+        /// Category declared by the record.
+        declared: DiagnosticInterfaceSymbolKind,
+        /// Category encoded by the key.
+        keyed: DiagnosticInterfaceSymbolKind,
+    },
+    /// Two records use the same external key.
+    DuplicateExternalKey {
+        /// First record using the key.
+        first: u32,
+        /// Later duplicate record.
+        duplicate: u32,
+    },
+    /// A non-root record has no semantic container.
+    MissingContainer {
+        /// Uncontained record.
+        symbol: u32,
+    },
+    /// A record names a missing, later, or cyclic container.
+    InvalidContainer {
+        /// Contained record.
+        symbol: u32,
+        /// Invalid container ID.
+        container: u32,
+    },
+    /// A containment edge disagrees with the external key owner.
+    ContainerKeyMismatch {
+        /// Contained record.
+        symbol: u32,
+        /// Declared container ID.
+        container: u32,
+    },
+    /// A second root appears in the package identity surface.
+    UnexpectedRoot {
+        /// Invalid root record.
+        symbol: u32,
+        /// Invalid root category.
+        kind: DiagnosticInterfaceSymbolKind,
+    },
+}
+
+impl DiagnosticInterfaceIdentitySurfaceProblem {
+    /// Returns the stable machine key for this identity-surface failure.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Empty => "empty",
+            Self::SymbolCountOverflow => "symbol_count_overflow",
+            Self::NonCanonicalSymbolId { .. } => "non_canonical_symbol_id",
+            Self::MissingPackageRoot { .. } => "missing_package_root",
+            Self::PackageRootHasContainer { .. } => "package_root_has_container",
+            Self::PackageIdentityMismatch { .. } => "package_identity_mismatch",
+            Self::SymbolKindMismatch { .. } => "symbol_kind_mismatch",
+            Self::DuplicateExternalKey { .. } => "duplicate_external_key",
+            Self::MissingContainer { .. } => "missing_container",
+            Self::InvalidContainer { .. } => "invalid_container",
+            Self::ContainerKeyMismatch { .. } => "container_key_mismatch",
+            Self::UnexpectedRoot { .. } => "unexpected_root",
+        }
+    }
+}
+
+/// Complete relationship record retained by interface validation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiagnosticInterfaceRelationship {
+    kind: DiagnosticInterfaceRelationshipKind,
+    owner: u32,
+    member: u32,
+    ordinal: u32,
+    position: crate::DiagnosticCallablePosition,
+    allows_mutation: bool,
+}
+
+impl DiagnosticInterfaceRelationship {
+    /// Creates one exact interface relationship record.
+    pub const fn new(
+        kind: DiagnosticInterfaceRelationshipKind,
+        owner: u32,
+        member: u32,
+        ordinal: u32,
+        position: crate::DiagnosticCallablePosition,
+        allows_mutation: bool,
+    ) -> Self {
+        Self {
+            kind,
+            owner,
+            member,
+            ordinal,
+            position,
+            allows_mutation,
+        }
+    }
+
+    /// Returns the relationship category.
+    pub const fn kind(self) -> DiagnosticInterfaceRelationshipKind {
+        self.kind
+    }
+
+    /// Returns the owner record ID.
+    pub const fn owner(self) -> u32 {
+        self.owner
+    }
+
+    /// Returns the member record ID.
+    pub const fn member(self) -> u32 {
+        self.member
+    }
+
+    /// Returns the owner-relative ordinal.
+    pub const fn ordinal(self) -> u32 {
+        self.ordinal
+    }
+
+    /// Returns the callable-position contract stored by the relationship.
+    pub const fn position(self) -> crate::DiagnosticCallablePosition {
+        self.position
+    }
+
+    /// Returns whether the related field permits mutation after initialization.
+    pub const fn allows_mutation(self) -> bool {
+        self.allows_mutation
+    }
+}
+
 /// Locale-neutral exact reason an imported symbol graph could not be constructed.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticInterfaceSymbolGraphProblem {
@@ -302,6 +457,46 @@ pub enum DiagnosticInterfaceSymbolGraphProblem {
     InvalidRecordRelationships {
         symbol: u32,
         kind: DiagnosticInterfaceSymbolKind,
+    },
+    /// A package-interface surface describes a non-library product.
+    SurfaceNonLibraryProduct,
+    /// A package-interface dependency table exceeds compact IDs.
+    SurfaceDependencyCountOverflow,
+    /// Two surface dependencies use the same package identity.
+    SurfaceDuplicateDependencyPackage(String),
+    /// Surface symbols do not use their required stable order.
+    SurfaceNonCanonicalSymbolOrder {
+        /// Previous symbol record.
+        previous: u32,
+        /// Out-of-order current symbol record.
+        current: u32,
+    },
+    /// A decoded identity surface violates its exact contract.
+    SurfaceIdentity(DiagnosticInterfaceIdentitySurfaceProblem),
+    /// A relationship references a symbol outside the identity table.
+    SurfaceRelationshipSymbolOutOfBounds(DiagnosticInterfaceRelationship),
+    /// A relationship's semantic shape is invalid.
+    SurfaceInvalidRelationship(DiagnosticInterfaceRelationship),
+    /// Two relationships occupy the same owner-relative position.
+    SurfaceDuplicateRelationshipPosition(DiagnosticInterfaceRelationship),
+    /// An exported lookup owner is outside the identity table.
+    SurfaceExportOwnerOutOfBounds(u32),
+    /// A symbol that cannot own exported lookups does so.
+    SurfaceInvalidExportOwner(u32),
+    /// A local export target is outside the identity table.
+    SurfaceExportTargetOutOfBounds(u32),
+    /// A dependency target names a missing dependency slot.
+    SurfaceDependencyOutOfBounds(u32),
+    /// A dependency target key belongs to another package.
+    SurfaceDependencyKeyPackageMismatch(u32),
+    /// A direct export targets a declaration outside its owner.
+    SurfaceInvalidDirectExportTarget(u32),
+    /// Two export edges project the same name from one owner.
+    SurfaceDuplicateExportName {
+        /// Exporting package or module record.
+        owner: u32,
+        /// Duplicate projected name.
+        name: String,
     },
 }
 

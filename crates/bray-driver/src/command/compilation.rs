@@ -77,7 +77,7 @@ impl DriverDependencyInterface {
                 bytes,
                 bray_package_interface::InterfaceValidationLimits::default(),
             )
-            .map_err(|_| dependency_implementation_diagnostics(self, path))?;
+            .map_err(|error| dependency_implementation_diagnostics(self, path, error))?;
 
             input = input.with_implementation_artifact(path, std::sync::Arc::new(artifact));
         }
@@ -106,14 +106,10 @@ fn dependency_artifact_read_diagnostics(path: &Path, kind: std::io::ErrorKind) -
 fn dependency_implementation_diagnostics(
     dependency: &DriverDependencyInterface,
     path: &Path,
+    error: bray_package_interface::InterfaceValidationError,
 ) -> DiagnosticBag {
     DiagnosticBag::single(
-        Diagnostic::new(
-            DiagnosticId::new(0),
-            DiagnosticKind::InterfaceMalformed,
-            SeverityKind::Error,
-        )
-        .with_note(
+        error.into_diagnostic(DiagnosticId::new(0)).with_note(
             DiagnosticNote::new(DiagnosticNoteKind::InterfaceDependencyContext)
                 .with_arg(DiagnosticArg::expected_package_identity(
                     dependency.package().as_str(),

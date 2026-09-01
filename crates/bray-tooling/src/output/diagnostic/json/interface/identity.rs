@@ -17,6 +17,7 @@ pub(in crate::output::diagnostic::json) enum DiagnosticProblemFieldValueJson {
     Types(Vec<DiagnosticTypeJson>),
     ArrayLength(DiagnosticArrayLengthJson),
     SymbolIdentity(DiagnosticInterfaceSymbolIdentityJson),
+    Problem(Box<super::super::DiagnosticProblemJson>),
 }
 
 #[derive(Serialize)]

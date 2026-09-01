@@ -77,6 +77,111 @@ pub(crate) fn format_english_interface_symbol_graph_problem(
             "relationships for {} symbol {symbol} do not form a valid record",
             format_english_interface_symbol_kind(*kind)
         ),
+        Problem::SurfaceNonLibraryProduct => {
+            "package interface describes a product that is not a library".to_owned()
+        }
+        Problem::SurfaceDependencyCountOverflow => {
+            "package interface has too many dependencies for compact identities".to_owned()
+        }
+        Problem::SurfaceDuplicateDependencyPackage(package) => format!(
+            "package interface lists dependency package {} more than once",
+            format_english_quoted_text(package)
+        ),
+        Problem::SurfaceNonCanonicalSymbolOrder { previous, current } => format!(
+            "package-interface symbol record {current} does not sort after record {previous}"
+        ),
+        Problem::SurfaceIdentity(cause) => format_english_identity_surface_problem(*cause),
+        Problem::SurfaceRelationshipSymbolOutOfBounds(relationship) => format!(
+            "{} relationship from symbol {} to symbol {} references a record outside the identity table",
+            format_english_interface_relationship_kind(relationship.kind()),
+            relationship.owner(),
+            relationship.member(),
+        ),
+        Problem::SurfaceInvalidRelationship(relationship) => format!(
+            "{} relationship from symbol {} to symbol {} has invalid semantic shape",
+            format_english_interface_relationship_kind(relationship.kind()),
+            relationship.owner(),
+            relationship.member(),
+        ),
+        Problem::SurfaceDuplicateRelationshipPosition(relationship) => format!(
+            "{} relationship for owner {} repeats ordinal {}",
+            format_english_interface_relationship_kind(relationship.kind()),
+            relationship.owner(),
+            relationship.ordinal(),
+        ),
+        Problem::SurfaceExportOwnerOutOfBounds(owner) => {
+            format!("exported lookup references missing owner record {owner}")
+        }
+        Problem::SurfaceInvalidExportOwner(owner) => {
+            format!("symbol record {owner} cannot own exported lookups")
+        }
+        Problem::SurfaceExportTargetOutOfBounds(target) => {
+            format!("exported lookup references missing target record {target}")
+        }
+        Problem::SurfaceDependencyOutOfBounds(dependency) => {
+            format!("exported lookup references missing dependency slot {dependency}")
+        }
+        Problem::SurfaceDependencyKeyPackageMismatch(dependency) => {
+            format!("exported lookup dependency slot {dependency} has a key from another package")
+        }
+        Problem::SurfaceInvalidDirectExportTarget(target) => {
+            format!("direct export target record {target} is not contained by its export owner")
+        }
+        Problem::SurfaceDuplicateExportName { owner, name } => format!(
+            "lookup owner {owner} exports name {} more than once",
+            format_english_quoted_text(name)
+        ),
+    }
+}
+
+fn format_english_identity_surface_problem(
+    problem: bray_diagnostics::DiagnosticInterfaceIdentitySurfaceProblem,
+) -> String {
+    use bray_diagnostics::DiagnosticInterfaceIdentitySurfaceProblem as Problem;
+
+    match problem {
+        Problem::Empty => "package-interface identity table is empty".to_owned(),
+        Problem::SymbolCountOverflow => {
+            "package-interface identity table exceeds compact symbol identities".to_owned()
+        }
+        Problem::NonCanonicalSymbolId { expected, actual } => format!(
+            "package-interface symbol record has identity {actual}, but its table position requires {expected}"
+        ),
+        Problem::MissingPackageRoot { actual } => format!(
+            "package-interface identity table starts with a {} symbol instead of a package root",
+            format_english_interface_symbol_kind(actual)
+        ),
+        Problem::PackageRootHasContainer { container } => {
+            format!("package root incorrectly names container record {container}")
+        }
+        Problem::PackageIdentityMismatch { symbol } => {
+            format!("symbol record {symbol} belongs to another package")
+        }
+        Problem::SymbolKindMismatch {
+            symbol,
+            declared,
+            keyed,
+        } => format!(
+            "symbol record {symbol} declares category {}, but its identity encodes {}",
+            format_english_interface_symbol_kind(declared),
+            format_english_interface_symbol_kind(keyed)
+        ),
+        Problem::DuplicateExternalKey { first, duplicate } => {
+            format!("symbol records {first} and {duplicate} use the same external identity")
+        }
+        Problem::MissingContainer { symbol } => {
+            format!("symbol record {symbol} has no container")
+        }
+        Problem::InvalidContainer { symbol, container } => {
+            format!("symbol record {symbol} names missing, later, or cyclic container {container}")
+        }
+        Problem::ContainerKeyMismatch { symbol, container } => format!(
+            "symbol record {symbol} names container {container}, but its external identity names another owner"
+        ),
+        Problem::UnexpectedRoot { symbol, kind } => format!(
+            "symbol record {symbol} introduces an unexpected {} root",
+            format_english_interface_symbol_kind(kind)
+        ),
     }
 }
 

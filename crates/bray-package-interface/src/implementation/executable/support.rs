@@ -1,4 +1,4 @@
-use crate::decode::map_wire_error;
+use crate::implementation::map_wire_error;
 use crate::wire::{WireEncoder, WireReader};
 use crate::{InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits};
 
@@ -12,7 +12,9 @@ pub(super) fn read_bool(reader: &mut WireReader<'_>) -> Result<bool, InterfaceVa
     match read_u32(reader)? {
         0 => Ok(false),
         1 => Ok(true),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::implementation::invalid_value(
+            crate::InterfaceValidationField::Value,
+        )),
     }
 }
 
@@ -37,7 +39,9 @@ pub(super) fn read_optional<T>(
     match read_u32(reader)? {
         0 => Ok(None),
         1 => read(reader).map(Some),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::implementation::invalid_value(
+            crate::InterfaceValidationField::Value,
+        )),
     }
 }
 
@@ -53,7 +57,8 @@ pub(super) fn read_count(
 
     limits.check(InterfaceLimit::TemplateGraphSize, u64::from(count))?;
 
-    usize::try_from(count).map_err(|_| InterfaceValidationError::Malformed)
+    usize::try_from(count)
+        .map_err(|_| crate::implementation::invalid_value(crate::InterfaceValidationField::Value))
 }
 
 pub(super) fn read_u32(reader: &mut WireReader<'_>) -> Result<u32, InterfaceValidationError> {

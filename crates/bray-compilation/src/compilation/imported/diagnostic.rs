@@ -23,6 +23,21 @@ pub(super) fn validation_diagnostics(
     ))
 }
 
+pub(super) fn implementation_validation_diagnostics(
+    error: InterfaceValidationError,
+    input: &DependencyInterfaceInput,
+) -> DiagnosticBag {
+    let diagnostic = with_dependency_context_path(
+        error.into_diagnostic(DiagnosticId::new(0)),
+        input,
+        input
+            .implementation_artifact_path()
+            .unwrap_or_else(|| input.artifact_path()),
+    );
+
+    DiagnosticBag::single(diagnostic)
+}
+
 pub(super) fn contextual_interface_diagnostic(
     diagnostic: Diagnostic,
     input: &DependencyInterfaceInput,

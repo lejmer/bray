@@ -15,12 +15,13 @@ use bray_target::{
     TargetPropertyKind,
 };
 
-use crate::decode::{DecodeBudget, map_wire_error};
+use crate::decode::DecodeBudget;
 use crate::wire::{WireEncoder, WireReader};
 use crate::{
-    InterfaceContentHash, InterfaceDependency, InterfaceLimit, InterfaceProductIdentity,
-    InterfaceProductKind, InterfaceValidationError, InterfaceValidationLimits,
-    PackageInterfaceIdentity,
+    InterfaceContentHash, InterfaceDependency, InterfaceLimit, InterfaceMalformedCause,
+    InterfaceProductIdentity, InterfaceProductKind, InterfaceUtf8Failure,
+    InterfaceValidationContext, InterfaceValidationError, InterfaceValidationField,
+    InterfaceValidationLimits, PackageInterfaceIdentity,
 };
 
 use super::{
@@ -70,21 +71,25 @@ pub(super) fn decode_identity(
     let mut reader = WireReader::new(bytes);
     let mut budget = DecodeBudget::new(limits);
 
-    let package = PackageIdentity::try_new(read_string(&mut reader, limits)?)
-        .ok_or(InterfaceValidationError::Malformed)?;
+    let package = PackageIdentity::try_new(read_string(&mut reader, limits)?).ok_or(
+        crate::implementation::invalid_value(crate::InterfaceValidationField::PackageName),
+    )?;
 
-    let version = PackageVersion::try_new(&read_string(&mut reader, limits)?)
-        .ok_or(InterfaceValidationError::Malformed)?;
+    let version = PackageVersion::try_new(&read_string(&mut reader, limits)?).ok_or(
+        crate::implementation::invalid_value(crate::InterfaceValidationField::PackageVersion),
+    )?;
 
-    let product = InterfaceProductIdentity::try_new(read_string(&mut reader, limits)?)
-        .ok_or(InterfaceValidationError::Malformed)?;
+    let product = InterfaceProductIdentity::try_new(read_string(&mut reader, limits)?).ok_or(
+        crate::implementation::invalid_value(crate::InterfaceValidationField::ProductName),
+    )?;
 
     let kind = product_kind_from_wire(reader.read_u32().map_err(map_wire_error)?)?;
     let public_surface = read_string(&mut reader, limits)?;
 
     let interface =
-        PackageInterfaceIdentity::try_new(package, version, product, kind, public_surface)
-            .ok_or(InterfaceValidationError::Malformed)?;
+        PackageInterfaceIdentity::try_new(package, version, product, kind, public_surface).ok_or(
+            crate::implementation::invalid_value(crate::InterfaceValidationField::Identity),
+        )?;
 
     let interface_content_hash =
         InterfaceContentHash::from_bytes(reader.read_array::<32>().map_err(map_wire_error)?);
@@ -95,7 +100,9 @@ pub(super) fn decode_identity(
     let template_schema_revision = reader.read_u16().map_err(map_wire_error)?;
 
     if template_schema_revision != CURRENT_TEMPLATE_SCHEMA_REVISION.raw() {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::implementation::invalid_value(
+            crate::InterfaceValidationField::SchemaRevision,
+        ));
     }
 
     let configuration = read_configuration(&mut reader, &mut budget)?;
@@ -110,11 +117,17 @@ pub(super) fn decode_identity(
         u64::from(runtime_requirements_count),
     )?;
 
-    let runtime_requirements_count = usize::try_from(runtime_requirements_count)
-        .map_err(|_| InterfaceValidationError::Malformed)?;
+    let runtime_requirements_count = usize::try_from(runtime_requirements_count).map_err(|_| {
+        crate::implementation::invalid_value(crate::InterfaceValidationField::RecordCount)
+    })?;
 
-    let mut runtime_requirements =
-        budget.allocate_items_with_minimum(&reader, runtime_requirements_count, 26)?;
+    let mut runtime_requirements = budget.allocate_items_with_minimum(
+        &reader,
+        InterfaceValidationContext::Artifact,
+        InterfaceValidationField::RuntimeRequirements,
+        runtime_requirements_count,
+        26,
+    )?;
 
     for _ in 0..runtime_requirements_count {
         runtime_requirements.push(read_runtime_requirements(&mut reader, &mut budget)?);
@@ -126,17 +139,26 @@ pub(super) fn decode_identity(
         || runtime_requirements_identity(runtime_requirements.iter())
             != expected_runtime_requirements_identity
     {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::implementation::invalid_value(
+            crate::InterfaceValidationField::RuntimeRequirements,
+        ));
     }
 
     let dependency_count = reader.read_u32().map_err(map_wire_error)?;
 
     limits.check(InterfaceLimit::RecordCount, u64::from(dependency_count))?;
 
-    let dependency_count =
-        usize::try_from(dependency_count).map_err(|_| InterfaceValidationError::Malformed)?;
+    let dependency_count = usize::try_from(dependency_count).map_err(|_| {
+        crate::implementation::invalid_value(crate::InterfaceValidationField::RecordCount)
+    })?;
 
-    let mut dependencies = budget.allocate_items_with_minimum(&reader, dependency_count, 40)?;
+    let mut dependencies = budget.allocate_items_with_minimum(
+        &reader,
+        InterfaceValidationContext::Artifact,
+        InterfaceValidationField::Dependency,
+        dependency_count,
+        40,
+    )?;
 
     for _ in 0..dependency_count {
         dependencies.push(read_dependency(&mut reader, limits)?);
@@ -145,7 +167,9 @@ pub(super) fn decode_identity(
     reader.finish().map_err(map_wire_error)?;
 
     if dependencies.windows(2).any(|pair| pair[0] >= pair[1]) {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::implementation::invalid_value(
+            crate::InterfaceValidationField::Ordering,
+        ));
     }
 
     Ok(PackageImplementationIdentity::new(
@@ -194,10 +218,17 @@ pub(super) fn decode_specialization_key(
 
     limits.check(InterfaceLimit::RecordCount, u64::from(witness_count))?;
 
-    let witness_count =
-        usize::try_from(witness_count).map_err(|_| InterfaceValidationError::Malformed)?;
+    let witness_count = usize::try_from(witness_count).map_err(|_| {
+        crate::implementation::invalid_value(crate::InterfaceValidationField::RecordCount)
+    })?;
 
-    let mut witnesses = budget.allocate_items_with_minimum(reader, witness_count, 12)?;
+    let mut witnesses = budget.allocate_items_with_minimum(
+        reader,
+        InterfaceValidationContext::Artifact,
+        InterfaceValidationField::Reference,
+        witness_count,
+        12,
+    )?;
 
     for _ in 0..witness_count {
         let definition =
@@ -210,7 +241,9 @@ pub(super) fn decode_specialization_key(
     }
 
     if witnesses.windows(2).any(|pair| pair[0] >= pair[1]) {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::implementation::invalid_value(
+            crate::InterfaceValidationField::Ordering,
+        ));
     }
 
     let configuration = read_configuration(reader, &mut budget)?;
@@ -220,24 +253,35 @@ pub(super) fn decode_specialization_key(
     );
 
     if template_schema_revision != CURRENT_TEMPLATE_SCHEMA_REVISION {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::implementation::invalid_value(
+            crate::InterfaceValidationField::SchemaRevision,
+        ));
     }
 
     let dependency_count = reader.read_u32().map_err(map_wire_error)?;
 
     limits.check(InterfaceLimit::RecordCount, u64::from(dependency_count))?;
 
-    let dependency_count =
-        usize::try_from(dependency_count).map_err(|_| InterfaceValidationError::Malformed)?;
+    let dependency_count = usize::try_from(dependency_count).map_err(|_| {
+        crate::implementation::invalid_value(crate::InterfaceValidationField::RecordCount)
+    })?;
 
-    let mut dependencies = budget.allocate_items_with_minimum(reader, dependency_count, 40)?;
+    let mut dependencies = budget.allocate_items_with_minimum(
+        reader,
+        InterfaceValidationContext::Artifact,
+        InterfaceValidationField::Dependency,
+        dependency_count,
+        40,
+    )?;
 
     for _ in 0..dependency_count {
         dependencies.push(read_dependency(reader, limits)?);
     }
 
     if dependencies.windows(2).any(|pair| pair[0] >= pair[1]) {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::implementation::invalid_value(
+            crate::InterfaceValidationField::Ordering,
+        ));
     }
 
     Ok(PackageImplementationSpecializationKey::new(
@@ -284,6 +328,18 @@ fn write_configuration(
     write_string(encoder, configuration.panic_abi().as_str());
 }
 
+pub(super) fn configuration_identity(
+    configuration: &PackageImplementationConfiguration,
+) -> [u8; 32] {
+    let mut encoder = WireEncoder::new();
+    write_configuration(&mut encoder, configuration);
+
+    let mut digest = StableDigestHasher::new();
+    digest.write(b"bray.package-implementation.configuration.v1");
+    digest.write(encoder.bytes());
+    digest.finalize()
+}
+
 fn read_configuration(
     reader: &mut WireReader<'_>,
     budget: &mut DecodeBudget,
@@ -293,10 +349,15 @@ fn read_configuration(
     let runtime = match reader.read_u8().map_err(map_wire_error)? {
         0 => None,
         1 => Some(
-            RuntimeIdentity::try_new(read_string(reader, budget.limits())?)
-                .ok_or(InterfaceValidationError::Malformed)?,
+            RuntimeIdentity::try_new(read_string(reader, budget.limits())?).ok_or(
+                crate::implementation::invalid_value(crate::InterfaceValidationField::Identity),
+            )?,
         ),
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(crate::implementation::invalid_value(
+                crate::InterfaceValidationField::Discriminant,
+            ));
+        }
     };
 
     let runtime_abi = RuntimeAbiVersion::new(
@@ -304,8 +365,9 @@ fn read_configuration(
         reader.read_u16().map_err(map_wire_error)?,
     );
 
-    let panic_abi = PanicAbiIdentity::try_new(read_string(reader, budget.limits())?)
-        .ok_or(InterfaceValidationError::Malformed)?;
+    let panic_abi = PanicAbiIdentity::try_new(read_string(reader, budget.limits())?).ok_or(
+        crate::implementation::invalid_value(crate::InterfaceValidationField::Identity),
+    )?;
 
     Ok(PackageImplementationConfiguration::new(
         target,
@@ -353,34 +415,46 @@ fn read_target_properties(
     reader: &mut WireReader<'_>,
     budget: &mut DecodeBudget,
 ) -> Result<PackageImplementationTargetProperties, InterfaceValidationError> {
-    let identity = TargetIdentity::try_new(read_string(reader, budget.limits())?)
-        .ok_or(InterfaceValidationError::Malformed)?;
+    let identity = TargetIdentity::try_new(read_string(reader, budget.limits())?).ok_or(
+        crate::implementation::invalid_value(crate::InterfaceValidationField::Identity),
+    )?;
 
     let machine = read_machine(reader)?;
     let count = usize::from(reader.read_u16().map_err(map_wire_error)?);
 
     if count != TargetPropertyKind::ALL.len() {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::implementation::invalid_value(
+            crate::InterfaceValidationField::RecordCount,
+        ));
     }
 
-    let mut properties = budget.allocate_items_with_minimum(reader, count, 3)?;
+    let mut properties = budget.allocate_items_with_minimum(
+        reader,
+        InterfaceValidationContext::Artifact,
+        InterfaceValidationField::TargetProperty,
+        count,
+        3,
+    )?;
 
     for expected in TargetPropertyKind::ALL {
         let ordinal = usize::from(reader.read_u16().map_err(map_wire_error)?);
 
-        let kind = TargetPropertyKind::ALL
-            .get(ordinal)
-            .copied()
-            .ok_or(InterfaceValidationError::Malformed)?;
+        let kind = TargetPropertyKind::ALL.get(ordinal).copied().ok_or(
+            crate::implementation::invalid_value(crate::InterfaceValidationField::Ordinal),
+        )?;
 
         if kind != *expected {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::implementation::invalid_value(
+                crate::InterfaceValidationField::Ordering,
+            ));
         }
 
         let value = match reader.read_u8().map_err(map_wire_error)? {
             0 => PackageImplementationTargetPropertyValue::String(
                 bray_base::NonEmptySharedStr::try_new(read_string(reader, budget.limits())?)
-                    .ok_or(InterfaceValidationError::Malformed)?,
+                    .ok_or(crate::implementation::invalid_value(
+                        crate::InterfaceValidationField::String,
+                    ))?,
             ),
             1 => PackageImplementationTargetPropertyValue::Usize(
                 reader.read_u64().map_err(map_wire_error)?,
@@ -389,17 +463,26 @@ fn read_target_properties(
                 match reader.read_u8().map_err(map_wire_error)? {
                     0 => false,
                     1 => true,
-                    _ => return Err(InterfaceValidationError::Malformed),
+                    _ => {
+                        return Err(crate::implementation::invalid_value(
+                            crate::InterfaceValidationField::Discriminant,
+                        ));
+                    }
                 },
             ),
-            _ => return Err(InterfaceValidationError::Malformed),
+            _ => {
+                return Err(crate::implementation::invalid_value(
+                    crate::InterfaceValidationField::Discriminant,
+                ));
+            }
         };
 
         properties.push(PackageImplementationTargetProperty::new(kind, value));
     }
 
-    PackageImplementationTargetProperties::try_from_parts(identity, machine, properties)
-        .ok_or(InterfaceValidationError::Malformed)
+    PackageImplementationTargetProperties::try_from_parts(identity, machine, properties).ok_or(
+        crate::implementation::invalid_value(crate::InterfaceValidationField::TargetProperty),
+    )
 }
 
 fn write_machine(encoder: &mut WireEncoder, machine: &TargetMachineProperties) {
@@ -446,7 +529,11 @@ fn read_machine(
         6 => TargetArchitecture::PowerPc64,
         7 => TargetArchitecture::Wasm32,
         8 => TargetArchitecture::Wasm64,
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(crate::implementation::invalid_value(
+                crate::InterfaceValidationField::Discriminant,
+            ));
+        }
     };
 
     let object_format = match reader.read_u8().map_err(map_wire_error)? {
@@ -455,23 +542,34 @@ fn read_machine(
         2 => ObjectFormat::MachO,
         3 => ObjectFormat::WebAssembly,
         4 => ObjectFormat::Xcoff,
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(crate::implementation::invalid_value(
+                crate::InterfaceValidationField::Discriminant,
+            ));
+        }
     };
 
     let endianness = match reader.read_u8().map_err(map_wire_error)? {
         0 => Endianness::Little,
         1 => Endianness::Big,
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(crate::implementation::invalid_value(
+                crate::InterfaceValidationField::Discriminant,
+            ));
+        }
     };
 
-    let pointer_width = NonZeroU16::new(reader.read_u16().map_err(map_wire_error)?)
-        .ok_or(InterfaceValidationError::Malformed)?;
+    let pointer_width = NonZeroU16::new(reader.read_u16().map_err(map_wire_error)?).ok_or(
+        crate::implementation::invalid_value(crate::InterfaceValidationField::TargetProperty),
+    )?;
 
-    let pointer_alignment = NonZeroU32::new(reader.read_u32().map_err(map_wire_error)?)
-        .ok_or(InterfaceValidationError::Malformed)?;
+    let pointer_alignment = NonZeroU32::new(reader.read_u32().map_err(map_wire_error)?).ok_or(
+        crate::implementation::invalid_value(crate::InterfaceValidationField::TargetProperty),
+    )?;
 
-    let stack_alignment = NonZeroU32::new(reader.read_u32().map_err(map_wire_error)?)
-        .ok_or(InterfaceValidationError::Malformed)?;
+    let stack_alignment = NonZeroU32::new(reader.read_u32().map_err(map_wire_error)?).ok_or(
+        crate::implementation::invalid_value(crate::InterfaceValidationField::TargetProperty),
+    )?;
 
     TargetMachineProperties::try_new(
         architecture,
@@ -481,7 +579,9 @@ fn read_machine(
         pointer_alignment,
         stack_alignment,
     )
-    .ok_or(InterfaceValidationError::Malformed)
+    .ok_or(crate::implementation::invalid_value(
+        crate::InterfaceValidationField::TargetProperty,
+    ))
 }
 
 fn write_runtime_requirements(encoder: &mut WireEncoder, requirements: &RuntimeRequirements) {
@@ -552,10 +652,15 @@ fn read_runtime_requirements(
     let runtime = match reader.read_u8().map_err(map_wire_error)? {
         0 => None,
         1 => Some(
-            RuntimeIdentity::try_new(read_string(reader, budget.limits())?)
-                .ok_or(InterfaceValidationError::Malformed)?,
+            RuntimeIdentity::try_new(read_string(reader, budget.limits())?).ok_or(
+                crate::implementation::invalid_value(crate::InterfaceValidationField::Identity),
+            )?,
         ),
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(crate::implementation::invalid_value(
+                crate::InterfaceValidationField::Discriminant,
+            ));
+        }
     };
 
     let abi_version = read_version(reader)?;
@@ -569,14 +674,20 @@ fn read_runtime_requirements(
             read_version(reader)?,
             read_version(reader)?,
         )),
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(crate::implementation::invalid_value(
+                crate::InterfaceValidationField::Discriminant,
+            ));
+        }
     };
 
-    let target = TargetIdentity::try_new(read_string(reader, budget.limits())?)
-        .ok_or(InterfaceValidationError::Malformed)?;
+    let target = TargetIdentity::try_new(read_string(reader, budget.limits())?).ok_or(
+        crate::implementation::invalid_value(crate::InterfaceValidationField::Identity),
+    )?;
 
-    let panic_abi = PanicAbiIdentity::try_new(read_string(reader, budget.limits())?)
-        .ok_or(InterfaceValidationError::Malformed)?;
+    let panic_abi = PanicAbiIdentity::try_new(read_string(reader, budget.limits())?).ok_or(
+        crate::implementation::invalid_value(crate::InterfaceValidationField::Identity),
+    )?;
 
     let roles = read_ordinals(reader, budget, RuntimeAbiRole::ALL)?;
     let capabilities = read_ordinals(reader, budget, RuntimeCapability::ALL)?;
@@ -646,8 +757,16 @@ fn read_ordinals<T: Copy + Ord, const N: usize>(
         .limits()
         .check(InterfaceLimit::RecordCount, u64::from(count))?;
 
-    let count = usize::try_from(count).map_err(|_| InterfaceValidationError::Malformed)?;
-    let mut values = budget.allocate_items_with_minimum(reader, count, 2)?;
+    let count = usize::try_from(count).map_err(|_| {
+        crate::implementation::invalid_value(crate::InterfaceValidationField::RecordCount)
+    })?;
+    let mut values = budget.allocate_items_with_minimum(
+        reader,
+        InterfaceValidationContext::Artifact,
+        InterfaceValidationField::Ordinal,
+        count,
+        2,
+    )?;
 
     for _ in 0..count {
         let ordinal = usize::from(reader.read_u16().map_err(map_wire_error)?);
@@ -655,13 +774,17 @@ fn read_ordinals<T: Copy + Ord, const N: usize>(
         let value = universe
             .get(ordinal)
             .copied()
-            .ok_or(InterfaceValidationError::Malformed)?;
+            .ok_or(crate::implementation::invalid_value(
+                crate::InterfaceValidationField::Ordinal,
+            ))?;
 
         values.push(value);
     }
 
     if values.windows(2).any(|pair| pair[0] >= pair[1]) {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::implementation::invalid_value(
+            crate::InterfaceValidationField::Ordering,
+        ));
     }
 
     Ok(values)
@@ -690,14 +813,26 @@ fn read_arguments(
         .limits()
         .check(InterfaceLimit::RecordCount, u64::from(count))?;
 
-    let count = usize::try_from(count).map_err(|_| InterfaceValidationError::Malformed)?;
-    let mut arguments = budget.allocate_items_with_minimum(reader, count, 33)?;
+    let count = usize::try_from(count).map_err(|_| {
+        crate::implementation::invalid_value(crate::InterfaceValidationField::RecordCount)
+    })?;
+    let mut arguments = budget.allocate_items_with_minimum(
+        reader,
+        InterfaceValidationContext::Artifact,
+        InterfaceValidationField::Argument,
+        count,
+        33,
+    )?;
 
     for _ in 0..count {
         let kind = match reader.read_u8().map_err(map_wire_error)? {
             0 => ImplementationSpecializationArgumentKind::Type,
             1 => ImplementationSpecializationArgumentKind::Constant,
-            _ => return Err(InterfaceValidationError::Malformed),
+            _ => {
+                return Err(crate::implementation::invalid_value(
+                    crate::InterfaceValidationField::Discriminant,
+                ));
+            }
         };
 
         let identity = reader.read_array::<32>().map_err(map_wire_error)?;
@@ -718,11 +853,13 @@ fn read_dependency(
     reader: &mut WireReader<'_>,
     limits: InterfaceValidationLimits,
 ) -> Result<InterfaceDependency, InterfaceValidationError> {
-    let package = PackageIdentity::try_new(read_string(reader, limits)?)
-        .ok_or(InterfaceValidationError::Malformed)?;
+    let package = PackageIdentity::try_new(read_string(reader, limits)?).ok_or(
+        crate::implementation::invalid_value(crate::InterfaceValidationField::PackageName),
+    )?;
 
-    let product = InterfaceProductIdentity::try_new(read_string(reader, limits)?)
-        .ok_or(InterfaceValidationError::Malformed)?;
+    let product = InterfaceProductIdentity::try_new(read_string(reader, limits)?).ok_or(
+        crate::implementation::invalid_value(crate::InterfaceValidationField::ProductName),
+    )?;
 
     let content_hash =
         InterfaceContentHash::from_bytes(reader.read_array::<32>().map_err(map_wire_error)?);
@@ -743,12 +880,29 @@ fn read_string(
 
     limits.check(InterfaceLimit::StringLength, u64::from(length))?;
 
-    let length = usize::try_from(length).map_err(|_| InterfaceValidationError::Malformed)?;
+    let length = usize::try_from(length).map_err(|_| {
+        crate::implementation::invalid_value(crate::InterfaceValidationField::String)
+    })?;
+    let offset = reader.position();
     let bytes = reader.read_bytes(length).map_err(map_wire_error)?;
-    let value = str::from_utf8(bytes).map_err(|_| InterfaceValidationError::Malformed)?;
+    let value = str::from_utf8(bytes).map_err(|cause| InterfaceValidationError::InvalidUtf8 {
+        context: InterfaceValidationContext::Artifact,
+        field: InterfaceValidationField::String,
+        offset: offset as u64,
+        length: length as u64,
+        cause: cause
+            .error_len()
+            .map_or(InterfaceUtf8Failure::IncompleteSequence, |error_length| {
+                InterfaceUtf8Failure::InvalidSequence {
+                    error_length: Some(error_length as u64),
+                }
+            }),
+    })?;
 
     if value.is_empty() {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::implementation::invalid_value(
+            crate::InterfaceValidationField::String,
+        ));
     }
 
     Ok(Arc::from(value))
@@ -769,12 +923,40 @@ const fn product_kind_from_wire(
         0 => Ok(InterfaceProductKind::Library),
         1 => Ok(InterfaceProductKind::Executable),
         2 => Ok(InterfaceProductKind::Test),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(invalid_discriminant(
+            InterfaceValidationField::Discriminant,
+            raw as u64,
+        )),
     }
 }
 
 fn checked_u32(value: usize) -> u32 {
     u32::try_from(value).unwrap_or(u32::MAX)
+}
+
+pub(crate) const fn invalid_value(field: InterfaceValidationField) -> InterfaceValidationError {
+    InterfaceValidationError::Malformed {
+        context: InterfaceValidationContext::Artifact,
+        cause: InterfaceMalformedCause::InvalidValue { field },
+    }
+}
+
+pub(super) const fn invalid_discriminant(
+    field: InterfaceValidationField,
+    actual: u64,
+) -> InterfaceValidationError {
+    InterfaceValidationError::Malformed {
+        context: InterfaceValidationContext::Artifact,
+        cause: InterfaceMalformedCause::InvalidDiscriminant { field, actual },
+    }
+}
+
+pub(crate) fn map_wire_error(error: crate::wire::WireDecodeError) -> InterfaceValidationError {
+    crate::decode::map_wire_error(
+        InterfaceValidationContext::Artifact,
+        InterfaceValidationField::Value,
+        error,
+    )
 }
 
 #[cfg(test)]
@@ -864,7 +1046,13 @@ mod tests {
 
         assert_eq!(
             read_ordinals(&mut reader, &mut budget, [0_u8, 1]),
-            Err(InterfaceValidationError::Truncated)
+            Err(InterfaceValidationError::Truncated {
+                context: crate::InterfaceValidationContext::Artifact,
+                field: crate::InterfaceValidationField::Ordinal,
+                offset: 4,
+                expected_length: 8,
+                actual_length: 0,
+            })
         );
     }
 
@@ -886,7 +1074,9 @@ mod tests {
 
         assert_eq!(
             read_configuration(&mut reader, &mut budget),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::implementation::invalid_value(
+                crate::InterfaceValidationField::TargetProperty
+            ))
         );
     }
 

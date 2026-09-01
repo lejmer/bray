@@ -35,6 +35,16 @@ impl DiagnosticArg {
         )
     }
 
+    /// Creates an exact package-interface validation failure argument.
+    pub fn interface_validation_failure(
+        failure: crate::DiagnosticInterfaceValidationFailure,
+    ) -> Self {
+        Self::new(
+            DiagnosticArgName::InterfaceValidationFailure,
+            DiagnosticArgValue::InterfaceValidationFailure(failure),
+        )
+    }
+
     /// Creates an exact recursive package-interface symbol identity argument.
     pub fn interface_symbol_identity(identity: crate::DiagnosticInterfaceSymbolIdentity) -> Self {
         Self::new(

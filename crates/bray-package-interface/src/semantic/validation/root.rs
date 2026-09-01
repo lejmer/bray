@@ -61,6 +61,8 @@ pub(in crate::semantic) fn checked_index(
 ) -> Result<usize, InterfaceValidationError> {
     match index {
         Some(index) if index < length => Ok(index),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Discriminant,
+        )),
     }
 }

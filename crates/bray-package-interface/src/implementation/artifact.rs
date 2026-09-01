@@ -7,7 +7,8 @@ use bray_bound_tree::CheckedTemplateKind;
 use bray_ir::{MirExecutableTemplateId, MirTargetContract, MirUnit, MirUnitId};
 use bray_symbols::{AnySymbolId, InterfaceSymbolId};
 
-use crate::decode::{DecodeBudget, map_wire_error};
+use crate::decode::DecodeBudget;
+use crate::implementation::map_wire_error;
 use crate::semantic::decode_template_payload;
 use crate::wire::WireReader;
 use crate::{
@@ -19,7 +20,7 @@ use crate::{
 
 use super::artifact_decoding::{decode_directory_entry, decode_entry_payload};
 use super::artifact_encoding::encode_artifact;
-use super::codec::decode_identity;
+use super::codec::{configuration_identity, decode_identity};
 #[cfg(test)]
 use super::hash::compute_payload_hash;
 use super::hash::{compute_artifact_hash, compute_content_hash};
@@ -67,6 +68,7 @@ impl ImplementationPayloadKind {
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(super) struct ImplementationDirectoryEntry {
+    pub(super) index: u64,
     pub(super) owner: InterfaceSymbolId,
     pub(super) raw_kind: u8,
     pub(super) kind: Option<ImplementationPayloadKind>,
@@ -253,25 +255,47 @@ impl PackageImplementationArtifact {
 
         let header = bytes
             .get(..HEADER_LENGTH)
-            .ok_or(InterfaceValidationError::Truncated)?;
+            .ok_or(InterfaceValidationError::Truncated {
+                context: crate::InterfaceValidationContext::Header,
+                field: crate::InterfaceValidationField::RecordPayload,
+                offset: 0,
+                expected_length: HEADER_LENGTH as u64,
+                actual_length: bytes.len() as u64,
+            })?;
 
         let mut reader = WireReader::new(header);
 
-        if reader.read_array::<8>().map_err(map_wire_error)? != MAGIC {
-            return Err(InterfaceValidationError::Malformed);
+        let actual_magic = reader.read_array::<8>().map_err(map_wire_error)?;
+        if actual_magic != MAGIC {
+            return Err(InterfaceValidationError::InvalidMagic {
+                actual: actual_magic,
+            });
         }
 
-        if reader.read_u16().map_err(map_wire_error)? != crate::CURRENT_FORMAT_REVISION.raw() {
-            return Err(InterfaceValidationError::Malformed);
+        let format_revision =
+            crate::InterfaceFormatRevision::new(reader.read_u16().map_err(map_wire_error)?);
+        if format_revision != crate::CURRENT_FORMAT_REVISION {
+            return Err(InterfaceValidationError::UnsupportedFormatRevision {
+                actual: format_revision,
+            });
         }
 
         let language_revision =
             InterfaceLanguageRevision::new(reader.read_u16().map_err(map_wire_error)?);
 
-        if reader.read_u32().map_err(map_wire_error)? != BYTE_ORDER_MARKER
-            || reader.read_u64().map_err(map_wire_error)? != REQUIRED_FLAGS
-        {
-            return Err(InterfaceValidationError::Malformed);
+        let byte_order = reader.read_u32().map_err(map_wire_error)?;
+        if byte_order != BYTE_ORDER_MARKER {
+            return Err(InterfaceValidationError::UnsupportedByteOrder {
+                expected: BYTE_ORDER_MARKER,
+                actual: byte_order,
+            });
+        }
+
+        let required_flags = reader.read_u64().map_err(map_wire_error)?;
+        if required_flags != REQUIRED_FLAGS {
+            return Err(InterfaceValidationError::UnsupportedRequiredFlags {
+                actual: crate::InterfaceRequiredFlags::from_bits(required_flags),
+            });
         }
 
         let declared_file_length = reader.read_u64().map_err(map_wire_error)?;
@@ -282,23 +306,45 @@ impl PackageImplementationArtifact {
 
         reader.finish().map_err(map_wire_error)?;
 
-        if declared_file_length != u64::try_from(bytes.len()).unwrap_or(u64::MAX)
-            || compute_artifact_hash(&bytes) != Some(artifact_hash)
-        {
-            return Err(InterfaceValidationError::HashMismatch);
+        let actual_file_length = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        if declared_file_length != actual_file_length {
+            return Err(InterfaceValidationError::Malformed {
+                context: crate::InterfaceValidationContext::Header,
+                cause: crate::InterfaceMalformedCause::LengthMismatch {
+                    field: crate::InterfaceValidationField::DeclaredFileLength,
+                    expected: declared_file_length,
+                    actual: actual_file_length,
+                },
+            });
         }
 
-        let directory_offset =
-            usize::try_from(directory_offset).map_err(|_| InterfaceValidationError::Malformed)?;
+        let actual_artifact_hash =
+            compute_artifact_hash(&bytes).ok_or(InterfaceValidationError::DigestUnavailable {
+                context: crate::InterfaceValidationContext::Artifact,
+                field: crate::InterfaceValidationField::ArtifactHash,
+            })?;
+        if actual_artifact_hash != artifact_hash {
+            return Err(InterfaceValidationError::ArtifactHashMismatch {
+                expected: crate::InterfaceArtifactHash::from_bytes(artifact_hash),
+                actual: crate::InterfaceArtifactHash::from_bytes(actual_artifact_hash),
+            });
+        }
 
-        let directory_length =
-            usize::try_from(directory_length).map_err(|_| InterfaceValidationError::Malformed)?;
+        let directory_offset = usize::try_from(directory_offset).map_err(|_| {
+            crate::implementation::invalid_value(crate::InterfaceValidationField::Value)
+        })?;
+
+        let directory_length = usize::try_from(directory_length).map_err(|_| {
+            crate::implementation::invalid_value(crate::InterfaceValidationField::Value)
+        })?;
 
         if directory_offset < HEADER_LENGTH
             || directory_offset.checked_add(directory_length) != Some(bytes.len())
             || directory_length % DIRECTORY_ENTRY_LENGTH != 0
         {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::implementation::invalid_value(
+                crate::InterfaceValidationField::Value,
+            ));
         }
 
         let count = directory_length / DIRECTORY_ENTRY_LENGTH;
@@ -308,28 +354,41 @@ impl PackageImplementationArtifact {
             u64::try_from(count).unwrap_or(u64::MAX),
         )?;
 
-        let directory_bytes = bytes
-            .get(directory_offset..)
-            .ok_or(InterfaceValidationError::Truncated)?;
+        let directory_bytes =
+            bytes
+                .get(directory_offset..)
+                .ok_or(InterfaceValidationError::Truncated {
+                    context: crate::InterfaceValidationContext::Directory,
+                    field: crate::InterfaceValidationField::DirectoryLength,
+                    offset: directory_offset as u64,
+                    expected_length: directory_length as u64,
+                    actual_length: bytes.len().saturating_sub(directory_offset) as u64,
+                })?;
 
         let mut directory_reader = WireReader::new(directory_bytes);
         let mut budget = DecodeBudget::new(limits);
-        let mut directory = budget.allocate_items(&directory_reader, count)?;
+        let mut directory = budget.allocate_items(
+            &directory_reader,
+            crate::InterfaceValidationContext::Directory,
+            crate::InterfaceValidationField::EntryKind,
+            count,
+        )?;
         let mut expected_offset = HEADER_LENGTH;
         let mut decoded_total = 0_u64;
 
-        for _ in 0..count {
+        for index in 0..count {
             let entry = decode_directory_entry(
                 &mut directory_reader,
                 &bytes,
                 directory_offset,
                 expected_offset,
+                index as u64,
                 limits,
             )?;
 
-            decoded_total = decoded_total
-                .checked_add(entry.decoded_length)
-                .ok_or(InterfaceValidationError::Malformed)?;
+            decoded_total = decoded_total.checked_add(entry.decoded_length).ok_or(
+                crate::implementation::invalid_value(crate::InterfaceValidationField::Value),
+            )?;
 
             limits.check(InterfaceLimit::DecodedAllocation, decoded_total)?;
 
@@ -340,7 +399,9 @@ impl PackageImplementationArtifact {
                         >= (entry.owner, entry.raw_kind, entry.discriminator)
                 })
             {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::implementation::invalid_value(
+                    crate::InterfaceValidationField::Value,
+                ));
             }
 
             expected_offset = entry.payload.end;
@@ -349,10 +410,23 @@ impl PackageImplementationArtifact {
 
         directory_reader.finish().map_err(map_wire_error)?;
 
-        if expected_offset != directory_offset
-            || compute_content_hash(language_revision, &directory) != content_hash
-        {
-            return Err(InterfaceValidationError::HashMismatch);
+        if expected_offset != directory_offset {
+            return Err(InterfaceValidationError::Malformed {
+                context: crate::InterfaceValidationContext::Directory,
+                cause: crate::InterfaceMalformedCause::LengthMismatch {
+                    field: crate::InterfaceValidationField::DirectoryOffset,
+                    expected: directory_offset as u64,
+                    actual: expected_offset as u64,
+                },
+            });
+        }
+
+        let actual_content_hash = compute_content_hash(language_revision, &directory);
+        if actual_content_hash != content_hash {
+            return Err(InterfaceValidationError::ContentHashMismatch {
+                expected: InterfaceContentHash::from_bytes(content_hash),
+                actual: InterfaceContentHash::from_bytes(actual_content_hash),
+            });
         }
 
         validate_encoded_executable_template_families(&directory)?;
@@ -363,14 +437,18 @@ impl PackageImplementationArtifact {
             .collect::<Vec<_>>();
 
         let [identity_entry] = identity_entries.as_slice() else {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::implementation::invalid_value(
+                crate::InterfaceValidationField::Value,
+            ));
         };
 
         let identity_payload = decode_entry_payload(&bytes, identity_entry, limits)?;
         let identity = decode_identity(&identity_payload, limits)?;
 
         if identity.language_revision() != language_revision {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::implementation::invalid_value(
+                crate::InterfaceValidationField::Value,
+            ));
         }
 
         let decoded = (0..directory.len()).map(|_| OnceLock::new()).collect();
@@ -439,8 +517,9 @@ impl PackageImplementationArtifact {
 
         let template = decode_template_payload(&payload, self.limits)?;
 
-        validate_body_owner(surface, owner, &template)
-            .map_err(|_| InterfaceValidationError::Malformed)?;
+        validate_body_owner(surface, owner, &template).map_err(|_| {
+            crate::implementation::invalid_value(crate::InterfaceValidationField::Value)
+        })?;
 
         Ok(Some(InterfaceConstantCallableBody::new(owner, template)))
     }
@@ -464,7 +543,9 @@ impl PackageImplementationArtifact {
         InterfaceExecutableTemplate::new(owner, identity, entry.family_size, payload)
             .map(|template| template.with_platform_service(entry.platform_service))
             .map(Some)
-            .ok_or(InterfaceValidationError::Malformed)
+            .ok_or(crate::implementation::invalid_value(
+                crate::InterfaceValidationField::Value,
+            ))
     }
 
     /// Returns the native symbol boundary of one declaration, when present.
@@ -507,7 +588,11 @@ impl PackageImplementationArtifact {
         let mir = decode_pre_specialized_mir(&payload, self.limits)?;
 
         if mir.key() != key {
-            return Err(InterfaceValidationError::HashMismatch.into());
+            return Err(InterfaceValidationError::SpecializationKeyMismatch {
+                expected: key.cache_identity(),
+                actual: mir.key().cache_identity(),
+            }
+            .into());
         }
 
         let template = InterfaceExecutableTemplate::new(
@@ -516,7 +601,9 @@ impl PackageImplementationArtifact {
             1,
             mir.shared_payload(),
         )
-        .ok_or(InterfaceValidationError::Malformed)?;
+        .ok_or(crate::implementation::invalid_value(
+            crate::InterfaceValidationField::Value,
+        ))?;
 
         let unit = super::decode_executable_template(
             &template,
@@ -539,12 +626,47 @@ impl PackageImplementationArtifact {
     ) -> Result<(), InterfaceValidationError> {
         let identity = self.identity();
 
-        if identity.interface() != surface.identity()
-            || identity.interface_content_hash() != interface.header().content_hash()
-            || identity.language_revision() != interface.header().language_revision()
-            || identity.dependencies() != surface.dependencies()
-        {
-            return Err(InterfaceValidationError::HashMismatch);
+        if identity.interface() != surface.identity() {
+            return Err(
+                InterfaceValidationError::ImplementationInterfaceIdentityMismatch {
+                    expected: Box::new(surface.identity().clone()),
+                    actual: Box::new(identity.interface().clone()),
+                },
+            );
+        }
+
+        if identity.interface_content_hash() != interface.header().content_hash() {
+            return Err(InterfaceValidationError::ContentHashMismatch {
+                expected: interface.header().content_hash(),
+                actual: identity.interface_content_hash(),
+            });
+        }
+
+        if identity.language_revision() != interface.header().language_revision() {
+            return Err(InterfaceValidationError::UnsupportedLanguageRevision {
+                expected: interface.header().language_revision(),
+                actual: identity.language_revision(),
+            });
+        }
+
+        if identity.dependencies() != surface.dependencies() {
+            let index = identity
+                .dependencies()
+                .iter()
+                .zip(surface.dependencies())
+                .position(|(actual, expected)| actual != expected)
+                .unwrap_or_else(|| {
+                    identity
+                        .dependencies()
+                        .len()
+                        .min(surface.dependencies().len())
+                });
+
+            return Err(InterfaceValidationError::ImplementationDependencyMismatch {
+                index: index as u64,
+                expected: surface.dependencies().get(index).cloned().map(Box::new),
+                actual: identity.dependencies().get(index).cloned().map(Box::new),
+            });
         }
 
         Ok(())
@@ -556,7 +678,12 @@ impl PackageImplementationArtifact {
         configuration: &PackageImplementationConfiguration,
     ) -> Result<(), InterfaceValidationError> {
         if self.identity.configuration() != configuration {
-            return Err(InterfaceValidationError::HashMismatch);
+            return Err(
+                InterfaceValidationError::ImplementationConfigurationMismatch {
+                    expected: configuration_identity(configuration),
+                    actual: configuration_identity(self.identity.configuration()),
+                },
+            );
         }
 
         Ok(())
@@ -570,7 +697,9 @@ impl PackageImplementationArtifact {
         let cache = self
             .decoded
             .get(index)
-            .ok_or(InterfaceValidationError::Malformed)?;
+            .ok_or(crate::implementation::invalid_value(
+                crate::InterfaceValidationField::Value,
+            ))?;
 
         cache
             .get_or_init(|| decode_entry_payload(&self.bytes, entry, self.limits))
@@ -680,7 +809,9 @@ fn validate_encoded_executable_template_families(
             let entry = if expected == 0 {
                 first
             } else {
-                entries.next().ok_or(InterfaceValidationError::Malformed)?
+                entries.next().ok_or(crate::implementation::invalid_value(
+                    crate::InterfaceValidationField::Value,
+                ))?
             };
 
             if entry.owner != owner
@@ -688,18 +819,24 @@ fn validate_encoded_executable_template_families(
                 || entry.discriminator != executable_discriminator(expected)
                 || (expected != 0 && entry.platform_service.is_some())
             {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::implementation::invalid_value(
+                    crate::InterfaceValidationField::Value,
+                ));
             }
 
             if let Some(role) = entry.platform_service
                 && !platform_services.insert(role)
             {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::implementation::invalid_value(
+                    crate::InterfaceValidationField::Value,
+                ));
             }
         }
 
         if entries.peek().is_some_and(|entry| entry.owner == owner) {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::implementation::invalid_value(
+                crate::InterfaceValidationField::Value,
+            ));
         }
     }
 
@@ -1048,7 +1185,12 @@ mod tests {
             InterfaceValidationLimits::default(),
         );
 
-        assert_eq!(result, Err(InterfaceValidationError::Malformed));
+        assert_eq!(
+            result,
+            Err(crate::implementation::invalid_value(
+                crate::InterfaceValidationField::Value
+            ))
+        );
     }
 
     #[test]
@@ -1238,10 +1380,10 @@ mod tests {
                 .clone(),
         );
 
-        assert_eq!(
+        assert!(matches!(
             artifact.validate_configuration(&mismatched),
-            Err(InterfaceValidationError::HashMismatch)
-        );
+            Err(InterfaceValidationError::ImplementationConfigurationMismatch { .. })
+        ));
 
         let selected_runtime_artifact = PackageImplementationArtifact::try_new(
             &fixture.interface,
@@ -1261,11 +1403,11 @@ mod tests {
             &mismatched
         );
 
-        assert_eq!(
+        assert!(matches!(
             selected_runtime_artifact
                 .validate_configuration(fixture.bundle.implementation_configuration()),
-            Err(InterfaceValidationError::HashMismatch)
-        );
+            Err(InterfaceValidationError::ImplementationConfigurationMismatch { .. })
+        ));
 
         let alternate_target = bray_ir::MirTargetContract::new(
             bray_target::NativeTarget::X86_64WindowsMsvc.profile(),
@@ -1300,10 +1442,10 @@ mod tests {
                 .properties()
         );
 
-        assert_eq!(
+        assert!(matches!(
             artifact.validate_configuration(&alternate_target),
-            Err(InterfaceValidationError::HashMismatch)
-        );
+            Err(InterfaceValidationError::ImplementationConfigurationMismatch { .. })
+        ));
     }
 
     #[test]
@@ -1390,7 +1532,7 @@ mod tests {
             fixture.bundle.implementation_configuration().runtime_abi(),
         );
 
-        assert_eq!(
+        assert!(matches!(
             artifact.pre_specialized_mir(
                 &key,
                 owner,
@@ -1401,10 +1543,10 @@ mod tests {
             ),
             Err(PreSpecializedMirDecodeError::Executable(
                 crate::ExecutableTemplateDecodeError::Validation(
-                    InterfaceValidationError::Truncated,
+                    InterfaceValidationError::Truncated { .. }
                 ),
             ))
-        );
+        ));
     }
 
     #[test]

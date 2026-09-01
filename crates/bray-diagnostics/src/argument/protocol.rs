@@ -170,6 +170,8 @@ pub enum DiagnosticArgName {
     InterfaceSymbolIdentity,
     /// Exact imported semantic-content problem.
     InterfaceSemanticProblem,
+    /// Exact package-interface validation failure.
+    InterfaceValidationFailure,
     /// Exact invalid command selection.
     ProjectSelectionProblem,
     /// Exact structured project command failure.
@@ -365,6 +367,7 @@ impl DiagnosticArgName {
             Self::InterfaceSymbolGraphProblem => "interface_symbol_graph_problem",
             Self::InterfaceSymbolIdentity => "interface_symbol_identity",
             Self::InterfaceSemanticProblem => "interface_semantic_problem",
+            Self::InterfaceValidationFailure => "interface_validation_failure",
             Self::ProjectSelectionProblem => "project_selection_problem",
             Self::ProjectCommandFailure => "project_command_failure",
             Self::ProjectManifestField => "project_manifest_field",
@@ -476,6 +479,8 @@ pub enum DiagnosticArgValue {
     InterfaceSymbolIdentity(crate::DiagnosticInterfaceSymbolIdentity),
     /// Exact imported semantic-content problem.
     InterfaceSemanticProblem(crate::DiagnosticInterfaceSemanticProblem),
+    /// Exact package-interface validation failure.
+    InterfaceValidationFailure(crate::DiagnosticInterfaceValidationFailure),
     /// Exact invalid command selection.
     ProjectSelectionProblem(crate::DiagnosticProjectSelectionProblem),
     /// Exact structured project command failure.

@@ -164,7 +164,9 @@ impl<'bytes> SelectionBuilder<'bytes> {
             )?;
 
             let [index] = indexes.as_slice() else {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
             };
 
             self.enqueue(PendingRecord::Implementation(*index));
@@ -250,7 +252,9 @@ impl<'bytes> SelectionBuilder<'bytes> {
 
         for entry in entries {
             if entry.section() != section {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
             }
 
             indexes.push(entry.record());
@@ -268,7 +272,9 @@ impl<'bytes> SelectionBuilder<'bytes> {
         let indexes = self.record_indexes(directory, kind, section)?;
 
         let [index] = indexes.as_slice() else {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         };
 
         Ok(*index)
@@ -285,16 +291,20 @@ impl<'bytes> SelectionBuilder<'bytes> {
         match indexes.as_slice() {
             [] => Ok(None),
             [index] => Ok(Some(*index)),
-            _ => Err(InterfaceValidationError::Malformed),
+            _ => Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            )),
         }
     }
 
     fn include_callable_signature(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
-        let tables = self
-            .tables
-            .declarations
-            .as_ref()
-            .ok_or(InterfaceValidationError::Malformed)?;
+        let tables =
+            self.tables
+                .declarations
+                .as_ref()
+                .ok_or(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ))?;
 
         let signature =
             tables
@@ -304,7 +314,9 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 })?;
 
         if signature.owner != self.owner {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         self.enqueue(PendingRecord::Type(signature.callable_type.raw()));
@@ -320,11 +332,13 @@ impl<'bytes> SelectionBuilder<'bytes> {
     }
 
     fn include_generic_declaration(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
-        let tables = self
-            .tables
-            .declarations
-            .as_ref()
-            .ok_or(InterfaceValidationError::Malformed)?;
+        let tables =
+            self.tables
+                .declarations
+                .as_ref()
+                .ok_or(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ))?;
 
         let declaration =
             tables
@@ -334,7 +348,9 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 })?;
 
         if declaration.owner != self.owner {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         self.records.generic_declarations.insert(index, declaration);
@@ -343,11 +359,13 @@ impl<'bytes> SelectionBuilder<'bytes> {
     }
 
     fn include_declared_type(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
-        let tables = self
-            .tables
-            .declarations
-            .as_ref()
-            .ok_or(InterfaceValidationError::Malformed)?;
+        let tables =
+            self.tables
+                .declarations
+                .as_ref()
+                .ok_or(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ))?;
 
         let declared_type = tables.declared_types.decode(
             index,
@@ -356,7 +374,9 @@ impl<'bytes> SelectionBuilder<'bytes> {
         )?;
 
         if declared_type.owner() != &self.owner {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         self.enqueue(PendingRecord::Type(declared_type.ty().raw()));
@@ -373,7 +393,9 @@ impl<'bytes> SelectionBuilder<'bytes> {
         )?;
 
         if constraint.owner != self.owner {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         match constraint.kind {
@@ -399,11 +421,13 @@ impl<'bytes> SelectionBuilder<'bytes> {
     }
 
     fn include_implementation(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
-        let tables = self
-            .tables
-            .implementations
-            .as_ref()
-            .ok_or(InterfaceValidationError::Malformed)?;
+        let tables =
+            self.tables
+                .implementations
+                .as_ref()
+                .ok_or(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ))?;
 
         let decoded =
             tables
@@ -413,7 +437,9 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 })?;
 
         if decoded.implementation.implementation != self.owner {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         self.enqueue(PendingRecord::Type(decoded.implementation.subject.raw()));
@@ -434,11 +460,13 @@ impl<'bytes> SelectionBuilder<'bytes> {
     }
 
     fn include_coherence(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
-        let tables = self
-            .tables
-            .implementations
-            .as_ref()
-            .ok_or(InterfaceValidationError::Malformed)?;
+        let tables =
+            self.tables
+                .implementations
+                .as_ref()
+                .ok_or(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ))?;
 
         let coherence = tables
             .coherence
@@ -447,7 +475,9 @@ impl<'bytes> SelectionBuilder<'bytes> {
             })?;
 
         if !coherence.implementations.contains(&self.owner) {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         self.enqueue(PendingRecord::Type(coherence.subject.raw()));
@@ -466,7 +496,9 @@ impl<'bytes> SelectionBuilder<'bytes> {
             .tables
             .targets
             .as_ref()
-            .ok_or(InterfaceValidationError::Malformed)?;
+            .ok_or(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ))?;
 
         let target =
             tables
@@ -474,7 +506,9 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 .decode(index, &mut self.context, surface::decode_target_record)?;
 
         if target.owner != self.owner {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         self.enqueue(PendingRecord::ConstantValue(target.value.raw()));
@@ -488,7 +522,9 @@ impl<'bytes> SelectionBuilder<'bytes> {
             .tables
             .targets
             .as_ref()
-            .ok_or(InterfaceValidationError::Malformed)?;
+            .ok_or(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ))?;
 
         let runtime = tables
             .runtimes
@@ -497,7 +533,9 @@ impl<'bytes> SelectionBuilder<'bytes> {
             })?;
 
         if runtime.owner != self.owner {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
         }
 
         self.records.runtime_requirements.insert(index, runtime);

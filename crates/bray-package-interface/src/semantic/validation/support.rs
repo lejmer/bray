@@ -16,7 +16,9 @@ pub(super) fn validate_support_entities(
     surface: &PackageInterfaceSurface,
 ) -> Result<Vec<(usize, usize)>, InterfaceValidationError> {
     if !is_strictly_sorted(&semantics.support_entities) {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Support,
+        ));
     }
 
     let mut template_ids = BTreeSet::new();
@@ -30,7 +32,9 @@ pub(super) fn validate_support_entities(
                     checked_index(template.to_index(), semantics.checked_templates.len())?;
 
                 if !template_ids.insert(template_index) {
-                    return Err(InterfaceValidationError::Malformed);
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Support,
+                    ));
                 }
 
                 template_entities.push((entity_index, template_index));
@@ -40,7 +44,9 @@ pub(super) fn validate_support_entities(
                     || !is_support_declaration_kind(declaration.kind())
                     || !declaration_keys.insert(declaration)
                 {
-                    return Err(InterfaceValidationError::Malformed);
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Support,
+                    ));
                 }
             }
             InterfaceSupportEntity::Implementation(implementation) => {
@@ -48,7 +54,9 @@ pub(super) fn validate_support_entities(
                     || !implementation.declaration().kind().is_implementation()
                     || !declaration_keys.insert(implementation.declaration())
                 {
-                    return Err(InterfaceValidationError::Malformed);
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Support,
+                    ));
                 }
 
                 validate_index(implementation.subject().to_index(), semantics.types.len())?;
@@ -65,7 +73,11 @@ pub(super) fn validate_support_entities(
                     ) => {
                         validate_index(application.to_index(), semantics.trait_applications.len())?
                     }
-                    _ => return Err(InterfaceValidationError::Malformed),
+                    _ => {
+                        return Err(crate::semantic::codec::invalid_value(
+                            crate::InterfaceValidationField::Support,
+                        ));
+                    }
                 }
             }
         }

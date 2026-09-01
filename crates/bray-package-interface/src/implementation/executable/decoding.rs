@@ -31,7 +31,7 @@ use bray_symbols::{
     TrustedCapabilityRequirement,
 };
 
-use crate::decode::map_wire_error;
+use crate::implementation::map_wire_error;
 use crate::semantic::{SemanticDecodeContext, read_symbol_reference};
 use crate::wire::WireReader;
 use crate::{

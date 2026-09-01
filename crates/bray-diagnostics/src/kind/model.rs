@@ -227,10 +227,8 @@ define_diagnostic_kinds! {
     InterfaceUnsupportedLanguageRevision,
     /// A package interface declares an invalid byte order or unsupported required flags.
     InterfaceUnsupportedEncoding,
-    /// A package interface ends before a required structural value is complete.
-    InterfaceTruncated,
-    /// A package-interface header or section directory is malformed.
-    InterfaceMalformed,
+    /// A package interface violates an exact structural validation contract.
+    InterfaceValidationFailed,
     /// A package interface does not match its declared artifact or content hash.
     InterfaceHashMismatch,
     /// One package-interface section does not match its declared checksum.
@@ -745,8 +743,7 @@ impl DiagnosticKind {
             Self::InterfaceUnsupportedFormatRevision => 5002,
             Self::InterfaceUnsupportedLanguageRevision => 5003,
             Self::InterfaceUnsupportedEncoding => 5004,
-            Self::InterfaceTruncated => 5005,
-            Self::InterfaceMalformed => 5006,
+            Self::InterfaceValidationFailed => 5005,
             Self::InterfaceHashMismatch => 5007,
             Self::InterfaceSectionChecksumMismatch => 5008,
             Self::InterfaceResourceLimitExceeded => 5009,
@@ -1093,8 +1090,7 @@ impl DiagnosticKind {
             Self::InterfaceUnsupportedFormatRevision => "interface_unsupported_format_revision",
             Self::InterfaceUnsupportedLanguageRevision => "interface_unsupported_language_revision",
             Self::InterfaceUnsupportedEncoding => "interface_unsupported_encoding",
-            Self::InterfaceTruncated => "interface_truncated",
-            Self::InterfaceMalformed => "interface_malformed",
+            Self::InterfaceValidationFailed => "interface_validation_failed",
             Self::InterfaceHashMismatch => "interface_hash_mismatch",
             Self::InterfaceSectionChecksumMismatch => "interface_section_checksum_mismatch",
             Self::InterfaceResourceLimitExceeded => "interface_resource_limit_exceeded",

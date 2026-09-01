@@ -31,15 +31,17 @@ pub(super) fn decode_declaration_tables<'bytes>(
     let format_version = read_u32(&mut reader)?;
 
     if format_version != super::super::DECLARATION_SEMANTICS_FORMAT_VERSION {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Declaration,
+        ));
     }
 
-    let callable_signatures = RecordTable::read_from(&mut reader, context)?;
-    let generic_declarations = RecordTable::read_from(&mut reader, context)?;
-    let callable_parameter_defaults = RecordTable::read_from(&mut reader, context)?;
-    let predicate_definitions = RecordTable::read_from(&mut reader, context)?;
-    let declared_types = RecordTable::read_from(&mut reader, context)?;
-    let type_representations = RecordTable::read_from(&mut reader, context)?;
+    let callable_signatures = RecordTable::read_from(&mut reader, context, section.tag())?;
+    let generic_declarations = RecordTable::read_from(&mut reader, context, section.tag())?;
+    let callable_parameter_defaults = RecordTable::read_from(&mut reader, context, section.tag())?;
+    let predicate_definitions = RecordTable::read_from(&mut reader, context, section.tag())?;
+    let declared_types = RecordTable::read_from(&mut reader, context, section.tag())?;
+    let type_representations = RecordTable::read_from(&mut reader, context, section.tag())?;
 
     validate_record_count(
         section,
@@ -135,7 +137,11 @@ fn decode_type_representation(
         2 => bray_symbols::DeclaredLayoutMode::Stable,
         3 => bray_symbols::DeclaredLayoutMode::C,
         4 => bray_symbols::DeclaredLayoutMode::Transparent,
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Declaration,
+            ));
+        }
     };
 
     let alignment = read_optional_u64(reader)?;
@@ -192,14 +198,22 @@ fn decode_type_representation(
 
             InterfaceStorageShape::Union(variants.into())
         }
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Declaration,
+            ));
+        }
     };
 
     let copy = match read_u32(reader)? {
         1 => bray_symbols::DeclaredCopyContract::Absent,
         2 => bray_symbols::DeclaredCopyContract::Unconditional,
         3 => bray_symbols::DeclaredCopyContract::Conditional,
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Declaration,
+            ));
+        }
     };
 
     let copy_dependencies =
@@ -225,7 +239,9 @@ fn read_optional_symbol_reference(
     match read_u32(reader)? {
         0 => Ok(None),
         1 => read_symbol_reference(reader, context).map(Some),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Declaration,
+        )),
     }
 }
 
@@ -233,7 +249,9 @@ fn read_optional_u64(reader: &mut WireReader<'_>) -> Result<Option<u64>, Interfa
     match read_u32(reader)? {
         0 => Ok(None),
         1 => reader.read_u64().map(Some).map_err(map_wire_error),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Declaration,
+        )),
     }
 }
 
@@ -241,7 +259,9 @@ fn decode_bool(reader: &mut WireReader<'_>) -> Result<bool, InterfaceValidationE
     match read_u32(reader)? {
         0 => Ok(false),
         1 => Ok(true),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Declaration,
+        )),
     }
 }
 
@@ -260,7 +280,11 @@ pub(super) fn decode_callable_signature(
             InterfaceTypeId::new(read_u32(reader)?),
             decode_tag(read_u32(reader)?)?,
         )),
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Declaration,
+            ));
+        }
     };
 
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
@@ -304,7 +328,11 @@ pub(super) fn decode_callable_parameter_default(
     let is_present = match read_u32(reader)? {
         0 => false,
         1 => true,
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Declaration,
+            ));
+        }
     };
 
     Ok(InterfaceCallableParameterDefault::new(

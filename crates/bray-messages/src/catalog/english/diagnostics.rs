@@ -2806,8 +2806,7 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         | DiagnosticKind::InterfaceUnsupportedFormatRevision
         | DiagnosticKind::InterfaceUnsupportedLanguageRevision
         | DiagnosticKind::InterfaceUnsupportedEncoding
-        | DiagnosticKind::InterfaceTruncated
-        | DiagnosticKind::InterfaceMalformed
+        | DiagnosticKind::InterfaceValidationFailed
         | DiagnosticKind::InterfaceHashMismatch
         | DiagnosticKind::InterfaceSectionChecksumMismatch
         | DiagnosticKind::InterfaceResourceLimitExceeded

@@ -9,11 +9,13 @@ mod diagnostic;
 mod encoding;
 mod export;
 mod external_key;
+mod framing;
 mod hash;
 mod header;
 mod implementation;
 mod inspection;
 mod limits;
+mod presentation;
 mod section;
 mod semantic;
 mod surface;
@@ -29,7 +31,11 @@ pub use construction::{
     ImportedInterfaceSymbolResolver, ImportedSymbolConstructionError, LoadedInterfaceSurface,
     construct_imported_symbol_skeletons,
 };
-pub use diagnostic::InterfaceValidationError;
+pub use diagnostic::{
+    InterfaceCompressionFailure, InterfaceIntegerTarget, InterfaceMalformedCause,
+    InterfaceUtf8Failure, InterfaceValidationContext, InterfaceValidationError,
+    InterfaceValidationField,
+};
 pub use encoding::InterfaceSectionEncoding;
 pub use export::{
     ExportLookupInput, ExportRelationshipInput, ExportSymbolInput, ExportSymbolReferenceInput,

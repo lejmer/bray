@@ -2,15 +2,22 @@ use std::hash::{Hash, Hasher};
 use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
-use crate::diagnostic::InterfaceValidationError;
+use crate::diagnostic::{
+    InterfaceMalformedCause, InterfaceValidationContext, InterfaceValidationError,
+    InterfaceValidationField,
+};
 use crate::encoding::{decode_zstd_frame, validate_zstd_frame};
+use crate::framing::{
+    CheckedRangeError, allocate_items, available_length, checked_range, directory_entry_context,
+    directory_field, header_field, invalid_index, malformed, map_wire_error, overlapping_range,
+    range_validation_error, ranges_overlap, usize_to_u64_saturating,
+};
 use crate::hash::{
     compute_artifact_hash, compute_content_hash, compute_section_content_hash, compute_section_hash,
 };
 use crate::header::{BYTE_ORDER_MARKER, CURRENT_FORMAT_REVISION, InterfaceHeader, MAGIC};
 use crate::limits::{InterfaceLimit, InterfaceValidationLimits, InterfaceValidationPolicy};
 use crate::section::{DirectoryEntry, InterfaceSectionTag, ValidatedInterfaceSection};
-use crate::wire::WireDecodeError;
 use crate::{InterfaceSectionCompatibility, InterfaceSectionEncoding, InterfaceSectionRevision};
 
 pub(crate) fn is_strictly_sorted<T: Ord>(values: &[T]) -> bool {
@@ -57,7 +64,13 @@ impl ValidatedPackageInterface {
 
         validate_file_size(bytes.len(), policy)?;
 
-        let decoded = InterfaceHeader::decode(&bytes).map_err(map_wire_error)?;
+        let decoded = InterfaceHeader::decode(&bytes).map_err(|error| {
+            map_wire_error(
+                InterfaceValidationContext::Header,
+                header_field(error.offset()),
+                error,
+            )
+        })?;
 
         validate_header(
             decoded.magic,
@@ -72,15 +85,25 @@ impl ValidatedPackageInterface {
             decoded.header.directory_length(),
             bytes.len(),
         )
-        .map_err(range_validation_error)?;
+        .map_err(|error| {
+            range_validation_error(
+                InterfaceValidationContext::Directory,
+                InterfaceValidationField::DirectoryLength,
+                error,
+            )
+        })?;
 
         let directory = decode_directory(&bytes, directory_range, policy)?;
 
         validate_hashes(decoded.header, &directory, &bytes)?;
 
-        let decoded_sections = std::iter::repeat_with(OnceLock::new)
-            .take(directory.len())
-            .collect::<Vec<_>>();
+        let mut decoded_sections = allocate_items(
+            InterfaceValidationContext::Directory,
+            InterfaceValidationField::RecordCount,
+            directory.len(),
+        )?;
+
+        decoded_sections.extend(std::iter::repeat_with(OnceLock::new).take(directory.len()));
 
         Ok(Self {
             bytes,
@@ -121,7 +144,7 @@ impl ValidatedPackageInterface {
         let entry = self
             .directory
             .get(index)
-            .ok_or(InterfaceValidationError::Malformed)?;
+            .ok_or_else(|| invalid_index(InterfaceValidationContext::Directory, index, 0))?;
 
         if entry.tag() != Some(tag) {
             return Ok(None);
@@ -132,12 +155,19 @@ impl ValidatedPackageInterface {
 
     /// Decodes every known section and returns views in canonical tag order.
     pub fn sections(&self) -> Result<Vec<ValidatedInterfaceSection<'_>>, InterfaceValidationError> {
-        self.directory
-            .iter()
-            .enumerate()
-            .filter(|(_, entry)| entry.tag().is_some())
-            .map(|(index, _)| self.section_by_index(index))
-            .collect()
+        let mut sections = allocate_items(
+            InterfaceValidationContext::Directory,
+            InterfaceValidationField::RecordCount,
+            self.directory.len(),
+        )?;
+
+        for (index, entry) in self.directory.iter().enumerate() {
+            if entry.tag().is_some() {
+                sections.push(self.section_by_index(index)?);
+            }
+        }
+
+        Ok(sections)
     }
 
     fn sections_by_tag(
@@ -146,8 +176,14 @@ impl ValidatedPackageInterface {
     ) -> Result<Vec<ValidatedInterfaceSection<'_>>, InterfaceValidationError> {
         tags.iter()
             .map(|tag| {
-                self.section(*tag)?
-                    .ok_or(InterfaceValidationError::Malformed)
+                self.section(*tag)?.ok_or_else(|| {
+                    malformed(
+                        InterfaceValidationContext::Section(*tag),
+                        InterfaceMalformedCause::Missing {
+                            field: InterfaceValidationField::SectionTag,
+                        },
+                    )
+                })
             })
             .collect()
     }
@@ -156,28 +192,52 @@ impl ValidatedPackageInterface {
         &self,
         index: usize,
     ) -> Result<ValidatedInterfaceSection<'_>, InterfaceValidationError> {
-        let entry = *self
-            .directory
-            .get(index)
-            .ok_or(InterfaceValidationError::Malformed)?;
+        let entry = *self.directory.get(index).ok_or_else(|| {
+            invalid_index(
+                InterfaceValidationContext::Directory,
+                index,
+                self.directory.len(),
+            )
+        })?;
 
-        let stored = entry
-            .payload(&self.bytes)
-            .ok_or(InterfaceValidationError::Malformed)?;
+        let stored = entry.payload(&self.bytes).ok_or_else(|| {
+            range_validation_error(
+                directory_entry_context(index, entry.raw_tag()),
+                InterfaceValidationField::EncodedLength,
+                CheckedRangeError::OutOfBounds {
+                    offset: entry.offset(),
+                    length: entry.encoded_length(),
+                    available: available_length(entry.offset(), self.bytes.len()),
+                },
+            )
+        })?;
 
         let decoded = self
             .decoded_sections
             .get(index)
-            .ok_or(InterfaceValidationError::Malformed)?
-            .get_or_init(|| decode_and_verify_section(entry, stored));
+            .ok_or_else(|| {
+                invalid_index(
+                    InterfaceValidationContext::Directory,
+                    index,
+                    self.decoded_sections.len(),
+                )
+            })?
+            .get_or_init(|| decode_and_verify_section(index, entry, stored));
 
         let bytes = decoded
             .as_ref()
-            .map_err(|error| *error)?
+            .map_err(Clone::clone)?
             .as_deref()
             .unwrap_or(stored);
 
-        ValidatedInterfaceSection::new(entry, bytes).ok_or(InterfaceValidationError::Malformed)
+        ValidatedInterfaceSection::new(entry, bytes).ok_or_else(|| {
+            malformed(
+                directory_entry_context(index, entry.raw_tag()),
+                InterfaceMalformedCause::InvalidValue {
+                    field: InterfaceValidationField::SectionEncoding,
+                },
+            )
+        })
     }
 
     /// Decodes and validates the eager package identity and symbol-surface sections.
@@ -252,24 +312,47 @@ impl ValidatedPackageInterface {
 }
 
 fn decode_and_verify_section(
+    index: usize,
     entry: DirectoryEntry,
     stored: &[u8],
 ) -> Result<Option<Arc<[u8]>>, InterfaceValidationError> {
-    let decoded = match entry
-        .encoding()
-        .ok_or(InterfaceValidationError::Malformed)?
-    {
+    let context = directory_entry_context(index, entry.raw_tag());
+    let encoding = entry.encoding().ok_or_else(|| {
+        malformed(
+            context,
+            InterfaceMalformedCause::InvalidDiscriminant {
+                field: InterfaceValidationField::SectionEncoding,
+                actual: u64::from(entry.raw_encoding()),
+            },
+        )
+    })?;
+
+    let decoded = match encoding {
         InterfaceSectionEncoding::Raw => None,
         InterfaceSectionEncoding::ZstdFrame => {
-            Some(decode_zstd_frame(stored, entry.decoded_length())?)
+            Some(decode_zstd_frame(context, stored, entry.decoded_length())?)
         }
     };
 
     let bytes = decoded.as_deref().unwrap_or(stored);
-    let tag = entry.tag().ok_or(InterfaceValidationError::Malformed)?;
+    let tag = entry.tag().ok_or_else(|| {
+        malformed(
+            context,
+            InterfaceMalformedCause::InvalidDiscriminant {
+                field: InterfaceValidationField::SectionTag,
+                actual: u64::from(entry.raw_tag()),
+            },
+        )
+    })?;
 
-    if compute_section_content_hash(tag, bytes) != entry.content_hash() {
-        return Err(InterfaceValidationError::SectionChecksumMismatch { section: tag });
+    let actual = compute_section_content_hash(tag, bytes);
+
+    if actual != entry.content_hash() {
+        return Err(InterfaceValidationError::SectionContentHashMismatch {
+            section: tag,
+            expected: *entry.content_hash().as_bytes(),
+            actual: *actual.as_bytes(),
+        });
     }
 
     Ok(decoded)
@@ -292,7 +375,7 @@ fn validate_header(
     policy: InterfaceValidationPolicy,
 ) -> Result<(), InterfaceValidationError> {
     if magic != MAGIC {
-        return Err(InterfaceValidationError::InvalidMagic);
+        return Err(InterfaceValidationError::InvalidMagic { actual: magic });
     }
 
     if header.format_revision() != CURRENT_FORMAT_REVISION {
@@ -308,27 +391,51 @@ fn validate_header(
         });
     }
 
-    if byte_order_marker != BYTE_ORDER_MARKER
-        || header.required_flags() != crate::InterfaceRequiredFlags::NONE
-    {
-        return Err(InterfaceValidationError::UnsupportedEncoding);
+    if byte_order_marker != BYTE_ORDER_MARKER {
+        return Err(InterfaceValidationError::UnsupportedByteOrder {
+            expected: BYTE_ORDER_MARKER,
+            actual: byte_order_marker,
+        });
+    }
+
+    if header.required_flags() != crate::InterfaceRequiredFlags::NONE {
+        return Err(InterfaceValidationError::UnsupportedRequiredFlags {
+            actual: header.required_flags(),
+        });
     }
 
     let actual_length = usize_to_u64_saturating(bytes.len());
 
     if header.declared_file_length() > actual_length {
-        return Err(InterfaceValidationError::Truncated);
+        return Err(InterfaceValidationError::Truncated {
+            context: InterfaceValidationContext::Artifact,
+            field: InterfaceValidationField::DeclaredFileLength,
+            offset: actual_length,
+            expected_length: header.declared_file_length() - actual_length,
+            actual_length: 0,
+        });
     }
 
     if header.declared_file_length() != actual_length {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(InterfaceValidationError::TrailingBytes {
+            context: InterfaceValidationContext::Artifact,
+            offset: header.declared_file_length(),
+            count: actual_length - header.declared_file_length(),
+        });
     }
 
     if !header
         .directory_length()
         .is_multiple_of(DirectoryEntry::WIRE_LENGTH)
     {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(malformed(
+            InterfaceValidationContext::Header,
+            InterfaceMalformedCause::InvalidAlignment {
+                field: InterfaceValidationField::DirectoryLength,
+                value: header.directory_length(),
+                alignment: DirectoryEntry::WIRE_LENGTH,
+            },
+        ));
     }
 
     Ok(())
@@ -354,21 +461,43 @@ fn decode_directory(
         }
     })?;
 
-    let mut entries = Vec::with_capacity(capacity);
+    let mut entries = allocate_items(
+        InterfaceValidationContext::Directory,
+        InterfaceValidationField::RecordCount,
+        capacity,
+    )?;
 
     let mut previous_tag = None;
-    let mut previous_end = InterfaceHeader::LENGTH;
+    let mut previous_range = None;
 
     let mut decoded_allocation = 0_u64;
 
-    for chunk in bytes[directory_range.clone()].chunks_exact(DirectoryEntry::LENGTH) {
-        let decoded = DirectoryEntry::decode(chunk).map_err(map_wire_error)?;
+    for (index, chunk) in bytes[directory_range.clone()]
+        .chunks_exact(DirectoryEntry::LENGTH)
+        .enumerate()
+    {
+        let raw_tag = chunk
+            .get(..4)
+            .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
+            .map(u32::from_le_bytes)
+            .unwrap_or(0);
+
+        let context = directory_entry_context(index, raw_tag);
+        let decoded = DirectoryEntry::decode(chunk)
+            .map_err(|error| map_wire_error(context, directory_field(error.offset()), error))?;
         let tag = InterfaceSectionTag::from_wire_value(decoded.raw_tag);
 
-        validate_section_contract(tag, decoded)?;
+        validate_section_contract(context, tag, decoded)?;
 
         if previous_tag.is_some_and(|previous| decoded.raw_tag <= previous) {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(malformed(
+                context,
+                InterfaceMalformedCause::OrderingViolation {
+                    field: InterfaceValidationField::SectionTag,
+                    previous: u64::from(previous_tag.unwrap_or(decoded.raw_tag)),
+                    actual: u64::from(decoded.raw_tag),
+                },
+            ));
         }
 
         policy
@@ -388,27 +517,46 @@ fn decode_directory(
             .check(InterfaceLimit::DecodedAllocation, decoded_allocation)?;
 
         let payload_range = checked_range(decoded.offset, decoded.encoded_length, bytes.len())
-            .map_err(range_validation_error)?;
+            .map_err(|error| {
+                range_validation_error(context, InterfaceValidationField::EncodedLength, error)
+            })?;
 
-        if payload_range.start < InterfaceHeader::LENGTH
-            || ranges_overlap(&payload_range, &directory_range)
-            || payload_range.start < previous_end
+        let header_range = 0..InterfaceHeader::LENGTH;
+
+        if ranges_overlap(&payload_range, &header_range) {
+            return Err(overlapping_range(context, &payload_range, &header_range));
+        }
+
+        if ranges_overlap(&payload_range, &directory_range) {
+            return Err(overlapping_range(context, &payload_range, &directory_range));
+        }
+
+        if let Some(previous_range) = &previous_range
+            && ranges_overlap(&payload_range, previous_range)
         {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(overlapping_range(context, &payload_range, previous_range));
         }
 
         let entry = DirectoryEntry::from_decoded(decoded);
 
         if tag.is_some() && entry.encoding() == Some(InterfaceSectionEncoding::ZstdFrame) {
-            let payload = bytes
-                .get(payload_range.clone())
-                .ok_or(InterfaceValidationError::Malformed)?;
+            let payload = bytes.get(payload_range.clone()).ok_or_else(|| {
+                range_validation_error(
+                    context,
+                    InterfaceValidationField::EncodedLength,
+                    CheckedRangeError::OutOfBounds {
+                        offset: decoded.offset,
+                        length: decoded.encoded_length,
+                        available: available_length(decoded.offset, bytes.len()),
+                    },
+                )
+            })?;
 
-            validate_zstd_frame(payload, entry.decoded_length())?;
+            validate_zstd_frame(context, payload, entry.decoded_length())?;
         }
 
         previous_tag = Some(decoded.raw_tag);
-        previous_end = payload_range.end;
+        previous_range = Some(payload_range);
 
         entries.push(entry);
     }
@@ -421,23 +569,49 @@ fn validate_hashes(
     directory: &[DirectoryEntry],
     bytes: &[u8],
 ) -> Result<(), InterfaceValidationError> {
-    for entry in directory {
-        let payload = entry
-            .payload(bytes)
-            .ok_or(InterfaceValidationError::Malformed)?;
+    for (index, entry) in directory.iter().enumerate() {
+        let context = directory_entry_context(index, entry.raw_tag());
+        let payload = entry.payload(bytes).ok_or_else(|| {
+            range_validation_error(
+                context,
+                InterfaceValidationField::EncodedLength,
+                CheckedRangeError::OutOfBounds {
+                    offset: entry.offset(),
+                    length: entry.encoded_length(),
+                    available: available_length(entry.offset(), bytes.len()),
+                },
+            )
+        })?;
 
-        if compute_section_hash(entry, payload) != entry.checksum() {
+        let actual = compute_section_hash(entry, payload);
+
+        if actual != entry.checksum() {
             return match entry.tag() {
-                Some(section) => Err(InterfaceValidationError::SectionChecksumMismatch { section }),
-                None => Err(InterfaceValidationError::HashMismatch),
+                Some(section) => Err(InterfaceValidationError::SectionChecksumMismatch {
+                    section,
+                    expected: entry.checksum(),
+                    actual,
+                }),
+                None => Err(InterfaceValidationError::UnknownSectionChecksumMismatch {
+                    raw_tag: entry.raw_tag(),
+                    expected: entry.checksum(),
+                    actual,
+                }),
             };
         }
     }
 
-    let artifact_hash = compute_artifact_hash(bytes).ok_or(InterfaceValidationError::Malformed)?;
+    let artifact_hash =
+        compute_artifact_hash(bytes).ok_or(InterfaceValidationError::DigestUnavailable {
+            context: InterfaceValidationContext::Artifact,
+            field: InterfaceValidationField::ArtifactHash,
+        })?;
 
     if artifact_hash != header.artifact_hash() {
-        return Err(InterfaceValidationError::HashMismatch);
+        return Err(InterfaceValidationError::ArtifactHashMismatch {
+            expected: header.artifact_hash(),
+            actual: artifact_hash,
+        });
     }
 
     let content_hash = compute_content_hash(
@@ -450,20 +624,30 @@ fn validate_hashes(
     );
 
     if content_hash != header.content_hash() {
-        return Err(InterfaceValidationError::HashMismatch);
+        return Err(InterfaceValidationError::ContentHashMismatch {
+            expected: header.content_hash(),
+            actual: content_hash,
+        });
     }
 
     Ok(())
 }
 
 fn validate_section_contract(
+    context: InterfaceValidationContext,
     tag: Option<InterfaceSectionTag>,
     decoded: crate::section::DecodedDirectoryEntry,
 ) -> Result<(), InterfaceValidationError> {
     let Some(compatibility) =
         InterfaceSectionCompatibility::from_wire_value(decoded.raw_compatibility)
     else {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(malformed(
+            context,
+            InterfaceMalformedCause::InvalidDiscriminant {
+                field: InterfaceValidationField::SectionCompatibility,
+                actual: u64::from(decoded.raw_compatibility),
+            },
+        ));
     };
 
     let Some(tag) = tag else {
@@ -471,95 +655,93 @@ fn validate_section_contract(
             return Ok(());
         }
 
-        return Err(InterfaceValidationError::Malformed);
+        return Err(malformed(
+            context,
+            InterfaceMalformedCause::InvalidDiscriminant {
+                field: InterfaceValidationField::SectionTag,
+                actual: u64::from(decoded.raw_tag),
+            },
+        ));
     };
 
     if compatibility != tag.compatibility() {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(malformed(
+            context,
+            InterfaceMalformedCause::ValueMismatch {
+                field: InterfaceValidationField::SectionCompatibility,
+                expected: u64::from(tag.compatibility().wire_value()),
+                actual: u64::from(decoded.raw_compatibility),
+            },
+        ));
     }
 
     let encoding = InterfaceSectionEncoding::from_wire_value(decoded.raw_encoding);
 
-    if decoded.section_revision != InterfaceSectionRevision::CURRENT || encoding.is_none() {
+    if decoded.section_revision != InterfaceSectionRevision::CURRENT {
         if compatibility.is_optional() {
             return Ok(());
         }
 
-        return Err(InterfaceValidationError::Malformed);
+        return Err(malformed(
+            context,
+            InterfaceMalformedCause::ValueMismatch {
+                field: InterfaceValidationField::SectionRevision,
+                expected: u64::from(InterfaceSectionRevision::CURRENT.raw()),
+                actual: u64::from(decoded.section_revision.raw()),
+            },
+        ));
+    }
+
+    if encoding.is_none() {
+        if compatibility.is_optional() {
+            return Ok(());
+        }
+
+        return Err(malformed(
+            context,
+            InterfaceMalformedCause::InvalidDiscriminant {
+                field: InterfaceValidationField::SectionEncoding,
+                actual: u64::from(decoded.raw_encoding),
+            },
+        ));
     }
 
     if matches!(encoding, Some(InterfaceSectionEncoding::Raw))
         && decoded.encoded_length != decoded.decoded_length
     {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(malformed(
+            context,
+            InterfaceMalformedCause::LengthMismatch {
+                field: InterfaceValidationField::DecodedLength,
+                expected: decoded.encoded_length,
+                actual: decoded.decoded_length,
+            },
+        ));
     }
 
     Ok(())
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum CheckedRangeError {
-    Overflow,
-    OutOfBounds,
-}
-
-fn checked_range(
-    offset: u64,
-    length: u64,
-    file_length: usize,
-) -> Result<Range<usize>, CheckedRangeError> {
-    let end = offset
-        .checked_add(length)
-        .ok_or(CheckedRangeError::Overflow)?;
-
-    let start = usize::try_from(offset).map_err(|_| CheckedRangeError::Overflow)?;
-    let end = usize::try_from(end).map_err(|_| CheckedRangeError::Overflow)?;
-
-    if end > file_length {
-        return Err(CheckedRangeError::OutOfBounds);
-    }
-
-    Ok(start..end)
-}
-
-const fn ranges_overlap(left: &Range<usize>, right: &Range<usize>) -> bool {
-    left.start < right.end && right.start < left.end
-}
-
-fn usize_to_u64_saturating(value: usize) -> u64 {
-    u64::try_from(value).unwrap_or(u64::MAX)
-}
-
-const fn range_validation_error(error: CheckedRangeError) -> InterfaceValidationError {
-    match error {
-        CheckedRangeError::Overflow => InterfaceValidationError::Malformed,
-        CheckedRangeError::OutOfBounds => InterfaceValidationError::Truncated,
-    }
-}
-
-const fn map_wire_error(error: WireDecodeError) -> InterfaceValidationError {
-    match error {
-        WireDecodeError::Truncated => InterfaceValidationError::Truncated,
-        WireDecodeError::TrailingBytes => InterfaceValidationError::Malformed,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticId,
-        DiagnosticInterfaceLimit, DiagnosticKind,
+        DiagnosticArg, DiagnosticId, DiagnosticInterfaceLimit,
+        DiagnosticInterfaceValidationFailure, DiagnosticKind,
     };
     use bray_messages::DiagnosticRenderer;
     use bray_symbols::PackageIdentity;
 
     use super::ValidatedPackageInterface;
     use crate::artifact::{EncodedArtifactSection, assemble_sections};
-    use crate::diagnostic::InterfaceValidationError;
+    use crate::diagnostic::{
+        InterfaceMalformedCause, InterfaceValidationContext, InterfaceValidationError,
+        InterfaceValidationField,
+    };
+    use crate::framing::header_field;
     use crate::hash::{compute_artifact_hash, compute_section_hash};
-    use crate::header::InterfaceHeader;
+    use crate::header::{BYTE_ORDER_MARKER, InterfaceHeader, MAGIC};
     use crate::limits::{InterfaceLimit, InterfaceValidationLimits, InterfaceValidationPolicy};
-    use crate::section::{DirectoryEntry, InterfaceSectionTag};
+    use crate::section::{DirectoryEntry, InterfaceSectionRevision, InterfaceSectionTag};
     use crate::test_support::{package_interface_export_bundle, package_version};
     use crate::{
         CURRENT_FORMAT_REVISION, InterfaceLanguageRevision, InterfaceProductIdentity,
@@ -628,11 +810,24 @@ mod tests {
         let bytes = artifact(&[]);
 
         for length in 0..InterfaceHeader::LENGTH {
-            assert_eq!(
-                ValidatedPackageInterface::try_new(&bytes[..length], policy()),
-                Err(InterfaceValidationError::Truncated),
-                "unexpected result for prefix length {length}"
-            );
+            let error = ValidatedPackageInterface::try_new(&bytes[..length], policy())
+                .expect_err("truncated header prefix must fail validation");
+
+            let InterfaceValidationError::Truncated {
+                context,
+                field,
+                offset,
+                expected_length,
+                actual_length,
+            } = error
+            else {
+                panic!("unexpected result for prefix length {length}: {error:?}")
+            };
+
+            assert_eq!(context, InterfaceValidationContext::Header);
+            assert_eq!(field, header_field(offset_usize(offset)));
+            assert_eq!(offset + actual_length, wire_length(length));
+            assert!(actual_length < expected_length);
         }
     }
 
@@ -644,7 +839,17 @@ mod tests {
         let unsupported_revision_byte = u8::try_from(unsupported_revision.raw())
             .unwrap_or_else(|error| panic!("test format revision must fit one byte: {error}"));
 
-        assert_mutation_error(&bytes, 0, 0, InterfaceValidationError::InvalidMagic);
+        let mut invalid_magic = MAGIC;
+        invalid_magic[0] = 0;
+
+        assert_mutation_error(
+            &bytes,
+            0,
+            0,
+            InterfaceValidationError::InvalidMagic {
+                actual: invalid_magic,
+            },
+        );
 
         assert_mutation_error(
             &bytes,
@@ -665,8 +870,24 @@ mod tests {
             },
         );
 
-        assert_mutation_error(&bytes, 12, 0, InterfaceValidationError::UnsupportedEncoding);
-        assert_mutation_error(&bytes, 16, 1, InterfaceValidationError::UnsupportedEncoding);
+        assert_mutation_error(
+            &bytes,
+            12,
+            0,
+            InterfaceValidationError::UnsupportedByteOrder {
+                expected: BYTE_ORDER_MARKER,
+                actual: BYTE_ORDER_MARKER & !0xff,
+            },
+        );
+
+        assert_mutation_error(
+            &bytes,
+            16,
+            1,
+            InterfaceValidationError::UnsupportedRequiredFlags {
+                actual: crate::InterfaceRequiredFlags::from_bits(1),
+            },
+        );
     }
 
     #[test]
@@ -683,7 +904,13 @@ mod tests {
 
         assert_eq!(
             ValidatedPackageInterface::try_new(truncated, policy()),
-            Err(InterfaceValidationError::Truncated)
+            Err(InterfaceValidationError::Truncated {
+                context: InterfaceValidationContext::Artifact,
+                field: InterfaceValidationField::DeclaredFileLength,
+                offset: wire_length(bytes.len()),
+                expected_length: 1,
+                actual_length: 0,
+            })
         );
 
         let mut trailing = bytes.clone();
@@ -692,7 +919,11 @@ mod tests {
 
         assert_eq!(
             ValidatedPackageInterface::try_new(trailing, policy()),
-            Err(InterfaceValidationError::Malformed)
+            Err(InterfaceValidationError::TrailingBytes {
+                context: InterfaceValidationContext::Artifact,
+                offset: wire_length(bytes.len()) - 1,
+                count: 1,
+            })
         );
 
         let mut invalid_directory_length = bytes.clone();
@@ -701,7 +932,14 @@ mod tests {
 
         assert_eq!(
             ValidatedPackageInterface::try_new(invalid_directory_length, policy()),
-            Err(InterfaceValidationError::Malformed)
+            Err(InterfaceValidationError::Malformed {
+                context: InterfaceValidationContext::Header,
+                cause: InterfaceMalformedCause::InvalidAlignment {
+                    field: InterfaceValidationField::DirectoryLength,
+                    value: 1,
+                    alignment: DirectoryEntry::WIRE_LENGTH,
+                },
+            })
         );
 
         let mut overflowing_directory = bytes;
@@ -710,7 +948,13 @@ mod tests {
 
         assert_eq!(
             ValidatedPackageInterface::try_new(overflowing_directory, policy()),
-            Err(InterfaceValidationError::Malformed)
+            Err(InterfaceValidationError::Malformed {
+                context: InterfaceValidationContext::Directory,
+                cause: InterfaceMalformedCause::RangeOverflow {
+                    offset: u64::MAX,
+                    length: DirectoryEntry::WIRE_LENGTH,
+                },
+            })
         );
     }
 
@@ -728,7 +972,16 @@ mod tests {
 
         assert_eq!(
             ValidatedPackageInterface::try_new(unknown_tag, policy()),
-            Err(InterfaceValidationError::Malformed)
+            Err(InterfaceValidationError::Malformed {
+                context: InterfaceValidationContext::DirectoryEntry {
+                    index: 0,
+                    raw_tag: 99,
+                },
+                cause: InterfaceMalformedCause::InvalidDiscriminant {
+                    field: InterfaceValidationField::SectionTag,
+                    actual: 99,
+                },
+            })
         );
 
         let mut encoded_section = artifact(&[SectionFixture {
@@ -743,7 +996,16 @@ mod tests {
 
         assert_eq!(
             ValidatedPackageInterface::try_new(encoded_section, policy()),
-            Err(InterfaceValidationError::Malformed)
+            Err(InterfaceValidationError::Malformed {
+                context: InterfaceValidationContext::DirectoryEntry {
+                    index: 0,
+                    raw_tag: InterfaceSectionTag::Strings.wire_value(),
+                },
+                cause: InterfaceMalformedCause::InvalidDiscriminant {
+                    field: InterfaceValidationField::SectionEncoding,
+                    actual: u64::from(u8::MAX),
+                },
+            })
         );
 
         let mut revised_section = artifact(&[SectionFixture {
@@ -758,7 +1020,17 @@ mod tests {
 
         assert_eq!(
             ValidatedPackageInterface::try_new(revised_section, policy()),
-            Err(InterfaceValidationError::Malformed)
+            Err(InterfaceValidationError::Malformed {
+                context: InterfaceValidationContext::DirectoryEntry {
+                    index: 0,
+                    raw_tag: InterfaceSectionTag::Strings.wire_value(),
+                },
+                cause: InterfaceMalformedCause::ValueMismatch {
+                    field: InterfaceValidationField::SectionRevision,
+                    expected: u64::from(InterfaceSectionRevision::CURRENT.raw()),
+                    actual: u64::from(u16::MAX),
+                },
+            })
         );
 
         let mut duplicate = artifact(&[
@@ -784,7 +1056,17 @@ mod tests {
 
         assert_eq!(
             ValidatedPackageInterface::try_new(duplicate, policy()),
-            Err(InterfaceValidationError::Malformed)
+            Err(InterfaceValidationError::Malformed {
+                context: InterfaceValidationContext::DirectoryEntry {
+                    index: 1,
+                    raw_tag: InterfaceSectionTag::Strings.wire_value(),
+                },
+                cause: InterfaceMalformedCause::OrderingViolation {
+                    field: InterfaceValidationField::SectionTag,
+                    previous: u64::from(InterfaceSectionTag::Strings.wire_value()),
+                    actual: u64::from(InterfaceSectionTag::Strings.wire_value()),
+                },
+            })
         );
 
         let mut overlap = artifact(&[
@@ -810,7 +1092,18 @@ mod tests {
 
         assert_eq!(
             ValidatedPackageInterface::try_new(overlap, policy()),
-            Err(InterfaceValidationError::Malformed)
+            Err(InterfaceValidationError::Malformed {
+                context: InterfaceValidationContext::DirectoryEntry {
+                    index: 1,
+                    raw_tag: InterfaceSectionTag::Dependencies.wire_value(),
+                },
+                cause: InterfaceMalformedCause::RangeOverlap {
+                    offset: wire_length(InterfaceHeader::LENGTH),
+                    length: 2,
+                    conflicting_offset: wire_length(InterfaceHeader::LENGTH),
+                    conflicting_length: 2,
+                },
+            })
         );
 
         let mut overflow = artifact(&[SectionFixture {
@@ -825,7 +1118,16 @@ mod tests {
 
         assert_eq!(
             ValidatedPackageInterface::try_new(overflow, policy()),
-            Err(InterfaceValidationError::Malformed)
+            Err(InterfaceValidationError::Malformed {
+                context: InterfaceValidationContext::DirectoryEntry {
+                    index: 0,
+                    raw_tag: InterfaceSectionTag::Strings.wire_value(),
+                },
+                cause: InterfaceMalformedCause::RangeOverflow {
+                    offset: u64::MAX,
+                    length: 2,
+                },
+            })
         );
     }
 
@@ -892,17 +1194,26 @@ mod tests {
 
         assert_eq!(
             ValidatedPackageInterface::try_new(required, policy()),
-            Err(InterfaceValidationError::Malformed)
+            Err(InterfaceValidationError::Malformed {
+                context: InterfaceValidationContext::DirectoryEntry {
+                    index: 0,
+                    raw_tag: 99,
+                },
+                cause: InterfaceMalformedCause::InvalidDiscriminant {
+                    field: InterfaceValidationField::SectionTag,
+                    actual: 99,
+                },
+            })
         );
 
         let mut corrupted = extension;
 
         corrupted[InterfaceHeader::LENGTH] ^= 0xff;
 
-        assert_eq!(
-            ValidatedPackageInterface::try_new(corrupted, policy()),
-            Err(InterfaceValidationError::HashMismatch)
-        );
+        let error = ValidatedPackageInterface::try_new(corrupted, policy())
+            .expect_err("corrupted optional section must fail its exact checksum");
+
+        assert_unknown_checksum_mismatch(error, 99);
     }
 
     #[test]
@@ -1006,10 +1317,13 @@ mod tests {
 
         rewrite_artifact_hash(&mut bytes);
 
-        assert_eq!(
-            ValidatedPackageInterface::try_new(bytes, policy()),
-            Err(InterfaceValidationError::HashMismatch)
-        );
+        let error = ValidatedPackageInterface::try_new(bytes, policy())
+            .expect_err("corrupted content identity must fail validation");
+
+        assert!(matches!(
+            error,
+            InterfaceValidationError::ContentHashMismatch { .. }
+        ));
     }
 
     #[test]
@@ -1031,12 +1345,17 @@ mod tests {
 
         assert!(interface.decoded_sections[0].get().is_none());
 
-        assert_eq!(
-            interface.section(InterfaceSectionTag::Strings),
-            Err(InterfaceValidationError::SectionChecksumMismatch {
+        let error = interface
+            .section(InterfaceSectionTag::Strings)
+            .expect_err("mutated decoded section must fail its content hash");
+
+        assert!(matches!(
+            error,
+            InterfaceValidationError::SectionContentHashMismatch {
                 section: InterfaceSectionTag::Strings,
-            })
-        );
+                ..
+            }
+        ));
 
         assert!(interface.decoded_sections[0].get().is_some());
     }
@@ -1112,28 +1431,35 @@ mod tests {
             payload: b"payload",
         }]);
 
-        assert_mutation_error(
-            &bytes,
-            InterfaceHeader::LENGTH,
-            b'P',
+        let mut corrupted_section = bytes.clone();
+        corrupted_section[InterfaceHeader::LENGTH] = b'P';
+
+        let error = ValidatedPackageInterface::try_new(corrupted_section, policy())
+            .expect_err("mutated section bytes must fail their exact checksum");
+
+        assert!(matches!(
+            error,
             InterfaceValidationError::SectionChecksumMismatch {
                 section: InterfaceSectionTag::Strings,
-            },
-        );
+                ..
+            }
+        ));
 
-        assert_mutation_error(
-            &bytes,
+        for offset in [
             InterfaceHeader::CONTENT_HASH_OFFSET,
-            0xff,
-            InterfaceValidationError::HashMismatch,
-        );
-
-        assert_mutation_error(
-            &bytes,
             InterfaceHeader::ARTIFACT_HASH_OFFSET,
-            0xff,
-            InterfaceValidationError::HashMismatch,
-        );
+        ] {
+            let mut corrupted_hash = bytes.clone();
+            corrupted_hash[offset] = 0xff;
+
+            let error = ValidatedPackageInterface::try_new(corrupted_hash, policy())
+                .expect_err("mutated artifact identity must fail its exact hash");
+
+            assert!(matches!(
+                error,
+                InterfaceValidationError::ArtifactHashMismatch { .. }
+            ));
+        }
     }
 
     #[test]
@@ -1180,32 +1506,36 @@ mod tests {
 
         assert_eq!(
             diagnostic.args(),
-            &[
-                DiagnosticArg::new(
-                    DiagnosticArgName::InterfaceLimit,
-                    DiagnosticArgValue::InterfaceLimit(DiagnosticInterfaceLimit::RecordCount),
-                ),
-                DiagnosticArg::new(
-                    DiagnosticArgName::ActualCount,
-                    DiagnosticArgValue::Count(12),
-                ),
-                DiagnosticArg::maximum_count(10),
-            ]
+            &[DiagnosticArg::interface_validation_failure(
+                DiagnosticInterfaceValidationFailure::ResourceLimitExceeded {
+                    limit: DiagnosticInterfaceLimit::RecordCount,
+                    actual: 12,
+                    maximum: 10,
+                }
+            )]
         );
 
         assert_eq!(
             DiagnosticRenderer::english().render(&diagnostic).message(),
-            "package interface exceeds the configured record count limit: 12. Maximum 10"
+            "package interface requires record count of 12, but the configured maximum is 10"
         );
 
         let section = InterfaceValidationError::SectionChecksumMismatch {
             section: InterfaceSectionTag::Contracts,
+            expected: crate::InterfaceSectionHash::from_bytes([0; 32]),
+            actual: crate::InterfaceSectionHash::from_bytes([1; 32]),
         }
         .into_diagnostic(DiagnosticId::new(5));
 
+        let expected = format!(
+            "package-interface contracts section declares checksum BLAKE3 {}, but its bytes have checksum BLAKE3 {}",
+            "00".repeat(32),
+            "01".repeat(32),
+        );
+
         assert_eq!(
             DiagnosticRenderer::english().render(&section).message(),
-            "package-interface section checksum does not match for contracts"
+            expected
         );
 
         let unsupported_revision = unsupported_format_revision();
@@ -1216,7 +1546,7 @@ mod tests {
         .into_diagnostic(DiagnosticId::new(6));
 
         let expected = format!(
-            "unsupported package-interface format revision {}. Expected {}",
+            "package interface uses format revision {}, but this compiler requires {}",
             unsupported_revision.raw(),
             CURRENT_FORMAT_REVISION.raw()
         );
@@ -1387,5 +1717,26 @@ mod tests {
             Ok(value) => value,
             Err(error) => panic!("test length must fit the wire format: {error:?}"),
         }
+    }
+
+    fn offset_usize(value: u64) -> usize {
+        match usize::try_from(value) {
+            Ok(value) => value,
+            Err(error) => panic!("test offset must fit the host: {error:?}"),
+        }
+    }
+
+    fn assert_unknown_checksum_mismatch(error: InterfaceValidationError, raw_tag: u32) {
+        let InterfaceValidationError::UnknownSectionChecksumMismatch {
+            raw_tag: actual_tag,
+            expected,
+            actual,
+        } = error
+        else {
+            panic!("expected unknown-section checksum mismatch, got {error:?}")
+        };
+
+        assert_eq!(actual_tag, raw_tag);
+        assert_ne!(expected, actual);
     }
 }

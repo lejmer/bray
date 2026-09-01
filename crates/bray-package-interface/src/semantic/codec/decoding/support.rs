@@ -40,7 +40,11 @@ pub(super) fn decode_support_graph(
                     read_optional_u32(&mut reader)?.map(InterfaceTraitApplicationId::new),
                 ))
             }
-            _ => return Err(InterfaceValidationError::Malformed),
+            _ => {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Support,
+                ));
+            }
         });
     }
 

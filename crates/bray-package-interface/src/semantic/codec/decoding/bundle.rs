@@ -56,7 +56,9 @@ pub fn decode_semantics(
     let encoded_directory = directory::decode_semantic_directory(directory, limits, &mut context)?;
 
     if encoded_directory.as_ref() != semantics.semantic_directory().as_ref() {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::RecordPayload,
+        ));
     }
 
     semantics.validate(surface, limits)?;
@@ -215,7 +217,9 @@ pub(super) fn required_section<'bytes>(
     sections: &'bytes [ValidatedInterfaceSection<'bytes>],
     tag: InterfaceSectionTag,
 ) -> Result<ValidatedInterfaceSection<'bytes>, InterfaceValidationError> {
-    optional_section(sections, tag).ok_or(InterfaceValidationError::Malformed)
+    optional_section(sections, tag).ok_or(crate::semantic::codec::invalid_value(
+        crate::InterfaceValidationField::RecordPayload,
+    ))
 }
 
 fn optional_section<'bytes>(
@@ -255,7 +259,7 @@ mod tests {
         InterfaceRuntimeRequirement, InterfaceSectionTag, InterfaceSemanticRecordKind,
         InterfaceSemantics, InterfaceStorageMember, InterfaceStorageShape,
         InterfaceSymbolReference, InterfaceType, InterfaceTypeId, InterfaceTypeRepresentation,
-        InterfaceValidationError, InterfaceValidationLimits, PackageInterfaceSurface,
+        InterfaceValidationLimits, PackageInterfaceSurface,
     };
 
     #[test]
@@ -358,7 +362,9 @@ mod tests {
                 InterfaceSemanticRecordKind::Implementation,
                 InterfaceValidationLimits::default(),
             ),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference
+            ))
         );
     }
 
@@ -492,7 +498,9 @@ mod tests {
 
             assert_eq!(
                 encode_semantics(&semantics, surface, InterfaceValidationLimits::default()),
-                Err(InterfaceValidationError::Malformed)
+                Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference
+                ))
             );
         }
     }
@@ -525,7 +533,9 @@ mod tests {
 
             assert_eq!(
                 encode_semantics(&semantics, surface, InterfaceValidationLimits::default()),
-                Err(InterfaceValidationError::Malformed)
+                Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference
+                ))
             );
         }
     }
@@ -549,7 +559,10 @@ mod tests {
         let invalid_kind = InterfaceTypeRepresentation::new(structure)
             .with_storage(InterfaceStorageShape::Union([].into()));
 
-        for representation in [invalid_type, invalid_kind] {
+        for (representation, field) in [
+            (invalid_type, crate::InterfaceValidationField::Discriminant),
+            (invalid_kind, crate::InterfaceValidationField::Reference),
+        ] {
             let semantics = bundle
                 .semantics()
                 .clone()
@@ -557,7 +570,7 @@ mod tests {
 
             assert_eq!(
                 encode_semantics(&semantics, surface, InterfaceValidationLimits::default()),
-                Err(InterfaceValidationError::Malformed)
+                Err(crate::semantic::codec::invalid_value(field))
             );
         }
     }
@@ -772,7 +785,12 @@ mod tests {
             InterfaceValidationLimits::default(),
         );
 
-        assert_eq!(decoded, Err(InterfaceValidationError::Malformed));
+        assert_eq!(
+            decoded,
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Declaration
+            ))
+        );
     }
 
     #[test]
@@ -852,13 +870,23 @@ mod tests {
 
             section.2[..4].copy_from_slice(&u32::MAX.to_le_bytes());
 
+            let field = match tag {
+                InterfaceSectionTag::DeclarationSemantics => {
+                    crate::InterfaceValidationField::Declaration
+                }
+                InterfaceSectionTag::DeclarationTemplates => {
+                    crate::InterfaceValidationField::Template
+                }
+                _ => unreachable!(),
+            };
+
             assert_eq!(
                 decode_semantics(
                     &owned_section_views(&sections),
                     &surface,
                     InterfaceValidationLimits::default(),
                 ),
-                Err(InterfaceValidationError::Malformed),
+                Err(crate::semantic::codec::invalid_value(field)),
                 "{tag:?}"
             );
         }
@@ -893,7 +921,9 @@ mod tests {
                 surface,
                 InterfaceValidationLimits::default(),
             ),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference
+            ))
         );
 
         let generic = &base.generic_declarations()[0];
@@ -916,7 +946,9 @@ mod tests {
                 surface,
                 InterfaceValidationLimits::default(),
             ),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference
+            ))
         );
 
         let default = &base.callable_parameter_defaults()[0];
@@ -937,7 +969,9 @@ mod tests {
                 surface,
                 InterfaceValidationLimits::default(),
             ),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference
+            ))
         );
     }
 
@@ -965,7 +999,19 @@ mod tests {
         let second = decode();
 
         assert_eq!(first, second);
-        assert_eq!(first, Err(InterfaceValidationError::Malformed));
+        assert_eq!(
+            first,
+            Err(crate::InterfaceValidationError::Malformed {
+                context: crate::InterfaceValidationContext::Record {
+                    section: crate::InterfaceSectionTag::Implementations,
+                    index: 1,
+                },
+                cause: crate::InterfaceMalformedCause::InvalidDiscriminant {
+                    field: crate::InterfaceValidationField::Discriminant,
+                    actual: u64::from(u32::MAX),
+                },
+            })
+        );
     }
 
     #[test]
@@ -992,7 +1038,18 @@ mod tests {
         let second = decode();
 
         assert_eq!(first, second);
-        assert_eq!(first, Err(InterfaceValidationError::Malformed));
+        assert_eq!(
+            first,
+            Err(crate::InterfaceValidationError::Malformed {
+                context: crate::InterfaceValidationContext::Record {
+                    section: crate::InterfaceSectionTag::SemanticTypes,
+                    index: 1,
+                },
+                cause: crate::InterfaceMalformedCause::InvalidValue {
+                    field: crate::InterfaceValidationField::Constant,
+                },
+            })
+        );
     }
 
     #[test]
@@ -1016,7 +1073,17 @@ mod tests {
                 InterfaceSemanticRecordKind::Implementation,
                 InterfaceValidationLimits::default(),
             ),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::InterfaceValidationError::Malformed {
+                context: crate::InterfaceValidationContext::Record {
+                    section: crate::InterfaceSectionTag::SemanticTypes,
+                    index: 2,
+                },
+                cause: crate::InterfaceMalformedCause::OrderingViolation {
+                    field: crate::InterfaceValidationField::RecordOffset,
+                    previous: 28,
+                    actual: u64::from(u32::MAX),
+                },
+            })
         );
     }
 

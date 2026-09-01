@@ -30,9 +30,9 @@ pub(super) fn decode_contract_tables<'bytes>(
 ) -> Result<ContractRecordTables<'bytes>, InterfaceValidationError> {
     let mut reader = WireReader::new(section.bytes());
 
-    let dependencies = RecordTable::read_from(&mut reader, context)?;
-    let constraints = RecordTable::read_from(&mut reader, context)?;
-    let callables = RecordTable::read_from(&mut reader, context)?;
+    let dependencies = RecordTable::read_from(&mut reader, context, section.tag())?;
+    let constraints = RecordTable::read_from(&mut reader, context, section.tag())?;
+    let callables = RecordTable::read_from(&mut reader, context, section.tag())?;
 
     validate_record_count(
         section,
@@ -113,7 +113,9 @@ pub(super) fn decode_constraint(
             crate::InterfaceTypeId::new(read_u32(reader)?),
             crate::InterfaceTypeId::new(read_u32(reader)?),
         )),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Dependency,
+        )),
     }
 }
 
@@ -150,7 +152,11 @@ pub(super) fn decode_callable_contract(
     let deferred_execution_behavior = match read_u32(reader)? {
         0 => None,
         1 => Some(decode_callable_behavior(reader, limits, context)?),
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Dependency,
+            ));
+        }
     };
 
     Ok(InterfaceCallableContract::new(
@@ -188,7 +194,11 @@ fn decode_callable_clauses(
                     crate::InterfaceTraitApplicationId::new(read_u32(reader)?),
                 )
             }
-            _ => return Err(InterfaceValidationError::Malformed),
+            _ => {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Dependency,
+                ));
+            }
         };
 
         clauses.push(clause);
@@ -268,7 +278,9 @@ pub(super) fn decode_dependency_requirement(
 
             Ok(InterfaceDependencyRequirement::guarded(guard, requirements))
         }
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Dependency,
+        )),
     }
 }
 
@@ -291,7 +303,11 @@ pub(super) fn decode_dependency_subject(
         7 => InterfaceDependencySubjectRoot::ExactThreadStatic(read_symbol_reference(
             reader, context,
         )?),
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Dependency,
+            ));
+        }
     };
 
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
@@ -312,7 +328,11 @@ pub(super) fn decode_dependency_subject(
                 reader, context,
             )?),
             6 => InterfaceDependencyProjection::OwnedTarget,
-            _ => return Err(InterfaceValidationError::Malformed),
+            _ => {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Dependency,
+                ));
+            }
         });
     }
 
@@ -332,7 +352,9 @@ pub(super) fn decode_dependency_guard(
             subject: decode_dependency_subject(reader, limits, context)?,
             variant: read_symbol_reference(reader, context)?,
         }),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Dependency,
+        )),
     }
 }
 
@@ -350,6 +372,8 @@ pub(super) fn decode_dependency_requirement_kind(
         6 => Ok(InterfaceDependencyRequirementKind::LifecycleObligation(
             decode_tag(read_u32(reader)?)?,
         )),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Dependency,
+        )),
     }
 }

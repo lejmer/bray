@@ -93,25 +93,29 @@ pub(super) fn encode_artifact(
     });
 
     let directory_length = payloads.len().checked_mul(DIRECTORY_ENTRY_LENGTH).ok_or(
-        PackageImplementationArtifactBuildError::InvalidArtifact(
-            InterfaceValidationError::Malformed,
-        ),
+        PackageImplementationArtifactBuildError::InvalidArtifact(numeric_overflow(
+            crate::InterfaceValidationField::DirectoryLength,
+            payloads.len() as u64,
+            crate::InterfaceIntegerTarget::Usize,
+        )),
     )?;
 
     let directory_offset = HEADER_LENGTH
         .checked_add(payload_length.ok_or(
-            PackageImplementationArtifactBuildError::InvalidArtifact(
-                InterfaceValidationError::Malformed,
-            ),
+            PackageImplementationArtifactBuildError::InvalidArtifact(range_overflow(
+                HEADER_LENGTH as u64,
+                u64::MAX,
+            )),
         )?)
         .ok_or(PackageImplementationArtifactBuildError::InvalidArtifact(
-            InterfaceValidationError::Malformed,
+            range_overflow(HEADER_LENGTH as u64, u64::MAX),
         ))?;
 
     let file_length = directory_offset.checked_add(directory_length).ok_or(
-        PackageImplementationArtifactBuildError::InvalidArtifact(
-            InterfaceValidationError::Malformed,
-        ),
+        PackageImplementationArtifactBuildError::InvalidArtifact(range_overflow(
+            directory_offset as u64,
+            directory_length as u64,
+        )),
     )?;
 
     let mut encoder = WireEncoder::new();
@@ -127,8 +131,8 @@ pub(super) fn encode_artifact(
     let mut entries = Vec::with_capacity(payloads.len());
     let mut offset = HEADER_LENGTH;
 
-    for payload in &payloads {
-        let entry = payload.directory_entry(offset)?;
+    for (index, payload) in payloads.iter().enumerate() {
+        let entry = payload.directory_entry(index as u64, offset)?;
 
         encoder.write_bytes(&payload.encoded);
         offset = entry.payload.end;
@@ -146,7 +150,10 @@ pub(super) fn encode_artifact(
 
     let artifact_hash = compute_artifact_hash(&bytes).ok_or(
         PackageImplementationArtifactBuildError::InvalidArtifact(
-            InterfaceValidationError::Malformed,
+            InterfaceValidationError::DigestUnavailable {
+                context: crate::InterfaceValidationContext::Artifact,
+                field: crate::InterfaceValidationField::ArtifactHash,
+            },
         ),
     )?;
 
@@ -250,8 +257,13 @@ impl StoredImplementationPayload {
     fn try_from_decoded(
         payload: EncodedImplementationPayload,
     ) -> Result<Self, InterfaceValidationError> {
-        let decoded_length = u64::try_from(payload.decoded.len())
-            .map_err(|_| InterfaceValidationError::Malformed)?;
+        let decoded_length = u64::try_from(payload.decoded.len()).map_err(|_| {
+            numeric_overflow(
+                crate::InterfaceValidationField::DecodedLength,
+                payload.decoded.len() as u64,
+                crate::InterfaceIntegerTarget::U64,
+            )
+        })?;
 
         let content_hash = compute_payload_content_hash(
             payload.owner,
@@ -260,7 +272,10 @@ impl StoredImplementationPayload {
             &payload.decoded,
         );
 
-        let (encoding, encoded) = crate::encoding::encode_section(&payload.decoded)?;
+        let (encoding, encoded) = crate::encoding::encode_section(
+            crate::InterfaceValidationContext::Artifact,
+            &payload.decoded,
+        )?;
 
         Ok(Self {
             owner: payload.owner,
@@ -277,15 +292,18 @@ impl StoredImplementationPayload {
 
     fn directory_entry(
         &self,
+        index: u64,
         offset: usize,
     ) -> Result<ImplementationDirectoryEntry, PackageImplementationArtifactBuildError> {
         let end = offset.checked_add(self.encoded.len()).ok_or(
-            PackageImplementationArtifactBuildError::InvalidArtifact(
-                InterfaceValidationError::Malformed,
-            ),
+            PackageImplementationArtifactBuildError::InvalidArtifact(range_overflow(
+                offset as u64,
+                self.encoded.len() as u64,
+            )),
         )?;
 
         let mut entry = ImplementationDirectoryEntry {
+            index,
             owner: self.owner,
             raw_kind: self.kind as u8,
             kind: Some(self.kind),
@@ -304,5 +322,27 @@ impl StoredImplementationPayload {
         entry.checksum = compute_payload_hash(&entry, &self.encoded);
 
         Ok(entry)
+    }
+}
+
+const fn range_overflow(offset: u64, length: u64) -> InterfaceValidationError {
+    InterfaceValidationError::Malformed {
+        context: crate::InterfaceValidationContext::Artifact,
+        cause: crate::InterfaceMalformedCause::RangeOverflow { offset, length },
+    }
+}
+
+const fn numeric_overflow(
+    field: crate::InterfaceValidationField,
+    value: u64,
+    target: crate::InterfaceIntegerTarget,
+) -> InterfaceValidationError {
+    InterfaceValidationError::Malformed {
+        context: crate::InterfaceValidationContext::Artifact,
+        cause: crate::InterfaceMalformedCause::NumericOverflow {
+            field,
+            value,
+            target,
+        },
     }
 }

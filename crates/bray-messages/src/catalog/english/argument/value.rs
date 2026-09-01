@@ -12,7 +12,8 @@ use super::emission::{
 use super::interface::{
     format_english_interface_limit, format_english_interface_section,
     format_english_interface_semantic_problem, format_english_interface_symbol_graph_problem,
-    format_english_interface_symbol_identity, format_english_source_input,
+    format_english_interface_symbol_identity, format_english_interface_validation_failure,
+    format_english_source_input,
 };
 use super::native::{
     format_english_dependency_requirement, format_english_dependency_subject,
@@ -150,6 +151,9 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         }
         DiagnosticArgValue::InterfaceSemanticProblem(problem) => {
             format_english_interface_semantic_problem(problem)
+        }
+        DiagnosticArgValue::InterfaceValidationFailure(failure) => {
+            format_english_interface_validation_failure(failure)
         }
         DiagnosticArgValue::ProjectSelectionProblem(problem) => {
             format_english_project_selection_problem(problem)

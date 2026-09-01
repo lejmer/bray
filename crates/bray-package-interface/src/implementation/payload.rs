@@ -6,9 +6,13 @@ use bray_symbols::{
     NativeSymbolIdentity, NativeSymbolPresence, StaticStorageDuration,
 };
 
-use crate::decode::map_wire_error;
+use crate::implementation::map_wire_error;
 use crate::wire::{WireEncoder, WireReader};
-use crate::{InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits};
+use crate::{
+    InterfaceIntegerTarget, InterfaceLimit, InterfaceMalformedCause, InterfaceUtf8Failure,
+    InterfaceValidationContext, InterfaceValidationError, InterfaceValidationField,
+    InterfaceValidationLimits,
+};
 
 use super::codec::{decode_specialization_key, encode_specialization_key};
 use super::{
@@ -40,20 +44,26 @@ pub(super) fn decode_pre_specialized_mir(
         ImplementationMirSchemaRevision::new(reader.read_u16().map_err(map_wire_error)?);
 
     if mir_schema_revision != CURRENT_MIR_SCHEMA_REVISION {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(value_mismatch(
+            InterfaceValidationField::SchemaRevision,
+            u64::from(CURRENT_MIR_SCHEMA_REVISION.raw()),
+            u64::from(mir_schema_revision.raw()),
+        ));
     }
 
     let length = reader.read_u64().map_err(map_wire_error)?;
 
     limits.check(InterfaceLimit::BlobLength, length)?;
 
-    let length = usize::try_from(length).map_err(|_| InterfaceValidationError::Malformed)?;
+    let length = usize::try_from(length)
+        .map_err(|_| numeric_overflow(InterfaceValidationField::RecordLength, length))?;
     let payload = reader.read_bytes(length).map_err(map_wire_error)?;
 
     reader.finish().map_err(map_wire_error)?;
 
-    InterfacePreSpecializedMir::new(key, mir_schema_revision, Arc::<[u8]>::from(payload))
-        .ok_or(InterfaceValidationError::Malformed)
+    InterfacePreSpecializedMir::new(key, mir_schema_revision, Arc::<[u8]>::from(payload)).ok_or(
+        crate::implementation::invalid_value(crate::InterfaceValidationField::RecordPayload),
+    )
 }
 
 pub(super) fn specialization_discriminator(
@@ -133,13 +143,17 @@ pub(super) fn decode_native_boundary(
 ) -> Result<InterfaceNativeBoundary, InterfaceValidationError> {
     let mut reader = WireReader::new(payload);
 
-    let direction = match reader.read_u8().map_err(map_wire_error)? {
+    let raw_direction = reader.read_u8().map_err(map_wire_error)?;
+    let direction = match raw_direction {
         0 => ForeignCallableDirection::Import,
         1 => ForeignCallableDirection::Export,
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(invalid_discriminant(raw_direction));
+        }
     };
 
-    let kind = match reader.read_u8().map_err(map_wire_error)? {
+    let raw_kind = reader.read_u8().map_err(map_wire_error)?;
+    let kind = match raw_kind {
         0 => InterfaceNativeBoundaryKind::Callable,
         1 => InterfaceNativeBoundaryKind::Static {
             duration: StaticStorageDuration::Product,
@@ -157,31 +171,45 @@ pub(super) fn decode_native_boundary(
             duration: StaticStorageDuration::ExactThread,
             mutable: true,
         },
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(invalid_discriminant(raw_kind));
+        }
     };
 
-    let identity = match reader.read_u8().map_err(map_wire_error)? {
+    let raw_identity = reader.read_u8().map_err(map_wire_error)?;
+    let identity = match raw_identity {
         0 => NativeSymbolIdentity::Name(read_nonempty_string(&mut reader, limits)?),
         1 => NativeSymbolIdentity::Ordinal(reader.read_u64().map_err(map_wire_error)?),
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(invalid_discriminant(raw_identity));
+        }
     };
 
-    let version = match reader.read_u8().map_err(map_wire_error)? {
+    let raw_version = reader.read_u8().map_err(map_wire_error)?;
+    let version = match raw_version {
         0 => None,
         1 => Some(read_nonempty_string(&mut reader, limits)?),
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(invalid_discriminant(raw_version));
+        }
     };
 
-    let binding = match reader.read_u8().map_err(map_wire_error)? {
+    let raw_binding = reader.read_u8().map_err(map_wire_error)?;
+    let binding = match raw_binding {
         0 => NativeSymbolBinding::Strong,
         1 => NativeSymbolBinding::Weak,
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(invalid_discriminant(raw_binding));
+        }
     };
 
-    let presence = match reader.read_u8().map_err(map_wire_error)? {
+    let raw_presence = reader.read_u8().map_err(map_wire_error)?;
+    let presence = match raw_presence {
         0 => NativeSymbolPresence::Required,
         1 => NativeSymbolPresence::Optional,
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(invalid_discriminant(raw_presence));
+        }
     };
 
     reader.finish().map_err(map_wire_error)?;
@@ -204,9 +232,61 @@ fn read_nonempty_string(
 
     limits.check(InterfaceLimit::StringLength, length)?;
 
-    let length = usize::try_from(length).map_err(|_| InterfaceValidationError::Malformed)?;
+    let length = usize::try_from(length)
+        .map_err(|_| numeric_overflow(InterfaceValidationField::String, length))?;
+    let offset = reader.position();
     let bytes = reader.read_bytes(length).map_err(map_wire_error)?;
-    let value = std::str::from_utf8(bytes).map_err(|_| InterfaceValidationError::Malformed)?;
+    let value =
+        std::str::from_utf8(bytes).map_err(|cause| InterfaceValidationError::InvalidUtf8 {
+            context: InterfaceValidationContext::Artifact,
+            field: InterfaceValidationField::String,
+            offset: offset as u64,
+            length: length as u64,
+            cause: cause.error_len().map_or(
+                InterfaceUtf8Failure::IncompleteSequence,
+                |error_length| InterfaceUtf8Failure::InvalidSequence {
+                    error_length: Some(error_length as u64),
+                },
+            ),
+        })?;
 
-    NonEmptySharedStr::try_new(value).ok_or(InterfaceValidationError::Malformed)
+    NonEmptySharedStr::try_new(value).ok_or(crate::implementation::invalid_value(
+        crate::InterfaceValidationField::String,
+    ))
+}
+
+const fn invalid_discriminant(actual: u8) -> InterfaceValidationError {
+    InterfaceValidationError::Malformed {
+        context: InterfaceValidationContext::Artifact,
+        cause: InterfaceMalformedCause::InvalidDiscriminant {
+            field: InterfaceValidationField::Discriminant,
+            actual: actual as u64,
+        },
+    }
+}
+
+const fn value_mismatch(
+    field: InterfaceValidationField,
+    expected: u64,
+    actual: u64,
+) -> InterfaceValidationError {
+    InterfaceValidationError::Malformed {
+        context: InterfaceValidationContext::Artifact,
+        cause: InterfaceMalformedCause::ValueMismatch {
+            field,
+            expected,
+            actual,
+        },
+    }
+}
+
+const fn numeric_overflow(field: InterfaceValidationField, value: u64) -> InterfaceValidationError {
+    InterfaceValidationError::Malformed {
+        context: InterfaceValidationContext::Artifact,
+        cause: InterfaceMalformedCause::NumericOverflow {
+            field,
+            value,
+            target: InterfaceIntegerTarget::Usize,
+        },
+    }
 }
