@@ -204,6 +204,7 @@ fn package_interface_export_failure_diagnostic(
 ) -> Option<Diagnostic> {
     let diagnostic = match error {
         PackageInterfaceExportError::Cancelled
+        | PackageInterfaceExportError::Query(FactQueryError::Cancelled)
         | PackageInterfaceExportError::ConstantCallableEvaluation {
             cause: FactQueryError::Cancelled,
             ..
@@ -838,6 +839,7 @@ mod tests {
 
         let errors = [
             PackageInterfaceExportError::Cancelled,
+            PackageInterfaceExportError::Query(FactQueryError::Cancelled),
             PackageInterfaceExportError::ConstantCallableEvaluation {
                 declaration: declaration.clone(),
                 cause: FactQueryError::Cancelled,
