@@ -94,8 +94,7 @@ impl Lowerer<'_> {
                     let place_data = lowerer
                         .input
                         .semantic_values()
-                        .type_data(place.ty())
-                        .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+                        .type_data(place.ty())?;
 
                     if let TypeData::Borrow { kind, target } = place_data.as_ref()
                         && expression_type == place.ty()
@@ -142,8 +141,7 @@ impl Lowerer<'_> {
                     lowerer
                         .input
                         .semantic_values()
-                        .type_data(place.ty())
-                        .map_err(|_| LoweringError::SemanticValueUnavailable)?
+                        .type_data(place.ty())?
                         .as_ref(),
                     TypeData::Borrow { .. }
                 );

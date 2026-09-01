@@ -37,6 +37,7 @@ pub enum DiagnosticLoweringInputFailureKind {
     MissingExpressionType,
     InvalidPatternInput,
     InvalidInputContents,
+    SemanticValue(crate::DiagnosticSemanticValueFailure),
     InvalidStorageOperation,
     StorageOperationCountMismatch { expected: u64, actual: u64 },
     InvalidStorageExit,
@@ -54,6 +55,7 @@ impl DiagnosticLoweringInputFailureKind {
             Self::MissingExpressionType => "code_production_input_missing_expression_type",
             Self::InvalidPatternInput => "code_production_input_invalid_pattern",
             Self::InvalidInputContents => "code_production_input_foreign_source_construct",
+            Self::SemanticValue(failure) => failure.as_str(),
             Self::InvalidStorageOperation => "code_production_input_invalid_value_access",
             Self::StorageOperationCountMismatch { .. } => {
                 "code_production_input_value_access_count_mismatch"
@@ -126,6 +128,7 @@ pub enum DiagnosticLoweringFailureKind {
     MissingOperationResult,
     MissingRepresentation,
     SemanticValueUnavailable,
+    SemanticValue(crate::DiagnosticSemanticValueFailure),
     InvalidFrameDescriptor,
     Mir(DiagnosticMirUnitBuildFailure),
 }
@@ -156,6 +159,7 @@ impl DiagnosticLoweringFailureKind {
             Self::MissingOperationResult => "code_production_expression_value_unavailable",
             Self::MissingRepresentation => "code_production_target_representation_unavailable",
             Self::SemanticValueUnavailable => "code_production_type_or_constant_unavailable",
+            Self::SemanticValue(failure) => failure.as_str(),
             Self::InvalidFrameDescriptor => "code_production_resumable_state_conflict",
             Self::Mir(failure) => failure.as_str(),
         }

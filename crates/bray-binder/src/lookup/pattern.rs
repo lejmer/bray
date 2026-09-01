@@ -96,7 +96,7 @@ where
             .binding_context()
             .semantic_values()
             .type_data(input_type)
-            .map_err(|_| crate::BindingQueryError::DependencyUnavailable)?;
+            .map_err(crate::BindingQueryError::SemanticValue)?;
 
         let TypeData::Named {
             definition: NamedTypeSymbolId::Union(union),

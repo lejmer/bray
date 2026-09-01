@@ -25,6 +25,7 @@ pub(in crate::compilation) fn binder_error(
 ) -> BindingQueryError<FactQueryError> {
     match error {
         FactQueryError::Cancelled => BindingQueryError::Cancelled,
+        FactQueryError::SemanticValueStore(error) => BindingQueryError::SemanticValue(error),
         error => BindingQueryError::Upstream(error),
     }
 }

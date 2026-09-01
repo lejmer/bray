@@ -5,7 +5,7 @@ use bray_syntax::{
 };
 
 use super::core::TypeExpressionBinder;
-use crate::BindingQueryResult;
+use crate::{BindingQueryError, BindingQueryResult};
 
 impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     /// Binds an operand that may denote a type in static constraint context.
@@ -28,12 +28,15 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
 
         let ty = self.bind_type(&syntax)?;
 
-        if ty.resolved_type().is_some_and(|ty| {
-            self.semantic_values
+        if let Some(ty) = ty.resolved_type() {
+            let data = self
+                .semantic_values
                 .type_data(ty)
-                .is_ok_and(|data| *data == TypeData::Error)
-        }) {
-            return Ok(None);
+                .map_err(BindingQueryError::SemanticValue)?;
+
+            if *data == TypeData::Error {
+                return Ok(None);
+            }
         }
 
         self.check_cancellation()?;

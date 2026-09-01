@@ -11,6 +11,7 @@ use bray_bound_tree::{
 use bray_ir::{MirTargetContract, MirUnitBuilder, MirUnitKind};
 use bray_symbols::{
     AnySymbolId, AvailableCompilerKnownSymbols, ConstantValueId, SemanticValueStore,
+    SemanticValueStoreError,
 };
 
 use crate::result::requires_mir;
@@ -427,6 +428,8 @@ pub enum LoweringInputError {
     InvalidPatternInput,
     /// One input contains identities absent from its exact bound unit or dependent input.
     InvalidInputContents(LoweringInputKind),
+    /// A semantic value required to validate the lowering input could not be read.
+    SemanticValue(SemanticValueStoreError),
     /// A checked storage operation does not match the canonical storage plan.
     InvalidStorageOperation(BoundExpressionId),
     /// Checked storage operations do not cover every canonical access plan exactly once.
@@ -451,6 +454,12 @@ pub enum LoweringInputError {
     CompileTimeUnitRequiresClassification,
 }
 
+impl From<SemanticValueStoreError> for LoweringInputError {
+    fn from(error: SemanticValueStoreError) -> Self {
+        Self::SemanticValue(error)
+    }
+}
+
 fn validate_literal_target(
     literals: &CheckedLiteralValues,
     target: &MirTargetContract,
@@ -469,14 +478,8 @@ fn validate_literal_values(
     literals: &CheckedLiteralValues,
     values: &SemanticValueStore,
 ) -> Result<(), LoweringInputError> {
-    if literals
-        .entries()
-        .iter()
-        .any(|entry| values.constant_value_data(entry.value()).is_err())
-    {
-        return Err(LoweringInputError::InvalidInputContents(
-            LoweringInputKind::LiteralValues,
-        ));
+    for entry in literals.entries() {
+        values.constant_value_data(entry.value())?;
     }
 
     Ok(())
@@ -520,12 +523,7 @@ fn validate_constant_reference_values(
             ));
         };
 
-        let value_type = values
-            .constant_value_data(*value)
-            .map_err(|_| {
-                LoweringInputError::InvalidInputContents(LoweringInputKind::ConstantReferences)
-            })?
-            .ty();
+        let value_type = values.constant_value_data(*value)?.ty();
 
         if expression_type.ty() != value_type {
             return Err(LoweringInputError::InvalidInputContents(
@@ -941,23 +939,27 @@ mod tests {
         AsyncScopeExitPlan, BorrowCapabilityOrigin, BoundBlock, BoundBlockExpression,
         BoundBlockItem, BoundConversionExpression, BoundDependencyContract,
         BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,
-        BoundExpression, BoundExpressionId, BoundNodeOrigin, BoundSourceAnchor,
+        BoundExpression, BoundExpressionId, BoundLiteralExpression, BoundLiteralKind,
+        BoundNodeOrigin, BoundSourceAnchor,
         BoundStructuredExpression, BoundStructuredExpressionKind, BoundTreeBuilder, BoundUnit,
         BoundUnitId, BoundUnitRoot, CheckedAsync, CheckedBodyBehavior, CheckedControlFlow,
-        CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues, CheckedPatterns,
-        CheckedRefinements, CheckedSemanticSelections, ControlCompletion, ExpressionTypeEntry,
-        ExpressionTypeResult, ExpressionTypeStatus, LastUse, Liveness, PlannedBorrowCapability,
-        StorageAccess, StorageAccessId, StorageAccessPurpose, StorageAccessRoot,
-        StorageExitDecision, StorageFlow, StorageIdentity, StorageIdentityId,
+        CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValueEntry,
+        CheckedLiteralValues, CheckedPatterns, CheckedRefinements, CheckedSemanticSelections,
+        ControlCompletion, ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus, LastUse,
+        Liveness, PlannedBorrowCapability, StorageAccess, StorageAccessId, StorageAccessPurpose,
+        StorageAccessRoot, StorageExitDecision, StorageFlow, StorageIdentity, StorageIdentityId,
         StorageOperationDecision, StorageOperationStatus, StoragePlanBuilder,
     };
     use bray_symbols::testing::available_compiler_known_symbols;
-    use bray_symbols::{BorrowKind, CurrentRunCancellation, SemanticValueStore, TypeData, TypeId};
+    use bray_symbols::{
+        BorrowKind, ConstantValueData, ConstantValueKind, CurrentRunCancellation,
+        SemanticValueStore, SemanticValueStoreError, TypeData, TypeId,
+    };
     use bray_testing::{
         test_bound_unit, test_constant_template_unit, test_mir_target, test_runtime_default_unit,
     };
 
-    use super::{LoweringInput, LoweringInputError, LoweringInputKind};
+    use super::{LoweringInput, LoweringInputError, LoweringInputKind, validate_literal_values};
 
     #[test]
     fn input_borrows_the_canonical_unit_and_matching_side_analysis() {
@@ -1118,6 +1120,66 @@ mod tests {
         assert_input_error(
             lowering_input(&unit, &control_flow, (&analysis).into()),
             LoweringInputError::LiteralTargetWidthMismatch { expected, actual },
+        );
+    }
+
+    #[test]
+    fn literal_validation_preserves_a_foreign_semantic_value_id() {
+        let first_store = semantic_values();
+        let second_store = semantic_values();
+
+        let ty = first_store
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("test type must intern: {error:?}"));
+
+        let value = first_store
+            .intern_constant_value(ConstantValueData::new(
+                ty,
+                ConstantValueKind::Boolean(true),
+            ))
+            .unwrap_or_else(|error| panic!("test value must intern: {error:?}"));
+
+        let unit = test_runtime_default_unit(36, |tree, origin| {
+            tree.push_expression(BoundExpression::Literal(BoundLiteralExpression::new(
+                origin,
+                origin.source_anchor().syntax().full_range(),
+                BoundLiteralKind::Boolean,
+                Some(ty),
+                false,
+            )))
+            .unwrap_or_else(|error| panic!("test literal must fit: {error:?}"))
+        });
+
+        let BoundUnitRoot::Expression(expression) = unit.root() else {
+            panic!("test literal unit must retain its root");
+        };
+
+        let types = CheckedExpressionTypes::new(
+            unit.unit(),
+            unit.key().kind(),
+            [ExpressionTypeEntry::new(
+                expression,
+                ExpressionTypeResult::new(ty, ExpressionTypeStatus::Valid),
+            )],
+        );
+
+        let literals = CheckedLiteralValues::try_new(
+            &unit,
+            &types,
+            &first_store,
+            test_mir_target().machine().pointer_width_bits(),
+            [CheckedLiteralValueEntry::new(expression, value)],
+        )
+        .unwrap_or_else(|error| panic!("test literal values must validate: {error:?}"));
+
+        assert_eq!(
+            validate_literal_values(&literals, &second_store),
+            Err(LoweringInputError::SemanticValue(
+                SemanticValueStoreError::ForeignId {
+                    expected: second_store.id(),
+                    actual: first_store.id(),
+                }
+            ))
         );
     }
 

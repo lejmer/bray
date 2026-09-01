@@ -200,7 +200,7 @@ macro_rules! define_pattern_binder {
             };
 
             if let Some(binding) = direct_binding {
-                self.record_value_type(BoundReferenceTarget::Local(binding.into()), input_type);
+                self.record_value_type(BoundReferenceTarget::Local(binding.into()), input_type)?;
             }
 
             let direct_bindings = direct_binding.into_iter().collect::<Vec<_>>();
@@ -505,7 +505,7 @@ where
                 mode,
                 PatternBindingMode::MatchObserve | PatternBindingMode::MatchConsume
             )
-            && self.type_is_error(input_type);
+            && self.type_is_error(input_type)?;
 
         let result = if let Some(token) = syntax.bare_name_token() {
             self.bind_pattern_identifier(
@@ -548,11 +548,12 @@ where
         })
     }
 
-    fn type_is_error(&self, ty: TypeId) -> bool {
+    fn type_is_error(&self, ty: TypeId) -> BindingResult<bool, C::UpstreamError> {
         self.binding_context()
             .semantic_values()
             .type_data(ty)
-            .is_ok_and(|data| matches!(data.as_ref(), bray_symbols::TypeData::Error))
+            .map(|data| matches!(data.as_ref(), bray_symbols::TypeData::Error))
+            .map_err(BindingError::SemanticValue)
     }
 
     fn report_incoherent_alternative_pattern(&mut self, syntax: &impl SourceSyntaxNode) {

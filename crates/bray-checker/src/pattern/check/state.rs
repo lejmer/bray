@@ -229,14 +229,21 @@ where
                                 if let Some(declared) =
                                     self.declared_patterns.get(&binding.pattern()).copied()
                                 {
-                                    let Ok(data) =
-                                        self.request.semantic_values().type_data(declared)
-                                    else {
-                                        failure = Some(CheckerQueryError::Infrastructure(
-                                            CheckerInfrastructureError::SemanticValueUnavailable,
-                                        ));
+                                    let data = match self
+                                        .request
+                                        .semantic_values()
+                                        .type_data(declared)
+                                    {
+                                        Ok(data) => data,
+                                        Err(error) => {
+                                            failure = Some(CheckerQueryError::Infrastructure(
+                                                CheckerInfrastructureError::SemanticValueStore(
+                                                    error,
+                                                ),
+                                            ));
 
-                                        return BoundWalkControl::Stop;
+                                            return BoundWalkControl::Stop;
+                                        }
                                     };
 
                                     if matches!(data.as_ref(), TypeData::Nullable(contained) if *contained == subject.ty)

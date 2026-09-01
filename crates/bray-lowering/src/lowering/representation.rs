@@ -39,8 +39,7 @@ impl Lowerer<'_> {
         let data = self
             .input
             .semantic_values()
-            .type_data(ty)
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .type_data(ty)?;
 
         let role = match data.as_ref() {
             TypeData::Named { definition, .. } => match definition {
@@ -63,8 +62,7 @@ impl Lowerer<'_> {
         let data = self
             .input
             .semantic_values()
-            .type_data(ty)
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .type_data(ty)?;
 
         let TypeData::Named { substitution, .. } = data.as_ref() else {
             return Err(LoweringError::SemanticValueUnavailable);
@@ -73,8 +71,7 @@ impl Lowerer<'_> {
         let substitution = self
             .input
             .semantic_values()
-            .generic_substitution_data(*substitution)
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .generic_substitution_data(*substitution)?;
 
         Ok(substitution
             .bindings()
@@ -98,7 +95,7 @@ impl Lowerer<'_> {
         self.input
             .semantic_values()
             .intern_non_generic_named_type(NamedTypeSymbolId::Struct(symbol))
-            .map_err(|_| LoweringError::SemanticValueUnavailable)
+            .map_err(LoweringError::from)
     }
 
     pub(super) fn result_representation(&self) -> Result<ResultRepresentation, LoweringError> {
@@ -126,8 +123,7 @@ impl Lowerer<'_> {
         let ty = self
             .input
             .semantic_values()
-            .intern_non_generic_named_type(NamedTypeSymbolId::Union(representation.definition()))
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .intern_non_generic_named_type(NamedTypeSymbolId::Union(representation.definition()))?;
 
         Ok(OrderingRepresentation {
             ty,

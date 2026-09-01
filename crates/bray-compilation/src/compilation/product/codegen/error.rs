@@ -379,11 +379,15 @@ mod tests {
         DiagnosticArgName, DiagnosticArgValue, DiagnosticKind, DiagnosticLabelKind,
         DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
         DiagnosticLoweringInputFailureKind, DiagnosticNativeProductFailureKind, DiagnosticNoteKind,
+        DiagnosticSemanticValueFailure,
     };
     use bray_lowering::{LoweringError, LoweringInputError};
     use bray_messages::DiagnosticRenderer;
     use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
-    use bray_symbols::{PackageIdentity, ProductIdentity};
+    use bray_symbols::{
+        PackageIdentity, ProductIdentity, SemanticValueKind, SemanticValueStore,
+        SemanticValueStoreError,
+    };
     use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::{
@@ -400,6 +404,21 @@ mod tests {
             SourceId::new(0),
             TextRange::new(TextSize::new(10), TextSize::new(20)),
         );
+
+        let first_store = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("first semantic store must build: {error:?}"));
+
+        let second_store = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("second semantic store must build: {error:?}"));
+
+        let foreign = SemanticValueStoreError::ForeignId {
+            expected: first_store.id(),
+            actual: second_store.id(),
+        };
+
+        let capacity = SemanticValueStoreError::CapacityExhausted {
+            kind: SemanticValueKind::ConstantValue,
+        };
 
         let cases = [
             (
@@ -449,12 +468,41 @@ mod tests {
                 )),
             ),
             (
+                FactQueryError::LoweringInput(LocatedLoweringFailure::new(
+                    LoweringInputError::SemanticValue(foreign),
+                    source,
+                )),
+                Kind::EvaluationLoweringInput(DiagnosticLoweringInputFailure::new(
+                    DiagnosticLoweringInputFailureKind::SemanticValue(
+                        DiagnosticSemanticValueFailure::ForeignId {
+                            expected_store: first_store.id().raw(),
+                            actual_store: second_store.id().raw(),
+                        },
+                    ),
+                    source,
+                )),
+            ),
+            (
                 FactQueryError::Lowering(LocatedLoweringFailure::new(
                     LoweringError::InvalidFrameDescriptor,
                     source,
                 )),
                 Kind::EvaluationLowering(DiagnosticLoweringFailure::new(
                     DiagnosticLoweringFailureKind::InvalidFrameDescriptor,
+                    source,
+                )),
+            ),
+            (
+                FactQueryError::Lowering(LocatedLoweringFailure::new(
+                    LoweringError::SemanticValue(capacity),
+                    source,
+                )),
+                Kind::EvaluationLowering(DiagnosticLoweringFailure::new(
+                    DiagnosticLoweringFailureKind::SemanticValue(
+                        DiagnosticSemanticValueFailure::CapacityExhausted {
+                            kind: "constant_value",
+                        },
+                    ),
                     source,
                 )),
             ),

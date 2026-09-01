@@ -272,6 +272,9 @@ fn format_english_lowering_input_failure(
         Failure::InvalidInputContents => {
             "generating executable code for the highlighted declaration because required analysis refers to another declaration".to_owned()
         }
+        Failure::SemanticValue(failure) => {
+            return format_english_semantic_value_failure(failure).to_owned();
+        }
         Failure::InvalidStorageOperation => {
             "generating ownership-safe code for the highlighted expression because its read, borrow, move, or write behavior is unavailable".to_owned()
         }
@@ -363,6 +366,9 @@ fn format_english_lowering_failure(failure: bray_diagnostics::DiagnosticLowering
         }
         Failure::SemanticValueUnavailable => {
             "generating executable code for the highlighted declaration because a required type or constant value is unavailable"
+        }
+        Failure::SemanticValue(failure) => {
+            return format_english_semantic_value_failure(failure).to_owned();
         }
         Failure::InvalidFrameDescriptor => {
             "generating resumable code for the highlighted callable because its state-preservation requirements conflict"

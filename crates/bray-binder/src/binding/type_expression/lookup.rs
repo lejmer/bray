@@ -64,7 +64,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         let substitution = self
             .semantic_values
             .intern_generic_substitution(substitution)
-            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+            .map_err(BindingQueryError::SemanticValue)?;
 
         let application = self
             .semantic_values
@@ -72,7 +72,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
                 template.definition(),
                 substitution,
             ))
-            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+            .map_err(BindingQueryError::SemanticValue)?;
 
         Ok(Some(application))
     }

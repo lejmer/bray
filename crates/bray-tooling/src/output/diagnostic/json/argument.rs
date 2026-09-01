@@ -378,7 +378,25 @@ impl DiagnosticNativeProductFailureJson {
         use bray_diagnostics::DiagnosticNativeProductFailureKind as Kind;
 
         let context = match kind {
-            Kind::EvaluationSemanticValue(failure) => semantic_value_failure_context(failure),
+            Kind::EvaluationSemanticValue(failure)
+            | Kind::EvaluationBinding(bray_diagnostics::DiagnosticBindingFailure::SemanticValue(
+                failure,
+            ))
+            | Kind::EvaluationChecker(bray_diagnostics::DiagnosticCheckerFailure::SemanticValue(
+                failure,
+            )) => semantic_value_failure_context(failure),
+            Kind::EvaluationLoweringInput(failure) => match failure.kind() {
+                bray_diagnostics::DiagnosticLoweringInputFailureKind::SemanticValue(failure) => {
+                    semantic_value_failure_context(failure)
+                }
+                _ => Vec::new(),
+            },
+            Kind::EvaluationLowering(failure) => match failure.kind() {
+                bray_diagnostics::DiagnosticLoweringFailureKind::SemanticValue(failure) => {
+                    semantic_value_failure_context(failure)
+                }
+                _ => Vec::new(),
+            },
             _ => Vec::new(),
         };
 

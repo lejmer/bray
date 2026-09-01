@@ -179,13 +179,15 @@ impl<'binding_context, C: BindingQueryContext + ?Sized> Binder<'binding_context,
             .find(|target| kinds.contains(&target.kind()))
     }
 
-    pub(crate) fn record_value_type(&mut self, target: BoundReferenceTarget, ty: TypeId) {
-        let Ok(data) = self.binding_context.semantic_values().type_data(ty) else {
-            return;
-        };
+    pub(crate) fn record_value_type(
+        &mut self,
+        target: BoundReferenceTarget,
+        ty: TypeId,
+    ) -> Result<(), bray_symbols::SemanticValueStoreError> {
+        let data = self.binding_context.semantic_values().type_data(ty)?;
 
         if matches!(data.as_ref(), TypeData::Error) {
-            return;
+            return Ok(());
         }
 
         let previous = self.known_value_types.insert(target, ty);
@@ -193,6 +195,8 @@ impl<'binding_context, C: BindingQueryContext + ?Sized> Binder<'binding_context,
         if previous != Some(ty) {
             self.known_value_type_log.push((target, previous));
         }
+
+        Ok(())
     }
 
     pub(crate) fn value_type(&self, target: BoundReferenceTarget) -> Option<TypeId> {
@@ -366,7 +370,10 @@ impl BinderOutput {
 mod tests {
     use bray_bound_tree::BoundReferenceTarget;
     use bray_diagnostics::{Diagnostic, DiagnosticId, DiagnosticKind, SeverityKind};
-    use bray_symbols::{AnyLocalSymbolId, LocalSymbolRegionId, SymbolQueryKind, TypeData};
+    use bray_symbols::{
+        AnyLocalSymbolId, LocalSymbolRegionId, SemanticValueStore, SemanticValueStoreError,
+        SymbolQueryKind, TypeData,
+    };
 
     use super::{Binder, BinderDependency, ControlTarget, ControlTargetKind};
     use crate::BindingQueryContext;
@@ -425,7 +432,9 @@ mod tests {
 
         let abandoned_target = BoundReferenceTarget::Local(abandoned.into());
 
-        binder.record_value_type(abandoned_target, known_type);
+        binder
+            .record_value_type(abandoned_target, known_type)
+            .unwrap_or_else(|error| panic!("known test type must resolve: {error:?}"));
 
         assert_eq!(binder.value_type(abandoned_target), Some(known_type));
 
@@ -462,6 +471,33 @@ mod tests {
         assert_eq!(
             scope.local_symbols_named("value"),
             &[AnyLocalSymbolId::from(reused)]
+        );
+    }
+
+    #[test]
+    fn recording_value_types_preserves_foreign_store_identity() {
+        let query_fixture = QueryFixture::new();
+        let binding_context = query_fixture.context();
+        let unit_fixture = fixture();
+        let unit = builder(&unit_fixture, LocalSymbolRegionId::new(22));
+        let mut binder = Binder::new(&binding_context, unit);
+
+        let foreign = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("foreign store must initialize: {error:?}"));
+
+        let foreign_type = foreign
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("foreign type must intern: {error:?}"));
+
+        assert_eq!(
+            binder.record_value_type(
+                BoundReferenceTarget::Surface(query_fixture.constant.into()),
+                foreign_type,
+            ),
+            Err(SemanticValueStoreError::ForeignId {
+                expected: binding_context.semantic_values().id(),
+                actual: foreign.id(),
+            })
         );
     }
 

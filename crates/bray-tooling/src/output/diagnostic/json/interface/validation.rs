@@ -294,10 +294,17 @@ fn semantic_content_problem_json(
             "semantic_content_capacity_exhausted",
             [problem_text("value_kind", value_kind.as_str())],
         ),
-        Problem::GenericOwnerMismatch { expected, actual } => problem(
+        Problem::GenericOwnerMismatch {
+            expected_kind,
+            expected,
+            actual_kind,
+            actual,
+        } => problem(
             "semantic_content_generic_owner_mismatch",
             [
+                problem_text("expected_owner_kind", expected_kind.as_str()),
                 problem_count("expected_owner", *expected),
+                problem_text("actual_owner_kind", actual_kind.as_str()),
                 problem_count("actual_owner", *actual),
             ],
         ),

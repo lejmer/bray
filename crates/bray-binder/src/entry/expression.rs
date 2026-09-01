@@ -408,7 +408,9 @@ where
         insert_surface(binder, scope, symbol)?;
 
         if let Some(ty) = parameter.ty().resolved_type() {
-            binder.record_value_type(bray_bound_tree::BoundReferenceTarget::Surface(symbol), ty);
+            binder
+                .record_value_type(bray_bound_tree::BoundReferenceTarget::Surface(symbol), ty)
+                .map_err(BoundUnitBindingError::SemanticValue)?;
         }
     }
 

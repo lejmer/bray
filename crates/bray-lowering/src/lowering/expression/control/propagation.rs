@@ -55,8 +55,7 @@ impl Lowerer<'_> {
         let data = self
             .input
             .semantic_values()
-            .type_data(operand_type)
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .type_data(operand_type)?;
 
         let TypeData::Nullable(value_type) = data.as_ref() else {
             return Err(LoweringError::UnsupportedExpression(id));

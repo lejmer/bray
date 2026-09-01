@@ -5,13 +5,17 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue,
     DiagnosticArrayGeneratorCardinalityProblem, DiagnosticArrayLength, DiagnosticArtifactDigest,
     DiagnosticArtifactDigestAlgorithm, DiagnosticBag, DiagnosticCallableOverloadArm,
-    DiagnosticCallableOverloadProblem, DiagnosticCallbackStateProblem,
+    DiagnosticBindingFailure, DiagnosticCallableOverloadProblem, DiagnosticCallbackStateProblem,
+    DiagnosticCheckerFailure,
     DiagnosticConstructionInputRejection, DiagnosticDependencySubjectKind,
     DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure,
     DiagnosticGenericParameterCategory, DiagnosticId, DiagnosticInterfaceDeclarationIdentity,
-    DiagnosticInterfaceLimit, DiagnosticInterfaceSection, DiagnosticInterfaceSymbolIdentity,
-    DiagnosticInterfaceSymbolKind, DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind,
-    DiagnosticLayoutOption, DiagnosticLayoutProblem, DiagnosticMemoryOperation,
+    DiagnosticInterfaceLimit, DiagnosticInterfaceSection, DiagnosticInterfaceSemanticProblem,
+    DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolKind,
+    DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind, DiagnosticLayoutOption,
+    DiagnosticLayoutProblem, DiagnosticLoweringFailure, DiagnosticLoweringFailureKind,
+    DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind,
+    DiagnosticMemoryOperation,
     DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNamedType,
     DiagnosticNativeProductFailureKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink,
     DiagnosticPatternCoverage, DiagnosticPatternMissingCase, DiagnosticProjectManifestField,
@@ -23,8 +27,8 @@ use bray_diagnostics::{
     DiagnosticSelectionCandidates, DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
     DiagnosticSelectionRejections, DiagnosticSourceEdit, DiagnosticStorageAccess,
     DiagnosticStorageAccessPurpose, DiagnosticStorageProjection, DiagnosticStorageRoot,
-    DiagnosticSemanticValueFailure, DiagnosticSuggestion, DiagnosticSuggestionApplicability,
-    DiagnosticSuggestionKind,
+    DiagnosticSemanticContentProblem, DiagnosticSemanticValueFailure, DiagnosticSuggestion,
+    DiagnosticSuggestionApplicability, DiagnosticSuggestionKind,
     DiagnosticTargetPredicateValueKind, DiagnosticTraitFulfillmentMismatch, DiagnosticType,
     DiagnosticTypeArgument, DiagnosticVisibility, DiagnosticYieldCardinality, SeverityKind,
 };
@@ -232,6 +236,11 @@ fn emission_evaluation_failures_use_domain_named_json_categories() {
 
 #[test]
 fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
+    let source = SourceSpan::new(
+        bray_source::SourceId::new(0),
+        TextRange::new(TextSize::new(0), TextSize::new(1)),
+    );
+
     let diagnostic = Diagnostic::new(
         DiagnosticId::new(0),
         DiagnosticKind::EmissionFailed,
@@ -253,6 +262,92 @@ fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
                 kind: "constant_value",
             },
         ),
+    ))
+    .with_arg(DiagnosticArg::emission_failure(
+        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Binding(
+            DiagnosticBindingFailure::SemanticValue(DiagnosticSemanticValueFailure::UnknownId {
+                kind: "type",
+            }),
+        )),
+    ))
+    .with_arg(DiagnosticArg::emission_failure(
+        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Checker(
+            DiagnosticCheckerFailure::SemanticValue(
+                DiagnosticSemanticValueFailure::GenericOwnerMismatch {
+                    expected_kind: "function",
+                    expected: 5,
+                    actual_kind: "trait",
+                    actual: 5,
+                },
+            ),
+        )),
+    ))
+    .with_arg(DiagnosticArg::native_product_failure_kind(
+        DiagnosticNativeProductFailureKind::EvaluationBinding(
+            DiagnosticBindingFailure::SemanticValue(
+                DiagnosticSemanticValueFailure::OpenSubstitution,
+            ),
+        ),
+    ))
+    .with_arg(DiagnosticArg::native_product_failure_kind(
+        DiagnosticNativeProductFailureKind::EvaluationChecker(
+            DiagnosticCheckerFailure::SemanticValue(DiagnosticSemanticValueFailure::ForeignId {
+                expected_store: 17,
+                actual_store: 31,
+            }),
+        ),
+    ))
+    .with_arg(DiagnosticArg::emission_failure(
+        DiagnosticEmissionFailure::Evaluation(
+            DiagnosticEmissionEvaluationFailure::LoweringInput(
+                DiagnosticLoweringInputFailure::new(
+                    DiagnosticLoweringInputFailureKind::SemanticValue(
+                        DiagnosticSemanticValueFailure::ForeignId {
+                            expected_store: 41,
+                            actual_store: 43,
+                        },
+                    ),
+                    source,
+                ),
+            ),
+        ),
+    ))
+    .with_arg(DiagnosticArg::emission_failure(
+        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Lowering(
+            DiagnosticLoweringFailure::new(
+                DiagnosticLoweringFailureKind::SemanticValue(
+                    DiagnosticSemanticValueFailure::UnknownId {
+                        kind: "constant_term",
+                    },
+                ),
+                source,
+            ),
+        )),
+    ))
+    .with_arg(DiagnosticArg::native_product_failure_kind(
+        DiagnosticNativeProductFailureKind::EvaluationLoweringInput(
+            DiagnosticLoweringInputFailure::new(
+                DiagnosticLoweringInputFailureKind::SemanticValue(
+                    DiagnosticSemanticValueFailure::GenericOwnerMismatch {
+                        expected_kind: "function",
+                        expected: 47,
+                        actual_kind: "trait",
+                        actual: 53,
+                    },
+                ),
+                source,
+            ),
+        ),
+    ))
+    .with_arg(DiagnosticArg::native_product_failure_kind(
+        DiagnosticNativeProductFailureKind::EvaluationLowering(DiagnosticLoweringFailure::new(
+            DiagnosticLoweringFailureKind::SemanticValue(
+                DiagnosticSemanticValueFailure::CapacityExhausted {
+                    kind: "trait_application",
+                },
+            ),
+            source,
+        )),
     ));
 
     let mut output = Vec::new();
@@ -265,6 +360,14 @@ fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
 
     let evaluation = &output["diagnostics"][0]["args"][0]["value"]["value"];
     let native = &output["diagnostics"][0]["args"][1]["value"]["value"];
+    let binding = &output["diagnostics"][0]["args"][2]["value"]["value"];
+    let checker = &output["diagnostics"][0]["args"][3]["value"]["value"];
+    let native_binding = &output["diagnostics"][0]["args"][4]["value"]["value"];
+    let native_checker = &output["diagnostics"][0]["args"][5]["value"]["value"];
+    let lowering_input = &output["diagnostics"][0]["args"][6]["value"]["value"];
+    let lowering = &output["diagnostics"][0]["args"][7]["value"]["value"];
+    let native_lowering_input = &output["diagnostics"][0]["args"][8]["value"]["value"];
+    let native_lowering = &output["diagnostics"][0]["args"][9]["value"]["value"];
 
     assert_eq!(evaluation["context"][1]["name"], "expected_store");
     assert_eq!(evaluation["context"][1]["value"]["value"], 11);
@@ -278,6 +381,83 @@ fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
 
     assert_eq!(native["context"][1]["name"], "semantic_value_kind");
     assert_eq!(native["context"][1]["value"]["value"], "constant_value");
+
+    assert_eq!(binding["context"][1]["name"], "semantic_value_kind");
+    assert_eq!(binding["context"][1]["value"]["value"], "type");
+
+    assert_eq!(checker["context"][1]["name"], "expected_owner_kind");
+    assert_eq!(checker["context"][1]["value"]["value"], "function");
+    assert_eq!(checker["context"][3]["name"], "actual_owner_kind");
+    assert_eq!(checker["context"][3]["value"]["value"], "trait");
+
+    assert_eq!(native_binding["context"][0]["name"], "cause");
+
+    assert_eq!(
+        native_binding["context"][0]["value"]["value"],
+        "binding_semantic_value_open_substitution"
+    );
+
+    assert_eq!(native_checker["context"][1]["name"], "expected_store");
+    assert_eq!(native_checker["context"][1]["value"]["value"], 17);
+    assert_eq!(native_checker["context"][2]["name"], "actual_store");
+    assert_eq!(native_checker["context"][2]["value"]["value"], 31);
+
+    assert_eq!(lowering_input["context"][1]["name"], "expected_store");
+    assert_eq!(lowering_input["context"][1]["value"]["value"], 41);
+    assert_eq!(lowering_input["context"][2]["name"], "actual_store");
+    assert_eq!(lowering_input["context"][2]["value"]["value"], 43);
+
+    assert_eq!(lowering["context"][1]["name"], "semantic_value_kind");
+    assert_eq!(lowering["context"][1]["value"]["value"], "constant_term");
+
+    assert_eq!(
+        native_lowering_input["context"][1]["value"]["value"],
+        "function"
+    );
+
+    assert_eq!(native_lowering_input["context"][2]["value"]["value"], 47);
+    assert_eq!(native_lowering_input["context"][3]["value"]["value"], "trait");
+    assert_eq!(native_lowering_input["context"][4]["value"]["value"], 53);
+
+    assert_eq!(
+        native_lowering["context"][1]["value"]["value"],
+        "trait_application"
+    );
+}
+
+#[test]
+fn imported_semantic_owner_mismatch_json_retains_owner_kinds() {
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::InterfaceSemanticValueInvalid,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::interface_semantic_problem(
+        DiagnosticInterfaceSemanticProblem::SemanticContent(
+            DiagnosticSemanticContentProblem::GenericOwnerMismatch {
+                expected_kind: DiagnosticInterfaceSymbolKind::Function,
+                expected: 5,
+                actual_kind: DiagnosticInterfaceSymbolKind::Trait,
+                actual: 5,
+            },
+        ),
+    ));
+
+    let mut output = Vec::new();
+
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+        .unwrap_or_else(|error| panic!("JSON diagnostics should write: {error:?}"));
+
+    let output: serde_json::Value = serde_json::from_slice(&output)
+        .unwrap_or_else(|error| panic!("JSON diagnostics should parse: {error:?}"));
+
+    let problem = &output["diagnostics"][0]["args"][0]["value"]["value"];
+
+    assert_eq!(problem["reason"], "semantic_content_generic_owner_mismatch");
+    assert_eq!(problem["context"][0]["name"], "expected_owner_kind");
+    assert_eq!(problem["context"][0]["value"]["value"], "function");
+    assert_eq!(problem["context"][2]["name"], "actual_owner_kind");
+    assert_eq!(problem["context"][2]["value"]["value"], "trait");
 }
 
 #[test]

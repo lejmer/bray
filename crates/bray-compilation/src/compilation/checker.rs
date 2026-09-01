@@ -150,6 +150,9 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
                 BindingQueryError::CheckerInfrastructure(error) => {
                     CheckerQueryError::Infrastructure(error)
                 }
+                BindingQueryError::SemanticValue(error) => CheckerQueryError::Infrastructure(
+                    CheckerInfrastructureError::SemanticValueStore(error),
+                ),
                 BindingQueryError::DependencyUnavailable => {
                     CheckerQueryError::Upstream(FactQueryError::BindingDependencyUnavailable)
                 }
@@ -791,6 +794,9 @@ fn checker_binder_error(error: BindingQueryError<FactQueryError>) -> CheckerQuer
     match error {
         BindingQueryError::Cancelled => CheckerQueryError::Cancelled,
         BindingQueryError::CheckerInfrastructure(error) => CheckerQueryError::Infrastructure(error),
+        BindingQueryError::SemanticValue(error) => CheckerQueryError::Infrastructure(
+            CheckerInfrastructureError::SemanticValueStore(error),
+        ),
         BindingQueryError::DependencyUnavailable => {
             CheckerQueryError::Upstream(FactQueryError::BindingDependencyUnavailable)
         }
@@ -817,6 +823,9 @@ where
                 BindingQueryError::CheckerInfrastructure(error) => {
                     CheckerQueryError::Infrastructure(error)
                 }
+                BindingQueryError::SemanticValue(error) => CheckerQueryError::Infrastructure(
+                    CheckerInfrastructureError::SemanticValueStore(error),
+                ),
                 BindingQueryError::DependencyUnavailable => CheckerQueryError::Infrastructure(
                     CheckerInfrastructureError::SemanticQueryUnavailable {
                         symbol: request.symbol(),

@@ -281,7 +281,23 @@ pub(super) fn evaluation_failure_context(
     use bray_diagnostics::DiagnosticEmissionEvaluationFailure as Failure;
 
     match failure {
-        Failure::SemanticValue(failure) => semantic_value_failure_context(*failure),
+        Failure::SemanticValue(failure)
+        | Failure::Binding(bray_diagnostics::DiagnosticBindingFailure::SemanticValue(failure))
+        | Failure::Checker(bray_diagnostics::DiagnosticCheckerFailure::SemanticValue(failure)) => {
+            semantic_value_failure_context(*failure)
+        }
+        Failure::LoweringInput(failure) => match failure.kind() {
+            bray_diagnostics::DiagnosticLoweringInputFailureKind::SemanticValue(failure) => {
+                semantic_value_failure_context(failure)
+            }
+            _ => vec![text_field("cause", failure.as_str())],
+        },
+        Failure::Lowering(failure) => match failure.kind() {
+            bray_diagnostics::DiagnosticLoweringFailureKind::SemanticValue(failure) => {
+                semantic_value_failure_context(failure)
+            }
+            _ => vec![text_field("cause", failure.as_str())],
+        },
         _ => vec![text_field("cause", failure.as_str())],
     }
 }

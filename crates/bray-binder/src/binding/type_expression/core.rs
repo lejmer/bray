@@ -366,12 +366,12 @@ impl<'binding_context, Upstream> TypeExpressionBinder<'binding_context, Upstream
         let substitution = self
             .semantic_values
             .intern_generic_substitution(substitution)
-            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+            .map_err(BindingQueryError::SemanticValue)?;
 
         let application = self
             .semantic_values
             .intern_trait_application(TraitApplicationData::new(trait_definition, substitution))
-            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+            .map_err(BindingQueryError::SemanticValue)?;
 
         self.intern_type(TypeData::TypeValuedMemberProjection {
             subject: self.intern_type(TypeData::ContextualSelf(context))?,
@@ -393,14 +393,14 @@ impl<'binding_context, Upstream> TypeExpressionBinder<'binding_context, Upstream
                 .semantic_values
                 .intern_constant_term(ConstantTermData::Parameter(parameter))
                 .map(GenericArgument::Constant)
-                .map_err(|_| BindingQueryError::DependencyUnavailable),
+                .map_err(BindingQueryError::SemanticValue),
         }
     }
 
     pub(super) fn intern_type(&self, data: TypeData) -> BindingQueryResult<TypeId, Upstream> {
         self.semantic_values
             .intern_type(data)
-            .map_err(|_| BindingQueryError::DependencyUnavailable)
+            .map_err(BindingQueryError::SemanticValue)
     }
 
     pub(super) fn error_type(&self) -> BindingQueryResult<TypeId, Upstream> {
