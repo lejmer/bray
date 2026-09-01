@@ -277,6 +277,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("compressible section must encode: {error:?}"));
 
         assert_eq!(encoding, InterfaceSectionEncoding::ZstdFrame);
+
         assert_eq!(
             validate_zstd_frame(InterfaceValidationContext::Artifact, &encoded, 4096),
             Ok(())

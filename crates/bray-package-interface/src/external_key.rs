@@ -66,6 +66,7 @@ pub(crate) fn read_external_key(
     budget: &mut DecodeBudget,
 ) -> Result<ExternalSymbolKey, InterfaceValidationError> {
     let root_context = InterfaceValidationContext::ExternalSymbolKey { component: 0 };
+
     let count = read_count(
         reader,
         budget,
@@ -93,9 +94,11 @@ pub(crate) fn read_external_key(
         let context = InterfaceValidationContext::ExternalSymbolKey {
             component: component as u64,
         };
+
         let raw_kind = reader
             .read_u32()
             .map_err(wire_error(context, InterfaceValidationField::SymbolKind))?;
+
         let kind = SymbolKind::from_wire(raw_kind).ok_or(InterfaceValidationError::Malformed {
             context,
             cause: InterfaceMalformedCause::InvalidDiscriminant {
@@ -108,206 +111,249 @@ pub(crate) fn read_external_key(
             .read_u32()
             .map_err(wire_error(context, InterfaceValidationField::Discriminant))?;
 
-        key = Some(match shape {
-            1 if key.is_none() && kind == SymbolKind::Package => {
-                let package = PackageIdentity::try_new(read_string(
-                    reader,
-                    budget.limits(),
-                    context,
-                    InterfaceValidationField::PackageName,
-                )?)
-                .ok_or(InterfaceValidationError::Malformed {
-                    context,
-                    cause: InterfaceMalformedCause::InvalidValue {
-                        field: InterfaceValidationField::PackageName,
-                    },
-                })?;
-
-                ExternalSymbolKey::package(package)
-            }
-            2 if kind == SymbolKind::Module => {
-                let owner = key.take().ok_or(InterfaceValidationError::Malformed {
-                    context,
-                    cause: InterfaceMalformedCause::Missing {
-                        field: InterfaceValidationField::Owner,
-                    },
-                })?;
-                let segment_count = read_count(
-                    reader,
-                    budget,
-                    context,
-                    InterfaceValidationField::RecordCount,
-                    InterfaceLimit::RecordCount,
-                )?;
-
-                let mut segments = budget.allocate_items_with_minimum(
-                    reader,
-                    context,
-                    InterfaceValidationField::RecordPayload,
-                    segment_count,
-                    5,
-                )?;
-
-                for _ in 0..segment_count {
-                    segments.push(read_string(
-                        reader,
-                        budget.limits(),
-                        context,
-                        InterfaceValidationField::String,
-                    )?);
-                }
-
-                let path = ModulePathKey::try_new(segments).ok_or(
-                    InterfaceValidationError::Malformed {
-                        context,
-                        cause: InterfaceMalformedCause::InvalidValue {
-                            field: InterfaceValidationField::Value,
-                        },
-                    },
-                )?;
-
-                ExternalSymbolKey::module(owner, path).ok_or(
-                    InterfaceValidationError::Malformed {
-                        context,
-                        cause: InterfaceMalformedCause::InvalidValue {
-                            field: InterfaceValidationField::Identity,
-                        },
-                    },
-                )?
-            }
-            3 => {
-                let owner = key.take().ok_or(InterfaceValidationError::Malformed {
-                    context,
-                    cause: InterfaceMalformedCause::Missing {
-                        field: InterfaceValidationField::Owner,
-                    },
-                })?;
-
-                let identity = reader
-                    .read_u32()
-                    .map_err(wire_error(context, InterfaceValidationField::Identity))?;
-
-                match identity {
-                    1 => {
-                        let name = SymbolName::try_new(read_string(
-                            reader,
-                            budget.limits(),
-                            context,
-                            InterfaceValidationField::SymbolName,
-                        )?)
-                        .ok_or(InterfaceValidationError::Malformed {
-                            context,
-                            cause: InterfaceMalformedCause::InvalidValue {
-                                field: InterfaceValidationField::SymbolName,
-                            },
-                        })?;
-
-                        ExternalSymbolKey::named(owner, kind, name)
-                    }
-                    2 => ExternalSymbolKey::ordinal(
-                        owner,
-                        kind,
-                        SymbolOrdinal::new(
-                            reader
-                                .read_u32()
-                                .map_err(wire_error(context, InterfaceValidationField::Ordinal))?,
-                        ),
-                    ),
-                    actual => {
-                        return Err(InterfaceValidationError::Malformed {
-                            context,
-                            cause: InterfaceMalformedCause::InvalidDiscriminant {
-                                field: InterfaceValidationField::Identity,
-                                actual: u64::from(actual),
-                            },
-                        });
-                    }
-                }
-                .ok_or(InterfaceValidationError::Malformed {
-                    context,
-                    cause: InterfaceMalformedCause::InvalidValue {
-                        field: InterfaceValidationField::Identity,
-                    },
-                })?
-            }
-            4 => {
-                let owner = key.take().ok_or(InterfaceValidationError::Malformed {
-                    context,
-                    cause: InterfaceMalformedCause::Missing {
-                        field: InterfaceValidationField::Owner,
-                    },
-                })?;
-
-                let raw_role = reader
-                    .read_u32()
-                    .map_err(wire_error(context, InterfaceValidationField::Role))?;
-                let role = SynthesizedSymbolRole::from_wire(raw_role).ok_or(
-                    InterfaceValidationError::Malformed {
-                        context,
-                        cause: InterfaceMalformedCause::InvalidDiscriminant {
-                            field: InterfaceValidationField::Role,
-                            actual: u64::from(raw_role),
-                        },
-                    },
-                )?;
-
-                let ordinal_discriminant = reader
-                    .read_u32()
-                    .map_err(wire_error(context, InterfaceValidationField::Ordinal))?;
-                let ordinal = match ordinal_discriminant {
-                    0 => None,
-                    1 => Some(SymbolOrdinal::new(reader.read_u32().map_err(
-                        wire_error(context, InterfaceValidationField::Ordinal),
-                    )?)),
-                    actual => {
-                        return Err(InterfaceValidationError::Malformed {
-                            context,
-                            cause: InterfaceMalformedCause::InvalidDiscriminant {
-                                field: InterfaceValidationField::Ordinal,
-                                actual: u64::from(actual),
-                            },
-                        });
-                    }
-                };
-
-                let key = ExternalSymbolKey::synthesized(owner, role, ordinal).ok_or(
-                    InterfaceValidationError::Malformed {
-                        context,
-                        cause: InterfaceMalformedCause::InvalidValue {
-                            field: InterfaceValidationField::Identity,
-                        },
-                    },
-                )?;
-
-                if key.kind() != kind {
-                    return Err(InterfaceValidationError::Malformed {
-                        context,
-                        cause: InterfaceMalformedCause::CountMismatch {
-                            field: InterfaceValidationField::SymbolKind,
-                            expected: u64::from(key.kind().to_wire()),
-                            actual: u64::from(kind.to_wire()),
-                        },
-                    });
-                }
-
-                key
-            }
-            actual => {
-                return Err(InterfaceValidationError::Malformed {
-                    context,
-                    cause: InterfaceMalformedCause::InvalidDiscriminant {
-                        field: InterfaceValidationField::Discriminant,
-                        actual: u64::from(actual),
-                    },
-                });
-            }
-        });
+        key = Some(read_external_key_component(
+            reader, budget, context, kind, shape, &mut key,
+        )?);
     }
 
     key.ok_or(InterfaceValidationError::Malformed {
         context: root_context,
         cause: InterfaceMalformedCause::Missing {
             field: InterfaceValidationField::Identity,
+        },
+    })
+}
+
+fn read_external_key_component(
+    reader: &mut WireReader<'_>,
+    budget: &mut DecodeBudget,
+    context: InterfaceValidationContext,
+    kind: SymbolKind,
+    shape: u32,
+    key: &mut Option<ExternalSymbolKey>,
+) -> Result<ExternalSymbolKey, InterfaceValidationError> {
+    match shape {
+        1 if key.is_none() && kind == SymbolKind::Package => {
+            read_external_package_key(reader, budget, context)
+        }
+        2 if kind == SymbolKind::Module => {
+            let owner = take_external_key_owner(key, context)?;
+
+            read_external_module_key(reader, budget, context, owner)
+        }
+        3 => {
+            let owner = take_external_key_owner(key, context)?;
+
+            read_external_declaration_key(reader, budget, context, owner, kind)
+        }
+        4 => {
+            let owner = take_external_key_owner(key, context)?;
+
+            read_external_synthesized_key(reader, context, owner, kind)
+        }
+        actual => Err(InterfaceValidationError::Malformed {
+            context,
+            cause: InterfaceMalformedCause::InvalidDiscriminant {
+                field: InterfaceValidationField::Discriminant,
+                actual: u64::from(actual),
+            },
+        }),
+    }
+}
+
+fn read_external_package_key(
+    reader: &mut WireReader<'_>,
+    budget: &DecodeBudget,
+    context: InterfaceValidationContext,
+) -> Result<ExternalSymbolKey, InterfaceValidationError> {
+    let package = PackageIdentity::try_new(read_string(
+        reader,
+        budget.limits(),
+        context,
+        InterfaceValidationField::PackageName,
+    )?)
+    .ok_or(InterfaceValidationError::Malformed {
+        context,
+        cause: InterfaceMalformedCause::InvalidValue {
+            field: InterfaceValidationField::PackageName,
+        },
+    })?;
+
+    Ok(ExternalSymbolKey::package(package))
+}
+
+fn read_external_module_key(
+    reader: &mut WireReader<'_>,
+    budget: &mut DecodeBudget,
+    context: InterfaceValidationContext,
+    owner: ExternalSymbolKey,
+) -> Result<ExternalSymbolKey, InterfaceValidationError> {
+    let segment_count = read_count(
+        reader,
+        budget,
+        context,
+        InterfaceValidationField::RecordCount,
+        InterfaceLimit::RecordCount,
+    )?;
+
+    let mut segments = budget.allocate_items_with_minimum(
+        reader,
+        context,
+        InterfaceValidationField::RecordPayload,
+        segment_count,
+        5,
+    )?;
+
+    for _ in 0..segment_count {
+        segments.push(read_string(
+            reader,
+            budget.limits(),
+            context,
+            InterfaceValidationField::String,
+        )?);
+    }
+
+    let path = ModulePathKey::try_new(segments).ok_or(InterfaceValidationError::Malformed {
+        context,
+        cause: InterfaceMalformedCause::InvalidValue {
+            field: InterfaceValidationField::Value,
+        },
+    })?;
+
+    ExternalSymbolKey::module(owner, path).ok_or(InterfaceValidationError::Malformed {
+        context,
+        cause: InterfaceMalformedCause::InvalidValue {
+            field: InterfaceValidationField::Identity,
+        },
+    })
+}
+
+fn read_external_declaration_key(
+    reader: &mut WireReader<'_>,
+    budget: &DecodeBudget,
+    context: InterfaceValidationContext,
+    owner: ExternalSymbolKey,
+    kind: SymbolKind,
+) -> Result<ExternalSymbolKey, InterfaceValidationError> {
+    let identity = reader
+        .read_u32()
+        .map_err(wire_error(context, InterfaceValidationField::Identity))?;
+
+    let key = match identity {
+        1 => {
+            let name = SymbolName::try_new(read_string(
+                reader,
+                budget.limits(),
+                context,
+                InterfaceValidationField::SymbolName,
+            )?)
+            .ok_or(InterfaceValidationError::Malformed {
+                context,
+                cause: InterfaceMalformedCause::InvalidValue {
+                    field: InterfaceValidationField::SymbolName,
+                },
+            })?;
+
+            ExternalSymbolKey::named(owner, kind, name)
+        }
+        2 => ExternalSymbolKey::ordinal(
+            owner,
+            kind,
+            SymbolOrdinal::new(
+                reader
+                    .read_u32()
+                    .map_err(wire_error(context, InterfaceValidationField::Ordinal))?,
+            ),
+        ),
+        actual => {
+            return Err(InterfaceValidationError::Malformed {
+                context,
+                cause: InterfaceMalformedCause::InvalidDiscriminant {
+                    field: InterfaceValidationField::Identity,
+                    actual: u64::from(actual),
+                },
+            });
+        }
+    };
+
+    key.ok_or(InterfaceValidationError::Malformed {
+        context,
+        cause: InterfaceMalformedCause::InvalidValue {
+            field: InterfaceValidationField::Identity,
+        },
+    })
+}
+
+fn read_external_synthesized_key(
+    reader: &mut WireReader<'_>,
+    context: InterfaceValidationContext,
+    owner: ExternalSymbolKey,
+    kind: SymbolKind,
+) -> Result<ExternalSymbolKey, InterfaceValidationError> {
+    let raw_role = reader
+        .read_u32()
+        .map_err(wire_error(context, InterfaceValidationField::Role))?;
+
+    let role =
+        SynthesizedSymbolRole::from_wire(raw_role).ok_or(InterfaceValidationError::Malformed {
+            context,
+            cause: InterfaceMalformedCause::InvalidDiscriminant {
+                field: InterfaceValidationField::Role,
+                actual: u64::from(raw_role),
+            },
+        })?;
+
+    let ordinal_discriminant = reader
+        .read_u32()
+        .map_err(wire_error(context, InterfaceValidationField::Ordinal))?;
+
+    let ordinal = match ordinal_discriminant {
+        0 => None,
+        1 => Some(SymbolOrdinal::new(reader.read_u32().map_err(
+            wire_error(context, InterfaceValidationField::Ordinal),
+        )?)),
+        actual => {
+            return Err(InterfaceValidationError::Malformed {
+                context,
+                cause: InterfaceMalformedCause::InvalidDiscriminant {
+                    field: InterfaceValidationField::Ordinal,
+                    actual: u64::from(actual),
+                },
+            });
+        }
+    };
+
+    let key = ExternalSymbolKey::synthesized(owner, role, ordinal).ok_or(
+        InterfaceValidationError::Malformed {
+            context,
+            cause: InterfaceMalformedCause::InvalidValue {
+                field: InterfaceValidationField::Identity,
+            },
+        },
+    )?;
+
+    if key.kind() != kind {
+        return Err(InterfaceValidationError::Malformed {
+            context,
+            cause: InterfaceMalformedCause::CountMismatch {
+                field: InterfaceValidationField::SymbolKind,
+                expected: u64::from(key.kind().to_wire()),
+                actual: u64::from(kind.to_wire()),
+            },
+        });
+    }
+
+    Ok(key)
+}
+
+fn take_external_key_owner(
+    key: &mut Option<ExternalSymbolKey>,
+    context: InterfaceValidationContext,
+) -> Result<ExternalSymbolKey, InterfaceValidationError> {
+    key.take().ok_or(InterfaceValidationError::Malformed {
+        context,
+        cause: InterfaceMalformedCause::Missing {
+            field: InterfaceValidationField::Owner,
         },
     })
 }
@@ -366,10 +412,13 @@ fn read_string(
             target: InterfaceIntegerTarget::Usize,
         },
     })?;
+
     let offset = reader.position();
+
     let bytes = reader
         .read_bytes(length)
         .map_err(wire_error(context, field))?;
+
     let value =
         std::str::from_utf8(bytes).map_err(|error| InterfaceValidationError::InvalidUtf8 {
             context,

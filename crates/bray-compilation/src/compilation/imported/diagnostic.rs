@@ -464,9 +464,10 @@ mod tests {
         DiagnosticStandardLibraryOptimizationMetadataProblem,
     };
     use bray_package_interface::{
-        InterfaceFormatRevision, InterfaceLanguageRevision, InterfaceLimit,
-        InterfaceProductIdentity, InterfaceSectionTag, InterfaceValidationError,
-        InterfaceValidationPolicy,
+        InterfaceArtifactHash, InterfaceFormatRevision, InterfaceLanguageRevision, InterfaceLimit,
+        InterfaceMalformedCause, InterfaceProductIdentity, InterfaceSectionHash,
+        InterfaceSectionTag, InterfaceValidationContext, InterfaceValidationError,
+        InterfaceValidationField, InterfaceValidationPolicy,
     };
     use bray_runtime_interface::RuntimeAbiVersion;
     use bray_standard_library::{
@@ -616,7 +617,10 @@ mod tests {
     fn interface_validation_diagnostics_preserve_context_for_every_failure_category() {
         let input = dependency_input();
 
-        let invalid_magic = validation_diagnostics(InterfaceValidationError::InvalidMagic, &input);
+        let invalid_magic = validation_diagnostics(
+            InterfaceValidationError::InvalidMagic { actual: [0; 8] },
+            &input,
+        );
 
         bray_testing::assert_goal_state_diagnostic_kind(
             &invalid_magic,
@@ -648,29 +652,57 @@ mod tests {
             DiagnosticKind::InterfaceUnsupportedLanguageRevision,
         );
 
-        let encoding =
-            validation_diagnostics(InterfaceValidationError::UnsupportedEncoding, &input);
+        let encoding = validation_diagnostics(
+            InterfaceValidationError::UnsupportedByteOrder {
+                expected: 1,
+                actual: 2,
+            },
+            &input,
+        );
 
         bray_testing::assert_goal_state_diagnostic_kind(
             &encoding,
             DiagnosticKind::InterfaceUnsupportedEncoding,
         );
 
-        let truncated = validation_diagnostics(InterfaceValidationError::Truncated, &input);
+        let truncated = validation_diagnostics(
+            InterfaceValidationError::Truncated {
+                context: InterfaceValidationContext::Header,
+                field: InterfaceValidationField::Magic,
+                offset: 0,
+                expected_length: 8,
+                actual_length: 7,
+            },
+            &input,
+        );
 
         bray_testing::assert_goal_state_diagnostic_kind(
             &truncated,
-            DiagnosticKind::InterfaceTruncated,
+            DiagnosticKind::InterfaceValidationFailed,
         );
 
-        let malformed = validation_diagnostics(InterfaceValidationError::Malformed, &input);
+        let malformed = validation_diagnostics(
+            InterfaceValidationError::Malformed {
+                context: InterfaceValidationContext::Header,
+                cause: InterfaceMalformedCause::InvalidValue {
+                    field: InterfaceValidationField::RequiredFlags,
+                },
+            },
+            &input,
+        );
 
         bray_testing::assert_goal_state_diagnostic_kind(
             &malformed,
-            DiagnosticKind::InterfaceMalformed,
+            DiagnosticKind::InterfaceValidationFailed,
         );
 
-        let hash = validation_diagnostics(InterfaceValidationError::HashMismatch, &input);
+        let hash = validation_diagnostics(
+            InterfaceValidationError::ArtifactHashMismatch {
+                expected: InterfaceArtifactHash::from_bytes([0; 32]),
+                actual: InterfaceArtifactHash::from_bytes([1; 32]),
+            },
+            &input,
+        );
 
         bray_testing::assert_goal_state_diagnostic_kind(
             &hash,
@@ -680,6 +712,8 @@ mod tests {
         let checksum = validation_diagnostics(
             InterfaceValidationError::SectionChecksumMismatch {
                 section: InterfaceSectionTag::DeclarationSemantics,
+                expected: InterfaceSectionHash::from_bytes([0; 32]),
+                actual: InterfaceSectionHash::from_bytes([1; 32]),
             },
             &input,
         );

@@ -840,6 +840,11 @@ Before publishing a loaded interface, the reader validates:
 
 This validation makes later lazy reads memory-safe and bounded. It does not eagerly decode every semantic record.
 
+Every rejected artifact retains the exact validated region, field, and structural cause. Length, count, reference,
+discriminant, checksum, hash, and resource failures also retain their relevant expected and actual values. Conversion to
+compiler diagnostics preserves that typed context instead of collapsing it into a generic malformed or truncated
+category.
+
 ### Imported Skeleton Construction
 
 After structural validation, the loader decodes the identity and relationship sections into an immutable
@@ -1048,7 +1053,9 @@ impl LoadedPackageInterface {
 ```
 
 The exact Rust shape can use category-specific methods instead of a generic method where that preserves stronger typing.
-Public APIs must not expose byte offsets, unchecked table indexes, raw maps, or codec internals.
+Successful semantic APIs must not expose byte offsets, unchecked table indexes, raw maps, or codec internals. Validation
+errors may retain bounded offsets and indexes as typed diagnostic context. Those values describe the rejected input and
+do not provide unchecked access to retained interface state.
 
 Encoding conceptually accepts an immutable bundle:
 

@@ -197,6 +197,7 @@ mod tests {
         let mut reader = WireReader::new(&[1, 2, 3]);
 
         assert_eq!(reader.read_bytes(2), Ok(&[1, 2][..]));
+
         assert_eq!(
             reader.finish(),
             Err(WireDecodeError::TrailingBytes {

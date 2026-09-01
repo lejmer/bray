@@ -317,6 +317,7 @@ fn decode_and_verify_section(
     stored: &[u8],
 ) -> Result<Option<Arc<[u8]>>, InterfaceValidationError> {
     let context = directory_entry_context(index, entry.raw_tag());
+
     let encoding = entry.encoding().ok_or_else(|| {
         malformed(
             context,
@@ -335,6 +336,7 @@ fn decode_and_verify_section(
     };
 
     let bytes = decoded.as_deref().unwrap_or(stored);
+
     let tag = entry.tag().ok_or_else(|| {
         malformed(
             context,
@@ -483,8 +485,10 @@ fn decode_directory(
             .unwrap_or(0);
 
         let context = directory_entry_context(index, raw_tag);
+
         let decoded = DirectoryEntry::decode(chunk)
             .map_err(|error| map_wire_error(context, directory_field(error.offset()), error))?;
+
         let tag = InterfaceSectionTag::from_wire_value(decoded.raw_tag);
 
         validate_section_contract(context, tag, decoded)?;
@@ -571,6 +575,7 @@ fn validate_hashes(
 ) -> Result<(), InterfaceValidationError> {
     for (index, entry) in directory.iter().enumerate() {
         let context = directory_entry_context(index, entry.raw_tag());
+
         let payload = entry.payload(bytes).ok_or_else(|| {
             range_validation_error(
                 context,

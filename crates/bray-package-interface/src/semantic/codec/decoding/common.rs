@@ -54,6 +54,7 @@ pub(super) fn decode_real(
     reader: &mut WireReader<'_>,
 ) -> Result<RealConstantBits, InterfaceValidationError> {
     let raw = read_u32(reader)?;
+
     match raw {
         1 => Ok(RealConstantBits::Binary16(
             reader.read_u16().map_err(map_wire_error)?,

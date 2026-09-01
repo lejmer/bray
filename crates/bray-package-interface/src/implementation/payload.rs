@@ -6,7 +6,6 @@ use bray_symbols::{
     NativeSymbolIdentity, NativeSymbolPresence, StaticStorageDuration,
 };
 
-use crate::implementation::map_wire_error;
 use crate::wire::{WireEncoder, WireReader};
 use crate::{
     InterfaceIntegerTarget, InterfaceLimit, InterfaceMalformedCause, InterfaceUtf8Failure,
@@ -40,8 +39,11 @@ pub(super) fn decode_pre_specialized_mir(
     let mut reader = WireReader::new(payload);
     let key = decode_specialization_key(&mut reader, limits)?;
 
-    let mir_schema_revision =
-        ImplementationMirSchemaRevision::new(reader.read_u16().map_err(map_wire_error)?);
+    let mir_schema_revision = ImplementationMirSchemaRevision::new(
+        reader
+            .read_u16()
+            .map_err(wire_error(InterfaceValidationField::SchemaRevision))?,
+    );
 
     if mir_schema_revision != CURRENT_MIR_SCHEMA_REVISION {
         return Err(value_mismatch(
@@ -51,15 +53,22 @@ pub(super) fn decode_pre_specialized_mir(
         ));
     }
 
-    let length = reader.read_u64().map_err(map_wire_error)?;
+    let length = reader
+        .read_u64()
+        .map_err(wire_error(InterfaceValidationField::RecordLength))?;
 
     limits.check(InterfaceLimit::BlobLength, length)?;
 
     let length = usize::try_from(length)
         .map_err(|_| numeric_overflow(InterfaceValidationField::RecordLength, length))?;
-    let payload = reader.read_bytes(length).map_err(map_wire_error)?;
 
-    reader.finish().map_err(map_wire_error)?;
+    let payload = reader
+        .read_bytes(length)
+        .map_err(wire_error(InterfaceValidationField::RecordPayload))?;
+
+    reader
+        .finish()
+        .map_err(wire_error(InterfaceValidationField::RecordPayload))?;
 
     InterfacePreSpecializedMir::new(key, mir_schema_revision, Arc::<[u8]>::from(payload)).ok_or(
         crate::implementation::invalid_value(crate::InterfaceValidationField::RecordPayload),
@@ -143,7 +152,10 @@ pub(super) fn decode_native_boundary(
 ) -> Result<InterfaceNativeBoundary, InterfaceValidationError> {
     let mut reader = WireReader::new(payload);
 
-    let raw_direction = reader.read_u8().map_err(map_wire_error)?;
+    let raw_direction = reader
+        .read_u8()
+        .map_err(wire_error(InterfaceValidationField::Discriminant))?;
+
     let direction = match raw_direction {
         0 => ForeignCallableDirection::Import,
         1 => ForeignCallableDirection::Export,
@@ -152,7 +164,10 @@ pub(super) fn decode_native_boundary(
         }
     };
 
-    let raw_kind = reader.read_u8().map_err(map_wire_error)?;
+    let raw_kind = reader
+        .read_u8()
+        .map_err(wire_error(InterfaceValidationField::Discriminant))?;
+
     let kind = match raw_kind {
         0 => InterfaceNativeBoundaryKind::Callable,
         1 => InterfaceNativeBoundaryKind::Static {
@@ -176,16 +191,26 @@ pub(super) fn decode_native_boundary(
         }
     };
 
-    let raw_identity = reader.read_u8().map_err(map_wire_error)?;
+    let raw_identity = reader
+        .read_u8()
+        .map_err(wire_error(InterfaceValidationField::Discriminant))?;
+
     let identity = match raw_identity {
         0 => NativeSymbolIdentity::Name(read_nonempty_string(&mut reader, limits)?),
-        1 => NativeSymbolIdentity::Ordinal(reader.read_u64().map_err(map_wire_error)?),
+        1 => NativeSymbolIdentity::Ordinal(
+            reader
+                .read_u64()
+                .map_err(wire_error(InterfaceValidationField::Ordinal))?,
+        ),
         _ => {
             return Err(invalid_discriminant(raw_identity));
         }
     };
 
-    let raw_version = reader.read_u8().map_err(map_wire_error)?;
+    let raw_version = reader
+        .read_u8()
+        .map_err(wire_error(InterfaceValidationField::Discriminant))?;
+
     let version = match raw_version {
         0 => None,
         1 => Some(read_nonempty_string(&mut reader, limits)?),
@@ -194,7 +219,10 @@ pub(super) fn decode_native_boundary(
         }
     };
 
-    let raw_binding = reader.read_u8().map_err(map_wire_error)?;
+    let raw_binding = reader
+        .read_u8()
+        .map_err(wire_error(InterfaceValidationField::Discriminant))?;
+
     let binding = match raw_binding {
         0 => NativeSymbolBinding::Strong,
         1 => NativeSymbolBinding::Weak,
@@ -203,7 +231,10 @@ pub(super) fn decode_native_boundary(
         }
     };
 
-    let raw_presence = reader.read_u8().map_err(map_wire_error)?;
+    let raw_presence = reader
+        .read_u8()
+        .map_err(wire_error(InterfaceValidationField::Discriminant))?;
+
     let presence = match raw_presence {
         0 => NativeSymbolPresence::Required,
         1 => NativeSymbolPresence::Optional,
@@ -212,7 +243,9 @@ pub(super) fn decode_native_boundary(
         }
     };
 
-    reader.finish().map_err(map_wire_error)?;
+    reader
+        .finish()
+        .map_err(wire_error(InterfaceValidationField::RecordPayload))?;
 
     let symbol = NativeSymbolContract::new(identity, version, binding, presence);
 
@@ -228,14 +261,21 @@ fn read_nonempty_string(
     reader: &mut WireReader<'_>,
     limits: InterfaceValidationLimits,
 ) -> Result<NonEmptySharedStr, InterfaceValidationError> {
-    let length = reader.read_u64().map_err(map_wire_error)?;
+    let length = reader
+        .read_u64()
+        .map_err(wire_error(InterfaceValidationField::String))?;
 
     limits.check(InterfaceLimit::StringLength, length)?;
 
     let length = usize::try_from(length)
         .map_err(|_| numeric_overflow(InterfaceValidationField::String, length))?;
+
     let offset = reader.position();
-    let bytes = reader.read_bytes(length).map_err(map_wire_error)?;
+
+    let bytes = reader
+        .read_bytes(length)
+        .map_err(wire_error(InterfaceValidationField::String))?;
+
     let value =
         std::str::from_utf8(bytes).map_err(|cause| InterfaceValidationError::InvalidUtf8 {
             context: InterfaceValidationContext::Artifact,
@@ -263,6 +303,12 @@ const fn invalid_discriminant(actual: u8) -> InterfaceValidationError {
             actual: actual as u64,
         },
     }
+}
+
+fn wire_error(
+    field: InterfaceValidationField,
+) -> impl FnOnce(crate::wire::WireDecodeError) -> InterfaceValidationError {
+    move |error| crate::decode::map_wire_error(InterfaceValidationContext::Artifact, field, error)
 }
 
 const fn value_mismatch(

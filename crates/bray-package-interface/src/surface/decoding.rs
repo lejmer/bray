@@ -97,6 +97,7 @@ pub(crate) fn decode_strings(
     budget: &mut DecodeBudget,
 ) -> Result<Vec<Arc<str>>, InterfaceValidationError> {
     let context = section_context(section);
+
     let count = checked_count(
         section.record_count(),
         context,
@@ -104,6 +105,7 @@ pub(crate) fn decode_strings(
     )?;
 
     let mut reader = WireReader::new(section.bytes());
+
     let mut strings =
         budget.allocate_items(&reader, context, InterfaceValidationField::String, count)?;
 
@@ -112,11 +114,13 @@ pub(crate) fn decode_strings(
             section: section.tag(),
             index: index as u64,
         };
+
         let raw_length = read_u32(
             &mut reader,
             record_context,
             InterfaceValidationField::RecordLength,
         )?;
+
         let length = usize::try_from(raw_length).map_err(|_| {
             numeric_overflow(
                 record_context,
@@ -134,9 +138,11 @@ pub(crate) fn decode_strings(
         budget.charge(length)?;
 
         let offset = reader.position();
+
         let bytes = reader
             .read_bytes(length)
             .map_err(wire_error(record_context, InterfaceValidationField::String))?;
+
         let value =
             str::from_utf8(bytes).map_err(|cause| InterfaceValidationError::InvalidUtf8 {
                 context: record_context,
@@ -187,6 +193,7 @@ pub(crate) fn decode_metadata(
     strings: &[Arc<str>],
 ) -> Result<PackageInterfaceIdentity, InterfaceValidationError> {
     let context = section_context(section);
+
     if section.record_count() != 1 {
         return Err(malformed(
             context,
@@ -221,6 +228,7 @@ pub(crate) fn decode_dependencies(
     budget: &mut DecodeBudget,
 ) -> Result<Vec<InterfaceDependency>, InterfaceValidationError> {
     let context = section_context(section);
+
     let count = checked_count(
         section.record_count(),
         context,
@@ -228,6 +236,7 @@ pub(crate) fn decode_dependencies(
     )?;
 
     let mut reader = WireReader::new(section.bytes());
+
     let mut dependencies = budget.allocate_items(
         &reader,
         context,
@@ -237,10 +246,12 @@ pub(crate) fn decode_dependencies(
 
     for index in 0..count {
         let record_context = record_context(section, index);
+
         let package = package_identity(
             read_string(&mut reader, strings, record_context)?,
             record_context,
         )?;
+
         let product = product_identity(
             read_string(&mut reader, strings, record_context)?,
             record_context,
@@ -266,6 +277,7 @@ pub(crate) fn decode_symbols(
     budget: &mut DecodeBudget,
 ) -> Result<Vec<ImportedSymbolIdentityInput>, InterfaceValidationError> {
     let context = section_context(section);
+
     let count = checked_count(
         section.record_count(),
         context,
@@ -273,16 +285,19 @@ pub(crate) fn decode_symbols(
     )?;
 
     let mut reader = WireReader::new(section.bytes());
+
     let mut symbols =
         budget.allocate_items(&reader, context, InterfaceValidationField::Identity, count)?;
 
     for index in 0..count {
         let record_context = record_context(section, index);
+
         let kind = read_tag(
             &mut reader,
             record_context,
             InterfaceValidationField::SymbolKind,
         )?;
+
         let container = read_optional_u32(
             &mut reader,
             record_context,
@@ -324,6 +339,7 @@ pub(crate) fn decode_relationships(
     budget: &mut DecodeBudget,
 ) -> Result<Vec<SymbolRelationship>, InterfaceValidationError> {
     let context = section_context(section);
+
     let count = checked_count(
         section.record_count(),
         context,
@@ -331,11 +347,13 @@ pub(crate) fn decode_relationships(
     )?;
 
     let mut reader = WireReader::new(section.bytes());
+
     let mut relationships =
         budget.allocate_items(&reader, context, InterfaceValidationField::Reference, count)?;
 
     for index in 0..count {
         let record_context = record_context(section, index);
+
         let relationship = SymbolRelationship::new(
             read_tag(
                 &mut reader,
@@ -360,12 +378,14 @@ pub(crate) fn decode_relationships(
         )
         .with_position({
             let actual = read_u32(&mut reader, record_context, InterfaceValidationField::Role)?;
+
             CallablePosition::from_wire(actual).ok_or_else(|| {
                 invalid_discriminant(record_context, InterfaceValidationField::Role, actual)
             })?
         });
 
         let actual = read_u32(&mut reader, record_context, InterfaceValidationField::Value)?;
+
         let relationship = match actual {
             0 => relationship,
             1 => relationship.with_mutation(),
@@ -394,6 +414,7 @@ pub(crate) fn decode_exports(
     budget: &mut DecodeBudget,
 ) -> Result<Vec<ExportedLookupEdge>, InterfaceValidationError> {
     let context = section_context(section);
+
     let count = checked_count(
         section.record_count(),
         context,
@@ -401,20 +422,24 @@ pub(crate) fn decode_exports(
     )?;
 
     let mut reader = WireReader::new(section.bytes());
+
     let mut exports =
         budget.allocate_items(&reader, context, InterfaceValidationField::Reference, count)?;
 
     for index in 0..count {
         let record_context = record_context(section, index);
+
         let owner = InterfaceSymbolId::new(read_u32(
             &mut reader,
             record_context,
             InterfaceValidationField::Owner,
         )?);
+
         let name = symbol_name(
             read_string(&mut reader, strings, record_context)?,
             record_context,
         )?;
+
         let kind: ExportedLookupKind = read_tag(
             &mut reader,
             record_context,
@@ -426,6 +451,7 @@ pub(crate) fn decode_exports(
             record_context,
             InterfaceValidationField::Discriminant,
         )?;
+
         let target = match actual {
             1 => InterfaceSymbolReference::Local(InterfaceSymbolId::new(read_u32(
                 &mut reader,
@@ -485,6 +511,7 @@ pub(super) fn read_string<'a>(
     context: InterfaceValidationContext,
 ) -> Result<&'a Arc<str>, InterfaceValidationError> {
     let raw = read_u32(reader, context, InterfaceValidationField::StringIndex)?;
+
     let index = usize::try_from(raw).map_err(|_| {
         numeric_overflow(
             context,
@@ -544,6 +571,7 @@ pub(super) fn read_tag<T: WireTag>(
     field: InterfaceValidationField,
 ) -> Result<T, InterfaceValidationError> {
     let actual = read_u32(reader, context, field)?;
+
     T::from_wire(actual).ok_or_else(|| invalid_discriminant(context, field, actual))
 }
 
@@ -601,6 +629,7 @@ fn validate_order<T: Ord>(
     }
 
     debug_assert!(is_strictly_sorted(values));
+
     Ok(())
 }
 

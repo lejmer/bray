@@ -70,6 +70,7 @@ pub(super) fn decode_external_key(
     context: InterfaceValidationContext,
 ) -> Result<ExternalSymbolKey, InterfaceValidationError> {
     let raw_count = read_u32(reader, context, InterfaceValidationField::RecordCount)?;
+
     let count = usize::try_from(raw_count).map_err(|_| {
         numeric_overflow(
             context,
@@ -96,11 +97,13 @@ pub(super) fn decode_external_key(
         let component_context = InterfaceValidationContext::ExternalSymbolKey {
             component: index as u64,
         };
+
         let kind: SymbolKind = read_tag(
             reader,
             component_context,
             InterfaceValidationField::SymbolKind,
         )?;
+
         let shape = read_u32(
             reader,
             component_context,
@@ -135,6 +138,7 @@ pub(super) fn decode_compiler_known_key(
     context: InterfaceValidationContext,
 ) -> Result<SymbolKey, InterfaceValidationError> {
     let raw_count = read_u32(reader, context, InterfaceValidationField::RecordCount)?;
+
     let count = usize::try_from(raw_count).map_err(|_| {
         numeric_overflow(
             context,
@@ -163,11 +167,13 @@ pub(super) fn decode_compiler_known_key(
         let component_context = InterfaceValidationContext::ExternalSymbolKey {
             component: index as u64,
         };
+
         let shape = read_u32(
             reader,
             component_context,
             InterfaceValidationField::Discriminant,
         )?;
+
         key = Some(match shape {
             1 if index == 0 => {
                 let declaration = bray_compiler_known::CompilerKnownDeclarationKey::try_new(
@@ -196,8 +202,10 @@ pub(super) fn decode_compiler_known_key(
                         },
                     )
                 })?;
+
                 let role: SynthesizedSymbolRole =
                     read_tag(reader, component_context, InterfaceValidationField::Role)?;
+
                 let ordinal = read_optional_u32(
                     reader,
                     component_context,
@@ -330,6 +338,7 @@ fn decode_synthesized_key(
     context: InterfaceValidationContext,
 ) -> Result<ExternalSymbolKey, InterfaceValidationError> {
     let role: SynthesizedSymbolRole = read_tag(reader, context, InterfaceValidationField::Role)?;
+
     let ordinal = read_optional_u32(reader, context, InterfaceValidationField::Ordinal)?
         .map(SymbolOrdinal::new);
 
@@ -350,6 +359,7 @@ fn decode_module_path(
     context: InterfaceValidationContext,
 ) -> Result<ModulePathKey, InterfaceValidationError> {
     let raw_count = read_u32(reader, context, InterfaceValidationField::RecordCount)?;
+
     let count = usize::try_from(raw_count).map_err(|_| {
         numeric_overflow(
             context,
@@ -380,6 +390,7 @@ fn decode_declaration_identity(
     context: InterfaceValidationContext,
 ) -> Result<ExternalDeclarationIdentity, InterfaceValidationError> {
     let shape = read_u32(reader, context, InterfaceValidationField::Discriminant)?;
+
     match shape {
         1 => Ok(ExternalDeclarationIdentity::Name(symbol_name(
             read_string(reader, strings, context)?,

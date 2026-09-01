@@ -9,12 +9,12 @@ pub(super) fn write_bool(encoder: &mut WireEncoder, value: bool) {
 }
 
 pub(super) fn read_bool(reader: &mut WireReader<'_>) -> Result<bool, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         0 => Ok(false),
         1 => Ok(true),
-        _ => Err(crate::implementation::invalid_value(
-            crate::InterfaceValidationField::Value,
-        )),
+        _ => Err(invalid_discriminant(raw)),
     }
 }
 
@@ -36,12 +36,12 @@ pub(super) fn read_optional<T>(
     reader: &mut WireReader<'_>,
     read: impl FnOnce(&mut WireReader<'_>) -> Result<T, InterfaceValidationError>,
 ) -> Result<Option<T>, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         0 => Ok(None),
         1 => read(reader).map(Some),
-        _ => Err(crate::implementation::invalid_value(
-            crate::InterfaceValidationField::Value,
-        )),
+        _ => Err(invalid_discriminant(raw)),
     }
 }
 
@@ -65,11 +65,52 @@ pub(super) fn read_u32(reader: &mut WireReader<'_>) -> Result<u32, InterfaceVali
     reader.read_u32().map_err(map_wire_error)
 }
 
+const fn invalid_discriminant(actual: u32) -> InterfaceValidationError {
+    InterfaceValidationError::Malformed {
+        context: crate::InterfaceValidationContext::Artifact,
+        cause: crate::InterfaceMalformedCause::InvalidDiscriminant {
+            field: crate::InterfaceValidationField::Value,
+            actual: actual as u64,
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{FORMAT_VERSION, read_count};
+    use super::{FORMAT_VERSION, read_bool, read_count, read_optional};
     use crate::wire::{WireEncoder, WireReader};
-    use crate::{InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits};
+    use crate::{
+        InterfaceLimit, InterfaceMalformedCause, InterfaceValidationContext,
+        InterfaceValidationError, InterfaceValidationField, InterfaceValidationLimits,
+    };
+
+    #[test]
+    fn executable_template_markers_preserve_invalid_discriminants() {
+        let expected = |raw: u32| InterfaceValidationError::Malformed {
+            context: InterfaceValidationContext::Artifact,
+            cause: InterfaceMalformedCause::InvalidDiscriminant {
+                field: InterfaceValidationField::Value,
+                actual: u64::from(raw),
+            },
+        };
+
+        let mut boolean = WireEncoder::new();
+        boolean.write_u32(2);
+        let mut boolean_reader = WireReader::new(boolean.bytes());
+
+        assert_eq!(read_bool(&mut boolean_reader), Err(expected(2)));
+
+        let mut optional = WireEncoder::new();
+        optional.write_u32(3);
+        let mut optional_reader = WireReader::new(optional.bytes());
+
+        assert_eq!(
+            read_optional(&mut optional_reader, |_| {
+                Ok::<_, InterfaceValidationError>(())
+            }),
+            Err(expected(3))
+        );
+    }
 
     #[test]
     fn executable_template_counts_obey_graph_limits_before_allocation() {

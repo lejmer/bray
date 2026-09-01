@@ -9,7 +9,7 @@ use bray_symbols::{
 
 use super::{PackageInterfaceSurfaceBuildError, SymbolRelationship};
 
-pub(crate) fn diagnostic_surface_problem(
+pub fn diagnostic_surface_problem(
     error: PackageInterfaceSurfaceBuildError,
 ) -> DiagnosticInterfaceSymbolGraphProblem {
     match error {

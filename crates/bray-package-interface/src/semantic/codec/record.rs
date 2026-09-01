@@ -31,10 +31,12 @@ impl<'bytes> RecordTable<'bytes> {
                 section,
                 index: index as u64,
             };
+
             let raw_offset = reader.read_u32().map_err(wire_error(
                 record_context,
                 InterfaceValidationField::RecordOffset,
             ))?;
+
             let offset = usize::try_from(raw_offset).map_err(|_| {
                 numeric_overflow(
                     record_context,
@@ -47,6 +49,7 @@ impl<'bytes> RecordTable<'bytes> {
                 record_context,
                 InterfaceValidationField::RecordLength,
             ))?;
+
             let length = usize::try_from(raw_length).map_err(|_| {
                 numeric_overflow(
                     record_context,
@@ -102,6 +105,7 @@ impl<'bytes> RecordTable<'bytes> {
             section: self.section,
             index: u64::from(index),
         };
+
         let index = usize::try_from(index).map_err(|_| {
             numeric_overflow(
                 validation,
@@ -147,6 +151,7 @@ impl<'bytes> RecordTable<'bytes> {
             section: self.section,
             index: u64::from(index),
         };
+
         let previous = context.replace_validation(validation);
         let mut reader = WireReader::new(self.record(index)?);
         let value = decode(&mut reader, context).map_err(|error| with_context(error, validation));

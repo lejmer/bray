@@ -15,7 +15,7 @@ pub(crate) fn format_english_interface_symbol_graph_problem(
             format_english_quoted_text(package)
         ),
         Problem::SymbolCapacityExceeded { actual, maximum } => format!(
-            "imported symbols require {actual} compilation identities, but the compiler can represent at most {maximum}"
+            "imported symbols require {actual} compilation identities, but the supported maximum is {maximum}"
         ),
         Problem::DuplicateExternalIdentity(identity) => format!(
             "external symbol identity {} is defined more than once",

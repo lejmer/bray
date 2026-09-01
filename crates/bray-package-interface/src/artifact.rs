@@ -337,11 +337,13 @@ fn encode_header(
         crate::InterfaceValidationField::DeclaredFileLength,
         file_length,
     )?);
+
     encoder.write_u64(usize_to_u64(
         crate::InterfaceValidationContext::Header,
         crate::InterfaceValidationField::DirectoryOffset,
         directory_offset,
     )?);
+
     encoder.write_u64(usize_to_u64(
         crate::InterfaceValidationContext::Header,
         crate::InterfaceValidationField::DirectoryLength,
@@ -432,6 +434,7 @@ fn finish_hashes(
         crate::InterfaceValidationField::DeclaredFileLength,
         bytes.len(),
     )?;
+
     let section_count = usize_to_u64(
         crate::InterfaceValidationContext::Directory,
         crate::InterfaceValidationField::RecordCount,
@@ -483,11 +486,13 @@ impl StoredArtifactSection {
         section: &EncodedArtifactSection,
     ) -> Result<Self, InterfaceValidationError> {
         let context = crate::InterfaceValidationContext::Section(section.tag);
+
         let decoded_length = usize_to_u64(
             context,
             crate::InterfaceValidationField::DecodedLength,
             section.payload.len(),
         )?;
+
         let content_hash = compute_section_content_hash(section.tag, &section.payload);
 
         let (encoding, payload) = encode_section(context, &section.payload)?;

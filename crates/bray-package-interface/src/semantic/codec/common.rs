@@ -49,6 +49,7 @@ pub(crate) fn read_symbol_reference(
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceSymbolReference, InterfaceValidationError> {
     let shape = read_u32(reader)?;
+
     match shape {
         1 => Ok(InterfaceSymbolReference::Local(
             bray_symbols::InterfaceSymbolId::new(read_u32(reader)?),
@@ -128,6 +129,7 @@ fn read_compiler_known_key(
 
     for index in 0..count {
         let shape = read_u32(reader)?;
+
         key = Some(match shape {
             1 if index == 0 => {
                 let declaration = bray_compiler_known::CompilerKnownDeclarationKey::try_new(
@@ -135,8 +137,11 @@ fn read_compiler_known_key(
                 )
                 .ok_or_else(|| invalid_value(InterfaceValidationField::Declaration))?;
 
-                let kind = SymbolKind::from_wire(read_u32(reader)?)
-                    .ok_or_else(|| invalid_value(InterfaceValidationField::SymbolKind))?;
+                let kind_raw = read_u32(reader)?;
+
+                let kind = SymbolKind::from_wire(kind_raw).ok_or_else(|| {
+                    invalid_discriminant(InterfaceValidationField::SymbolKind, kind_raw)
+                })?;
 
                 SymbolKey::compiler_known_declaration(declaration, kind)
                     .ok_or_else(|| invalid_value(InterfaceValidationField::Identity))?
@@ -148,8 +153,11 @@ fn read_compiler_known_key(
                     })
                 })?;
 
-                let role = SynthesizedSymbolRole::from_wire(read_u32(reader)?)
-                    .ok_or_else(|| invalid_value(InterfaceValidationField::Role))?;
+                let role_raw = read_u32(reader)?;
+
+                let role = SynthesizedSymbolRole::from_wire(role_raw).ok_or_else(|| {
+                    invalid_discriminant(InterfaceValidationField::Role, role_raw)
+                })?;
 
                 let ordinal = read_optional_u32(reader)?.map(SymbolOrdinal::new);
 
@@ -286,10 +294,12 @@ pub(super) fn read_string(
     context.charge(length)?;
 
     let offset = reader.position();
+
     let bytes = reader.read_bytes(length).map_err(wire_error(
         context.validation(),
         InterfaceValidationField::String,
     ))?;
+
     let value = str::from_utf8(bytes).map_err(|cause| InterfaceValidationError::InvalidUtf8 {
         context: context.validation(),
         field: InterfaceValidationField::String,

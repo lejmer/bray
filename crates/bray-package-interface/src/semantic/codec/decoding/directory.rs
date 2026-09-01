@@ -27,12 +27,22 @@ pub(crate) fn decode_semantic_directory(
     for _ in 0..count {
         let owner = read_symbol_reference(&mut reader, context)?;
 
-        let kind = InterfaceSemanticRecordKind::from_wire(read_u32(&mut reader)?).ok_or(
-            crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference),
+        let kind_raw = read_u32(&mut reader)?;
+
+        let kind = InterfaceSemanticRecordKind::from_wire(kind_raw).ok_or(
+            crate::semantic::codec::invalid_discriminant(
+                crate::InterfaceValidationField::Discriminant,
+                kind_raw,
+            ),
         )?;
 
-        let section = InterfaceSectionTag::from_wire_value(read_u32(&mut reader)?).ok_or(
-            crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference),
+        let section_raw = read_u32(&mut reader)?;
+
+        let section = InterfaceSectionTag::from_wire_value(section_raw).ok_or(
+            crate::semantic::codec::invalid_discriminant(
+                crate::InterfaceValidationField::SectionTag,
+                section_raw,
+            ),
         )?;
 
         let record = read_u32(&mut reader)?;

@@ -290,11 +290,14 @@ fn read_frames(
 }
 
 fn read_presence(reader: &mut WireReader<'_>) -> Result<bool, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         0 => Ok(false),
         1 => Ok(true),
-        _ => Err(crate::semantic::codec::invalid_value(
-            crate::InterfaceValidationField::Type,
+        _ => Err(crate::semantic::codec::invalid_discriminant(
+            crate::InterfaceValidationField::RuntimeRequirements,
+            raw,
         )),
     }
 }

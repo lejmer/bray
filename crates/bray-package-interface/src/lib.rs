@@ -109,6 +109,6 @@ pub use surface::{
     CompilerKnownSymbolReference, DependencyInterfaceId, ExportedLookupEdge, ExportedLookupKind,
     InterfaceDependency, InterfaceProductIdentity, InterfaceProductKind, InterfaceSymbolReference,
     PackageInterfaceIdentity, PackageInterfaceSurface, PackageInterfaceSurfaceBuildError,
-    SymbolRelationship, SymbolRelationshipKind,
+    SymbolRelationship, SymbolRelationshipKind, diagnostic_surface_problem,
 };
 pub use validation::ValidatedPackageInterface;

@@ -26,7 +26,9 @@ pub(super) fn decode_support_graph(
     let mut entities = context.allocate_items(&reader, count)?;
 
     for _ in 0..count {
-        entities.push(match read_u32(&mut reader)? {
+        let raw = read_u32(&mut reader)?;
+
+        entities.push(match raw {
             1 => InterfaceSupportEntity::CheckedTemplate(InterfaceCheckedTemplateId::new(
                 read_u32(&mut reader)?,
             )),
@@ -41,8 +43,9 @@ pub(super) fn decode_support_graph(
                 ))
             }
             _ => {
-                return Err(crate::semantic::codec::invalid_value(
+                return Err(crate::semantic::codec::invalid_discriminant(
                     crate::InterfaceValidationField::Support,
+                    raw,
                 ));
             }
         });

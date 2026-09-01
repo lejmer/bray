@@ -68,7 +68,7 @@ const SYMBOL_CAPACITY_EXCEEDED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::InterfaceLimit),
     MessageTemplatePart::Text(" of "),
     MessageTemplatePart::Arg(DiagnosticArgName::ActualCount),
-    MessageTemplatePart::Text(", but the compiler can represent at most "),
+    MessageTemplatePart::Text(", but the supported maximum is "),
     MessageTemplatePart::Arg(DiagnosticArgName::MaximumCount),
 ];
 const SEMANTIC_CONTENT_INVALID: &[MessageTemplatePart] = &[

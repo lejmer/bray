@@ -612,6 +612,7 @@ mod tests {
             assert_eq!(diagnostic.kind(), expected_kind);
             assert_eq!(diagnostic.severity(), SeverityKind::Error);
             assert_eq!(diagnostic.args().len(), 1);
+
             assert_eq!(
                 diagnostic.args()[0].name(),
                 DiagnosticArgName::InterfaceValidationFailure

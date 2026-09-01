@@ -94,8 +94,9 @@ pub(super) fn decode_constraint(
 ) -> Result<InterfaceConstraint, InterfaceValidationError> {
     let owner = read_symbol_reference(reader, context)?;
     let ordinal = SymbolOrdinal::new(read_u32(reader)?);
+    let raw = read_u32(reader)?;
 
-    match read_u32(reader)? {
+    match raw {
         1 => Ok(InterfaceConstraint::new(
             owner,
             ordinal,
@@ -113,8 +114,9 @@ pub(super) fn decode_constraint(
             crate::InterfaceTypeId::new(read_u32(reader)?),
             crate::InterfaceTypeId::new(read_u32(reader)?),
         )),
-        _ => Err(crate::semantic::codec::invalid_value(
+        _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Dependency,
+            raw,
         )),
     }
 }
@@ -148,13 +150,15 @@ pub(super) fn decode_callable_contract(
     )?);
 
     let invocation_behavior = decode_callable_behavior(reader, limits, context)?;
+    let deferred_execution_behavior_raw = read_u32(reader)?;
 
-    let deferred_execution_behavior = match read_u32(reader)? {
+    let deferred_execution_behavior = match deferred_execution_behavior_raw {
         0 => None,
         1 => Some(decode_callable_behavior(reader, limits, context)?),
         _ => {
-            return Err(crate::semantic::codec::invalid_value(
+            return Err(crate::semantic::codec::invalid_discriminant(
                 crate::InterfaceValidationField::Dependency,
+                deferred_execution_behavior_raw,
             ));
         }
     };
@@ -178,8 +182,9 @@ fn decode_callable_clauses(
 
     for _ in 0..count {
         let ordinal = SymbolOrdinal::new(read_u32(reader)?);
+        let raw = read_u32(reader)?;
 
-        let clause = match read_u32(reader)? {
+        let clause = match raw {
             1 => InterfaceCallableContractClause::new(
                 ordinal,
                 kind,
@@ -195,8 +200,9 @@ fn decode_callable_clauses(
                 )
             }
             _ => {
-                return Err(crate::semantic::codec::invalid_value(
+                return Err(crate::semantic::codec::invalid_discriminant(
                     crate::InterfaceValidationField::Dependency,
+                    raw,
                 ));
             }
         };
@@ -255,8 +261,9 @@ pub(super) fn decode_dependency_requirement(
     depth: u64,
 ) -> Result<InterfaceDependencyRequirement, InterfaceValidationError> {
     limits.check(InterfaceLimit::SemanticTypeDepth, depth)?;
+    let raw = read_u32(reader)?;
 
-    match read_u32(reader)? {
+    match raw {
         1 => Ok(InterfaceDependencyRequirement::new(
             decode_dependency_subject(reader, limits, context)?,
             decode_dependency_requirement_kind(reader)?,
@@ -278,8 +285,9 @@ pub(super) fn decode_dependency_requirement(
 
             Ok(InterfaceDependencyRequirement::guarded(guard, requirements))
         }
-        _ => Err(crate::semantic::codec::invalid_value(
+        _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Dependency,
+            raw,
         )),
     }
 }
@@ -289,7 +297,9 @@ pub(super) fn decode_dependency_subject(
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceDependencySubject, InterfaceValidationError> {
-    let root = match read_u32(reader)? {
+    let root_raw = read_u32(reader)?;
+
+    let root = match root_raw {
         1 => InterfaceDependencySubjectRoot::Receiver,
         2 => InterfaceDependencySubjectRoot::Parameter(SymbolOrdinal::new(read_u32(reader)?)),
         3 => InterfaceDependencySubjectRoot::Result,
@@ -304,8 +314,9 @@ pub(super) fn decode_dependency_subject(
             reader, context,
         )?),
         _ => {
-            return Err(crate::semantic::codec::invalid_value(
+            return Err(crate::semantic::codec::invalid_discriminant(
                 crate::InterfaceValidationField::Dependency,
+                root_raw,
             ));
         }
     };
@@ -315,7 +326,9 @@ pub(super) fn decode_dependency_subject(
     let mut projections = context.allocate_items(reader, count)?;
 
     for _ in 0..count {
-        projections.push(match read_u32(reader)? {
+        let raw = read_u32(reader)?;
+
+        projections.push(match raw {
             1 => {
                 InterfaceDependencyProjection::ProductField(read_symbol_reference(reader, context)?)
             }
@@ -329,8 +342,9 @@ pub(super) fn decode_dependency_subject(
             )?),
             6 => InterfaceDependencyProjection::OwnedTarget,
             _ => {
-                return Err(crate::semantic::codec::invalid_value(
+                return Err(crate::semantic::codec::invalid_discriminant(
                     crate::InterfaceValidationField::Dependency,
+                    raw,
                 ));
             }
         });
@@ -344,7 +358,9 @@ pub(super) fn decode_dependency_guard(
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceDependencyGuard, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         1 => Ok(InterfaceDependencyGuard::NullablePresent(
             decode_dependency_subject(reader, limits, context)?,
         )),
@@ -352,8 +368,9 @@ pub(super) fn decode_dependency_guard(
             subject: decode_dependency_subject(reader, limits, context)?,
             variant: read_symbol_reference(reader, context)?,
         }),
-        _ => Err(crate::semantic::codec::invalid_value(
+        _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Dependency,
+            raw,
         )),
     }
 }
@@ -361,7 +378,9 @@ pub(super) fn decode_dependency_guard(
 pub(super) fn decode_dependency_requirement_kind(
     reader: &mut WireReader<'_>,
 ) -> Result<InterfaceDependencyRequirementKind, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         1 => Ok(InterfaceDependencyRequirementKind::StorageAlive),
         2 => Ok(InterfaceDependencyRequirementKind::StorageInitialized),
         3 => Ok(InterfaceDependencyRequirementKind::ExclusiveMutationAuthority),
@@ -372,8 +391,9 @@ pub(super) fn decode_dependency_requirement_kind(
         6 => Ok(InterfaceDependencyRequirementKind::LifecycleObligation(
             decode_tag(read_u32(reader)?)?,
         )),
-        _ => Err(crate::semantic::codec::invalid_value(
+        _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Dependency,
+            raw,
         )),
     }
 }

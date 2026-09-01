@@ -22,14 +22,17 @@ pub(super) fn decode_directory_entry(
 ) -> Result<ImplementationDirectoryEntry, InterfaceValidationError> {
     let provisional_context =
         InterfaceValidationContext::ImplementationEntry { index, raw_kind: 0 };
+
     let owner = InterfaceSymbolId::new(reader.read_u32().map_err(wire_error(
         provisional_context,
         InterfaceValidationField::Owner,
     ))?);
+
     let raw_kind = reader.read_u8().map_err(wire_error(
         provisional_context,
         InterfaceValidationField::EntryKind,
     ))?;
+
     let context = InterfaceValidationContext::ImplementationEntry { index, raw_kind };
 
     let compatibility =
@@ -45,6 +48,7 @@ pub(super) fn decode_directory_entry(
     let reserved = reader
         .read_u8()
         .map_err(wire_error(context, InterfaceValidationField::Value))?;
+
     if reserved != 0 {
         return Err(value_mismatch(
             context,
@@ -61,6 +65,7 @@ pub(super) fn decode_directory_entry(
     let reserved = reader
         .read_u16()
         .map_err(wire_error(context, InterfaceValidationField::Value))?;
+
     if reserved != 0 {
         return Err(value_mismatch(
             context,
@@ -73,6 +78,7 @@ pub(super) fn decode_directory_entry(
     let discriminator = reader
         .read_array::<32>()
         .map_err(wire_error(context, InterfaceValidationField::Discriminant))?;
+
     let family_size = reader
         .read_u32()
         .map_err(wire_error(context, InterfaceValidationField::RecordCount))?;
@@ -91,18 +97,23 @@ pub(super) fn decode_directory_entry(
     let offset = reader
         .read_u64()
         .map_err(wire_error(context, InterfaceValidationField::EntryOffset))?;
+
     let encoded_length = reader
         .read_u64()
         .map_err(wire_error(context, InterfaceValidationField::EncodedLength))?;
+
     let decoded_length = reader
         .read_u64()
         .map_err(wire_error(context, InterfaceValidationField::DecodedLength))?;
+
     let record_count = reader
         .read_u64()
         .map_err(wire_error(context, InterfaceValidationField::RecordCount))?;
+
     let checksum = reader
         .read_array::<32>()
         .map_err(wire_error(context, InterfaceValidationField::Hash))?;
+
     let content_hash = reader
         .read_array::<32>()
         .map_err(wire_error(context, InterfaceValidationField::ContentHash))?;
@@ -230,6 +241,7 @@ pub(super) fn decode_directory_entry(
     };
 
     let actual_checksum = compute_payload_hash(&entry, payload);
+
     if actual_checksum != checksum {
         return Err(InterfaceValidationError::PayloadChecksumMismatch {
             context,
@@ -250,6 +262,7 @@ pub(super) fn decode_entry_payload(
         index: entry.index,
         raw_kind: entry.raw_kind,
     };
+
     limits.check(InterfaceLimit::DecodedAllocation, entry.decoded_length)?;
 
     let encoded = bytes

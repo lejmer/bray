@@ -6,6 +6,7 @@ use super::{argument, forbidden_internal_term};
 
 const OTHER_USER_FACING_CATALOG_SOURCES: &[(&str, &str)] = &[
     ("build_progress.rs", include_str!("build_progress.rs")),
+    ("compiler_defect.rs", include_str!("compiler_defect.rs")),
     ("diagnostics.rs", include_str!("diagnostics.rs")),
     ("interface.rs", include_str!("interface.rs")),
     ("label.rs", include_str!("label.rs")),

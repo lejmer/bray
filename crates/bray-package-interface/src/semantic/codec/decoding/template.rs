@@ -216,7 +216,9 @@ fn decode_input_kind(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceCheckedTemplateInputKind, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         1 => Ok(InterfaceCheckedTemplateInputKind::GenericType(
             read_symbol_reference(reader, context)?,
         )),
@@ -228,8 +230,9 @@ fn decode_input_kind(
             SymbolOrdinal::new(read_u32(reader)?),
         )),
         5 => Ok(InterfaceCheckedTemplateInputKind::PostconditionResult),
-        _ => Err(crate::semantic::codec::invalid_value(
+        _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Template,
+            raw,
         )),
     }
 }
@@ -239,7 +242,9 @@ fn decode_operation(
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceCheckedTemplateOperation, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         1 => Ok(InterfaceCheckedTemplateOperation::Input(
             CheckedTemplateInputId::new(read_u32(reader)?),
         )),
@@ -261,15 +266,18 @@ fn decode_operation(
             let substitution = crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?);
             let arguments = read_node_ids(reader, limits, context)?;
 
-            let implementation = match read_u32(reader)? {
+            let implementation_raw = read_u32(reader)?;
+
+            let implementation = match implementation_raw {
                 0 => None,
                 1 => Some((
                     decode_implementation_reference(reader, context)?,
                     crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?),
                 )),
                 _ => {
-                    return Err(crate::semantic::codec::invalid_value(
+                    return Err(crate::semantic::codec::invalid_discriminant(
                         crate::InterfaceValidationField::Template,
+                        implementation_raw,
                     ));
                 }
             };
@@ -321,8 +329,9 @@ fn decode_operation(
             kind: decode_tag(read_u32(reader)?)?,
             operand: CheckedTemplateNodeId::new(read_u32(reader)?),
         }),
-        _ => Err(crate::semantic::codec::invalid_value(
+        _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Template,
+            raw,
         )),
     }
 }
@@ -346,15 +355,18 @@ fn decode_template_reference(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceTemplateReference, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         1 => Ok(InterfaceTemplateReference::Symbol(read_symbol_reference(
             reader, context,
         )?)),
         2 => Ok(InterfaceTemplateReference::Support(
             InterfaceSupportEntityId::new(read_u32(reader)?),
         )),
-        _ => Err(crate::semantic::codec::invalid_value(
+        _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Template,
+            raw,
         )),
     }
 }
@@ -363,15 +375,18 @@ fn decode_implementation_reference(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceImplementationReference, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         1 => Ok(InterfaceImplementationReference::Symbol(
             read_symbol_reference(reader, context)?,
         )),
         2 => Ok(InterfaceImplementationReference::Support(
             InterfaceSupportEntityId::new(read_u32(reader)?),
         )),
-        _ => Err(crate::semantic::codec::invalid_value(
+        _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Template,
+            raw,
         )),
     }
 }

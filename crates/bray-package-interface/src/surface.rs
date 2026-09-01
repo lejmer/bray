@@ -18,4 +18,4 @@ pub(crate) use decoding::{
     decode_surface, decode_symbols,
 };
 pub(crate) use encoding::{EncodedSurfaceSection, encode_surface};
-pub(crate) use presentation::diagnostic_surface_problem;
+pub use presentation::diagnostic_surface_problem;
