@@ -78,6 +78,14 @@ The compiler-provided structural sequence member entries are:
 The fixed-array members use the compile-time extent `N`. The slice members observe the runtime extent carried by the
 slice indirection.
 
+The compiler-provided nullable member entries are:
+
+- `T?.is_present()`,
+- `T?.is_absent()`.
+
+Both are constant state queries for every `T`. They evaluate the receiver exactly once without consuming, mutating,
+or exposing its payload, and their observable result is independent of the nullable representation.
+
 ## Static-storage conformance requirements
 
 Product-static and `@thread_local` static declarations are language declaration forms. They are not compiler-known

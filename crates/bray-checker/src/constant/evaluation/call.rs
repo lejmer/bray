@@ -28,7 +28,15 @@ where
         let arguments = arguments
             .iter()
             .copied()
-            .map(|argument| self.evaluate(argument))
+            .map(|argument| {
+                let value = self.evaluate(argument)?;
+
+                if self.retain_open_terms() {
+                    self.type_term(value, self.expression_type(argument)?)
+                } else {
+                    Ok(value)
+                }
+            })
             .collect::<Result<Vec<_>, _>>()?;
 
         if self.retain_open_terms() {

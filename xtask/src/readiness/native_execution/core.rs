@@ -16,6 +16,7 @@ use super::fixtures::{
     SYNC_CATCH_PROPAGATION_FIXTURE, SYNC_PANIC_FIXTURE, TEXT_CURSOR_FIXTURE,
 };
 use super::hello::audit_standard_hello_world;
+use super::nullable::audit_nullable_state_queries;
 use super::rejection::audit_rejections;
 use super::repeatable::audit_repeatable_fixture;
 use super::static_storage::audit_static_storage;
@@ -152,6 +153,10 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
 
     crate::progress::run("Checking half-open range execution", || {
         audit_half_open_ranges(root, target, &runtime)
+    })?;
+
+    crate::progress::run("Checking nullable state queries", || {
+        audit_nullable_state_queries(root, target, &runtime)
     })?;
 
     crate::progress::run("Checking native entry results", || {

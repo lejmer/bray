@@ -721,6 +721,11 @@ fn operation_parts(
 
             "numeric_conversion"
         }
+        MirOperationKind::NullableQuery(query) => {
+            nullable_query_parts(query, parts, context)?;
+
+            "nullable_query"
+        }
         MirOperationKind::PatternProjection {
             subject,
             projection,
@@ -748,44 +753,7 @@ fn operation_parts(
             "memory"
         }
         MirOperationKind::Text(text) => {
-            parts.attribute(
-                "operation",
-                match text.kind() {
-                    bray_ir::MirTextOperationKind::ScalarCount => "scalar_count",
-                    bray_ir::MirTextOperationKind::IsEmpty => "is_empty",
-                    bray_ir::MirTextOperationKind::Equals => "equals",
-                    bray_ir::MirTextOperationKind::ScalarAt => "scalar_at",
-                    bray_ir::MirTextOperationKind::ScalarSlice => "scalar_slice",
-                    bray_ir::MirTextOperationKind::Utf8 => "utf8",
-                    bray_ir::MirTextOperationKind::FromUtf8 => "from_utf8",
-                    bray_ir::MirTextOperationKind::CharacterScalarValue => "character_scalar_value",
-                    bray_ir::MirTextOperationKind::CharacterFromScalarValue => {
-                        "character_from_scalar_value"
-                    }
-                    bray_ir::MirTextOperationKind::CharacterUtf8Length => "character_utf8_length",
-                    bray_ir::MirTextOperationKind::CharacterUtf8Byte => "character_utf8_byte",
-                    bray_ir::MirTextOperationKind::CharacterIsAlphabetic => {
-                        "character_is_alphabetic"
-                    }
-                    bray_ir::MirTextOperationKind::CharacterIsNumeric => "character_is_numeric",
-                    bray_ir::MirTextOperationKind::CharacterIsWhitespace => {
-                        "character_is_whitespace"
-                    }
-                    bray_ir::MirTextOperationKind::Release => "release",
-                },
-            );
-
-            for (index, operand) in text.operands().iter().enumerate() {
-                parts.operand(format!("argument[{index}]"), operand, context)?;
-            }
-
-            for (index, ty) in text.operand_types().iter().copied().enumerate() {
-                parts.r#type(format!("argument[{index}]"), ty, context)?;
-            }
-
-            if let Some(result) = text.result_type() {
-                parts.r#type("result", result, context)?;
-            }
+            text_operation_parts(text, parts, context)?;
 
             "text"
         }
@@ -828,6 +796,69 @@ fn operation_parts(
     };
 
     Ok(kind)
+}
+
+fn text_operation_parts(
+    text: &bray_ir::MirTextOperation,
+    parts: &mut OperationParts,
+    context: &MirInspectionContext<'_>,
+) -> Result<(), MirInspectionModelError> {
+    parts.attribute(
+        "operation",
+        match text.kind() {
+            bray_ir::MirTextOperationKind::ScalarCount => "scalar_count",
+            bray_ir::MirTextOperationKind::IsEmpty => "is_empty",
+            bray_ir::MirTextOperationKind::Equals => "equals",
+            bray_ir::MirTextOperationKind::ScalarAt => "scalar_at",
+            bray_ir::MirTextOperationKind::ScalarSlice => "scalar_slice",
+            bray_ir::MirTextOperationKind::Utf8 => "utf8",
+            bray_ir::MirTextOperationKind::FromUtf8 => "from_utf8",
+            bray_ir::MirTextOperationKind::CharacterScalarValue => "character_scalar_value",
+            bray_ir::MirTextOperationKind::CharacterFromScalarValue => {
+                "character_from_scalar_value"
+            }
+            bray_ir::MirTextOperationKind::CharacterUtf8Length => "character_utf8_length",
+            bray_ir::MirTextOperationKind::CharacterUtf8Byte => "character_utf8_byte",
+            bray_ir::MirTextOperationKind::CharacterIsAlphabetic => "character_is_alphabetic",
+            bray_ir::MirTextOperationKind::CharacterIsNumeric => "character_is_numeric",
+            bray_ir::MirTextOperationKind::CharacterIsWhitespace => "character_is_whitespace",
+            bray_ir::MirTextOperationKind::Release => "release",
+        },
+    );
+
+    for (index, operand) in text.operands().iter().enumerate() {
+        parts.operand(format!("argument[{index}]"), operand, context)?;
+    }
+
+    for (index, ty) in text.operand_types().iter().copied().enumerate() {
+        parts.r#type(format!("argument[{index}]"), ty, context)?;
+    }
+
+    if let Some(result) = text.result_type() {
+        parts.r#type("result", result, context)?;
+    }
+
+    Ok(())
+}
+
+fn nullable_query_parts(
+    query: &bray_ir::MirNullableQuery,
+    parts: &mut OperationParts,
+    context: &MirInspectionContext<'_>,
+) -> Result<(), MirInspectionModelError> {
+    parts.attribute(
+        "query",
+        match query.kind() {
+            bray_ir::MirNullableQueryKind::IsPresent => "is_present",
+            bray_ir::MirNullableQueryKind::IsAbsent => "is_absent",
+        },
+    );
+
+    parts.operand("operand", query.operand(), context)?;
+    parts.r#type("operand", query.operand_type(), context)?;
+    parts.r#type("nullable", query.nullable_type(), context)?;
+
+    parts.r#type("result", query.result_type(), context)
 }
 
 fn memory_operation_parts(

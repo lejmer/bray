@@ -82,6 +82,15 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
         MirOperationKind::NumericConversion { operand, .. } => {
             collect_operand_types(operand, types);
         }
+        MirOperationKind::NullableQuery(query) => {
+            collect_operand_types(query.operand(), types);
+
+            types.extend([
+                query.operand_type(),
+                query.nullable_type(),
+                query.result_type(),
+            ]);
+        }
         MirOperationKind::PatternProjection { subject, .. } => {
             collect_operand_types(subject, types);
         }

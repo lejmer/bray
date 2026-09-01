@@ -51,7 +51,23 @@ impl Lowerer<'_> {
         match expression.kind() {
             BoundControlTransferKind::Return => {
                 let value = match (value, expression.operand()) {
-                    (Some(value), Some(operand)) => Some((value, self.expression_type(operand)?)),
+                    (Some(value), Some(operand)) => {
+                        let operand_type = self.expression_type(operand)?;
+
+                        let value = match self.input.expression_types().callable_result_type() {
+                            Some(result_type) => self.adapt_nullable_present(
+                                operand,
+                                current,
+                                Self::retained_source(&source),
+                                value,
+                                operand_type,
+                                result_type,
+                            )?,
+                            None => (value, operand_type),
+                        };
+
+                        Some(value)
+                    }
                     (None, None) => None,
                     _ => return Err(LoweringError::UnsupportedExpression(id)),
                 };
@@ -65,7 +81,13 @@ impl Lowerer<'_> {
                     (target.break_block, target.result_type, target.scope_depth)
                 };
 
-                let value = value.unwrap_or_else(|| self.unit_operand(result_type));
+                let value = self.adapt_control_transfer_value(
+                    expression,
+                    current,
+                    &source,
+                    value,
+                    result_type,
+                )?;
 
                 self.finish_exit_to_block(
                     current,
@@ -120,7 +142,13 @@ impl Lowerer<'_> {
                 scope_depth,
                 ..
             } => {
-                let value = value.unwrap_or_else(|| self.unit_operand(result_type));
+                let value = self.adapt_control_transfer_value(
+                    expression,
+                    current,
+                    &source,
+                    value,
+                    result_type,
+                )?;
 
                 self.finish_exit_to_block(
                     current,
@@ -138,7 +166,13 @@ impl Lowerer<'_> {
                 element_type,
                 ..
             } => {
-                let value = value.unwrap_or_else(|| self.unit_operand(element_type));
+                let value = self.adapt_control_transfer_value(
+                    expression,
+                    current,
+                    &source,
+                    value,
+                    element_type,
+                )?;
 
                 self.builder.push_operation(
                     current,
@@ -168,5 +202,30 @@ impl Lowerer<'_> {
             None => self.loop_targets.last(),
         }
         .ok_or(LoweringError::UnsupportedExpression(id))
+    }
+
+    fn adapt_control_transfer_value(
+        &mut self,
+        expression: &BoundControlTransferExpression,
+        current: MirBlockId,
+        source: &MirSourceAnchor,
+        value: Option<MirOperand>,
+        destination_type: bray_symbols::TypeId,
+    ) -> Result<MirOperand, LoweringError> {
+        let (Some(value), Some(operand)) = (value, expression.operand()) else {
+            return Ok(self.unit_operand(destination_type));
+        };
+
+        let operand_type = self.expression_type(operand)?;
+
+        self.adapt_nullable_present(
+            operand,
+            current,
+            Self::retained_source(source),
+            value,
+            operand_type,
+            destination_type,
+        )
+        .map(|(value, _)| value)
     }
 }

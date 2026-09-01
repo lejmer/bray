@@ -152,23 +152,10 @@ impl Compilation {
                 .chain(right.constant_expressions()),
             cancellation,
             |values, constants| {
-                let left = resolve_type_expression_template(values, left, constants)
-                    .map_err(FactQueryError::from)?
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
-
-                let right = resolve_type_expression_template(values, right, constants)
-                    .map_err(FactQueryError::from)?
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
-
-                let left = values
-                    .substitute_type(left, substitution)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-                let right = values
-                    .substitute_type(right, substitution)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-                Ok((left, right))
+                Ok((
+                    resolve_constraint_type(values, left, constants, substitution)?,
+                    resolve_constraint_type(values, right, constants, substitution)?,
+                ))
             },
         )?;
 
@@ -274,12 +261,11 @@ impl Compilation {
         let semantic_context =
             semantic_unit_context_for(context.symbols(), bound.result().value())?;
 
-        let request =
-            super::super::unit::checker_unit_view(
-                bound.result().value(),
-                &semantic_context,
-                &context,
-            )?;
+        let request = super::super::unit::checker_unit_view(
+            bound.result().value(),
+            &semantic_context,
+            &context,
+        )?;
 
         let resolver =
             super::super::constant::CompilationConstantCallResolver::new(self, cancellation);
@@ -352,12 +338,11 @@ impl Compilation {
 
         let context = CompilationCheckerContext::new(binding_context);
 
-        let resolver =
-            super::super::constant::CompilationConstantTemplateResolver::new(
-                self,
-                cancellation,
-                imported,
-            );
+        let resolver = super::super::constant::CompilationConstantTemplateResolver::new(
+            self,
+            cancellation,
+            imported,
+        );
 
         let result_type = template
             .template()
@@ -439,24 +424,15 @@ impl Compilation {
                 .chain(application.constant_expressions()),
             cancellation,
             |values, constants| {
-                let subject = resolve_type_expression_template(values, subject, constants)
-                    .map_err(FactQueryError::from)?
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
-
-                let application =
-                    resolve_trait_application_template(values, application, constants)
-                        .map_err(FactQueryError::from)?
-                        .ok_or(FactQueryError::InfrastructureFailure)?;
-
-                let subject = values
-                    .substitute_type(subject, substitution)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-                let application = values
-                    .substitute_trait_application(application, substitution)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-                Ok((subject, application))
+                Ok((
+                    resolve_constraint_type(values, subject, constants, substitution)?,
+                    resolve_constraint_trait_application(
+                        values,
+                        application,
+                        constants,
+                        substitution,
+                    )?,
+                ))
             },
         )
     }
@@ -624,6 +600,36 @@ impl Compilation {
 
         BoundUnitKey::constraint(owner.clone(), source).ok_or(FactQueryError::InfrastructureFailure)
     }
+}
+
+fn resolve_constraint_type(
+    values: &bray_symbols::SemanticValueStore,
+    template: &TypeExpressionTemplate,
+    constants: &CheckedConstantTerms,
+    substitution: GenericSubstitutionId,
+) -> Result<TypeId, FactQueryError> {
+    let resolved = resolve_type_expression_template(values, template, constants)
+        .map_err(FactQueryError::from)?
+        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+    values
+        .substitute_type(resolved, substitution)
+        .map_err(|_| FactQueryError::InfrastructureFailure)
+}
+
+fn resolve_constraint_trait_application(
+    values: &bray_symbols::SemanticValueStore,
+    template: &TraitApplicationTemplate,
+    constants: &CheckedConstantTerms,
+    substitution: GenericSubstitutionId,
+) -> Result<TraitApplicationId, FactQueryError> {
+    let resolved = resolve_trait_application_template(values, template, constants)
+        .map_err(FactQueryError::from)?
+        .ok_or(FactQueryError::InfrastructureFailure)?;
+
+    values
+        .substitute_trait_application(resolved, substitution)
+        .map_err(|_| FactQueryError::InfrastructureFailure)
 }
 
 fn checker_dependency_error(error: CheckerQueryError<FactQueryError>) -> FactQueryError {

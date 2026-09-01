@@ -247,6 +247,7 @@ impl MirOperationKind {
             | Self::Unary { .. }
             | Self::Binary { .. }
             | Self::NumericConversion { .. }
+            | Self::NullableQuery(_)
             | Self::Aggregate(_)
             | Self::PatternProjection { .. }
             | Self::Async(_)

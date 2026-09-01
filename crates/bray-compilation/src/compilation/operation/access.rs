@@ -171,7 +171,10 @@ impl Compilation {
                 substitution,
             } => (*definition, *substitution),
             TypeData::Array { .. } | TypeData::Slice(_) => {
-                self.sequence_surface(binding_context)?
+                self.compiler_provided_surface(binding_context, "SequenceSurface")?
+            }
+            TypeData::Nullable(_) => {
+                self.compiler_provided_surface(binding_context, "NullableSurface")?
             }
             _ => return Ok(None),
         };
@@ -306,11 +309,12 @@ impl Compilation {
         )))
     }
 
-    fn sequence_surface(
+    fn compiler_provided_surface(
         &self,
         binding_context: &CompilationBindingContext<'_>,
+        key: &'static str,
     ) -> Result<(NamedTypeSymbolId, bray_symbols::GenericSubstitutionId), FactQueryError> {
-        let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new("SequenceSurface")
+        let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(key)
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let definition = self
@@ -616,7 +620,7 @@ impl Compilation {
             return Ok(None);
         };
 
-        let owner = bray_symbols::GenericOwnerId::try_new(trait_definition.into())
+        let owner = GenericOwnerId::try_new(trait_definition.into())
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let parameters =
@@ -719,10 +723,7 @@ impl Compilation {
         application: TraitApplicationId,
         dispatch: TraitConstraintDispatch,
         member: TraitCallableMemberSymbolId,
-        constraints: &[(
-            bray_symbols::GenericOwnerId,
-            bray_symbols::CheckedConstraint,
-        )],
+        constraints: &[(GenericOwnerId, bray_symbols::CheckedConstraint)],
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<OperationResolution>, FactQueryError> {
         let application = binding_context
@@ -784,10 +785,7 @@ impl Compilation {
     }
 
     fn trait_constraint_requirements(
-        constraints: &[(
-            bray_symbols::GenericOwnerId,
-            bray_symbols::CheckedConstraint,
-        )],
+        constraints: &[(GenericOwnerId, bray_symbols::CheckedConstraint)],
         receiver_type: TypeId,
     ) -> BTreeMap<TraitApplicationId, TraitConstraintDispatch> {
         let mut requirements = BTreeMap::new();

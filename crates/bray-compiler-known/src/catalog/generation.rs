@@ -481,7 +481,7 @@ mod tests {
             )
         );
 
-        assert_eq!(generator_input_inventory().sources().len(), 19);
+        assert_eq!(generator_input_inventory().sources().len(), 20);
 
         let Some(declaration) = COMPILER_KNOWN_CATALOG
             .compiler_known_declarations()
@@ -573,6 +573,9 @@ mod tests {
             "Deallocate",
             "MemoryCopy",
             "MemoryCopyOverlapping",
+            "NullableIsAbsent",
+            "NullableIsPresent",
+            "NullableSurface",
             "RawPointerByteOffset",
             "RawPointerIsNull",
             "RawPointerNull",

@@ -607,6 +607,23 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     )),
                 ))
             }
+            21 => {
+                let kind = match read_u32(&mut self.reader)? {
+                    0 => bray_ir::MirNullableQueryKind::IsPresent,
+                    1 => bray_ir::MirNullableQueryKind::IsAbsent,
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                };
+
+                Ok(MirOperationKind::NullableQuery(
+                    bray_ir::MirNullableQuery::new(
+                        kind,
+                        self.operand()?,
+                        self.ty()?,
+                        self.ty()?,
+                        self.ty()?,
+                    ),
+                ))
+            }
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }

@@ -1,0 +1,98 @@
+module nullable_state;
+
+struct OwnedValue
+{
+    value: i32;
+}
+
+struct Counter
+{
+    mut calls: i32;
+}
+
+func next_value(pos counter: &mut Counter) -> i32?
+{
+    counter.calls += 1;
+
+    return 42;
+}
+
+func borrowed_is_present(pos value: &(OwnedValue?)) -> bool
+{
+    return value.is_present();
+}
+
+func yielded_value() -> i32?
+{
+    return
+    {
+        yield 43;
+    };
+}
+
+func broken_value() -> i32?
+{
+    return loop
+    {
+        break 44;
+    };
+}
+
+func main() -> i32
+{
+    let present: OwnedValue? = OwnedValue
+    {
+        value = 7
+    };
+
+    let absent: OwnedValue? = none;
+    let present_is_present: bool = present.is_present();
+    let present_is_absent: bool = present.is_absent();
+    let absent_is_present: bool = absent.is_present();
+    let absent_is_absent: bool = absent.is_absent();
+    let borrowed_present: bool = borrowed_is_present(&present);
+
+    if !present_is_present || present_is_absent
+    {
+        return 1;
+    }
+
+    if absent_is_present || !absent_is_absent
+    {
+        return 2;
+    }
+
+    if !borrowed_present
+    {
+        return 3;
+    }
+
+    let mut counter: Counter = Counter
+    {
+        calls = 0
+    };
+
+    let next_is_present: bool = (next_value(&mut counter)).is_present();
+
+    if !next_is_present
+    {
+        return 4;
+    }
+
+    if counter.calls != 1
+    {
+        return 5;
+    }
+
+    if(yielded_value()).is_absent()
+    {
+        return 6;
+    }
+
+    if(broken_value()).is_absent()
+    {
+        return 7;
+    }
+
+    return 0;
+}

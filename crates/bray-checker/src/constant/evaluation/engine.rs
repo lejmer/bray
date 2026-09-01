@@ -12,7 +12,7 @@ use bray_diagnostics::{
 };
 use bray_symbols::{
     AnyLocalSymbolId, ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind,
-    RealConstantBits, TargetSizedIntegerType, TypeId,
+    RealConstantBits, TargetSizedIntegerType, TypeData, TypeId,
 };
 
 use crate::constant::diagnostic::ConstantDiagnostic;
@@ -82,9 +82,7 @@ where
             return CheckerOutcome::InfrastructureFailure(error);
         }
         Err(EvaluationFailure::Upstream) => {
-            return CheckerOutcome::UpstreamFailure(
-                evaluated.evaluator.take_upstream_failure(),
-            );
+            return CheckerOutcome::UpstreamFailure(evaluated.evaluator.take_upstream_failure());
         }
         Err(EvaluationFailure::Cancelled) => return CheckerOutcome::Cancelled,
         Err(EvaluationFailure::Propagate(_)) => {
@@ -632,43 +630,11 @@ where
         self.evaluated_references.insert(expression);
 
         match self.input.reference(expression) {
-            Some(ConstantReferenceResolution::Value(value)) => {
-                let data = self
-                    .request
-                    .semantic_values()
-                    .constant_value_data(value)
-                    .map_err(|_| {
-                        EvaluationFailure::Infrastructure(
-                            CheckerInfrastructureError::SemanticValueUnavailable,
-                        )
-                    })?;
-
-                if data.ty() != ty {
-                    return Err(EvaluationFailure::invalid_input());
-                }
-
-                self.intern_term(ConstantTermData::Value(value))
-            }
+            Some(ConstantReferenceResolution::Value(value)) => self.reference_value(value, ty),
             Some(ConstantReferenceResolution::Evaluated(result)) => {
                 self.budget.charge_usage(expression, result.usage())?;
 
-                let value = result.value();
-
-                let data = self
-                    .request
-                    .semantic_values()
-                    .constant_value_data(value)
-                    .map_err(|_| {
-                        EvaluationFailure::Infrastructure(
-                            CheckerInfrastructureError::SemanticValueUnavailable,
-                        )
-                    })?;
-
-                if data.ty() != ty {
-                    return Err(EvaluationFailure::invalid_input());
-                }
-
-                self.intern_term(ConstantTermData::Value(value))
+                self.reference_value(result.value(), ty)
             }
             Some(ConstantReferenceResolution::Term(term)) => {
                 self.request
@@ -694,6 +660,28 @@ where
             }),
             None => Err(EvaluationFailure::invalid_expression(expression)),
         }
+    }
+
+    fn reference_value(
+        &self,
+        value: ConstantValueId,
+        ty: TypeId,
+    ) -> Result<ConstantTermId, EvaluationFailure> {
+        let data = self.constant_value(value)?;
+
+        if data.ty() == ty {
+            return self.intern_term(ConstantTermData::Value(value));
+        }
+
+        let target = self.request.semantic_values().type_data(ty).map_err(|_| {
+            EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+        })?;
+
+        if matches!(target.as_ref(), TypeData::Nullable(contained) if *contained == data.ty()) {
+            return self.intern_value_term(ty, ConstantValueKind::NullablePresent(value));
+        }
+
+        Err(EvaluationFailure::invalid_input())
     }
 
     pub(super) fn evaluate_structured(

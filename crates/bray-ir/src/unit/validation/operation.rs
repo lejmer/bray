@@ -60,6 +60,13 @@ pub(super) fn validate_operation(
         | MirOperationKind::NumericConversion { operand, .. } => {
             validate_operand(unit, operand, block, Some(id))?;
         }
+        MirOperationKind::NullableQuery(query) => {
+            validate_operand(unit, query.operand(), block, Some(id))?;
+
+            if operand_type(unit, query.operand())? != query.operand_type() {
+                return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+            }
+        }
         MirOperationKind::Binary { left, right, .. } => {
             validate_operand(unit, left, block, Some(id))?;
             validate_operand(unit, right, block, Some(id))?;
@@ -186,6 +193,7 @@ fn validate_operation_block(
         | MirOperationKind::Construct(_)
         | MirOperationKind::Convert { .. }
         | MirOperationKind::NumericConversion { .. }
+        | MirOperationKind::NullableQuery(_)
         | MirOperationKind::Call(_)
         | MirOperationKind::Memory(_)
         | MirOperationKind::Text(_)
@@ -217,6 +225,7 @@ fn validate_operation_result(
             | MirOperationKind::Construct(_)
             | MirOperationKind::Convert { .. }
             | MirOperationKind::NumericConversion { .. }
+            | MirOperationKind::NullableQuery(_)
             | MirOperationKind::Call(_)
             | MirOperationKind::PanicReport(_)
             | MirOperationKind::Async(
@@ -274,6 +283,18 @@ fn validate_operation_result(
         };
 
         if Some(result.ty()) != text.result_type() {
+            return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
+        }
+    }
+
+    if let (MirOperationKind::NullableQuery(query), Some(result)) =
+        (operation.kind(), operation.result())
+    {
+        let Some(result) = unit.value(result) else {
+            return Err(MirUnitBuildError::MissingValue(result));
+        };
+
+        if result.ty() != query.result_type() {
             return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
         }
     }

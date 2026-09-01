@@ -242,11 +242,7 @@ trusted internal func release_receiver<T, Owner>(pos owner: &Owner, pos pointer:
 
         channel.receiver_open = false;
 
-        let preserve_rendezvous: bool = match channel.rendezvous_ticket
-        {
-            case ?_ { yield true; }
-            case none { yield false; }
-        };
+        let preserve_rendezvous: bool = channel.rendezvous_ticket.is_present();
 
         while channel.length > 0 && !preserve_rendezvous
         {

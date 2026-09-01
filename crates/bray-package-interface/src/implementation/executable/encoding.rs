@@ -488,6 +488,19 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(18);
                 self.async_operation(operation)?;
             }
+            MirOperationKind::NullableQuery(query) => {
+                self.wire.write_u32(21);
+
+                self.wire.write_u32(match query.kind() {
+                    bray_ir::MirNullableQueryKind::IsPresent => 0,
+                    bray_ir::MirNullableQueryKind::IsAbsent => 1,
+                });
+
+                self.operand(query.operand())?;
+                self.ty(query.operand_type())?;
+                self.ty(query.nullable_type())?;
+                self.ty(query.result_type())?;
+            }
             MirOperationKind::Host(_) => {
                 return Err(ExecutableTemplateEncodeError::InvalidUnitKind);
             }

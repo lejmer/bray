@@ -395,6 +395,7 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
         | MirOperationKind::Construct(_)
         | MirOperationKind::Convert { .. }
         | MirOperationKind::NumericConversion { .. }
+        | MirOperationKind::NullableQuery(_)
         | MirOperationKind::PatternProjection { .. }
         | MirOperationKind::Generator(
             MirGeneratorOperation::Begin { .. }

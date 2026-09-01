@@ -7,6 +7,7 @@ mod control;
 mod frame;
 mod helper;
 mod id;
+mod nullable;
 mod operation;
 mod reference;
 mod source;
@@ -34,6 +35,7 @@ pub use frame::{
 };
 pub use helper::{MirHelperReference, MirStandardLibraryHelper};
 pub use id::{MirBlockId, MirFrameStateId, MirOperationId, MirStorageId, MirUnitId, MirValueId};
+pub use nullable::{MirNullableQuery, MirNullableQueryKind};
 pub use operation::{
     MirAggregate, MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirConstruction,
     MirConstructionInput, MirFrameInitializer, MirGeneratorKind, MirGeneratorOperation,

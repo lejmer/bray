@@ -167,15 +167,16 @@ impl Lowerer<'_> {
         {
             let initializer_type = self.expression_type(binding.initializer())?;
 
-            if self.nullable_contains(declared, initializer_type)? {
-                value = self.push_nullable_present(
+            value = self
+                .adapt_nullable_present(
                     binding.initializer(),
                     current,
                     Self::retained_source(&source),
                     value,
+                    initializer_type,
                     declared,
-                )?;
-            }
+                )?
+                .0;
         }
 
         let current = self.lower_pattern_bindings(binding.pattern(), value, current)?;

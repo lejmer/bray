@@ -10,6 +10,7 @@ The compiler-known surface consists of:
 - the structural tuple, fixed-size array, incomplete-extent array, slice, nullable, borrow, trait-view,
   owned-indirection, and callable type forms,
 - the compiler-provided `length()` and `is_empty()` members on fixed-size arrays and slices,
+- the compiler-provided `is_present()` and `is_absent()` members on nullable types,
 - the compiler-known `Heap` storage-policy type used by default-storage owned indirection,
 - compiler-known async and run-boundary types `Future<T>`, `Task<T>`, `RunResult<T>`, and `PanicReport`,
 - the compiler-known result and conversion types `Result<T, E>` and `ConversionError`,

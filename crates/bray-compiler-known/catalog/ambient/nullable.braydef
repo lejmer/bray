@@ -1,0 +1,21 @@
+catalog compiler_known revision 1;
+
+scope Ambient at ambient {
+    declaration NullableSurface {
+        surface { internal struct NullableSurface {} }
+    }
+
+    declaration NullableIsPresent {
+        owner NullableSurface;
+        implementation NullableIsPresent;
+
+        surface { const func is_present() -> bool {} }
+    }
+
+    declaration NullableIsAbsent {
+        owner NullableSurface;
+        implementation NullableIsAbsent;
+
+        surface { const func is_absent() -> bool {} }
+    }
+}

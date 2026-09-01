@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, DeclaredValueTypeConstraintKind, DeclaredValueTypeEvidence,
-    DeclaredValueTypeTemplates, DeclaredValueTypeTerm,
+    BoundExpression, BoundExpressionId, BoundStructuredExpressionKind,
+    DeclaredValueTypeConstraintKind, DeclaredValueTypeEvidence, DeclaredValueTypeTemplates,
+    DeclaredValueTypeTerm,
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{TypeData, TypeId};
@@ -129,7 +130,7 @@ where
 
         let target = components.representative(target);
         let initializer_type = intrinsic_initializer_type(request, expression)?;
-        let mut initializes_nullable_from_present = false;
+        let mut nullable_present_type = None;
 
         for evidence in declared
             .evidence()
@@ -147,17 +148,23 @@ where
                 .type_data(declared_type)
                 .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
 
-            initializes_nullable_from_present = matches!((data.as_ref(), initializer_type), (TypeData::Nullable(contained), Some(actual)) if *contained == actual)
-                || matches!(data.as_ref(), TypeData::Nullable(_))
-                    && is_contextual_numeric_literal(request, expression);
+            let TypeData::Nullable(contained) = data.as_ref() else {
+                continue;
+            };
+
+            let initializes_nullable_from_present = initializer_type == Some(*contained)
+                || is_contextual_present_initializer(request, expression)
+                || is_contextual_numeric_literal(request, expression);
 
             if initializes_nullable_from_present {
+                nullable_present_type = Some(*contained);
+
                 break;
             }
         }
 
-        if initializes_nullable_from_present {
-            initializer_expectations.push((expression, target));
+        if let Some(contained) = nullable_present_type {
+            initializer_expectations.push((expression, contained));
         } else {
             components.union(constraint.left(), constraint.right());
         }
@@ -216,22 +223,8 @@ where
         );
     }
 
-    for (expression, target) in initializer_expectations {
-        let representative = components.representative(target);
-
-        if unsupported.contains(&representative) {
-            deferred.insert(expression);
-
-            continue;
-        }
-
-        expectations.extend(
-            component_types
-                .get(&representative)
-                .into_iter()
-                .flat_map(|types| types.iter().copied())
-                .map(|ty| ExpressionTypeExpectation::new(expression, ty)),
-        );
+    for (expression, contained) in initializer_expectations {
+        expectations.push(ExpressionTypeExpectation::new(expression, contained));
     }
 
     let mut input = ExpressionTypeInput::new()
@@ -255,6 +248,25 @@ where
         unsupported_callable_result,
         diagnostics,
     }))
+}
+
+fn is_contextual_present_initializer<C>(
+    request: CheckerUnitView<'_, C>,
+    expression: BoundExpressionId,
+) -> bool
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    match request.view().expression(expression) {
+        Some(BoundExpression::StructConstruction(_)) => true,
+        Some(BoundExpression::Structured(expression)) => matches!(
+            expression.kind(),
+            BoundStructuredExpressionKind::Tuple
+                | BoundStructuredExpressionKind::Array
+                | BoundStructuredExpressionKind::RepeatedArray
+        ),
+        _ => false,
+    }
 }
 
 fn intrinsic_initializer_type<C>(

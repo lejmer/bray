@@ -551,6 +551,49 @@ impl Compilation {
         let values = self.semantic_value_store()?;
 
         let value = match (hook.hook(), arguments) {
+            (
+                ImplementationHook::NullableIsPresent | ImplementationHook::NullableIsAbsent,
+                [receiver],
+            ) => {
+                let receiver = values.constant_value_data(*receiver).map_err(|_| {
+                    FactQueryError::CheckerInfrastructure(
+                        CheckerInfrastructureError::SemanticValueUnavailable,
+                    )
+                })?;
+
+                let receiver_type = values.type_data(receiver.ty()).map_err(|_| {
+                    FactQueryError::CheckerInfrastructure(
+                        CheckerInfrastructureError::SemanticValueUnavailable,
+                    )
+                })?;
+
+                if !matches!(receiver_type.as_ref(), TypeData::Nullable(_)) {
+                    return Ok(None);
+                }
+
+                let is_present = match receiver.kind() {
+                    ConstantValueKind::NullableAbsent => false,
+                    ConstantValueKind::Error => return Ok(None),
+                    _ => true,
+                };
+
+                let value = if hook.hook() == ImplementationHook::NullableIsPresent {
+                    is_present
+                } else {
+                    !is_present
+                };
+
+                values
+                    .intern_constant_value(ConstantValueData::new(
+                        result_type,
+                        ConstantValueKind::Boolean(value),
+                    ))
+                    .map_err(|_| {
+                        FactQueryError::CheckerInfrastructure(
+                            CheckerInfrastructureError::SemanticValueUnavailable,
+                        )
+                    })?
+            }
             (ImplementationHook::AtomicInitialize, [argument]) => {
                 let argument = values
                     .constant_value_data(*argument)

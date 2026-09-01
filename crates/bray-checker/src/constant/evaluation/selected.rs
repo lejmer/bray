@@ -38,7 +38,12 @@ where
             return Err(EvaluationFailure::invalid_expression(expression));
         }
 
-        let mut arguments = Vec::with_capacity(call.arguments().len());
+        let mut arguments =
+            Vec::with_capacity(call.arguments().len() + usize::from(call.receiver().is_some()));
+
+        if let Some(receiver) = call.receiver() {
+            arguments.push((None, receiver.expression()));
+        }
 
         for argument in call.arguments() {
             let SelectedArgument::Explicit {
@@ -50,7 +55,7 @@ where
                 return Err(EvaluationFailure::invalid_expression(expression));
             };
 
-            arguments.push((*ordinal, *expression));
+            arguments.push((Some(*ordinal), *expression));
         }
 
         arguments.sort_unstable_by_key(|(ordinal, _)| *ordinal);

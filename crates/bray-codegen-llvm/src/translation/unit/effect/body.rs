@@ -1,5 +1,7 @@
 use super::super::core::UnitTranslator;
-use super::super::support::{extract_value, insert_value, int_value, llvm, next_helper};
+use super::super::support::{
+    extract_value, insert_value, int_value, llvm, next_helper, pointer_value,
+};
 use bray_codegen::{CodegenFailure, CodegenSymbolKey, CodegenTypeKind};
 use bray_ir::{
     MirAsyncOperation, MirFrameInitializer, MirHelperReference, MirOperation, MirOperationKind,
@@ -83,6 +85,31 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let operand = self.operand(operand)?;
 
                 Some(self.convert(operand, source, target)?)
+            }
+            MirOperationKind::NullableQuery(query) => {
+                let mut operand = self.operand(query.operand())?;
+
+                if query.operand_type() != query.nullable_type() {
+                    let pointer =
+                        pointer_value(operand).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                    operand = llvm(self.builder.build_load(
+                        self.types.map(query.nullable_type())?,
+                        pointer,
+                        "nullable.query.value",
+                    ))?;
+                }
+
+                let present = self.nullable_present(operand, query.nullable_type())?;
+
+                let result = match query.kind() {
+                    bray_ir::MirNullableQueryKind::IsPresent => present,
+                    bray_ir::MirNullableQueryKind::IsAbsent => {
+                        llvm(self.builder.build_not(present, "nullable.absent"))?
+                    }
+                };
+
+                Some(result.into())
             }
             MirOperationKind::Call(call) => self.translate_call(id, call)?,
             MirOperationKind::Memory(memory) => self.translate_memory(id, operation, memory)?,

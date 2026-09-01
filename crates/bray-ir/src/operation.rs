@@ -10,8 +10,8 @@ use bray_symbols::{BorrowKind, ConstantTermId, TypeId};
 
 use crate::{
     MirAnonymousCallableReference, MirCall, MirCallableReference, MirCleanupPhase,
-    MirFrameReference, MirFrameStateId, MirOperand, MirOperationId, MirPlace, MirRuntimeReference,
-    MirSourceAnchor, MirStorageId, MirValueId,
+    MirFrameReference, MirFrameStateId, MirNullableQuery, MirOperand, MirOperationId, MirPlace,
+    MirRuntimeReference, MirSourceAnchor, MirStorageId, MirValueId,
 };
 
 /// The checked semantic role of one store operation.
@@ -671,6 +671,8 @@ pub enum MirOperationKind {
         /// Input value.
         operand: MirOperand,
     },
+    /// Test one nullable value's state without exposing its payload.
+    NullableQuery(MirNullableQuery),
     /// Project one nested subject using an exact checked pattern step.
     PatternProjection {
         /// Parent pattern subject.

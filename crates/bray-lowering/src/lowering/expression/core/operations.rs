@@ -679,15 +679,16 @@ impl Lowerer<'_> {
 
         let destination_type = destination.ty();
 
-        if self.nullable_contains(destination_type, value_type)? {
-            value = self.push_nullable_present(
+        value = self
+            .adapt_nullable_present(
                 *value_id,
                 current,
                 Self::retained_source(&source),
                 value,
+                value_type,
                 destination_type,
-            )?;
-        }
+            )?
+            .0;
 
         self.builder.push_operation(
             current,
@@ -827,6 +828,12 @@ impl Lowerer<'_> {
             .cloned()
         {
             return self.lower_memory_call(id, current, source, &selection, operation);
+        }
+
+        if let Some(hook) = selection.implementation_hook()
+            && let Some(kind) = super::super::nullable::nullable_query_kind(hook)
+        {
+            return self.lower_nullable_call(id, current, source, &selection, kind);
         }
 
         if let Some(hook) = selection.implementation_hook()

@@ -96,6 +96,10 @@ define_catalog_enum! {
         SequenceLength => "SequenceLength",
         /// Tests whether a slice or fixed array has no elements.
         SequenceIsEmpty => "SequenceIsEmpty",
+        /// Tests whether a nullable value contains a value.
+        NullableIsPresent => "NullableIsPresent",
+        /// Tests whether a nullable value is absent.
+        NullableIsAbsent => "NullableIsAbsent",
         /// Reconstructs a state borrow at a checked foreign-callback entry.
         CallbackState => "CallbackState",
         /// Reconstructs a mutable borrow to an exclusively transferred value.
@@ -372,6 +376,8 @@ mod tests {
             ImplementationHook::TaskYield,
             ImplementationHook::SequenceLength,
             ImplementationHook::SequenceIsEmpty,
+            ImplementationHook::NullableIsPresent,
+            ImplementationHook::NullableIsAbsent,
             ImplementationHook::StringScalarCount,
             ImplementationHook::StringIsEmpty,
             ImplementationHook::StringEquals,
