@@ -179,6 +179,8 @@ where
         | ImplementationHook::TaskYield
         | ImplementationHook::SequenceLength
         | ImplementationHook::SequenceIsEmpty
+        | ImplementationHook::NullableIsPresent
+        | ImplementationHook::NullableIsAbsent
         | ImplementationHook::StringScalarCount
         | ImplementationHook::StringIsEmpty
         | ImplementationHook::StringEquals

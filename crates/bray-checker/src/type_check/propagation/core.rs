@@ -10,7 +10,8 @@ use bray_symbols::{BorrowKind, GenericArgument, TypeData};
 use crate::representation::type_representation;
 use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitView};
 
-use super::super::constraints::add_operand_expectation;
+use super::super::ExpressionTypeExpectation;
+use super::super::constraints::{add_expectations, add_operand_expectation};
 use super::super::dependencies::ExpressionTypeDependencies;
 use super::super::inference::{InferenceTypeId, TypeInferenceContext};
 use super::super::region::ExpressionTypeRegions;
@@ -63,14 +64,7 @@ where
 
         propagate_assignment(request, expression_id, variables, inference)?;
 
-        propagate_control_transfer(
-            request.view(),
-            expression_id,
-            variables,
-            regions,
-            types,
-            inference,
-        );
+        propagate_control_transfer(request, expression_id, variables, regions, types, inference)?;
 
         if let Some(BoundExpression::Await(expression)) = request.view().expression(expression_id) {
             infer_await(
@@ -475,63 +469,102 @@ fn own_block_yield(
     transfer.kind() == BoundControlTransferKind::Yield && transfer.target() == Some(target)
 }
 
-fn propagate_control_transfer(
-    view: BoundUnitView<'_>,
+fn propagate_control_transfer<C>(
+    request: CheckerUnitView<'_, C>,
     expression_id: BoundExpressionId,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     regions: &ExpressionTypeRegions,
     types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
-) {
-    let Some(BoundExpression::ControlTransfer(transfer)) = view.expression(expression_id) else {
-        return;
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let Some(BoundExpression::ControlTransfer(transfer)) = request.view().expression(expression_id)
+    else {
+        return Ok(());
     };
 
     let Some(target) = transfer.target() else {
-        return;
+        return Ok(());
     };
 
     match transfer.kind() {
         BoundControlTransferKind::Yield => {
             if let Some(region) = regions.result(target) {
                 add_transfer_value(
+                    request,
                     region.variable(),
                     transfer.operand(),
                     expression_id,
                     variables,
                     types,
                     inference,
-                );
+                )?;
             }
         }
         BoundControlTransferKind::Break => {
             if let Some(variable) = regions.break_variable(target) {
                 add_transfer_value(
+                    request,
                     variable,
                     transfer.operand(),
                     expression_id,
                     variables,
                     types,
                     inference,
-                );
+                )?;
             }
         }
         BoundControlTransferKind::Return | BoundControlTransferKind::Continue => {}
     }
+
+    Ok(())
 }
 
-fn add_transfer_value(
+fn add_transfer_value<C>(
+    request: CheckerUnitView<'_, C>,
     target: InferenceTypeId,
     operand: Option<BoundExpressionId>,
     transfer: BoundExpressionId,
     variables: &BTreeMap<BoundExpressionId, InferenceTypeId>,
     types: &ExpressionTypeDependencies,
     inference: &mut TypeInferenceContext,
-) {
+) -> Result<(), CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let nullable_expectation = inference
+        .unique_expectation(target)
+        .map(|expected| {
+            request
+                .semantic_values()
+                .type_data(expected)
+                .map(|data| matches!(data.as_ref(), TypeData::Nullable(_)).then_some(expected))
+                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+        })
+        .transpose()?
+        .flatten();
+
+    if let (Some(expected), Some(operand)) = (nullable_expectation, operand) {
+        add_expectations(
+            request,
+            [ExpressionTypeExpectation::new(operand, expected)],
+            variables,
+            inference,
+        )?;
+
+        inference.add_evidence(target, expected, transfer);
+
+        return Ok(());
+    }
+
     match operand.and_then(|operand| variables.get(&operand).copied()) {
         Some(operand) => inference.unify(target, operand, transfer),
         None => inference.add_evidence(target, types.unit, transfer),
     }
+
+    Ok(())
 }
 
 fn propagate_assignment<C>(

@@ -650,7 +650,7 @@ mod tests {
         DiagnosticSelectionRejections, DiagnosticStorageProjection, DiagnosticStorageRoot,
         DiagnosticType,
     };
-    use bray_ir::{MirBinaryOperator, MirOperationKind};
+    use bray_ir::{MirBinaryOperator, MirNullableQueryKind, MirOperationKind};
     use bray_messages::DiagnosticRenderer;
     use bray_source::SourceSpan;
     use bray_symbols::{
@@ -4670,6 +4670,142 @@ func inspect(pos slice: &[u8], pos array: [u8; 4]) -> (usize, bool, usize, bool)
     }
 
     #[test]
+    fn nullable_values_select_and_lower_state_queries() {
+        let compilation = compilation(
+            r#"module app;
+
+func inspect<T>(pos value: T?, pos borrowed: &(T?)) -> (bool, bool, bool, bool)
+{
+    return (
+        value.is_present(),
+        value.is_absent(),
+        borrowed.is_present(),
+        borrowed.is_absent(),
+    );
+}
+"#,
+        );
+
+        let key = source_callable_body_key(&compilation);
+
+        let selections = compilation
+            .semantic_selections(key.clone())
+            .unwrap_or_else(|error| panic!("nullable queries must be selectable: {error:?}"));
+
+        assert!(
+            selections.diagnostics().is_empty(),
+            "{:#?}",
+            selections.diagnostics()
+        );
+
+        let hooks = selections
+            .value()
+            .entries()
+            .iter()
+            .filter_map(|entry| match entry.selection() {
+                SemanticSelection::Call(call) => call.implementation_hook(),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            hooks,
+            [
+                ImplementationHook::NullableIsPresent,
+                ImplementationHook::NullableIsAbsent,
+                ImplementationHook::NullableIsPresent,
+                ImplementationHook::NullableIsAbsent,
+            ]
+        );
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .unwrap_or_else(|error| panic!("nullable queries must lower: {error:?}"));
+
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
+
+        let Some(mir) = lowered.value().as_ref().and_then(|unit| unit.mir()) else {
+            panic!("nullable queries must produce MIR");
+        };
+
+        let queries = mir
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                MirOperationKind::NullableQuery(query) => {
+                    Some((query.kind(), query.operand_type(), query.nullable_type()))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(queries.len(), 4);
+        assert_eq!(queries[0].0, MirNullableQueryKind::IsPresent);
+        assert_eq!(queries[1].0, MirNullableQueryKind::IsAbsent);
+        assert_eq!(queries[2].0, MirNullableQueryKind::IsPresent);
+        assert_eq!(queries[3].0, MirNullableQueryKind::IsAbsent);
+
+        assert!(
+            queries
+                .iter()
+                .all(|(_, operand, nullable)| operand != nullable)
+        );
+    }
+
+    #[test]
+    fn nullable_state_queries_are_not_available_on_non_nullable_values() {
+        let compilation = compilation(
+            r#"module app;
+
+func inspect(pos value: i32) -> bool
+{
+    return value.is_present();
+}
+"#,
+        );
+
+        let lowered = compilation
+            .lowered_unit(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| {
+                panic!("invalid nullable query must remain checkable: {error:?}")
+            });
+
+        assert!(lowered.value().is_none());
+        assert!(lowered.diagnostics().has_errors());
+    }
+
+    #[test]
+    fn concrete_nullable_state_queries_lower_for_native_code_generation() {
+        let compilation = compilation(
+            r#"module app;
+
+func main() -> bool
+{
+    let value: i32? = 1;
+
+    return value.is_present();
+}
+"#,
+        );
+
+        let lowered = compilation
+            .lowered_unit(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| panic!("concrete nullable query must lower: {error:?}"));
+
+        assert!(lowered.value().is_some(), "{:#?}", lowered.diagnostics());
+
+        assert!(
+            lowered.diagnostics().is_empty(),
+            "{:#?}",
+            lowered.diagnostics()
+        );
+    }
+
+    #[test]
     fn mutable_custom_indexing_requires_the_mutable_protocol() {
         let source = r#"module app;
 
@@ -4791,9 +4927,7 @@ func convert(pos value: Value) -> i32
         let diagnostic = compilation
             .check_diagnostics()
             .iter()
-            .find(|diagnostic| {
-                diagnostic.kind() == DiagnosticKind::CheckingNoApplicableCandidate
-            })
+            .find(|diagnostic| diagnostic.kind() == DiagnosticKind::CheckingNoApplicableCandidate)
             .unwrap_or_else(|| panic!("narrowing conversion diagnostic must be published"));
 
         assert_eq!(
@@ -5252,9 +5386,13 @@ func convert(pos value: Value) -> i32
             selections.diagnostics()
         );
 
-        assert!(selections.value().entries().iter().any(|entry| {
-            matches!(entry.selection(), SemanticSelection::Call(_))
-        }));
+        assert!(
+            selections
+                .value()
+                .entries()
+                .iter()
+                .any(|entry| { matches!(entry.selection(), SemanticSelection::Call(_)) })
+        );
     }
 
     #[test]

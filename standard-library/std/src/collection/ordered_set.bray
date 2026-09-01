@@ -86,11 +86,7 @@ struct OrderedSet<Value>
             value,
         );
 
-        return match search.found
-        {
-            case ?_ { yield true; }
-            case none { yield false; }
-        };
+        return search.found.is_present();
     }
 
     /// Inserts `value` and reports whether it was newly added.
@@ -171,11 +167,7 @@ struct OrderedSet<Value>
     trusted mut func remove(pos value: &Value) -> bool
         with(Value: Comparable<Value>)
     {
-        return match trusted self.take(value)
-        {
-            case ?_ { yield true; }
-            case none { yield false; }
-        };
+        return (trusted self.take(value)).is_present();
     }
 
     /// Removes and returns the stored value equal to `value`.

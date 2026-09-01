@@ -1278,6 +1278,75 @@ mod tests {
     }
 
     #[test]
+    fn loop_break_values_adapt_to_expected_nullable_results() {
+        let actual = tuple_type([]);
+        let expected = nullable_type(actual);
+        let key = callable_key();
+        let origin = BoundNodeOrigin::source(key.source());
+        let mut tree = BoundTreeBuilder::new(BoundUnitId::new(84));
+        let value = push_expression(&mut tree, literal(origin, Some(actual)));
+
+        let transfer = push_expression(
+            &mut tree,
+            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
+                origin,
+                BoundControlTransferKind::Break,
+                Some(value),
+                Some(origin.source_anchor().syntax()),
+                None,
+                false,
+            )),
+        );
+
+        let body = push_block(&mut tree, origin, [BoundBlockItem::Expression(transfer)]);
+
+        let loop_expression = push_expression(
+            &mut tree,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::Loop,
+                [],
+                [body],
+                [],
+                None,
+                false,
+            )),
+        );
+
+        let root_block = push_block(
+            &mut tree,
+            origin,
+            [BoundBlockItem::Expression(loop_expression)],
+        );
+
+        let root = push_callable(&mut tree, origin, root_block);
+        let unit = callable_unit(&key, tree.finish(), root);
+
+        let input = ExpressionTypeInput::new()
+            .with_expectations([ExpressionTypeExpectation::new(loop_expression, expected)]);
+
+        let result = completed_check(&unit, &input);
+
+        assert!(result.diagnostics().is_empty());
+
+        assert_eq!(
+            result.value().expression(value),
+            Some(ExpressionTypeResult::new(
+                actual,
+                ExpressionTypeStatus::Valid,
+            ))
+        );
+
+        assert_eq!(
+            result.value().expression(loop_expression),
+            Some(ExpressionTypeResult::new(
+                expected,
+                ExpressionTypeStatus::Valid,
+            ))
+        );
+    }
+
+    #[test]
     fn match_arms_join_yielded_result_types() {
         let result_type = tuple_type([]);
 

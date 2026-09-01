@@ -3151,6 +3151,11 @@ func main(pos value: i32?) -> i32?
         let compilation = compilation(
             r#"module app;
 
+struct OwnedValue
+{
+    value: i32;
+}
+
 func from_literal() -> i32?
 {
     let value: i32? = 1;
@@ -3171,6 +3176,21 @@ func from_unit() -> unit?
 
     return value;
 }
+
+func from_owned() -> OwnedValue?
+{
+    let value: OwnedValue? = OwnedValue
+    {
+        value = 1
+    };
+
+    return value;
+}
+
+func return_literal() -> i32?
+{
+    return 1;
+}
 "#,
         );
 
@@ -3180,7 +3200,13 @@ func from_unit() -> unit?
             compilation.check_diagnostics()
         );
 
-        for name in ["from_literal", "from_name", "from_unit"] {
+        for name in [
+            "from_literal",
+            "from_name",
+            "from_unit",
+            "from_owned",
+            "return_literal",
+        ] {
             let key = source_function_body_key(&compilation, name);
 
             let lowered = compilation.lowered_unit(key).unwrap_or_else(|error| {

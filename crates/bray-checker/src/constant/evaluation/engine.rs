@@ -82,9 +82,7 @@ where
             return CheckerOutcome::InfrastructureFailure(error);
         }
         Err(EvaluationFailure::Upstream) => {
-            return CheckerOutcome::UpstreamFailure(
-                evaluated.evaluator.take_upstream_failure(),
-            );
+            return CheckerOutcome::UpstreamFailure(evaluated.evaluator.take_upstream_failure());
         }
         Err(EvaluationFailure::Cancelled) => return CheckerOutcome::Cancelled,
         Err(EvaluationFailure::Propagate(_)) => {
@@ -224,10 +222,10 @@ where
     };
 
     let evaluated = match evaluated {
-        Ok((EvaluationFlow::Yield(_), Some(expression))) => {
+        Ok((EvaluationFlow::Yield { .. }, Some(expression))) => {
             Err(EvaluationFailure::invalid_expression(expression))
         }
-        Ok((EvaluationFlow::Yield(_), None)) => {
+        Ok((EvaluationFlow::Yield { .. }, None)) => {
             return Err(EvaluationAbort::invalid_input());
         }
         evaluated => evaluated,
@@ -245,7 +243,7 @@ where
             result_type,
             term,
         }),
-        Ok((EvaluationFlow::Yield(_), _)) => Err(EvaluationAbort::invalid_input()),
+        Ok((EvaluationFlow::Yield { .. }, _)) => Err(EvaluationAbort::invalid_input()),
         Err(EvaluationFailure::Cancelled) => Err(EvaluationAbort::Cancelled),
         Err(EvaluationFailure::Infrastructure(error)) => {
             Err(EvaluationAbort::Infrastructure(error))
@@ -480,7 +478,7 @@ where
         match self.evaluate_flow(expression)? {
             EvaluationFlow::Value(value) => Ok(value),
             EvaluationFlow::Propagate(value) => Err(EvaluationFailure::Propagate(value)),
-            EvaluationFlow::Yield(_) | EvaluationFlow::Return(_) => {
+            EvaluationFlow::Yield { .. } | EvaluationFlow::Return(_) => {
                 Err(EvaluationFailure::invalid_expression(expression))
             }
         }
@@ -632,43 +630,11 @@ where
         self.evaluated_references.insert(expression);
 
         match self.input.reference(expression) {
-            Some(ConstantReferenceResolution::Value(value)) => {
-                let data = self
-                    .request
-                    .semantic_values()
-                    .constant_value_data(value)
-                    .map_err(|_| {
-                        EvaluationFailure::Infrastructure(
-                            CheckerInfrastructureError::SemanticValueUnavailable,
-                        )
-                    })?;
-
-                if data.ty() != ty {
-                    return Err(EvaluationFailure::invalid_input());
-                }
-
-                self.intern_term(ConstantTermData::Value(value))
-            }
+            Some(ConstantReferenceResolution::Value(value)) => self.reference_value(value, ty),
             Some(ConstantReferenceResolution::Evaluated(result)) => {
                 self.budget.charge_usage(expression, result.usage())?;
 
-                let value = result.value();
-
-                let data = self
-                    .request
-                    .semantic_values()
-                    .constant_value_data(value)
-                    .map_err(|_| {
-                        EvaluationFailure::Infrastructure(
-                            CheckerInfrastructureError::SemanticValueUnavailable,
-                        )
-                    })?;
-
-                if data.ty() != ty {
-                    return Err(EvaluationFailure::invalid_input());
-                }
-
-                self.intern_term(ConstantTermData::Value(value))
+                self.reference_value(result.value(), ty)
             }
             Some(ConstantReferenceResolution::Term(term)) => {
                 self.request
@@ -694,6 +660,17 @@ where
             }),
             None => Err(EvaluationFailure::invalid_expression(expression)),
         }
+    }
+
+    fn reference_value(
+        &self,
+        value: ConstantValueId,
+        ty: TypeId,
+    ) -> Result<ConstantTermId, EvaluationFailure> {
+        let data = self.constant_value(value)?;
+        let term = self.intern_term(ConstantTermData::Value(value))?;
+
+        self.adapt_nullable_present(term, data.ty(), ty)
     }
 
     pub(super) fn evaluate_structured(

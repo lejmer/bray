@@ -95,11 +95,7 @@ struct HashSet<Value>
     {
         let hash: u128 = std.hash.stable_hash<Value>(value);
 
-        return match trusted self.find(value, hash = hash)
-        {
-            case ?_ { yield true; }
-            case none { yield false; }
-        };
+        return (trusted self.find(value, hash = hash)).is_present();
     }
 
     /// Inserts `value` and reports whether it was newly added.
@@ -170,11 +166,7 @@ struct HashSet<Value>
     trusted mut func remove(pos value: &Value) -> bool
         with(Value: std.hash.Hashable<std.hash.StableHasher>, Value: Equatable<Value>)
     {
-        return match trusted self.take(value)
-        {
-            case ?_ { yield true; }
-            case none { yield false; }
-        };
+        return (trusted self.take(value)).is_present();
     }
 
     /// Removes and returns the stored value equal to `value`.

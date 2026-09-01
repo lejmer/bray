@@ -1,7 +1,7 @@
 use bray_bound_tree::{
-    BoundCallResult, BoundCallableTarget, BoundExpressionId, BoundMemberSelector, BoundOperator,
-    ConstructionInputId, ConstructionTarget, ConversionTarget, IndexTarget, OperatorTarget,
-    SelectedArgument, SelectedConstructionInput, SelectedOperation, SemanticSelection,
+    BoundExpressionId, BoundMemberSelector, BoundOperator, ConstructionInputId,
+    ConstructionTarget, ConversionTarget, IndexTarget, OperatorTarget, SelectedConstructionInput,
+    SelectedOperation, SemanticSelection,
 };
 use bray_compiler_known::NumericRepresentationKind;
 use bray_diagnostics::DiagnosticConstantOperation;
@@ -23,74 +23,6 @@ impl<'view, 'input, 'types, C> Evaluator<'view, 'input, 'types, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    pub(super) fn evaluate_selected_call(
-        &mut self,
-        expression: BoundExpressionId,
-        ty: TypeId,
-    ) -> Result<ConstantTermId, EvaluationFailure> {
-        let Some(SemanticSelection::Call(call)) =
-            self.input.semantic_selections().expression(expression)
-        else {
-            return Err(EvaluationFailure::invalid_expression(expression));
-        };
-
-        if !matches!(call.resolution().result(), BoundCallResult::Immediate(_)) {
-            return Err(EvaluationFailure::invalid_expression(expression));
-        }
-
-        let mut arguments = Vec::with_capacity(call.arguments().len());
-
-        for argument in call.arguments() {
-            let SelectedArgument::Explicit {
-                expression,
-                ordinal,
-                ..
-            } = argument
-            else {
-                return Err(EvaluationFailure::invalid_expression(expression));
-            };
-
-            arguments.push((*ordinal, *expression));
-        }
-
-        arguments.sort_unstable_by_key(|(ordinal, _)| *ordinal);
-
-        let arguments = arguments
-            .into_iter()
-            .map(|(_, expression)| expression)
-            .collect::<Vec<_>>();
-
-        if let BoundCallableTarget::Predicate(predicate) = call.target() {
-            let arguments = arguments
-                .into_iter()
-                .map(|argument| self.evaluate(argument))
-                .collect::<Result<Vec<_>, _>>()?;
-
-            return self
-                .intern_typed_term(ty, ConstantTermData::predicate_call(predicate, arguments));
-        }
-
-        let BoundCallableTarget::Declaration(callable) = call.target() else {
-            return Err(EvaluationFailure::invalid_expression(expression));
-        };
-
-        let witnesses = call.resolution().implementation_witnesses();
-
-        let selected_implementation = match witnesses {
-            [] => None,
-            [witness] => Some(*witness),
-            _ => return Err(EvaluationFailure::invalid_expression(expression)),
-        };
-
-        self.evaluate_call(
-            expression,
-            callable,
-            selected_implementation,
-            &arguments,
-            ty,
-        )
-    }
-
     pub(super) fn evaluate_operator(
         &mut self,
         expression: BoundExpressionId,
@@ -284,45 +216,11 @@ where
 
         let operand = self.evaluate(source.operand())?;
 
-        if matches!(conversion.target(), ConversionTarget::Identity) {
-            return Ok(operand);
-        }
-
-        let Some(operand) = self.term_value(operand)? else {
-            return match conversion.target() {
-                ConversionTarget::Identity => Ok(operand),
-                ConversionTarget::NullablePresent => {
-                    self.intern_typed_term(ty, ConstantTermData::NullablePresent(operand))
-                }
-                ConversionTarget::BuiltInScalar | ConversionTarget::CVariadicPromotion => self
-                    .intern_typed_term(
-                        ty,
-                        ConstantTermData::Conversion {
-                            operand,
-                            target: conversion.target_type(),
-                        },
-                    ),
-                ConversionTarget::Composite(_) => self.intern_typed_term(
-                    ty,
-                    ConstantTermData::Conversion {
-                        operand,
-                        target: conversion.target_type(),
-                    },
-                ),
-                ConversionTarget::Trait { .. } | ConversionTarget::TraitConstraint { .. } => {
-                    Err(EvaluationFailure::invalid_expression(expression))
-                }
-            };
-        };
-
-        let value = self.convert_value(expression, &conversion, operand)?;
-        let data = self.constant_value(value)?;
-
-        if data.ty() != ty {
+        if conversion.target_type() != ty {
             return Err(EvaluationFailure::invalid_input());
         }
 
-        self.intern_term(ConstantTermData::Value(value))
+        self.apply_selected_conversion(expression, &conversion, operand)
     }
 
     pub(super) fn convert_value(

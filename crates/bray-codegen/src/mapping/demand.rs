@@ -113,6 +113,9 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
         | MirOperationKind::NumericConversion { operand, .. } => {
             collect_operand_value(operand, demands);
         }
+        MirOperationKind::NullableQuery(query) => {
+            collect_operand_value(query.operand(), demands);
+        }
         MirOperationKind::Binary { left, right, .. } => {
             collect_operand_value(left, demands);
             collect_operand_value(right, demands);

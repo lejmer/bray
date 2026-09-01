@@ -362,6 +362,17 @@ When absent, there is no contained `T` value to access, move, copy, borrow, dest
 
 It does not expose a user-visible variant container or construction wrapper.
 
+Every nullable type provides these compiler-provided constant members:
+
+```bray
+value.is_present()
+value.is_absent()
+```
+
+Each member evaluates its receiver exactly once and returns whether its nullable storage state is present or absent.
+The query does not access, move, copy, mutate, or expose a present `T` value. It is available for every `T`, including
+non-copyable types, and its result does not depend on the nullable value's physical representation.
+
 The absence expression is:
 
 ```bray

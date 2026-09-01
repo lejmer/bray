@@ -1,5 +1,7 @@
 use super::super::core::UnitTranslator;
-use super::super::support::{extract_value, insert_value, int_value, llvm, next_helper};
+use super::super::support::{
+    extract_value, insert_value, int_value, llvm, next_helper, pointer_value,
+};
 use bray_codegen::{CodegenFailure, CodegenSymbolKey, CodegenTypeKind};
 use bray_ir::{
     MirAsyncOperation, MirFrameInitializer, MirHelperReference, MirOperation, MirOperationKind,
@@ -83,6 +85,47 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let operand = self.operand(operand)?;
 
                 Some(self.convert(operand, source, target)?)
+            }
+            MirOperationKind::NullableQuery(query) => {
+                let operand = self.operand(query.operand())?;
+
+                if !matches!(
+                    self.type_mapping(query.result_type())
+                        .map(bray_codegen::CodegenTypeMapping::kind),
+                    Some(CodegenTypeKind::Boolean)
+                ) {
+                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                }
+
+                let present = if query.operand_type() == query.nullable_type() {
+                    self.nullable_present(operand, query.nullable_type())?
+                } else {
+                    let mapping = self
+                        .type_mapping(query.operand_type())
+                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                    if !matches!(
+                        mapping.kind(),
+                        CodegenTypeKind::Pointer { target, .. }
+                            if *target == query.nullable_type()
+                    ) {
+                        return Err(CodegenFailure::GeneratedModuleInvariant);
+                    }
+
+                    let pointer =
+                        pointer_value(operand).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                    self.nullable_present_at(pointer, query.nullable_type())?
+                };
+
+                let result = match query.kind() {
+                    bray_ir::MirNullableQueryKind::IsPresent => present,
+                    bray_ir::MirNullableQueryKind::IsAbsent => {
+                        llvm(self.builder.build_not(present, "nullable.absent"))?
+                    }
+                };
+
+                Some(result.into())
             }
             MirOperationKind::Call(call) => self.translate_call(id, call)?,
             MirOperationKind::Memory(memory) => self.translate_memory(id, operation, memory)?,

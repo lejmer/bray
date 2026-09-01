@@ -1220,6 +1220,124 @@ mod tests {
     }
 
     #[test]
+    fn nullable_state_queries_evaluate_as_constants() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "const present_value: i32? = 42;\n",
+            "const absent_value: i32? = none;\n",
+            "const present: bool = present_value.is_present();\n",
+            "const absent: bool = absent_value.is_absent();\n",
+        ));
+
+        let definitions = source_constant_definitions(&compilation);
+
+        let [present_value, absent_value, present, absent] = definitions.as_slice() else {
+            panic!("test source must produce four constant definitions");
+        };
+
+        let present_value = compilation
+            .constant_instance(instance_key(&compilation, *present_value))
+            .unwrap_or_else(|error| panic!("present nullable constant must evaluate: {error:?}"));
+
+        let absent_value = compilation
+            .constant_instance(instance_key(&compilation, *absent_value))
+            .unwrap_or_else(|error| panic!("absent nullable constant must evaluate: {error:?}"));
+
+        assert!(
+            !matches!(
+                constant_value(&compilation, present_value.value().value()).kind(),
+                ConstantValueKind::NullableAbsent | ConstantValueKind::Error
+            ),
+            "present nullable constant must retain a present state; diagnostics: {:#?}",
+            present_value.diagnostics()
+        );
+
+        assert_eq!(
+            constant_value(&compilation, absent_value.value().value()).kind(),
+            &ConstantValueKind::NullableAbsent
+        );
+
+        for definition in [present, absent] {
+            let template = compilation
+                .constant_definition(*definition)
+                .unwrap_or_else(|error| panic!("nullable query template must publish: {error:?}"));
+
+            let result = compilation
+                .constant_instance(instance_key(&compilation, *definition))
+                .unwrap_or_else(|error| panic!("nullable query constant must evaluate: {error:?}"));
+
+            assert!(
+                result.diagnostics().is_empty(),
+                "{:#?}",
+                result.diagnostics()
+            );
+
+            let value = constant_value(&compilation, result.value().value());
+
+            assert_eq!(
+                value.kind(),
+                &ConstantValueKind::Boolean(true),
+                "unexpected template: {:#?}; template diagnostics: {:#?}; instance diagnostics: {:#?}",
+                template.value(),
+                template.diagnostics(),
+                result.diagnostics()
+            );
+        }
+    }
+
+    #[test]
+    fn constant_calls_adapt_present_arguments_and_results_to_nullable_types() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "const func accepts(pos value: i32?) -> bool\n",
+            "{\n",
+            "    return value.is_present();\n",
+            "}\n",
+            "const func returns_present() -> i32?\n",
+            "{\n",
+            "    return 2;\n",
+            "}\n",
+            "const argument_query: bool = accepts(1);\n",
+            "const returned_value: i32? = returns_present();\n",
+            "const returned_query: bool = returned_value.is_present();\n",
+        ));
+
+        let definitions = source_constant_definitions(&compilation);
+
+        let [argument_query, returned_value, returned_query] = definitions.as_slice() else {
+            panic!("test source must produce three constant definitions");
+        };
+
+        for definition in [argument_query, returned_query] {
+            let result = compilation
+                .constant_instance(instance_key(&compilation, *definition))
+                .unwrap_or_else(|error| panic!("nullable query must evaluate: {error:?}"));
+
+            assert!(
+                result.diagnostics().is_empty(),
+                "{:#?}",
+                result.diagnostics()
+            );
+
+            assert_eq!(
+                constant_value(&compilation, result.value().value()).kind(),
+                &ConstantValueKind::Boolean(true)
+            );
+        }
+
+        let returned_value = compilation
+            .constant_instance(instance_key(&compilation, *returned_value))
+            .unwrap_or_else(|error| panic!("nullable return value must evaluate: {error:?}"));
+
+        assert!(returned_value.diagnostics().is_empty());
+
+        assert!(matches!(
+            constant_value(&compilation, returned_value.value().value()).kind(),
+            ConstantValueKind::NullablePresent(_)
+        ));
+    }
+
+    #[test]
     fn constant_definitions_are_cached_without_closing_instances() {
         let compilation = compilation(concat!("module app;\n", "const value: i32 = 1;\n",));
         let definitions = source_constant_definitions(&compilation);

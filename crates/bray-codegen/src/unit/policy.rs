@@ -275,6 +275,7 @@ const fn operation_weight(operation: &MirOperationKind) -> u64 {
         | MirOperationKind::Construct(_)
         | MirOperationKind::Convert { .. }
         | MirOperationKind::NumericConversion { .. }
+        | MirOperationKind::NullableQuery(_)
         | MirOperationKind::PatternProjection { .. }
         | MirOperationKind::Generator(_)
         | MirOperationKind::Finalize(_)

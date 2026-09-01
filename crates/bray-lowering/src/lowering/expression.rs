@@ -4,6 +4,7 @@ mod conversion;
 mod core;
 mod index;
 mod memory;
+mod nullable;
 mod numeric;
 mod operand;
 mod projection;

@@ -59,6 +59,25 @@ impl Lowerer<'_> {
             .ok_or(LoweringError::MissingOperationResult(expression))
     }
 
+    pub(in crate::lowering) fn adapt_nullable_present(
+        &mut self,
+        expression: BoundExpressionId,
+        current: MirBlockId,
+        source: MirSourceAnchor,
+        operand: MirOperand,
+        operand_type: TypeId,
+        destination_type: TypeId,
+    ) -> Result<(MirOperand, TypeId), LoweringError> {
+        if !self.nullable_contains(destination_type, operand_type)? {
+            return Ok((operand, operand_type));
+        }
+
+        let operand =
+            self.push_nullable_present(expression, current, source, operand, destination_type)?;
+
+        Ok((operand, destination_type))
+    }
+
     pub(super) fn lower_aggregate(
         &mut self,
         id: BoundExpressionId,

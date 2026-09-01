@@ -713,9 +713,9 @@ mod tests {
         CodegenUnit, DebugInformationMode, TargetAddressSpaceKind,
     };
     use bray_ir::{
-        MirBlockKind, MirImmediateValue, MirOperand, MirOperationKind, MirPlace, MirSourceAnchor,
-        MirStorageKind, MirStoreKind, MirTargetContract, MirTerminatorKind, MirUnitBuilder,
-        MirUnitKind,
+        MirBlockKind, MirImmediateValue, MirNullableQuery, MirNullableQueryKind, MirOperand,
+        MirOperationKind, MirPlace, MirSourceAnchor, MirStorageKind, MirStoreKind,
+        MirTargetContract, MirTerminatorKind, MirUnitBuilder, MirUnitKind,
     };
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiVersion};
     use bray_symbols::testing::intern_type;
@@ -739,6 +739,7 @@ mod tests {
         string: TypeId,
         string_borrow: TypeId,
         nullable: TypeId,
+        nullable_borrow: TypeId,
         tuple: TypeId,
         union: TypeId,
     }
@@ -762,6 +763,27 @@ mod tests {
         assert!(ir.contains("switch i8 %copy.union.tag"), "{ir}");
         assert!(ir.contains("copy.union.variant.0"), "{ir}");
         assert!(ir.contains("copy.union.variant.1"), "{ir}");
+        assert!(module.verify().is_ok(), "{ir}");
+    }
+
+    #[test]
+    fn borrowed_nullable_queries_load_only_the_state_field() {
+        let backend = LlvmCodeGenerator::try_new()
+            .unwrap_or_else(|error| panic!("LLVM backend must initialize: {error:?}"));
+
+        let fixture = borrowed_nullable_query_fixture(&backend);
+        let context = Context::create();
+
+        let (_, module) = backend
+            .prepare_module(fixture.request(), &context)
+            .unwrap_or_else(|error| panic!("nullable query must generate: {error:?}"))
+            .unwrap_or_else(|| panic!("nullable query generation must not be cancelled"));
+
+        let ir = module.print_to_string().to_string();
+
+        assert!(ir.contains("nullable.state.address"), "{ir}");
+        assert!(ir.contains("load i1, ptr %nullable.state.address"), "{ir}");
+        assert!(!ir.contains("nullable.query.value"), "{ir}");
         assert!(module.verify().is_ok(), "{ir}");
     }
 
@@ -1076,6 +1098,95 @@ mod tests {
         codegen_request_for_unit(unit, target, mappings, backend.identity().clone())
     }
 
+    fn borrowed_nullable_query_fixture(
+        backend: &LlvmCodeGenerator,
+    ) -> bray_codegen::test_support::CodegenRequestFixture {
+        let target = codegen_target();
+        let types = composite_types();
+        let bound = bray_testing::test_bound_unit(293);
+        let source = MirSourceAnchor::from(bound.key().source());
+
+        let mut builder = MirUnitBuilder::for_bound(
+            bound.identity(),
+            MirUnitKind::Synchronous,
+            MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0)),
+        );
+
+        let entry = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap_or_else(|error| panic!("nullable query block must build: {error:?}"));
+
+        let storage = builder
+            .push_storage(source.clone(), MirStorageKind::Local, types.nullable)
+            .unwrap_or_else(|error| panic!("nullable query storage must build: {error:?}"));
+
+        let place = MirPlace::new(storage, [], types.nullable);
+
+        builder
+            .push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::Store {
+                    kind: MirStoreKind::Initialize,
+                    destination: place.clone(),
+                    value: MirOperand::Immediate {
+                        value: MirImmediateValue::NullableAbsent,
+                        ty: types.nullable,
+                    },
+                },
+                None,
+            )
+            .unwrap_or_else(|error| panic!("nullable query storage must initialize: {error:?}"));
+
+        let borrowed = builder
+            .push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::Borrow {
+                    kind: bray_symbols::BorrowKind::Shared,
+                    place,
+                },
+                Some(types.nullable_borrow),
+            )
+            .unwrap_or_else(|error| panic!("nullable query borrow must build: {error:?}"))
+            .result()
+            .unwrap_or_else(|| panic!("nullable query borrow must produce a value"));
+
+        builder
+            .push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::NullableQuery(MirNullableQuery::new(
+                    MirNullableQueryKind::IsAbsent,
+                    MirOperand::Value(borrowed),
+                    types.nullable_borrow,
+                    types.nullable,
+                    types.boolean,
+                )),
+                Some(types.boolean),
+            )
+            .unwrap_or_else(|error| panic!("nullable query must build: {error:?}"));
+
+        builder
+            .set_terminator(entry, source.clone(), MirTerminatorKind::Return(None))
+            .unwrap_or_else(|error| panic!("nullable query return must build: {error:?}"));
+
+        let mir = builder
+            .finish(entry)
+            .unwrap_or_else(|error| panic!("nullable query MIR must validate: {error:?}"));
+
+        let unit = CodegenUnit::try_new(
+            bray_codegen::CodegenPartitionPolicy::NATIVE_BALANCED,
+            bray_codegen::test_support::codegen_partition_compatibility(),
+            [mir],
+        )
+        .unwrap_or_else(|error| panic!("nullable query codegen unit must validate: {error:?}"));
+
+        let mappings = composite_mappings(&unit, &target, types, source, Vec::new());
+
+        codegen_request_for_unit(unit, target, mappings, backend.identity().clone())
+    }
+
     fn composite_types() -> CompositeTypes {
         let store = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("semantic store must initialize: {error:?}"));
@@ -1100,6 +1211,15 @@ mod tests {
         );
 
         let nullable = intern_type(store, TypeData::Nullable(string));
+
+        let nullable_borrow = intern_type(
+            store,
+            TypeData::Borrow {
+                kind: bray_symbols::BorrowKind::Shared,
+                target: nullable,
+            },
+        );
+
         let tuple = intern_type(store, TypeData::tuple([string, string]));
         let union = intern_type(store, TypeData::tuple([nullable, tuple]));
 
@@ -1112,6 +1232,7 @@ mod tests {
             string,
             string_borrow,
             nullable,
+            nullable_borrow,
             tuple,
             union,
         }
@@ -1186,6 +1307,14 @@ mod tests {
                     CodegenFieldLayout::new(None, types.boolean, 0),
                     CodegenFieldLayout::new(None, types.string, 8),
                 ]),
+            ),
+            CodegenTypeMapping::new(
+                types.nullable_borrow,
+                layout(8, align8),
+                CodegenTypeKind::Pointer {
+                    target: types.nullable,
+                    address_space: TargetAddressSpaceKind::Default,
+                },
             ),
             CodegenTypeMapping::new(
                 types.tuple,

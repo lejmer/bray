@@ -165,7 +165,7 @@ pub(in crate::compilation) fn collect_constant_references_from(
         }
 
         if non_value_heads.contains(&expression) {
-            return BoundWalkControl::SkipChildren;
+            return BoundWalkControl::Continue;
         }
 
         let target = match bound_expression {

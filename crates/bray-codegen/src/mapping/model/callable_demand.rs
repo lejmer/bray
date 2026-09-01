@@ -131,6 +131,7 @@ fn operation_callable_instances(
         | MirOperationKind::Construct(_)
         | MirOperationKind::Convert { .. }
         | MirOperationKind::NumericConversion { .. }
+        | MirOperationKind::NullableQuery(_)
         | MirOperationKind::PatternProjection { .. }
         | MirOperationKind::Generator(_)
         | MirOperationKind::Memory(_)

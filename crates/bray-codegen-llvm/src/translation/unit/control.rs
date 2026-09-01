@@ -556,36 +556,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(equal)
     }
 
-    pub(super) fn nullable_present(
-        &self,
-        subject: BasicValueEnum<'context>,
-        subject_type: bray_symbols::TypeId,
-    ) -> Result<IntValue<'context>, CodegenFailure> {
-        let mapping = self
-            .type_mapping(subject_type)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        match (mapping.kind(), subject) {
-            (CodegenTypeKind::Pointer { .. }, BasicValueEnum::PointerValue(pointer)) => {
-                llvm(self.builder.build_is_not_null(pointer, "nullable.present"))
-            }
-            (CodegenTypeKind::Aggregate(fields), subject) if fields.len() > 1 => {
-                let tag =
-                    extract_value(&self.builder, subject, self.aggregate_element(fields, 0)?)?;
-
-                let tag = int_value(tag).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-                llvm(self.builder.build_int_compare(
-                    IntPredicate::NE,
-                    tag,
-                    tag.get_type().const_zero(),
-                    "nullable.present",
-                ))
-            }
-            _ => Err(CodegenFailure::GeneratedModuleInvariant),
-        }
-    }
-
     pub(super) fn active_union_variant(
         &mut self,
         subject: BasicValueEnum<'context>,

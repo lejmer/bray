@@ -498,6 +498,15 @@ impl ImportedSemantics {
         self.resolve_interface_types(elements)
     }
 
+    /// Returns the contained type when `ty` is structurally nullable.
+    pub(crate) fn nullable_element_type(&self, ty: TypeId) -> Option<TypeId> {
+        let crate::InterfaceType::Nullable(element) = self.interface_type(ty)? else {
+            return None;
+        };
+
+        self.types.get(element.to_index()?).copied()
+    }
+
     /// Returns whether `ty` names one exact compiler-known declaration.
     pub(crate) fn is_compiler_known_type(
         &self,
