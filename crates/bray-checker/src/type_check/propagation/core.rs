@@ -174,31 +174,38 @@ where
         return Ok(());
     };
 
-    if let Some(future) = inference.evidence(operand_variable)
-        && let Some(completion) = request
+    if let Some(future) = inference.evidence(operand_variable) {
+        let completion = request
             .available_compiler_known_symbols()
             .unary_representation_argument(
                 request.semantic_values(),
                 RepresentationRole::Future,
                 future,
             )
-    {
-        inference.add_evidence(variable, completion, expression);
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+        if let Some(completion) = completion {
+            inference.add_evidence(variable, completion, expression);
+        }
     }
 
     let completion = inference
         .evidence(variable)
         .or(inference.unique_expectation(variable));
 
-    let Some(future) = completion.and_then(|completion| {
-        request
+    let Some(completion) = completion else {
+        return Ok(());
+    };
+
+    let Some(future) = request
             .available_compiler_known_symbols()
             .unary_representation_type(
                 request.semantic_values(),
                 RepresentationRole::Future,
                 completion,
             )
-    }) else {
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?
+    else {
         return Ok(());
     };
 

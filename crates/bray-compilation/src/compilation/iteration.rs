@@ -799,6 +799,7 @@ mod tests {
                 RepresentationRole::Range,
                 range_type,
             )
+            .unwrap_or_else(|error| panic!("range element must read: {error:?}"))
             .unwrap_or_else(|| panic!("range type must retain its element"));
 
         assert_eq!(

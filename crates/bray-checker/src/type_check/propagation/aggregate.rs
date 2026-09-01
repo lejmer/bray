@@ -174,6 +174,7 @@ where
                 RepresentationRole::Range,
                 range,
             )
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?
         else {
             return Ok(());
         };
@@ -215,6 +216,7 @@ where
             RepresentationRole::Range,
             element,
         )
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?
     else {
         return Err(
             CheckerInfrastructureError::CompilerKnownRepresentationUnavailable {

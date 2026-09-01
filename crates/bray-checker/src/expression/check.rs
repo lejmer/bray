@@ -341,6 +341,7 @@ where
                 RepresentationRole::Future,
                 future.ty(),
             )
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?
         else {
             continue;
         };

@@ -525,6 +525,7 @@ where
             RepresentationRole::Future,
             completion,
         )
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?
         .ok_or(
             CheckerInfrastructureError::CompilerKnownRepresentationUnavailable {
                 role: RepresentationRole::Future,

@@ -467,6 +467,7 @@ impl Compilation {
                         RepresentationRole::Future,
                         result,
                     )
+                    .map_err(FactQueryError::SemanticValueStore)?
                     .ok_or(FactQueryError::InfrastructureFailure)?;
 
                 let call = MirCall::protocol(

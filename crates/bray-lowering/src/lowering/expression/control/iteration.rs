@@ -595,6 +595,7 @@ impl Lowerer<'_> {
                 RepresentationRole::Range,
                 cursor_type,
             )
+            .map_err(LoweringError::SemanticValue)?
             .ok_or(LoweringError::MissingSemanticSelection(id))?;
 
         let result_type = self.expression_type(id)?;

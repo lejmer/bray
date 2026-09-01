@@ -48,6 +48,7 @@ where
                         RepresentationRole::Uninit,
                         ty,
                     )
+                    .map_err(CheckerInfrastructureError::SemanticValueStore)?
                     .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
                 type_supports_complete_fixed_layout_inner(request, element, pending)?

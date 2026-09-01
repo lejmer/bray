@@ -649,6 +649,7 @@ where
                                 RepresentationRole::Range,
                                 ty,
                             )
+                            .map_err(CheckerInfrastructureError::SemanticValueStore)?
                             .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
                         self.validate_range_element_type(element, origin)?;
@@ -663,6 +664,7 @@ where
                                 RepresentationRole::Uninit,
                                 ty,
                             )
+                            .map_err(CheckerInfrastructureError::SemanticValueStore)?
                             .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
                         return self.check_type(element, origin).map(uninit_representation);

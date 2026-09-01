@@ -54,6 +54,7 @@ impl Compilation {
                 RepresentationRole::RawPointer,
                 element,
             )
+            .map_err(FactQueryError::SemanticValueStore)?
             .ok_or(FactQueryError::InfrastructureFailure)
     }
 }
@@ -409,6 +410,7 @@ pub(super) fn callable_type_signature(
                 RepresentationRole::Future,
                 callable.result(),
             )
+            .map_err(FactQueryError::SemanticValueStore)?
             .ok_or(FactQueryError::InfrastructureFailure)?
     } else {
         callable.result()
@@ -1634,6 +1636,7 @@ mod tests {
             compilation
                 .available_compiler_known_symbols()
                 .unary_representation_type(values, role, element)
+                .unwrap_or_else(|error| panic!("{role:?} pointer type must intern: {error:?}"))
                 .unwrap_or_else(|| panic!("{role:?} pointer type must resolve"))
         };
 

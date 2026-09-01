@@ -111,6 +111,7 @@ fn named_alignment(
             let element = compilation
                 .available_compiler_known_symbols()
                 .unary_representation_argument(values, role, wrapper)
+                .map_err(FactQueryError::SemanticValueStore)?
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             return alignment_of_type(compilation, element, cancellation, pending);

@@ -130,6 +130,7 @@ impl Compilation {
                 let element = self
                     .available_compiler_known_symbols()
                     .unary_representation_argument(values, role, ty)
+                    .map_err(FactQueryError::SemanticValueStore)?
                     .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
 
                 self.codegen_type(element, target, cancellation, mappings, pending)?;
@@ -155,6 +156,7 @@ impl Compilation {
                 let element = self
                     .available_compiler_known_symbols()
                     .unary_representation_argument(self.semantic_value_store()?, role, ty)
+                    .map_err(FactQueryError::SemanticValueStore)?
                     .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
 
                 self.codegen_aggregate_type(

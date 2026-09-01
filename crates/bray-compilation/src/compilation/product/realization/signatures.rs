@@ -185,6 +185,7 @@ impl Compilation {
             let future = self
                 .available_compiler_known_symbols()
                 .unary_representation_type(values, RepresentationRole::Future, result_type)
+                .map_err(FactQueryError::SemanticValueStore)?
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             CodegenResultMapping::direct(future, None, [])
@@ -460,6 +461,7 @@ impl Compilation {
                         RepresentationRole::Future,
                         result,
                     )
+                    .map_err(FactQueryError::SemanticValueStore)?
                     .ok_or(FactQueryError::InfrastructureFailure)?
             } else {
                 result
