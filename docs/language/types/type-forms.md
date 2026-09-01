@@ -373,9 +373,6 @@ Each member evaluates its receiver exactly once and returns whether its nullable
 The query does not access, move, copy, mutate, or expose a present `T` value. It is available for every `T`, including
 non-copyable types, and its result does not depend on the nullable value's physical representation.
 
-Use a state query when only a Boolean state test is needed. Use a nullable pattern when the present payload must be
-bound or when the two states require distinct control flow.
-
 The absence expression is:
 
 ```bray
