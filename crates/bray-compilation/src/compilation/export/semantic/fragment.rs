@@ -93,7 +93,7 @@ impl SemanticFragment {
     ) -> Result<bray_diagnostics::DiagnosticInterfaceSymbolIdentity, PackageInterfaceExportError>
     {
         crate::compilation::diagnostics::symbol_diagnostic_identity(graph, None, self.symbol)
-            .map_err(PackageInterfaceExportError::FragmentCoordination)
+            .map_err(super::super::fragment_coordination_export_error)
     }
 
     pub(super) fn exact_diagnostic_identity(

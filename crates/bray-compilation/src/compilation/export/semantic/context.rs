@@ -33,7 +33,7 @@ macro_rules! export_acyclic_semantic_value {
         if !$exporter.$active.insert($id) {
             Err($exporter
                 .cyclic_semantic_value_error($table, $id.slot())
-                .map_err(PackageInterfaceExportError::FragmentCoordination)?)
+                .map_err(super::super::fragment_coordination_export_error)?)
         } else {
             let result = (|| $body)();
 

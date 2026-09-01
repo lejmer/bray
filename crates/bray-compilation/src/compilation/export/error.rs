@@ -74,6 +74,40 @@ pub(in crate::compilation::export) const fn semantic_value_export_error(
     PackageInterfaceExportError::SemanticValueStore(error)
 }
 
+pub(in crate::compilation::export) fn constant_callable_evaluation_export_error(
+    declaration: DiagnosticInterfaceSymbolIdentity,
+    cause: FactQueryError,
+) -> PackageInterfaceExportError {
+    contextual_fact_query_export_error(cause, |cause| {
+        PackageInterfaceExportError::ConstantCallableEvaluation { declaration, cause }
+    })
+}
+
+pub(in crate::compilation::export) fn executable_template_evaluation_export_error(
+    declaration: DiagnosticInterfaceSymbolIdentity,
+    cause: FactQueryError,
+) -> PackageInterfaceExportError {
+    contextual_fact_query_export_error(cause, |cause| {
+        PackageInterfaceExportError::ExecutableTemplateEvaluation { declaration, cause }
+    })
+}
+
+pub(in crate::compilation::export) fn fragment_coordination_export_error(
+    cause: FactQueryError,
+) -> PackageInterfaceExportError {
+    contextual_fact_query_export_error(cause, PackageInterfaceExportError::FragmentCoordination)
+}
+
+fn contextual_fact_query_export_error(
+    cause: FactQueryError,
+    contextualize: impl FnOnce(FactQueryError) -> PackageInterfaceExportError,
+) -> PackageInterfaceExportError {
+    match cause {
+        FactQueryError::Cancelled => PackageInterfaceExportError::Cancelled,
+        cause => contextualize(cause),
+    }
+}
+
 pub(in crate::compilation::export) fn callable_signature_export_error(
     error: CallableSignatureTemplateError,
     fallback: PackageInterfaceExportError,
@@ -166,7 +200,9 @@ mod tests {
     };
 
     use super::{
-        PackageInterfaceExportError, binding_query_export_error, fact_query_export_error,
+        PackageInterfaceExportError, binding_query_export_error,
+        constant_callable_evaluation_export_error, executable_template_evaluation_export_error,
+        fact_query_export_error, fragment_coordination_export_error,
     };
     use crate::fact::{CompilationFactKey, FactCycle, FactQueryError, FactRuntimeFailure};
 
@@ -260,6 +296,34 @@ mod tests {
                 bray_binder::BindingQueryError::<std::convert::Infallible>::Cancelled,
                 fallback(),
             ),
+            PackageInterfaceExportError::Cancelled
+        );
+    }
+
+    #[test]
+    fn contextual_query_export_errors_normalize_cancellation() {
+        let declaration = bray_diagnostics::DiagnosticInterfaceSymbolIdentity::Package(
+            "example.package".to_owned(),
+        );
+
+        assert_eq!(
+            constant_callable_evaluation_export_error(
+                declaration.clone(),
+                FactQueryError::Cancelled,
+            ),
+            PackageInterfaceExportError::Cancelled
+        );
+
+        assert_eq!(
+            executable_template_evaluation_export_error(
+                declaration,
+                FactQueryError::Cancelled,
+            ),
+            PackageInterfaceExportError::Cancelled
+        );
+
+        assert_eq!(
+            fragment_coordination_export_error(FactQueryError::Cancelled),
             PackageInterfaceExportError::Cancelled
         );
     }
