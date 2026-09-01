@@ -216,37 +216,6 @@ pub(crate) fn diagnostic_checker_failure(
     }
 }
 
-pub(crate) fn diagnostic_semantic_query_failure(
-    error: &crate::compilation::SemanticQueryError,
-) -> bray_diagnostics::DiagnosticSemanticQueryFailure {
-    use crate::compilation::SemanticQueryErrorKind as Kind;
-
-    let reason = match error.kind() {
-        Kind::ContractViolation => "semantic_query_contract_violation",
-        Kind::CallableSignature => "semantic_query_callable_signature",
-        Kind::GenericSubstitution => "semantic_query_generic_substitution",
-        Kind::BoundUnit => "semantic_query_bound_unit",
-        Kind::Implementation => "semantic_query_implementation",
-        Kind::CheckedConstantTerms => "semantic_query_checked_constant_terms",
-        Kind::TypeSurface => "semantic_query_type_surface",
-        Kind::PreparsedSyntax => "semantic_query_preparsed_syntax",
-    };
-
-    let mut context = vec![bray_diagnostics::DiagnosticFailureField::new(
-        "cause",
-        bray_diagnostics::DiagnosticFailureValue::Text(format!("{:?}", error.cause())),
-    )];
-
-    if let Some(source) = error.source() {
-        context.push(bray_diagnostics::DiagnosticFailureField::new(
-            "source",
-            bray_diagnostics::DiagnosticFailureValue::Text(format!("{source:?}")),
-        ));
-    }
-
-    bray_diagnostics::DiagnosticSemanticQueryFailure::new(reason, context)
-}
-
 fn diagnostic_semantic_selection_failure(
     failure: bray_bound_tree::SemanticSelectionTableBuildError,
 ) -> DiagnosticSemanticSelectionFailure {

@@ -23,6 +23,10 @@ impl DiagnosticFailureField {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticFailureValue {
     Count(u64),
+    Identity([u8; 32]),
+    IdentityList(Box<[[u8; 32]]>),
+    Natural(String),
+    Signed(i64),
     Text(String),
     TextList(Box<[String]>),
 }

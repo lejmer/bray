@@ -83,7 +83,7 @@ pub(crate) fn format_english_emission_evaluation_failure(
 fn format_english_semantic_query_failure(
     failure: &bray_diagnostics::DiagnosticSemanticQueryFailure,
 ) -> String {
-    let detail = match failure.reason() {
+    let detail = match failure.category() {
         "semantic_query_contract_violation" => "found inconsistent declaration information",
         "semantic_query_callable_signature" => "found an inconsistent callable signature",
         "semantic_query_generic_substitution" => "found inconsistent generic arguments",
@@ -287,43 +287,9 @@ pub(crate) fn format_english_native_product_failure(
 }
 
 fn format_english_fact_runtime_failure(
-    failure: &bray_diagnostics::DiagnosticFactRuntimeFailure,
+    _failure: &bray_diagnostics::DiagnosticFactRuntimeFailure,
 ) -> String {
-    let context = failure
-        .context()
-        .iter()
-        .map(|field| {
-            format!(
-                "{} {}",
-                field.name().replace('_', " "),
-                format_english_fact_runtime_value(field.value())
-            )
-        })
-        .collect::<Vec<_>>()
-        .join(", ");
-
-    let detail = if context.is_empty() {
-        format!("runtime contract '{}' failed", failure.reason())
-    } else {
-        format!(
-            "runtime contract '{}' failed ({context})",
-            failure.reason()
-        )
-    };
-
-    super::format_internal_compiler_error(detail)
-}
-
-fn format_english_fact_runtime_value(
-    value: &bray_diagnostics::DiagnosticFailureValue,
-) -> String {
-    use bray_diagnostics::DiagnosticFailureValue as Value;
-
-    match value {
-        Value::Count(value) => value.to_string(),
-        Value::Text(value) => format!("'{value}'"),
-        Value::TextList(values) => format!("[{}]", values.join(", ")),
-    }
+    super::format_internal_compiler_error("evaluation state violated an internal contract")
 }
 
 fn format_english_lowering_input_failure(
@@ -774,7 +740,7 @@ mod tests {
     }
 
     #[test]
-    fn runtime_failures_render_one_shared_heading_and_retained_context() {
+    fn runtime_failures_render_one_shared_heading_without_internal_context() {
         let message = format_english_fact_runtime_failure(&DiagnosticFactRuntimeFailure::new(
             "publication_mismatch",
             [
@@ -791,9 +757,9 @@ mod tests {
 
         assert!(message.starts_with(INTERNAL_COMPILER_ERROR));
         assert_eq!(message.matches(INTERNAL_COMPILER_ERROR).count(), 1);
-        assert!(message.contains("publication_mismatch"));
-        assert!(message.contains("SyntaxTree"));
-        assert!(message.contains("23"));
+        assert!(!message.contains("publication_mismatch"));
+        assert!(!message.contains("SyntaxTree"));
+        assert!(!message.contains("23"));
         assert!(!message.contains(';'));
     }
 

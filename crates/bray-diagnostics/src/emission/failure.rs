@@ -319,19 +319,26 @@ pub enum DiagnosticEmissionEvaluationFailure {
 /// Exact semantic-query failure retained for product diagnostics.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct DiagnosticSemanticQueryFailure {
+    category: &'static str,
     reason: &'static str,
     context: Box<[crate::DiagnosticFailureField]>,
 }
 
 impl DiagnosticSemanticQueryFailure {
     pub fn new(
+        category: &'static str,
         reason: &'static str,
         context: impl Into<Box<[crate::DiagnosticFailureField]>>,
     ) -> Self {
         Self {
+            category,
             reason,
             context: context.into(),
         }
+    }
+
+    pub const fn category(&self) -> &'static str {
+        self.category
     }
 
     pub const fn reason(&self) -> &'static str {

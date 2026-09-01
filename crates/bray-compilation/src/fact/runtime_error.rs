@@ -222,6 +222,20 @@ impl From<&io::Error> for HostIoFailure {
     }
 }
 
+impl HostIoFailure {
+    pub(crate) const fn kind(&self) -> io::ErrorKind {
+        self.kind
+    }
+
+    pub(crate) const fn raw_os_error(&self) -> Option<i32> {
+        self.raw_os_error
+    }
+
+    pub(crate) fn message(&self) -> &str {
+        &self.message
+    }
+}
+
 impl std::fmt::Display for HostIoFailure {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&self.message)

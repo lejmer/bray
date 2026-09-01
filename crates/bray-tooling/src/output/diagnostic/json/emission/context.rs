@@ -256,6 +256,23 @@ pub(in crate::output::diagnostic::json) fn diagnostic_failure_context(
                 bray_diagnostics::DiagnosticFailureValue::Count(value) => {
                     DiagnosticEmissionFieldValueJson::Count(*value)
                 }
+                bray_diagnostics::DiagnosticFailureValue::Identity(value) => {
+                    DiagnosticEmissionFieldValueJson::Identity(bray_base::lowercase_hex(value))
+                }
+                bray_diagnostics::DiagnosticFailureValue::IdentityList(values) => {
+                    DiagnosticEmissionFieldValueJson::IdentityList(
+                        values
+                            .iter()
+                            .map(|value| bray_base::lowercase_hex(value))
+                            .collect(),
+                    )
+                }
+                bray_diagnostics::DiagnosticFailureValue::Natural(value) => {
+                    DiagnosticEmissionFieldValueJson::Natural(value.clone())
+                }
+                bray_diagnostics::DiagnosticFailureValue::Signed(value) => {
+                    DiagnosticEmissionFieldValueJson::Signed(*value)
+                }
                 bray_diagnostics::DiagnosticFailureValue::Text(value) => {
                     DiagnosticEmissionFieldValueJson::Text(value.clone())
                 }

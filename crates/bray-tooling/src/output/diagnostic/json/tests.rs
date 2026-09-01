@@ -344,6 +344,7 @@ fn runtime_failures_preserve_exact_context_in_emission_and_native_json() {
 fn semantic_query_failures_preserve_leaf_context_in_emission_and_native_json() {
     let failure = DiagnosticSemanticQueryFailure::new(
         "semantic_query_contract_violation",
+        "semantic_query_contract_violation",
         [DiagnosticFailureField::new(
             "cause",
             DiagnosticFailureValue::Text(

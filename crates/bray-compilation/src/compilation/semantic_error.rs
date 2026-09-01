@@ -224,6 +224,10 @@ impl SemanticQueryContractFailure {
         &self.context
     }
 
+    pub(crate) const fn violation(&self) -> &SemanticQueryViolation {
+        &self.violation
+    }
+
     pub(crate) const fn source(&self) -> Option<SourceSpan> {
         self.source
     }
