@@ -66,7 +66,16 @@ impl std::fmt::Display for FactRuntimeError {
     }
 }
 
-impl std::error::Error for FactRuntimeError {}
+impl std::error::Error for FactRuntimeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self.cause() {
+            FactRuntimeFailure::WorkerPoolCreation {
+                host: Some(host), ..
+            } => Some(host),
+            _ => None,
+        }
+    }
+}
 
 impl From<FactRuntimeFailure> for FactRuntimeError {
     fn from(cause: FactRuntimeFailure) -> Self {
@@ -97,7 +106,7 @@ pub(crate) enum FactRuntimeFailure {
     WorkerPoolCreation {
         pool: WorkerPoolKind,
         workers: usize,
-        host: Option<io::ErrorKind>,
+        host: Option<HostIoFailure>,
     },
     WorkerTerminated {
         worker: Option<usize>,
@@ -191,6 +200,31 @@ pub(crate) enum FactRuntimeFailure {
         actual: BoundUnitKey,
     },
 }
+
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub(crate) struct HostIoFailure {
+    kind: io::ErrorKind,
+    raw_os_error: Option<i32>,
+    message: Box<str>,
+}
+
+impl From<&io::Error> for HostIoFailure {
+    fn from(error: &io::Error) -> Self {
+        Self {
+            kind: error.kind(),
+            raw_os_error: error.raw_os_error(),
+            message: error.to_string().into_boxed_str(),
+        }
+    }
+}
+
+impl std::fmt::Display for HostIoFailure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for HostIoFailure {}
 
 impl FactRuntimeFailure {
     const fn kind(&self) -> FactRuntimeErrorKind {
@@ -341,7 +375,16 @@ pub(crate) enum CancellationStateKind {
 
 #[cfg(test)]
 mod tests {
-    use super::{FactRuntimeError, FactRuntimeErrorKind, FactRuntimeFailure};
+    use super::{
+        CancellationStateKind, CapacityResource, FactRuntimeError, FactRuntimeErrorKind,
+        FactRuntimeFailure, FactTaskPhase, HostIoFailure, LocalStateFailure, PublicationIdentity,
+        PublicationState, SchedulerCounter, SchedulerLocalOperation, SynchronizationComponent,
+        TaskContextIdentity, TaskLocalOperation, TaskOperation, WorkerPoolKind,
+    };
+    use crate::fact::{
+        CompilationFactKey, CompilationInputKey, FactTaskIdentity, RuntimeIdentity, fact_fingerprint,
+    };
+    use crate::test_support::callable_body_key;
 
     #[test]
     fn opaque_runtime_errors_keep_query_stack_frames_pointer_sized() {
@@ -352,12 +395,226 @@ mod tests {
     }
 
     #[test]
-    fn public_kind_projects_the_private_exact_cause() {
-        let error = FactRuntimeError::from(FactRuntimeFailure::WorkerTerminated {
-            worker: Some(2),
-            item: Some(9),
+    fn public_kinds_project_every_private_cause_category() {
+        let task = FactTaskIdentity(1);
+        let fact = CompilationFactKey::SyntaxTree;
+        let unit = callable_body_key(0);
+
+        let failures = [
+            (
+                FactRuntimeFailure::SynchronizationPoisoned {
+                    component: SynchronizationComponent::FactCell,
+                    fact: Some(fact.clone()),
+                    task: Some(task),
+                },
+                FactRuntimeErrorKind::SynchronizationPoisoned,
+            ),
+            (
+                FactRuntimeFailure::SchedulerResultStatePoisoned { item: Some(0) },
+                FactRuntimeErrorKind::SynchronizationPoisoned,
+            ),
+            (
+                FactRuntimeFailure::UnitIdentityStatePoisoned { unit: unit.clone() },
+                FactRuntimeErrorKind::SynchronizationPoisoned,
+            ),
+            (
+                FactRuntimeFailure::CapacityExhausted {
+                    resource: CapacityResource::TaskIdentity,
+                    fact: Some(fact.clone()),
+                    task: Some(task),
+                },
+                FactRuntimeErrorKind::CapacityExhausted,
+            ),
+            (
+                FactRuntimeFailure::UnitSourceCapacityExhausted { source_count: 1 },
+                FactRuntimeErrorKind::CapacityExhausted,
+            ),
+            (
+                FactRuntimeFailure::UnitIdentityCapacityExhausted {
+                    unit: unit.clone(),
+                    source_ordinal: 1,
+                },
+                FactRuntimeErrorKind::CapacityExhausted,
+            ),
+            (
+                FactRuntimeFailure::WorkerPoolCreation {
+                    pool: WorkerPoolKind::Ordinary,
+                    workers: 2,
+                    host: None,
+                },
+                FactRuntimeErrorKind::WorkerPoolCreation,
+            ),
+            (
+                FactRuntimeFailure::WorkerTerminated {
+                    worker: Some(2),
+                    item: Some(9),
+                },
+                FactRuntimeErrorKind::WorkerTerminated,
+            ),
+            (
+                FactRuntimeFailure::InvalidTaskState {
+                    operation: TaskOperation::Finish,
+                    expected: FactTaskPhase::Recording,
+                    actual: FactTaskPhase::Finished,
+                    task,
+                    fact: fact.clone(),
+                },
+                FactRuntimeErrorKind::InvalidTaskState,
+            ),
+            (
+                FactRuntimeFailure::InvalidSchedulerState {
+                    counter: SchedulerCounter::OrdinaryWaiters,
+                    expected_minimum: 1,
+                    actual: 0,
+                },
+                FactRuntimeErrorKind::InvalidSchedulerState,
+            ),
+            (
+                FactRuntimeFailure::SchedulerLocalStateUnavailable {
+                    operation: SchedulerLocalOperation::Enter,
+                    cause: LocalStateFailure::BorrowConflict,
+                },
+                FactRuntimeErrorKind::InvalidSchedulerState,
+            ),
+            (
+                FactRuntimeFailure::InvalidTaskContext {
+                    expected_runtime: RuntimeIdentity(1),
+                    actual: TaskContextIdentity {
+                        runtime: RuntimeIdentity(2),
+                        task,
+                        fact: fact.clone(),
+                    },
+                },
+                FactRuntimeErrorKind::InvalidTaskContext,
+            ),
+            (
+                FactRuntimeFailure::TaskLocalStateUnavailable {
+                    operation: TaskLocalOperation::Capture,
+                    cause: LocalStateFailure::Unavailable,
+                },
+                FactRuntimeErrorKind::InvalidTaskContext,
+            ),
+            (
+                FactRuntimeFailure::MissingInputFingerprint {
+                    input: CompilationInputKey::SourceSet,
+                    task,
+                    fact: fact.clone(),
+                },
+                FactRuntimeErrorKind::FingerprintFailure,
+            ),
+            (
+                FactRuntimeFailure::InputFingerprintMismatch {
+                    input: CompilationInputKey::SourceSet,
+                    expected: fact_fingerprint(&fact, &1_u8),
+                    actual: fact_fingerprint(&fact, &2_u8),
+                    task,
+                    fact: fact.clone(),
+                },
+                FactRuntimeErrorKind::FingerprintFailure,
+            ),
+            (
+                FactRuntimeFailure::PublicationMismatch {
+                    requested: PublicationIdentity {
+                        task: Some(task),
+                        fact: fact.clone(),
+                    },
+                    actual: PublicationState::Vacant,
+                },
+                FactRuntimeErrorKind::PublicationMismatch,
+            ),
+            (
+                FactRuntimeFailure::AbandonedComputation {
+                    task,
+                    fact: fact.clone(),
+                },
+                FactRuntimeErrorKind::AbandonedComputation,
+            ),
+            (
+                FactRuntimeFailure::MissingDependencyRecord {
+                    task,
+                    fact: fact.clone(),
+                    dependency: CompilationFactKey::DeclarationTable,
+                },
+                FactRuntimeErrorKind::DependencyStateMismatch,
+            ),
+            (
+                FactRuntimeFailure::InvalidWaitGraph {
+                    requester: task,
+                    owner: FactTaskIdentity(2),
+                    missing_predecessor: FactTaskIdentity(3),
+                    requested: fact.clone(),
+                },
+                FactRuntimeErrorKind::DependencyStateMismatch,
+            ),
+            (
+                FactRuntimeFailure::MissingCycle {
+                    runtime: RuntimeIdentity(1),
+                    fact: fact.clone(),
+                    active: vec![fact.clone()].into_boxed_slice(),
+                },
+                FactRuntimeErrorKind::DependencyStateMismatch,
+            ),
+            (
+                FactRuntimeFailure::InvalidCancellationState {
+                    expected: CancellationStateKind::Shared,
+                    actual: CancellationStateKind::Request,
+                },
+                FactRuntimeErrorKind::InvalidCancellationState,
+            ),
+            (
+                FactRuntimeFailure::RecursiveCancellationInterest,
+                FactRuntimeErrorKind::InvalidCancellationState,
+            ),
+            (
+                FactRuntimeFailure::InvalidFrozenFact { fact: fact.clone() },
+                FactRuntimeErrorKind::InvalidFactState,
+            ),
+            (
+                FactRuntimeFailure::InvalidUnitQueryKey {
+                    fact,
+                    unit: unit.clone(),
+                },
+                FactRuntimeErrorKind::UnitIdentityFailure,
+            ),
+            (
+                FactRuntimeFailure::UnknownUnitSource { unit: unit.clone() },
+                FactRuntimeErrorKind::UnitIdentityFailure,
+            ),
+            (
+                FactRuntimeFailure::UnitIdentityCollision {
+                    identity: bray_bound_tree::BoundUnitId::new(0),
+                    expected: unit.clone(),
+                    actual: unit,
+                },
+                FactRuntimeErrorKind::UnitIdentityFailure,
+            ),
+        ];
+
+        for (failure, expected) in failures {
+            assert_eq!(FactRuntimeError::from(failure).kind(), expected);
+        }
+    }
+
+    #[test]
+    fn worker_pool_creation_exposes_the_owned_host_cause() {
+        let host = std::io::Error::from_raw_os_error(5);
+        let expected = host.to_string();
+
+        let error = FactRuntimeError::from(FactRuntimeFailure::WorkerPoolCreation {
+            pool: WorkerPoolKind::Ordinary,
+            workers: 2,
+            host: Some(HostIoFailure::from(&host)),
         });
 
-        assert_eq!(error.kind(), FactRuntimeErrorKind::WorkerTerminated);
+        let source = std::error::Error::source(&error)
+            .unwrap_or_else(|| panic!("worker-pool creation must retain its host cause"));
+
+        let source = source
+            .downcast_ref::<HostIoFailure>()
+            .unwrap_or_else(|| panic!("worker-pool host cause must retain its typed payload"));
+
+        assert_eq!(source.to_string(), expected);
+        assert_eq!(source.kind, host.kind());
+        assert_eq!(source.raw_os_error, host.raw_os_error());
     }
 }

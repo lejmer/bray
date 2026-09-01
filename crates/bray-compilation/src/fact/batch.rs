@@ -171,12 +171,13 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Condvar, Mutex};
     use std::time::Duration;
 
     use super::{BatchCompletionError, BatchWork};
-    use crate::fact::{CancellationToken, FactQueryError, FactRuntime, FactRuntimeFailure};
+    use crate::fact::{CancellationToken, FactRuntime};
     use crate::{QueryPriority, WorkerBudget};
 
     #[test]
@@ -238,26 +239,17 @@ mod tests {
     }
 
     #[test]
-    fn evaluator_panics_retain_the_scheduled_worker_item() {
+    fn evaluator_panics_remain_compiler_domain_panics() {
         let runtime = FactRuntime::new(WorkerBudget::serial());
         let cancellation = CancellationToken::new();
 
-        let outcome =
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
             runtime.complete_batch([1], &cancellation, |_| -> Result<BatchWork<u32, ()>, ()> {
                 panic!("test evaluator invariant failed")
-            });
+            })
+        }));
 
-        assert!(matches!(
-            outcome,
-            Err(BatchCompletionError::Scheduler(FactQueryError::Runtime(error)))
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::WorkerTerminated {
-                        worker: Some(_),
-                        item: Some(0),
-                    }
-                )
-        ));
+        assert!(outcome.is_err());
     }
 
     #[test]

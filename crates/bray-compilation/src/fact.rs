@@ -49,10 +49,10 @@ pub(crate) use priority::QueryPriorityDemand;
 pub(crate) use runtime::FactEvaluationTestObserver;
 pub(crate) use runtime::{EvaluationCommit, FactRuntime};
 pub(crate) use runtime_error::{
-    CancellationStateKind, CapacityResource, FactRuntimeFailure, FactTaskPhase, LocalStateFailure,
-    PublicationIdentity, PublicationState, SchedulerCounter, SchedulerLocalOperation,
-    SynchronizationComponent, TaskContextIdentity, TaskLocalOperation, TaskOperation,
-    WorkerPoolKind,
+    CancellationStateKind, CapacityResource, FactRuntimeFailure, FactTaskPhase, HostIoFailure,
+    LocalStateFailure, PublicationIdentity, PublicationState, SchedulerCounter,
+    SchedulerLocalOperation, SynchronizationComponent, TaskContextIdentity, TaskLocalOperation,
+    TaskOperation, WorkerPoolKind,
 };
 pub(crate) use symbol::SymbolQueryCache;
 pub(crate) use task::{FactTaskIdentity, RuntimeIdentity};

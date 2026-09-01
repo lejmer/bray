@@ -1,15 +1,14 @@
 use std::cell::RefCell;
 use std::error::Error as _;
 use std::io;
-use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
 use super::{
-    CapacityResource, FactQueryError, FactRuntimeError, FactRuntimeFailure, LocalStateFailure,
-    QueryPriority, QueryPriorityDemand, SchedulerCounter, SchedulerLocalOperation,
-    SynchronizationComponent, WorkerPoolKind,
+    CapacityResource, FactQueryError, FactRuntimeError, FactRuntimeFailure, HostIoFailure,
+    LocalStateFailure, QueryPriority, QueryPriorityDemand, SchedulerCounter,
+    SchedulerLocalOperation, SynchronizationComponent, WorkerPoolKind,
 };
 use crate::WorkerBudget;
 use crate::profile::{CompilationProfileOutcome, ProfileOperation, ProfileSession};
@@ -114,12 +113,7 @@ impl FactScheduler {
             .collect::<Vec<Mutex<Option<T>>>>();
 
         let evaluate = |index: usize| -> Result<(), FactQueryError> {
-            let value = catch_unwind(AssertUnwindSafe(|| operation(index))).map_err(|_| {
-                FactRuntimeFailure::WorkerTerminated {
-                    worker: rayon::current_thread_index(),
-                    item: Some(index),
-                }
-            })?;
+            let value = operation(index);
 
             publish_scheduled_result(&slots[index], index, value)
         };
@@ -153,23 +147,7 @@ impl FactScheduler {
             }
         }
 
-        slots
-            .into_iter()
-            .enumerate()
-            .map(|(index, slot)| {
-                let result = slot.into_inner().map_err(|_| {
-                    FactRuntimeFailure::SchedulerResultStatePoisoned { item: Some(index) }
-                })?;
-
-                result.ok_or_else(|| {
-                    FactRuntimeFailure::WorkerTerminated {
-                        worker: None,
-                        item: Some(index),
-                    }
-                    .into()
-                })
-            })
-            .collect()
+        collect_scheduled_results(slots)
     }
 
     fn map_indexed_nested(
@@ -394,6 +372,28 @@ fn publish_scheduled_result<T>(
     Ok(())
 }
 
+fn collect_scheduled_results<T>(
+    slots: Vec<Mutex<Option<T>>>,
+) -> Result<Vec<T>, FactQueryError> {
+    slots
+        .into_iter()
+        .enumerate()
+        .map(|(index, slot)| {
+            let result = slot.into_inner().map_err(|_| {
+                FactRuntimeFailure::SchedulerResultStatePoisoned { item: Some(index) }
+            })?;
+
+            result.ok_or_else(|| {
+                FactRuntimeFailure::WorkerTerminated {
+                    worker: None,
+                    item: Some(index),
+                }
+                .into()
+            })
+        })
+        .collect()
+}
+
 fn take_scheduler_error(
     storage: &Mutex<Option<(usize, FactQueryError)>>,
 ) -> Result<Option<FactQueryError>, FactQueryError> {
@@ -423,7 +423,7 @@ fn build_pool<'a>(
                         host: error
                             .source()
                             .and_then(|source| source.downcast_ref::<io::Error>())
-                            .map(io::Error::kind),
+                            .map(HostIoFailure::from),
                     })
                 })
         })
@@ -717,13 +717,14 @@ struct ActiveScheduler {
 
 #[cfg(test)]
 mod tests {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Barrier, Mutex, mpsc};
     use std::time::Duration;
 
     use super::{
-        ExecutionSlots, FactScheduler, SlotState, grant_slot, publish_scheduled_result,
-        register_waiter, unregister_waiter,
+        ExecutionSlots, FactScheduler, SlotState, collect_scheduled_results, grant_slot,
+        publish_scheduled_result, register_waiter, unregister_waiter,
     };
     use crate::fact::{
         CapacityResource, FactQueryError, FactRuntimeFailure, QueryPriorityDemand, SchedulerCounter,
@@ -978,45 +979,26 @@ mod tests {
     }
 
     #[test]
-    fn panicking_indexed_work_reports_the_worker_and_item() {
+    fn panicking_indexed_work_remains_a_compiler_domain_panic() {
         let scheduler = FactScheduler::new(worker_budget(2));
 
-        let error = match scheduler.map_indexed(QueryPriority::Normal, 4, |index| {
-            if index == 2 {
-                panic!("terminate test worker");
-            }
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            let _ = scheduler.map_indexed(QueryPriority::Normal, 4, |index| {
+                if index == 2 {
+                    panic!("test compiler invariant failed");
+                }
 
-            index
-        }) {
-            Ok(_) => panic!("panicking indexed work must fail"),
-            Err(error) => error,
-        };
+                index
+            });
+        }));
 
-        assert!(matches!(
-            error,
-            FactQueryError::Runtime(error)
-                if matches!(
-                    error.cause(),
-                    FactRuntimeFailure::WorkerTerminated {
-                        worker: Some(_),
-                        item: Some(2),
-                    }
-                )
-        ));
+        assert!(result.is_err());
     }
 
     #[test]
-    fn multiple_worker_failures_select_the_lowest_item() {
-        let scheduler = FactScheduler::new(worker_budget(2));
-
-        let error = match scheduler.map_indexed(QueryPriority::Normal, 2, |index| {
-            if index == 0 {
-                std::thread::sleep(Duration::from_millis(25));
-            }
-
-            panic!("terminate test worker for item {index}");
-        }) {
-            Ok(values) => panic!("panicking indexed work must fail: {values:?}"),
+    fn missing_scheduled_result_reports_worker_termination() {
+        let error = match collect_scheduled_results::<u32>(vec![Mutex::new(None)]) {
+            Ok(values) => panic!("missing worker publication must fail: {values:?}"),
             Err(error) => error,
         };
 
@@ -1026,8 +1008,8 @@ mod tests {
                 if matches!(
                     error.cause(),
                     FactRuntimeFailure::WorkerTerminated {
+                        worker: None,
                         item: Some(0),
-                        ..
                     }
                 )
         ));

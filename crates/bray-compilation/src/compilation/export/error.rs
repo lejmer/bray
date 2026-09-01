@@ -16,6 +16,8 @@ use crate::fact::FactQueryError;
 pub enum PackageInterfaceExportError {
     /// Export was cancelled before a complete interface could be committed.
     Cancelled,
+    /// Query-runtime coordination prevented a complete interface from being committed.
+    Query(FactQueryError),
     /// Source or semantic errors make the product invalid.
     InvalidCompilation,
     /// The semantic-value store identity space was exhausted while preparing the interface.
@@ -96,6 +98,11 @@ pub(in crate::compilation::export) fn fact_query_export_error(
     fallback: PackageInterfaceExportError,
 ) -> PackageInterfaceExportError {
     match error {
+        FactQueryError::Cancelled => PackageInterfaceExportError::Cancelled,
+        error
+            @ (FactQueryError::Cycle(_)
+            | FactQueryError::InfrastructureFailure
+            | FactQueryError::Runtime(_)) => PackageInterfaceExportError::Query(error),
         FactQueryError::SemanticValueStoreCreate(error) => {
             PackageInterfaceExportError::SemanticValueStoreCreate(error)
         }
@@ -158,8 +165,10 @@ mod tests {
         SemanticValueKind, SemanticValueStoreCreateError, SemanticValueStoreError,
     };
 
-    use super::{PackageInterfaceExportError, fact_query_export_error};
-    use crate::fact::FactQueryError;
+    use super::{
+        PackageInterfaceExportError, binding_query_export_error, fact_query_export_error,
+    };
+    use crate::fact::{CompilationFactKey, FactCycle, FactQueryError, FactRuntimeFailure};
 
     #[test]
     fn fact_query_export_preserves_direct_and_nested_semantic_value_failures() {
@@ -213,6 +222,45 @@ mod tests {
             PackageInterfaceExportError::SemanticValueStoreCreate(
                 SemanticValueStoreCreateError::IdentitySpaceExhausted,
             )
+        );
+    }
+
+    #[test]
+    fn fact_query_export_preserves_coordination_failures_and_cancellation() {
+        let fallback = || PackageInterfaceExportError::InvalidCompilation;
+
+        let runtime = FactQueryError::from(FactRuntimeFailure::WorkerTerminated {
+            worker: Some(2),
+            item: None,
+        });
+
+        assert_eq!(
+            fact_query_export_error(runtime.clone(), fallback()),
+            PackageInterfaceExportError::Query(runtime)
+        );
+
+        let cycle = FactQueryError::Cycle(FactCycle::new([
+            CompilationFactKey::SyntaxTree,
+            CompilationFactKey::DeclarationTable,
+            CompilationFactKey::SyntaxTree,
+        ]));
+
+        assert_eq!(
+            fact_query_export_error(cycle.clone(), fallback()),
+            PackageInterfaceExportError::Query(cycle)
+        );
+
+        assert_eq!(
+            fact_query_export_error(FactQueryError::Cancelled, fallback()),
+            PackageInterfaceExportError::Cancelled
+        );
+
+        assert_eq!(
+            binding_query_export_error(
+                bray_binder::BindingQueryError::<std::convert::Infallible>::Cancelled,
+                fallback(),
+            ),
+            PackageInterfaceExportError::Cancelled
         );
     }
 }

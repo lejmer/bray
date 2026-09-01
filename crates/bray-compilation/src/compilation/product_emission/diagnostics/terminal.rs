@@ -204,6 +204,11 @@ fn package_interface_export_failure_diagnostic(
 ) -> Option<Diagnostic> {
     let diagnostic = match error {
         PackageInterfaceExportError::Cancelled => return None,
+        PackageInterfaceExportError::Query(error) => emission_failure_diagnostic(
+            DiagnosticEmissionFailure::Evaluation(diagnostic_evaluation_failure(error)),
+            product,
+            target,
+        ),
         PackageInterfaceExportError::InvalidCompilation => package_failure_diagnostic(
             DiagnosticPackageInterfaceFailure::InvalidCompilation,
             product,
@@ -799,7 +804,7 @@ mod tests {
     };
     use crate::LocatedLoweringFailure;
     use crate::compilation::PackageInterfaceExportError;
-    use crate::fact::FactQueryError;
+    use crate::fact::{FactQueryError, FactRuntimeFailure};
 
     fn identities() -> (ProductIdentity, TargetIdentity) {
         let package = PackageIdentity::try_new("example.package")
@@ -825,6 +830,22 @@ mod tests {
                 &target,
             )
             .is_none()
+        );
+    }
+
+    #[test]
+    fn package_interface_query_coordination_uses_the_evaluation_diagnostic_boundary() {
+        let (product, target) = identities();
+
+        let error = PackageInterfaceExportError::Query(FactQueryError::from(
+            FactRuntimeFailure::WorkerTerminated {
+                worker: Some(1),
+                item: None,
+            },
+        ));
+
+        assert!(
+            package_interface_export_failure_diagnostic(&error, &product, &target).is_some()
         );
     }
 
