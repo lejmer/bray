@@ -7,6 +7,7 @@ mod linking;
 mod standard_library;
 mod toolchain;
 
+use super::super::format_internal_compiler_error;
 pub(crate) use artifact::format_english_semantic_value_failure;
 pub(super) use artifact::{
     format_artifact_failure, format_english_emission_evaluation_failure,
@@ -28,9 +29,3 @@ pub(super) use standard_library::format_english_standard_library_manifest_proble
 pub(super) use toolchain::{
     format_english_linker_driver_identity, format_english_unsupported_emission_reason,
 };
-
-const INTERNAL_COMPILER_ERROR_PREFIX: &str = "internal compiler error: ";
-
-fn format_internal_compiler_error(detail: impl AsRef<str>) -> String {
-    format!("{INTERNAL_COMPILER_ERROR_PREFIX}{}", detail.as_ref())
-}

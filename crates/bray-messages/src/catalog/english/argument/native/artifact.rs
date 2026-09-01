@@ -683,7 +683,7 @@ mod tests {
     use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 
     use super::{format_english_binding_failure, format_english_checker_failure};
-    use crate::catalog::english::argument::native::INTERNAL_COMPILER_ERROR_PREFIX;
+    use crate::catalog::english::INTERNAL_COMPILER_ERROR;
 
     #[test]
     fn binding_failures_render_distinct_user_facing_causes() {
@@ -695,8 +695,8 @@ mod tests {
         assert_ne!(syntax, owner);
         assert!(syntax.contains("source syntax"));
         assert!(owner.contains("declaration"));
-        assert!(syntax.starts_with(INTERNAL_COMPILER_ERROR_PREFIX));
-        assert!(owner.starts_with(INTERNAL_COMPILER_ERROR_PREFIX));
+        assert!(syntax.starts_with(INTERNAL_COMPILER_ERROR));
+        assert!(owner.starts_with(INTERNAL_COMPILER_ERROR));
     }
 
     #[test]
@@ -753,7 +753,7 @@ mod tests {
         });
 
         for message in [&missing, &version, &range, &query, &expression, &node] {
-            assert!(message.starts_with(INTERNAL_COMPILER_ERROR_PREFIX));
+            assert!(message.starts_with(INTERNAL_COMPILER_ERROR));
             assert!(!message.contains('#'));
         }
 
