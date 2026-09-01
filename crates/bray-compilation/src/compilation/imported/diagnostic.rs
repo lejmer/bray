@@ -43,6 +43,7 @@ pub(super) fn standard_library_diagnostics(
     input: &DependencyInterfaceInput,
 ) -> DiagnosticBag {
     let (diagnostic, artifact_path) = standard_library_failure_diagnostic(error);
+
     let artifact_path = artifact_path
         .as_deref()
         .unwrap_or_else(|| input.artifact_path());
