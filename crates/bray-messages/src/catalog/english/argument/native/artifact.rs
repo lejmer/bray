@@ -26,15 +26,15 @@ pub(crate) fn format_english_emission_evaluation_failure(
     use bray_diagnostics::DiagnosticEmissionEvaluationFailure as Failure;
 
     let message = match failure {
-        Failure::Cycle => "compiler evaluation encountered a dependency cycle",
-        Failure::Infrastructure => "the compiler evaluation state became inconsistent",
+        Failure::Cycle => "a dependency cycle occurred during compiler evaluation",
+        Failure::Infrastructure => "compiler evaluation state is inconsistent",
         Failure::SemanticValueStoreCreate => {
-            "the compiler exhausted its process-local semantic value store identities"
+            "process-local semantic-value store identity capacity was exhausted during compiler evaluation"
         }
         Failure::SemanticValue(failure) => {
-            return format_english_semantic_value_failure(failure).to_owned();
+            return format_english_semantic_value_failure(failure);
         }
-        Failure::Binding(failure) => return format_english_binding_failure(failure).to_owned(),
+        Failure::Binding(failure) => return format_english_binding_failure(failure),
         Failure::LoweringInput(failure) => return format_english_lowering_input_failure(failure),
         Failure::Lowering(failure) => return format_english_lowering_failure(failure),
         Failure::ConstantCallableBodyUnavailable => {
@@ -65,7 +65,7 @@ pub(crate) fn format_english_emission_evaluation_failure(
             "the selected program element has inconsistent checking context"
         }
         Failure::SemanticQuery(failure) => {
-            return format_english_semantic_query_failure(failure).to_owned();
+            return format_english_semantic_query_failure(failure);
         }
         Failure::Checker(failure) => return format_english_checker_failure(failure),
     };
@@ -106,16 +106,18 @@ pub(crate) fn format_english_native_product_failure(
         Kind::MissingRuntime => "the asynchronous product has no selected runtime",
         Kind::InvalidSymbolName => "a generated binary symbol name is not representable",
         Kind::InvalidNativeLinkInput => "a configured native link input is invalid",
-        Kind::EvaluationCycle => "compiler evaluation encountered a dependency cycle",
-        Kind::EvaluationInfrastructure => "the compiler could not complete product construction",
+        Kind::EvaluationCycle => "a dependency cycle occurred during compiler evaluation",
+        Kind::EvaluationInfrastructure => {
+            "product construction failed because compiler evaluation state is inconsistent"
+        }
         Kind::EvaluationSemanticValueStoreCreate => {
-            "the compiler exhausted its process-local semantic value store identities"
+            "process-local semantic-value store identity capacity was exhausted during product construction"
         }
         Kind::EvaluationSemanticValue(failure) => {
-            return format_english_semantic_value_failure(failure).to_owned();
+            return format_english_semantic_value_failure(failure);
         }
         Kind::EvaluationBinding(failure) => {
-            return format_english_binding_failure(failure).to_owned();
+            return format_english_binding_failure(failure);
         }
         Kind::EvaluationLoweringInput(failure) => {
             return format_english_lowering_input_failure(failure);
@@ -195,7 +197,7 @@ pub(crate) fn format_english_native_product_failure(
             "a compiled program item lacks native-code grouping compatibility"
         }
         Kind::PartitionInvalidUnit => "native-code grouping produced an invalid work item",
-        Kind::GeneratedHostMirInvalid => "the compiler-generated executable host is invalid",
+        Kind::GeneratedHostMirInvalid => "the generated executable host is invalid",
         Kind::ExecutableHostDuplicateRole => {
             "the executable host binds one runtime role more than once"
         }
@@ -651,30 +653,34 @@ fn format_english_binding_failure(failure: bray_diagnostics::DiagnosticBindingFa
     super::format_internal_compiler_error(detail)
 }
 
-pub(crate) fn format_english_semantic_value_failure(
+pub(super) fn format_english_semantic_value_failure(
     failure: bray_diagnostics::DiagnosticSemanticValueFailure,
 ) -> String {
+    super::format_internal_compiler_error(format_english_semantic_value_failure_detail(failure))
+}
+
+pub(crate) const fn format_english_semantic_value_failure_detail(
+    failure: bray_diagnostics::DiagnosticSemanticValueFailure,
+) -> &'static str {
     use bray_diagnostics::DiagnosticSemanticValueFailure as Failure;
 
-    let detail = match failure {
+    match failure {
         Failure::ForeignId { .. } => {
-            "mixed values from different compilations while understanding a source declaration or body"
+            "values from different compilations were combined while analyzing a source declaration or body"
         }
         Failure::UnknownId { .. } => {
-            "lost a value required to understand a source declaration or body"
+            "a value required to analyze a source declaration or body was unavailable"
         }
         Failure::CapacityExhausted { .. } => {
-            return "an internal compiler limit prevented Bray from retaining another value required by this product".to_owned();
+            "semantic-value capacity was exhausted while retaining data required by this product"
         }
         Failure::GenericOwnerMismatch { .. } => {
-            "associated generic arguments with the wrong declaration"
+            "generic arguments belong to a different declaration"
         }
         Failure::OpenSubstitution => {
-            "required unresolved generic arguments where concrete arguments were needed"
+            "generic substitution remained unresolved where concrete arguments were required"
         }
-    };
-
-    super::format_internal_compiler_error(detail)
+    }
 }
 
 #[cfg(test)]

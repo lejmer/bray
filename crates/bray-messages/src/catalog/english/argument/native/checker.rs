@@ -139,7 +139,7 @@ pub(super) fn format_english_checker_failure(
         ),
         Failure::RefinementStorageUnavailable => (
             false,
-            "the compiler could not allocate memory needed to track what a condition or pattern proves about a value",
+            "memory needed to track what a condition or pattern proves about a value was unavailable",
         ),
         Failure::StorageFlow(failure) => {
             return super::format_internal_compiler_error(format_storage_flow_failure(failure));
@@ -495,7 +495,7 @@ fn format_storage_flow_construction(reason: &str) -> &str {
         "foreign_unit" => "one recorded operation belongs to another source body",
         "duplicate_suspension" => "one await or yield expression has two saved states",
         "duplicate_memory_operation" => "one expression has two recorded memory operations",
-        _ => "the compiler could not represent one ownership operation",
+        _ => "one ownership operation could not be represented",
     }
 }
 
@@ -507,16 +507,16 @@ fn format_dependency_contract_construction(reason: &str) -> &str {
         "invalid_borrow" => "a dependency refers to a missing borrow",
         "foreign_contract" => "a dependency refers to another source body",
         "contract_capacity_exceeded" => {
-            "the number of distinct dependencies exceeds the compiler's supported limit"
+            "the number of distinct dependencies exceeds the supported limit"
         }
-        _ => "the compiler could not represent one value dependency",
+        _ => "one value dependency could not be represented",
     }
 }
 
 fn format_async_construction(reason: &str) -> &str {
     match reason {
         "foreign_unit" => "one recorded operation belongs to another source body",
-        _ => "the compiler could not represent one asynchronous operation",
+        _ => "one asynchronous operation could not be represented",
     }
 }
 
@@ -626,6 +626,6 @@ fn format_storage_operation_status(status: &str) -> &str {
         "missing_ownership" => "an operation without ownership",
         "inactive_projection" => "an access through an inactive union variant",
         "not_copyable" => "an implicit copy of a non-copyable value",
-        _ => "a state the compiler does not recognize",
+        _ => "an unrecognized state",
     }
 }

@@ -39,7 +39,7 @@ pub(crate) fn format_english_unsupported_emission_reason(
             },
         ),
         Reason::ToolInspectionFailed { tool, path, error } => format!(
-            "the compiler could not inspect the required {} at {} because the host reported {}",
+            "inspection of the required {} at {} failed because the host reported {}",
             llvm_tool_role(*tool),
             format_english_path(path),
             format_english_io_error_kind(*error)
