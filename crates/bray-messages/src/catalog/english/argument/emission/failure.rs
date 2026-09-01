@@ -343,15 +343,11 @@ fn format_english_package_interface_failure(
             declaration,
             table,
             reference,
-        } => match declaration {
-            Some(declaration) => format_internal_compiler_error(format!(
-                "{table} entry {reference} was unavailable while preparing exported {}",
-                format_english_interface_symbol_identity(declaration)
-            )),
-            None => format_internal_compiler_error(format!(
-                "{table} entry {reference} was unavailable while preparing an exported declaration"
-            )),
-        },
+        } => format_english_lost_declaration_reference(
+            declaration.as_ref(),
+            table,
+            *reference,
+        ),
         Failure::DuplicateDeclarationIdentity {
             first,
             second,
@@ -450,6 +446,22 @@ fn format_english_package_interface_failure(
         Failure::ImplementationContentTooLarge => {
             "the implementation payload exceeds the representable artifact length".to_owned()
         }
+    }
+}
+
+fn format_english_lost_declaration_reference(
+    declaration: Option<&bray_diagnostics::DiagnosticInterfaceSymbolIdentity>,
+    table: &str,
+    reference: u32,
+) -> String {
+    match declaration {
+        Some(declaration) => format_internal_compiler_error(format!(
+            "{table} entry {reference} was unavailable while preparing exported {}",
+            super::super::interface::format_english_interface_symbol_identity(declaration)
+        )),
+        None => format_internal_compiler_error(format!(
+            "{table} entry {reference} was unavailable while preparing an exported declaration"
+        )),
     }
 }
 

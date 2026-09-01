@@ -1,5 +1,6 @@
 mod argument;
 mod build_progress;
+mod compiler;
 mod diagnostics;
 #[cfg(test)]
 mod guard;
@@ -13,12 +14,6 @@ mod test_report;
 #[cfg(test)]
 mod tests;
 
-pub(crate) const INTERNAL_COMPILER_ERROR: &str = "internal compiler error";
-
-pub(crate) fn format_internal_compiler_error(detail: impl AsRef<str>) -> String {
-    format!("{INTERNAL_COMPILER_ERROR}: {}", detail.as_ref())
-}
-
 pub(crate) use argument::{format_source_location, format_source_span, format_value};
 pub(crate) use build_progress::{
     action as build_progress_action, duration as build_progress_duration,
@@ -26,6 +21,7 @@ pub(crate) use build_progress::{
     operation as build_progress_operation, percentage as build_progress_percentage,
     unit_count as build_progress_unit_count,
 };
+pub(crate) use compiler::{INTERNAL_COMPILER_ERROR, format_internal_compiler_error};
 pub(crate) use diagnostics::{
     diagnostic_template, label_heading, note_heading, note_kind, note_template,
     related_location_heading, severity_label,
