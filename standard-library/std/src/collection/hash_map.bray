@@ -166,7 +166,7 @@ struct HashMap<Key, Value>
     {
         let entry: (Key, Value) = (trusted self.remove_entry(key))?;
 
-        let(_, value) = entry;
+        let (_, value) = entry;
 
         let mut result: Value? = none;
 

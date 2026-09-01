@@ -57,6 +57,7 @@ struct DynamicLibrary
         open_path,
         open_system,
     }
+
     trusted finalize() -> Result<unit, std.ffi.ForeignError>
         requires(blocking_execution())
     {

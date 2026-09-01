@@ -421,7 +421,7 @@ internal func append_utf16(pos buffer: &mut std.bytes.Buffer, pos value: char) -
 
 internal func append_utf16_scalar(pos buffer: &mut std.bytes.Buffer, pos scalar: u32) -> Result<unit, PathError>
 {
-    let(first, second) = internal std.character.utf16_units(scalar);
+    let (first, second) = internal std.character.utf16_units(scalar);
 
     try append_native_unit(&mut buffer, first as u32);
 
@@ -476,7 +476,7 @@ internal func decode_utf16(pos bytes: &[u8]) -> Result<string, PathError>
             second = second_value;
         }
 
-        let(scalar, consumed_second): (u32, bool) = match internal std.character.utf16_scalar(first, second = second)
+        let (scalar, consumed_second): (u32, bool) = match internal std.character.utf16_scalar(first, second = second)
         {
             case ?decoded { yield decoded; }
             case none { return Error(PathError.InvalidNativeValue); }

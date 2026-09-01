@@ -224,12 +224,12 @@ internal func ordered_tree_rebalance_nodes(
 
             if left_right_height > left_left_height
             {
-                let(_, rotated_root) = ordered_tree_rotate_nodes_left(&mut nodes, updated_root, index = left_index);
+                let (_, rotated_root) = ordered_tree_rotate_nodes_left(&mut nodes, updated_root, index = left_index);
 
                 updated_root = rotated_root;
             }
 
-            let(rotated, rotated_root) = ordered_tree_rotate_nodes_right(&mut nodes, updated_root, index = index);
+            let (rotated, rotated_root) = ordered_tree_rotate_nodes_right(&mut nodes, updated_root, index = index);
 
             subtree_root = rotated;
             updated_root = rotated_root;
@@ -259,12 +259,12 @@ internal func ordered_tree_rebalance_nodes(
 
             if right_left_height > right_right_height
             {
-                let(_, rotated_root) = ordered_tree_rotate_nodes_right(&mut nodes, updated_root, index = right_index);
+                let (_, rotated_root) = ordered_tree_rotate_nodes_right(&mut nodes, updated_root, index = right_index);
 
                 updated_root = rotated_root;
             }
 
-            let(rotated, rotated_root) = ordered_tree_rotate_nodes_left(&mut nodes, updated_root, index = index);
+            let (rotated, rotated_root) = ordered_tree_rotate_nodes_left(&mut nodes, updated_root, index = index);
 
             subtree_root = rotated;
             updated_root = rotated_root;

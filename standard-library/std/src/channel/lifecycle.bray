@@ -202,7 +202,7 @@ trusted internal func retain_counter(pos counter: &core.atomic.Atomic<usize>)
             panic("channel endpoint count exceeded the target range");
         }
 
-        let(observed, retained) = core.atomic.compare_exchange<usize, 1, 0>(
+        let (observed, retained) = core.atomic.compare_exchange<usize, 1, 0>(
             counter,
             expected = current,
             desired = current + 1,
