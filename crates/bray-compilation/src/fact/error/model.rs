@@ -67,7 +67,7 @@ fn canonical_cycle(facts: Box<[CompilationFactKey]>) -> Box<[CompilationFactKey]
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::DiagnosticSemanticValueFailure;
+    use bray_diagnostics::{DiagnosticFailureValue, DiagnosticSemanticValueFailure};
     use bray_source::{SourceId, SourceVersion};
     use bray_symbols::{
         FunctionSymbolId, GenericOwnerId, GenericSubstitutionShapeError, SemanticValueKind,
@@ -90,6 +90,24 @@ mod tests {
         let cycle = FactCycle::new([prefix, syntax.clone(), declaration.clone(), syntax.clone()]);
 
         assert_eq!(cycle.facts(), &[declaration.clone(), syntax, declaration]);
+
+        let diagnostic = crate::fact::diagnostic_cycle_failure(&cycle);
+
+        assert_eq!(diagnostic.reason(), "cycle");
+
+        assert_eq!(
+            diagnostic.context()[0].value(),
+            &DiagnosticFailureValue::TextList(
+                ["declaration_table", "syntax_tree", "declaration_table"]
+                    .map(str::to_owned)
+                    .into(),
+            )
+        );
+
+        assert!(matches!(
+            diagnostic.context()[1].value(),
+            DiagnosticFailureValue::IdentityList(values) if values.len() == 3
+        ));
     }
 
     #[test]

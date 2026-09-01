@@ -17,7 +17,8 @@ pub use failure::{
     DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure,
     DiagnosticEmissionLinkPlanFailure, DiagnosticEmissionPlanningFailure,
     DiagnosticEmissionStagingFailure, DiagnosticPackageInterfaceFailure,
-    DiagnosticSemanticQueryFailure, DiagnosticSemanticValueFailure,
+    DiagnosticEvaluationFailureDetail, DiagnosticSemanticQueryFailure,
+    DiagnosticSemanticValueFailure, DiagnosticTestCatalogFailure,
 };
 pub use foreign_query::{
     DiagnosticForeignDataKind, DiagnosticForeignQueryContext, DiagnosticForeignQueryContextKind,

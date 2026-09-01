@@ -30,7 +30,7 @@ pub(crate) fn format_english_emission_evaluation_failure(
 
     let message = match failure {
         Failure::Cancelled => "evaluation was cancelled",
-        Failure::Cycle => "evaluation encountered a dependency cycle",
+        Failure::Cycle(_) => "evaluation encountered a dependency cycle",
         Failure::Infrastructure => "evaluation state is inconsistent",
         Failure::Runtime(failure) => return format_english_fact_runtime_failure(failure),
         Failure::SemanticValueStoreCreate => {
@@ -66,7 +66,7 @@ pub(crate) fn format_english_emission_evaluation_failure(
         Failure::ImportedExecutableTemplateMismatch => {
             "an imported native operation does not match its compiled definition"
         }
-        Failure::SemanticContext => {
+        Failure::SemanticContext(_) => {
             "the selected program element has inconsistent checking context"
         }
         Failure::SemanticQuery(failure) => {
@@ -81,21 +81,9 @@ pub(crate) fn format_english_emission_evaluation_failure(
 }
 
 fn format_english_semantic_query_failure(
-    failure: &bray_diagnostics::DiagnosticSemanticQueryFailure,
+    _failure: &bray_diagnostics::DiagnosticSemanticQueryFailure,
 ) -> String {
-    let detail = match failure.category() {
-        "semantic_query_contract_violation" => "found inconsistent declaration information",
-        "semantic_query_callable_signature" => "found an inconsistent callable signature",
-        "semantic_query_generic_substitution" => "found inconsistent generic arguments",
-        "semantic_query_bound_unit" => "found an inconsistent bound source unit",
-        "semantic_query_implementation" => "found inconsistent implementation evidence",
-        "semantic_query_checked_constant_terms" => "found inconsistent checked constant terms",
-        "semantic_query_type_surface" => "found inconsistent type-member information",
-        "semantic_query_preparsed_syntax" => "found inconsistent generated syntax",
-        _ => "found an unrecognized semantic contract failure",
-    };
-
-    super::format_internal_compiler_error(detail)
+    super::format_internal_compiler_error("semantic analysis violated an internal contract")
 }
 
 pub(crate) fn format_english_native_product_failure(
@@ -115,7 +103,7 @@ pub(crate) fn format_english_native_product_failure(
             return format_english_native_link_input_failure(failure);
         }
         Kind::EvaluationCancelled => "product construction was cancelled",
-        Kind::EvaluationCycle => "evaluation encountered a dependency cycle",
+        Kind::EvaluationCycle(_) => "evaluation encountered a dependency cycle",
         Kind::EvaluationInfrastructure => {
             "product construction failed because evaluation state is inconsistent"
         }
@@ -157,7 +145,7 @@ pub(crate) fn format_english_native_product_failure(
         Kind::EvaluationImportedExecutableTemplateMismatch => {
             "an imported native operation does not match its compiled definition"
         }
-        Kind::SemanticContextFailure => "a program element has inconsistent checking context",
+        Kind::SemanticContextFailure(_) => "a program element has inconsistent checking context",
         Kind::EvaluationSemanticQuery(failure) => {
             return format_english_semantic_query_failure(failure);
         }
@@ -713,13 +701,14 @@ mod tests {
         DiagnosticCheckerNode, DiagnosticCheckerSymbol, DiagnosticFactRuntimeFailure,
         DiagnosticFailureField, DiagnosticFailureValue, DiagnosticProductDataKind,
         DiagnosticProductQueryContext, DiagnosticProductQueryContextKind,
-        DiagnosticProductQueryFailure,
+        DiagnosticProductQueryFailure, DiagnosticSemanticQueryFailure,
     };
     use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 
     use super::{
         format_english_binding_failure, format_english_checker_failure,
         format_english_fact_runtime_failure, format_english_product_query_failure,
+        format_english_semantic_query_failure,
     };
     use crate::catalog::english::INTERNAL_COMPILER_ERROR;
 
@@ -761,6 +750,33 @@ mod tests {
         assert!(!message.contains("SyntaxTree"));
         assert!(!message.contains("23"));
         assert!(!message.contains(';'));
+    }
+
+    #[test]
+    fn semantic_query_failures_share_actor_free_user_facing_prose() {
+        let first = format_english_semantic_query_failure(
+            &DiagnosticSemanticQueryFailure::new(
+                "semantic_query_bound_unit",
+                "bound_unit_missing_root",
+                [],
+            ),
+        );
+
+        let second = format_english_semantic_query_failure(
+            &DiagnosticSemanticQueryFailure::new(
+                "semantic_query_implementation",
+                "implementation_match_semantic_value",
+                [],
+            ),
+        );
+
+        assert_eq!(first, second);
+        assert!(first.starts_with(INTERNAL_COMPILER_ERROR));
+        assert_eq!(first.matches(INTERNAL_COMPILER_ERROR).count(), 1);
+        assert!(!first.contains("compiler was"));
+        assert!(!first.contains("bound source unit"));
+        assert!(!first.contains("implementation evidence"));
+        assert!(!first.contains(';'));
     }
 
     #[test]

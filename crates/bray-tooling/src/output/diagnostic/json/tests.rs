@@ -224,7 +224,9 @@ fn emission_evaluation_failures_use_domain_named_json_categories() {
         SeverityKind::Error,
     )
     .with_arg(DiagnosticArg::emission_failure(
-        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Cycle),
+        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Cycle(
+            bray_diagnostics::DiagnosticEvaluationFailureDetail::new("cycle", []),
+        )),
     ));
 
     let mut output = Vec::new();
@@ -344,7 +346,7 @@ fn runtime_failures_preserve_exact_context_in_emission_and_native_json() {
 fn semantic_query_failures_preserve_leaf_context_in_emission_and_native_json() {
     let failure = DiagnosticSemanticQueryFailure::new(
         "semantic_query_contract_violation",
-        "semantic_query_contract_violation",
+        "semantic_query_missing_data",
         [DiagnosticFailureField::new(
             "cause",
             DiagnosticFailureValue::Text(
@@ -378,11 +380,18 @@ fn semantic_query_failures_preserve_leaf_context_in_emission_and_native_json() {
     let emission = &output["diagnostics"][0]["args"][0]["value"]["value"];
     let native = &output["diagnostics"][0]["args"][1]["value"]["value"];
 
-    assert_eq!(emission["reason"], "semantic_query_contract_violation");
-    assert_eq!(emission["context"][0]["name"], "cause");
+    assert_eq!(emission["reason"], "semantic_query_missing_data");
+    assert_eq!(emission["context"][0]["name"], "category");
+
+    assert_eq!(
+        emission["context"][0]["value"]["value"],
+        "semantic_query_contract_violation"
+    );
+
+    assert_eq!(emission["context"][1]["name"], "cause");
 
     assert!(
-        emission["context"][0]["value"]["value"]
+        emission["context"][1]["value"]["value"]
             .as_str()
             .is_some_and(|cause| cause.contains("Missing(Type)"))
     );

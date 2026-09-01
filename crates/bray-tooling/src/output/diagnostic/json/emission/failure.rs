@@ -24,6 +24,14 @@ impl DiagnosticEmissionFailureJson {
             Failure::Planning(failure) => planning_failure_context(failure),
             Failure::PackageInterface(failure) => package_interface_failure_context(failure),
             Failure::Evaluation(failure) => evaluation_failure_context(failure),
+            Failure::TestCatalog(failure) => match failure {
+                bray_diagnostics::DiagnosticTestCatalogFailure::UnsupportedVersion(version) => {
+                    vec![count_u64_field("version", u64::from(*version))]
+                }
+                bray_diagnostics::DiagnosticTestCatalogFailure::Io
+                | bray_diagnostics::DiagnosticTestCatalogFailure::Malformed
+                | bray_diagnostics::DiagnosticTestCatalogFailure::ResourceLimit => Vec::new(),
+            },
             Failure::Codegen(failure) => codegen_failure_context(failure),
             Failure::Staging(failure) => staging_failure_context(failure),
             Failure::LinkPlan(failure) => link_plan_failure_context(failure),
@@ -121,7 +129,7 @@ pub(super) fn count_u64_field(name: &'static str, value: u64) -> DiagnosticEmiss
     field(name, DiagnosticEmissionFieldValueJson::Count(value))
 }
 
-pub(super) fn text_field(
+pub(in crate::output::diagnostic::json) fn text_field(
     name: &'static str,
     value: impl Into<String>,
 ) -> DiagnosticEmissionFieldJson {

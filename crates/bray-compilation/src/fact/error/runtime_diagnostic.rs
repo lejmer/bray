@@ -581,7 +581,7 @@ fn compilation_input_kind(value: &CompilationInputKey) -> &'static str {
     }
 }
 
-fn compilation_fact_kind(value: &CompilationFactKey) -> &'static str {
+pub(super) fn compilation_fact_kind(value: &CompilationFactKey) -> &'static str {
     use CompilationFactKey as Value;
 
     match value {

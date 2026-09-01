@@ -4,7 +4,7 @@ use serde::Serialize;
 use super::emission::{
     DiagnosticEmissionFieldJson, diagnostic_failure_context, fact_runtime_failure_context,
     foreign_query_failure_context, native_link_input_failure_context,
-    product_query_failure_context, semantic_value_failure_context,
+    product_query_failure_context, semantic_value_failure_context, text_field,
 };
 use super::{
     DiagnosticArtifactDigestJson, DiagnosticCallableOverloadProblemJson,
@@ -386,9 +386,15 @@ impl DiagnosticNativeProductFailureJson {
         use bray_diagnostics::DiagnosticNativeProductFailureKind as Kind;
 
         let context = match kind {
+            Kind::EvaluationCycle(failure) | Kind::SemanticContextFailure(failure) => {
+                diagnostic_failure_context(failure.context())
+            }
             Kind::EvaluationRuntime(failure) => fact_runtime_failure_context(failure),
             Kind::EvaluationSemanticQuery(failure) => {
-                diagnostic_failure_context(failure.context())
+                let mut context = vec![text_field("category", failure.category())];
+                context.extend(diagnostic_failure_context(failure.context()));
+
+                context
             }
             Kind::EvaluationSemanticValue(failure)
             | Kind::EvaluationBinding(bray_diagnostics::DiagnosticBindingFailure::SemanticValue(

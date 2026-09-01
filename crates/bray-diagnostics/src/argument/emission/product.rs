@@ -125,7 +125,7 @@ pub enum DiagnosticNativeProductFailureKind {
     InvalidSymbolName,
     InvalidNativeLinkInput(DiagnosticNativeLinkInputFailure),
     EvaluationCancelled,
-    EvaluationCycle,
+    EvaluationCycle(crate::DiagnosticEvaluationFailureDetail),
     EvaluationInfrastructure,
     EvaluationRuntime(crate::DiagnosticFactRuntimeFailure),
     EvaluationSemanticValueStoreCreate,
@@ -141,7 +141,7 @@ pub enum DiagnosticNativeProductFailureKind {
     EvaluationAtomicInitializerResultUnavailable,
     EvaluationUninitInitializerResultUnavailable,
     EvaluationImportedExecutableTemplateMismatch,
-    SemanticContextFailure,
+    SemanticContextFailure(crate::DiagnosticEvaluationFailureDetail),
     EvaluationSemanticQuery(crate::DiagnosticSemanticQueryFailure),
     /// Product specialization or realization violated an exact retained contract.
     EvaluationProduct(crate::DiagnosticProductQueryFailure),
@@ -221,7 +221,7 @@ impl DiagnosticNativeProductFailureKind {
             Self::InvalidSymbolName => "invalid_symbol_name",
             Self::InvalidNativeLinkInput(failure) => failure.as_str(),
             Self::EvaluationCancelled => "evaluation_cancelled",
-            Self::EvaluationCycle => "evaluation_cycle",
+            Self::EvaluationCycle(_) => "evaluation_cycle",
             Self::EvaluationInfrastructure => "evaluation_infrastructure",
             Self::EvaluationRuntime(failure) => failure.reason(),
             Self::EvaluationSemanticValueStoreCreate => "evaluation_semantic_value_store_create",
@@ -253,7 +253,7 @@ impl DiagnosticNativeProductFailureKind {
             Self::EvaluationImportedExecutableTemplateMismatch => {
                 "evaluation_imported_executable_template_mismatch"
             }
-            Self::SemanticContextFailure => "semantic_context_failure",
+            Self::SemanticContextFailure(failure) => failure.reason(),
             Self::EvaluationSemanticQuery(failure) => failure.as_str(),
             Self::EvaluationProduct(failure) => failure.as_str(),
             Self::EvaluationForeign(failure) => failure.as_str(),
@@ -332,7 +332,7 @@ impl From<crate::DiagnosticEmissionEvaluationFailure> for DiagnosticNativeProduc
 
         match failure {
             Failure::Cancelled => Self::EvaluationCancelled,
-            Failure::Cycle => Self::EvaluationCycle,
+            Failure::Cycle(failure) => Self::EvaluationCycle(failure),
             Failure::Infrastructure => Self::EvaluationInfrastructure,
             Failure::Runtime(failure) => Self::EvaluationRuntime(failure),
             Failure::SemanticValueStoreCreate => Self::EvaluationSemanticValueStoreCreate,
@@ -364,7 +364,7 @@ impl From<crate::DiagnosticEmissionEvaluationFailure> for DiagnosticNativeProduc
             Failure::ImportedExecutableTemplateMismatch => {
                 Self::EvaluationImportedExecutableTemplateMismatch
             }
-            Failure::SemanticContext => Self::SemanticContextFailure,
+            Failure::SemanticContext(failure) => Self::SemanticContextFailure(failure),
             Failure::SemanticQuery(failure) => Self::EvaluationSemanticQuery(failure),
             Failure::Product(failure) => Self::EvaluationProduct(failure),
             Failure::Foreign(failure) => Self::EvaluationForeign(failure),

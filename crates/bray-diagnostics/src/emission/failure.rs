@@ -40,11 +40,38 @@ pub enum DiagnosticEmissionFailure {
     Staging(DiagnosticEmissionStagingFailure),
     LinkPlan(DiagnosticEmissionLinkPlanFailure),
     Evaluation(DiagnosticEmissionEvaluationFailure),
+    /// Test-catalog encoding failed before the output could be published.
+    TestCatalog(DiagnosticTestCatalogFailure),
     MissingContribution(DiagnosticEmissionArtifact),
     InvalidContribution(DiagnosticEmissionArtifact),
     Publication(DiagnosticEmissionArtifact),
     Linking,
     IncompleteProduct,
+}
+
+/// Exact test-catalog protocol failure observed before publication.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticTestCatalogFailure {
+    /// The protocol encoder encountered an unexpected I/O path.
+    Io,
+    /// The discovered catalog violated the protocol's canonical shape.
+    Malformed,
+    /// The catalog requested a protocol version this build cannot encode.
+    UnsupportedVersion(u32),
+    /// The catalog exceeded a bounded protocol resource.
+    ResourceLimit,
+}
+
+impl DiagnosticTestCatalogFailure {
+    /// Returns the stable machine key for this failure.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Io => "test_catalog_io",
+            Self::Malformed => "test_catalog_malformed",
+            Self::UnsupportedVersion(_) => "test_catalog_unsupported_version",
+            Self::ResourceLimit => "test_catalog_resource_limit",
+        }
+    }
 }
 
 /// Exact planning contract that rejected an emission request.
@@ -290,7 +317,7 @@ pub enum DiagnosticEmissionLinkPlanFailure {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticEmissionEvaluationFailure {
     Cancelled,
-    Cycle,
+    Cycle(DiagnosticEvaluationFailureDetail),
     Infrastructure,
     Runtime(DiagnosticFactRuntimeFailure),
     SemanticValueStoreCreate,
@@ -306,7 +333,7 @@ pub enum DiagnosticEmissionEvaluationFailure {
     AtomicInitializerResultUnavailable,
     UninitInitializerResultUnavailable,
     ImportedExecutableTemplateMismatch,
-    SemanticContext,
+    SemanticContext(DiagnosticEvaluationFailureDetail),
     /// A semantic query failed with an exact compiler-owned category.
     SemanticQuery(DiagnosticSemanticQueryFailure),
     /// Product specialization or realization violated an exact retained contract.
@@ -314,6 +341,36 @@ pub enum DiagnosticEmissionEvaluationFailure {
     /// Foreign-boundary construction violated an exact retained contract.
     Foreign(crate::DiagnosticForeignQueryFailure),
     Checker(DiagnosticCheckerFailure),
+}
+
+/// Exact machine-readable detail retained for an evaluation-owned failure.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiagnosticEvaluationFailureDetail {
+    reason: &'static str,
+    context: Box<[crate::DiagnosticFailureField]>,
+}
+
+impl DiagnosticEvaluationFailureDetail {
+    /// Creates one exact evaluation failure and its typed machine context.
+    pub fn new(
+        reason: &'static str,
+        context: impl Into<Box<[crate::DiagnosticFailureField]>>,
+    ) -> Self {
+        Self {
+            reason,
+            context: context.into(),
+        }
+    }
+
+    /// Returns the stable machine key for the exact failure.
+    pub const fn reason(&self) -> &'static str {
+        self.reason
+    }
+
+    /// Returns the typed context retained from the leaf failure.
+    pub const fn context(&self) -> &[crate::DiagnosticFailureField] {
+        &self.context
+    }
 }
 
 /// Exact semantic-query failure retained for product diagnostics.
@@ -402,6 +459,7 @@ impl DiagnosticEmissionFailure {
             Self::Staging(_) => "staging",
             Self::LinkPlan(_) => "link_plan",
             Self::Evaluation(_) => "evaluation",
+            Self::TestCatalog(_) => "test_catalog",
             Self::MissingContribution(_) => "missing_contribution",
             Self::InvalidContribution(_) => "invalid_contribution",
             Self::Publication(_) => "publication",
@@ -419,6 +477,7 @@ impl DiagnosticEmissionFailure {
             Self::Staging(failure) => failure.as_str(),
             Self::LinkPlan(failure) => failure.as_str(),
             Self::Evaluation(failure) => failure.as_str(),
+            Self::TestCatalog(failure) => failure.as_str(),
             Self::MissingContribution(_) => "missing_contribution",
             Self::InvalidContribution(_) => "invalid_contribution",
             Self::Publication(_) => "publication",
@@ -644,7 +703,7 @@ impl DiagnosticEmissionEvaluationFailure {
     pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Cancelled => "cancelled",
-            Self::Cycle => "cycle",
+            Self::Cycle(failure) => failure.reason(),
             Self::Infrastructure => "infrastructure",
             Self::Runtime(failure) => failure.reason(),
             Self::SemanticValueStoreCreate => "semantic_value_store_create",
@@ -662,7 +721,7 @@ impl DiagnosticEmissionEvaluationFailure {
             Self::AtomicInitializerResultUnavailable => "atomic_initializer_result_unavailable",
             Self::UninitInitializerResultUnavailable => "uninit_initializer_result_unavailable",
             Self::ImportedExecutableTemplateMismatch => "imported_executable_template_mismatch",
-            Self::SemanticContext => "semantic_context",
+            Self::SemanticContext(failure) => failure.reason(),
             Self::SemanticQuery(failure) => failure.as_str(),
             Self::Product(failure) => failure.as_str(),
             Self::Foreign(failure) => failure.as_str(),

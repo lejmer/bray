@@ -164,7 +164,7 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
             link_kind: "dynamic".to_owned(),
             provenance: "test".to_owned(),
         }),
-        Kind::EvaluationCycle,
+        Kind::EvaluationCycle(crate::DiagnosticEvaluationFailureDetail::new("cycle", [])),
         Kind::EvaluationInfrastructure,
         Kind::EvaluationLoweringInput(DiagnosticLoweringInputFailure::new(
             DiagnosticLoweringInputFailureKind::InvalidStorageExit,
@@ -174,7 +174,10 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
             DiagnosticLoweringFailureKind::MissingCleanupPlan,
             source,
         )),
-        Kind::SemanticContextFailure,
+        Kind::SemanticContextFailure(crate::DiagnosticEvaluationFailureDetail::new(
+            "semantic_context_failure",
+            [],
+        )),
         Kind::CheckingInfrastructureFailure,
         Kind::CodegenTargetUnsupportedProfile,
         Kind::CodegenTargetEmptyTriple,
@@ -234,7 +237,10 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
         Kind::CodegenInvalidSymbolName,
     ];
 
-    let keys = failures.map(DiagnosticNativeProductFailureKind::as_str);
+    let keys = failures
+        .each_ref()
+        .map(DiagnosticNativeProductFailureKind::as_str);
+
     let unique = keys.into_iter().collect::<BTreeSet<_>>();
 
     assert_eq!(unique.len(), failures.len());

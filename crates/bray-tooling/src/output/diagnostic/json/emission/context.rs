@@ -215,8 +215,19 @@ pub(super) fn evaluation_failure_context(
     use bray_diagnostics::DiagnosticEmissionEvaluationFailure as Failure;
 
     match failure {
+        Failure::Cycle(failure) | Failure::SemanticContext(failure) => {
+            let mut context = vec![text_field("cause", failure.reason())];
+            context.extend(diagnostic_failure_context(failure.context()));
+
+            context
+        }
         Failure::Runtime(failure) => fact_runtime_failure_context(failure),
-        Failure::SemanticQuery(failure) => diagnostic_failure_context(failure.context()),
+        Failure::SemanticQuery(failure) => {
+            let mut context = vec![text_field("category", failure.category())];
+            context.extend(diagnostic_failure_context(failure.context()));
+
+            context
+        }
         Failure::SemanticValue(failure)
         | Failure::Binding(bray_diagnostics::DiagnosticBindingFailure::SemanticValue(failure))
         | Failure::Checker(bray_diagnostics::DiagnosticCheckerFailure::SemanticValue(failure)) => {
@@ -580,7 +591,9 @@ mod tests {
         let context = package_interface_failure_context(
             &DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {
                 declaration: package("example.template"),
-                cause: DiagnosticEmissionEvaluationFailure::Cycle,
+                cause: DiagnosticEmissionEvaluationFailure::Cycle(
+                    bray_diagnostics::DiagnosticEvaluationFailureDetail::new("cycle", []),
+                ),
             },
         );
 

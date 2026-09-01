@@ -20,8 +20,9 @@ pub use cancellation::CancellationToken;
 pub use completion::SymbolCompletionError;
 pub use error::{FactCycle, FactQueryError, LocatedLoweringFailure};
 pub(crate) use error::{
-    diagnostic_binding_failure, diagnostic_checker_failure, diagnostic_semantic_query_failure,
-    diagnostic_semantic_value_failure, diagnostic_fact_runtime_failure,
+    diagnostic_binding_failure, diagnostic_checker_failure, diagnostic_cycle_failure,
+    diagnostic_fact_runtime_failure, diagnostic_semantic_context_failure,
+    diagnostic_semantic_query_failure, diagnostic_semantic_value_failure,
 };
 pub use key::ImportedSemanticRecordKey;
 pub use priority::QueryPriority;

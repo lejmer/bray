@@ -26,6 +26,9 @@ pub(crate) fn format_english_emission_failure(
         Failure::Staging(failure) => format_english_emission_staging_failure(failure),
         Failure::LinkPlan(failure) => format_english_emission_link_plan_failure(failure),
         Failure::Evaluation(failure) => format_english_emission_evaluation_failure(failure),
+        Failure::TestCatalog(_) => {
+            format_internal_compiler_error("the test catalog could not be encoded")
+        }
         Failure::MissingContribution(artifact) => format!(
             "the required {} artifact #{} has no generated content",
             format_english_artifact_kind(artifact.kind()),
@@ -449,7 +452,9 @@ mod tests {
 
         let cycle = format_english_package_interface_failure(
             &DiagnosticPackageInterfaceFailure::DeclarationDiscoveryFailure {
-                cause: DiagnosticEmissionEvaluationFailure::Cycle,
+                cause: DiagnosticEmissionEvaluationFailure::Cycle(
+                    bray_diagnostics::DiagnosticEvaluationFailureDetail::new("cycle", []),
+                ),
                 cycle: ["declaration_table".to_owned(), "symbol_graph".to_owned()].into(),
             },
         );

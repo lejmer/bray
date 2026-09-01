@@ -251,13 +251,20 @@ impl super::super::Compilation {
 
         let symbols = self.symbol_graph()?;
 
-        let resolver = ImportedInterfaceSymbolResolver::try_new(
+        let resolver = match ImportedInterfaceSymbolResolver::try_new(
             current,
             interfaces,
             skeleton,
             symbols.compiler_known_provider().symbol_keys(),
-        )
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        ) {
+            Ok(resolver) => resolver,
+            Err(error) => {
+                return Ok(DiagnosticResult::new(
+                    None,
+                    super::query::dependency_graph_diagnostics(self, error),
+                ));
+            }
+        };
 
         let owner = resolver
             .resolve(&bray_package_interface::InterfaceSymbolReference::Local(
@@ -438,13 +445,20 @@ impl super::super::Compilation {
 
         let symbols = self.symbol_graph()?;
 
-        let resolver = ImportedInterfaceSymbolResolver::try_new(
+        let resolver = match ImportedInterfaceSymbolResolver::try_new(
             current,
             interfaces,
             skeleton,
             symbols.compiler_known_provider().symbol_keys(),
-        )
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        ) {
+            Ok(resolver) => resolver,
+            Err(error) => {
+                return Ok(DiagnosticResult::new(
+                    None,
+                    super::query::dependency_graph_diagnostics(self, error),
+                ));
+            }
+        };
 
         let template = match graph.intern_checked_template(body.template(), &resolver) {
             Ok(template) => template,

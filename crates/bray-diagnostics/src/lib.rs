@@ -82,13 +82,14 @@ pub use emission::{
     DiagnosticEmissionLinkPlanFailure, DiagnosticEmissionPlanningFailure,
     DiagnosticEmissionStagingFailure, DiagnosticForeignDataKind, DiagnosticForeignQueryContext,
     DiagnosticForeignQueryContextKind, DiagnosticForeignQueryFailure,
-    DiagnosticFactRuntimeFailure, DiagnosticFailureField, DiagnosticFailureValue,
+    DiagnosticEvaluationFailureDetail, DiagnosticFactRuntimeFailure, DiagnosticFailureField,
+    DiagnosticFailureValue,
     DiagnosticHostEnvironmentVariable, DiagnosticLiteralValueFailure, DiagnosticLlvmToolRole,
     DiagnosticPackageInterfaceFailure, DiagnosticPatternInputFailure, DiagnosticProductDataKind,
     DiagnosticProductQueryContext, DiagnosticProductQueryContextKind,
     DiagnosticProductQueryFailure, DiagnosticProductValueKind, DiagnosticSemanticQueryFailure,
     DiagnosticSemanticSelectionFailure, DiagnosticSemanticSnapshotFailure,
-    DiagnosticSemanticValueFailure, DiagnosticStorageFlowFailure,
+    DiagnosticSemanticValueFailure, DiagnosticStorageFlowFailure, DiagnosticTestCatalogFailure,
     DiagnosticUnsupportedEmissionReason,
 };
 pub use id::DiagnosticId;

@@ -28,7 +28,9 @@ pub(crate) fn diagnostic_evaluation_failure(
 ) -> DiagnosticEmissionEvaluationFailure {
     match error {
         FactQueryError::Cancelled => DiagnosticEmissionEvaluationFailure::Cancelled,
-        FactQueryError::Cycle(_) => DiagnosticEmissionEvaluationFailure::Cycle,
+        FactQueryError::Cycle(cycle) => DiagnosticEmissionEvaluationFailure::Cycle(
+            crate::fact::diagnostic_cycle_failure(cycle),
+        ),
         FactQueryError::InfrastructureFailure => DiagnosticEmissionEvaluationFailure::Infrastructure,
         FactQueryError::Runtime(error) => DiagnosticEmissionEvaluationFailure::Runtime(
             crate::fact::diagnostic_fact_runtime_failure(error),
@@ -73,8 +75,10 @@ pub(crate) fn diagnostic_evaluation_failure(
         FactQueryError::ImportedExecutableTemplateMismatch => {
             DiagnosticEmissionEvaluationFailure::ImportedExecutableTemplateMismatch
         }
-        FactQueryError::SemanticUnitContext(_) => {
-            DiagnosticEmissionEvaluationFailure::SemanticContext
+        FactQueryError::SemanticUnitContext(error) => {
+            DiagnosticEmissionEvaluationFailure::SemanticContext(
+                crate::fact::diagnostic_semantic_context_failure(error),
+            )
         }
         FactQueryError::SemanticQuery(error) => DiagnosticEmissionEvaluationFailure::SemanticQuery(
             crate::fact::diagnostic_semantic_query_failure(error),

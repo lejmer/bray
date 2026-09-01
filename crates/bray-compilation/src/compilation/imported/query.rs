@@ -451,13 +451,20 @@ impl super::super::Compilation {
 
         let symbols = self.symbol_graph()?;
 
-        let resolver = ImportedInterfaceSymbolResolver::try_new(
+        let resolver = match ImportedInterfaceSymbolResolver::try_new(
             current,
             interfaces,
             skeleton,
             symbols.compiler_known_provider().symbol_keys(),
-        )
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        ) {
+            Ok(resolver) => resolver,
+            Err(error) => {
+                return Ok(DiagnosticResult::new(
+                    None,
+                    dependency_graph_diagnostics(self, error),
+                ));
+            }
+        };
 
         let semantic_values = self.semantic_value_store()?;
 
@@ -644,7 +651,7 @@ fn stable_count(count: usize) -> u64 {
     u64::try_from(count).unwrap_or(u64::MAX)
 }
 
-fn dependency_graph_diagnostics(
+pub(super) fn dependency_graph_diagnostics(
     compilation: &super::super::Compilation,
     error: ImportedSymbolConstructionError,
 ) -> DiagnosticBag {
