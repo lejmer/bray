@@ -1,7 +1,9 @@
 use bray_diagnostics::DiagnosticArgValue;
 use serde::Serialize;
 
-use super::emission::{DiagnosticEmissionFieldJson, semantic_value_failure_context};
+use super::emission::{
+    DiagnosticEmissionFieldJson, product_query_failure_context, semantic_value_failure_context,
+};
 use super::{
     DiagnosticArtifactDigestJson, DiagnosticCallableOverloadProblemJson,
     DiagnosticEmissionFailureJson, DiagnosticExternalToolExitJson,
@@ -167,7 +169,7 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::TargetTriple(target) => Self::TargetTriple(target.to_owned()),
             DiagnosticArgValue::TargetIdentity(target) => Self::TargetIdentity(target.to_owned()),
             DiagnosticArgValue::NativeProductFailureKind(kind) => {
-                Self::NativeProductFailureKind(DiagnosticNativeProductFailureJson::from_kind(*kind))
+                Self::NativeProductFailureKind(DiagnosticNativeProductFailureJson::from_kind(kind))
             }
             DiagnosticArgValue::EmissionFailure(failure) => {
                 Self::EmissionFailure(DiagnosticEmissionFailureJson::from_failure(failure))
@@ -374,7 +376,7 @@ pub(in crate::output::diagnostic::json) struct DiagnosticNativeProductFailureJso
 }
 
 impl DiagnosticNativeProductFailureJson {
-    fn from_kind(kind: bray_diagnostics::DiagnosticNativeProductFailureKind) -> Self {
+    fn from_kind(kind: &bray_diagnostics::DiagnosticNativeProductFailureKind) -> Self {
         use bray_diagnostics::DiagnosticNativeProductFailureKind as Kind;
 
         let context = match kind {
@@ -384,7 +386,7 @@ impl DiagnosticNativeProductFailureJson {
             ))
             | Kind::EvaluationChecker(bray_diagnostics::DiagnosticCheckerFailure::SemanticValue(
                 failure,
-            )) => semantic_value_failure_context(failure),
+            )) => semantic_value_failure_context(*failure),
             Kind::EvaluationLoweringInput(failure) => match failure.kind() {
                 bray_diagnostics::DiagnosticLoweringInputFailureKind::SemanticValue(failure) => {
                     semantic_value_failure_context(failure)
@@ -397,6 +399,7 @@ impl DiagnosticNativeProductFailureJson {
                 }
                 _ => Vec::new(),
             },
+            Kind::EvaluationProduct(failure) => product_query_failure_context(failure),
             _ => Vec::new(),
         };
 

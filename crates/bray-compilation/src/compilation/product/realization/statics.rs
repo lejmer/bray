@@ -21,6 +21,7 @@ use super::super::specialization::{
 };
 use super::names::generated_symbol_name;
 use super::support::{operation_result_type, signature_types};
+use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::{CancellationToken, FactQueryError};
 
 pub(super) struct ConcreteStaticRealization {
@@ -68,7 +69,12 @@ impl Compilation {
             substitution,
         } = data.as_ref()
         else {
-            return Err(FactQueryError::InfrastructureFailure.into());
+            return Err(ProductQueryFailure::UnexpectedSemanticType {
+                ty,
+                expected: crate::compilation::ProductValueKind::NamedType,
+                actual: data.as_ref().clone(),
+            }
+            .into());
         };
 
         match super::super::super::foreign::compiler_known_representation(self, *definition) {
@@ -77,38 +83,72 @@ impl Compilation {
                 let representation = self
                     .available_compiler_known_symbols()
                     .result_representation()
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                    .ok_or_else(|| {
+                        ProductQueryFailure::missing(
+                            ProductQueryContext::CompilerKnownRepresentation(
+                                RepresentationRole::Result,
+                            ),
+                            ProductDataKind::ResultRepresentation,
+                        )
+                    })?;
+
+                let substitution_id = *substitution;
 
                 let substitution = values
-                    .generic_substitution_data(*substitution)
+                    .generic_substitution_data(substitution_id)
                     .map_err(FactQueryError::SemanticValueStore)?;
 
                 let [success, error] = substitution.bindings() else {
-                    return Err(FactQueryError::InfrastructureFailure.into());
+                    return Err(ProductQueryFailure::count_mismatch(
+                        ProductQueryContext::Substitution(substitution_id),
+                        ProductDataKind::ResultRepresentation,
+                        2,
+                        substitution.bindings().len(),
+                    )
+                    .into());
                 };
 
-                let GenericArgument::Type(success) = success.argument() else {
-                    return Err(FactQueryError::InfrastructureFailure.into());
+                let GenericArgument::Type(success_type) = success.argument() else {
+                    return Err(ProductQueryFailure::unexpected_kind(
+                        ProductQueryContext::Substitution(substitution_id),
+                        crate::compilation::ProductValueKind::GenericTypeArgument,
+                        crate::compilation::ProductValueKind::ConstantArgument,
+                    )
+                    .into());
                 };
 
                 let success = values
-                    .type_data(success)
+                    .type_data(success_type)
                     .map_err(FactQueryError::SemanticValueStore)?;
 
                 let TypeData::Named { definition, .. } = success.as_ref() else {
-                    return Err(FactQueryError::InfrastructureFailure.into());
+                    return Err(ProductQueryFailure::UnexpectedSemanticType {
+                        ty: success_type,
+                        expected: crate::compilation::ProductValueKind::NamedType,
+                        actual: success.as_ref().clone(),
+                    }
+                    .into());
                 };
 
-                if super::super::super::foreign::compiler_known_representation(self, *definition)
-                    != Some(RepresentationRole::Unit)
-                {
-                    return Err(CodegenPreparationError::from(
-                        FactQueryError::InfrastructureFailure,
-                    ));
+                let actual =
+                    super::super::super::foreign::compiler_known_representation(self, *definition);
+
+                if actual != Some(RepresentationRole::Unit) {
+                    return Err(ProductQueryFailure::CompilerKnownRepresentationMismatch {
+                        ty: success_type,
+                        expected: RepresentationRole::Unit,
+                        actual,
+                    }
+                    .into());
                 }
 
                 let GenericArgument::Type(error) = error.argument() else {
-                    return Err(FactQueryError::InfrastructureFailure.into());
+                    return Err(ProductQueryFailure::unexpected_kind(
+                        ProductQueryContext::Substitution(substitution_id),
+                        crate::compilation::ProductValueKind::GenericTypeArgument,
+                        crate::compilation::ProductValueKind::ConstantArgument,
+                    )
+                    .into());
                 };
 
                 let binding_context = self.binding_context(cancellation)?;
@@ -125,7 +165,7 @@ impl Compilation {
                     Some(identity),
                 ))
             }
-            _ => Err(FactQueryError::InfrastructureFailure.into()),
+            actual => Err(ProductQueryFailure::UnsupportedEntryResultType { ty, actual }.into()),
         }
     }
 
@@ -146,12 +186,13 @@ impl Compilation {
             }
         }
 
-        for operation in mir.operations() {
+        for (operation_id, operation) in mir.operations_with_ids() {
             let result_type = operation_result_type(mir, operation);
 
             for reference in operation.kind().helper_references() {
                 if let Some(dependency) = self.concrete_codegen_helper_dependency(
                     owner,
+                    operation_id,
                     operation.kind(),
                     result_type,
                     &reference,
@@ -197,7 +238,10 @@ impl Compilation {
 
         for pair in dependencies.windows(2) {
             if pair[0].key() == pair[1].key() && pair[0] != pair[1] {
-                return Err(FactQueryError::InfrastructureFailure.into());
+                return Err(ProductQueryFailure::ConflictingConcreteInstance {
+                    key: pair[0].key().clone(),
+                }
+                .into());
             }
         }
 
@@ -264,9 +308,12 @@ impl Compilation {
         let mut instance_type_mappings = Vec::new();
 
         for instance in unit.instances() {
-            let realization = reachability
-                .instance(instance.key())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let realization = reachability.instance(instance.key()).ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::Instance(instance.key().clone()),
+                    ProductDataKind::ConcreteInstance,
+                )
+            })?;
 
             self.extend_codegen_types(
                 instance.mir().referenced_types(),
@@ -356,9 +403,12 @@ impl Compilation {
         let mut mappings = Vec::new();
 
         for instance in unit.instances() {
-            let owner = reachability
-                .instance(instance.key())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let owner = reachability.instance(instance.key()).ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::Instance(instance.key().clone()),
+                    ProductDataKind::ConcreteInstance,
+                )
+            })?;
 
             for (storage, data) in instance.mir().storages_with_ids() {
                 let Some(reference) = self.codegen_static_reference(data.kind(), cancellation)?
@@ -447,7 +497,12 @@ impl Compilation {
                 binding_context
                     .imported_semantic_address(declaration.into())
                     .map_err(super::super::super::binder::binding_query_error)?
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                    .ok_or_else(|| {
+                        ProductQueryFailure::missing(
+                            ProductQueryContext::Symbol(declaration.into()),
+                            ProductDataKind::ImportedSemanticAddress,
+                        )
+                    })?;
 
                 MirUnitKey::ImportedExecutable(bray_ir::MirImportedExecutableKey::new(
                     declaration.into(),
@@ -566,7 +621,9 @@ impl Compilation {
                 ExecutableEntryResult::Unit => (None, None),
                 ExecutableEntryResult::I32 => {
                     return Err(CodegenPreparationError::from(
-                        FactQueryError::InfrastructureFailure,
+                        ProductQueryFailure::UnexpectedEntryResult {
+                            actual: ExecutableEntryResult::I32,
+                        },
                     ));
                 }
             };
@@ -663,7 +720,9 @@ impl Compilation {
                     );
 
                     if relocations.insert(value, relocation).is_some() {
-                        return Err(FactQueryError::InfrastructureFailure.into());
+                        return Err(
+                            ProductQueryFailure::ConflictingStaticRelocation { value }.into()
+                        );
                     }
                 }
                 bray_symbols::ConstantValueKind::NullablePresent(child) => pending.push(*child),

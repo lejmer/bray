@@ -203,6 +203,7 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
         Kind::RuntimeSelectionMissingCapabilityOwner,
         Kind::RuntimeSelectionUnreadableArchive,
         Kind::RuntimeSelectionArchiveDigestMismatch,
+        Kind::StandardLibraryUnavailable,
         Kind::EmissionBackendDuplicateUnit,
         Kind::LinkTargetEmptyTriple,
         Kind::CodegenBackendUnavailable,

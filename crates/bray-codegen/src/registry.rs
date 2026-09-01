@@ -160,7 +160,7 @@ pub enum CodeGeneratorRegistryBuildError {
 }
 
 /// A backend-selection failure for one exact code generation request.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum BackendSelectionError {
     /// The requested backend identity is not available to this compiler composition.
     Unavailable(BackendIdentity),

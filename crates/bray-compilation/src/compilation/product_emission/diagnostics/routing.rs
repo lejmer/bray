@@ -40,13 +40,13 @@ pub(super) fn product_emission_failure_diagnostics(
     product: &ProductIdentity,
     target: &TargetIdentity,
 ) -> DiagnosticBag {
-    if let ProductEmissionErrorKind::ProductMismatch {
-        requested,
-        selected_package,
-        ..
-    } = kind
-    {
-        return DiagnosticBag::single(
+    match kind {
+        ProductEmissionErrorKind::Cancelled => DiagnosticBag::new(),
+        ProductEmissionErrorKind::ProductMismatch {
+            requested,
+            selected_package,
+            ..
+        } => DiagnosticBag::single(
             Diagnostic::new(
                 DiagnosticId::new(0),
                 DiagnosticKind::EmissionProductMismatch,
@@ -58,15 +58,11 @@ pub(super) fn product_emission_failure_diagnostics(
             .with_arg(DiagnosticArg::expected_package_identity(
                 selected_package.as_str(),
             )),
-        );
-    }
-
-    if let ProductEmissionErrorKind::TargetMismatch {
-        requested,
-        selected,
-    } = kind
-    {
-        return DiagnosticBag::single(
+        ),
+        ProductEmissionErrorKind::TargetMismatch {
+            requested,
+            selected,
+        } => DiagnosticBag::single(
             Diagnostic::new(
                 DiagnosticId::new(0),
                 DiagnosticKind::EmissionTargetMismatch,
@@ -75,113 +71,77 @@ pub(super) fn product_emission_failure_diagnostics(
             .with_arg(DiagnosticArg::actual_product_identity(product.to_string()))
             .with_arg(DiagnosticArg::actual_target_triple(requested.as_str()))
             .with_arg(DiagnosticArg::expected_target_triple(selected.as_str())),
-        );
-    }
-
-    if let ProductEmissionErrorKind::Staging(error) = kind {
-        return staging_failure_diagnostics(error, product, target);
-    }
-
-    if let ProductEmissionErrorKind::Planning(error) = kind {
-        return planning_failure_diagnostics(error, product, target);
-    }
-
-    if let ProductEmissionErrorKind::LinkPlan(error) = kind {
-        return link_plan_failure_diagnostics(error, product, target);
-    }
-
-    if let Some(error) = package_interface_validation_error(kind) {
-        return DiagnosticBag::single(error.clone().into_diagnostic(DiagnosticId::new(0)));
-    }
-
-    if let Some(diagnostics) = package_interface_failure_diagnostics(kind, product, target) {
-        return diagnostics;
-    }
-
-    if let ProductEmissionErrorKind::Query(error) = kind {
-        return query_failure_diagnostics(error, product, target);
-    }
-
-    if let ProductEmissionErrorKind::Codegen(error) = kind {
-        return codegen_failure_diagnostics(error, product, target);
-    }
-
-    if let ProductEmissionErrorKind::Outcome(error) = kind {
-        let outer = emission_failure_diagnostics(
-            DiagnosticEmissionFailure::IncompleteProduct,
-            product,
-            target,
-        );
-
-        return error.diagnostics().merged(&outer);
-    }
-
-    let failure = match kind {
-        ProductEmissionErrorKind::Cancelled => return DiagnosticBag::new(),
-        ProductEmissionErrorKind::ProductMismatch { .. }
-        | ProductEmissionErrorKind::TargetMismatch { .. } => {
-            DiagnosticEmissionFailure::InvalidRequest
-        }
+        ),
         ProductEmissionErrorKind::PackageInterfaceUnavailable
         | ProductEmissionErrorKind::PackageInterface(_)
         | ProductEmissionErrorKind::PackageInterfaceEncoding(_)
         | ProductEmissionErrorKind::PackageImplementation(_)
         | ProductEmissionErrorKind::PackageImplementationContent(_) => {
-            return package_interface_failure_diagnostics(kind, product, target)
-                .unwrap_or_else(DiagnosticBag::new);
+            match package_interface_validation_error(kind) {
+                Some(error) => {
+                    DiagnosticBag::single(error.clone().into_diagnostic(DiagnosticId::new(0)))
+                }
+                None => package_interface_failure_diagnostics(kind, product, target)
+                    .unwrap_or_else(DiagnosticBag::new),
+            }
         }
-        ProductEmissionErrorKind::Planning(_)
-        | ProductEmissionErrorKind::MissingExecutableHost
-        | ProductEmissionErrorKind::MissingRootFrame(_) => match kind {
-            ProductEmissionErrorKind::MissingExecutableHost => DiagnosticEmissionFailure::Planning(
+        ProductEmissionErrorKind::Planning(error) => {
+            planning_failure_diagnostics(error, product, target)
+        }
+        ProductEmissionErrorKind::MissingExecutableHost => emission_failure_diagnostics(
+            DiagnosticEmissionFailure::Planning(
                 DiagnosticEmissionPlanningFailure::MissingExecutableHost,
             ),
-            ProductEmissionErrorKind::MissingRootFrame(frame) => {
-                DiagnosticEmissionFailure::Planning(
-                    DiagnosticEmissionPlanningFailure::MissingRootFrame(
-                        DiagnosticArtifactDigest::new(
-                            DiagnosticArtifactDigestAlgorithm::Blake3,
-                            frame.digest(),
-                        ),
-                    ),
-                )
-            }
-            _ => DiagnosticEmissionFailure::Planning(DiagnosticEmissionPlanningFailure::Incomplete),
-        },
-        ProductEmissionErrorKind::InvalidCompilation => {
-            DiagnosticEmissionFailure::IncompleteProduct
-        }
-        ProductEmissionErrorKind::Codegen(_) => DiagnosticEmissionFailure::Codegen(
-            bray_diagnostics::DiagnosticEmissionCodegenFailure::Incomplete,
+            product,
+            target,
         ),
-        ProductEmissionErrorKind::MissingLinker => {
-            DiagnosticEmissionFailure::LinkPlan(DiagnosticEmissionLinkPlanFailure::MissingLinker)
-        }
-        ProductEmissionErrorKind::UnexpectedLinker => {
-            DiagnosticEmissionFailure::LinkPlan(DiagnosticEmissionLinkPlanFailure::UnexpectedLinker)
-        }
-        ProductEmissionErrorKind::Staging(_) => DiagnosticEmissionFailure::Staging(
-            bray_diagnostics::DiagnosticEmissionStagingFailure::Incomplete,
+        ProductEmissionErrorKind::MissingRootFrame(frame) => emission_failure_diagnostics(
+            DiagnosticEmissionFailure::Planning(
+                DiagnosticEmissionPlanningFailure::MissingRootFrame(DiagnosticArtifactDigest::new(
+                    DiagnosticArtifactDigestAlgorithm::Blake3,
+                    frame.digest(),
+                )),
+            ),
+            product,
+            target,
         ),
-        ProductEmissionErrorKind::LinkPlan(_) => {
-            DiagnosticEmissionFailure::LinkPlan(DiagnosticEmissionLinkPlanFailure::Incomplete)
-        }
-        ProductEmissionErrorKind::Query(_) => DiagnosticEmissionFailure::Evaluation(
-            bray_diagnostics::DiagnosticEmissionEvaluationFailure::Infrastructure,
+        ProductEmissionErrorKind::InvalidCompilation => emission_failure_diagnostics(
+            DiagnosticEmissionFailure::IncompleteProduct,
+            product,
+            target,
         ),
-        ProductEmissionErrorKind::Outcome(_) => DiagnosticEmissionFailure::IncompleteProduct,
-    };
+        ProductEmissionErrorKind::Codegen(error) => {
+            codegen_failure_diagnostics(error, product, target)
+        }
+        ProductEmissionErrorKind::MissingLinker => emission_failure_diagnostics(
+            DiagnosticEmissionFailure::LinkPlan(DiagnosticEmissionLinkPlanFailure::MissingLinker),
+            product,
+            target,
+        ),
+        ProductEmissionErrorKind::UnexpectedLinker => emission_failure_diagnostics(
+            DiagnosticEmissionFailure::LinkPlan(
+                DiagnosticEmissionLinkPlanFailure::UnexpectedLinker,
+            ),
+            product,
+            target,
+        ),
+        ProductEmissionErrorKind::Staging(error) => {
+            staging_failure_diagnostics(error, product, target)
+        }
+        ProductEmissionErrorKind::LinkPlan(error) => {
+            link_plan_failure_diagnostics(error, product, target)
+        }
+        ProductEmissionErrorKind::Query(error) => query_failure_diagnostics(error, product, target),
+        ProductEmissionErrorKind::Outcome(error) => {
+            let outer = emission_failure_diagnostics(
+                DiagnosticEmissionFailure::IncompleteProduct,
+                product,
+                target,
+            );
 
-    DiagnosticBag::single(
-        Diagnostic::new(
-            DiagnosticId::new(0),
-            DiagnosticKind::EmissionFailed,
-            SeverityKind::Error,
-        )
-        .with_arg(DiagnosticArg::actual_product_identity(product.to_string()))
-        .with_arg(DiagnosticArg::target_triple(target.as_str()))
-        .with_arg(DiagnosticArg::emission_failure(failure)),
-    )
+            error.diagnostics().merged(&outer)
+        }
+    }
 }
 
 #[cfg(test)]

@@ -247,7 +247,7 @@ fn bound_node_source(bound: &BoundUnit, node: AnyBoundNodeId) -> Option<SourceSp
 }
 
 pub(super) const fn code_production_failure_source(
-    failure: DiagnosticEmissionEvaluationFailure,
+    failure: &DiagnosticEmissionEvaluationFailure,
 ) -> Option<SourceSpan> {
     match failure {
         DiagnosticEmissionEvaluationFailure::LoweringInput(failure) => Some(failure.source()),
@@ -356,6 +356,9 @@ impl Compilation {
             Err(FactQueryError::SemanticQuery(error)) => {
                 panic!("semantic query failed: {error}")
             }
+            Err(FactQueryError::Product(error)) => {
+                panic!("semantic diagnostic product query failed: {error:?}")
+            }
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("semantic checker infrastructure failed: {error:?}")
             }
@@ -423,6 +426,9 @@ impl Compilation {
             }
             Err(FactQueryError::SemanticQuery(error)) => {
                 panic!("check diagnostic semantic query failed: {error}")
+            }
+            Err(FactQueryError::Product(error)) => {
+                panic!("check diagnostic product query failed: {error:?}")
             }
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("check diagnostic checker infrastructure failed: {error:?}")

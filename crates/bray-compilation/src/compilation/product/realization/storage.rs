@@ -5,9 +5,12 @@ use bray_runtime_interface::ExecutionLaneRequirement;
 use bray_symbols::{StaticReferenceSelection, TypeId};
 
 use super::super::super::{CodegenPreparationError, Compilation};
+use super::super::super::{
+    ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductValueKind,
+};
 use super::super::specialization::ConcreteCodegenReachability;
 use super::statics::ConcreteStaticRealization;
-use crate::fact::{CancellationToken, FactQueryError};
+use crate::fact::CancellationToken;
 
 impl Compilation {
     fn static_cleanup_requires_main_thread(
@@ -36,7 +39,11 @@ impl Compilation {
                     continue;
                 }
 
-                return Err(FactQueryError::InfrastructureFailure.into());
+                return Err(ProductQueryFailure::missing(
+                    ProductQueryContext::Instance(key),
+                    ProductDataKind::ConcreteInstance,
+                )
+                .into());
             };
 
             if instance.mir().frame_descriptor().is_some_and(|frame| {
@@ -92,12 +99,19 @@ impl Compilation {
                     continue;
                 }
 
-                return Err(FactQueryError::InfrastructureFailure.into());
+                return Err(ProductQueryFailure::missing(
+                    ProductQueryContext::Instance(key),
+                    ProductDataKind::ConcreteInstance,
+                )
+                .into());
             };
 
-            let owner = reachability
-                .instance(&key)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let owner = reachability.instance(&key).ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::Instance(key.clone()),
+                    ProductDataKind::ReachabilityRealization,
+                )
+            })?;
 
             for storage in instance.mir().storages() {
                 let Some(reference) =
@@ -111,7 +125,12 @@ impl Compilation {
 
                 let StaticReferenceSelection::Closed(provider_instance) = &provider.reference
                 else {
-                    return Err(FactQueryError::InfrastructureFailure.into());
+                    return Err(ProductQueryFailure::unexpected_kind(
+                        ProductQueryContext::StaticReference(provider.reference),
+                        ProductValueKind::ClosedStaticReference,
+                        ProductValueKind::OpenStaticReference,
+                    )
+                    .into());
                 };
 
                 if consumer
@@ -145,9 +164,12 @@ impl Compilation {
         let mut realized = BTreeMap::new();
 
         for instance in reachability.graph().instances() {
-            let owner = reachability
-                .instance(instance.key())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let owner = reachability.instance(instance.key()).ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::Instance(instance.key().clone()),
+                    ProductDataKind::ReachabilityRealization,
+                )
+            })?;
 
             for storage in instance.mir().storages() {
                 let Some(reference) =
@@ -180,7 +202,11 @@ impl Compilation {
 
             for provider in &providers {
                 if !realized.contains_key(provider) {
-                    return Err(FactQueryError::InfrastructureFailure.into());
+                    return Err(ProductQueryFailure::missing(
+                        ProductQueryContext::CodegenStatic(provider.clone()),
+                        ProductDataKind::RealizedStatic,
+                    )
+                    .into());
                 }
             }
 
@@ -195,13 +221,18 @@ impl Compilation {
                     .or_default()
                     .push(provider.clone());
 
-                let count = incoming
-                    .get_mut(&provider)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let count = incoming.get_mut(&provider).ok_or_else(|| {
+                    ProductQueryFailure::missing(
+                        ProductQueryContext::CodegenStatic(provider.clone()),
+                        ProductDataKind::StaticDependencyCounter,
+                    )
+                })?;
 
-                *count = count
-                    .checked_add(1)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                *count = count.checked_add(1).ok_or_else(|| {
+                    ProductQueryFailure::StaticDependencyOverflow {
+                        static_instance: provider,
+                    }
+                })?;
             }
         }
 
@@ -213,9 +244,12 @@ impl Compilation {
         let mut ordered = Vec::with_capacity(realized.len());
 
         while let Some(key) = ready.pop_first() {
-            let static_instance = realized
-                .get(&key)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let static_instance = realized.get(&key).ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::CodegenStatic(key.clone()),
+                    ProductDataKind::RealizedStatic,
+                )
+            })?;
 
             // Returned host entries own their shared identities after graph tables are released.
             ordered.push(ProductStaticHostEntry::new(
@@ -227,13 +261,18 @@ impl Compilation {
             ));
 
             for provider in outgoing.get(&key).into_iter().flatten() {
-                let count = incoming
-                    .get_mut(provider)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let count = incoming.get_mut(provider).ok_or_else(|| {
+                    ProductQueryFailure::missing(
+                        ProductQueryContext::CodegenStatic(provider.clone()),
+                        ProductDataKind::StaticDependencyCounter,
+                    )
+                })?;
 
-                *count = count
-                    .checked_sub(1)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                *count = count.checked_sub(1).ok_or_else(|| {
+                    ProductQueryFailure::StaticDependencyUnderflow {
+                        static_instance: provider.clone(),
+                    }
+                })?;
 
                 if *count == 0 {
                     ready.insert(provider.clone());
@@ -242,7 +281,13 @@ impl Compilation {
         }
 
         if ordered.len() != realized.len() {
-            return Err(FactQueryError::InfrastructureFailure.into());
+            let instances = incoming
+                .into_iter()
+                .filter_map(|(key, count)| (count > 0).then_some(key))
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+
+            return Err(ProductQueryFailure::StaticLifecycleCycle { instances }.into());
         }
 
         Ok(ordered)

@@ -276,7 +276,14 @@ impl Compilation {
                     artifacts,
                     shared_cancellation,
                 )
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(|cause| {
+                    FactQueryError::from(
+                        super::product::ProductQueryFailure::InvalidCodegenRequest {
+                            unit: unit.key().clone(),
+                            cause,
+                        },
+                    )
+                })?;
 
                 let span = self.state.fact_runtime.profile().map(|profile| {
                     profile.start(crate::profile::ProfileOperation::CodeGeneration, None)
@@ -299,9 +306,14 @@ impl Compilation {
                     );
                 }
 
-                result
-                    .map(Arc::new)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)
+                result.map(Arc::new).map_err(|cause| {
+                    FactQueryError::from(
+                        super::product::ProductQueryFailure::CodegenBackendSelection {
+                            unit: unit.key().clone(),
+                            cause,
+                        },
+                    )
+                })
             },
         )?;
 

@@ -7,6 +7,7 @@ use bray_runtime_interface::RuntimeAbiRole;
 
 use super::super::super::super::CodegenPreparationError;
 use super::super::super::super::Compilation;
+use super::super::super::super::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::FactQueryError;
 
 impl Compilation {
@@ -24,16 +25,35 @@ impl Compilation {
         let completion = symbols
             .unary_representation_argument(values, RepresentationRole::Task, task.ty())
             .map_err(FactQueryError::SemanticValueStore)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::UnaryRepresentation {
+                        role: RepresentationRole::Task,
+                        argument: task.ty(),
+                    },
+                    ProductDataKind::ResolvedType,
+                )
+            })?;
 
         let result = symbols
             .unary_representation_type(values, RepresentationRole::RunResult, completion)
             .map_err(FactQueryError::SemanticValueStore)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::UnaryRepresentation {
+                        role: RepresentationRole::RunResult,
+                        argument: completion,
+                    },
+                    ProductDataKind::ResolvedType,
+                )
+            })?;
 
-        let representation = symbols
-            .run_result_representation()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let representation = symbols.run_result_representation().ok_or_else(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::CompilerKnownRepresentation(RepresentationRole::RunResult),
+                ProductDataKind::ResultRepresentation,
+            )
+        })?;
 
         let variants = bray_ir::MirRunResultVariants::new(
             representation.completed_variant(),
@@ -52,9 +72,19 @@ impl Compilation {
                 }),
                 Some(result),
             )
-            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?
-            .result()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+
+        let operation = resolved.operation();
+
+        let resolved = resolved.result().ok_or_else(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::MirOperation {
+                    source: source.clone(),
+                    operation,
+                },
+                ProductDataKind::OperationResultType,
+            )
+        })?;
 
         let storage = builder
             .push_storage(source.clone(), MirStorageKind::Temporary, result)

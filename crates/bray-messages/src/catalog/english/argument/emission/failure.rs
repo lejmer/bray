@@ -24,7 +24,7 @@ pub(crate) fn format_english_emission_failure(
         Failure::Codegen(failure) => format_english_emission_codegen_failure(failure),
         Failure::Staging(failure) => format_english_emission_staging_failure(failure),
         Failure::LinkPlan(failure) => format_english_emission_link_plan_failure(failure),
-        Failure::Evaluation(failure) => format_english_emission_evaluation_failure(*failure),
+        Failure::Evaluation(failure) => format_english_emission_evaluation_failure(failure),
         Failure::MissingContribution(artifact) => format!(
             "the required {} artifact #{} has no generated content",
             format_english_artifact_kind(artifact.kind()),
@@ -224,12 +224,12 @@ fn format_english_package_interface_failure(
         Failure::ConstantCallableEvaluation { declaration, cause } => format!(
             "constant body preparation failed for {} because {}",
             format_english_interface_symbol_identity(declaration),
-            format_english_emission_evaluation_failure(*cause)
+            format_english_emission_evaluation_failure(cause)
         ),
         Failure::ExecutableTemplateEvaluation { declaration, cause } => format!(
             "executable-template preparation failed for {} because {}",
             format_english_interface_symbol_identity(declaration),
-            format_english_emission_evaluation_failure(*cause)
+            format_english_emission_evaluation_failure(cause)
         ),
         Failure::IncompletePublicDeclaration(kind) => format_internal_compiler_error(format!(
             "complete data was unavailable for a reachable public {kind} declaration"
@@ -379,7 +379,7 @@ fn format_english_package_interface_failure(
             if cycle.is_empty() {
                 format!(
                     "package-interface export failed because {}",
-                    format_english_emission_evaluation_failure(*cause)
+                    format_english_emission_evaluation_failure(cause)
                 )
             } else {
                 format_internal_compiler_error(format!(

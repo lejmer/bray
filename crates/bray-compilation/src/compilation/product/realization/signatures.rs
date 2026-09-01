@@ -2,14 +2,12 @@ use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_codegen::{CodegenCallableSignature, CodegenParameterMapping, CodegenResultMapping};
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
-use bray_ir::{MirHelperReference, MirUnitKey};
-use bray_runtime_interface::RuntimeAbiRole;
+use bray_ir::MirUnitKey;
 use bray_symbols::{
-    AnySymbolId, BorrowKind, CallableAbi, CallableDefinitionId, CallableExecution,
+    AnySymbolId, CallableAbi, CallableDefinitionId, CallableExecution,
     CallableParameterDefaultQuery, CallableParameterDefaultValue, CallableSignatureQuery,
     RuntimeDefaultProviderInput, StructFieldDefaultQuery, StructFieldDefaultValue,
-    SymbolQueryRequest, TypeAssociatedLifecycleSlot, TypeData, TypeId, UnionPayloadDefaultValue,
-    UnionPayloadFieldDefaultQuery,
+    SymbolQueryRequest, TypeData, TypeId, UnionPayloadDefaultValue, UnionPayloadFieldDefaultQuery,
 };
 
 use super::super::super::CodegenPreparationError;
@@ -21,6 +19,7 @@ use super::support::{
     callable_type_signature, codegen_checker_error, is_void_result, receiver_codegen_type,
     synchronous_bray_signature, void_signature,
 };
+use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
@@ -30,9 +29,12 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<CodegenCallableSignature, CodegenPreparationError> {
         if let MirUnitKey::GeneratedLifecycle(_) = instance.key().template() {
-            let reference = instance
-                .generated_lifecycle_reference()
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let reference = instance.generated_lifecycle_reference().ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::Instance(instance.key().clone()),
+                    ProductDataKind::GeneratedLifecycleInstance,
+                )
+            })?;
 
             return self.generated_lifecycle_signature(reference, cancellation);
         }
@@ -51,7 +53,12 @@ impl Compilation {
                 .map_err(FactQueryError::SemanticValueStore)?;
 
             let TypeData::Callable(callable) = callable.as_ref() else {
-                return Err(FactQueryError::InfrastructureFailure.into());
+                return Err(ProductQueryFailure::UnexpectedSemanticType {
+                    ty: callable_type,
+                    expected: crate::compilation::ProductValueKind::CallableType,
+                    actual: callable.as_ref().clone(),
+                }
+                .into());
             };
 
             return callable_type_signature(self, callable);
@@ -75,18 +82,30 @@ impl Compilation {
                 self.codegen_callable_definition(instance.key())?
             }
             MirUnitKey::GeneratedLifecycle(_) | MirUnitKey::ExternalRuntimeDefault(_) => {
-                return Err(FactQueryError::InfrastructureFailure.into());
+                return Err(ProductQueryFailure::missing(
+                    ProductQueryContext::Instance(instance.key().clone()),
+                    ProductDataKind::CallableSignature,
+                )
+                .into());
             }
         };
 
         let values = self.semantic_value_store()?;
 
-        let callable = instance
-            .callable_instance()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let callable = instance.callable_instance().ok_or_else(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::Instance(instance.key().clone()),
+                ProductDataKind::CallableInstance,
+            )
+        })?;
 
         if callable.definition() != definition {
-            return Err(FactQueryError::InfrastructureFailure.into());
+            return Err(ProductQueryFailure::CallableDefinitionMismatch {
+                instance: instance.key().clone(),
+                expected: definition,
+                actual: callable.definition(),
+            }
+            .into());
         }
 
         let substitution = callable.substitution();
@@ -111,8 +130,21 @@ impl Compilation {
             substitution,
             constants.value(),
         )
-        .map_err(FactQueryError::from)?
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::from)?;
+
+        let Some(signature) = signature else {
+            if constants.diagnostics().has_errors() {
+                return Err(CodegenPreparationError::Diagnostics(
+                    constants.diagnostics().clone(),
+                ));
+            }
+
+            return Err(ProductQueryFailure::missing(
+                ProductQueryContext::CallableDefinition(definition),
+                ProductDataKind::CallableSignature,
+            )
+            .into());
+        };
 
         let signature = signature
             .try_map_types(|ty| substitute_contextual_self(values, ty, contextual_self))?;
@@ -138,7 +170,12 @@ impl Compilation {
             .map_err(FactQueryError::SemanticValueStore)?;
 
         let TypeData::Callable(callable) = callable.as_ref() else {
-            return Err(FactQueryError::InfrastructureFailure.into());
+            return Err(ProductQueryFailure::UnexpectedSemanticType {
+                ty: signature.callable_type(),
+                expected: crate::compilation::ProductValueKind::CallableType,
+                actual: callable.as_ref().clone(),
+            }
+            .into());
         };
 
         let receiver = signature
@@ -186,7 +223,15 @@ impl Compilation {
                 .available_compiler_known_symbols()
                 .unary_representation_type(values, RepresentationRole::Future, result_type)
                 .map_err(FactQueryError::SemanticValueStore)?
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    ProductQueryFailure::missing(
+                        ProductQueryContext::UnaryRepresentation {
+                            role: RepresentationRole::Future,
+                            argument: result_type,
+                        },
+                        ProductDataKind::CompilerKnownRepresentation,
+                    )
+                })?;
 
             CodegenResultMapping::direct(future, None, [])
         } else if is_void_result(self, result_type)? {
@@ -215,9 +260,12 @@ impl Compilation {
         declaration: bray_symbols::StaticSymbolId,
         cancellation: &CancellationToken,
     ) -> Result<CodegenCallableSignature, CodegenPreparationError> {
-        let substitution = instance
-            .substitution()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let substitution = instance.substitution().ok_or_else(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::Instance(instance.key().clone()),
+                ProductDataKind::StaticSubstitution,
+            )
+        })?;
 
         let template = self.static_instance_template(declaration)?;
 
@@ -246,7 +294,12 @@ impl Compilation {
         let owner = binding_context
             .runtime_default_subject(provider)
             .map_err(super::super::super::binder::binding_query_error)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::Symbol(provider),
+                    ProductDataKind::RuntimeDefaultSubject,
+                )
+            })?;
 
         let (inputs, result) = match owner {
             AnySymbolId::CallableParameter(owner) => {
@@ -257,7 +310,9 @@ impl Compilation {
                     .map_err(super::super::super::binder::binding_query_error)?;
 
                 let CallableParameterDefaultValue::Valid(surface) = checked.value().value() else {
-                    return Err(FactQueryError::InfrastructureFailure.into());
+                    return Err(CodegenPreparationError::Diagnostics(
+                        checked.diagnostics().clone(),
+                    ));
                 };
 
                 (surface.inputs().to_vec(), surface.result())
@@ -268,7 +323,9 @@ impl Compilation {
                     .map_err(super::super::super::binder::binding_query_error)?;
 
                 let StructFieldDefaultValue::Valid(surface) = checked.value().value() else {
-                    return Err(FactQueryError::InfrastructureFailure.into());
+                    return Err(CodegenPreparationError::Diagnostics(
+                        checked.diagnostics().clone(),
+                    ));
                 };
 
                 (surface.inputs().to_vec(), surface.result())
@@ -281,12 +338,20 @@ impl Compilation {
                     .map_err(super::super::super::binder::binding_query_error)?;
 
                 let UnionPayloadDefaultValue::Valid(surface) = checked.value().value() else {
-                    return Err(FactQueryError::InfrastructureFailure.into());
+                    return Err(CodegenPreparationError::Diagnostics(
+                        checked.diagnostics().clone(),
+                    ));
                 };
 
                 (surface.inputs().to_vec(), surface.result())
             }
-            _ => return Err(FactQueryError::InfrastructureFailure.into()),
+            _ => {
+                return Err(ProductQueryFailure::UnsupportedRuntimeDefaultSubject {
+                    provider,
+                    subject: owner,
+                }
+                .into());
+            }
         };
 
         let substitution = instance.substitution();
@@ -331,7 +396,12 @@ impl Compilation {
                     .receiver_parameter(parameter)
                     .map_err(super::super::super::binder::binding_query_error)?
                     .map(bray_symbols::ReceiverParameterSymbol::owner)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                    .ok_or_else(|| {
+                        ProductQueryFailure::missing(
+                            ProductQueryContext::Symbol(parameter.into()),
+                            ProductDataKind::Symbol,
+                        )
+                    })?;
 
                 (owner, AnySymbolId::ReceiverParameter(parameter))
             }
@@ -340,7 +410,12 @@ impl Compilation {
                     .callable_parameter(parameter)
                     .map_err(super::super::super::binder::binding_query_error)?
                     .map(bray_symbols::CallableParameterSymbol::owner)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                    .ok_or_else(|| {
+                        ProductQueryFailure::missing(
+                            ProductQueryContext::Symbol(parameter.into()),
+                            ProductDataKind::Symbol,
+                        )
+                    })?;
 
                 (owner, AnySymbolId::CallableParameter(parameter))
             }
@@ -350,9 +425,12 @@ impl Compilation {
             .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(owner))
             .map_err(super::super::super::binder::binding_query_error)?;
 
-        let substitution = instance
-            .substitution()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let substitution = instance.substitution().ok_or_else(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::Instance(instance.key().clone()),
+                ProductDataKind::GenericSubstitution,
+            )
+        })?;
 
         let constants = self.checked_constant_terms_for_templates_with_cancellation(
             [template.value().callable_type(), template.value().result()],
@@ -365,8 +443,21 @@ impl Compilation {
             substitution,
             constants.value(),
         )
-        .map_err(FactQueryError::from)?
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::from)?;
+
+        let Some(signature) = signature else {
+            if constants.diagnostics().has_errors() {
+                return Err(CodegenPreparationError::Diagnostics(
+                    constants.diagnostics().clone(),
+                ));
+            }
+
+            return Err(ProductQueryFailure::missing(
+                ProductQueryContext::Instance(instance.key().clone()),
+                ProductDataKind::CallableSignature,
+            )
+            .into());
+        };
 
         let values = self.semantic_value_store()?;
 
@@ -395,7 +486,12 @@ impl Compilation {
                     (AnySymbolId::CallableParameter(candidate.parameter()) == parameter)
                         .then_some(candidate.ty())
                 })
-                .ok_or(FactQueryError::InfrastructureFailure)?,
+                .ok_or_else(|| {
+                    ProductQueryFailure::missing(
+                        ProductQueryContext::Symbol(parameter),
+                        ProductDataKind::CallableParameters,
+                    )
+                })?,
         };
 
         self.concrete_codegen_type(ty, Some(substitution), Some(instance), cancellation)
@@ -410,307 +506,40 @@ impl Compilation {
                 let symbol = self
                     .symbol_graph()?
                     .symbol_for_key(key.declared_owner())
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                    .ok_or_else(|| {
+                        ProductQueryFailure::missing(
+                            ProductQueryContext::SymbolKey(key.declared_owner().clone()),
+                            ProductDataKind::Symbol,
+                        )
+                    })?;
 
-                CallableDefinitionId::try_new(symbol).ok_or(FactQueryError::InfrastructureFailure)
+                CallableDefinitionId::try_new(symbol).ok_or_else(|| {
+                    ProductQueryFailure::InvalidCallableDefinitionSymbol {
+                        symbol,
+                        actual: symbol.kind(),
+                    }
+                    .into()
+                })
             }
             MirUnitKey::ImportedExecutable(definition) => {
-                CallableDefinitionId::try_new(definition.owner())
-                    .ok_or(FactQueryError::InfrastructureFailure)
+                let symbol = definition.owner();
+
+                CallableDefinitionId::try_new(symbol).ok_or_else(|| {
+                    ProductQueryFailure::InvalidCallableDefinitionSymbol {
+                        symbol,
+                        actual: symbol.kind(),
+                    }
+                    .into()
+                })
             }
             MirUnitKey::ExternalCallable(definition) => Ok(*definition),
             MirUnitKey::ExecutableHost(_)
             | MirUnitKey::GeneratedLifecycle(_)
-            | MirUnitKey::ExternalRuntimeDefault(_) => Err(FactQueryError::InfrastructureFailure),
+            | MirUnitKey::ExternalRuntimeDefault(_) => Err(ProductQueryFailure::missing(
+                ProductQueryContext::Instance(instance.clone()),
+                ProductDataKind::CallableSignature,
+            )
+            .into()),
         }
-    }
-
-    pub(super) fn generated_lifecycle_signature(
-        &self,
-        reference: &MirHelperReference,
-        cancellation: &CancellationToken,
-    ) -> Result<CodegenCallableSignature, CodegenPreparationError> {
-        let ty = reference
-            .lifecycle_type()
-            .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))?;
-
-        let pointer = self
-            .semantic_value_store()?
-            .intern_type(TypeData::Borrow {
-                kind: BorrowKind::Mutable,
-                target: ty,
-            })
-            .map_err(FactQueryError::SemanticValueStore)?;
-
-        let result = if matches!(reference, MirHelperReference::StaticFinalize(_)) {
-            let Some((_, _, result, execution)) =
-                self.lifecycle_callable(ty, TypeAssociatedLifecycleSlot::Finalizer, cancellation)?
-            else {
-                return Ok(CodegenCallableSignature::new(
-                    [CodegenParameterMapping::direct(pointer, None, [])],
-                    CodegenResultMapping::Void,
-                    CallableAbi::Bray,
-                    false,
-                ));
-            };
-
-            let result = if execution == CallableExecution::Asynchronous {
-                self.available_compiler_known_symbols()
-                    .unary_representation_type(
-                        self.semantic_value_store()?,
-                        RepresentationRole::Future,
-                        result,
-                    )
-                    .map_err(FactQueryError::SemanticValueStore)?
-                    .ok_or(FactQueryError::InfrastructureFailure)?
-            } else {
-                result
-            };
-
-            if is_void_result(self, result)? {
-                CodegenResultMapping::Void
-            } else {
-                CodegenResultMapping::direct(result, None, [])
-            }
-        } else {
-            CodegenResultMapping::Void
-        };
-
-        Ok(CodegenCallableSignature::new(
-            [CodegenParameterMapping::direct(pointer, None, [])],
-            result,
-            CallableAbi::Bray,
-            false,
-        ))
-    }
-
-    pub(super) fn codegen_runtime_signature(
-        &self,
-        role: RuntimeAbiRole,
-    ) -> Result<CodegenCallableSignature, CodegenPreparationError> {
-        if let Some(signature) = self.codegen_runtime_source_signature(role)? {
-            return Ok(signature);
-        }
-
-        if role == RuntimeAbiRole::CurrentRunCancellationObservation {
-            let boolean = self.codegen_representation_type(RepresentationRole::ScalarBool)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [],
-                CodegenResultMapping::direct(boolean, None, []),
-                CallableAbi::Bray,
-                false,
-            ));
-        }
-
-        if role == RuntimeAbiRole::NativeThreadExecution {
-            let pointer = self.codegen_opaque_pointer_type()?;
-            let address = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
-            let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [
-                    CodegenParameterMapping::direct(pointer, None, []),
-                    CodegenParameterMapping::direct(address, None, []),
-                    CodegenParameterMapping::direct(pointer, None, []),
-                    CodegenParameterMapping::direct(address, None, []),
-                    CodegenParameterMapping::direct(pointer, None, []),
-                ],
-                CodegenResultMapping::direct(status, None, []),
-                CallableAbi::C,
-                false,
-            ));
-        }
-
-        if matches!(
-            role,
-            RuntimeAbiRole::CurrentNativeThreadIdentity | RuntimeAbiRole::MainNativeThreadIdentity
-        ) {
-            let identity = self.codegen_representation_type(RepresentationRole::ScalarU64)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [],
-                CodegenResultMapping::direct(identity, None, []),
-                CallableAbi::Bray,
-                false,
-            ));
-        }
-
-        if role == RuntimeAbiRole::NativeThreadPanicReportRecovery {
-            let address = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
-            let report = self.codegen_representation_type(RepresentationRole::PanicReport)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [CodegenParameterMapping::direct(address, None, [])],
-                CodegenResultMapping::direct(report, None, []),
-                CallableAbi::Bray,
-                false,
-            ));
-        }
-
-        if role == RuntimeAbiRole::PanicPropagation {
-            let report = self.codegen_representation_type(RepresentationRole::PanicReport)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [CodegenParameterMapping::direct(report, None, [])],
-                CodegenResultMapping::Void,
-                CallableAbi::Bray,
-                false,
-            ));
-        }
-
-        if matches!(
-            role,
-            RuntimeAbiRole::PanicReporting | RuntimeAbiRole::PanicReportDestruction
-        ) {
-            let report = self.codegen_representation_type(RepresentationRole::PanicReport)?;
-            let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [CodegenParameterMapping::direct(report, None, [])],
-                CodegenResultMapping::direct(status, None, []),
-                CallableAbi::Bray,
-                false,
-            ));
-        }
-
-        if matches!(
-            role,
-            RuntimeAbiRole::TaskCancellationRequest | RuntimeAbiRole::TaskDestruction
-        ) {
-            let task = self.codegen_representation_type(RepresentationRole::ScalarU64)?;
-            let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [CodegenParameterMapping::direct(task, None, [])],
-                CodegenResultMapping::direct(status, None, []),
-                CallableAbi::Bray,
-                false,
-            ));
-        }
-
-        if role == RuntimeAbiRole::TaskEventCreation {
-            let event = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [],
-                CodegenResultMapping::direct(event, None, []),
-                CallableAbi::Bray,
-                false,
-            ));
-        }
-
-        if matches!(
-            role,
-            RuntimeAbiRole::TaskEventSignal | RuntimeAbiRole::TaskEventDestruction
-        ) {
-            let event = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
-            let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [CodegenParameterMapping::direct(event, None, [])],
-                CodegenResultMapping::direct(status, None, []),
-                CallableAbi::Bray,
-                false,
-            ));
-        }
-
-        match role {
-            RuntimeAbiRole::GeneratorBegin
-            | RuntimeAbiRole::GeneratorPush
-            | RuntimeAbiRole::GeneratorFinish
-            | RuntimeAbiRole::GeneratorCleanupBroadcast
-            | RuntimeAbiRole::GeneratorDestruction => {}
-            RuntimeAbiRole::RuntimeInitialization
-            | RuntimeAbiRole::RootExecution
-            | RuntimeAbiRole::SynchronousRootExecution
-            | RuntimeAbiRole::ForeignCallbackExecution
-            | RuntimeAbiRole::NativeThreadExecution
-            | RuntimeAbiRole::CurrentNativeThreadIdentity
-            | RuntimeAbiRole::MainNativeThreadIdentity
-            | RuntimeAbiRole::NativeThreadPanicReportRecovery
-            | RuntimeAbiRole::TaskEventCreation
-            | RuntimeAbiRole::TaskEventSignal
-            | RuntimeAbiRole::TaskEventDestruction
-            | RuntimeAbiRole::ThreadAttachmentIdentity
-            | RuntimeAbiRole::ThreadStaticCleanupRegistration
-            | RuntimeAbiRole::ProductHostControl
-            | RuntimeAbiRole::RootCancellationRequest
-            | RuntimeAbiRole::TaskAllocation
-            | RuntimeAbiRole::TaskStart
-            | RuntimeAbiRole::FrameResume
-            | RuntimeAbiRole::SuspensionRegistration
-            | RuntimeAbiRole::Wake
-            | RuntimeAbiRole::TaskCancellationRequest
-            | RuntimeAbiRole::CurrentRunCancellationObservation
-            | RuntimeAbiRole::CurrentRunCancellationPropagation
-            | RuntimeAbiRole::JoinRegistration
-            | RuntimeAbiRole::TaskObservationCreation
-            | RuntimeAbiRole::TaskResolution
-            | RuntimeAbiRole::TerminalPublication
-            | RuntimeAbiRole::RuntimeEvent
-            | RuntimeAbiRole::CompatibleLaneSelection
-            | RuntimeAbiRole::CleanupIncidentTransfer
-            | RuntimeAbiRole::CleanupIncidentReporting
-            | RuntimeAbiRole::MainThreadLaneStartup
-            | RuntimeAbiRole::MainThreadLaneDrive
-            | RuntimeAbiRole::RootTerminalObservation
-            | RuntimeAbiRole::RootCompletionResolution
-            | RuntimeAbiRole::PanicReporting
-            | RuntimeAbiRole::PanicReportDestruction
-            | RuntimeAbiRole::EntryFailureReporting
-            | RuntimeAbiRole::TestEntrySelection
-            | RuntimeAbiRole::StructuredShutdown
-            | RuntimeAbiRole::FrameTaskBroadcast
-            | RuntimeAbiRole::FrameLifecycleResolution
-            | RuntimeAbiRole::FrameCompletionMove
-            | RuntimeAbiRole::FrameDestruction
-            | RuntimeAbiRole::PanicReportConstruction
-            | RuntimeAbiRole::PanicPropagation
-            | RuntimeAbiRole::FrameCreation
-            | RuntimeAbiRole::InactiveFrameMove
-            | RuntimeAbiRole::AwaitedFrameComposition
-            | RuntimeAbiRole::TaskDestruction => {
-                return Ok(void_signature(CallableAbi::Bray));
-            }
-        }
-
-        let pointer = self.codegen_opaque_pointer_type()?;
-        let usize = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
-        let boolean = self.codegen_representation_type(RepresentationRole::ScalarBool)?;
-        let parameter = |ty| CodegenParameterMapping::direct(ty, None, []);
-
-        let (parameters, result) = match role {
-            RuntimeAbiRole::GeneratorBegin => (
-                vec![
-                    parameter(pointer),
-                    parameter(usize),
-                    parameter(usize),
-                    parameter(usize),
-                    parameter(usize),
-                    parameter(boolean),
-                ],
-                CodegenResultMapping::Void,
-            ),
-            RuntimeAbiRole::GeneratorPush | RuntimeAbiRole::GeneratorCleanupBroadcast => (
-                vec![parameter(pointer), parameter(pointer)],
-                CodegenResultMapping::Void,
-            ),
-            RuntimeAbiRole::GeneratorFinish => {
-                (vec![parameter(pointer)], CodegenResultMapping::Void)
-            }
-            RuntimeAbiRole::GeneratorDestruction => (
-                vec![parameter(pointer), parameter(pointer), parameter(pointer)],
-                CodegenResultMapping::Void,
-            ),
-            _ => return Err(FactQueryError::InfrastructureFailure.into()),
-        };
-
-        Ok(CodegenCallableSignature::new(
-            parameters,
-            result,
-            CallableAbi::Bray,
-            false,
-        ))
     }
 }

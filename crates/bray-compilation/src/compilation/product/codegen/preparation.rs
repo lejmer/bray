@@ -9,6 +9,7 @@ use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifact, RuntimeCap
 use bray_symbols::{ProductIdentity, ProductKind};
 
 use super::super::super::Compilation;
+use super::super::error::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use super::super::realization::ProductStaticHostEntry;
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::error::{NativeProductPlanningError, native_batch_error};
@@ -246,10 +247,12 @@ impl Compilation {
                     self.profile_native_product_operation(
                         crate::profile::ProfileOperation::NativePartitioning,
                         || {
-                            let instance = reachability
-                                .graph()
-                                .instance(key)
-                                .ok_or(FactQueryError::InfrastructureFailure)?;
+                            let instance = reachability.graph().instance(key).ok_or_else(|| {
+                                FactQueryError::from(ProductQueryFailure::missing(
+                                    ProductQueryContext::Instance(key.clone()),
+                                    ProductDataKind::PartitionInstance,
+                                ))
+                            })?;
 
                             let compatibility = self
                                 .codegen_partition_compatibility(
@@ -306,10 +309,12 @@ impl Compilation {
                 self.profile_native_product_operation(
                     crate::profile::ProfileOperation::NativeMapping,
                     || {
-                        let unit = units_by_key
-                            .get(key)
-                            .copied()
-                            .ok_or(FactQueryError::InfrastructureFailure)?;
+                        let unit = units_by_key.get(key).copied().ok_or_else(|| {
+                            FactQueryError::from(ProductQueryFailure::missing(
+                                ProductQueryContext::CodegenUnit(key.clone()),
+                                ProductDataKind::PartitionInstance,
+                            ))
+                        })?;
 
                         let mappings = self
                             .codegen_mappings_for_product(
@@ -335,15 +340,20 @@ impl Compilation {
         let mut mappings = Vec::with_capacity(units.len());
 
         for unit in units {
-            mappings.push(
-                completed
-                    .remove(unit.key())
-                    .ok_or(FactQueryError::InfrastructureFailure)?,
-            );
+            mappings.push(completed.remove(unit.key()).ok_or_else(|| {
+                FactQueryError::from(ProductQueryFailure::missing(
+                    ProductQueryContext::CodegenUnit(unit.key().clone()),
+                    ProductDataKind::CodegenUnitMapping,
+                ))
+            })?);
         }
 
-        if !completed.is_empty() {
-            return Err(FactQueryError::InfrastructureFailure.into());
+        if let Some(key) = completed.keys().next() {
+            return Err(FactQueryError::from(ProductQueryFailure::Conflict {
+                context: ProductQueryContext::CodegenUnit(key.clone()),
+                data: ProductDataKind::CodegenUnitMapping,
+            })
+            .into());
         }
 
         Ok(mappings)

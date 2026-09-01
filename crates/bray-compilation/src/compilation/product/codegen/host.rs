@@ -13,6 +13,7 @@ use bray_runtime_interface::{
 use bray_symbols::{GenericArgument, ProductIdentity, ProductKind};
 
 use super::super::super::Compilation;
+use super::super::error::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use super::super::specialization::ConcreteCodegenInstance;
 use super::error::NativeProductPlanningError;
 use crate::fact::{CancellationToken, FactQueryError};
@@ -30,10 +31,12 @@ impl Compilation {
             return Ok(None);
         }
 
-        let owner = units
-            .first()
-            .map(CodegenUnit::key)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let owner = units.first().map(CodegenUnit::key).ok_or_else(|| {
+            FactQueryError::from(ProductQueryFailure::missing(
+                ProductQueryContext::Target(target.clone()),
+                ProductDataKind::ProductHostOwnerUnit,
+            ))
+        })?;
 
         let mut realizations = BTreeMap::new();
 
@@ -41,7 +44,11 @@ impl Compilation {
             if let Some(previous) = realizations.insert(mapping.instance(), mapping)
                 && previous.symbol() != mapping.symbol()
             {
-                return Err(FactQueryError::InfrastructureFailure.into());
+                return Err(FactQueryError::from(ProductQueryFailure::Conflict {
+                    context: ProductQueryContext::CodegenStatic(mapping.instance().clone()),
+                    data: ProductDataKind::ProductHostStaticMapping,
+                })
+                .into());
             }
         }
 
@@ -67,9 +74,12 @@ impl Compilation {
             .iter()
             .enumerate()
             .map(|(order, entry)| {
-                let mapping = realizations
-                    .get(entry.key())
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let mapping = realizations.get(entry.key()).ok_or_else(|| {
+                    FactQueryError::from(ProductQueryFailure::missing(
+                        ProductQueryContext::CodegenStatic(entry.key().clone()),
+                        ProductDataKind::ProductHostStaticMapping,
+                    ))
+                })?;
 
                 let host_symbol = BinarySymbolName::try_new(mapping.host_name())
                     .ok_or(NativeProductPlanningError::InvalidSymbolName)?;
@@ -84,8 +94,14 @@ impl Compilation {
                     )
                 });
 
-                let order =
-                    u64::try_from(order).map_err(|_| FactQueryError::InfrastructureFailure)?;
+                let order = u64::try_from(order).map_err(|_| {
+                    FactQueryError::from(ProductQueryFailure::CountMismatch {
+                        context: ProductQueryContext::CodegenStatic(entry.key().clone()),
+                        data: ProductDataKind::ProductHostStaticMapping,
+                        expected: usize::try_from(u64::MAX).unwrap_or(usize::MAX),
+                        actual: order,
+                    })
+                })?;
 
                 Ok(CodegenProductHostStatic::new(
                     host_symbol,
@@ -106,7 +122,13 @@ impl Compilation {
             statics,
         )
         .map(Some)
-        .ok_or_else(|| FactQueryError::InfrastructureFailure.into())
+        .ok_or_else(|| {
+            FactQueryError::from(ProductQueryFailure::Conflict {
+                context: ProductQueryContext::Target(target.clone()),
+                data: ProductDataKind::ProductHostOwnerUnit,
+            })
+            .into()
+        })
     }
 
     pub(super) fn executable_host(
@@ -381,7 +403,12 @@ impl Compilation {
                 let representation = self
                     .available_compiler_known_symbols()
                     .result_representation()
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                    .ok_or_else(|| {
+                        FactQueryError::from(ProductQueryFailure::missing(
+                            ProductQueryContext::Type(ty),
+                            ProductDataKind::ResultRepresentation,
+                        ))
+                    })?;
 
                 let bray_symbols::TypeData::Named { substitution, .. } = data.as_ref() else {
                     return Err(NativeProductPlanningError::InvalidEntryResult);

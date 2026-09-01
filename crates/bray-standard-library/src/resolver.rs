@@ -184,10 +184,12 @@ impl StandardLibraryResolver {
         artifact: &StandardLibraryArtifact,
     ) -> Result<ResolvedStandardLibraryArtifact, StandardLibraryLoadError> {
         let cell = {
-            let mut artifacts = self
-                .artifacts
-                .lock()
-                .map_err(|_| StandardLibraryLoadError::Infrastructure)?;
+            let mut artifacts =
+                self.artifacts
+                    .lock()
+                    .map_err(|_| StandardLibraryLoadError::Infrastructure {
+                        path: PathBuf::from(artifact.path()),
+                    })?;
 
             Arc::clone(
                 artifacts
@@ -328,8 +330,11 @@ pub enum StandardLibraryLoadError {
         /// Exact selected target identity.
         target: TargetIdentity,
     },
-    /// Resolver cache coordination failed.
-    Infrastructure,
+    /// Resolver cache coordination failed for one exact selected artifact.
+    Infrastructure {
+        /// Exact selected artifact path.
+        path: PathBuf,
+    },
 }
 
 #[cfg(test)]

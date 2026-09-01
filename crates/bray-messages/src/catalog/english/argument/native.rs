@@ -4,6 +4,7 @@ mod dependency;
 mod document;
 mod external;
 mod linking;
+mod product_query;
 mod standard_library;
 mod toolchain;
 

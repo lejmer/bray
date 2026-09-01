@@ -344,19 +344,34 @@ impl Compilation {
         let parameters = generic_parameter_ids(binding_context.symbols(), declaration.into())
             .map_err(super::binder::binding_query_error)?;
 
-        let owner = GenericOwnerId::try_new(declaration.into())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let owner = GenericOwnerId::try_new(declaration.into()).ok_or_else(|| {
+            FactQueryError::from(super::product::ProductQueryFailure::missing(
+                super::product::ProductQueryContext::Symbol(declaration.into()),
+                super::product::ProductDataKind::GenericOwner,
+            ))
+        })?;
 
         let substitution =
             identity_substitution(binding_context.semantic_values(), owner, &parameters)?;
 
         let BoundUnitRoot::Expression(initializer) = unit.root() else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(super::semantic_error::SemanticQueryFailure::BoundUnit {
+                unit: key.clone(),
+                cause: bray_bound_tree::BoundUnitBuildError::RootKindMismatch,
+            }
+            .into());
         };
 
         let ty = expression_types
             .expression(initializer)
-            .ok_or(FactQueryError::InfrastructureFailure)?
+            .ok_or_else(|| {
+                FactQueryError::from(super::product::ProductQueryFailure::missing(
+                    super::product::ProductQueryContext::MirUnit(bray_ir::MirUnitKey::Bound(
+                        key.clone(),
+                    )),
+                    super::product::ProductDataKind::ResolvedType,
+                ))
+            })?
             .ty();
 
         Ok(Some((

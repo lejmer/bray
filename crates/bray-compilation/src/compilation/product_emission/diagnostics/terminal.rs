@@ -249,7 +249,7 @@ fn package_interface_export_failure_diagnostic(
             package_evaluation_failure_diagnostic(
                 DiagnosticPackageInterfaceFailure::ConstantCallableEvaluation {
                     declaration: declaration.clone(),
-                    cause,
+                    cause: cause.clone(),
                 },
                 cause,
                 product,
@@ -262,7 +262,7 @@ fn package_interface_export_failure_diagnostic(
             package_evaluation_failure_diagnostic(
                 DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {
                     declaration: declaration.clone(),
-                    cause,
+                    cause: cause.clone(),
                 },
                 cause,
                 product,
@@ -374,7 +374,7 @@ fn package_compiler_defect_diagnostic(
 ) -> Diagnostic {
     let source = match &failure {
         DiagnosticPackageInterfaceFailure::DeclarationDiscoveryFailure { cause, .. } => {
-            crate::compilation::diagnostics::code_production_failure_source(*cause)
+            crate::compilation::diagnostics::code_production_failure_source(cause)
         }
         _ => None,
     };
@@ -399,7 +399,7 @@ fn package_evaluation_failure_diagnostic(
 ) -> Diagnostic {
     let diagnostic = package_failure_diagnostic(failure, product, target);
 
-    match crate::compilation::diagnostics::code_production_failure_source(cause) {
+    match crate::compilation::diagnostics::code_production_failure_source(&cause) {
         Some(source) => {
             crate::compilation::diagnostics::with_compiler_defect_source(diagnostic, source)
         }

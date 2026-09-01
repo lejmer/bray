@@ -58,6 +58,10 @@ pub(crate) const USER_FACING_SOURCES: &[(&str, &str)] = &[
         include_str!("native/linking.rs"),
     ),
     (
+        "argument/native/product_query.rs",
+        include_str!("native/product_query.rs"),
+    ),
+    (
         "argument/native/standard_library.rs",
         include_str!("native/standard_library.rs"),
     ),

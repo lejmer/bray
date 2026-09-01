@@ -9,6 +9,10 @@ use bray_symbols::{
 };
 
 use super::super::{CodegenPreparationError, Compilation};
+use super::{
+    ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductSynchronizationComponent,
+    ProductValueKind,
+};
 use crate::fact::{CancellationToken, FactQueryError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -91,12 +95,19 @@ impl Compilation {
         reference: &MirHelperReference,
         cancellation: &CancellationToken,
     ) -> Result<bool, CodegenPreparationError> {
-        let role = MirGeneratedLifecycleRole::from_reference(reference)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let role = MirGeneratedLifecycleRole::from_reference(reference).ok_or_else(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::MirHelper(reference.clone()),
+                ProductDataKind::LifecycleRole,
+            )
+        })?;
 
-        let ty = reference
-            .lifecycle_type()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let ty = reference.lifecycle_type().ok_or_else(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::MirHelper(reference.clone()),
+                ProductDataKind::LifecycleType,
+            )
+        })?;
 
         Ok(!self
             .codegen_lifecycle_needs(ty, cancellation)?
@@ -121,7 +132,9 @@ impl Compilation {
         self.state
             .codegen_lifecycle_needs
             .lock()
-            .map_err(|_| FactQueryError::InfrastructureFailure)?
+            .map_err(|_| ProductQueryFailure::SynchronizationPoisoned {
+                component: ProductSynchronizationComponent::LifecycleNeeds,
+            })?
             .extend(computed);
 
         Ok(needs)
@@ -386,7 +399,9 @@ impl Compilation {
             .state
             .codegen_lifecycle_needs
             .lock()
-            .map_err(|_| FactQueryError::InfrastructureFailure)?
+            .map_err(|_| ProductQueryFailure::SynchronizationPoisoned {
+                component: ProductSynchronizationComponent::LifecycleNeeds,
+            })?
             .get(&ty)
             .copied();
 
@@ -401,13 +416,22 @@ impl Compilation {
     ) -> Result<Option<TypeId>, CodegenPreparationError> {
         let Some(key) = RecognizedStandardLibraryDeclarationKey::try_new("StandardRawBuffer")
         else {
-            return Err(FactQueryError::InfrastructureFailure.into());
+            return Err(
+                ProductQueryFailure::InvalidRecognizedStandardLibraryDeclarationKey {
+                    key: "StandardRawBuffer".to_owned(),
+                }
+                .into(),
+            );
         };
 
         let Some(package) = PackageIdentity::try_new(
             bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY,
         ) else {
-            return Err(FactQueryError::InfrastructureFailure.into());
+            return Err(ProductQueryFailure::InvalidPackageIdentity {
+                identity: bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
+                    .to_owned(),
+            }
+            .into());
         };
 
         let imported = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
@@ -429,17 +453,30 @@ impl Compilation {
             return Ok(None);
         }
 
+        let substitution_id = substitution;
+
         let substitution = self
             .semantic_value_store()?
-            .generic_substitution_data(substitution)
+            .generic_substitution_data(substitution_id)
             .map_err(FactQueryError::SemanticValueStore)?;
 
         let [binding] = substitution.bindings() else {
-            return Err(FactQueryError::InfrastructureFailure.into());
+            return Err(ProductQueryFailure::count_mismatch(
+                ProductQueryContext::Substitution(substitution_id),
+                ProductDataKind::GenericSubstitution,
+                1,
+                substitution.bindings().len(),
+            )
+            .into());
         };
 
         let GenericArgument::Type(element) = binding.argument() else {
-            return Err(FactQueryError::InfrastructureFailure.into());
+            return Err(ProductQueryFailure::unexpected_kind(
+                ProductQueryContext::Substitution(substitution_id),
+                ProductValueKind::GenericTypeArgument,
+                ProductValueKind::ConstantArgument,
+            )
+            .into());
         };
 
         Ok(Some(element))

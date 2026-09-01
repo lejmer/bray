@@ -70,7 +70,7 @@ impl DiagnosticProductKind {
 }
 
 /// Locale-neutral reason native product planning could not complete.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticNativeProductFailureKind {
     CodegenBackendNotSelected,
     MissingProductRoot,
@@ -95,6 +95,8 @@ pub enum DiagnosticNativeProductFailureKind {
     EvaluationUninitInitializerResultUnavailable,
     EvaluationImportedExecutableTemplateMismatch,
     SemanticContextFailure,
+    /// Product specialization or realization violated an exact retained contract.
+    EvaluationProduct(crate::DiagnosticProductQueryFailure),
     CheckingInfrastructureFailure,
     EvaluationChecker(crate::DiagnosticCheckerFailure),
     CodegenTargetUnsupportedProfile,
@@ -130,6 +132,8 @@ pub enum DiagnosticNativeProductFailureKind {
     RuntimeSelectionUnreadableArchive,
     RuntimeSelectionInvalidArchive,
     RuntimeSelectionArchiveDigestMismatch,
+    /// The configured standard library could not supply a required native artifact.
+    StandardLibraryUnavailable,
     EmissionBackendDuplicateUnit,
     LinkTargetEmptyTriple,
     CodegenBackendUnavailable,
@@ -157,7 +161,7 @@ pub enum DiagnosticNativeProductFailureKind {
 
 impl DiagnosticNativeProductFailureKind {
     /// Returns the stable machine key for this failure category.
-    pub const fn as_str(self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::CodegenBackendNotSelected => "codegen_backend_not_selected",
             Self::MissingProductRoot => "missing_product_root",
@@ -198,6 +202,7 @@ impl DiagnosticNativeProductFailureKind {
                 "evaluation_imported_executable_template_mismatch"
             }
             Self::SemanticContextFailure => "semantic_context_failure",
+            Self::EvaluationProduct(failure) => failure.as_str(),
             Self::CheckingInfrastructureFailure => "checking_infrastructure_failure",
             Self::EvaluationChecker(failure) => failure.as_str(),
             Self::CodegenTargetUnsupportedProfile => "codegen_target_unsupported_profile",
@@ -239,6 +244,7 @@ impl DiagnosticNativeProductFailureKind {
             Self::RuntimeSelectionArchiveDigestMismatch => {
                 "runtime_selection_archive_digest_mismatch"
             }
+            Self::StandardLibraryUnavailable => "standard_library_unavailable",
             Self::EmissionBackendDuplicateUnit => "emission_backend_duplicate_unit",
             Self::LinkTargetEmptyTriple => "link_target_empty_triple",
             Self::CodegenBackendUnavailable => "codegen_backend_unavailable",

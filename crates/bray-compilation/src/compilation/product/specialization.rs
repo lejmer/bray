@@ -34,6 +34,7 @@ use super::realization::{
     substitute_contextual_self_in_application, substitute_contextual_self_in_substitution,
 };
 use super::specialization_identity::encoding::structural_type_identity;
+use super::{ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductValueKind};
 use crate::fact::{CancellationToken, FactQueryError};
 
 #[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -395,8 +396,15 @@ impl Compilation {
         reference: &bray_ir::MirAnonymousCallableReference,
         callable_type: bray_symbols::TypeId,
     ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
-        ConcreteCodegenInstance::anonymous_callable(owner, reference, callable_type)
-            .ok_or_else(|| FactQueryError::InfrastructureFailure.into())
+        ConcreteCodegenInstance::anonymous_callable(owner, reference, callable_type).ok_or_else(
+            || {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::Instance(owner.key().clone()),
+                    ProductDataKind::AnonymousCallableInstance,
+                )
+                .into()
+            },
+        )
     }
 
     pub(super) fn concrete_codegen_bound_helper(
@@ -404,8 +412,13 @@ impl Compilation {
         owner: &ConcreteCodegenInstance,
         unit: bray_bound_tree::BoundUnitKey,
     ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
-        ConcreteCodegenInstance::bound_helper(owner, unit)
-            .ok_or_else(|| FactQueryError::InfrastructureFailure.into())
+        ConcreteCodegenInstance::bound_helper(owner, unit).ok_or_else(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::Instance(owner.key().clone()),
+                ProductDataKind::BoundHelperInstance,
+            )
+            .into()
+        })
     }
 
     pub(super) fn concrete_codegen_lifecycle(
@@ -435,8 +448,15 @@ impl Compilation {
             ),
         );
 
-        ConcreteCodegenInstance::try_generated_lifecycle(key, reference)
-            .ok_or_else(|| FactQueryError::InfrastructureFailure.into())
+        let context = ProductQueryContext::Instance(key.clone());
+
+        ConcreteCodegenInstance::try_generated_lifecycle(key, reference).ok_or_else(|| {
+            ProductQueryFailure::Conflict {
+                context,
+                data: ProductDataKind::GeneratedLifecycleInstance,
+            }
+            .into()
+        })
     }
 
     pub(super) fn concrete_codegen_callable(
@@ -481,12 +501,24 @@ impl Compilation {
             let identity = witnesses
                 .iter()
                 .find_map(|(identity, witness)| (*witness == selected).then_some(identity.clone()))
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    ProductQueryFailure::missing(
+                        ProductQueryContext::Implementation(selected),
+                        ProductDataKind::ImplementationWitness,
+                    )
+                })?;
 
-            key = key
-                .try_with_contextual_self_witness(identity)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let context = ProductQueryContext::Instance(key.clone());
+
+            key = key.try_with_contextual_self_witness(identity).ok_or(
+                ProductQueryFailure::Conflict {
+                    context,
+                    data: ProductDataKind::ContextualSelfWitness,
+                },
+            )?;
         }
+
+        let context = ProductQueryContext::Instance(key.clone());
 
         ConcreteCodegenInstance::try_callable(
             key,
@@ -495,7 +527,13 @@ impl Compilation {
             witnesses,
             contextual_self_witness,
         )
-        .ok_or_else(|| FactQueryError::InfrastructureFailure.into())
+        .ok_or_else(|| {
+            ProductQueryFailure::Conflict {
+                context,
+                data: ProductDataKind::ConcreteInstance,
+            }
+            .into()
+        })
     }
 
     fn codegen_callable_template(
@@ -610,115 +648,197 @@ impl Compilation {
     ) -> Result<ConcreteCodegenCallee, CodegenPreparationError> {
         cancellation.check()?;
 
-        let dispatch = demand
-            .trait_dispatch()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let dispatch = demand.trait_dispatch().ok_or_else(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::CallSite(demand.site()),
+                ProductDataKind::TraitDispatch,
+            )
+        })?;
 
-        let owner_substitution = owner
-            .substitution()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let member_symbol = demand.reference().instance().definition().symbol();
 
-        let member = TraitCallableMemberSymbolId::try_from_any(
-            demand.reference().instance().definition().symbol(),
+        let member = TraitCallableMemberSymbolId::try_from_any(member_symbol).ok_or(
+            ProductQueryFailure::UnexpectedSymbolKind {
+                symbol: member_symbol,
+                expected: bray_symbols::SymbolKind::TraitCallableMember,
+                actual: member_symbol.kind(),
+            },
+        )?;
+
+        if let Some(requirement) = dispatch.trait_default_requirement() {
+            return self.concrete_codegen_trait_default_callee(
+                owner,
+                demand,
+                target,
+                member,
+                requirement,
+                cancellation,
+            );
+        }
+
+        self.concrete_codegen_constraint_dispatch_callee(
+            owner,
+            demand,
+            target,
+            member,
+            cancellation,
         )
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+    }
+
+    fn concrete_codegen_trait_default_callee(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        demand: &DemandedCallableInstance,
+        target: &CodegenTarget,
+        member: TraitCallableMemberSymbolId,
+        requirement: ImplementationRequirementKey,
+        cancellation: &CancellationToken,
+    ) -> Result<ConcreteCodegenCallee, CodegenPreparationError> {
+        let owner_substitution = owner.substitution().ok_or_else(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::Instance(owner.key().clone()),
+                ProductDataKind::GenericSubstitution,
+            )
+        })?;
 
         let values = self.semantic_value_store()?;
         let binding_context = self.binding_context(cancellation)?;
         let contextual_self = codegen_instance_contextual_self(&binding_context, owner)?;
 
-        if let Some(requirement) = dispatch.trait_default_requirement() {
-            let subject = values
-                .substitute_type(requirement.subject(), owner_substitution)
-                .map_err(FactQueryError::SemanticValueStore)?;
+        let subject = values
+            .substitute_type(requirement.subject(), owner_substitution)
+            .map_err(FactQueryError::SemanticValueStore)?;
 
-            let application = values
-                .substitute_trait_application(requirement.trait_application(), owner_substitution)
-                .map_err(FactQueryError::SemanticValueStore)?;
+        let application = values
+            .substitute_trait_application(requirement.trait_application(), owner_substitution)
+            .map_err(FactQueryError::SemanticValueStore)?;
 
-            let requirement = ImplementationRequirementKey::new(subject, application);
+        let requirement = ImplementationRequirementKey::new(subject, application);
 
-            let contextual_requirement = matches!(
-                values
-                    .type_data(subject)
-                    .map_err(FactQueryError::SemanticValueStore)?
-                    .as_ref(),
-                TypeData::ContextualSelf(_)
-            );
+        let contextual_requirement = matches!(
+            values
+                .type_data(subject)
+                .map_err(FactQueryError::SemanticValueStore)?
+                .as_ref(),
+            TypeData::ContextualSelf(_)
+        );
 
-            let demand_witnesses = self.concrete_codegen_demand_witnesses(
-                demand.witnesses(),
-                owner_substitution,
-                contextual_self,
-            )?;
+        let demand_witnesses = self.concrete_codegen_demand_witnesses(
+            demand.witnesses(),
+            owner_substitution,
+            contextual_self,
+        )?;
 
-            let witness = self
-                .concrete_codegen_matching_witness(
-                    demand_witnesses
-                        .iter()
-                        .copied()
-                        .chain(owner.implementation_witnesses().iter().copied()),
-                    requirement,
-                    cancellation,
-                )?
-                .or_else(|| {
-                    contextual_requirement
-                        .then(|| owner.contextual_self_witness())
-                        .flatten()
-                })
-                .ok_or(FactQueryError::InfrastructureFailure)?;
-
-            let selected_requirement =
-                self.concrete_codegen_witness_requirement(witness, cancellation)?;
-
-            if selected_requirement.trait_application() != application {
-                return Err(FactQueryError::InfrastructureFailure.into());
-            }
-
-            let implementation = values
-                .implementation_instance_data(witness)
-                .map_err(FactQueryError::SemanticValueStore)?;
-
-            let fulfillments =
-                implementation_fulfillments(&binding_context, implementation.definition())?;
-
-            let application_data = values
-                .trait_application_data(application)
-                .map_err(FactQueryError::SemanticValueStore)?;
-
-            let callable = implementation_callable_instance(
-                &binding_context,
-                fulfillments.callables,
-                member,
-                application_data.substitution(),
-                implementation.substitution(),
+        let witness = self
+            .concrete_codegen_matching_witness(
+                demand_witnesses
+                    .iter()
+                    .copied()
+                    .chain(owner.implementation_witnesses().iter().copied()),
+                requirement,
+                cancellation,
             )?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-            let mut witnesses = demand_witnesses;
-
-            witnesses.extend(
-                self.concrete_codegen_implementation_constraint_witnesses(witness, cancellation)?,
-            );
-
-            witnesses.push(witness);
-
-            let contextual_self_witness = callable.uses_trait_default().then_some(witness);
-
-            return self
-                .concrete_codegen_callable_with_context(
-                    callable.instance(),
-                    witnesses,
-                    contextual_self_witness,
-                    target,
-                    cancellation,
+            .or_else(|| {
+                contextual_requirement
+                    .then(|| owner.contextual_self_witness())
+                    .flatten()
+            })
+            .ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::ImplementationRequirement(requirement),
+                    ProductDataKind::ImplementationWitness,
                 )
-                .map(ConcreteCodegenCallee::Instance);
+            })?;
+
+        let selected_requirement =
+            self.concrete_codegen_witness_requirement(witness, cancellation)?;
+
+        if selected_requirement.trait_application() != application {
+            return Err(ProductQueryFailure::TraitApplicationMismatch {
+                witness,
+                expected: application,
+                actual: selected_requirement.trait_application(),
+            }
+            .into());
         }
 
-        let (dispatch_owner, dispatch_ordinal) = dispatch
-            .constraint()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let implementation = values
+            .implementation_instance_data(witness)
+            .map_err(FactQueryError::SemanticValueStore)?;
+
+        let fulfillments =
+            implementation_fulfillments(&binding_context, implementation.definition())?;
+
+        let application_data = values
+            .trait_application_data(application)
+            .map_err(FactQueryError::SemanticValueStore)?;
+
+        let callable = implementation_callable_instance(
+            &binding_context,
+            fulfillments.callables,
+            member,
+            application_data.substitution(),
+            implementation.substitution(),
+        )?
+        .ok_or_else(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::Implementation(witness),
+                ProductDataKind::CallableFulfillment,
+            )
+        })?;
+
+        let mut witnesses = demand_witnesses;
+
+        witnesses.extend(
+            self.concrete_codegen_implementation_constraint_witnesses(witness, cancellation)?,
+        );
+
+        witnesses.push(witness);
+
+        let contextual_self_witness = callable.uses_trait_default().then_some(witness);
+
+        self.concrete_codegen_callable_with_context(
+            callable.instance(),
+            witnesses,
+            contextual_self_witness,
+            target,
+            cancellation,
+        )
+        .map(ConcreteCodegenCallee::Instance)
+    }
+
+    fn concrete_codegen_constraint_dispatch_callee(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        demand: &DemandedCallableInstance,
+        target: &CodegenTarget,
+        member: TraitCallableMemberSymbolId,
+        cancellation: &CancellationToken,
+    ) -> Result<ConcreteCodegenCallee, CodegenPreparationError> {
+        let dispatch = demand.trait_dispatch().ok_or_else(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::CallSite(demand.site()),
+                ProductDataKind::TraitDispatch,
+            )
+        })?;
+
+        let owner_substitution = owner.substitution().ok_or_else(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::Instance(owner.key().clone()),
+                ProductDataKind::GenericSubstitution,
+            )
+        })?;
+
+        let values = self.semantic_value_store()?;
+        let binding_context = self.binding_context(cancellation)?;
+        let contextual_self = codegen_instance_contextual_self(&binding_context, owner)?;
+
+        let (dispatch_owner, dispatch_ordinal) = dispatch.constraint().ok_or_else(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::CallSite(demand.site()),
+                ProductDataKind::GenericConstraint,
+            )
+        })?;
 
         let constraints = binding_context
             .resolve_symbol_query(SymbolQueryRequest::<GenericConstraintsQuery>::new(
@@ -731,14 +851,36 @@ impl Compilation {
             .constraints()
             .iter()
             .find(|constraint| constraint.ordinal() == dispatch_ordinal)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::GenericOwner(dispatch_owner),
+                    ProductDataKind::GenericConstraint,
+                )
+            })?;
 
-        let CheckedConstraintKind::TraitSatisfaction {
-            subject,
-            application,
-        } = constraint.kind()
-        else {
-            return Err(FactQueryError::InfrastructureFailure.into());
+        let (subject, application) = match constraint.kind() {
+            CheckedConstraintKind::TraitSatisfaction {
+                subject,
+                application,
+            } => (subject, application),
+            actual => {
+                let actual = match actual {
+                    CheckedConstraintKind::Predicate(_) => ProductValueKind::PredicateConstraint,
+                    CheckedConstraintKind::TypeEquality { .. } => {
+                        ProductValueKind::TypeEqualityConstraint
+                    }
+                    CheckedConstraintKind::TraitSatisfaction { .. } => {
+                        ProductValueKind::TraitSatisfactionConstraint
+                    }
+                };
+
+                return Err(ProductQueryFailure::unexpected_kind(
+                    ProductQueryContext::GenericOwner(dispatch_owner),
+                    ProductValueKind::TraitSatisfactionConstraint,
+                    actual,
+                )
+                .into());
+            }
         };
 
         let subject = values
@@ -759,9 +901,12 @@ impl Compilation {
         let witness = self.concrete_codegen_dispatch_witness(owner, requirement, cancellation)?;
 
         let Some(witness) = witness else {
-            let intrinsic = demand
-                .intrinsic()
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let intrinsic = demand.intrinsic().ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::CallSite(demand.site()),
+                    ProductDataKind::Intrinsic,
+                )
+            })?;
 
             let context = super::super::checker::CompilationCheckerContext::new(binding_context);
 
@@ -770,7 +915,11 @@ impl Compilation {
                     .map_err(FactQueryError::from)?;
 
             if outcome != Some(ProofOutcome::Proven) {
-                return Err(FactQueryError::InfrastructureFailure.into());
+                return Err(ProductQueryFailure::BuiltInProofMismatch {
+                    requirement,
+                    actual: outcome,
+                }
+                .into());
             }
 
             let intrinsic = match intrinsic {
@@ -796,7 +945,12 @@ impl Compilation {
                         &context, subject, target,
                     )
                     .map_err(FactQueryError::from)?
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                    .ok_or_else(|| {
+                        ProductQueryFailure::missing(
+                            ProductQueryContext::ImplementationRequirement(requirement),
+                            ProductDataKind::ConversionPlan,
+                        )
+                    })?;
 
                     IntrinsicCall::Conversion(conversion)
                 }
@@ -823,7 +977,12 @@ impl Compilation {
             application.substitution(),
             implementation.substitution(),
         )?
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .ok_or_else(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::Implementation(witness),
+                ProductDataKind::CallableFulfillment,
+            )
+        })?;
 
         let mut witnesses = self.concrete_codegen_demand_witnesses(
             demand.witnesses(),
@@ -935,8 +1094,12 @@ impl Compilation {
             .implementation_instance_data(implementation)
             .map_err(FactQueryError::SemanticValueStore)?;
 
-        let owner = GenericOwnerId::try_new(instance.definition().into_any())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let owner = GenericOwnerId::try_new(instance.definition().into_any()).ok_or_else(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::Implementation(implementation),
+                ProductDataKind::GenericOwner,
+            )
+        })?;
 
         let requirements = self.concrete_codegen_constraint_requirements(
             owner,
@@ -979,7 +1142,11 @@ impl Compilation {
         }
 
         let ImplementationSelection::Selected(witness) = selection.value() else {
-            return Err(FactQueryError::InfrastructureFailure.into());
+            return Err(ProductQueryFailure::ImplementationSelectionMismatch {
+                requirement,
+                actual: selection.value().clone(),
+            }
+            .into());
         };
 
         Ok(*witness)
@@ -1138,7 +1305,10 @@ impl Compilation {
             data.bindings().iter().map(|binding| binding.parameter()),
             arguments,
         )
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(|cause| ProductQueryFailure::GenericSubstitution {
+            substitution: Some(substitution),
+            cause,
+        })?;
 
         let realized = values
             .intern_generic_substitution(realized)
@@ -1173,7 +1343,12 @@ impl Compilation {
         let definition = self
             .available_compiler_known_symbols()
             .representation_symbol::<StructSymbolId>(role)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::CompilerKnownRepresentation(role),
+                    ProductDataKind::CompilerKnownRepresentation,
+                )
+            })?;
 
         let ty = named_type(values, NamedTypeSymbolId::Struct(definition))?;
 
@@ -1215,12 +1390,24 @@ impl Compilation {
 
             let specialization = self.codegen_specialization(data.substitution())?;
 
-            let identity = CodegenImplementationWitness::try_new(definition, specialization)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let actual = definition.kind();
 
-            match concrete.insert(identity, witness) {
+            let identity =
+                CodegenImplementationWitness::try_new(definition.clone(), specialization).ok_or(
+                    ProductQueryFailure::ImplementationSymbolKeyExpected {
+                        key: definition,
+                        actual,
+                    },
+                )?;
+
+            match concrete.insert(identity.clone(), witness) {
                 Some(existing) if existing != witness => {
-                    return Err(FactQueryError::InfrastructureFailure.into());
+                    return Err(ProductQueryFailure::ConflictingImplementationWitness {
+                        identity,
+                        existing,
+                        actual: witness,
+                    }
+                    .into());
                 }
                 Some(_) | None => {}
             }

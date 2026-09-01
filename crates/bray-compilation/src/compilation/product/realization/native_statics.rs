@@ -7,7 +7,8 @@ use bray_symbols::{
 
 use super::super::super::{CodegenPreparationError, Compilation};
 use super::super::specialization::ConcreteCodegenReachability;
-use crate::fact::{CancellationToken, FactQueryError};
+use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
+use crate::fact::CancellationToken;
 
 pub(super) struct NativeStaticContract {
     pub(super) symbol: NativeSymbolContract,
@@ -43,9 +44,12 @@ impl Compilation {
         let mut mappings = Vec::new();
 
         for instance in unit.instances() {
-            let owner = reachability
-                .instance(instance.key())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let owner = reachability.instance(instance.key()).ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::Instance(instance.key().clone()),
+                    ProductDataKind::ConcreteInstance,
+                )
+            })?;
 
             for (storage, data) in instance.mir().storages_with_ids() {
                 let MirStorageKind::NativeStatic(reference) = data.kind() else {
@@ -95,7 +99,13 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<NativeStaticContract, CodegenPreparationError> {
         self.optional_native_static_contract(reference, cancellation)?
-            .ok_or_else(|| FactQueryError::InfrastructureFailure.into())
+            .ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::StaticReference(reference.clone()),
+                    ProductDataKind::NativeStaticContract,
+                )
+                .into()
+            })
     }
 
     pub(super) fn optional_native_static_contract(
@@ -125,7 +135,11 @@ impl Compilation {
         let bray_package_interface::InterfaceNativeBoundaryKind::Static { duration, .. } =
             boundary.kind()
         else {
-            return Err(FactQueryError::InfrastructureFailure.into());
+            return Err(ProductQueryFailure::NativeBoundaryKindMismatch {
+                reference: reference.clone(),
+                actual: boundary.kind(),
+            }
+            .into());
         };
 
         Ok(Some(NativeStaticContract {

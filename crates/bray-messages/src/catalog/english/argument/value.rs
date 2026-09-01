@@ -107,7 +107,7 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         DiagnosticArgValue::TargetTriple(target) => format_english_quoted_text(target),
         DiagnosticArgValue::TargetIdentity(target) => format_english_quoted_text(target),
         DiagnosticArgValue::NativeProductFailureKind(kind) => {
-            format_english_native_product_failure(*kind)
+            format_english_native_product_failure(kind)
         }
         DiagnosticArgValue::EmissionFailure(failure) => format_english_emission_failure(failure),
         DiagnosticArgValue::EmissionArtifactOperation(kind) => {

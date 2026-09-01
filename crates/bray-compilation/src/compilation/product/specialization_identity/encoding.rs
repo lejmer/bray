@@ -12,6 +12,9 @@ use bray_symbols::{
 };
 
 use crate::compilation::binder::{CompilationBindingContext, binding_query_error};
+use crate::compilation::product::{
+    ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductValueKind,
+};
 use crate::fact::FactQueryError;
 
 pub(in crate::compilation) fn structural_type_identity(
@@ -34,10 +37,15 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         binding_context: &'binding_context CompilationBindingContext<'compilation>,
         ty: TypeId,
     ) -> Result<[u8; 32], FactQueryError> {
-        let CodegenGenericArgument::Type(key) =
-            Self::argument_key(values, binding_context, GenericArgument::Type(ty))?
-        else {
-            return Err(FactQueryError::InfrastructureFailure);
+        let argument = Self::argument_key(values, binding_context, GenericArgument::Type(ty))?;
+
+        let CodegenGenericArgument::Type(key) = argument else {
+            return Err(ProductQueryFailure::unexpected_kind(
+                ProductQueryContext::Type(ty),
+                ProductValueKind::TypeArgument,
+                ProductValueKind::ConstantArgument,
+            )
+            .into());
         };
 
         Ok(key.digest())
@@ -327,7 +335,11 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         match data.kind() {
             ConstantValueKind::Error => self.tag(0),
             ConstantValueKind::StaticAddress(_) => {
-                return Err(FactQueryError::InfrastructureFailure);
+                return Err(ProductQueryFailure::UnsupportedConstantValue {
+                    value: id,
+                    kind: data.kind().clone(),
+                }
+                .into());
             }
             ConstantValueKind::Boolean(value) => {
                 self.tag(1);
@@ -680,7 +692,12 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
             .binding_context
             .symbol_key(id)
             .map_err(binding_query_error)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::Symbol(id),
+                    ProductDataKind::SymbolKey,
+                )
+            })?;
 
         key.hash(&mut self.digest);
 

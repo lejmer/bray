@@ -1,5 +1,6 @@
 mod checker;
 mod failure;
+mod product_query;
 mod unsupported;
 
 pub use checker::{
@@ -15,6 +16,10 @@ pub use failure::{
     DiagnosticEmissionLinkPlanFailure, DiagnosticEmissionPlanningFailure,
     DiagnosticEmissionStagingFailure, DiagnosticPackageInterfaceFailure,
     DiagnosticSemanticQueryFailure, DiagnosticSemanticValueFailure,
+};
+pub use product_query::{
+    DiagnosticProductDataKind, DiagnosticProductQueryContext, DiagnosticProductQueryContextKind,
+    DiagnosticProductQueryFailure, DiagnosticProductValueKind,
 };
 pub use unsupported::{
     DiagnosticHostEnvironmentVariable, DiagnosticLlvmToolRole, DiagnosticUnsupportedEmissionReason,
