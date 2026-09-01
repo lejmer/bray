@@ -140,8 +140,8 @@ impl Compilation {
         let mut failure = None;
 
         let outcome = walk_bound_unit_view(bound.view(), bound.root(), |event| {
-            if cancellation.is_cancelled() {
-                failure = Some(FactQueryError::Cancelled);
+            if let Err(error) = cancellation.check() {
+                failure = Some(error);
 
                 return BoundWalkControl::Stop;
             }

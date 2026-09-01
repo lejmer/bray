@@ -511,9 +511,12 @@ fn operation_expressions(
 ) -> Result<Vec<BoundExpressionId>, FactQueryError> {
     let variant_construction_callees = variant_construction_callees(binding_context, unit);
     let mut expressions = Vec::new();
+    let mut cancellation_failure = None;
 
     let outcome = walk_bound_unit_view(unit.view(), unit.root(), |event| {
-        if cancellation.is_cancelled() {
+        if let Err(error) = cancellation.check() {
+            cancellation_failure = Some(error);
+
             return BoundWalkControl::Stop;
         }
 
@@ -532,8 +535,8 @@ fn operation_expressions(
         BoundWalkControl::Continue
     });
 
-    if cancellation.is_cancelled() {
-        return Err(FactQueryError::Cancelled);
+    if let Some(error) = cancellation_failure {
+        return Err(error);
     }
 
     if outcome != BoundWalkOutcome::Completed {

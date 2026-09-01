@@ -9,6 +9,7 @@ mod fingerprint;
 mod key;
 mod priority;
 mod runtime;
+mod runtime_error;
 mod scheduler;
 mod symbol;
 mod task;
@@ -18,6 +19,7 @@ mod unit_identity;
 pub use cancellation::CancellationToken;
 pub use completion::SymbolCompletionError;
 pub use error::{FactCycle, FactQueryError, LocatedLoweringFailure};
+pub use runtime_error::{FactRuntimeError, FactRuntimeErrorKind};
 pub(crate) use error::{
     diagnostic_binding_failure, diagnostic_checker_failure, diagnostic_semantic_value_failure,
 };
@@ -46,7 +48,13 @@ pub(crate) use priority::QueryPriorityDemand;
 #[cfg(test)]
 pub(crate) use runtime::FactEvaluationTestObserver;
 pub(crate) use runtime::{EvaluationCommit, FactRuntime};
+pub(crate) use runtime_error::{
+    CancellationStateKind, CapacityResource, FactRuntimeFailure, FactTaskPhase, LocalStateFailure,
+    PublicationIdentity, PublicationState, SchedulerCounter, SchedulerLocalOperation,
+    SynchronizationComponent, TaskContextIdentity, TaskLocalOperation, TaskOperation,
+    WorkerPoolKind,
+};
 pub(crate) use symbol::SymbolQueryCache;
-pub(crate) use task::FactTaskIdentity;
+pub(crate) use task::{FactTaskIdentity, RuntimeIdentity};
 pub(crate) use unit::{PublishedUnitResult, UnitQueryCache};
 pub(crate) use unit_identity::BoundUnitIdentityMap;

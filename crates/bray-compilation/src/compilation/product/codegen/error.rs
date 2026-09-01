@@ -298,7 +298,9 @@ fn fact_query_failure_kind(error: &FactQueryError) -> Option<DiagnosticNativePro
     match error {
         FactQueryError::Cancelled => None,
         FactQueryError::Cycle(_) => Some(Kind::EvaluationCycle),
-        FactQueryError::InfrastructureFailure => Some(Kind::EvaluationInfrastructure),
+        FactQueryError::InfrastructureFailure | FactQueryError::Runtime(_) => {
+            Some(Kind::EvaluationInfrastructure)
+        }
         FactQueryError::SemanticValueStoreCreate(_) => {
             Some(Kind::EvaluationSemanticValueStoreCreate)
         }

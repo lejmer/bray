@@ -37,9 +37,7 @@ impl Compilation {
         let mut diagnostics = DiagnosticBag::new();
 
         for (pattern, target) in sites.patterns {
-            if cancellation.is_cancelled() {
-                return Err(FactQueryError::Cancelled);
-            }
+            cancellation.check()?;
 
             let constant = match target {
                 BoundPatternTarget::Surface(symbol) => {
@@ -73,9 +71,7 @@ impl Compilation {
         }
 
         for guard in sites.guards {
-            if cancellation.is_cancelled() {
-                return Err(FactQueryError::Cancelled);
-            }
+            cancellation.check()?;
 
             if let Some(value) = self.evaluate_closed_expression(
                 request,

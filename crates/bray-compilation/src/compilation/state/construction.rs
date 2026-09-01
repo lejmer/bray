@@ -400,6 +400,9 @@ impl Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("scheduled query infrastructure failed")
             }
+            Err(FactQueryError::Runtime(error)) => {
+                panic!("scheduled query fact runtime failed: {error:?}")
+            }
             Err(
                 error @ (FactQueryError::SemanticValueStoreCreate(_)
                 | FactQueryError::SemanticValueStore(_)),
@@ -538,6 +541,9 @@ impl Compilation {
             }
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("compilation query infrastructure failed")
+            }
+            Err(FactQueryError::Runtime(error)) => {
+                panic!("compilation query fact runtime failed: {error:?}")
             }
             Err(
                 error @ (FactQueryError::SemanticValueStoreCreate(_)

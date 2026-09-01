@@ -7,8 +7,8 @@ use bray_symbols::{
 };
 
 use super::{
-    BatchCompletionError, BatchWork, CancellationToken, DiagnosticPublicationOrder, FactRuntime,
-    OrderedDiagnosticCollection, publish_diagnostics,
+    BatchCompletionError, BatchWork, CancellationToken, DiagnosticPublicationOrder, FactQueryError,
+    FactRuntime, OrderedDiagnosticCollection, publish_diagnostics,
 };
 
 /// An outer symbol-completion outcome that is not a source diagnostic.
@@ -27,8 +27,13 @@ pub enum SymbolCompletionError<E> {
         /// The evaluator-specific query error.
         error: E,
     },
-    /// A scoped completion worker panicked before returning its result.
-    WorkerFailure,
+    /// Compiler query scheduling or worker publication failed.
+    Scheduler(FactQueryError),
+    /// The compiler-owned evaluator panicked while processing a completion request.
+    EvaluatorPanic {
+        /// The exact request whose evaluator panicked.
+        request: SymbolCompletionQuery,
+    },
 }
 
 impl<E: std::fmt::Display> std::fmt::Display for SymbolCompletionError<E> {
@@ -47,7 +52,15 @@ impl<E: std::fmt::Display> std::fmt::Display for SymbolCompletionError<E> {
                 request.kind(),
                 request.symbol()
             ),
-            Self::WorkerFailure => formatter.write_str("a symbol completion worker failed"),
+            Self::Scheduler(error) => {
+                write!(formatter, "symbol completion scheduling failed: {error}")
+            }
+            Self::EvaluatorPanic { request } => write!(
+                formatter,
+                "the symbol completion evaluator panicked for {:?} on {:?}",
+                request.kind(),
+                request.symbol()
+            ),
         }
     }
 }
@@ -59,7 +72,8 @@ where
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             Self::Evaluator(error) | Self::Query { error, .. } => Some(error),
-            Self::Cancelled | Self::UnknownSymbol(_) | Self::WorkerFailure => None,
+            Self::Scheduler(error) => Some(error),
+            Self::Cancelled | Self::UnknownSymbol(_) | Self::EvaluatorPanic { .. } => None,
         }
     }
 }
@@ -82,23 +96,25 @@ where
     let plan = match graph.completion_plan(root, level, cancellation) {
         Ok(plan) => plan,
         Err(SymbolCompletionPlanError::Cancelled) => {
-            return Err(SymbolCompletionError::Cancelled);
+            return match cancellation.check() {
+                Ok(()) | Err(FactQueryError::Cancelled) => Err(SymbolCompletionError::Cancelled),
+                Err(error) => Err(SymbolCompletionError::Scheduler(error)),
+            };
         }
         Err(SymbolCompletionPlanError::UnknownSymbol(symbol)) => {
             return Err(SymbolCompletionError::UnknownSymbol(symbol));
         }
     };
 
-    let scheduled = catch_unwind(AssertUnwindSafe(|| {
-        runtime.complete_batch(plan.requests().iter().copied(), cancellation, |request| {
-            evaluator.evaluate(*request).map(BatchWork::leaf)
+    let diagnostics = runtime
+        .complete_batch(plan.requests().iter().copied(), cancellation, |request| {
+            match catch_unwind(AssertUnwindSafe(|| evaluator.evaluate(*request))) {
+                Ok(Ok(diagnostics)) => Ok(BatchWork::leaf(diagnostics)),
+                Ok(Err(error)) => Err(CompletionEvaluatorOutcome::Error(error)),
+                Err(_) => Err(CompletionEvaluatorOutcome::Panic),
+            }
         })
-    }));
-
-    let diagnostics = match scheduled {
-        Ok(result) => result.map_err(symbol_completion_error)?,
-        Err(_) => return Err(SymbolCompletionError::WorkerFailure),
-    };
+        .map_err(symbol_completion_error)?;
 
     let diagnostics = diagnostics
         .iter()
@@ -112,16 +128,29 @@ where
 }
 
 fn symbol_completion_error<E>(
-    error: BatchCompletionError<SymbolCompletionQuery, E>,
+    error: BatchCompletionError<SymbolCompletionQuery, CompletionEvaluatorOutcome<E>>,
 ) -> SymbolCompletionError<E> {
     match error {
         BatchCompletionError::Cancelled => SymbolCompletionError::Cancelled,
-        BatchCompletionError::Evaluation { key, error } => SymbolCompletionError::Query {
+        BatchCompletionError::Evaluation {
+            key,
+            error: CompletionEvaluatorOutcome::Error(error),
+        } => SymbolCompletionError::Query {
             request: key,
             error,
         },
-        BatchCompletionError::Scheduler(_) => SymbolCompletionError::WorkerFailure,
+        BatchCompletionError::Evaluation {
+            key,
+            error: CompletionEvaluatorOutcome::Panic,
+        } => SymbolCompletionError::EvaluatorPanic { request: key },
+        BatchCompletionError::Scheduler(error) => SymbolCompletionError::Scheduler(error),
     }
+}
+
+#[derive(Debug)]
+enum CompletionEvaluatorOutcome<E> {
+    Error(E),
+    Panic,
 }
 
 #[cfg(test)]
@@ -137,8 +166,11 @@ mod tests {
         AnySymbolId, SymbolCompletionLevel, SymbolCompletionQuery, SymbolGraph, SymbolQueryKind,
     };
 
-    use super::{SymbolCompletionError, complete_symbol};
-    use crate::fact::{CompilationFactKey, FactRuntime, SymbolQueryKey};
+    use super::{SymbolCompletionError, complete_symbol, symbol_completion_error};
+    use crate::fact::{
+        BatchCompletionError, CompilationFactKey, FactRuntime, FactRuntimeFailure,
+        SharedCancellation, SymbolQueryKey,
+    };
     use crate::{CancellationToken, Compilation, FactCycle, FactQueryError, WorkerBudget};
 
     #[test]
@@ -371,6 +403,111 @@ mod tests {
         let recovered = complete(&graph, constant, WorkerBudget::serial(), &recovering);
 
         assert_eq!(recovered.len(), 1);
+    }
+
+    #[test]
+    fn scheduler_runtime_failures_survive_completion_unchanged() {
+        let failure = FactQueryError::from(FactRuntimeFailure::WorkerTerminated {
+            worker: Some(3),
+            item: Some(5),
+        });
+
+        let completion = symbol_completion_error::<()>(BatchCompletionError::Scheduler(failure));
+
+        assert!(matches!(
+            completion,
+            SymbolCompletionError::Scheduler(FactQueryError::Runtime(error))
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::WorkerTerminated {
+                        worker: Some(3),
+                        item: Some(5),
+                    }
+                )
+        ));
+    }
+
+    #[test]
+    fn compiler_domain_infrastructure_failure_survives_completion_unchanged() {
+        let completion = symbol_completion_error::<()>(BatchCompletionError::Scheduler(
+            FactQueryError::InfrastructureFailure,
+        ));
+
+        assert_eq!(
+            completion,
+            SymbolCompletionError::Scheduler(FactQueryError::InfrastructureFailure)
+        );
+    }
+
+    #[test]
+    fn evaluator_panics_remain_distinct_from_runtime_worker_termination() {
+        let graph = graph("module app; func main() {}");
+        let package = AnySymbolId::from(graph.packages()[0].id());
+        let cancellation = CancellationToken::new();
+
+        let expected_request = graph
+            .completion_plan(
+                package,
+                SymbolCompletionLevel::DeclarationSurface,
+                &cancellation,
+            )
+            .unwrap_or_else(|error| panic!("test completion plan must be available: {error:?}"))
+            .requests()[0];
+
+        let evaluator = |_request: SymbolCompletionQuery| -> Result<DiagnosticBag, ()> {
+            panic!("test evaluator panic");
+        };
+
+        let result = complete_symbol(
+            &graph,
+            package,
+            SymbolCompletionLevel::DeclarationSurface,
+            &FactRuntime::new(worker_budget(2)),
+            &cancellation,
+            &evaluator,
+        );
+
+        assert!(matches!(
+            result,
+            Err(SymbolCompletionError::EvaluatorPanic { request })
+                if request == expected_request
+        ));
+    }
+
+    #[test]
+    fn completion_planning_preserves_shared_cancellation_failures() {
+        let graph = graph("module app; func main() {}");
+        let package = AnySymbolId::from(graph.packages()[0].id());
+        let first = SharedCancellation::new();
+        let second = SharedCancellation::new();
+
+        let _first_interest = first
+            .register(second.token())
+            .unwrap_or_else(|error| panic!("first shared interest must register: {error:?}"));
+
+        let _second_interest = second
+            .register(first.token())
+            .unwrap_or_else(|error| panic!("second shared interest must register: {error:?}"));
+
+        let evaluator = |_request: SymbolCompletionQuery| Ok::<_, ()>(DiagnosticBag::new());
+
+        let result = complete_symbol(
+            &graph,
+            package,
+            SymbolCompletionLevel::DeclarationSurface,
+            &FactRuntime::new(worker_budget(2)),
+            first.token(),
+            &evaluator,
+        );
+
+        assert!(matches!(
+            result,
+            Err(SymbolCompletionError::Scheduler(FactQueryError::Runtime(error)))
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::RecursiveCancellationInterest
+                )
+        ));
     }
 
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]

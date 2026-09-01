@@ -6,7 +6,7 @@ use bray_diagnostics::{
 use bray_lowering::{LoweringError, LoweringInputError};
 use bray_source::SourceSpan;
 
-use super::CompilationFactKey;
+use super::{CompilationFactKey, FactRuntimeError, FactRuntimeFailure};
 
 /// One detected cycle in the compilation fact dependency graph.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -202,8 +202,10 @@ pub enum FactQueryError {
     Cancelled,
     /// Evaluation encountered a same-worker or cross-worker dependency cycle.
     Cycle(FactCycle),
-    /// The fact request could not complete because compiler coordination failed.
+    /// The fact request encountered a compiler-domain infrastructure or invariant failure.
     InfrastructureFailure,
+    /// The compiler query runtime could not preserve its coordination contract.
+    Runtime(FactRuntimeError),
     /// The compilation could not allocate its canonical semantic-value store identity.
     SemanticValueStoreCreate(bray_symbols::SemanticValueStoreCreateError),
     /// The canonical semantic-value store rejected a construction or lookup operation.
@@ -243,6 +245,12 @@ impl From<std::convert::Infallible> for FactQueryError {
 impl From<CheckerInfrastructureError> for FactQueryError {
     fn from(error: CheckerInfrastructureError) -> Self {
         Self::CheckerInfrastructure(error)
+    }
+}
+
+impl From<FactRuntimeFailure> for FactQueryError {
+    fn from(error: FactRuntimeFailure) -> Self {
+        Self::Runtime(error.into())
     }
 }
 
@@ -676,6 +684,7 @@ impl std::fmt::Display for FactQueryError {
             Self::InfrastructureFailure => {
                 formatter.write_str("fact evaluation encountered an infrastructure failure")
             }
+            Self::Runtime(error) => write!(formatter, "{error}"),
             Self::SemanticValueStoreCreate(error) => {
                 write!(formatter, "semantic value store creation failed: {error:?}")
             }

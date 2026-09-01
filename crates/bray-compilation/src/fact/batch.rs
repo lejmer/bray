@@ -62,16 +62,12 @@ impl FactRuntime {
         let mut plan = BatchPlan::new(roots);
 
         while let Some(wave) = plan.take_wave() {
-            if cancellation.is_cancelled() {
-                return Err(BatchCompletionError::Cancelled);
-            }
+            check_batch_cancellation(cancellation)?;
 
             let outcomes = match self.map_indexed(wave.len(), |index| {
-                if cancellation.is_cancelled() {
-                    None
-                } else {
-                    Some(evaluator(&wave[index]))
-                }
+                cancellation.check()?;
+
+                Ok::<_, FactQueryError>(evaluator(&wave[index]))
             }) {
                 Ok(outcomes) => outcomes,
                 Err(FactQueryError::Cancelled) => {
@@ -83,8 +79,12 @@ impl FactRuntime {
             let mut completed = Vec::with_capacity(wave.len());
 
             for (key, outcome) in wave.into_iter().zip(outcomes) {
-                let Some(outcome) = outcome else {
-                    return Err(BatchCompletionError::Cancelled);
+                let outcome = match outcome {
+                    Ok(outcome) => outcome,
+                    Err(FactQueryError::Cancelled) => {
+                        return Err(BatchCompletionError::Cancelled);
+                    }
+                    Err(error) => return Err(BatchCompletionError::Scheduler(error)),
                 };
 
                 let work = match outcome {
@@ -95,14 +95,22 @@ impl FactRuntime {
                 completed.push((key, work));
             }
 
-            if cancellation.is_cancelled() {
-                return Err(BatchCompletionError::Cancelled);
-            }
+            check_batch_cancellation(cancellation)?;
 
             plan.complete_wave(completed);
         }
 
         Ok(plan.finish())
+    }
+}
+
+fn check_batch_cancellation<K, E>(
+    cancellation: &CancellationToken,
+) -> Result<(), BatchCompletionError<K, E>> {
+    match cancellation.check() {
+        Ok(()) => Ok(()),
+        Err(FactQueryError::Cancelled) => Err(BatchCompletionError::Cancelled),
+        Err(error) => Err(BatchCompletionError::Scheduler(error)),
     }
 }
 
@@ -163,13 +171,12 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Condvar, Mutex};
     use std::time::Duration;
 
     use super::{BatchCompletionError, BatchWork};
-    use crate::fact::{CancellationToken, FactRuntime};
+    use crate::fact::{CancellationToken, FactQueryError, FactRuntime, FactRuntimeFailure};
     use crate::{QueryPriority, WorkerBudget};
 
     #[test]
@@ -231,17 +238,26 @@ mod tests {
     }
 
     #[test]
-    fn evaluator_panics_remain_invariant_failures() {
+    fn evaluator_panics_retain_the_scheduled_worker_item() {
         let runtime = FactRuntime::new(WorkerBudget::serial());
         let cancellation = CancellationToken::new();
 
-        let outcome = catch_unwind(AssertUnwindSafe(|| {
+        let outcome =
             runtime.complete_batch([1], &cancellation, |_| -> Result<BatchWork<u32, ()>, ()> {
                 panic!("test evaluator invariant failed")
-            })
-        }));
+            });
 
-        assert!(outcome.is_err());
+        assert!(matches!(
+            outcome,
+            Err(BatchCompletionError::Scheduler(FactQueryError::Runtime(error)))
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::WorkerTerminated {
+                        worker: Some(_),
+                        item: Some(0),
+                    }
+                )
+        ));
     }
 
     #[test]

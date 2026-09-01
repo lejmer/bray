@@ -1,9 +1,16 @@
 use std::cell::RefCell;
+use std::error::Error as _;
+use std::io;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 
 use rayon::{ThreadPool, ThreadPoolBuilder};
 
-use super::{FactQueryError, QueryPriority, QueryPriorityDemand};
+use super::{
+    CapacityResource, FactQueryError, FactRuntimeError, FactRuntimeFailure, LocalStateFailure,
+    QueryPriority, QueryPriorityDemand, SchedulerCounter, SchedulerLocalOperation,
+    SynchronizationComponent, WorkerPoolKind,
+};
 use crate::WorkerBudget;
 use crate::profile::{CompilationProfileOutcome, ProfileOperation, ProfileSession};
 
@@ -16,8 +23,8 @@ thread_local! {
 #[derive(Debug)]
 pub(crate) struct FactScheduler {
     worker_count: usize,
-    ordinary_pool: OnceLock<Result<ThreadPool, ()>>,
-    interactive_pool: OnceLock<Result<ThreadPool, ()>>,
+    ordinary_pool: OnceLock<Result<ThreadPool, FactRuntimeError>>,
+    interactive_pool: OnceLock<Result<ThreadPool, FactRuntimeError>>,
     slots: ExecutionSlots,
     profile: Option<Arc<ProfileSession>>,
 }
@@ -68,7 +75,7 @@ impl FactScheduler {
 
         let pool = self.pool(priority.current())?;
 
-        Ok(pool.install(|| self.execute(priority, operation)))
+        pool.install(|| self.execute(priority, operation))
     }
 
     pub(crate) fn map_indexed<T>(
@@ -106,51 +113,70 @@ impl FactScheduler {
             .map(|_| Mutex::new(None))
             .collect::<Vec<Mutex<Option<T>>>>();
 
-        let evaluate = |index: usize| {
-            let value = operation(index);
+        let evaluate = |index: usize| -> Result<(), FactQueryError> {
+            let value = catch_unwind(AssertUnwindSafe(|| operation(index))).map_err(|_| {
+                FactRuntimeFailure::WorkerTerminated {
+                    worker: rayon::current_thread_index(),
+                    item: Some(index),
+                }
+            })?;
 
-            let mut slot = slots[index]
-                .lock()
-                .unwrap_or_else(|_| panic!("scheduled result slot must remain available"));
-
-            *slot = Some(value);
+            publish_scheduled_result(&slots[index], index, value)
         };
 
         if self.is_active()? {
             self.map_indexed_nested(priority, len, &evaluate)?;
         } else {
             let pool = self.pool(priority)?;
+            let scheduler_error = Mutex::new(None);
 
             pool.scope(|scope| {
                 for index in 0..len {
                     let evaluate = &evaluate;
+                    let scheduler_error = &scheduler_error;
 
                     scope.spawn(move |_| {
                         let priority = QueryPriorityDemand::new(priority);
 
-                        self.execute(&priority, || evaluate(index));
+                        if let Err(error) = self
+                            .execute(&priority, || evaluate(index))
+                            .and_then(std::convert::identity)
+                        {
+                            record_scheduler_error(scheduler_error, index, error);
+                        }
                     });
                 }
             });
+
+            if let Some(error) = take_scheduler_error(&scheduler_error)? {
+                return Err(error);
+            }
         }
 
-        let results = slots
+        slots
             .into_iter()
-            .map(|slot| {
-                slot.into_inner()
-                    .unwrap_or_else(|_| panic!("scheduled result slot must remain available"))
-                    .unwrap_or_else(|| panic!("scheduled work must publish one result"))
-            })
-            .collect();
+            .enumerate()
+            .map(|(index, slot)| {
+                let result = slot.into_inner().map_err(|_| {
+                    FactRuntimeFailure::SchedulerResultStatePoisoned { item: Some(index) }
+                })?;
 
-        Ok(results)
+                result.ok_or_else(|| {
+                    FactRuntimeFailure::WorkerTerminated {
+                        worker: None,
+                        item: Some(index),
+                    }
+                    .into()
+                })
+            })
+            .collect()
     }
 
     fn map_indexed_nested(
         &self,
         priority: QueryPriority,
         len: usize,
-        evaluate: &(impl Fn(usize) + Send + Sync),
+        evaluate: &(impl Fn(usize) -> Result<(), FactQueryError> + Send + Sync),
     ) -> Result<(), FactQueryError> {
         let priority_demand = QueryPriorityDemand::new(priority);
         let mut reserved = Vec::new();
@@ -166,15 +192,20 @@ impl FactScheduler {
         let lane_count = reserved.len() + 1;
 
         if lane_count == 1 {
-            (0..len).for_each(evaluate);
+            for index in 0..len {
+                evaluate(index)?;
+            }
 
             return Ok(());
         }
 
         let pool = self.pool(priority)?;
+        let scheduler_error = Mutex::new(None);
 
         pool.scope(|scope| {
             for (lane, slot) in reserved.into_iter().enumerate() {
+                let scheduler_error = &scheduler_error;
+
                 scope.spawn(move |_| {
                     let _slot = slot;
 
@@ -183,17 +214,38 @@ impl FactScheduler {
                         .as_deref()
                         .map(ProfileSession::start_worker_activity);
 
-                    let _active = ActiveSchedulerGuard::enter(self.identity(), priority)
-                        .unwrap_or_else(|_| panic!("scheduler-local state must remain available"));
+                    let _active = match ActiveSchedulerGuard::enter(self.identity(), priority) {
+                        Ok(active) => active,
+                        Err(error) => {
+                            record_scheduler_error(scheduler_error, lane + 1, error);
 
-                    ((lane + 1)..len).step_by(lane_count).for_each(evaluate);
+                            return;
+                        }
+                    };
+
+                    for index in ((lane + 1)..len).step_by(lane_count) {
+                        if let Err(error) = evaluate(index) {
+                            record_scheduler_error(scheduler_error, index, error);
+
+                            break;
+                        }
+                    }
                 });
             }
 
-            (0..len).step_by(lane_count).for_each(evaluate);
+            for index in (0..len).step_by(lane_count) {
+                if let Err(error) = evaluate(index) {
+                    record_scheduler_error(&scheduler_error, index, error);
+
+                    break;
+                }
+            }
         });
 
-        Ok(())
+        match take_scheduler_error(&scheduler_error)? {
+            Some(error) => Err(error),
+            None => Ok(()),
+        }
     }
 
     #[cfg(test)]
@@ -206,7 +258,12 @@ impl FactScheduler {
             .try_with(|active| {
                 let active = active
                     .try_borrow()
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(|_| {
+                        FactRuntimeFailure::SchedulerLocalStateUnavailable {
+                            operation: SchedulerLocalOperation::CurrentPriority,
+                            cause: LocalStateFailure::BorrowConflict,
+                        }
+                    })?;
 
                 Ok(active
                     .iter()
@@ -214,7 +271,12 @@ impl FactScheduler {
                     .find(|active| active.identity == self.identity())
                     .map(|active| active.priority))
             })
-            .map_err(|_| FactQueryError::InfrastructureFailure)?
+            .map_err(|_| {
+                FactRuntimeFailure::SchedulerLocalStateUnavailable {
+                    operation: SchedulerLocalOperation::CurrentPriority,
+                    cause: LocalStateFailure::Unavailable,
+                }
+            })?
     }
 
     pub(crate) fn promote(&self, priority: &QueryPriorityDemand, requested: QueryPriority) {
@@ -222,12 +284,13 @@ impl FactScheduler {
         self.slots.priority_changed();
     }
 
-    fn execute<T>(&self, priority: &QueryPriorityDemand, operation: impl FnOnce() -> T) -> T {
-        if self
-            .is_active()
-            .unwrap_or_else(|_| panic!("scheduler-local state must remain available"))
-        {
-            return operation();
+    fn execute<T>(
+        &self,
+        priority: &QueryPriorityDemand,
+        operation: impl FnOnce() -> T,
+    ) -> Result<T, FactQueryError> {
+        if self.is_active()? {
+            return Ok(operation());
         }
 
         let queue_span = self
@@ -235,10 +298,7 @@ impl FactScheduler {
             .as_deref()
             .map(|profile| profile.start(ProfileOperation::SchedulerQueue, None));
 
-        let _slot = self
-            .slots
-            .acquire(priority)
-            .unwrap_or_else(|_| panic!("scheduler slots must remain available"));
+        let _slot = self.slots.acquire(priority)?;
 
         if let Some(span) = queue_span {
             span.finish(CompilationProfileOutcome::Completed);
@@ -249,18 +309,27 @@ impl FactScheduler {
             .as_deref()
             .map(ProfileSession::start_worker_activity);
 
-        let _active = ActiveSchedulerGuard::enter(self.identity(), priority.current())
-            .unwrap_or_else(|_| panic!("scheduler-local state must remain available"));
+        let _active = ActiveSchedulerGuard::enter(self.identity(), priority.current())?;
 
-        operation()
+        Ok(operation())
     }
 
     fn pool(&self, priority: QueryPriority) -> Result<&ThreadPool, FactQueryError> {
         if priority == QueryPriority::Interactive && self.worker_count > 1 {
-            return build_pool(&self.interactive_pool, 1, "bray-query-interactive");
+            return build_pool(
+                &self.interactive_pool,
+                WorkerPoolKind::Interactive,
+                1,
+                "bray-query-interactive",
+            );
         }
 
-        build_pool(&self.ordinary_pool, self.worker_count, "bray-query")
+        build_pool(
+            &self.ordinary_pool,
+            WorkerPoolKind::Ordinary,
+            self.worker_count,
+            "bray-query",
+        )
     }
 
     fn is_active(&self) -> Result<bool, FactQueryError> {
@@ -268,13 +337,23 @@ impl FactScheduler {
             .try_with(|active| {
                 let active = active
                     .try_borrow()
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(|_| {
+                        FactRuntimeFailure::SchedulerLocalStateUnavailable {
+                            operation: SchedulerLocalOperation::Inspect,
+                            cause: LocalStateFailure::BorrowConflict,
+                        }
+                    })?;
 
                 Ok(active
                     .iter()
                     .any(|active| active.identity == self.identity()))
             })
-            .map_err(|_| FactQueryError::InfrastructureFailure)?
+            .map_err(|_| {
+                FactRuntimeFailure::SchedulerLocalStateUnavailable {
+                    operation: SchedulerLocalOperation::Inspect,
+                    cause: LocalStateFailure::Unavailable,
+                }
+            })?
     }
 
     fn identity(&self) -> usize {
@@ -282,8 +361,52 @@ impl FactScheduler {
     }
 }
 
+fn record_scheduler_error(
+    storage: &Mutex<Option<(usize, FactQueryError)>>,
+    item: usize,
+    error: FactQueryError,
+) {
+    // A scoped worker cannot return through Rayon's callback. If publication is poisoned, the
+    // coordinating worker reports that exact result-storage poison through `take_scheduler_error`.
+    let Ok(mut current) = storage.lock() else {
+        return;
+    };
+
+    if current
+        .as_ref()
+        .is_none_or(|(current_item, _)| item < *current_item)
+    {
+        *current = Some((item, error));
+    }
+}
+
+fn publish_scheduled_result<T>(
+    slot: &Mutex<Option<T>>,
+    item: usize,
+    value: T,
+) -> Result<(), FactQueryError> {
+    let mut slot = slot
+        .lock()
+        .map_err(|_| FactRuntimeFailure::SchedulerResultStatePoisoned { item: Some(item) })?;
+
+    *slot = Some(value);
+
+    Ok(())
+}
+
+fn take_scheduler_error(
+    storage: &Mutex<Option<(usize, FactQueryError)>>,
+) -> Result<Option<FactQueryError>, FactQueryError> {
+    let mut current = storage
+        .lock()
+        .map_err(|_| FactRuntimeFailure::SchedulerResultStatePoisoned { item: None })?;
+
+    Ok(current.take().map(|(_, error)| error))
+}
+
 fn build_pool<'a>(
-    storage: &'a OnceLock<Result<ThreadPool, ()>>,
+    storage: &'a OnceLock<Result<ThreadPool, FactRuntimeError>>,
+    pool: WorkerPoolKind,
     worker_count: usize,
     thread_name: &'static str,
 ) -> Result<&'a ThreadPool, FactQueryError> {
@@ -293,10 +416,19 @@ fn build_pool<'a>(
                 .num_threads(worker_count)
                 .thread_name(move |index| format!("{thread_name}-{index}"))
                 .build()
-                .map_err(|_| ())
+                .map_err(|error| {
+                    FactRuntimeError::from(FactRuntimeFailure::WorkerPoolCreation {
+                        pool,
+                        workers: worker_count,
+                        host: error
+                            .source()
+                            .and_then(|source| source.downcast_ref::<io::Error>())
+                            .map(io::Error::kind),
+                    })
+                })
         })
         .as_ref()
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(|error| FactQueryError::Runtime(error.clone()))
 }
 
 #[derive(Debug)]
@@ -327,16 +459,16 @@ impl ExecutionSlots {
         let mut interactive = priority.current() == QueryPriority::Interactive;
         let mut state = self.state()?;
 
-        register_waiter(&mut state, interactive);
+        register_waiter(&mut state, interactive)?;
         self.available.notify_all();
 
         loop {
             let promoted = priority.current() == QueryPriority::Interactive;
 
             if promoted != interactive {
-                unregister_waiter(&mut state, interactive);
+                unregister_waiter(&mut state, interactive)?;
                 interactive = promoted;
-                register_waiter(&mut state, interactive);
+                register_waiter(&mut state, interactive)?;
                 self.available.notify_all();
             }
 
@@ -347,11 +479,15 @@ impl ExecutionSlots {
             state = self
                 .available
                 .wait(state)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
+                    component: SynchronizationComponent::SchedulerSlots,
+                    fact: None,
+                    task: None,
+                })?;
         }
 
-        unregister_waiter(&mut state, interactive);
-        grant_slot(&mut state, interactive);
+        unregister_waiter(&mut state, interactive)?;
+        grant_slot(&mut state, interactive)?;
 
         Ok(ExecutionSlot { slots: self })
     }
@@ -367,7 +503,7 @@ impl ExecutionSlots {
             return Ok(None);
         }
 
-        grant_slot(&mut state, interactive);
+        grant_slot(&mut state, interactive)?;
 
         drop(state);
 
@@ -390,7 +526,14 @@ impl ExecutionSlots {
     fn state(&self) -> Result<MutexGuard<'_, SlotState>, FactQueryError> {
         self.state
             .lock()
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+            .map_err(|_| {
+                FactRuntimeFailure::SynchronizationPoisoned {
+                    component: SynchronizationComponent::SchedulerSlots,
+                    fact: None,
+                    task: None,
+                }
+                .into()
+            })
     }
 
     fn priority_changed(&self) {
@@ -423,40 +566,81 @@ impl ExecutionSlots {
     }
 }
 
-fn grant_slot(state: &mut SlotState, interactive: bool) {
-    if interactive {
-        state.interactive_streak += 1;
+fn grant_slot(state: &mut SlotState, interactive: bool) -> Result<(), FactQueryError> {
+    let interactive_streak = if interactive {
+        state.interactive_streak.checked_add(1).ok_or(
+            FactRuntimeFailure::CapacityExhausted {
+                resource: CapacityResource::SchedulerInteractiveStreak,
+                fact: None,
+                task: None,
+            },
+        )?
     } else {
-        state.interactive_streak = 0;
-    }
+        0
+    };
 
-    state.active += 1;
+    let active = state.active.checked_add(1).ok_or(
+        FactRuntimeFailure::CapacityExhausted {
+            resource: CapacityResource::SchedulerActiveSlots,
+            fact: None,
+            task: None,
+        },
+    )?;
+
+    state.interactive_streak = interactive_streak;
+    state.active = active;
+
+    Ok(())
 }
 
-fn register_waiter(state: &mut SlotState, interactive: bool) {
+fn register_waiter(state: &mut SlotState, interactive: bool) -> Result<(), FactQueryError> {
     if interactive {
-        state.interactive_waiters += 1;
+        state.interactive_waiters = state.interactive_waiters.checked_add(1).ok_or(
+            FactRuntimeFailure::CapacityExhausted {
+                resource: CapacityResource::SchedulerInteractiveWaiters,
+                fact: None,
+                task: None,
+            },
+        )?;
     } else {
-        state.ordinary_waiters += 1;
+        state.ordinary_waiters = state.ordinary_waiters.checked_add(1).ok_or(
+            FactRuntimeFailure::CapacityExhausted {
+                resource: CapacityResource::SchedulerOrdinaryWaiters,
+                fact: None,
+                task: None,
+            },
+        )?;
     }
+
+    Ok(())
 }
 
-fn unregister_waiter(state: &mut SlotState, interactive: bool) {
+fn unregister_waiter(state: &mut SlotState, interactive: bool) -> Result<(), FactQueryError> {
     if interactive {
-        assert!(
-            state.interactive_waiters > 0,
-            "interactive waiter registration must remain balanced"
-        );
+        if state.interactive_waiters == 0 {
+            return Err(FactRuntimeFailure::InvalidSchedulerState {
+                counter: SchedulerCounter::InteractiveWaiters,
+                expected_minimum: 1,
+                actual: 0,
+            }
+            .into());
+        }
 
         state.interactive_waiters -= 1;
     } else {
-        assert!(
-            state.ordinary_waiters > 0,
-            "ordinary waiter registration must remain balanced"
-        );
+        if state.ordinary_waiters == 0 {
+            return Err(FactRuntimeFailure::InvalidSchedulerState {
+                counter: SchedulerCounter::OrdinaryWaiters,
+                expected_minimum: 1,
+                actual: 0,
+            }
+            .into());
+        }
 
         state.ordinary_waiters -= 1;
     }
+
+    Ok(())
 }
 
 struct ExecutionSlot<'a> {
@@ -465,6 +649,8 @@ struct ExecutionSlot<'a> {
 
 impl Drop for ExecutionSlot<'_> {
     fn drop(&mut self) {
+        // Slot release cannot report errors from Drop. Fallible acquisition validates every
+        // counter transition before a slot guard is constructed.
         let Ok(mut state) = self.slots.state.lock() else {
             return;
         };
@@ -484,13 +670,23 @@ impl ActiveSchedulerGuard {
             .try_with(|active| {
                 let mut active = active
                     .try_borrow_mut()
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(|_| {
+                        FactRuntimeFailure::SchedulerLocalStateUnavailable {
+                            operation: SchedulerLocalOperation::Enter,
+                            cause: LocalStateFailure::BorrowConflict,
+                        }
+                    })?;
 
                 active.push(ActiveScheduler { identity, priority });
 
                 Ok::<_, FactQueryError>(())
             })
-            .map_err(|_| FactQueryError::InfrastructureFailure)??;
+            .map_err(|_| {
+                FactRuntimeFailure::SchedulerLocalStateUnavailable {
+                    operation: SchedulerLocalOperation::Enter,
+                    cause: LocalStateFailure::Unavailable,
+                }
+            })??;
 
         Ok(Self { identity })
     }
@@ -522,11 +718,16 @@ struct ActiveScheduler {
 #[cfg(test)]
 mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
-    use std::sync::{Arc, Barrier, mpsc};
+    use std::sync::{Arc, Barrier, Mutex, mpsc};
     use std::time::Duration;
 
-    use super::{ExecutionSlots, FactScheduler};
-    use crate::fact::QueryPriorityDemand;
+    use super::{
+        ExecutionSlots, FactScheduler, SlotState, grant_slot, publish_scheduled_result,
+        register_waiter, unregister_waiter,
+    };
+    use crate::fact::{
+        CapacityResource, FactQueryError, FactRuntimeFailure, QueryPriorityDemand, SchedulerCounter,
+    };
     use crate::{QueryPriority, WorkerBudget};
 
     #[test]
@@ -716,6 +917,162 @@ mod tests {
 
         assert_eq!(results, (0..6).collect::<Vec<_>>());
         assert_eq!(maximum.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn scheduler_capacity_failure_does_not_partially_grant_a_slot() {
+        let mut state = SlotState {
+            active: 2,
+            interactive_streak: usize::MAX,
+            ..SlotState::default()
+        };
+
+        let error = match grant_slot(&mut state, true) {
+            Ok(()) => panic!("an exhausted interactive streak must reject a slot"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            FactQueryError::Runtime(error)
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::CapacityExhausted {
+                        resource: CapacityResource::SchedulerInteractiveStreak,
+                        ..
+                    }
+                )
+        ));
+
+        assert_eq!(state.active, 2);
+        assert_eq!(state.interactive_streak, usize::MAX);
+    }
+
+    #[test]
+    fn scheduled_result_publication_reports_result_slot_poison() {
+        let slot = Mutex::new(None);
+
+        let _ = std::panic::catch_unwind(|| {
+            let _guard = slot
+                .lock()
+                .unwrap_or_else(|_| panic!("test result slot must initially be available"));
+
+            panic!("poison test result slot");
+        });
+
+        let error = match publish_scheduled_result(&slot, 7, 42) {
+            Ok(()) => panic!("a poisoned result slot must reject publication"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            FactQueryError::Runtime(error)
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::SchedulerResultStatePoisoned {
+                        item: Some(7),
+                    }
+                )
+        ));
+    }
+
+    #[test]
+    fn panicking_indexed_work_reports_the_worker_and_item() {
+        let scheduler = FactScheduler::new(worker_budget(2));
+
+        let error = match scheduler.map_indexed(QueryPriority::Normal, 4, |index| {
+            if index == 2 {
+                panic!("terminate test worker");
+            }
+
+            index
+        }) {
+            Ok(_) => panic!("panicking indexed work must fail"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            FactQueryError::Runtime(error)
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::WorkerTerminated {
+                        worker: Some(_),
+                        item: Some(2),
+                    }
+                )
+        ));
+    }
+
+    #[test]
+    fn multiple_worker_failures_select_the_lowest_item() {
+        let scheduler = FactScheduler::new(worker_budget(2));
+
+        let error = match scheduler.map_indexed(QueryPriority::Normal, 2, |index| {
+            if index == 0 {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+
+            panic!("terminate test worker for item {index}");
+        }) {
+            Ok(values) => panic!("panicking indexed work must fail: {values:?}"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            FactQueryError::Runtime(error)
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::WorkerTerminated {
+                        item: Some(0),
+                        ..
+                    }
+                )
+        ));
+    }
+
+    #[test]
+    fn scheduler_waiter_state_reports_the_exact_counter() {
+        let mut state = SlotState::default();
+
+        let error = match unregister_waiter(&mut state, false) {
+            Ok(()) => panic!("an absent ordinary waiter must not be unregistered"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            FactQueryError::Runtime(error)
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::InvalidSchedulerState {
+                        counter: SchedulerCounter::OrdinaryWaiters,
+                        expected_minimum: 1,
+                        actual: 0,
+                    }
+                )
+        ));
+
+        state.interactive_waiters = usize::MAX;
+
+        let error = match register_waiter(&mut state, true) {
+            Ok(()) => panic!("an exhausted waiter counter must reject registration"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            FactQueryError::Runtime(error)
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::CapacityExhausted {
+                        resource: CapacityResource::SchedulerInteractiveWaiters,
+                        ..
+                    }
+                )
+        ));
     }
 
     fn worker_budget(workers: usize) -> WorkerBudget {
