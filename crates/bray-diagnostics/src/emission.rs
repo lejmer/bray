@@ -2,6 +2,7 @@ mod checker;
 mod failure;
 mod foreign_query;
 mod product_query;
+mod runtime;
 mod unsupported;
 
 pub use checker::{
@@ -25,6 +26,9 @@ pub use foreign_query::{
 pub use product_query::{
     DiagnosticProductDataKind, DiagnosticProductQueryContext, DiagnosticProductQueryContextKind,
     DiagnosticProductQueryFailure, DiagnosticProductValueKind,
+};
+pub use runtime::{
+    DiagnosticFactRuntimeFailure, DiagnosticFailureField, DiagnosticFailureValue,
 };
 pub use unsupported::{
     DiagnosticHostEnvironmentVariable, DiagnosticLlvmToolRole, DiagnosticUnsupportedEmissionReason,

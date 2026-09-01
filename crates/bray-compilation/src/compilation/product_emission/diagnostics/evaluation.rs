@@ -23,15 +23,16 @@ pub(super) fn query_failure_diagnostics(
     )
 }
 
-pub(super) fn diagnostic_evaluation_failure(
+pub(crate) fn diagnostic_evaluation_failure(
     error: &FactQueryError,
 ) -> DiagnosticEmissionEvaluationFailure {
     match error {
-        FactQueryError::Cancelled => unreachable!("cancelled queries do not produce diagnostics"),
+        FactQueryError::Cancelled => DiagnosticEmissionEvaluationFailure::Cancelled,
         FactQueryError::Cycle(_) => DiagnosticEmissionEvaluationFailure::Cycle,
-        FactQueryError::InfrastructureFailure | FactQueryError::Runtime(_) => {
-            DiagnosticEmissionEvaluationFailure::Infrastructure
-        }
+        FactQueryError::InfrastructureFailure => DiagnosticEmissionEvaluationFailure::Infrastructure,
+        FactQueryError::Runtime(error) => DiagnosticEmissionEvaluationFailure::Runtime(
+            crate::fact::diagnostic_fact_runtime_failure(error),
+        ),
         FactQueryError::SemanticValueStoreCreate(_) => {
             DiagnosticEmissionEvaluationFailure::SemanticValueStoreCreate
         }
@@ -76,7 +77,7 @@ pub(super) fn diagnostic_evaluation_failure(
             DiagnosticEmissionEvaluationFailure::SemanticContext
         }
         FactQueryError::SemanticQuery(error) => DiagnosticEmissionEvaluationFailure::SemanticQuery(
-            crate::fact::diagnostic_semantic_query_failure(error.kind()),
+            crate::fact::diagnostic_semantic_query_failure(error),
         ),
         FactQueryError::Product(error) => DiagnosticEmissionEvaluationFailure::Product(
             super::product_query::diagnostic_product_query_failure(error),

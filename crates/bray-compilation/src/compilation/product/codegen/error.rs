@@ -378,80 +378,8 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
 }
 
 fn fact_query_failure_kind(error: &FactQueryError) -> Option<DiagnosticNativeProductFailureKind> {
-    use DiagnosticNativeProductFailureKind as Kind;
-
-    match error {
-        FactQueryError::Cancelled => None,
-        FactQueryError::Cycle(_) => Some(Kind::EvaluationCycle),
-        FactQueryError::InfrastructureFailure | FactQueryError::Runtime(_) => {
-            Some(Kind::EvaluationInfrastructure)
-        }
-        FactQueryError::SemanticValueStoreCreate(_) => {
-            Some(Kind::EvaluationSemanticValueStoreCreate)
-        }
-        FactQueryError::SemanticValueStore(error) => Some(Kind::EvaluationSemanticValue(
-            crate::fact::diagnostic_semantic_value_failure(*error),
-        )),
-        FactQueryError::BindingDependencyUnavailable => Some(Kind::EvaluationBinding(
-            bray_diagnostics::DiagnosticBindingFailure::DependencyUnavailable,
-        )),
-        FactQueryError::Binding(error) => Some(Kind::EvaluationBinding(
-            crate::fact::diagnostic_binding_failure(error),
-        )),
-        FactQueryError::LoweringInput(error) => Some(Kind::EvaluationLoweringInput(
-            super::super::super::lowering_diagnostic::lowering_input_failure(error),
-        )),
-        FactQueryError::Lowering(error) => Some(Kind::EvaluationLowering(
-            super::super::super::lowering_diagnostic::lowering_failure(error),
-        )),
-        FactQueryError::ConstantCallableBodyUnavailable => {
-            Some(Kind::EvaluationConstantCallableBodyUnavailable)
-        }
-        FactQueryError::ConstantCallableRootUnavailable => {
-            Some(Kind::EvaluationConstantCallableRootUnavailable)
-        }
-        FactQueryError::AtomicInitializerArgumentUnavailable => {
-            Some(Kind::EvaluationAtomicInitializerArgumentUnavailable)
-        }
-        FactQueryError::AtomicInitializerResultUnavailable => {
-            Some(Kind::EvaluationAtomicInitializerResultUnavailable)
-        }
-        FactQueryError::UninitInitializerResultUnavailable => {
-            Some(Kind::EvaluationUninitInitializerResultUnavailable)
-        }
-        FactQueryError::ImportedExecutableTemplateMismatch => {
-            Some(Kind::EvaluationImportedExecutableTemplateMismatch)
-        }
-        FactQueryError::SemanticUnitContext(_) => Some(Kind::SemanticContextFailure),
-        FactQueryError::SemanticQuery(_) => Some(Kind::SemanticContextFailure),
-        FactQueryError::Product(error) => Some(Kind::EvaluationProduct(
-            super::super::super::product_emission::diagnostics::product_query::diagnostic_product_query_failure(error),
-        )),
-        FactQueryError::Foreign(error) => Some(Kind::EvaluationForeign(
-            super::super::super::product_emission::diagnostics::foreign_query::diagnostic_foreign_query_failure(error),
-        )),
-        FactQueryError::CheckerInfrastructure(error) => Some(match error {
-            bray_checker::CheckerInfrastructureError::AtomicRepresentationTypeUnavailable => {
-                Kind::EvaluationAtomicRepresentationTypeUnavailable
-            }
-            bray_checker::CheckerInfrastructureError::AtomicRepresentationArgumentsUnavailable => {
-                Kind::EvaluationAtomicRepresentationArgumentsUnavailable
-            }
-            bray_checker::CheckerInfrastructureError::AtomicInitializerArgumentUnavailable => {
-                Kind::EvaluationAtomicInitializerArgumentUnavailable
-            }
-            bray_checker::CheckerInfrastructureError::AtomicInitializerResultUnavailable => {
-                Kind::EvaluationAtomicInitializerResultUnavailable
-            }
-            bray_checker::CheckerInfrastructureError::UninitInitializerResultUnavailable => {
-                Kind::EvaluationUninitInitializerResultUnavailable
-            }
-            bray_checker::CheckerInfrastructureError::ImportedExecutableTemplateMismatch => {
-                Kind::EvaluationImportedExecutableTemplateMismatch
-            }
-            error => Kind::EvaluationChecker(crate::fact::diagnostic_checker_failure(*error)),
-        }),
-    }
+    (!matches!(error, FactQueryError::Cancelled))
+        .then(|| error.diagnostic_evaluation_failure().into())
 }
 
 impl From<FactQueryError> for NativeProductPlanningError {

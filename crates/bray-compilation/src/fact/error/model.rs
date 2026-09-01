@@ -320,6 +320,16 @@ pub enum FactQueryError {
     Lowering(LocatedLoweringFailure<LoweringError>),
 }
 
+impl FactQueryError {
+    /// Converts this query failure into its exact locale-neutral diagnostic payload.
+    ///
+    pub fn diagnostic_evaluation_failure(
+        &self,
+    ) -> bray_diagnostics::DiagnosticEmissionEvaluationFailure {
+        crate::compilation::diagnostic_evaluation_failure(self)
+    }
+}
+
 impl From<std::convert::Infallible> for FactQueryError {
     fn from(error: std::convert::Infallible) -> Self {
         match error {}

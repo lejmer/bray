@@ -215,6 +215,8 @@ pub(super) fn evaluation_failure_context(
     use bray_diagnostics::DiagnosticEmissionEvaluationFailure as Failure;
 
     match failure {
+        Failure::Runtime(failure) => fact_runtime_failure_context(failure),
+        Failure::SemanticQuery(failure) => diagnostic_failure_context(failure.context()),
         Failure::SemanticValue(failure)
         | Failure::Binding(bray_diagnostics::DiagnosticBindingFailure::SemanticValue(failure))
         | Failure::Checker(bray_diagnostics::DiagnosticCheckerFailure::SemanticValue(failure)) => {
@@ -236,6 +238,35 @@ pub(super) fn evaluation_failure_context(
         Failure::Foreign(failure) => foreign_query_failure_context(failure),
         _ => vec![text_field("cause", failure.as_str())],
     }
+}
+
+pub(in crate::output::diagnostic::json) fn fact_runtime_failure_context(
+    failure: &bray_diagnostics::DiagnosticFactRuntimeFailure,
+) -> Vec<DiagnosticEmissionFieldJson> {
+    diagnostic_failure_context(failure.context())
+}
+
+pub(in crate::output::diagnostic::json) fn diagnostic_failure_context(
+    context: &[bray_diagnostics::DiagnosticFailureField],
+) -> Vec<DiagnosticEmissionFieldJson> {
+    context
+        .iter()
+        .map(|diagnostic_field| {
+            let value = match diagnostic_field.value() {
+                bray_diagnostics::DiagnosticFailureValue::Count(value) => {
+                    DiagnosticEmissionFieldValueJson::Count(*value)
+                }
+                bray_diagnostics::DiagnosticFailureValue::Text(value) => {
+                    DiagnosticEmissionFieldValueJson::Text(value.clone())
+                }
+                bray_diagnostics::DiagnosticFailureValue::TextList(values) => {
+                    DiagnosticEmissionFieldValueJson::TextList(values.to_vec())
+                }
+            };
+
+            field(diagnostic_field.name(), value)
+        })
+        .collect()
 }
 
 pub(in crate::output::diagnostic::json) fn semantic_value_failure_context(

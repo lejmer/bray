@@ -6,7 +6,7 @@ use crate::{
     DiagnosticAssemblySyntaxKind, DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
     DiagnosticIoErrorKind, DiagnosticLinkInputKind, DiagnosticLinkedArtifactKind,
     DiagnosticLinkedProductKind, DiagnosticOutputSink, DiagnosticProductKind,
-    DiagnosticProductQueryFailure,
+    DiagnosticFactRuntimeFailure, DiagnosticProductQueryFailure,
 };
 
 /// Locale-neutral identity of one artifact in an emission operation.
@@ -289,8 +289,10 @@ pub enum DiagnosticEmissionLinkPlanFailure {
 /// Exact compiler-evaluation failure observed during emission.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticEmissionEvaluationFailure {
+    Cancelled,
     Cycle,
     Infrastructure,
+    Runtime(DiagnosticFactRuntimeFailure),
     SemanticValueStoreCreate,
     SemanticValue(DiagnosticSemanticValueFailure),
     Binding(DiagnosticBindingFailure),
@@ -314,25 +316,36 @@ pub enum DiagnosticEmissionEvaluationFailure {
     Checker(DiagnosticCheckerFailure),
 }
 
-/// Stable semantic-query failure category retained for product diagnostics.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticSemanticQueryFailure {
-    /// A retained semantic relationship violated its compiler contract.
-    ContractViolation,
-    /// A callable signature violated its structural contract.
-    CallableSignature,
-    /// A generic substitution violated its declared parameter shape.
-    GenericSubstitution,
-    /// A bound unit violated its key, tree, or root contract.
-    BoundUnit,
-    /// Implementation selection or durable evidence was malformed.
-    Implementation,
-    /// Checked constant-term publication rejected its occurrence input.
-    CheckedConstantTerms,
-    /// A type-associated surface rejected its member input.
-    TypeSurface,
-    /// Generated preparsed syntax violated its event contract.
-    PreparsedSyntax,
+/// Exact semantic-query failure retained for product diagnostics.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiagnosticSemanticQueryFailure {
+    reason: &'static str,
+    context: Box<[crate::DiagnosticFailureField]>,
+}
+
+impl DiagnosticSemanticQueryFailure {
+    pub fn new(
+        reason: &'static str,
+        context: impl Into<Box<[crate::DiagnosticFailureField]>>,
+    ) -> Self {
+        Self {
+            reason,
+            context: context.into(),
+        }
+    }
+
+    pub const fn reason(&self) -> &'static str {
+        self.reason
+    }
+
+    pub const fn context(&self) -> &[crate::DiagnosticFailureField] {
+        &self.context
+    }
+
+    /// Returns this failure's stable machine-readable name.
+    pub const fn as_str(&self) -> &'static str {
+        self.reason
+    }
 }
 
 /// Exact compiler-owned failure observed while binding one source-level program element.
@@ -623,8 +636,10 @@ impl DiagnosticEmissionLinkPlanFailure {
 impl DiagnosticEmissionEvaluationFailure {
     pub const fn as_str(&self) -> &'static str {
         match self {
+            Self::Cancelled => "cancelled",
             Self::Cycle => "cycle",
             Self::Infrastructure => "infrastructure",
+            Self::Runtime(failure) => failure.reason(),
             Self::SemanticValueStoreCreate => "semantic_value_store_create",
             Self::SemanticValue(failure) => failure.as_str(),
             Self::Binding(failure) => failure.as_str(),
@@ -645,22 +660,6 @@ impl DiagnosticEmissionEvaluationFailure {
             Self::Product(failure) => failure.as_str(),
             Self::Foreign(failure) => failure.as_str(),
             Self::Checker(failure) => failure.as_str(),
-        }
-    }
-}
-
-impl DiagnosticSemanticQueryFailure {
-    /// Returns this failure category's stable machine-readable name.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::ContractViolation => "semantic_query_contract_violation",
-            Self::CallableSignature => "semantic_query_callable_signature",
-            Self::GenericSubstitution => "semantic_query_generic_substitution",
-            Self::BoundUnit => "semantic_query_bound_unit",
-            Self::Implementation => "semantic_query_implementation",
-            Self::CheckedConstantTerms => "semantic_query_checked_constant_terms",
-            Self::TypeSurface => "semantic_query_type_surface",
-            Self::PreparsedSyntax => "semantic_query_preparsed_syntax",
         }
     }
 }

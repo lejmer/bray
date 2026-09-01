@@ -9,6 +9,7 @@ use bray_diagnostics::{
     DiagnosticCallbackStateProblem, DiagnosticCheckerFailure, DiagnosticConstructionInputRejection,
     DiagnosticDependencySubjectKind, DiagnosticEmissionEvaluationFailure,
     DiagnosticEmissionFailure, DiagnosticGenericParameterCategory, DiagnosticId,
+    DiagnosticFactRuntimeFailure, DiagnosticFailureField, DiagnosticFailureValue,
     DiagnosticInterfaceDeclarationIdentity, DiagnosticInterfaceLimit, DiagnosticInterfaceSection,
     DiagnosticInterfaceSemanticProblem, DiagnosticInterfaceSymbolIdentity,
     DiagnosticInterfaceSymbolKind, DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind,
@@ -26,7 +27,8 @@ use bray_diagnostics::{
     DiagnosticSelectionCandidateIdentity, DiagnosticSelectionCandidateSignature,
     DiagnosticSelectionCandidates, DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
     DiagnosticSelectionRejections, DiagnosticSemanticContentProblem,
-    DiagnosticSemanticValueFailure, DiagnosticSourceEdit, DiagnosticStorageAccess,
+    DiagnosticSemanticQueryFailure, DiagnosticSemanticValueFailure, DiagnosticSourceEdit,
+    DiagnosticStorageAccess,
     DiagnosticStorageAccessPurpose, DiagnosticStorageProjection, DiagnosticStorageRoot,
     DiagnosticSuggestion, DiagnosticSuggestionApplicability, DiagnosticSuggestionKind,
     DiagnosticTargetPredicateValueKind, DiagnosticTraitFulfillmentMismatch, DiagnosticType,
@@ -289,6 +291,102 @@ fn product_query_failures_preserve_exact_context_in_emission_and_native_json() {
     );
 
     assert_eq!(native["reason"], "product_query_missing");
+    assert_eq!(native["context"], emission["context"]);
+}
+
+#[test]
+fn runtime_failures_preserve_exact_context_in_emission_and_native_json() {
+    let failure = DiagnosticFactRuntimeFailure::new(
+        "publication_mismatch",
+        [
+            DiagnosticFailureField::new(
+                "requested_fact",
+                DiagnosticFailureValue::Text("SyntaxTree".to_owned()),
+            ),
+            DiagnosticFailureField::new("actual_task", DiagnosticFailureValue::Count(23)),
+        ],
+    );
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::EmissionFailed,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::emission_failure(
+        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Runtime(
+            failure.clone(),
+        )),
+    ))
+    .with_arg(DiagnosticArg::native_product_failure_kind(
+        DiagnosticNativeProductFailureKind::EvaluationRuntime(failure),
+    ));
+
+    let mut output = Vec::new();
+
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+        .unwrap_or_else(|error| panic!("JSON diagnostics should write: {error:?}"));
+
+    let output: serde_json::Value = serde_json::from_slice(&output)
+        .unwrap_or_else(|error| panic!("JSON diagnostics should parse: {error:?}"));
+
+    let emission = &output["diagnostics"][0]["args"][0]["value"]["value"];
+    let native = &output["diagnostics"][0]["args"][1]["value"]["value"];
+
+    assert_eq!(emission["reason"], "publication_mismatch");
+    assert_eq!(emission["context"][0]["name"], "requested_fact");
+    assert_eq!(emission["context"][0]["value"]["value"], "SyntaxTree");
+    assert_eq!(emission["context"][1]["value"]["value"], 23);
+    assert_eq!(native["reason"], emission["reason"]);
+    assert_eq!(native["context"], emission["context"]);
+}
+
+#[test]
+fn semantic_query_failures_preserve_leaf_context_in_emission_and_native_json() {
+    let failure = DiagnosticSemanticQueryFailure::new(
+        "semantic_query_contract_violation",
+        [DiagnosticFailureField::new(
+            "cause",
+            DiagnosticFailureValue::Text(
+                "Expression { unit: body#7, expression: 11 }: Missing(Type)".to_owned(),
+            ),
+        )],
+    );
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::EmissionFailed,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::emission_failure(
+        DiagnosticEmissionFailure::Evaluation(
+            DiagnosticEmissionEvaluationFailure::SemanticQuery(failure.clone()),
+        ),
+    ))
+    .with_arg(DiagnosticArg::native_product_failure_kind(
+        DiagnosticNativeProductFailureKind::EvaluationSemanticQuery(failure),
+    ));
+
+    let mut output = Vec::new();
+
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+        .unwrap_or_else(|error| panic!("JSON diagnostics should write: {error:?}"));
+
+    let output: serde_json::Value = serde_json::from_slice(&output)
+        .unwrap_or_else(|error| panic!("JSON diagnostics should parse: {error:?}"));
+
+    let emission = &output["diagnostics"][0]["args"][0]["value"]["value"];
+    let native = &output["diagnostics"][0]["args"][1]["value"]["value"];
+
+    assert_eq!(emission["reason"], "semantic_query_contract_violation");
+    assert_eq!(emission["context"][0]["name"], "cause");
+
+    assert!(
+        emission["context"][0]["value"]["value"]
+            .as_str()
+            .is_some_and(|cause| cause.contains("Missing(Type)"))
+    );
+
+    assert_eq!(native["reason"], emission["reason"]);
     assert_eq!(native["context"], emission["context"]);
 }
 

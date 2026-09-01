@@ -124,8 +124,10 @@ pub enum DiagnosticNativeProductFailureKind {
     LibraryCleanupRequiresMainThread,
     InvalidSymbolName,
     InvalidNativeLinkInput(DiagnosticNativeLinkInputFailure),
+    EvaluationCancelled,
     EvaluationCycle,
     EvaluationInfrastructure,
+    EvaluationRuntime(crate::DiagnosticFactRuntimeFailure),
     EvaluationSemanticValueStoreCreate,
     EvaluationSemanticValue(crate::DiagnosticSemanticValueFailure),
     EvaluationBinding(crate::DiagnosticBindingFailure),
@@ -140,6 +142,7 @@ pub enum DiagnosticNativeProductFailureKind {
     EvaluationUninitInitializerResultUnavailable,
     EvaluationImportedExecutableTemplateMismatch,
     SemanticContextFailure,
+    EvaluationSemanticQuery(crate::DiagnosticSemanticQueryFailure),
     /// Product specialization or realization violated an exact retained contract.
     EvaluationProduct(crate::DiagnosticProductQueryFailure),
     /// Foreign-boundary construction violated an exact retained contract.
@@ -217,8 +220,10 @@ impl DiagnosticNativeProductFailureKind {
             Self::LibraryCleanupRequiresMainThread => "library_cleanup_requires_main_thread",
             Self::InvalidSymbolName => "invalid_symbol_name",
             Self::InvalidNativeLinkInput(failure) => failure.as_str(),
+            Self::EvaluationCancelled => "evaluation_cancelled",
             Self::EvaluationCycle => "evaluation_cycle",
             Self::EvaluationInfrastructure => "evaluation_infrastructure",
+            Self::EvaluationRuntime(failure) => failure.reason(),
             Self::EvaluationSemanticValueStoreCreate => "evaluation_semantic_value_store_create",
             Self::EvaluationSemanticValue(failure) => failure.as_str(),
             Self::EvaluationBinding(failure) => failure.as_str(),
@@ -249,6 +254,7 @@ impl DiagnosticNativeProductFailureKind {
                 "evaluation_imported_executable_template_mismatch"
             }
             Self::SemanticContextFailure => "semantic_context_failure",
+            Self::EvaluationSemanticQuery(failure) => failure.as_str(),
             Self::EvaluationProduct(failure) => failure.as_str(),
             Self::EvaluationForeign(failure) => failure.as_str(),
             Self::CheckingInfrastructureFailure => "checking_infrastructure_failure",
@@ -316,6 +322,53 @@ impl DiagnosticNativeProductFailureKind {
             Self::CodegenMissingHelperInstance => "codegen_missing_helper_instance",
             Self::CodegenLayoutOverflow => "codegen_layout_overflow",
             Self::CodegenInvalidSymbolName => "codegen_invalid_symbol_name",
+        }
+    }
+}
+
+impl From<crate::DiagnosticEmissionEvaluationFailure> for DiagnosticNativeProductFailureKind {
+    fn from(failure: crate::DiagnosticEmissionEvaluationFailure) -> Self {
+        use crate::DiagnosticEmissionEvaluationFailure as Failure;
+
+        match failure {
+            Failure::Cancelled => Self::EvaluationCancelled,
+            Failure::Cycle => Self::EvaluationCycle,
+            Failure::Infrastructure => Self::EvaluationInfrastructure,
+            Failure::Runtime(failure) => Self::EvaluationRuntime(failure),
+            Failure::SemanticValueStoreCreate => Self::EvaluationSemanticValueStoreCreate,
+            Failure::SemanticValue(failure) => Self::EvaluationSemanticValue(failure),
+            Failure::Binding(failure) => Self::EvaluationBinding(failure),
+            Failure::LoweringInput(failure) => Self::EvaluationLoweringInput(failure),
+            Failure::Lowering(failure) => Self::EvaluationLowering(failure),
+            Failure::ConstantCallableBodyUnavailable => {
+                Self::EvaluationConstantCallableBodyUnavailable
+            }
+            Failure::ConstantCallableRootUnavailable => {
+                Self::EvaluationConstantCallableRootUnavailable
+            }
+            Failure::AtomicRepresentationTypeUnavailable => {
+                Self::EvaluationAtomicRepresentationTypeUnavailable
+            }
+            Failure::AtomicRepresentationArgumentsUnavailable => {
+                Self::EvaluationAtomicRepresentationArgumentsUnavailable
+            }
+            Failure::AtomicInitializerArgumentUnavailable => {
+                Self::EvaluationAtomicInitializerArgumentUnavailable
+            }
+            Failure::AtomicInitializerResultUnavailable => {
+                Self::EvaluationAtomicInitializerResultUnavailable
+            }
+            Failure::UninitInitializerResultUnavailable => {
+                Self::EvaluationUninitInitializerResultUnavailable
+            }
+            Failure::ImportedExecutableTemplateMismatch => {
+                Self::EvaluationImportedExecutableTemplateMismatch
+            }
+            Failure::SemanticContext => Self::SemanticContextFailure,
+            Failure::SemanticQuery(failure) => Self::EvaluationSemanticQuery(failure),
+            Failure::Product(failure) => Self::EvaluationProduct(failure),
+            Failure::Foreign(failure) => Self::EvaluationForeign(failure),
+            Failure::Checker(failure) => Self::EvaluationChecker(failure),
         }
     }
 }

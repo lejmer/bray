@@ -465,7 +465,8 @@ mod tests {
         );
 
         assert!(infrastructure.contains("package-interface export failed"));
-        assert!(infrastructure.contains("compiler evaluation state is inconsistent"));
+        assert!(infrastructure.contains("evaluation state is inconsistent"));
+        assert!(!infrastructure.contains("compiler evaluation"));
 
         let executable = format_english_package_interface_failure(
             &DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {

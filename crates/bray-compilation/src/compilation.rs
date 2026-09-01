@@ -1,5 +1,6 @@
 mod behavior;
 mod binder;
+mod boundary;
 mod checker;
 mod codegen;
 mod configuration;
@@ -60,6 +61,7 @@ pub(crate) use product::{
     ProductTestCatalogFailureKind, ProductValueKind,
 };
 pub use product_emission::{ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs};
+pub(crate) use product_emission::diagnostics::diagnostic_evaluation_failure;
 pub use semantic_error::{SemanticQueryError, SemanticQueryErrorKind};
 pub use source_graph::ProductSourceGraph;
 pub use state::Compilation;

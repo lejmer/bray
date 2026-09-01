@@ -153,66 +153,13 @@ impl super::super::Compilation {
         &self,
         interface: ImportedInterfaceId,
     ) -> Option<&LoadedDependencyInterface> {
-        match self
-            .loaded_dependency_interface_with_cancellation(interface, &self.state.cancellation)
-        {
-            Ok(loaded) => loaded,
-            Err(FactQueryError::Cancelled) => {
-                panic!("uncancellable dependency-interface query was cancelled")
-            }
-            Err(FactQueryError::Cycle(cycle)) => {
-                panic!("dependency-interface query formed a cycle: {cycle:?}")
-            }
-            Err(FactQueryError::InfrastructureFailure) => {
-                panic!("dependency-interface query infrastructure failed")
-            }
-            Err(FactQueryError::Runtime(error)) => {
-                panic!("dependency-interface fact runtime failed: {error:?}")
-            }
-            Err(
-                error @ (FactQueryError::SemanticValueStoreCreate(_)
-                | FactQueryError::SemanticValueStore(_)),
-            ) => {
-                panic!("dependency-interface semantic-value operation failed: {error}")
-            }
-            Err(FactQueryError::BindingDependencyUnavailable) => {
-                panic!("dependency-interface query could not obtain a binding dependency")
-            }
-            Err(FactQueryError::Binding(error)) => {
-                panic!("dependency-interface query encountered a binding failure: {error:?}")
-            }
-            Err(
-                error @ (FactQueryError::AtomicInitializerArgumentUnavailable
-                | FactQueryError::AtomicInitializerResultUnavailable
-                | FactQueryError::UninitInitializerResultUnavailable
-                | FactQueryError::ConstantCallableBodyUnavailable
-                | FactQueryError::ConstantCallableRootUnavailable
-                | FactQueryError::ImportedExecutableTemplateMismatch),
-            ) => {
-                panic!("dependency-interface query failed: {error}")
-            }
-            Err(FactQueryError::SemanticUnitContext(error)) => {
-                panic!("semantic unit context failed: {error:?}")
-            }
-            Err(FactQueryError::SemanticQuery(error)) => {
-                panic!("dependency-interface semantic query failed: {error}")
-            }
-            Err(FactQueryError::Product(error)) => {
-                panic!("dependency-interface product query failed: {error:?}")
-            }
-            Err(FactQueryError::Foreign(error)) => {
-                panic!("dependency-interface foreign query failed: {error:?}")
-            }
-            Err(FactQueryError::CheckerInfrastructure(error)) => {
-                panic!("semantic checker infrastructure failed: {error:?}")
-            }
-            Err(FactQueryError::LoweringInput(error)) => {
-                panic!("lowering input validation failed: {error:?}")
-            }
-            Err(FactQueryError::Lowering(error)) => {
-                panic!("MIR lowering failed: {error:?}")
-            }
-        }
+        super::super::boundary::expect_uncancelled_query(
+            "loaded_dependency_interface",
+            self.loaded_dependency_interface_with_cancellation(
+                interface,
+                &self.state.cancellation,
+            ),
+        )
     }
 
     pub(super) fn loaded_dependency_interface_with_cancellation(

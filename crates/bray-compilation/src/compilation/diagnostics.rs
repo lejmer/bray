@@ -120,7 +120,7 @@ fn semantic_query_failure_diagnostics(
 
     let failure =
         DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::SemanticQuery(
-            crate::fact::diagnostic_semantic_query_failure(error.kind()),
+            crate::fact::diagnostic_semantic_query_failure(error),
         ));
 
     let diagnostic = Diagnostic::new(
@@ -314,64 +314,10 @@ pub(super) fn diagnostic_interface_symbol_reference(
 impl Compilation {
     /// Returns diagnostics produced by binding and semantic analysis of this package.
     pub fn semantic_diagnostics(&self) -> &DiagnosticBag {
-        match self.semantic_diagnostics_with_cancellation(&self.state.cancellation) {
-            Ok(diagnostics) => diagnostics,
-            Err(FactQueryError::Cancelled) => {
-                panic!("uncancellable semantic diagnostics were unexpectedly cancelled")
-            }
-            Err(FactQueryError::Cycle(cycle)) => {
-                panic!("semantic diagnostic dependencies formed a cycle: {cycle:?}")
-            }
-            Err(FactQueryError::InfrastructureFailure) => {
-                panic!("semantic diagnostic infrastructure failed")
-            }
-            Err(FactQueryError::Runtime(error)) => {
-                panic!("semantic diagnostic fact runtime failed: {error:?}")
-            }
-            Err(
-                error @ (FactQueryError::SemanticValueStoreCreate(_)
-                | FactQueryError::SemanticValueStore(_)),
-            ) => {
-                panic!("semantic diagnostic semantic-value operation failed: {error}")
-            }
-            Err(FactQueryError::BindingDependencyUnavailable) => {
-                panic!("semantic diagnostics could not obtain a binding dependency")
-            }
-            Err(FactQueryError::Binding(error)) => {
-                panic!("semantic diagnostics encountered a binding failure: {error:?}")
-            }
-            Err(
-                error @ (FactQueryError::AtomicInitializerArgumentUnavailable
-                | FactQueryError::AtomicInitializerResultUnavailable
-                | FactQueryError::UninitInitializerResultUnavailable
-                | FactQueryError::ConstantCallableBodyUnavailable
-                | FactQueryError::ConstantCallableRootUnavailable
-                | FactQueryError::ImportedExecutableTemplateMismatch),
-            ) => {
-                panic!("semantic diagnostics failed: {error}")
-            }
-            Err(FactQueryError::SemanticUnitContext(error)) => {
-                panic!("semantic unit context failed: {error:?}")
-            }
-            Err(FactQueryError::SemanticQuery(error)) => {
-                panic!("semantic query failed: {error}")
-            }
-            Err(FactQueryError::Product(error)) => {
-                panic!("semantic diagnostic product query failed: {error:?}")
-            }
-            Err(FactQueryError::Foreign(error)) => {
-                panic!("semantic diagnostic foreign query failed: {error:?}")
-            }
-            Err(FactQueryError::CheckerInfrastructure(error)) => {
-                panic!("semantic checker infrastructure failed: {error:?}")
-            }
-            Err(FactQueryError::LoweringInput(error)) => {
-                panic!("lowering input validation failed: {error:?}")
-            }
-            Err(FactQueryError::Lowering(error)) => {
-                panic!("MIR lowering failed: {error:?}")
-            }
-        }
+        super::boundary::expect_uncancelled_query(
+            "semantic_diagnostics",
+            self.semantic_diagnostics_with_cancellation(&self.state.cancellation),
+        )
     }
 
     pub(super) fn semantic_diagnostics_with_cancellation(
@@ -388,64 +334,10 @@ impl Compilation {
 
     /// Returns diagnostics for the current whole-package check request.
     pub fn check_diagnostics(&self) -> &DiagnosticBag {
-        match self.check_diagnostics_with_cancellation(&self.state.cancellation) {
-            Ok(diagnostics) => diagnostics,
-            Err(FactQueryError::Cancelled) => {
-                panic!("uncancellable check diagnostics were unexpectedly cancelled")
-            }
-            Err(FactQueryError::Cycle(cycle)) => {
-                panic!("check diagnostic dependencies formed a cycle: {cycle:?}")
-            }
-            Err(FactQueryError::InfrastructureFailure) => {
-                panic!("check diagnostic infrastructure failed")
-            }
-            Err(FactQueryError::Runtime(error)) => {
-                panic!("check diagnostic fact runtime failed: {error:?}")
-            }
-            Err(
-                error @ (FactQueryError::SemanticValueStoreCreate(_)
-                | FactQueryError::SemanticValueStore(_)),
-            ) => {
-                panic!("check diagnostic semantic-value operation failed: {error}")
-            }
-            Err(FactQueryError::BindingDependencyUnavailable) => {
-                panic!("check diagnostics could not obtain a binding dependency")
-            }
-            Err(FactQueryError::Binding(error)) => {
-                panic!("check diagnostics encountered a binding failure: {error:?}")
-            }
-            Err(
-                error @ (FactQueryError::AtomicInitializerArgumentUnavailable
-                | FactQueryError::AtomicInitializerResultUnavailable
-                | FactQueryError::UninitInitializerResultUnavailable
-                | FactQueryError::ConstantCallableBodyUnavailable
-                | FactQueryError::ConstantCallableRootUnavailable
-                | FactQueryError::ImportedExecutableTemplateMismatch),
-            ) => {
-                panic!("check diagnostics failed: {error}")
-            }
-            Err(FactQueryError::SemanticUnitContext(error)) => {
-                panic!("check diagnostic semantic unit context failed: {error:?}")
-            }
-            Err(FactQueryError::SemanticQuery(error)) => {
-                panic!("check diagnostic semantic query failed: {error}")
-            }
-            Err(FactQueryError::Product(error)) => {
-                panic!("check diagnostic product query failed: {error:?}")
-            }
-            Err(FactQueryError::Foreign(error)) => {
-                panic!("check diagnostic foreign query failed: {error:?}")
-            }
-            Err(FactQueryError::CheckerInfrastructure(error)) => {
-                panic!("check diagnostic checker infrastructure failed: {error:?}")
-            }
-            Err(FactQueryError::LoweringInput(error)) => {
-                panic!("check diagnostic lowering input validation failed: {error:?}")
-            }
-            Err(FactQueryError::Lowering(error)) => {
-                panic!("check diagnostic MIR lowering failed: {error:?}")
-            }
-        }
+        super::boundary::expect_uncancelled_query(
+            "check_diagnostics",
+            self.check_diagnostics_with_cancellation(&self.state.cancellation),
+        )
     }
 
     pub(super) fn check_diagnostics_with_cancellation(

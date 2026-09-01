@@ -29,10 +29,12 @@ pub(crate) fn format_english_emission_evaluation_failure(
     use bray_diagnostics::DiagnosticEmissionEvaluationFailure as Failure;
 
     let message = match failure {
-        Failure::Cycle => "a dependency cycle occurred during compiler evaluation",
-        Failure::Infrastructure => "compiler evaluation state is inconsistent",
+        Failure::Cancelled => "evaluation was cancelled",
+        Failure::Cycle => "evaluation encountered a dependency cycle",
+        Failure::Infrastructure => "evaluation state is inconsistent",
+        Failure::Runtime(failure) => return format_english_fact_runtime_failure(failure),
         Failure::SemanticValueStoreCreate => {
-            "process-local semantic-value store identity capacity was exhausted during compiler evaluation"
+            "process-local semantic-value store identity capacity was exhausted during evaluation"
         }
         Failure::SemanticValue(failure) => {
             return format_english_semantic_value_failure(*failure);
@@ -68,7 +70,7 @@ pub(crate) fn format_english_emission_evaluation_failure(
             "the selected program element has inconsistent checking context"
         }
         Failure::SemanticQuery(failure) => {
-            return format_english_semantic_query_failure(*failure);
+            return format_english_semantic_query_failure(failure);
         }
         Failure::Product(failure) => return format_english_product_query_failure(failure),
         Failure::Foreign(failure) => return format_english_foreign_query_failure(failure),
@@ -79,19 +81,18 @@ pub(crate) fn format_english_emission_evaluation_failure(
 }
 
 fn format_english_semantic_query_failure(
-    failure: bray_diagnostics::DiagnosticSemanticQueryFailure,
+    failure: &bray_diagnostics::DiagnosticSemanticQueryFailure,
 ) -> String {
-    use bray_diagnostics::DiagnosticSemanticQueryFailure as Failure;
-
-    let detail = match failure {
-        Failure::ContractViolation => "found inconsistent declaration information",
-        Failure::CallableSignature => "found an inconsistent callable signature",
-        Failure::GenericSubstitution => "found inconsistent generic arguments",
-        Failure::BoundUnit => "found an inconsistent bound source unit",
-        Failure::Implementation => "found inconsistent implementation evidence",
-        Failure::CheckedConstantTerms => "found inconsistent checked constant terms",
-        Failure::TypeSurface => "found inconsistent type-member information",
-        Failure::PreparsedSyntax => "found inconsistent generated syntax",
+    let detail = match failure.reason() {
+        "semantic_query_contract_violation" => "found inconsistent declaration information",
+        "semantic_query_callable_signature" => "found an inconsistent callable signature",
+        "semantic_query_generic_substitution" => "found inconsistent generic arguments",
+        "semantic_query_bound_unit" => "found an inconsistent bound source unit",
+        "semantic_query_implementation" => "found inconsistent implementation evidence",
+        "semantic_query_checked_constant_terms" => "found inconsistent checked constant terms",
+        "semantic_query_type_surface" => "found inconsistent type-member information",
+        "semantic_query_preparsed_syntax" => "found inconsistent generated syntax",
+        _ => "found an unrecognized semantic contract failure",
     };
 
     super::format_internal_compiler_error(detail)
@@ -113,10 +114,12 @@ pub(crate) fn format_english_native_product_failure(
         Kind::InvalidNativeLinkInput(failure) => {
             return format_english_native_link_input_failure(failure);
         }
-        Kind::EvaluationCycle => "a dependency cycle occurred during compiler evaluation",
+        Kind::EvaluationCancelled => "product construction was cancelled",
+        Kind::EvaluationCycle => "evaluation encountered a dependency cycle",
         Kind::EvaluationInfrastructure => {
-            "product construction failed because compiler evaluation state is inconsistent"
+            "product construction failed because evaluation state is inconsistent"
         }
+        Kind::EvaluationRuntime(failure) => return format_english_fact_runtime_failure(failure),
         Kind::EvaluationSemanticValueStoreCreate => {
             "process-local semantic-value store identity capacity was exhausted during product construction"
         }
@@ -155,6 +158,9 @@ pub(crate) fn format_english_native_product_failure(
             "an imported native operation does not match its compiled definition"
         }
         Kind::SemanticContextFailure => "a program element has inconsistent checking context",
+        Kind::EvaluationSemanticQuery(failure) => {
+            return format_english_semantic_query_failure(failure);
+        }
         Kind::EvaluationProduct(failure) => return format_english_product_query_failure(failure),
         Kind::EvaluationForeign(failure) => return format_english_foreign_query_failure(failure),
         Kind::CheckingInfrastructureFailure => "semantic checking could not complete",
@@ -278,6 +284,46 @@ pub(crate) fn format_english_native_product_failure(
     };
 
     message.to_owned()
+}
+
+fn format_english_fact_runtime_failure(
+    failure: &bray_diagnostics::DiagnosticFactRuntimeFailure,
+) -> String {
+    let context = failure
+        .context()
+        .iter()
+        .map(|field| {
+            format!(
+                "{} {}",
+                field.name().replace('_', " "),
+                format_english_fact_runtime_value(field.value())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let detail = if context.is_empty() {
+        format!("runtime contract '{}' failed", failure.reason())
+    } else {
+        format!(
+            "runtime contract '{}' failed ({context})",
+            failure.reason()
+        )
+    };
+
+    super::format_internal_compiler_error(detail)
+}
+
+fn format_english_fact_runtime_value(
+    value: &bray_diagnostics::DiagnosticFailureValue,
+) -> String {
+    use bray_diagnostics::DiagnosticFailureValue as Value;
+
+    match value {
+        Value::Count(value) => value.to_string(),
+        Value::Text(value) => format!("'{value}'"),
+        Value::TextList(values) => format!("[{}]", values.join(", ")),
+    }
 }
 
 fn format_english_lowering_input_failure(
@@ -698,7 +744,8 @@ pub(crate) const fn format_english_semantic_value_failure_detail(
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        DiagnosticCheckerNode, DiagnosticCheckerSymbol, DiagnosticProductDataKind,
+        DiagnosticCheckerNode, DiagnosticCheckerSymbol, DiagnosticFactRuntimeFailure,
+        DiagnosticFailureField, DiagnosticFailureValue, DiagnosticProductDataKind,
         DiagnosticProductQueryContext, DiagnosticProductQueryContextKind,
         DiagnosticProductQueryFailure,
     };
@@ -706,7 +753,7 @@ mod tests {
 
     use super::{
         format_english_binding_failure, format_english_checker_failure,
-        format_english_product_query_failure,
+        format_english_fact_runtime_failure, format_english_product_query_failure,
     };
     use crate::catalog::english::INTERNAL_COMPILER_ERROR;
 
@@ -724,6 +771,30 @@ mod tests {
         assert!(message.contains("callable signature"));
         assert!(message.contains("instance"));
         assert!(message.contains("function#7[type#3]"));
+    }
+
+    #[test]
+    fn runtime_failures_render_one_shared_heading_and_retained_context() {
+        let message = format_english_fact_runtime_failure(&DiagnosticFactRuntimeFailure::new(
+            "publication_mismatch",
+            [
+                DiagnosticFailureField::new(
+                    "requested_fact",
+                    DiagnosticFailureValue::Text("SyntaxTree".to_owned()),
+                ),
+                DiagnosticFailureField::new(
+                    "actual_task",
+                    DiagnosticFailureValue::Count(23),
+                ),
+            ],
+        ));
+
+        assert!(message.starts_with(INTERNAL_COMPILER_ERROR));
+        assert_eq!(message.matches(INTERNAL_COMPILER_ERROR).count(), 1);
+        assert!(message.contains("publication_mismatch"));
+        assert!(message.contains("SyntaxTree"));
+        assert!(message.contains("23"));
+        assert!(!message.contains(';'));
     }
 
     #[test]

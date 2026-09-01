@@ -68,6 +68,7 @@ pub(super) enum DiagnosticEmissionFieldValueJson {
     Problem(DiagnosticProblemJson),
     ProductKind(&'static str),
     Text(String),
+    TextList(Vec<String>),
 }
 
 #[derive(Serialize)]

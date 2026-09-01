@@ -82,6 +82,7 @@ pub use emission::{
     DiagnosticEmissionLinkPlanFailure, DiagnosticEmissionPlanningFailure,
     DiagnosticEmissionStagingFailure, DiagnosticForeignDataKind, DiagnosticForeignQueryContext,
     DiagnosticForeignQueryContextKind, DiagnosticForeignQueryFailure,
+    DiagnosticFactRuntimeFailure, DiagnosticFailureField, DiagnosticFailureValue,
     DiagnosticHostEnvironmentVariable, DiagnosticLiteralValueFailure, DiagnosticLlvmToolRole,
     DiagnosticPackageInterfaceFailure, DiagnosticPatternInputFailure, DiagnosticProductDataKind,
     DiagnosticProductQueryContext, DiagnosticProductQueryContextKind,

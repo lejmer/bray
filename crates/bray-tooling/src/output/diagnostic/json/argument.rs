@@ -2,7 +2,8 @@ use bray_diagnostics::DiagnosticArgValue;
 use serde::Serialize;
 
 use super::emission::{
-    DiagnosticEmissionFieldJson, foreign_query_failure_context, native_link_input_failure_context,
+    DiagnosticEmissionFieldJson, diagnostic_failure_context, fact_runtime_failure_context,
+    foreign_query_failure_context, native_link_input_failure_context,
     product_query_failure_context, semantic_value_failure_context,
 };
 use super::{
@@ -385,6 +386,10 @@ impl DiagnosticNativeProductFailureJson {
         use bray_diagnostics::DiagnosticNativeProductFailureKind as Kind;
 
         let context = match kind {
+            Kind::EvaluationRuntime(failure) => fact_runtime_failure_context(failure),
+            Kind::EvaluationSemanticQuery(failure) => {
+                diagnostic_failure_context(failure.context())
+            }
             Kind::EvaluationSemanticValue(failure)
             | Kind::EvaluationBinding(bray_diagnostics::DiagnosticBindingFailure::SemanticValue(
                 failure,
