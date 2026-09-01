@@ -2,7 +2,7 @@ use super::super::DiagnosticInterfaceSymbolIdentityJson;
 use super::super::DiagnosticOutputSinkJson;
 use super::failure::{
     DiagnosticEmissionFieldJson, DiagnosticEmissionFieldValueJson, artifact_field, count_field,
-    digest_field, field, text_field,
+    count_u64_field, digest_field, field, text_field,
 };
 use crate::output::path_to_output_string;
 
@@ -113,7 +113,7 @@ pub(super) fn package_interface_failure_context(
 
     match failure {
         Failure::SemanticValueStoreCreate => Vec::new(),
-        Failure::SemanticValue(failure) => vec![text_field("cause", failure.as_str())],
+        Failure::SemanticValue(failure) => semantic_value_failure_context(*failure),
         Failure::RecoveredPublicSymbol(kind)
         | Failure::IncompletePublicDeclaration(kind)
         | Failure::DuplicateSymbol(kind)
@@ -122,10 +122,13 @@ pub(super) fn package_interface_failure_context(
             vec![interface_symbol_identity_field("declaration", declaration)]
         }
         Failure::ConstantCallableEvaluation { declaration, cause }
-        | Failure::ExecutableTemplateEvaluation { declaration, cause } => vec![
-            interface_symbol_identity_field("declaration", declaration),
-            text_field("cause", cause.as_str()),
-        ],
+        | Failure::ExecutableTemplateEvaluation { declaration, cause } => {
+            let mut context = vec![interface_symbol_identity_field("declaration", declaration)];
+
+            context.extend(evaluation_failure_context(cause));
+
+            context
+        }
         Failure::LostDeclarationReference {
             declaration,
             table,
@@ -248,7 +251,7 @@ pub(super) fn package_interface_failure_context(
             text_field("name", name),
         ],
         Failure::DeclarationDiscoveryFailure { cause, cycle } => {
-            let mut context = vec![text_field("cause", cause.as_str())];
+            let mut context = evaluation_failure_context(cause);
 
             if !cycle.is_empty() {
                 context.push(text_field("query_cycle", cycle.join(" -> ")));
@@ -270,6 +273,52 @@ pub(super) fn package_interface_failure_context(
         | Failure::ImplementationDuplicateSpecialization
         | Failure::ImplementationSpecializationIdentityMismatch => Vec::new(),
     }
+}
+
+pub(super) fn evaluation_failure_context(
+    failure: &bray_diagnostics::DiagnosticEmissionEvaluationFailure,
+) -> Vec<DiagnosticEmissionFieldJson> {
+    use bray_diagnostics::DiagnosticEmissionEvaluationFailure as Failure;
+
+    match failure {
+        Failure::SemanticValue(failure) => semantic_value_failure_context(*failure),
+        _ => vec![text_field("cause", failure.as_str())],
+    }
+}
+
+pub(in crate::output::diagnostic::json) fn semantic_value_failure_context(
+    failure: bray_diagnostics::DiagnosticSemanticValueFailure,
+) -> Vec<DiagnosticEmissionFieldJson> {
+    use bray_diagnostics::DiagnosticSemanticValueFailure as Failure;
+
+    let mut context = vec![text_field("cause", failure.as_str())];
+
+    match failure {
+        Failure::ForeignId {
+            expected_store,
+            actual_store,
+        } => context.extend([
+            count_u64_field("expected_store", expected_store),
+            count_u64_field("actual_store", actual_store),
+        ]),
+        Failure::UnknownId { kind } | Failure::CapacityExhausted { kind } => {
+            context.push(text_field("semantic_value_kind", kind));
+        }
+        Failure::GenericOwnerMismatch {
+            expected_kind,
+            expected,
+            actual_kind,
+            actual,
+        } => context.extend([
+            text_field("expected_owner_kind", expected_kind),
+            count_field("expected_owner", expected),
+            text_field("actual_owner_kind", actual_kind),
+            count_field("actual_owner", actual),
+        ]),
+        Failure::OpenSubstitution => {}
+    }
+
+    context
 }
 
 fn interface_symbol_identity_field(
@@ -496,10 +545,10 @@ pub(super) fn link_plan_failure_context(
 mod tests {
     use bray_diagnostics::{
         DiagnosticEmissionEvaluationFailure, DiagnosticInterfaceSymbolIdentity,
-        DiagnosticPackageInterfaceFailure,
+        DiagnosticPackageInterfaceFailure, DiagnosticSemanticValueFailure,
     };
 
-    use super::package_interface_failure_context;
+    use super::{package_interface_failure_context, semantic_value_failure_context};
 
     fn package(name: &str) -> DiagnosticInterfaceSymbolIdentity {
         DiagnosticInterfaceSymbolIdentity::Package(name.to_owned())
@@ -542,5 +591,62 @@ mod tests {
         assert_eq!(context[0]["value"]["value"]["package"], "example.template");
         assert_eq!(context[1]["name"], "cause");
         assert_eq!(context[1]["value"]["value"], "cycle");
+    }
+
+    #[test]
+    fn semantic_value_failures_preserve_every_leaf_payload() {
+        let foreign = serde_json::to_value(semantic_value_failure_context(
+            DiagnosticSemanticValueFailure::ForeignId {
+                expected_store: 41,
+                actual_store: 73,
+            },
+        ))
+        .unwrap_or_else(|error| panic!("foreign-id context should serialize: {error:?}"));
+
+        assert_eq!(foreign[1]["name"], "expected_store");
+        assert_eq!(foreign[1]["value"]["value"], 41);
+        assert_eq!(foreign[2]["name"], "actual_store");
+        assert_eq!(foreign[2]["value"]["value"], 73);
+
+        for (failure, expected_cause) in [
+            (
+                DiagnosticSemanticValueFailure::UnknownId { kind: "type" },
+                "binding_semantic_value_unknown_id",
+            ),
+            (
+                DiagnosticSemanticValueFailure::CapacityExhausted {
+                    kind: "constant_term",
+                },
+                "binding_semantic_value_capacity_exhausted",
+            ),
+        ] {
+            let context = serde_json::to_value(semantic_value_failure_context(failure))
+                .unwrap_or_else(|error| panic!("value-kind context should serialize: {error:?}"));
+
+            assert_eq!(context[0]["value"]["value"], expected_cause);
+            assert_eq!(context[1]["name"], "semantic_value_kind");
+        }
+
+        let owner = serde_json::to_value(semantic_value_failure_context(
+            DiagnosticSemanticValueFailure::GenericOwnerMismatch {
+                expected_kind: "function",
+                expected: 5,
+                actual_kind: "trait",
+                actual: 8,
+            },
+        ))
+        .unwrap_or_else(|error| panic!("owner context should serialize: {error:?}"));
+
+        assert_eq!(owner[1]["value"]["value"], "function");
+        assert_eq!(owner[2]["value"]["value"], 5);
+        assert_eq!(owner[3]["value"]["value"], "trait");
+        assert_eq!(owner[4]["value"]["value"], 8);
+
+        let open = serde_json::to_value(semantic_value_failure_context(
+            DiagnosticSemanticValueFailure::OpenSubstitution,
+        ))
+        .unwrap_or_else(|error| panic!("open-substitution context should serialize: {error:?}"));
+
+        assert_eq!(open.as_array().map(Vec::len), Some(1));
     }
 }

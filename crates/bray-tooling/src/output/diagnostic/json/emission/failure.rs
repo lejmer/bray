@@ -3,8 +3,8 @@ use serde::Serialize;
 use super::super::DiagnosticInterfaceSymbolIdentityJson;
 use super::super::{DiagnosticArtifactDigestJson, DiagnosticOutputSinkJson};
 use super::context::{
-    codegen_failure_context, link_plan_failure_context, package_interface_failure_context,
-    planning_failure_context, staging_failure_context,
+    codegen_failure_context, evaluation_failure_context, link_plan_failure_context,
+    package_interface_failure_context, planning_failure_context, staging_failure_context,
 };
 
 #[derive(Serialize)]
@@ -23,16 +23,14 @@ impl DiagnosticEmissionFailureJson {
         let context = match failure {
             Failure::Planning(failure) => planning_failure_context(failure),
             Failure::PackageInterface(failure) => package_interface_failure_context(failure),
+            Failure::Evaluation(failure) => evaluation_failure_context(failure),
             Failure::Codegen(failure) => codegen_failure_context(failure),
             Failure::Staging(failure) => staging_failure_context(failure),
             Failure::LinkPlan(failure) => link_plan_failure_context(failure),
             Failure::MissingContribution(artifact)
             | Failure::InvalidContribution(artifact)
             | Failure::Publication(artifact) => vec![artifact_field("artifact", *artifact)],
-            Failure::InvalidRequest
-            | Failure::Evaluation(_)
-            | Failure::Linking
-            | Failure::IncompleteProduct => Vec::new(),
+            Failure::InvalidRequest | Failure::Linking | Failure::IncompleteProduct => Vec::new(),
         };
 
         Self {
@@ -44,7 +42,7 @@ impl DiagnosticEmissionFailureJson {
 }
 
 #[derive(Serialize)]
-pub(super) struct DiagnosticEmissionFieldJson {
+pub(in crate::output::diagnostic::json) struct DiagnosticEmissionFieldJson {
     name: &'static str,
     value: DiagnosticEmissionFieldValueJson,
 }
@@ -110,9 +108,13 @@ pub(super) fn digest_field(
 }
 
 pub(super) fn count_field(name: &'static str, value: u32) -> DiagnosticEmissionFieldJson {
+    count_u64_field(name, u64::from(value))
+}
+
+pub(super) fn count_u64_field(name: &'static str, value: u64) -> DiagnosticEmissionFieldJson {
     field(
         name,
-        DiagnosticEmissionFieldValueJson::Count(u64::from(value)),
+        DiagnosticEmissionFieldValueJson::Count(value),
     )
 }
 

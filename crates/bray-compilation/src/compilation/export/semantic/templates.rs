@@ -121,15 +121,21 @@ pub(super) fn checked_constraint_expression(
 
     let key = compilation
         .constraint_unit_key(expression.owner(), unit)
-        .map_err(|_| incomplete(expression.owner()))?;
+        .map_err(|error| {
+            super::super::fact_query_export_error(error, incomplete(expression.owner()))
+        })?;
 
     let bound = compilation
         .bound_unit_with_cancellation(key.clone(), cancellation)
-        .map_err(|_| incomplete(expression.owner()))?;
+        .map_err(|error| {
+            super::super::fact_query_export_error(error, incomplete(expression.owner()))
+        })?;
 
     let semantics = compilation
         .expression_semantics_with_cancellation(key.clone(), cancellation)
-        .map_err(|_| incomplete(expression.owner()))?;
+        .map_err(|error| {
+            super::super::fact_query_export_error(error, incomplete(expression.owner()))
+        })?;
 
     let diagnostics = DiagnosticBag::merged_all([
         bound.result().diagnostics(),
@@ -171,7 +177,9 @@ pub(super) fn checked_constraint_expression(
             ConstantEvaluationLimits::default(),
             cancellation,
         )
-        .map_err(|_| incomplete(expression.owner()))?;
+        .map_err(|error| {
+            super::super::fact_query_export_error(error, incomplete(expression.owner()))
+        })?;
 
     if reference_diagnostics.has_errors() {
         return Err(incomplete(expression.owner()));
@@ -180,7 +188,9 @@ pub(super) fn checked_constraint_expression(
     let context = CompilationCheckerContext::new(
         compilation
             .binding_context_for(bound.result().value().key(), cancellation)
-            .map_err(|_| incomplete(expression.owner()))?,
+            .map_err(|error| {
+                super::super::fact_query_export_error(error, incomplete(expression.owner()))
+            })?,
     );
 
     let semantic_context = semantic_unit_context_for(context.symbols(), bound.result().value())
@@ -202,7 +212,9 @@ pub(super) fn checked_constraint_expression(
     );
 
     let checked = checker_result(DefaultConstantChecker.check_constant_term(request, &input))
-        .map_err(|_| incomplete(expression.owner()))?;
+        .map_err(|error| {
+            super::super::fact_query_export_error(error, incomplete(expression.owner()))
+        })?;
 
     if checked.diagnostics().has_errors() {
         return Err(incomplete(expression.owner()));

@@ -32,7 +32,7 @@ pub(super) fn target_dependencies(
 ) -> Result<Vec<InterfaceTargetPropertyDependency>, PackageInterfaceExportError> {
     let source_graph = compilation
         .product_source_graph()
-        .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+        .map_err(super::super::invalid_compilation_fact_error)?;
 
     let module_parts = source_declaration_module_parts(source_graph.declarations());
     let mut dependencies = Vec::new();
@@ -56,7 +56,7 @@ pub(super) fn target_dependencies(
 
         let template = compilation
             .static_instance_template(declaration)
-            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+            .map_err(super::super::invalid_compilation_fact_error)?;
 
         if template.diagnostics().has_errors()
             || template.value().duration() != StaticStorageDuration::ExactThread
@@ -74,7 +74,7 @@ pub(super) fn target_dependencies(
 
         let value = compilation
             .target_property_value(property)
-            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+            .map_err(super::super::invalid_compilation_fact_error)?;
 
         dependencies.push(InterfaceTargetPropertyDependency::new(
             export.symbol_reference(owner)?,
@@ -159,7 +159,7 @@ pub(super) fn runtime_default_input_type(
 
     let signature = compilation
         .callable_signature_template(owner.into_any())
-        .map_err(|_| incomplete(symbol))?
+        .map_err(|error| super::super::fact_query_export_error(error, incomplete(symbol)))?
         .ok_or_else(|| incomplete(symbol))?;
 
     if signature.diagnostics().has_errors() {
@@ -171,7 +171,9 @@ pub(super) fn runtime_default_input_type(
             let ty = signature
                 .value()
                 .parameter_type_template(parameter, ordinal, export.values)
-                .map_err(|_| incomplete(symbol))?;
+                .map_err(|error| {
+                    super::super::callable_signature_export_error(error, incomplete(symbol))
+                })?;
 
             export.resolve_type_template(symbol, &ty)
         }
@@ -285,7 +287,7 @@ pub(super) fn symbol_type(
 
     let ty = compilation
         .symbol_type_template(symbol)
-        .map_err(|_| incomplete(symbol))?
+        .map_err(|error| super::super::fact_query_export_error(error, incomplete(symbol)))?
         .ok_or_else(|| incomplete(symbol))?;
 
     if ty.diagnostics().has_errors() {
@@ -322,7 +324,7 @@ pub(super) fn callable_input_type(
 
     let signature = compilation
         .callable_signature_template(owner.into_any())
-        .map_err(|_| incomplete(symbol))?
+        .map_err(|error| super::super::fact_query_export_error(error, incomplete(symbol)))?
         .ok_or_else(|| incomplete(symbol))?;
 
     if signature.diagnostics().has_errors() {
@@ -364,7 +366,9 @@ pub(super) fn generic_parameters(
         .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
             owner,
         ))
-        .map_err(|_| incomplete(symbol))?;
+        .map_err(|error| {
+            super::super::binding_query_export_error(error, incomplete(symbol))
+        })?;
 
     if generic.diagnostics().has_errors() {
         return Err(incomplete(symbol));

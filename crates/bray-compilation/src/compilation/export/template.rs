@@ -32,15 +32,15 @@ pub(super) fn export_checked_source_template(
 
     let bound = compilation
         .bound_unit_with_cancellation(key.clone(), cancellation)
-        .map_err(|_| incomplete())?;
+        .map_err(|error| super::fact_query_export_error(error, incomplete()))?;
 
     let semantics = compilation
         .expression_semantics_with_cancellation(key.clone(), cancellation)
-        .map_err(|_| incomplete())?;
+        .map_err(|error| super::fact_query_export_error(error, incomplete()))?;
 
     let body = compilation
         .body_behavior_with_cancellation(key, cancellation)
-        .map_err(|_| incomplete())?;
+        .map_err(|error| super::fact_query_export_error(error, incomplete()))?;
 
     if bound.result().diagnostics().has_errors()
         || semantics.result().diagnostics().has_errors()

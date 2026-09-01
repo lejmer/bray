@@ -40,16 +40,11 @@ pub(in crate::compilation::export) fn build_semantics(
 > {
     let values = compilation
         .semantic_value_store()
-        .map_err(|error| {
-            super::super::fact_query_export_error(
-                error,
-                PackageInterfaceExportError::InvalidCompilation,
-            )
-        })?;
+        .map_err(super::super::invalid_compilation_fact_error)?;
 
     let binder = compilation
         .binding_context(&compilation.state.cancellation)
-        .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+        .map_err(super::super::invalid_compilation_fact_error)?;
 
     let fragments =
         resolve_fragments(compilation, graph, &binder, surface, selected, keys, values)?;
@@ -129,7 +124,7 @@ fn constant_callable_bodies(
 
         if compilation
             .callable_body_key(definition)
-            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?
+            .map_err(super::super::invalid_compilation_fact_error)?
             .is_none()
         {
             continue;
@@ -139,7 +134,7 @@ fn constant_callable_bodies(
             .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
                 definition.callable_symbol(),
             ))
-            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+            .map_err(super::super::invalid_compilation_binding_error)?;
 
         if signature.diagnostics().has_errors()
             || signature
@@ -165,12 +160,7 @@ fn constant_callable_bodies(
 
         let substitution =
             crate::compilation::substitution::identity_substitution(values, owner, &parameters)
-                .map_err(|error| {
-                    super::super::fact_query_export_error(
-                        error,
-                        PackageInterfaceExportError::InvalidCompilation,
-                    )
-                })?;
+                .map_err(super::super::invalid_compilation_fact_error)?;
 
         let result_type = export.resolve_type_template(symbol, signature.value().result())?;
         let declaration = exported_declaration_identity(export, symbol)?;
@@ -346,7 +336,7 @@ fn native_boundaries(
             AnySymbolId::Function(function) => {
                 let contract = compilation
                     .foreign_callable_contract(function)
-                    .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+                    .map_err(super::super::invalid_compilation_fact_error)?;
 
                 if contract.diagnostics().has_errors() {
                     return Err(PackageInterfaceExportError::InvalidCompilation);
@@ -365,7 +355,7 @@ fn native_boundaries(
             AnySymbolId::Static(declaration) => {
                 let contract = compilation
                     .foreign_static_contract(declaration)
-                    .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+                    .map_err(super::super::invalid_compilation_fact_error)?;
 
                 if contract.diagnostics().has_errors() {
                     return Err(PackageInterfaceExportError::InvalidCompilation);
@@ -377,7 +367,7 @@ fn native_boundaries(
 
                 let template = compilation
                     .static_instance_template(declaration)
-                    .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+                    .map_err(super::super::invalid_compilation_fact_error)?;
 
                 (
                     contract.direction(),

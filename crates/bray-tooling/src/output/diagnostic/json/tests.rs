@@ -23,7 +23,8 @@ use bray_diagnostics::{
     DiagnosticSelectionCandidates, DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
     DiagnosticSelectionRejections, DiagnosticSourceEdit, DiagnosticStorageAccess,
     DiagnosticStorageAccessPurpose, DiagnosticStorageProjection, DiagnosticStorageRoot,
-    DiagnosticSuggestion, DiagnosticSuggestionApplicability, DiagnosticSuggestionKind,
+    DiagnosticSemanticValueFailure, DiagnosticSuggestion, DiagnosticSuggestionApplicability,
+    DiagnosticSuggestionKind,
     DiagnosticTargetPredicateValueKind, DiagnosticTraitFulfillmentMismatch, DiagnosticType,
     DiagnosticTypeArgument, DiagnosticVisibility, DiagnosticYieldCardinality, SeverityKind,
 };
@@ -227,6 +228,56 @@ fn emission_evaluation_failures_use_domain_named_json_categories() {
 
     assert_eq!(failure["category"], "evaluation");
     assert_eq!(failure["reason"], "cycle");
+}
+
+#[test]
+fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::EmissionFailed,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::emission_failure(
+        DiagnosticEmissionFailure::Evaluation(
+            DiagnosticEmissionEvaluationFailure::SemanticValue(
+                DiagnosticSemanticValueFailure::ForeignId {
+                    expected_store: 11,
+                    actual_store: 29,
+                },
+            ),
+        ),
+    ))
+    .with_arg(DiagnosticArg::native_product_failure_kind(
+        DiagnosticNativeProductFailureKind::EvaluationSemanticValue(
+            DiagnosticSemanticValueFailure::CapacityExhausted {
+                kind: "constant_value",
+            },
+        ),
+    ));
+
+    let mut output = Vec::new();
+
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+        .unwrap_or_else(|error| panic!("JSON diagnostics should write: {error:?}"));
+
+    let output: serde_json::Value = serde_json::from_slice(&output)
+        .unwrap_or_else(|error| panic!("JSON diagnostics should parse: {error:?}"));
+
+    let evaluation = &output["diagnostics"][0]["args"][0]["value"]["value"];
+    let native = &output["diagnostics"][0]["args"][1]["value"]["value"];
+
+    assert_eq!(evaluation["context"][1]["name"], "expected_store");
+    assert_eq!(evaluation["context"][1]["value"]["value"], 11);
+    assert_eq!(evaluation["context"][2]["name"], "actual_store");
+    assert_eq!(evaluation["context"][2]["value"]["value"], 29);
+
+    assert_eq!(
+        native["reason"],
+        "binding_semantic_value_capacity_exhausted"
+    );
+
+    assert_eq!(native["context"][1]["name"], "semantic_value_kind");
+    assert_eq!(native["context"][1]["value"]["value"], "constant_value");
 }
 
 #[test]
@@ -891,7 +942,17 @@ fn json_output_preserves_memory_operation_and_callback_causes() {
     assert_eq!(memory["kind"], "memory_operation");
     assert_eq!(memory["value"], "size_determination");
     assert_eq!(native_product["kind"], "native_product_failure_kind");
-    assert_eq!(native_product["value"], "codegen_backend_not_selected");
+
+    assert_eq!(
+        native_product["value"]["reason"],
+        "codegen_backend_not_selected"
+    );
+
+    assert_eq!(
+        native_product["value"]["context"].as_array().map(Vec::len),
+        Some(0)
+    );
+
     assert_eq!(dependency["kind"], "dependency_subject_kind");
     assert_eq!(dependency["value"], "selected_implementation");
     assert_eq!(callback["kind"], "callback_state_problem");

@@ -213,7 +213,7 @@ impl<'a> SemanticExporter<'a> {
         let constants = self
             .compilation
             .checked_constant_terms(template)
-            .map_err(|_| incomplete(owner))?;
+            .map_err(|error| super::super::fact_query_export_error(error, incomplete(owner)))?;
 
         if constants.diagnostics().has_errors() {
             return Err(incomplete(owner));

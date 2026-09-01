@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_binder::SymbolQueryProvider;
+use bray_binder::{SymbolQueryErrorProvider, SymbolQueryProvider};
 use bray_bound_tree::CheckedTemplateKind;
 use bray_package_interface::{
     InterfaceCoherenceRecord, InterfaceDependencyRequirementKind, InterfaceImplementationRecord,
@@ -52,7 +52,9 @@ pub(super) fn implementation_semantics(
             .resolve_symbol_query(SymbolQueryRequest::<ImplementationCoherenceQuery>::new(
                 implementation,
             ))
-            .map_err(|_| incomplete(symbol))?;
+            .map_err(|error| {
+                super::super::binding_query_export_error(error, incomplete(symbol))
+            })?;
 
         if checked.diagnostics().has_errors() {
             return Err(incomplete(symbol));
@@ -109,7 +111,7 @@ pub(super) fn export_constant_semantics(
 
     let definition = compilation
         .constant_definition(definition)
-        .map_err(|_| incomplete(symbol))?;
+        .map_err(|error| super::super::fact_query_export_error(error, incomplete(symbol)))?;
 
     if definition.diagnostics().has_errors() {
         return Err(incomplete(symbol));
@@ -158,7 +160,7 @@ pub(super) fn export_static_semantics(
 
     let native = compilation
         .foreign_static_contract(declaration)
-        .map_err(|_| incomplete(symbol))?;
+        .map_err(|error| super::super::fact_query_export_error(error, incomplete(symbol)))?;
 
     if native.value().as_ref().is_some_and(|contract| {
         contract.direction() == bray_symbols::ForeignCallableDirection::Import
@@ -170,7 +172,9 @@ pub(super) fn export_static_semantics(
         .resolve_symbol_query(SymbolQueryRequest::<StaticInstanceTemplateQuery>::new(
             declaration,
         ))
-        .map_err(|_| incomplete(symbol))?;
+        .map_err(|error| {
+            super::super::binding_query_export_error(error, incomplete(symbol))
+        })?;
 
     if template.diagnostics().has_errors() {
         return Err(incomplete(symbol));
@@ -183,7 +187,7 @@ pub(super) fn export_static_semantics(
 
     let key = compilation
         .static_initializer_key(declaration)
-        .map_err(|_| incomplete(symbol))?
+        .map_err(|error| super::super::fact_query_export_error(error, incomplete(symbol)))?
         .ok_or_else(|| incomplete(symbol))?;
 
     let expression = key.source().syntax();
@@ -250,11 +254,15 @@ fn resolve_predicate_definition<'a, C>(
 ) -> Result<InterfacePredicateDefinitionState, PackageInterfaceExportError>
 where
     C: SymbolQueryContract<Value = PredicateDefinitionState<PredicateDefinition>>,
-    CompilationBindingContext<'a>: SymbolQueryProvider<C>,
+    CompilationBindingContext<'a>:
+        SymbolQueryErrorProvider<UpstreamError = crate::fact::FactQueryError>
+            + SymbolQueryProvider<C>,
 {
     let semantics = binder
         .resolve_symbol_query(request)
-        .map_err(|_| incomplete(symbol))?;
+        .map_err(|error| {
+            super::super::binding_query_export_error(error, incomplete(symbol))
+        })?;
 
     if semantics.diagnostics().has_errors() {
         return Err(incomplete(symbol));

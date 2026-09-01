@@ -61,7 +61,7 @@ impl Compilation {
 
         let source_graph = self
             .product_source_graph()
-            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+            .map_err(super::invalid_compilation_fact_error)?;
 
         if self.source_diagnostics().has_errors()
             || self.syntax_tree_result().diagnostics().has_errors()
@@ -73,7 +73,7 @@ impl Compilation {
 
         let product = self
             .product_semantics()
-            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+            .map_err(super::invalid_compilation_fact_error)?;
 
         if product.diagnostics().has_errors() || product.value().is_recovered() {
             return Err(PackageInterfaceExportError::InvalidCompilation);
@@ -81,13 +81,13 @@ impl Compilation {
 
         let symbols = self
             .symbol_graph()
-            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+            .map_err(super::invalid_compilation_fact_error)?;
 
         let identity = build_identity_surface(self, symbols, product.value().public_symbols())?;
 
         let dependencies = self
             .loaded_interface_views(&self.state.cancellation)
-            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?
+            .map_err(super::invalid_compilation_fact_error)?
             .ok_or(PackageInterfaceExportError::InvalidCompilation)?
             .into_iter()
             .map(|dependency| {
@@ -260,7 +260,7 @@ fn source_overload_relationships(
 ) -> Result<Vec<ExportRelationshipInput>, PackageInterfaceExportError> {
     let binding_context = compilation
         .binding_context(&compilation.state.cancellation)
-        .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+        .map_err(super::invalid_compilation_fact_error)?;
 
     let overloads = graph
         .callable_overloads()
@@ -307,7 +307,7 @@ fn source_overload_relationships(
                     binding_context.bind_owner_surface_path(owner, &path, NameAccess::Internal)
                 }
             }
-            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+            .map_err(super::invalid_compilation_binding_error)?;
 
             if result.diagnostics().has_errors() {
                 return Err(PackageInterfaceExportError::InvalidCompilation);
@@ -729,14 +729,14 @@ impl Compilation {
     ) -> Result<Vec<ExportLookupInput>, PackageInterfaceExportError> {
         let semantics = self
             .binding_context(&self.state.cancellation)
-            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+            .map_err(super::invalid_compilation_fact_error)?;
 
         let mut exports = Vec::new();
 
         for (module, owner_key) in module_keys {
             let surface = semantics
                 .resolve_symbol_query(SymbolQueryRequest::<ModuleSurfaceQuery>::new(*module))
-                .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+                .map_err(super::invalid_compilation_binding_error)?;
 
             if surface.diagnostics().has_errors() {
                 return Err(PackageInterfaceExportError::InvalidCompilation);

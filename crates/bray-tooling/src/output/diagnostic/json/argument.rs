@@ -18,6 +18,7 @@ use super::{
     platform_service_signature_problem_json, propagation_problem_json, refinement_capacity_json,
     union_tag_problem_json,
 };
+use super::emission::{DiagnosticEmissionFieldJson, semantic_value_failure_context};
 use crate::output::diagnostic::source_map::DiagnosticSourceMap;
 use crate::output::path_to_output_string;
 
@@ -44,7 +45,7 @@ pub(in crate::output::diagnostic::json) enum DiagnosticArgValueJson {
     ProductIdentity(String),
     TargetTriple(String),
     TargetIdentity(String),
-    NativeProductFailureKind(&'static str),
+    NativeProductFailureKind(DiagnosticNativeProductFailureJson),
     EmissionFailure(DiagnosticEmissionFailureJson),
     EmissionArtifactOperation(&'static str),
     LinkInputKind(&'static str),
@@ -166,7 +167,7 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::TargetTriple(target) => Self::TargetTriple(target.to_owned()),
             DiagnosticArgValue::TargetIdentity(target) => Self::TargetIdentity(target.to_owned()),
             DiagnosticArgValue::NativeProductFailureKind(kind) => {
-                Self::NativeProductFailureKind((*kind).as_str())
+                Self::NativeProductFailureKind(DiagnosticNativeProductFailureJson::from_kind(*kind))
             }
             DiagnosticArgValue::EmissionFailure(failure) => {
                 Self::EmissionFailure(DiagnosticEmissionFailureJson::from_failure(failure))
@@ -362,6 +363,28 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::PatternUnreachability(reason) => {
                 Self::PatternUnreachability(reason.as_str())
             }
+        }
+    }
+}
+
+#[derive(Serialize)]
+pub(in crate::output::diagnostic::json) struct DiagnosticNativeProductFailureJson {
+    reason: &'static str,
+    context: Vec<DiagnosticEmissionFieldJson>,
+}
+
+impl DiagnosticNativeProductFailureJson {
+    fn from_kind(kind: bray_diagnostics::DiagnosticNativeProductFailureKind) -> Self {
+        use bray_diagnostics::DiagnosticNativeProductFailureKind as Kind;
+
+        let context = match kind {
+            Kind::EvaluationSemanticValue(failure) => semantic_value_failure_context(failure),
+            _ => Vec::new(),
+        };
+
+        Self {
+            reason: kind.as_str(),
+            context,
         }
     }
 }

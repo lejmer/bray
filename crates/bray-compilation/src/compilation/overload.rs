@@ -237,7 +237,7 @@ impl Compilation {
                         right.generic.value().parameters(),
                         values,
                     )
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?
+                    .map_err(FactQueryError::SemanticValueStore)?
                     {
                         diagnostics.add(problem_diagnostic(
                             left.anchor,
