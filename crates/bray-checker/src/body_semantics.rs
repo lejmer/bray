@@ -47,6 +47,9 @@ where
     let graph = match build_storage_control_flow_graph(request, storage, expressions.selections()) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
+        ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
+            return CheckerOutcome::InfrastructureFailure(error);
+        }
     };
 
     let mut diagnostics = DiagnosticBag::new();

@@ -3,7 +3,7 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::RepresentationRole;
 
-use crate::CheckerRequestContext;
+use crate::{CheckerInfrastructureError, CheckerRequestContext};
 use crate::representation::type_representation;
 
 use super::build::ControlFlowGraphBuilder;
@@ -87,14 +87,19 @@ where
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
         match self.propagation_role(id, expression) {
-            Some(RepresentationRole::Result) => self.build_result_propagation(id, current),
-            Some(RepresentationRole::RunResult) => {
+            Ok(Some(RepresentationRole::Result)) => self.build_result_propagation(id, current),
+            Ok(Some(RepresentationRole::RunResult)) => {
                 Some(Some(self.build_run_result_propagation(id, current)))
             }
-            _ => {
+            Ok(_) => {
                 self.push_recovery(current, id.into());
 
                 Some(Some(current))
+            }
+            Err(error) => {
+                self.record_infrastructure_failure(error);
+
+                None
             }
         }
     }
@@ -103,21 +108,23 @@ where
         &self,
         id: BoundExpressionId,
         expression: &BoundStructuredExpression,
-    ) -> Option<RepresentationRole> {
+    ) -> Result<Option<RepresentationRole>, CheckerInfrastructureError> {
         if let Some(SemanticSelection::Propagation(selection)) = self
             .selections()
             .and_then(|selections| selections.expression(id))
         {
-            return match selection {
+            return Ok(match selection {
                 SelectedPropagation::Nullable { .. } => None,
                 SelectedPropagation::Result { .. } => Some(RepresentationRole::Result),
                 SelectedPropagation::CurrentRun => Some(RepresentationRole::RunResult),
-            };
+            });
         }
 
-        let operand = expression.operands().first().copied()?;
+        let Some(operand) = expression.operands().first().copied() else {
+            return Ok(None);
+        };
 
-        let operand_type = self
+        let Some(operand_type) = self
             .checked_storage()
             .and_then(|storage| {
                 storage
@@ -125,9 +132,12 @@ where
                     .find_map(|plan| storage.access(plan.access()))
                     .map(|access| access.reached_type())
             })
-            .or_else(|| self.view().expression(operand)?.ty())?;
+            .or_else(|| self.view().expression(operand)?.ty())
+        else {
+            return Ok(None);
+        };
 
-        type_representation(self.request(), operand_type).ok()?
+        type_representation(self.request(), operand_type)
     }
 
     fn build_run_result_propagation(

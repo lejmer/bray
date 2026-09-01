@@ -12,6 +12,9 @@ where
     let graph = match build_control_flow_graph(request) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
+        ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
+            return CheckerOutcome::InfrastructureFailure(error);
+        }
     };
 
     if !graph.is_well_formed() {

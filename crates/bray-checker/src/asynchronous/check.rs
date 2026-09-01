@@ -67,6 +67,9 @@ where
     let graph = match build_storage_control_flow_graph(request, storage, selections) {
         ControlFlowGraphBuildOutcome::Complete(graph) => graph,
         ControlFlowGraphBuildOutcome::Cancelled => return CheckerOutcome::Cancelled,
+        ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
+            return CheckerOutcome::InfrastructureFailure(error);
+        }
     };
 
     check_async_analysis_with_graph(
