@@ -12,7 +12,7 @@ use bray_diagnostics::{
 };
 use bray_symbols::{
     AnyLocalSymbolId, ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind,
-    RealConstantBits, TargetSizedIntegerType, TypeData, TypeId,
+    RealConstantBits, TargetSizedIntegerType, TypeId,
 };
 
 use crate::constant::diagnostic::ConstantDiagnostic;
@@ -222,10 +222,10 @@ where
     };
 
     let evaluated = match evaluated {
-        Ok((EvaluationFlow::Yield(_), Some(expression))) => {
+        Ok((EvaluationFlow::Yield { .. }, Some(expression))) => {
             Err(EvaluationFailure::invalid_expression(expression))
         }
-        Ok((EvaluationFlow::Yield(_), None)) => {
+        Ok((EvaluationFlow::Yield { .. }, None)) => {
             return Err(EvaluationAbort::invalid_input());
         }
         evaluated => evaluated,
@@ -243,7 +243,7 @@ where
             result_type,
             term,
         }),
-        Ok((EvaluationFlow::Yield(_), _)) => Err(EvaluationAbort::invalid_input()),
+        Ok((EvaluationFlow::Yield { .. }, _)) => Err(EvaluationAbort::invalid_input()),
         Err(EvaluationFailure::Cancelled) => Err(EvaluationAbort::Cancelled),
         Err(EvaluationFailure::Infrastructure(error)) => {
             Err(EvaluationAbort::Infrastructure(error))
@@ -478,7 +478,7 @@ where
         match self.evaluate_flow(expression)? {
             EvaluationFlow::Value(value) => Ok(value),
             EvaluationFlow::Propagate(value) => Err(EvaluationFailure::Propagate(value)),
-            EvaluationFlow::Yield(_) | EvaluationFlow::Return(_) => {
+            EvaluationFlow::Yield { .. } | EvaluationFlow::Return(_) => {
                 Err(EvaluationFailure::invalid_expression(expression))
             }
         }
@@ -668,20 +668,9 @@ where
         ty: TypeId,
     ) -> Result<ConstantTermId, EvaluationFailure> {
         let data = self.constant_value(value)?;
+        let term = self.intern_term(ConstantTermData::Value(value))?;
 
-        if data.ty() == ty {
-            return self.intern_term(ConstantTermData::Value(value));
-        }
-
-        let target = self.request.semantic_values().type_data(ty).map_err(|_| {
-            EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
-        })?;
-
-        if matches!(target.as_ref(), TypeData::Nullable(contained) if *contained == data.ty()) {
-            return self.intern_value_term(ty, ConstantValueKind::NullablePresent(value));
-        }
-
-        Err(EvaluationFailure::invalid_input())
+        self.adapt_nullable_present(term, data.ty(), ty)
     }
 
     pub(super) fn evaluate_structured(

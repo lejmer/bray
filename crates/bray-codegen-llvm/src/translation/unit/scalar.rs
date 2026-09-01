@@ -1,11 +1,97 @@
 use super::core::UnitTranslator;
-use super::support::{float_predicate, int_value, integer_predicate, llvm, pointer_value};
+use super::support::{
+    extract_value, float_predicate, int_value, integer_predicate, llvm, pointer_value,
+};
 use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenTypeKind, IntrinsicCall};
 use bray_ir::{MirBinaryOperator, MirOperand, MirUnaryOperator};
 use inkwell::types::BasicTypeEnum;
-use inkwell::values::BasicValueEnum;
+use inkwell::IntPredicate;
+use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
+    pub(super) fn nullable_present(
+        &self,
+        subject: BasicValueEnum<'context>,
+        subject_type: bray_symbols::TypeId,
+    ) -> Result<IntValue<'context>, CodegenFailure> {
+        let mapping = self
+            .type_mapping(subject_type)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        match (mapping.kind(), subject) {
+            (CodegenTypeKind::Pointer { .. }, BasicValueEnum::PointerValue(pointer)) => {
+                llvm(self.builder.build_is_not_null(pointer, "nullable.present"))
+            }
+            (CodegenTypeKind::Aggregate(fields), subject) if fields.len() > 1 => {
+                let tag =
+                    extract_value(&self.builder, subject, self.aggregate_element(fields, 0)?)?;
+
+                let tag = int_value(tag).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                llvm(self.builder.build_int_compare(
+                    IntPredicate::NE,
+                    tag,
+                    tag.get_type().const_zero(),
+                    "nullable.present",
+                ))
+            }
+            _ => Err(CodegenFailure::GeneratedModuleInvariant),
+        }
+    }
+
+    pub(super) fn nullable_present_at(
+        &mut self,
+        subject: PointerValue<'context>,
+        subject_type: bray_symbols::TypeId,
+    ) -> Result<IntValue<'context>, CodegenFailure> {
+        let mapping = self
+            .type_mapping(subject_type)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        match mapping.kind() {
+            CodegenTypeKind::Pointer { .. } => {
+                let value = llvm(self.builder.build_load(
+                    self.types.map(subject_type)?,
+                    subject,
+                    "nullable.state",
+                ))?;
+
+                let pointer =
+                    pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                llvm(self.builder.build_is_not_null(pointer, "nullable.present"))
+            }
+            CodegenTypeKind::Aggregate(fields) if fields.len() > 1 => {
+                let state = fields
+                    .first()
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                let state_pointer = llvm(self.builder.build_struct_gep(
+                    self.types.map(subject_type)?,
+                    subject,
+                    self.aggregate_element(fields, 0)?,
+                    "nullable.state.address",
+                ))?;
+
+                let state = llvm(self.builder.build_load(
+                    self.types.map(state.ty())?,
+                    state_pointer,
+                    "nullable.state",
+                ))?;
+
+                let state = int_value(state).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                llvm(self.builder.build_int_compare(
+                    IntPredicate::NE,
+                    state,
+                    state.get_type().const_zero(),
+                    "nullable.present",
+                ))
+            }
+            _ => Err(CodegenFailure::GeneratedModuleInvariant),
+        }
+    }
+
     pub(super) fn translate_intrinsic_call(
         &mut self,
         intrinsic: &IntrinsicCall,

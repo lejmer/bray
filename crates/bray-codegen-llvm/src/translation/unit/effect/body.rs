@@ -87,20 +87,36 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Some(self.convert(operand, source, target)?)
             }
             MirOperationKind::NullableQuery(query) => {
-                let mut operand = self.operand(query.operand())?;
+                let operand = self.operand(query.operand())?;
 
-                if query.operand_type() != query.nullable_type() {
+                if !matches!(
+                    self.type_mapping(query.result_type())
+                        .map(bray_codegen::CodegenTypeMapping::kind),
+                    Some(CodegenTypeKind::Boolean)
+                ) {
+                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                }
+
+                let present = if query.operand_type() == query.nullable_type() {
+                    self.nullable_present(operand, query.nullable_type())?
+                } else {
+                    let mapping = self
+                        .type_mapping(query.operand_type())
+                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                    if !matches!(
+                        mapping.kind(),
+                        CodegenTypeKind::Pointer { target, .. }
+                            if *target == query.nullable_type()
+                    ) {
+                        return Err(CodegenFailure::GeneratedModuleInvariant);
+                    }
+
                     let pointer =
                         pointer_value(operand).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                    operand = llvm(self.builder.build_load(
-                        self.types.map(query.nullable_type())?,
-                        pointer,
-                        "nullable.query.value",
-                    ))?;
-                }
-
-                let present = self.nullable_present(operand, query.nullable_type())?;
+                    self.nullable_present_at(pointer, query.nullable_type())?
+                };
 
                 let result = match query.kind() {
                     bray_ir::MirNullableQueryKind::IsPresent => present,

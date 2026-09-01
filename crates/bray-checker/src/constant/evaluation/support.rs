@@ -121,6 +121,41 @@ where
             })
     }
 
+    pub(super) fn adapt_nullable_present(
+        &self,
+        term: ConstantTermId,
+        source_type: TypeId,
+        target_type: TypeId,
+    ) -> Result<ConstantTermId, EvaluationFailure> {
+        if source_type == target_type {
+            return Ok(term);
+        }
+
+        let target = self
+            .request
+            .semantic_values()
+            .type_data(target_type)
+            .map_err(|_| {
+                EvaluationFailure::Infrastructure(
+                    CheckerInfrastructureError::SemanticValueUnavailable,
+                )
+            })?;
+
+        if !matches!(target.as_ref(), TypeData::Nullable(contained) if *contained == source_type) {
+            return Err(EvaluationFailure::invalid_input());
+        }
+
+        match self.term_value(term)? {
+            Some(value) => {
+                self.intern_value_term(target_type, ConstantValueKind::NullablePresent(value))
+            }
+            None => self.intern_typed_term(
+                target_type,
+                ConstantTermData::NullablePresent(term),
+            ),
+        }
+    }
+
     pub(super) fn intern_typed_term(
         &self,
         ty: TypeId,

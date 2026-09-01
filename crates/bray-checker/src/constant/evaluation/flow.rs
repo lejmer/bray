@@ -4,8 +4,7 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
-    AnyLocalSymbolId, ConstantTermData, ConstantTermId, ConstantValueKind, TypeData, TypeId,
-    UnionSymbolId,
+    AnyLocalSymbolId, ConstantTermData, ConstantTermId, ConstantValueKind, TypeId, UnionSymbolId,
 };
 
 use crate::representation::type_representation;
@@ -16,7 +15,10 @@ use super::support::EvaluationFailure;
 
 pub(super) enum EvaluationFlow {
     Value(ConstantTermId),
-    Yield(ConstantTermId),
+    Yield {
+        term: ConstantTermId,
+        source_type: TypeId,
+    },
     Return(ConstantTermId),
     Propagate(ConstantTermId),
 }
@@ -71,14 +73,28 @@ where
                 self.evaluate_result_propagation(expression, structured)
             }
             BoundExpression::ControlTransfer(transfer) => {
-                let term = match transfer.operand() {
-                    Some(operand) => self.evaluate(operand)?,
-                    None => self.unit_term(expression)?,
+                let (term, source_type) = match transfer.operand() {
+                    Some(operand) => (self.evaluate(operand)?, self.expression_type(operand)?),
+                    None => {
+                        let term = self.unit_term(expression)?;
+
+                        (term, self.expression_type(expression)?)
+                    }
                 };
 
                 match transfer.kind() {
-                    BoundControlTransferKind::Yield => Ok(EvaluationFlow::Yield(term)),
-                    BoundControlTransferKind::Return => Ok(EvaluationFlow::Return(term)),
+                    BoundControlTransferKind::Yield => Ok(EvaluationFlow::Yield {
+                        term,
+                        source_type,
+                    }),
+                    BoundControlTransferKind::Return => {
+                        let result_type = self.input.result_type().unwrap_or(source_type);
+
+                        let term =
+                            self.adapt_nullable_present(term, source_type, result_type)?;
+
+                        Ok(EvaluationFlow::Return(term))
+                    }
                     BoundControlTransferKind::Break | BoundControlTransferKind::Continue => {
                         Err(EvaluationFailure::invalid_expression(expression))
                     }
@@ -105,7 +121,8 @@ where
             .block(block)
             .ok_or(EvaluationFailure::invalid_input())?;
 
-        let mut result = self.intern_value_term(result_type, ConstantValueKind::Unit)?;
+        let initial = self.intern_value_term(result_type, ConstantValueKind::Unit)?;
+        let mut result = (initial, result_type);
 
         for item in block.items() {
             self.observe_cancellation()?;
@@ -118,29 +135,15 @@ where
                         ));
                     };
 
-                    let mut value = self.evaluate(constant.initializer())?;
+                    let value = self.evaluate(constant.initializer())?;
 
-                    if let Some(declared) = constant.declared_type().ty() {
+                    let value = if let Some(declared) = constant.declared_type().ty() {
                         let initializer_type = self.expression_type(constant.initializer())?;
 
-                        let declared_data = self
-                            .request
-                            .semantic_values()
-                            .type_data(declared)
-                            .map_err(|_| {
-                                EvaluationFailure::Infrastructure(
-                                    CheckerInfrastructureError::SemanticValueUnavailable,
-                                )
-                            })?;
-
-                        if matches!(declared_data.as_ref(), TypeData::Nullable(contained) if *contained == initializer_type)
-                        {
-                            value = self.intern_typed_term(
-                                declared,
-                                ConstantTermData::NullablePresent(value),
-                            )?;
-                        }
-                    }
+                        self.adapt_nullable_present(value, initializer_type, declared)?
+                    } else {
+                        value
+                    };
 
                     self.locals.insert(AnyLocalSymbolId::from(symbol), value);
                 }
@@ -148,9 +151,14 @@ where
                     return Err(EvaluationFailure::invalid_expression(binding.initializer()));
                 }
                 BoundBlockItem::Expression(expression) => match self.evaluate_flow(*expression)? {
-                    EvaluationFlow::Value(value) => result = value,
-                    EvaluationFlow::Yield(value) => {
-                        return Ok(EvaluationFlow::Value(value));
+                    EvaluationFlow::Value(value) => {
+                        result = (value, self.expression_type(*expression)?);
+                    }
+                    EvaluationFlow::Yield { term, source_type } => {
+                        let term =
+                            self.adapt_nullable_present(term, source_type, result_type)?;
+
+                        return Ok(EvaluationFlow::Value(term));
                     }
                     EvaluationFlow::Return(value) => {
                         return Ok(EvaluationFlow::Return(value));
@@ -166,7 +174,8 @@ where
             }
         }
 
-        Ok(EvaluationFlow::Value(result))
+        self.adapt_nullable_present(result.0, result.1, result_type)
+            .map(EvaluationFlow::Value)
     }
 
     fn evaluate_conditional(

@@ -1,4 +1,7 @@
-use bray_bound_tree::BoundExpressionId;
+use bray_bound_tree::{
+    BoundCallResult, BoundCallableTarget, BoundExpressionId, ConversionTarget, SelectedArgument,
+    SelectedConversion, SemanticSelection,
+};
 use bray_symbols::{
     CallableInstanceData, ConstantTermData, ConstantTermId, ImplementationInstanceId, TypeId,
 };
@@ -17,6 +20,173 @@ impl<'view, 'input, 'types, C> Evaluator<'view, 'input, 'types, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    pub(super) fn evaluate_selected_call(
+        &mut self,
+        expression: BoundExpressionId,
+        ty: TypeId,
+    ) -> Result<ConstantTermId, EvaluationFailure> {
+        let Some(SemanticSelection::Call(call)) =
+            self.input.semantic_selections().expression(expression)
+        else {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        };
+
+        if !matches!(call.resolution().result(), BoundCallResult::Immediate(_)) {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        }
+
+        let mut arguments =
+            Vec::with_capacity(call.arguments().len() + usize::from(call.receiver().is_some()));
+
+        if let Some(receiver) = call.receiver() {
+            arguments.push((
+                None,
+                receiver.expression(),
+                None,
+                receiver.source_type(),
+            ));
+        }
+
+        for argument in call.arguments() {
+            let SelectedArgument::Explicit {
+                expression,
+                ordinal,
+                conversion,
+                ..
+            } = argument
+            else {
+                return Err(EvaluationFailure::invalid_expression(expression));
+            };
+
+            arguments.push((
+                Some(*ordinal),
+                *expression,
+                Some(conversion.clone()),
+                conversion.target_type(),
+            ));
+        }
+
+        arguments.sort_unstable_by_key(|(ordinal, ..)| *ordinal);
+
+        let arguments = arguments
+            .into_iter()
+            .map(|(_, argument, conversion, ty)| {
+                let term = match conversion {
+                    Some(conversion) => {
+                        self.evaluate_selected_conversion(argument, &conversion)?
+                    }
+                    None => self.evaluate(argument)?,
+                };
+
+                Ok((term, ty))
+            })
+            .collect::<Result<Vec<_>, EvaluationFailure>>()?;
+
+        if let BoundCallableTarget::Predicate(predicate) = call.target() {
+            let arguments = arguments
+                .into_iter()
+                .map(|(argument, _)| argument)
+                .collect::<Vec<_>>();
+
+            return self
+                .intern_typed_term(ty, ConstantTermData::predicate_call(predicate, arguments));
+        }
+
+        let BoundCallableTarget::Declaration(callable) = call.target() else {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        };
+
+        let witnesses = call.resolution().implementation_witnesses();
+
+        let selected_implementation = match witnesses {
+            [] => None,
+            [witness] => Some(*witness),
+            _ => return Err(EvaluationFailure::invalid_expression(expression)),
+        };
+
+        self.evaluate_call_terms(
+            expression,
+            callable,
+            selected_implementation,
+            arguments,
+            ty,
+        )
+    }
+
+    fn evaluate_selected_conversion(
+        &mut self,
+        expression: BoundExpressionId,
+        conversion: &SelectedConversion,
+    ) -> Result<ConstantTermId, EvaluationFailure> {
+        if let ConversionTarget::Trait {
+            fulfillment,
+            witness,
+            ..
+        } = conversion.target()
+        {
+            return self.evaluate_call(
+                expression,
+                *fulfillment,
+                Some(*witness),
+                std::slice::from_ref(&expression),
+                conversion.target_type(),
+            );
+        }
+
+        let operand = self.evaluate(expression)?;
+
+        self.apply_selected_conversion(expression, conversion, operand)
+    }
+
+    pub(super) fn apply_selected_conversion(
+        &mut self,
+        expression: BoundExpressionId,
+        conversion: &SelectedConversion,
+        operand: ConstantTermId,
+    ) -> Result<ConstantTermId, EvaluationFailure> {
+        let ty = conversion.target_type();
+
+        if matches!(conversion.target(), ConversionTarget::Identity) {
+            return Ok(operand);
+        }
+
+        let Some(operand) = self.term_value(operand)? else {
+            return match conversion.target() {
+                ConversionTarget::Identity => Ok(operand),
+                ConversionTarget::NullablePresent => {
+                    self.intern_typed_term(ty, ConstantTermData::NullablePresent(operand))
+                }
+                ConversionTarget::BuiltInScalar | ConversionTarget::CVariadicPromotion => self
+                    .intern_typed_term(
+                        ty,
+                        ConstantTermData::Conversion {
+                            operand,
+                            target: conversion.target_type(),
+                        },
+                    ),
+                ConversionTarget::Composite(_) => self.intern_typed_term(
+                    ty,
+                    ConstantTermData::Conversion {
+                        operand,
+                        target: conversion.target_type(),
+                    },
+                ),
+                ConversionTarget::Trait { .. } | ConversionTarget::TraitConstraint { .. } => {
+                    Err(EvaluationFailure::invalid_expression(expression))
+                }
+            };
+        };
+
+        let value = self.convert_value(expression, conversion, operand)?;
+        let data = self.constant_value(value)?;
+
+        if data.ty() != ty {
+            return Err(EvaluationFailure::invalid_input());
+        }
+
+        self.intern_term(ConstantTermData::Value(value))
+    }
+
     pub(super) fn evaluate_call(
         &mut self,
         expression: BoundExpressionId,
@@ -30,11 +200,36 @@ where
             .copied()
             .map(|argument| {
                 let value = self.evaluate(argument)?;
+                let ty = self.expression_type(argument)?;
 
+                Ok((value, ty))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        self.evaluate_call_terms(
+            expression,
+            callable,
+            selected_implementation,
+            arguments,
+            result_type,
+        )
+    }
+
+    pub(super) fn evaluate_call_terms(
+        &mut self,
+        expression: BoundExpressionId,
+        callable: CallableInstanceData,
+        selected_implementation: Option<ImplementationInstanceId>,
+        arguments: impl IntoIterator<Item = (ConstantTermId, TypeId)>,
+        result_type: TypeId,
+    ) -> Result<ConstantTermId, EvaluationFailure> {
+        let arguments = arguments
+            .into_iter()
+            .map(|(argument, ty)| {
                 if self.retain_open_terms() {
-                    self.type_term(value, self.expression_type(argument)?)
+                    self.type_term(argument, ty)
                 } else {
-                    Ok(value)
+                    Ok(argument)
                 }
             })
             .collect::<Result<Vec<_>, _>>()?;

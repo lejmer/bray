@@ -1286,6 +1286,58 @@ mod tests {
     }
 
     #[test]
+    fn constant_calls_adapt_present_arguments_and_results_to_nullable_types() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "const func accepts(pos value: i32?) -> bool\n",
+            "{\n",
+            "    return value.is_present();\n",
+            "}\n",
+            "const func returns_present() -> i32?\n",
+            "{\n",
+            "    return 2;\n",
+            "}\n",
+            "const argument_query: bool = accepts(1);\n",
+            "const returned_value: i32? = returns_present();\n",
+            "const returned_query: bool = returned_value.is_present();\n",
+        ));
+
+        let definitions = source_constant_definitions(&compilation);
+
+        let [argument_query, returned_value, returned_query] = definitions.as_slice() else {
+            panic!("test source must produce three constant definitions");
+        };
+
+        for definition in [argument_query, returned_query] {
+            let result = compilation
+                .constant_instance(instance_key(&compilation, *definition))
+                .unwrap_or_else(|error| panic!("nullable query must evaluate: {error:?}"));
+
+            assert!(
+                result.diagnostics().is_empty(),
+                "{:#?}",
+                result.diagnostics()
+            );
+
+            assert_eq!(
+                constant_value(&compilation, result.value().value()).kind(),
+                &ConstantValueKind::Boolean(true)
+            );
+        }
+
+        let returned_value = compilation
+            .constant_instance(instance_key(&compilation, *returned_value))
+            .unwrap_or_else(|error| panic!("nullable return value must evaluate: {error:?}"));
+
+        assert!(returned_value.diagnostics().is_empty());
+
+        assert!(matches!(
+            constant_value(&compilation, returned_value.value().value()).kind(),
+            ConstantValueKind::NullablePresent(_)
+        ));
+    }
+
+    #[test]
     fn constant_definitions_are_cached_without_closing_instances() {
         let compilation = compilation(concat!("module app;\n", "const value: i32 = 1;\n",));
         let definitions = source_constant_definitions(&compilation);

@@ -614,13 +614,25 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     _ => return Err(ExecutableTemplateDecodeError::Malformed),
                 };
 
+                let operand = self.operand()?;
+                let operand_type = self.ty()?;
+                let nullable_type = self.ty()?;
+                let result_type = self.ty()?;
+
+                validate_decoded_nullable_query_types(
+                    operand_type,
+                    nullable_type,
+                    result_type,
+                    self.semantics,
+                )?;
+
                 Ok(MirOperationKind::NullableQuery(
                     bray_ir::MirNullableQuery::new(
                         kind,
-                        self.operand()?,
-                        self.ty()?,
-                        self.ty()?,
-                        self.ty()?,
+                        operand,
+                        operand_type,
+                        nullable_type,
+                        result_type,
                     ),
                 ))
             }
@@ -2487,6 +2499,45 @@ fn validate_decoded_atomic_result(
     .ok_or(ExecutableTemplateDecodeError::Malformed)
 }
 
+fn validate_decoded_nullable_query_types(
+    operand_type: bray_symbols::TypeId,
+    nullable_type: bray_symbols::TypeId,
+    result_type: bray_symbols::TypeId,
+    semantics: &ImportedSemantics,
+) -> Result<(), ExecutableTemplateDecodeError> {
+    let boolean = bray_compiler_known::CompilerKnownDeclarationKey::try_new("Bool")
+        .ok_or(ExecutableTemplateDecodeError::Malformed)?;
+
+    nullable_query_types_valid(
+        operand_type,
+        nullable_type,
+        result_type,
+        |ty| semantics.nullable_element_type(ty),
+        |ty| semantics.is_compiler_known_type(ty, &boolean),
+        |ty, kind| semantics.borrow_target(ty, kind),
+    )
+    .then_some(())
+    .ok_or(ExecutableTemplateDecodeError::Malformed)
+}
+
+fn nullable_query_types_valid(
+    operand_type: bray_symbols::TypeId,
+    nullable_type: bray_symbols::TypeId,
+    result_type: bray_symbols::TypeId,
+    mut nullable_element: impl FnMut(bray_symbols::TypeId) -> Option<bray_symbols::TypeId>,
+    is_boolean: impl FnOnce(bray_symbols::TypeId) -> bool,
+    mut borrow_target: impl FnMut(
+        bray_symbols::TypeId,
+        bray_symbols::BorrowKind,
+    ) -> Option<bray_symbols::TypeId>,
+) -> bool {
+    nullable_element(nullable_type).is_some()
+        && is_boolean(result_type)
+        && (operand_type == nullable_type
+            || borrow_target(operand_type, bray_symbols::BorrowKind::Shared)
+                == Some(nullable_type))
+}
+
 fn atomic_compare_exchange_result_elements_valid(
     value: bray_symbols::TypeId,
     elements: &[bray_symbols::TypeId],
@@ -2569,7 +2620,8 @@ mod tests {
         ProtectedMemoryWrapper, assembly_constant_payload, assembly_options_valid,
         atomic_compare_exchange_result_elements_valid, decoded_atomic_kind,
         decoded_inline_assembly_contract, decoded_inline_assembly_types,
-        decoded_inline_assembly_value_types, protected_memory_types_valid,
+        decoded_inline_assembly_value_types, nullable_query_types_valid,
+        protected_memory_types_valid,
     };
 
     #[derive(Clone, Copy)]
@@ -2857,6 +2909,63 @@ mod tests {
             &[value],
             is_boolean,
         ));
+    }
+
+    #[test]
+    fn imported_nullable_queries_require_exact_nullable_borrow_and_boolean_types() {
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}"));
+
+        let element = values
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("test nullable element must intern: {error:?}"));
+
+        let nullable = values
+            .intern_type(TypeData::Nullable(element))
+            .unwrap_or_else(|error| panic!("test nullable type must intern: {error:?}"));
+
+        let boolean = values
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("test Boolean marker type must intern: {error:?}"));
+
+        let other = values
+            .intern_type(TypeData::tuple([element]))
+            .unwrap_or_else(|error| panic!("test mismatched type must intern: {error:?}"));
+
+        let shared = values
+            .intern_type(TypeData::Borrow {
+                kind: BorrowKind::Shared,
+                target: nullable,
+            })
+            .unwrap_or_else(|error| panic!("test shared borrow must intern: {error:?}"));
+
+        let mutable = values
+            .intern_type(TypeData::Borrow {
+                kind: BorrowKind::Mutable,
+                target: nullable,
+            })
+            .unwrap_or_else(|error| panic!("test mutable borrow must intern: {error:?}"));
+
+        let valid = |operand, nullable_type, result| {
+            nullable_query_types_valid(
+                operand,
+                nullable_type,
+                result,
+                |ty| (ty == nullable).then_some(element),
+                |ty| ty == boolean,
+                |ty, kind| match (ty, kind) {
+                    (candidate, BorrowKind::Shared) if candidate == shared => Some(nullable),
+                    (candidate, BorrowKind::Mutable) if candidate == mutable => Some(nullable),
+                    _ => None,
+                },
+            )
+        };
+
+        assert!(valid(nullable, nullable, boolean));
+        assert!(valid(shared, nullable, boolean));
+        assert!(!valid(mutable, nullable, boolean));
+        assert!(!valid(shared, other, boolean));
+        assert!(!valid(shared, nullable, other));
     }
 
     #[test]
