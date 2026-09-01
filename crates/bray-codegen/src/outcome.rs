@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactKind, DiagnosticBag,
@@ -211,7 +211,8 @@ pub fn codegen_failure_diagnostic(
 
     match failure {
         CodegenFailure::BackendLibrary { report } => {
-            diagnostic = diagnostic.with_arg(DiagnosticArg::codegen_backend_report(report.as_ref()));
+            diagnostic =
+                diagnostic.with_arg(DiagnosticArg::codegen_backend_report(report.as_ref()));
         }
         CodegenFailure::BackendToolExited { program, exit } => {
             diagnostic = diagnostic

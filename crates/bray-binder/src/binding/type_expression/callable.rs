@@ -1,4 +1,5 @@
 use bray_compiler_known::RepresentationRole;
+use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     CallableConstness, CallableDependencyContracts, CallableExecution, CallableParameterData,
@@ -15,7 +16,7 @@ use bray_syntax::{
 use super::contract::CallableTypeQualifiers;
 use super::core::{TypeExpressionBinder, token_text};
 use super::diagnostic::source_diagnostic;
-use crate::{BindingQueryError, BindingQueryResult};
+use crate::{BindingError, BindingQueryError, BindingQueryResult};
 
 impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     /// Binds the callable type owned by one anonymous callable semantic unit.
@@ -58,25 +59,65 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         self.diagnostics.add_range(diagnostics);
 
         let parameters = parameter_list.parameters().collect::<Vec<_>>();
+        let parameter_source = SyntaxAnchor::from_node(parameter_list);
 
-        let parameters_match_owner = parameter_symbols.iter().all(|parameter| {
-            self.symbols
-                .callable_parameter(*parameter)
-                .is_some_and(|record| record.owner() == callable)
-        });
+        if parameters.len() != parameter_symbols.len() {
+            return Err(BindingQueryError::Binding(
+                BindingError::CallableParameterCountMismatch {
+                    source: parameter_source,
+                    callable,
+                    syntax_count: parameters.len(),
+                    symbol_count: parameter_symbols.len(),
+                },
+            ));
+        }
 
-        let receiver_matches_owner = receiver.is_none_or(|parameter| {
-            self.symbols
-                .receiver_parameter(parameter)
-                .is_some_and(|record| record.owner() == callable)
-        });
+        for parameter in parameter_symbols {
+            let record =
+                self.symbols
+                    .callable_parameter(*parameter)
+                    .ok_or(BindingQueryError::Binding(
+                        BindingError::SymbolRecordUnavailable((*parameter).into()),
+                    ))?;
 
-        if parameters.len() != parameter_symbols.len()
-            || !parameters_match_owner
-            || !receiver_matches_owner
-            || receiver.is_some() != qualifiers.receiver_mode.is_some()
-        {
-            return Err(BindingQueryError::DependencyUnavailable);
+            if record.owner() != callable {
+                return Err(BindingQueryError::Binding(
+                    BindingError::CallableParameterOwnerMismatch {
+                        source: parameter_source,
+                        callable,
+                        parameter: *parameter,
+                    },
+                ));
+            }
+        }
+
+        if let Some(receiver) = receiver {
+            let record =
+                self.symbols
+                    .receiver_parameter(receiver)
+                    .ok_or(BindingQueryError::Binding(
+                        BindingError::SymbolRecordUnavailable(receiver.into()),
+                    ))?;
+
+            if record.owner() != callable {
+                return Err(BindingQueryError::Binding(
+                    BindingError::ReceiverParameterOwnerMismatch {
+                        source: parameter_source,
+                        callable,
+                        receiver,
+                    },
+                ));
+            }
+        }
+
+        if receiver.is_some() != qualifiers.receiver_mode.is_some() {
+            return Err(receiver_context_error(
+                callable,
+                receiver,
+                qualifiers.receiver_mode,
+                self.self_type,
+                parameter_source,
+            ));
         }
 
         let mut signature_parameters = Vec::with_capacity(parameters.len());
@@ -101,7 +142,15 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
                 Some(ReceiverParameterSignature::new(parameter, ty, mode))
             }
             (None, None, _) => None,
-            _ => return Err(BindingQueryError::DependencyUnavailable),
+            _ => {
+                return Err(receiver_context_error(
+                    callable,
+                    receiver,
+                    qualifiers.receiver_mode,
+                    self.self_type,
+                    parameter_source,
+                ));
+            }
         };
 
         let dependency_contract = self.empty_dependency_contract()?;
@@ -162,7 +211,8 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             .as_ref()
             .is_some_and(|parameters| parameters.ellipsis_token().is_some());
 
-        let abi = callable_template_abi(self.semantic_values, &ty)?;
+        let abi =
+            callable_template_abi(self.semantic_values, &ty, SyntaxAnchor::from_node(syntax))?;
 
         let fixed_parameters = parameters
             .as_ref()
@@ -296,7 +346,9 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     ) -> BindingQueryResult<CallableParameterTypeTemplate, Upstream> {
         let name = token_text(syntax.source(), &syntax.identifier_token())
             .and_then(CallableParameterName::try_new)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::Binding(BindingError::SyntaxContract(
+                SyntaxAnchor::from_node(syntax),
+            )))?;
 
         let modifiers = syntax.parameter_modifiers();
 
@@ -329,6 +381,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
 fn callable_template_abi<Upstream>(
     values: &bray_symbols::SemanticValueStore,
     template: &TypeExpressionTemplate,
+    source: SyntaxAnchor,
 ) -> BindingQueryResult<bray_symbols::CallableAbi, Upstream> {
     match template {
         TypeExpressionTemplate::Callable(callable) => Ok(callable.abi()),
@@ -338,11 +391,31 @@ fn callable_template_abi<Upstream>(
                 .map_err(BindingQueryError::SemanticValue)?;
 
             let TypeData::Callable(callable) = data.as_ref() else {
-                return Err(BindingQueryError::DependencyUnavailable);
+                return Err(BindingQueryError::Binding(
+                    BindingError::CallableTypeExpected { source, ty: *ty },
+                ));
             };
 
             Ok(callable.abi())
         }
-        _ => Err(BindingQueryError::DependencyUnavailable),
+        _ => Err(BindingQueryError::Binding(
+            BindingError::CallableTypeTemplateExpected(source),
+        )),
     }
+}
+
+fn receiver_context_error<Upstream>(
+    callable: CallableSymbolId,
+    receiver: Option<ReceiverParameterSymbolId>,
+    mode: Option<bray_symbols::ReceiverMode>,
+    self_type: Option<bray_symbols::SelfTypeContext>,
+    source: SyntaxAnchor,
+) -> BindingQueryError<Upstream> {
+    BindingQueryError::Binding(BindingError::ReceiverContextMismatch {
+        source,
+        callable,
+        receiver_present: receiver.is_some(),
+        mode_present: mode.is_some(),
+        self_type_present: self_type.is_some(),
+    })
 }

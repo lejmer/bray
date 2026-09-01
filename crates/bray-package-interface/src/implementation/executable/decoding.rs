@@ -2534,8 +2534,7 @@ fn nullable_query_types_valid(
     nullable_element(nullable_type).is_some()
         && is_boolean(result_type)
         && (operand_type == nullable_type
-            || borrow_target(operand_type, bray_symbols::BorrowKind::Shared)
-                == Some(nullable_type))
+            || borrow_target(operand_type, bray_symbols::BorrowKind::Shared) == Some(nullable_type))
 }
 
 fn atomic_compare_exchange_result_elements_valid(

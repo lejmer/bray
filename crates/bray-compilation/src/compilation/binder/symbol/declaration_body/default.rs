@@ -1,5 +1,9 @@
-use crate::compilation::binder::BindingQueryResult;
-use bray_binder::{BindingQueryContext, BindingQueryError, SymbolQueryProvider};
+use std::collections::BTreeSet;
+
+use crate::compilation::binder::{
+    BindingQueryResult, semantic_contract_binding_error as binding_contract,
+};
+use bray_binder::{BindingError, BindingQueryContext, BindingQueryError, SymbolQueryProvider};
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey, CheckedTemplate, CheckedTemplateKind};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
@@ -20,7 +24,7 @@ use bray_symbols::{
 use super::super::binding::CompilationSymbolQueryEvaluator;
 use super::super::cache::CompilationSymbolSemantics;
 use super::super::environment::visible_generic_parameters;
-use super::super::imported::imported_declaration_template;
+use super::super::imported::{imported_declaration_template, missing_imported_template};
 use super::lookup::{
     callable_parameter, runtime_default_provider, struct_field, union_payload_field, union_variant,
 };
@@ -71,7 +75,7 @@ fn bind_callable_parameter_default(
 
     let provider =
         bray_symbols::CallableParameterDefaultProviderSymbolId::try_from_any(default.provider)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or_else(|| unexpected_runtime_default_provider(owner.into(), default.provider))?;
 
     let parameter = callable_parameter(context, owner)?;
 
@@ -127,7 +131,7 @@ fn bind_struct_field_default(
     .into_parts();
 
     let provider = bray_symbols::StructFieldDefaultProviderSymbolId::try_from_any(default.provider)
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or_else(|| unexpected_runtime_default_provider(owner.into(), default.provider))?;
 
     let value = if default.is_recovered {
         StructFieldDefaultValue::Error(ErrorStructFieldDefault)
@@ -164,7 +168,7 @@ fn bind_union_payload_field_default(
 
     let provider =
         bray_symbols::UnionPayloadDefaultProviderSymbolId::try_from_any(default.provider)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or_else(|| unexpected_runtime_default_provider(owner.into(), default.provider))?;
 
     let value = if default.is_recovered {
         UnionPayloadDefaultValue::Error(ErrorUnionPayloadDefault)
@@ -190,10 +194,10 @@ fn checked_runtime_default(
     template_diagnostics: &DiagnosticBag,
 ) -> BindingQueryResult<DiagnosticResult<RuntimeDefaultSummary>> {
     match template {
-        UnevaluatedDefaultTemplate::Absent => Err(BindingQueryError::DependencyUnavailable),
+        UnevaluatedDefaultTemplate::Absent => Err(missing_runtime_default(owner)),
         UnevaluatedDefaultTemplate::Present(expression) => {
             let provider = runtime_default_provider(context, owner)?
-                .ok_or(BindingQueryError::DependencyUnavailable)?;
+                .ok_or_else(|| missing_runtime_default(owner))?;
 
             let key = context
                 .compilation()
@@ -238,11 +242,14 @@ fn checked_runtime_default(
         }
         UnevaluatedDefaultTemplate::Resolved => {
             let provider = runtime_default_provider(context, owner)?
-                .ok_or(BindingQueryError::DependencyUnavailable)?;
+                .ok_or_else(|| missing_runtime_default(owner))?;
 
-            let address = context
-                .imported_semantic_address(provider)?
-                .ok_or(BindingQueryError::DependencyUnavailable)?;
+            let address =
+                context
+                    .imported_semantic_address(provider)?
+                    .ok_or(BindingQueryError::Binding(
+                        BindingError::SymbolRecordUnavailable(provider),
+                    ))?;
 
             let imported = imported_declaration_template(
                 context,
@@ -250,15 +257,17 @@ fn checked_runtime_default(
                 CheckedTemplateKind::RuntimeDefault,
             )?;
 
-            let template_record = imported
-                .value()
-                .as_ref()
-                .ok_or(BindingQueryError::DependencyUnavailable)?;
+            let template_record = imported.value().as_ref().ok_or_else(|| {
+                missing_imported_template(
+                    address,
+                    bray_package_interface::InterfaceSemanticRecordKind::DeclarationTemplate,
+                )
+            })?;
 
             let checked = template_record.template();
-            let result = checked_template_result(checked)?;
+            let result = checked_template_result(owner, checked)?;
             let generic_context = imported_generic_context(context, owner, checked)?;
-            let behavior = imported_runtime_default_behavior(context, checked, result)?;
+            let behavior = imported_runtime_default_behavior(context, owner, checked, result)?;
             let diagnostics = template_diagnostics.merged(imported.diagnostics());
 
             Ok(DiagnosticResult::new(
@@ -285,19 +294,43 @@ impl crate::compilation::Compilation {
         provider: AnySymbolId,
         syntax: bray_declarations::SyntaxAnchor,
     ) -> Result<BoundUnitKey, crate::fact::FactQueryError> {
-        let source = self
-            .source(syntax.source_id())
-            .ok_or(crate::fact::FactQueryError::InfrastructureFailure)?;
+        let source = self.source(syntax.source_id()).ok_or_else(|| {
+            crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::Source(syntax.source_id()),
+                crate::compilation::SemanticQueryViolation::Missing(
+                    crate::compilation::SemanticDataKind::SourceSnapshot,
+                ),
+            )
+        })?;
 
         // Bound unit keys own their Arc-backed provider identity independently of the symbol graph.
-        let provider = self
+        let provider_key = self
             .symbol_graph()?
             .symbol_key(provider)
             .cloned()
-            .ok_or(crate::fact::FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                crate::compilation::SemanticQueryFailure::contract(
+                    crate::compilation::SemanticQueryContext::Symbol(provider),
+                    crate::compilation::SemanticQueryViolation::Missing(
+                        crate::compilation::SemanticDataKind::SymbolKey,
+                    ),
+                )
+            })?;
 
-        BoundUnitKey::runtime_default(provider, BoundSourceAnchor::new(syntax, source.version()))
-            .ok_or(crate::fact::FactQueryError::InfrastructureFailure)
+        BoundUnitKey::runtime_default(
+            provider_key,
+            BoundSourceAnchor::new(syntax, source.version()),
+        )
+        .ok_or_else(|| {
+            crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::Symbol(provider),
+                crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: crate::compilation::SemanticSymbolCategory::RuntimeDefaultProvider,
+                    actual: provider.kind(),
+                },
+            )
+            .into()
+        })
     }
 }
 
@@ -318,7 +351,9 @@ fn imported_generic_context(
 ) -> BindingQueryResult<RuntimeDefaultGenericContext> {
     let imported = context
         .imported_symbols()?
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::Binding(
+            BindingError::SymbolRecordUnavailable(owner),
+        ))?;
 
     let parameters = template
         .inputs()
@@ -333,8 +368,15 @@ fn imported_generic_context(
             | bray_bound_tree::CheckedTemplateInputKind::PostconditionResult => None,
         })
         .map(|symbol| {
-            GenericParameterSymbolId::try_from_any(symbol)
-                .ok_or(BindingQueryError::DependencyUnavailable)
+            GenericParameterSymbolId::try_from_any(symbol).ok_or_else(|| {
+                binding_contract(
+                    crate::compilation::SemanticQueryContext::Symbol(symbol),
+                    crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
+                        expected: crate::compilation::SemanticSymbolCategory::GenericParameter,
+                        actual: symbol.kind(),
+                    },
+                )
+            })
         })
         .collect::<BindingQueryResult<Vec<_>>>()?;
 
@@ -352,8 +394,9 @@ fn generic_context(
         return Ok(RuntimeDefaultGenericContext::NonGeneric);
     }
 
-    let generic_owner =
-        GenericOwnerId::try_new(declaration).ok_or(BindingQueryError::DependencyUnavailable)?;
+    let generic_owner = GenericOwnerId::try_new(declaration).ok_or(BindingQueryError::Binding(
+        BindingError::GenericOwnerUnavailable(declaration),
+    ))?;
 
     let substitution = crate::compilation::substitution::identity_substitution(
         context.semantic_values(),
@@ -362,8 +405,9 @@ fn generic_context(
     )
     .map_err(crate::compilation::binder::symbol::binder_error)?;
 
-    RuntimeDefaultGenericContext::generic(parameters, substitution)
-        .ok_or(BindingQueryError::DependencyUnavailable)
+    let context = RuntimeDefaultGenericContext::generic(parameters.iter().copied(), substitution);
+
+    context.ok_or_else(|| duplicate_generic_parameter(declaration, &parameters))
 }
 
 fn runtime_default_declaration(
@@ -383,7 +427,13 @@ fn runtime_default_declaration(
 
             Ok(variant.union().into())
         }
-        _ => Err(BindingQueryError::DependencyUnavailable),
+        _ => Err(binding_contract(
+            crate::compilation::SemanticQueryContext::Symbol(owner),
+            crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
+                expected: crate::compilation::SemanticSymbolCategory::RuntimeDefaultSubject,
+                actual: owner.kind(),
+            },
+        )),
     }
 }
 
@@ -414,46 +464,66 @@ fn runtime_default_behavior(
 
 fn imported_runtime_default_behavior(
     context: &CompilationBindingContext<'_>,
+    owner: AnySymbolId,
     template: &CheckedTemplate,
     result: TypeId,
 ) -> BindingQueryResult<RuntimeDefaultBehavior> {
     let imported = context
         .imported_symbols()?
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::Binding(
+            BindingError::SymbolRecordUnavailable(owner),
+        ))?;
 
     let behavior = template.behavior();
 
     let effects = behavior
         .effects()
         .iter()
-        .map(|requirement| imported_template_symbol(context, imported, requirement.declaration()))
-        .map(|symbol| {
-            symbol
-                .map(bray_symbols::RuntimeDefaultEffectRequirement::new)
-                .ok_or(BindingQueryError::DependencyUnavailable)
+        .map(|requirement| {
+            let key = requirement.declaration();
+
+            let symbol = imported_template_symbol(context, imported, key)
+                .ok_or_else(|| missing_template_symbol(key))?;
+
+            Ok(bray_symbols::RuntimeDefaultEffectRequirement::new(symbol))
         })
         .collect::<BindingQueryResult<Vec<_>>>()?;
 
     let capabilities = behavior
         .capabilities()
         .iter()
-        .map(|requirement| imported_template_symbol(context, imported, requirement.declaration()))
-        .map(|symbol| {
-            symbol
-                .map(bray_symbols::RuntimeDefaultCapabilityRequirement::new)
-                .ok_or(BindingQueryError::DependencyUnavailable)
+        .map(|requirement| {
+            let key = requirement.declaration();
+
+            let symbol = imported_template_symbol(context, imported, key)
+                .ok_or_else(|| missing_template_symbol(key))?;
+
+            Ok(bray_symbols::RuntimeDefaultCapabilityRequirement::new(
+                symbol,
+            ))
         })
         .collect::<BindingQueryResult<Vec<_>>>()?;
 
     let trusted = behavior
         .trusted_obligations()
         .iter()
-        .map(|requirement| imported_template_symbol(context, imported, requirement.declaration()))
-        .map(|symbol| {
-            symbol
-                .and_then(TrustedCapabilitySymbolId::try_from_any)
-                .map(bray_symbols::RuntimeDefaultTrustedObligation::new)
-                .ok_or(BindingQueryError::DependencyUnavailable)
+        .map(|requirement| {
+            let key = requirement.declaration();
+
+            let symbol = imported_template_symbol(context, imported, key)
+                .ok_or_else(|| missing_template_symbol(key))?;
+
+            let trusted = TrustedCapabilitySymbolId::try_from_any(symbol).ok_or_else(|| {
+                binding_contract(
+                    crate::compilation::SemanticQueryContext::Symbol(symbol),
+                    crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
+                        expected: crate::compilation::SemanticSymbolCategory::TrustedCapability,
+                        actual: symbol.kind(),
+                    },
+                )
+            })?;
+
+            Ok(bray_symbols::RuntimeDefaultTrustedObligation::new(trusted))
         })
         .collect::<BindingQueryResult<Vec<_>>>()?;
 
@@ -495,12 +565,82 @@ fn runtime_default_ownership(
     })
 }
 
-fn checked_template_result(template: &CheckedTemplate) -> BindingQueryResult<TypeId> {
+fn checked_template_result(
+    owner: AnySymbolId,
+    template: &CheckedTemplate,
+) -> BindingQueryResult<TypeId> {
     usize::try_from(template.result().raw())
         .ok()
         .and_then(|index| template.nodes().get(index))
         .map(bray_bound_tree::CheckedTemplateNode::ty)
-        .ok_or(BindingQueryError::DependencyUnavailable)
+        .ok_or_else(|| {
+            binding_contract(
+                crate::compilation::SemanticQueryContext::Symbol(owner),
+                crate::compilation::SemanticQueryViolation::MissingCheckedTemplateNode(
+                    template.result(),
+                ),
+            )
+        })
+}
+
+fn unexpected_runtime_default_provider(
+    owner: AnySymbolId,
+    provider: AnySymbolId,
+) -> BindingQueryError<crate::fact::FactQueryError> {
+    binding_contract(
+        crate::compilation::SemanticQueryContext::Symbol(owner),
+        crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
+            expected: crate::compilation::SemanticSymbolCategory::RuntimeDefaultProvider,
+            actual: provider.kind(),
+        },
+    )
+}
+
+fn missing_runtime_default(owner: AnySymbolId) -> BindingQueryError<crate::fact::FactQueryError> {
+    binding_contract(
+        crate::compilation::SemanticQueryContext::Symbol(owner),
+        crate::compilation::SemanticQueryViolation::Missing(
+            crate::compilation::SemanticDataKind::RuntimeDefault,
+        ),
+    )
+}
+
+fn duplicate_generic_parameter(
+    declaration: AnySymbolId,
+    parameters: &[GenericParameterSymbolId],
+) -> BindingQueryError<crate::fact::FactQueryError> {
+    let mut distinct = BTreeSet::new();
+
+    let duplicate = parameters
+        .iter()
+        .copied()
+        .find(|parameter| !distinct.insert(*parameter));
+
+    let violation = duplicate.map_or(
+        crate::compilation::SemanticQueryViolation::UnexpectedOrder(
+            crate::compilation::SemanticDataKind::GenericSubstitution,
+        ),
+        |parameter| {
+            crate::compilation::SemanticQueryViolation::DuplicateSymbol(parameter.into_any())
+        },
+    );
+
+    binding_contract(
+        crate::compilation::SemanticQueryContext::Symbol(declaration),
+        violation,
+    )
+}
+
+fn missing_template_symbol(
+    key: &bray_symbols::SymbolKey,
+) -> BindingQueryError<crate::fact::FactQueryError> {
+    // The failure owns the Arc-backed symbol key independently of the imported template.
+    binding_contract(
+        crate::compilation::SemanticQueryContext::SymbolKey(key.clone()),
+        crate::compilation::SemanticQueryViolation::Missing(
+            crate::compilation::SemanticDataKind::Symbol,
+        ),
+    )
 }
 
 #[cfg(test)]

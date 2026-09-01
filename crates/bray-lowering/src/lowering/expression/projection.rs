@@ -17,10 +17,7 @@ impl Lowerer<'_> {
         }
 
         loop {
-            let data = self
-                .input
-                .semantic_values()
-                .type_data(source_type)?;
+            let data = self.input.semantic_values().type_data(source_type)?;
 
             let TypeData::Borrow { target, .. } = data.as_ref() else {
                 return Ok(source_type);

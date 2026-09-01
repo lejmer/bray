@@ -14,7 +14,8 @@ use bray_syntax::{
 use super::BoundUnitBindingError;
 use super::support::{
     anchored_descendant, create_binder, error_type, insert_callable_inputs, insert_surface,
-    map_assembly_error, map_binding_error, map_query_error, path_context, push_callable_inputs,
+    map_assembly_error, map_binding_error, map_query_error, missing_owner, missing_syntax,
+    path_context, push_callable_inputs,
 };
 use crate::binder::{Binder, BinderOutput};
 use crate::binding::{ExpressionBinder, callable_normal_completion_has_value, push_contract_scope};
@@ -175,7 +176,7 @@ where
         let owner = binding_context
             .symbols()
             .symbol_for_key(key.declared_owner())
-            .ok_or(BoundUnitBindingError::MissingOwner)?;
+            .ok_or_else(|| missing_owner(&key, None))?;
 
         callable_normal_completion_has_value(binding_context, owner).map_err(map_query_error)?
     } else {
@@ -227,7 +228,7 @@ where
 
     let syntax =
         anchored_descendant::<_, TypeExpressionSyntax>(binding_context, key.source().syntax())
-            .ok_or(BoundUnitBindingError::MissingSyntax)?;
+            .ok_or_else(|| missing_syntax(&key))?;
 
     bind_expression_root_unit(
         binding_context,
@@ -277,7 +278,7 @@ where
     C: BindingQueryContext + ?Sized,
 {
     let syntax = anchored_descendant::<_, ExpressionSyntax>(binding_context, key.source().syntax())
-        .ok_or(BoundUnitBindingError::MissingSyntax)?;
+        .ok_or_else(|| missing_syntax(&key))?;
 
     bind_expression_root_unit(
         binding_context,
@@ -328,7 +329,7 @@ where
 
     let output = binder
         .finish()
-        .map_err(|_| BoundUnitBindingError::Construction)?;
+        .map_err(BoundUnitBindingError::Construction)?;
 
     Ok((output, root))
 }
@@ -345,13 +346,13 @@ where
         .binding_context()
         .symbols()
         .symbol_for_key(binder.unit().key().declared_owner())
-        .ok_or(BoundUnitBindingError::MissingOwner)?;
+        .ok_or_else(|| missing_owner(binder.unit().key(), None))?;
 
     let subject = binder
         .binding_context()
         .symbols()
         .runtime_default_subject(provider)
-        .ok_or(BoundUnitBindingError::MissingOwner)?;
+        .ok_or_else(|| missing_owner(binder.unit().key(), Some(provider)))?;
 
     let AnySymbolId::CallableParameter(parameter) = subject else {
         return Ok(());
@@ -361,7 +362,7 @@ where
         .binding_context()
         .symbols()
         .callable_parameter(parameter)
-        .ok_or(BoundUnitBindingError::MissingOwner)?;
+        .ok_or_else(|| missing_owner(binder.unit().key(), Some(subject)))?;
 
     let signature = binder
         .binding_context()
@@ -392,7 +393,7 @@ where
         .symbols()
         .symbol_for_key(binder.unit().key().declared_owner())
         .and_then(PredicateDefinitionSymbolId::try_from_any)
-        .ok_or(BoundUnitBindingError::MissingOwner)?;
+        .ok_or_else(|| missing_owner(binder.unit().key(), None))?;
 
     let signature = binder
         .binding_context()
@@ -435,10 +436,10 @@ where
     let syntax = source.syntax();
 
     let expressions = anchored_expression_sequence(binding_context, syntax)
-        .ok_or(BoundUnitBindingError::MissingSyntax)?;
+        .ok_or_else(|| missing_syntax(&key))?;
 
     if expressions.is_empty() {
-        return Err(BoundUnitBindingError::MissingSyntax);
+        return Err(missing_syntax(&key));
     }
 
     let origin = BoundNodeOrigin::source(source);
@@ -489,11 +490,11 @@ where
         .tree_mut()
         .push_block(block)
         .map_err(crate::unit::BoundUnitConstructionError::from)
-        .map_err(|_| BoundUnitBindingError::Construction)?;
+        .map_err(BoundUnitBindingError::Construction)?;
 
     let output = binder
         .finish()
-        .map_err(|_| BoundUnitBindingError::Construction)?;
+        .map_err(BoundUnitBindingError::Construction)?;
 
     Ok((output, root))
 }

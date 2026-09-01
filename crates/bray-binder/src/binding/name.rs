@@ -26,12 +26,12 @@ pub(super) fn name_is_available<C>(
     context: PathBindingContext,
     source: &bray_source::SourceSnapshot,
     token: &SyntaxToken,
-) -> bool
+) -> Result<bool, crate::BindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
 {
     let Some(text) = token.text(source.text()) else {
-        return false;
+        return Ok(false);
     };
 
     name_text_is_available(
@@ -47,7 +47,7 @@ pub(super) fn name_text_is_available<C>(
     context: PathBindingContext,
     text: &str,
     span: SourceSpan,
-) -> bool
+) -> Result<bool, crate::BindingError<C::UpstreamError>>
 where
     C: BindingQueryContext + ?Sized,
 {
@@ -58,17 +58,17 @@ where
         context.module(),
         text,
         context.access(),
-    );
+    )?;
 
     if matches!(lookup, MemberLookupResult::NotFound) {
-        return true;
+        return Ok(true);
     }
 
     let prior_spans = occupied_name_spans(binder, &lookup);
 
     report_name_already_defined(binder, text, span, prior_spans);
 
-    false
+    Ok(false)
 }
 
 pub(super) fn report_name_already_defined<C>(

@@ -17,6 +17,10 @@ use crate::compilation::binder::{self, CompilationBindingContext};
 use crate::compilation::source_graph::{
     source_declaration_module_parts, source_symbol_contribution_gate,
 };
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+    SemanticSymbolCategory,
+};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 impl Compilation {
@@ -58,8 +62,15 @@ impl Compilation {
 
         let record = named_type_record(&binding_context, subject)?;
 
-        let generic_owner = GenericOwnerId::try_new(subject.into_any())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let generic_owner = GenericOwnerId::try_new(subject.into_any()).ok_or_else(|| {
+            SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(subject.into_any()),
+                SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: SemanticSymbolCategory::GenericOwner,
+                    actual: subject.into_any().kind(),
+                },
+            )
+        })?;
 
         let generic = binding_context
             .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
@@ -86,8 +97,18 @@ impl Compilation {
         for &implementation in implementation_ids {
             cancellation.check()?;
 
-            let generic_owner = GenericOwnerId::try_new(implementation.into())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let implementation_symbol = implementation.into();
+
+            let generic_owner =
+                GenericOwnerId::try_new(implementation_symbol).ok_or_else(|| {
+                    SemanticQueryFailure::contract(
+                        SemanticQueryContext::Symbol(implementation_symbol),
+                        SemanticQueryViolation::UnexpectedSymbolKind {
+                            expected: SemanticSymbolCategory::GenericOwner,
+                            actual: implementation_symbol.kind(),
+                        },
+                    )
+                })?;
 
             let implementation_generic = binding_context
                 .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
@@ -125,7 +146,9 @@ impl Compilation {
             direct_lifecycle,
             implementations,
         )
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(|cause| {
+            crate::compilation::SemanticQueryFailure::TypeAssociatedSurface { subject, cause }
+        })?;
 
         diagnostics.add_range(
             lifecycle_slot_diagnostics(&binding_context, &surface)?
@@ -162,7 +185,13 @@ fn named_type_record<'binding_context>(
             .or_else(|| imported.and_then(|symbols| symbols.union(id)))
             .map(NamedTypeRecord::Union),
     }
-    .ok_or(FactQueryError::InfrastructureFailure)
+    .ok_or_else(|| {
+        SemanticQueryFailure::contract(
+            SemanticQueryContext::Symbol(subject.into_any()),
+            SemanticQueryViolation::Missing(SemanticDataKind::TypeSurface),
+        )
+        .into()
+    })
 }
 
 fn inherent_implementation_record<'binding_context>(
@@ -180,7 +209,13 @@ fn inherent_implementation_record<'binding_context>(
         .imported_symbols()
         .map_err(binder::binding_query_error)?
         .and_then(|symbols| symbols.inherent_implementation(implementation))
-        .ok_or(FactQueryError::InfrastructureFailure)
+        .ok_or_else(|| {
+            SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(implementation.into()),
+                SemanticQueryViolation::Missing(SemanticDataKind::Implementation),
+            )
+            .into()
+        })
 }
 
 fn implementation_metadata(

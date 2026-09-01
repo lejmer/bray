@@ -1,6 +1,7 @@
 use bray_diagnostics::DiagnosticArgValue;
 use serde::Serialize;
 
+use super::emission::{DiagnosticEmissionFieldJson, semantic_value_failure_context};
 use super::{
     DiagnosticArtifactDigestJson, DiagnosticCallableOverloadProblemJson,
     DiagnosticEmissionFailureJson, DiagnosticExternalToolExitJson,
@@ -18,7 +19,6 @@ use super::{
     platform_service_signature_problem_json, propagation_problem_json, refinement_capacity_json,
     union_tag_problem_json,
 };
-use super::emission::{DiagnosticEmissionFieldJson, semantic_value_failure_context};
 use crate::output::diagnostic::source_map::DiagnosticSourceMap;
 use crate::output::path_to_output_string;
 

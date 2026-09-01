@@ -101,7 +101,7 @@ pub struct CallableSignatureTemplate {
 }
 
 /// A canonical callable signature template could not expose its parameter type templates.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CallableSignatureTemplateError {
     /// The semantic value store rejected the callable type identity.
     SemanticValue(SemanticValueStoreError),

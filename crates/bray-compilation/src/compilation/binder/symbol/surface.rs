@@ -13,6 +13,8 @@ use bray_syntax::{
 };
 
 use super::super::context::CompilationBindingContext;
+use crate::compilation::binder::semantic_contract_binding_error as binding_contract;
+use crate::compilation::{SemanticDataKind, SemanticQueryContext, SemanticQueryViolation};
 
 pub(super) struct CallableSurface {
     pub(super) parameters: ParameterListSyntax,
@@ -64,7 +66,12 @@ fn callable_surface(
         SyntaxWalkControl::Continue
     });
 
-    let parameters = parameters.ok_or(BindingQueryError::DependencyUnavailable)?;
+    let parameters = parameters.ok_or_else(|| {
+        binding_contract(
+            SemanticQueryContext::Symbol(symbol),
+            SemanticQueryViolation::Missing(SemanticDataKind::Syntax),
+        )
+    })?;
 
     // Declaration discovery owns duplicate directive diagnostics. Binding only needs the first
     // ABI directive to choose the recovered callable ABI.
@@ -188,11 +195,18 @@ pub(super) fn compiler_known_surface(
         .compiler_known_provider()
         .declaration_semantics_for_symbol(symbol)
         .map(|semantics| semantics.surface())
-        .ok_or(BindingQueryError::DependencyUnavailable)
+        .ok_or_else(|| {
+            binding_contract(
+                SemanticQueryContext::Symbol(symbol),
+                SemanticQueryViolation::Missing(SemanticDataKind::DeclarationRecord),
+            )
+        })
 }
 
 pub(super) fn symbol_ordinal(index: usize) -> BindingQueryResult<bray_symbols::SymbolOrdinal> {
-    let ordinal = u32::try_from(index).map_err(|_| BindingQueryError::DependencyUnavailable)?;
+    let ordinal = u32::try_from(index).map_err(|_| {
+        BindingQueryError::Binding(bray_binder::BindingError::IdentityCapacityExceeded)
+    })?;
 
     Ok(bray_symbols::SymbolOrdinal::new(ordinal))
 }
@@ -205,8 +219,12 @@ where
     T: bray_syntax::SyntaxCast,
 {
     with_declaration_root(context, symbol, |root| {
-        root.cast::<T>()
-            .ok_or(BindingQueryError::DependencyUnavailable)
+        root.cast::<T>().ok_or_else(|| {
+            binding_contract(
+                SemanticQueryContext::Symbol(symbol),
+                SemanticQueryViolation::Unsupported(SemanticDataKind::Syntax),
+            )
+        })
     })
 }
 
@@ -230,7 +248,12 @@ where
             SyntaxWalkControl::Continue
         });
 
-        child.ok_or(BindingQueryError::DependencyUnavailable)
+        child.ok_or_else(|| {
+            binding_contract(
+                SemanticQueryContext::Symbol(symbol),
+                SemanticQueryViolation::Missing(SemanticDataKind::Syntax),
+            )
+        })
     })
 }
 
@@ -247,9 +270,15 @@ pub(super) fn with_declaration_root<R>(
 
     let surface = compiler_known_surface(context.symbols, symbol)?;
 
-    let fragment = surface
-        .syntax_fragment()
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+    let fragment = surface.syntax_fragment().map_err(|cause| {
+        crate::compilation::binder::semantic_query_binding_error(
+            crate::compilation::SemanticQueryFailure::PreparsedSyntax {
+                symbol,
+                source: None,
+                cause,
+            },
+        )
+    })?;
 
     consume(fragment.root())
 }
@@ -267,5 +296,35 @@ pub(super) fn syntax_node_for_anchor<'syntax>(
             anchor.full_range(),
             anchor.is_recovered(),
         )
-        .ok_or(BindingQueryError::DependencyUnavailable)
+        .ok_or_else(|| {
+            binding_contract(
+                SemanticQueryContext::Source(anchor.source_id()),
+                SemanticQueryViolation::Missing(SemanticDataKind::Syntax),
+            )
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_binder::{BindingError, BoundUnitBindingError};
+
+    use super::symbol_ordinal;
+    use crate::compilation::binder::binding_query_error;
+    use crate::fact::FactQueryError;
+
+    #[test]
+    fn overflowing_symbol_ordinals_retain_identity_capacity_failure() {
+        let overflow = usize::try_from(u64::from(u32::MAX) + 1)
+            .unwrap_or_else(|_| panic!("test requires usize wider than u32"));
+
+        let error = symbol_ordinal(overflow)
+            .expect_err("overflowing ordinal must fail before symbol construction");
+
+        assert_eq!(
+            binding_query_error(error),
+            FactQueryError::Binding(BoundUnitBindingError::Binding(
+                BindingError::IdentityCapacityExceeded
+            ))
+        );
+    }
 }

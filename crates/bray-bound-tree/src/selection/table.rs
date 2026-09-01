@@ -75,7 +75,16 @@ impl SemanticSelectionEntry {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum SemanticSelectionTableBuildError {
     /// Expression types describe another bound unit.
-    ForeignExpressionTypes,
+    ForeignExpressionTypes {
+        /// Bound unit requested by the selection table.
+        expected_unit: crate::BoundUnitId,
+        /// Bound unit category requested by the selection table.
+        expected_kind: crate::BoundUnitKind,
+        /// Bound unit described by the supplied expression types.
+        actual_unit: crate::BoundUnitId,
+        /// Bound unit category described by the supplied expression types.
+        actual_kind: crate::BoundUnitKind,
+    },
     /// A selection belongs to another bound unit or names no committed expression.
     InvalidExpression(BoundExpressionId),
     /// More than one selection was supplied for one expression occurrence.
@@ -106,7 +115,12 @@ impl CheckedSemanticSelections {
         entries: impl IntoIterator<Item = SemanticSelectionEntry>,
     ) -> Result<Self, SemanticSelectionTableBuildError> {
         if types.unit() != unit.unit() || types.kind() != unit.key().kind() {
-            return Err(SemanticSelectionTableBuildError::ForeignExpressionTypes);
+            return Err(SemanticSelectionTableBuildError::ForeignExpressionTypes {
+                expected_unit: unit.unit(),
+                expected_kind: unit.key().kind(),
+                actual_unit: types.unit(),
+                actual_kind: types.kind(),
+            });
         }
 
         let mut entries = entries.into_iter().collect::<Vec<_>>();

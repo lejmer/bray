@@ -19,12 +19,13 @@ mod unit_identity;
 pub use cancellation::CancellationToken;
 pub use completion::SymbolCompletionError;
 pub use error::{FactCycle, FactQueryError, LocatedLoweringFailure};
-pub use runtime_error::{FactRuntimeError, FactRuntimeErrorKind};
 pub(crate) use error::{
-    diagnostic_binding_failure, diagnostic_checker_failure, diagnostic_semantic_value_failure,
+    diagnostic_binding_failure, diagnostic_checker_failure, diagnostic_semantic_query_failure,
+    diagnostic_semantic_value_failure,
 };
 pub use key::ImportedSemanticRecordKey;
 pub use priority::QueryPriority;
+pub use runtime_error::{FactRuntimeError, FactRuntimeErrorKind};
 
 pub(crate) use batch::{BatchCompletionError, BatchWork};
 pub(crate) use cache::FactCell;

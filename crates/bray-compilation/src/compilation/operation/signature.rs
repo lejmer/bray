@@ -1,13 +1,111 @@
 use bray_binder::BindingQueryContext;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    CallableSignature, ImplementationInstanceId, ReceiverParameterSignature, SelfTypeContext,
-    TypeId,
+    AnySymbolId, CallableParameterData, CallableSignature, CallableTypeData,
+    ImplementationInstanceId, ReceiverParameterSignature, SelfTypeContext, TypeData,
+    TypeExpressionTemplate, TypeId,
 };
 
 use super::super::binder::CompilationBindingContext;
 use super::super::checker::CompilationCheckerContext;
+use super::query::symbol_contract_failure;
+use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
 use crate::fact::FactQueryError;
+
+pub(super) fn operation_callable_type(
+    values: &bray_symbols::SemanticValueStore,
+    template: &TypeExpressionTemplate,
+    parameters: &[TypeId],
+    result: TypeId,
+    member: AnySymbolId,
+) -> Result<TypeId, FactQueryError> {
+    let (parameter_surface, constness, trust, abi, dependencies, phase_behaviors) = match template {
+        TypeExpressionTemplate::Callable(callable) => {
+            let parameters = callable
+                .parameters()
+                .iter()
+                .map(|parameter| {
+                    (
+                        parameter.name().clone(),
+                        parameter.position(),
+                        parameter.mode(),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            (
+                parameters,
+                callable.constness(),
+                callable.trust(),
+                callable.abi(),
+                callable.dependencies(),
+                callable.phase_behaviors().clone(),
+            )
+        }
+        TypeExpressionTemplate::Resolved(ty) => {
+            let data = values
+                .type_data(*ty)
+                .map_err(FactQueryError::SemanticValueStore)?;
+
+            let TypeData::Callable(callable) = data.as_ref() else {
+                return Err(symbol_contract_failure(
+                    member,
+                    SemanticQueryViolation::Unsupported(SemanticDataKind::CallableSignature),
+                ));
+            };
+
+            let parameters = callable
+                .parameters()
+                .iter()
+                .map(|parameter| {
+                    (
+                        parameter.name().clone(),
+                        parameter.position(),
+                        parameter.mode(),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            (
+                parameters,
+                callable.constness(),
+                callable.trust(),
+                callable.abi(),
+                callable.dependency_contracts(),
+                callable.phase_behaviors().clone(),
+            )
+        }
+        _ => {
+            return Err(symbol_contract_failure(
+                member,
+                SemanticQueryViolation::Unsupported(SemanticDataKind::CallableSignature),
+            ));
+        }
+    };
+
+    if parameter_surface.len() != parameters.len() {
+        return Err(symbol_contract_failure(
+            member,
+            SemanticQueryViolation::CountMismatch {
+                data: SemanticDataKind::CallableSignature,
+                expected: parameter_surface.len(),
+                actual: parameters.len(),
+            },
+        ));
+    }
+
+    let parameters = parameter_surface
+        .into_iter()
+        .zip(parameters.iter().copied())
+        .map(|((name, position, mode), ty)| CallableParameterData::new(name, position, mode, ty));
+
+    let callable = CallableTypeData::new(parameters, result, constness, trust, abi, dependencies)
+        .with_phase_behaviors(phase_behaviors);
+
+    values
+        .intern_type(TypeData::Callable(callable))
+        .map_err(FactQueryError::SemanticValueStore)
+}
 
 pub(super) fn member_callable_signature(
     signature: CallableSignature,

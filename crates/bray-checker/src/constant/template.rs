@@ -47,7 +47,7 @@ impl CheckedConstantTerms {
 }
 
 /// A malformed set of checked constant-expression occurrences.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CheckedConstantTermsBuildError {
     /// More than one term was supplied for one source occurrence.
     DuplicateOccurrence(ConstantExpressionOccurrenceKey),
@@ -285,18 +285,19 @@ pub fn resolve_callable_signature_template(
         return Ok(None);
     };
 
-    let parameter_templates = template
-        .parameter_type_templates(values)
-        .map_err(|error| match error {
-            bray_symbols::CallableSignatureTemplateError::SemanticValue(error) => {
-                CheckerInfrastructureError::SemanticValueStore(error)
-            }
-            bray_symbols::CallableSignatureTemplateError::InvalidCallableType
-            | bray_symbols::CallableSignatureTemplateError::ParameterCountMismatch
-            | bray_symbols::CallableSignatureTemplateError::ParameterIdentityMismatch => {
-                CheckerInfrastructureError::InvalidSemanticSelectionInput
-            }
-        })?;
+    let parameter_templates =
+        template
+            .parameter_type_templates(values)
+            .map_err(|error| match error {
+                bray_symbols::CallableSignatureTemplateError::SemanticValue(error) => {
+                    CheckerInfrastructureError::SemanticValueStore(error)
+                }
+                bray_symbols::CallableSignatureTemplateError::InvalidCallableType
+                | bray_symbols::CallableSignatureTemplateError::ParameterCountMismatch
+                | bray_symbols::CallableSignatureTemplateError::ParameterIdentityMismatch => {
+                    CheckerInfrastructureError::InvalidSemanticSelectionInput
+                }
+            })?;
 
     let mut parameters = Vec::with_capacity(parameter_templates.len());
 
@@ -431,7 +432,10 @@ mod tests {
     };
     use bray_syntax::LiteralExpressionSyntax;
 
-    use super::{CheckedConstantTerms, resolve_type_expression_template};
+    use super::{
+        CheckedConstantTerms, CheckedConstantTermsBuildError, resolve_type_expression_template,
+    };
+    use crate::CheckerInfrastructureError;
     use crate::test_support::semantic_values;
 
     #[test]
@@ -477,6 +481,25 @@ mod tests {
                 SyntaxAnchor::from_node(literal),
             ),
             ConstantExpressionExpectedType::Resolved(element),
+        );
+
+        let duplicate = CheckedConstantTerms::try_from_terms([
+            (occurrence.key(), length),
+            (occurrence.key(), length),
+        ]);
+
+        assert_eq!(
+            duplicate,
+            Err(CheckedConstantTermsBuildError::DuplicateOccurrence(
+                occurrence.key()
+            ))
+        );
+
+        assert_eq!(
+            duplicate.map_err(CheckerInfrastructureError::CheckedConstantTerms),
+            Err(CheckerInfrastructureError::CheckedConstantTerms(
+                CheckedConstantTermsBuildError::DuplicateOccurrence(occurrence.key())
+            ))
         );
 
         let template = TypeExpressionTemplate::Array {

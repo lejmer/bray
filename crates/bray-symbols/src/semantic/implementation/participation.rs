@@ -144,7 +144,7 @@ impl ParticipatingImplementation {
 }
 
 /// Reports malformed implementation participation input.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ImplementationParticipationSetError {
     /// Two records use the same stable implementation key.
     DuplicateKey,

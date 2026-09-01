@@ -366,9 +366,7 @@ pub(super) fn generic_parameters(
         .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
             owner,
         ))
-        .map_err(|error| {
-            super::super::binding_query_export_error(error, incomplete(symbol))
-        })?;
+        .map_err(|error| super::super::binding_query_export_error(error, incomplete(symbol)))?;
 
     if generic.diagnostics().has_errors() {
         return Err(incomplete(symbol));

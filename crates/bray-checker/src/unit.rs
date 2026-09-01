@@ -310,9 +310,9 @@ where
             terms.insert(occurrence.key(), *result.value());
         }
 
-        let checked = crate::CheckedConstantTerms::try_from_terms(terms).map_err(|_| {
+        let checked = crate::CheckedConstantTerms::try_from_terms(terms).map_err(|error| {
             crate::CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::SemanticValueUnavailable,
+                CheckerInfrastructureError::CheckedConstantTerms(error),
             )
         })?;
 
@@ -359,45 +359,84 @@ where
     }
 }
 
-pub(crate) fn semantic_inputs_match<C, const N: usize>(
+pub(crate) fn semantic_input_failure<C, const N: usize>(
     request: CheckerUnitView<'_, C>,
-    inputs: [(bray_bound_tree::BoundUnitId, bray_bound_tree::BoundUnitKind); N],
-) -> bool
+    inputs: [(
+        crate::CheckerInputKind,
+        (bray_bound_tree::BoundUnitId, bray_bound_tree::BoundUnitKind),
+    ); N],
+) -> Option<CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let identity = (request.unit().unit(), request.unit().key().kind());
-
-    inputs.into_iter().all(|input| input == identity)
+    incompatible_input(request, inputs).map(
+        |(input, expected_unit, expected_kind, actual_unit, actual_kind)| {
+            CheckerInfrastructureError::IncompatibleInput {
+                input,
+                expected_unit,
+                expected_kind,
+                actual_unit,
+                actual_kind,
+            }
+        },
+    )
 }
 
 pub(crate) fn storage_flow_input_failure<C, const N: usize>(
     request: CheckerUnitView<'_, C>,
-    inputs: [
-        (
-            crate::StorageFlowInputKind,
-            (bray_bound_tree::BoundUnitId, bray_bound_tree::BoundUnitKind),
-        );
-        N
-    ],
+    inputs: [(
+        crate::StorageFlowInputKind,
+        (bray_bound_tree::BoundUnitId, bray_bound_tree::BoundUnitKind),
+    ); N],
 ) -> Option<CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    incompatible_input(request, inputs).map(
+        |(input, expected_unit, expected_kind, actual_unit, actual_kind)| {
+            CheckerInfrastructureError::StorageFlow(
+                crate::CheckerStorageFlowFailure::IncompatibleInput {
+                    input,
+                    expected_unit,
+                    expected_kind,
+                    actual_unit,
+                    actual_kind,
+                },
+            )
+        },
+    )
+}
+
+fn incompatible_input<C, I, const N: usize>(
+    request: CheckerUnitView<'_, C>,
+    inputs: [(
+        I,
+        (bray_bound_tree::BoundUnitId, bray_bound_tree::BoundUnitKind),
+    ); N],
+) -> Option<(
+    I,
+    bray_bound_tree::BoundUnitId,
+    bray_bound_tree::BoundUnitKind,
+    bray_bound_tree::BoundUnitId,
+    bray_bound_tree::BoundUnitKind,
+)>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let expected_unit = request.unit().unit();
     let expected_kind = request.unit().key().kind();
 
-    inputs.into_iter().find_map(|(input, (actual_unit, actual_kind))| {
-        (actual_unit != expected_unit || actual_kind != expected_kind).then_some(
-            CheckerInfrastructureError::StorageFlow(crate::CheckerStorageFlowFailure::IncompatibleInput {
+    inputs
+        .into_iter()
+        .find_map(|(input, (actual_unit, actual_kind))| {
+            (actual_unit != expected_unit || actual_kind != expected_kind).then_some((
                 input,
                 expected_unit,
                 expected_kind,
                 actual_unit,
                 actual_kind,
-            }),
-        )
-    })
+            ))
+        })
 }
 
 pub(crate) fn expression_block_owners<C>(
@@ -428,8 +467,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{CheckerUnitRoot, CheckerUnitView};
-    use crate::test_support::TestCheckerContext;
+    use bray_bound_tree::BoundUnitId;
+
+    use super::{CheckerUnitRoot, CheckerUnitView, semantic_input_failure};
+    use crate::test_support::{TestCheckerContext, callable_entry, expression_unit};
+    use crate::{CheckerInfrastructureError, CheckerInputKind};
 
     #[test]
     fn views_are_send_and_sync() {
@@ -437,5 +479,36 @@ mod tests {
 
         assert_send_sync::<CheckerUnitView<'static, TestCheckerContext>>();
         assert_send_sync::<CheckerUnitRoot>();
+    }
+
+    #[test]
+    fn semantic_input_failures_preserve_both_unit_identities() {
+        let (unit, _) = expression_unit(BoundUnitId::new(7), |_, _| Vec::new());
+
+        let entry = callable_entry(unit.key());
+        let context = TestCheckerContext::new(false);
+
+        let request = CheckerUnitView::new(&unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("test checker unit view must be valid: {error:?}"));
+
+        let actual_unit = BoundUnitId::new(11);
+        let actual_kind = unit.key().kind();
+
+        assert_eq!(
+            semantic_input_failure(
+                request,
+                [(
+                    CheckerInputKind::ExpressionTypes,
+                    (actual_unit, actual_kind)
+                )]
+            ),
+            Some(CheckerInfrastructureError::IncompatibleInput {
+                input: CheckerInputKind::ExpressionTypes,
+                expected_unit: unit.unit(),
+                expected_kind: unit.key().kind(),
+                actual_unit,
+                actual_kind,
+            })
+        );
     }
 }

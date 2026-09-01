@@ -58,9 +58,7 @@ pub(super) fn export_callable_semantics(
 
     let signature = binder
         .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(callable))
-        .map_err(|error| {
-            super::super::binding_query_export_error(error, incomplete(symbol))
-        })?;
+        .map_err(|error| super::super::binding_query_export_error(error, incomplete(symbol)))?;
 
     if signature.diagnostics().has_errors() {
         return Err(incomplete(symbol));
@@ -72,9 +70,7 @@ pub(super) fn export_callable_semantics(
 
     let contracts = binder
         .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(callable))
-        .map_err(|error| {
-            super::super::binding_query_export_error(error, incomplete(symbol))
-        })?;
+        .map_err(|error| super::super::binding_query_export_error(error, incomplete(symbol)))?;
 
     if contracts.diagnostics().has_errors() {
         return Err(incomplete(symbol));
@@ -88,9 +84,7 @@ pub(super) fn export_callable_semantics(
         .resolve_symbol_query(SymbolQueryRequest::<CallableContractTemplateQuery>::new(
             callable,
         ))
-        .map_err(|error| {
-            super::super::binding_query_export_error(error, incomplete(symbol))
-        })?;
+        .map_err(|error| super::super::binding_query_export_error(error, incomplete(symbol)))?;
 
     if template.diagnostics().has_errors() {
         return Err(incomplete(symbol));
@@ -178,9 +172,7 @@ pub(super) fn export_generic_semantics(
         .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
             owner,
         ))
-        .map_err(|error| {
-            super::super::binding_query_export_error(error, incomplete(symbol))
-        })?;
+        .map_err(|error| super::super::binding_query_export_error(error, incomplete(symbol)))?;
 
     if generic.diagnostics().has_errors() {
         return Err(incomplete(symbol));
@@ -192,9 +184,7 @@ pub(super) fn export_generic_semantics(
 
     let checked = binder
         .resolve_symbol_query(SymbolQueryRequest::<GenericConstraintsQuery>::new(owner))
-        .map_err(|error| {
-            super::super::binding_query_export_error(error, incomplete(symbol))
-        })?;
+        .map_err(|error| super::super::binding_query_export_error(error, incomplete(symbol)))?;
 
     if checked.diagnostics().has_errors() {
         return Err(incomplete(symbol));
@@ -300,11 +290,12 @@ pub(super) fn export_default_semantics(
                 ));
 
             if default.value().is_present() {
-                let checked = compilation
-                    .callable_parameter_default(parameter)
-                    .map_err(|error| {
-                        super::super::fact_query_export_error(error, incomplete(symbol))
-                    })?;
+                let checked =
+                    compilation
+                        .callable_parameter_default(parameter)
+                        .map_err(|error| {
+                            super::super::fact_query_export_error(error, incomplete(symbol))
+                        })?;
 
                 if checked.diagnostics().has_errors() {
                     return Err(incomplete(symbol));

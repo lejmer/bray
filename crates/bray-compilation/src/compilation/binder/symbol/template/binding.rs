@@ -1,5 +1,7 @@
-use crate::compilation::binder::BindingQueryResult;
-use bray_binder::{BindingQueryError, SymbolQueryProvider};
+use crate::compilation::binder::{
+    BindingQueryResult, semantic_contract_binding_error as binding_contract,
+};
+use bray_binder::{BindingError, BindingQueryError, SymbolQueryProvider};
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
@@ -29,6 +31,7 @@ use super::super::surface::{declaration_callable_surface, symbol_ordinal, with_d
 use crate::compilation::binder::CompilationBindingContext;
 use crate::compilation::binder::symbol::imported::{
     imported_callable_contract, imported_callable_parameter_default, imported_generic_declaration,
+    missing_imported_template,
 };
 use crate::fact::SymbolQueryCache;
 
@@ -167,7 +170,9 @@ macro_rules! impl_overload_template_binding {
                     context
                         .imported_symbols()?
                         .and_then(|symbols| symbols.$accessor(request.owner()))
-                        .ok_or(BindingQueryError::DependencyUnavailable)?
+                        .ok_or(BindingQueryError::Binding(
+                            BindingError::SymbolRecordUnavailable(request.symbol()),
+                        ))?
                 };
 
                 Ok(DiagnosticResult::without_diagnostics(overload_template(
@@ -351,7 +356,7 @@ fn push_capabilities(
     output: &mut Vec<DeclarationCapabilityTemplate>,
 ) -> BindingQueryResult<()> {
     let Some(clause) = node.cast::<UsesClauseSyntax>() else {
-        return Err(BindingQueryError::DependencyUnavailable);
+        return Err(syntax_contract(SyntaxAnchor::from_node(node)));
     };
 
     for path in clause.paths() {
@@ -395,18 +400,27 @@ fn bind_predicate_signature_template(
     let parameters = context
         .symbols
         .predicate_definition_parameters(owner)
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::Binding(
+            BindingError::SymbolRecordUnavailable(symbol),
+        ))?;
 
     with_declaration_root(context, symbol, |root| {
         let list = direct_children::<PredicateParameterListSyntax>(&root)?
             .into_iter()
             .next()
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or_else(|| syntax_contract(SyntaxAnchor::from_node(&root)))?;
 
         let syntax = list.predicate_parameters().collect::<Vec<_>>();
 
         if syntax.len() != parameters.len() {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(binding_contract(
+                crate::compilation::SemanticQueryContext::Symbol(symbol),
+                crate::compilation::SemanticQueryViolation::CountMismatch {
+                    data: crate::compilation::SemanticDataKind::CallableSignature,
+                    expected: parameters.len(),
+                    actual: syntax.len(),
+                },
+            ));
         }
 
         let types = syntax
@@ -428,7 +442,7 @@ fn bind_predicate_signature_template(
                     .identifier_token()
                     .text(syntax.source().text())
                     .and_then(bray_symbols::CallableParameterName::try_new)
-                    .ok_or(BindingQueryError::DependencyUnavailable)?;
+                    .ok_or_else(|| syntax_contract(SyntaxAnchor::from_node(&syntax)))?;
 
                 Ok(PredicateParameterTemplate::new(parameter, name, ty))
             })
@@ -461,7 +475,7 @@ fn predicate_is_trusted(
                     .is_some()
             }),
     }
-    .ok_or(BindingQueryError::DependencyUnavailable)
+    .ok_or_else(|| syntax_contract(SyntaxAnchor::from_node(root)))
 }
 
 fn bind_implementation_head_template(
@@ -471,8 +485,9 @@ fn bind_implementation_head_template(
     let generic = context.resolve_symbol_query(SymbolQueryRequest::<
         GenericDeclarationTemplateQuery,
     >::new(
-        GenericOwnerId::try_new(implementation.into_any())
-            .ok_or(BindingQueryError::DependencyUnavailable)?,
+        GenericOwnerId::try_new(implementation.into_any()).ok_or(BindingQueryError::Binding(
+            BindingError::GenericOwnerUnavailable(implementation.into_any()),
+        ))?,
     ))?;
 
     let subject = context.resolve_symbol_query(
@@ -534,9 +549,12 @@ fn bind_default_template(
             ));
         };
 
-        let address = context
-            .imported_semantic_address(provider)?
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+        let address =
+            context
+                .imported_semantic_address(provider)?
+                .ok_or(BindingQueryError::Binding(
+                    BindingError::SymbolRecordUnavailable(provider),
+                ))?;
 
         let imported = super::super::imported::imported_declaration_template(
             context,
@@ -545,7 +563,10 @@ fn bind_default_template(
         )?;
 
         if imported.value().is_none() {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(missing_imported_template(
+                address,
+                bray_package_interface::InterfaceSemanticRecordKind::DeclarationTemplate,
+            ));
         }
 
         return Ok(DiagnosticResult::new(
@@ -574,10 +595,13 @@ fn bind_compiler_known_callable_parameter_default(
     context: &CompilationBindingContext<'_>,
     parameter: CallableParameterSymbolId,
 ) -> BindingQueryResult<DiagnosticResult<UnevaluatedDefaultTemplate>> {
-    let parameter_symbol = context
-        .symbols
-        .callable_parameter(parameter)
-        .ok_or(bray_binder::BindingQueryError::DependencyUnavailable)?;
+    let parameter_symbol =
+        context
+            .symbols
+            .callable_parameter(parameter)
+            .ok_or(BindingQueryError::Binding(
+                BindingError::SymbolRecordUnavailable(parameter.into()),
+            ))?;
 
     let surface = declaration_callable_surface(context, parameter_symbol.owner().into_any())?;
 
@@ -585,7 +609,16 @@ fn bind_compiler_known_callable_parameter_default(
         .parameters
         .parameters()
         .nth(parameter_symbol.ordinal() as usize)
-        .ok_or(bray_binder::BindingQueryError::DependencyUnavailable)?;
+        .ok_or_else(|| {
+            binding_contract(
+                crate::compilation::SemanticQueryContext::Symbol(parameter.into()),
+                crate::compilation::SemanticQueryViolation::CountMismatch {
+                    data: crate::compilation::SemanticDataKind::CallableSignature,
+                    expected: parameter_symbol.ordinal() as usize + 1,
+                    actual: surface.parameters.parameters().count(),
+                },
+            )
+        })?;
 
     let default = parameter
         .expression()
@@ -642,10 +675,14 @@ where
     });
 
     if cast_failed {
-        return Err(BindingQueryError::DependencyUnavailable);
+        return Err(syntax_contract(SyntaxAnchor::from_node(root)));
     }
 
     Ok(children)
+}
+
+fn syntax_contract(source: SyntaxAnchor) -> BindingQueryError<crate::fact::FactQueryError> {
+    BindingQueryError::Binding(BindingError::SyntaxContract(source))
 }
 
 #[cfg(test)]

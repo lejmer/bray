@@ -194,6 +194,9 @@ impl super::super::Compilation {
             Err(FactQueryError::SemanticUnitContext(error)) => {
                 panic!("semantic unit context failed: {error:?}")
             }
+            Err(FactQueryError::SemanticQuery(error)) => {
+                panic!("dependency-interface semantic query failed: {error}")
+            }
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("semantic checker infrastructure failed: {error:?}")
             }
@@ -1314,15 +1317,13 @@ mod tests {
 
     #[test]
     fn semantic_content_owner_mismatch_retains_owner_kinds() {
-        let expected = GenericOwnerId::try_new(
-            FunctionSymbolId::from_symbol_id(SymbolId::new(5)).into(),
-        )
-        .unwrap_or_else(|| panic!("function must support generic substitutions"));
+        let expected =
+            GenericOwnerId::try_new(FunctionSymbolId::from_symbol_id(SymbolId::new(5)).into())
+                .unwrap_or_else(|| panic!("function must support generic substitutions"));
 
-        let actual = GenericOwnerId::try_new(
-            TraitSymbolId::from_symbol_id(SymbolId::new(5)).into(),
-        )
-        .unwrap_or_else(|| panic!("trait must support generic substitutions"));
+        let actual =
+            GenericOwnerId::try_new(TraitSymbolId::from_symbol_id(SymbolId::new(5)).into())
+                .unwrap_or_else(|| panic!("trait must support generic substitutions"));
 
         assert_eq!(
             super::semantic_content_problem(SemanticValueStoreError::GenericOwnerMismatch {

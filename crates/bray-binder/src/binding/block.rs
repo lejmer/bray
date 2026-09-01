@@ -212,7 +212,7 @@ where
         let context = operations.path_context(self, scope)?;
 
         let symbol = match symbol_name(syntax.source(), &token) {
-            Some(name) if name_is_available(self, context, syntax.source(), &token) => {
+            Some(name) if name_is_available(self, context, syntax.source(), &token)? => {
                 let symbol = self.unit_mut().push_constant(
                     scope,
                     name,

@@ -17,7 +17,9 @@ use bray_checker::{
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::SymbolGraph;
 
-use crate::compilation::binder::{CompilationBindingContext, binding_query_error, type_scope};
+use crate::compilation::binder::{
+    CompilationBindingContext, binding_error, binding_query_error, type_scope,
+};
 use crate::compilation::checker::{CompilationCheckerContext, checker_result};
 use crate::fact::FactQueryError;
 
@@ -93,7 +95,14 @@ pub(super) fn expression_candidates(
     let owner = binding_context
         .symbols()
         .symbol_for_key(bound.key().declared_owner())
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .ok_or_else(|| {
+            unit_contract_failure(
+                bound.key(),
+                crate::compilation::SemanticQueryViolation::Missing(
+                    crate::compilation::SemanticDataKind::Symbol,
+                ),
+            )
+        })?;
 
     let type_scope = type_scope(binding_context, owner).map_err(binding_query_error)?;
 
@@ -130,12 +139,35 @@ pub(super) fn expression_candidates(
         return Err(binding_query_error(error));
     }
 
-    match outcome {
-        BoundWalkOutcome::Completed => Ok(DiagnosticResult::new(candidates, diagnostics)),
-        BoundWalkOutcome::Stopped | BoundWalkOutcome::MissingNode(_) => {
-            Err(FactQueryError::InfrastructureFailure)
-        }
+    if outcome != BoundWalkOutcome::Completed {
+        return Err(unit_walk_failure(bound.key(), outcome));
     }
+
+    Ok(DiagnosticResult::new(candidates, diagnostics))
+}
+
+pub(super) fn unit_walk_failure(key: &BoundUnitKey, outcome: BoundWalkOutcome) -> FactQueryError {
+    let violation = match outcome {
+        BoundWalkOutcome::MissingNode(node) => {
+            crate::compilation::SemanticQueryViolation::MissingBoundNode(node)
+        }
+        BoundWalkOutcome::Stopped | BoundWalkOutcome::Completed => {
+            crate::compilation::SemanticQueryViolation::UnexpectedWalkOutcome(outcome)
+        }
+    };
+
+    unit_contract_failure(key, violation)
+}
+
+pub(super) fn unit_contract_failure(
+    key: &BoundUnitKey,
+    violation: crate::compilation::SemanticQueryViolation,
+) -> FactQueryError {
+    crate::compilation::SemanticQueryFailure::contract(
+        crate::compilation::SemanticQueryContext::Unit(key.clone()),
+        violation,
+    )
+    .into()
 }
 
 pub(super) fn check_patterns(
@@ -180,22 +212,33 @@ pub(super) fn map_binding_error(error: BoundUnitBindingError<FactQueryError>) ->
         BoundUnitBindingError::InvalidUnitKey => {
             FactQueryError::Binding(BoundUnitBindingError::InvalidUnitKey)
         }
-        BoundUnitBindingError::MissingSyntax => {
-            FactQueryError::Binding(BoundUnitBindingError::MissingSyntax)
+        BoundUnitBindingError::MissingSyntax { source } => {
+            FactQueryError::Binding(BoundUnitBindingError::MissingSyntax { source })
         }
-        BoundUnitBindingError::MissingOwner => {
-            FactQueryError::Binding(BoundUnitBindingError::MissingOwner)
+        BoundUnitBindingError::MissingOwner {
+            source,
+            owner,
+            symbol,
+        } => FactQueryError::Binding(BoundUnitBindingError::MissingOwner {
+            source,
+            owner,
+            symbol,
+        }),
+        BoundUnitBindingError::MissingModule { source, owner } => {
+            FactQueryError::Binding(BoundUnitBindingError::MissingModule { source, owner })
         }
-        BoundUnitBindingError::MissingModule => {
-            FactQueryError::Binding(BoundUnitBindingError::MissingModule)
+        BoundUnitBindingError::InvalidSurfaceName { source, symbol } => {
+            FactQueryError::Binding(BoundUnitBindingError::InvalidSurfaceName { source, symbol })
         }
         BoundUnitBindingError::SemanticValue(error) => {
             FactQueryError::Binding(BoundUnitBindingError::SemanticValue(error))
         }
-        BoundUnitBindingError::Construction => {
-            FactQueryError::Binding(BoundUnitBindingError::Construction)
+        BoundUnitBindingError::Construction(error) => {
+            FactQueryError::Binding(BoundUnitBindingError::Construction(error))
         }
-        BoundUnitBindingError::Binding => FactQueryError::Binding(BoundUnitBindingError::Binding),
-        BoundUnitBindingError::Assembly => FactQueryError::Binding(BoundUnitBindingError::Assembly),
+        BoundUnitBindingError::Binding(error) => binding_error(error),
+        BoundUnitBindingError::Assembly(error) => {
+            FactQueryError::Binding(BoundUnitBindingError::Assembly(error))
+        }
     }
 }

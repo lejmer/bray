@@ -18,9 +18,9 @@ use bray_symbols::{
 
 use super::classification::classify_operation;
 use crate::diagnostic::{diagnostic_id, expression_span};
-use crate::unit::semantic_inputs_match;
+use crate::unit::semantic_input_failure;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
+    CheckerInfrastructureError, CheckerInputKind, CheckerOutcome, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
@@ -39,16 +39,20 @@ where
         return CheckerOutcome::Cancelled;
     }
 
-    if !semantic_inputs_match(
+    if let Some(error) = semantic_input_failure(
         request,
         [
-            (selections.unit(), selections.kind()),
-            (literals.unit(), literals.kind()),
+            (
+                CheckerInputKind::SemanticSelections,
+                (selections.unit(), selections.kind()),
+            ),
+            (
+                CheckerInputKind::LiteralValues,
+                (literals.unit(), literals.kind()),
+            ),
         ],
     ) {
-        return CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidSemanticSelectionInput,
-        );
+        return CheckerOutcome::InfrastructureFailure(error);
     }
 
     let mut operations = Vec::new();

@@ -23,11 +23,11 @@ use crate::expression::check_literal_values;
 use crate::type_check::{
     ExpressionTypeSession, SessionProgress, finish_expression_types_with_deferred,
 };
-use crate::unit::semantic_inputs_match;
+use crate::unit::semantic_input_failure;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitView, ExpressionCandidateSet, ExpressionTypeEvidence,
-    NestedCallableEvidence, PatternCheckInput,
+    CheckerInfrastructureError, CheckerInputKind, CheckerOutcome, CheckerQueryError,
+    CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView, ExpressionCandidateSet,
+    ExpressionTypeEvidence, NestedCallableEvidence, PatternCheckInput,
 };
 
 pub(crate) fn check_expression_semantics<C>(
@@ -53,10 +53,14 @@ where
         + CheckerSemanticQueryProvider<UnionPayloadFieldTypeQuery>
         + ?Sized,
 {
-    if !semantic_inputs_match(request, [(declared_types.unit(), declared_types.kind())]) {
-        return CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidSemanticSelectionInput,
-        );
+    if let Some(error) = semantic_input_failure(
+        request,
+        [(
+            CheckerInputKind::DeclaredValueTypes,
+            (declared_types.unit(), declared_types.kind()),
+        )],
+    ) {
+        return CheckerOutcome::InfrastructureFailure(error);
     }
 
     // Provisional checks need an owned enrichment while the caller retains its reusable input.
@@ -426,9 +430,9 @@ where
 
     let selections = match CheckedSemanticSelections::try_new(request.unit(), &types, entries) {
         Ok(selections) => selections,
-        Err(_) => {
+        Err(error) => {
             return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                CheckerInfrastructureError::SemanticSelection(error),
             );
         }
     };

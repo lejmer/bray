@@ -21,7 +21,8 @@ pub(crate) use contract::{callable_normal_completion_has_value, push_contract_sc
 pub use directive::{
     bind_callable_type_directives, bind_directive_template, malformed_directive_argument_diagnostic,
 };
-pub(crate) use error::{BindingError, BindingResult};
+pub use error::BindingError;
+pub(crate) use error::BindingResult;
 pub(crate) use expression::ExpressionBinder;
 pub use type_expression::{
     CallableTypeQualifiers, TypeExpressionBinder, TypeExpressionImports, TypeExpressionScope,

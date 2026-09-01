@@ -424,9 +424,14 @@ where
         }));
     }
 
-    let data = request.semantic_values().type_data(value).map_err(|error| {
-        CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::SemanticValueStore(error))
-    })?;
+    let data = request
+        .semantic_values()
+        .type_data(value)
+        .map_err(|error| {
+            CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::SemanticValueStore(
+                error,
+            ))
+        })?;
 
     if matches!(data.as_ref(), TypeData::TypeParameter(_)) {
         pending.remove(&value);
@@ -527,9 +532,9 @@ where
         .semantic_values()
         .substitute_type(member_type, substitution)
         .map_err(|error| {
-            CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::SemanticValueStore(error),
-            )
+            CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::SemanticValueStore(
+                error,
+            ))
         })?;
 
     atomic_value_representation(request, member_type, diagnostics, pending)

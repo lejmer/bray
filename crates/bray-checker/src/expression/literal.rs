@@ -16,10 +16,10 @@ use crate::constant::{
 };
 use crate::diagnostic::{diagnostic_id, diagnostic_type, expression_span};
 use crate::representation::type_representation;
-use crate::unit::semantic_inputs_match;
+use crate::unit::semantic_input_failure;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerUnitView,
+    CheckerInfrastructureError, CheckerInputKind, CheckerLiteralValueFailure, CheckerOutcome,
+    CheckerQueryError, CheckerRequestContext, CheckerUnitView,
 };
 
 pub(crate) fn check_literal_values<C>(
@@ -29,10 +29,14 @@ pub(crate) fn check_literal_values<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if !semantic_inputs_match(request, [(types.unit(), types.kind())]) {
-        return CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidLiteralValueInput,
-        );
+    if let Some(error) = semantic_input_failure(
+        request,
+        [(
+            CheckerInputKind::ExpressionTypes,
+            (types.unit(), types.kind()),
+        )],
+    ) {
+        return CheckerOutcome::InfrastructureFailure(error);
     }
 
     let target_width = request.selected_target().machine().pointer_width_bits();
@@ -52,7 +56,7 @@ where
 
         let Some(result) = types.expression(expression) else {
             return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidLiteralValueInput,
+                CheckerInfrastructureError::InvalidExpressionTypeInput { expression },
             );
         };
 
@@ -204,13 +208,35 @@ fn literal_value_table_error(
         bray_bound_tree::CheckedLiteralValueTableBuildError::SemanticValue { error, .. } => {
             CheckerInfrastructureError::SemanticValueStore(error)
         }
-        bray_bound_tree::CheckedLiteralValueTableBuildError::ForeignExpressionTypes
-        | bray_bound_tree::CheckedLiteralValueTableBuildError::InvalidLiteral(_)
-        | bray_bound_tree::CheckedLiteralValueTableBuildError::MissingExpressionType(_)
-        | bray_bound_tree::CheckedLiteralValueTableBuildError::MissingLiteralValue(_)
-        | bray_bound_tree::CheckedLiteralValueTableBuildError::ValueTypeMismatch(_)
-        | bray_bound_tree::CheckedLiteralValueTableBuildError::DuplicateExpression(_) => {
-            CheckerInfrastructureError::InvalidLiteralValueInput
+        bray_bound_tree::CheckedLiteralValueTableBuildError::ForeignExpressionTypes => {
+            CheckerInfrastructureError::LiteralValue(
+                CheckerLiteralValueFailure::ForeignExpressionTypes,
+            )
+        }
+        bray_bound_tree::CheckedLiteralValueTableBuildError::InvalidLiteral(expression) => {
+            CheckerInfrastructureError::LiteralValue(CheckerLiteralValueFailure::InvalidLiteral {
+                expression,
+            })
+        }
+        bray_bound_tree::CheckedLiteralValueTableBuildError::MissingExpressionType(expression) => {
+            CheckerInfrastructureError::LiteralValue(
+                CheckerLiteralValueFailure::MissingExpressionType { expression },
+            )
+        }
+        bray_bound_tree::CheckedLiteralValueTableBuildError::MissingLiteralValue(expression) => {
+            CheckerInfrastructureError::LiteralValue(
+                CheckerLiteralValueFailure::MissingLiteralValue { expression },
+            )
+        }
+        bray_bound_tree::CheckedLiteralValueTableBuildError::ValueTypeMismatch(expression) => {
+            CheckerInfrastructureError::LiteralValue(
+                CheckerLiteralValueFailure::ValueTypeMismatch { expression },
+            )
+        }
+        bray_bound_tree::CheckedLiteralValueTableBuildError::DuplicateExpression(expression) => {
+            CheckerInfrastructureError::LiteralValue(
+                CheckerLiteralValueFailure::DuplicateExpression { expression },
+            )
         }
     }
 }
@@ -222,7 +248,7 @@ mod tests {
 
     use super::literal_value_table_error;
     use crate::test_support::{expression_unit, literal_expression};
-    use crate::CheckerInfrastructureError;
+    use crate::{CheckerInfrastructureError, CheckerLiteralValueFailure};
 
     #[test]
     fn literal_table_failures_preserve_semantic_value_causes() {
@@ -245,6 +271,15 @@ mod tests {
         assert_eq!(
             literal_value_table_error(error),
             CheckerInfrastructureError::SemanticValueStore(cause)
+        );
+
+        assert_eq!(
+            literal_value_table_error(CheckedLiteralValueTableBuildError::InvalidLiteral(
+                expressions[0]
+            )),
+            CheckerInfrastructureError::LiteralValue(CheckerLiteralValueFailure::InvalidLiteral {
+                expression: expressions[0],
+            })
         );
     }
 }

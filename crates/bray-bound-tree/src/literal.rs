@@ -178,10 +178,7 @@ fn validate_entry(
 
     let value = values
         .constant_value_data(entry.value())
-        .map_err(|error| CheckedLiteralValueTableBuildError::SemanticValue {
-            expression,
-            error,
-        })?;
+        .map_err(|error| CheckedLiteralValueTableBuildError::SemanticValue { expression, error })?;
 
     if !checked_type.is_recovered() && value.ty() != checked_type.ty() {
         return Err(CheckedLiteralValueTableBuildError::ValueTypeMismatch(

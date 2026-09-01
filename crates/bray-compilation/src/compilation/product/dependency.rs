@@ -463,12 +463,12 @@ fn push_trait_operation_dependencies(
     }
 
     internal = internal.or(push_witness_dependencies(
-                semantic_values,
-                symbols,
-                declarations,
-                SelectedImplementationWitness::new(requirement, witness),
-                dependencies,
-            )?);
+        semantic_values,
+        symbols,
+        declarations,
+        SelectedImplementationWitness::new(requirement, witness),
+        dependencies,
+    )?);
 
     Ok(internal)
 }

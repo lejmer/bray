@@ -185,17 +185,14 @@ impl FactTaskContext {
     }
 
     fn state(&self) -> Result<std::sync::MutexGuard<'_, FactTaskState>, FactQueryError> {
-        self.data
-            .state
-            .lock()
-            .map_err(|_| {
-                FactRuntimeFailure::SynchronizationPoisoned {
-                    component: super::SynchronizationComponent::TaskDependencies,
-                    fact: Some(self.key().clone()),
-                    task: Some(self.identity()),
-                }
-                .into()
-            })
+        self.data.state.lock().map_err(|_| {
+            FactRuntimeFailure::SynchronizationPoisoned {
+                component: super::SynchronizationComponent::TaskDependencies,
+                fact: Some(self.key().clone()),
+                task: Some(self.identity()),
+            }
+            .into()
+        })
     }
 
     fn invalid_state(&self, operation: TaskOperation, actual: FactTaskPhase) -> FactQueryError {
@@ -377,22 +374,18 @@ fn local_evaluations<T>(
 ) -> Result<T, FactQueryError> {
     LOCAL_EVALUATIONS
         .try_with(|active| {
-            let mut active = active
-                .try_borrow_mut()
-                .map_err(|_| {
-                    FactRuntimeFailure::TaskLocalStateUnavailable {
-                        operation: operation_kind,
-                        cause: LocalStateFailure::BorrowConflict,
-                    }
-                })?;
+            let mut active = active.try_borrow_mut().map_err(|_| {
+                FactRuntimeFailure::TaskLocalStateUnavailable {
+                    operation: operation_kind,
+                    cause: LocalStateFailure::BorrowConflict,
+                }
+            })?;
 
             operation(&mut active)
         })
-        .map_err(|_| {
-            FactRuntimeFailure::TaskLocalStateUnavailable {
-                operation: operation_kind,
-                cause: LocalStateFailure::Unavailable,
-            }
+        .map_err(|_| FactRuntimeFailure::TaskLocalStateUnavailable {
+            operation: operation_kind,
+            cause: LocalStateFailure::Unavailable,
         })?
 }
 

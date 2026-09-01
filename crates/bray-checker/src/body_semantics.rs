@@ -12,9 +12,9 @@ use crate::analysis::{
 use crate::asynchronous::check_async_analysis_with_graph;
 use crate::behavior::collect_body_behavior;
 use crate::dependency::check_dependency_contracts;
-use crate::unit::semantic_inputs_match;
+use crate::unit::semantic_input_failure;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerRequestContext,
+    CheckerInfrastructureError, CheckerInputKind, CheckerOutcome, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
@@ -29,19 +29,32 @@ pub(crate) fn check_body_semantics<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    if !semantic_inputs_match(
+    if let Some(error) = semantic_input_failure(
         request,
         [
-            (control_flow.unit(), control_flow.kind()),
-            (expressions.unit(), expressions.kind()),
-            (patterns.unit(), patterns.kind()),
-            (storage.unit(), storage.kind()),
-            (memory.unit(), memory.kind()),
+            (
+                CheckerInputKind::ControlFlow,
+                (control_flow.unit(), control_flow.kind()),
+            ),
+            (
+                CheckerInputKind::ExpressionSemantics,
+                (expressions.unit(), expressions.kind()),
+            ),
+            (
+                CheckerInputKind::Patterns,
+                (patterns.unit(), patterns.kind()),
+            ),
+            (
+                CheckerInputKind::StoragePlan,
+                (storage.unit(), storage.kind()),
+            ),
+            (
+                CheckerInputKind::MemoryOperations,
+                (memory.unit(), memory.kind()),
+            ),
         ],
     ) {
-        return CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidBodySemantics,
-        );
+        return CheckerOutcome::InfrastructureFailure(error);
     }
 
     let graph = match build_storage_control_flow_graph(request, storage, expressions.selections()) {
@@ -134,9 +147,9 @@ where
         behavior,
     ) {
         Ok(semantics) => semantics,
-        Err(_) => {
+        Err(error) => {
             return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidBodySemantics,
+                CheckerInfrastructureError::SemanticSnapshot(error),
             );
         }
     };

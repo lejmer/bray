@@ -22,12 +22,12 @@ pub use artifact::{
 pub use dependency::{DiagnosticDependencyRequirementKind, DiagnosticDependencySubjectKind};
 pub use document::DiagnosticDocumentParseKind;
 pub use emission::{
-    DiagnosticArtifactRequirement, DiagnosticAssemblySyntaxKind, DiagnosticDebugInformationMode,
-    DiagnosticDebugOutputMode, DiagnosticCodegenVerificationStage,
+    DiagnosticArtifactRequirement, DiagnosticAssemblySyntaxKind,
+    DiagnosticCodegenVerificationStage, DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
     DiagnosticEmissionArtifactOperation, DiagnosticLoweringFailure, DiagnosticLoweringFailureKind,
-    DiagnosticLoweringInputFailure,
-    DiagnosticLoweringInputFailureKind, DiagnosticMirUnitBuildFailure,
-    DiagnosticNativeProductFailureKind, DiagnosticProductKind, DiagnosticSourceConstructKind,
+    DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind,
+    DiagnosticMirUnitBuildFailure, DiagnosticNativeProductFailureKind, DiagnosticProductKind,
+    DiagnosticSourceConstructKind,
 };
 pub use external::{
     DiagnosticExternalToolFailureKind, DiagnosticExternalToolOperation, DiagnosticIoErrorKind,

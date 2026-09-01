@@ -1,3 +1,4 @@
+use bray_base::Cancellation;
 use bray_bound_tree::{CallableDeclarationTemplate, CallableParameterDefaultTemplate};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
@@ -8,11 +9,91 @@ use bray_symbols::{
 };
 use bray_syntax::GenericArgumentSyntax;
 
-use super::callable::{CallGenericContext, bind_generic_arguments, resolve_symbol_query_value};
+use super::callable::{CallGenericContext, resolve_symbol_query_value};
 use crate::{
     BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider,
-    TypeExpressionScope,
+    TypeExpressionBinder, TypeExpressionScope,
 };
+
+struct CandidateCancellation<'context, C: ?Sized>(&'context C);
+
+impl<C> Cancellation for CandidateCancellation<'_, C>
+where
+    C: BindingQueryContext,
+{
+    fn is_cancelled(&self) -> bool {
+        self.0.is_cancelled()
+    }
+}
+
+pub(super) struct BoundGenericArguments {
+    pub(super) arguments: Vec<GenericArgumentTemplate>,
+    pub(super) has_diagnostics: bool,
+}
+
+pub(super) fn bind_generic_arguments<C>(
+    context: &C,
+    call: CallGenericContext<'_>,
+    declaration: &GenericDeclarationTemplate,
+    diagnostics: &mut DiagnosticBag,
+) -> BindingQueryResult<Option<BoundGenericArguments>, C::UpstreamError>
+where
+    C: BindingQueryContext,
+{
+    if call.arguments.len() > declaration.parameters().len() {
+        return Ok(None);
+    }
+
+    let result = if call.arguments.is_empty() {
+        DiagnosticResult::without_diagnostics(Vec::new())
+    } else {
+        let cancellation = CandidateCancellation(context);
+
+        // Each overload candidate owns an isolated type-expression binding scope.
+        match TypeExpressionBinder::new(
+            context.symbols(),
+            context,
+            context.semantic_values(),
+            call.scope.clone(),
+            &cancellation,
+        )
+        .bind_call_generic_arguments(call.arguments, declaration.parameters())
+        {
+            Ok(arguments) => arguments,
+            Err(BindingQueryError::Cancelled) => return Err(BindingQueryError::Cancelled),
+            Err(BindingQueryError::CheckerInfrastructure(error)) => {
+                return Err(BindingQueryError::CheckerInfrastructure(error));
+            }
+            Err(BindingQueryError::SemanticValue(error)) => {
+                return Err(BindingQueryError::SemanticValue(error));
+            }
+            Err(BindingQueryError::Upstream(error)) => {
+                return Err(BindingQueryError::Upstream(error));
+            }
+            Err(BindingQueryError::DependencyUnavailable) => return Ok(None),
+            Err(
+                error @ (BindingQueryError::MissingSyntax { .. }
+                | BindingQueryError::MissingOwner { .. }
+                | BindingQueryError::MissingModule { .. }
+                | BindingQueryError::InvalidSurfaceName { .. }
+                | BindingQueryError::Construction(_)
+                | BindingQueryError::Binding(_)
+                | BindingQueryError::Assembly(_)),
+            ) => return Err(error),
+        }
+    };
+
+    let (arguments, argument_diagnostics) = result.into_parts();
+
+    let has_diagnostics = !argument_diagnostics.is_empty();
+
+    *diagnostics = diagnostics.merged(&argument_diagnostics);
+
+    Ok(Some(BoundGenericArguments {
+        arguments,
+        has_diagnostics,
+    }))
+}
 
 pub(super) fn callable_declaration_template<C>(
     context: &C,

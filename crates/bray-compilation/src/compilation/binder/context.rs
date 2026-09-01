@@ -2,8 +2,8 @@ use crate::compilation::binder::BindingQueryResult;
 use std::sync::Arc;
 
 use bray_binder::{
-    BindingQueryContext, BindingQueryError, ImportedPathRoot, NameAccess, SymbolQueryProvider,
-    bind_owner_surface_path, bind_surface_path_with_re_exports,
+    BindingError, BindingQueryContext, BindingQueryError, ImportedPathRoot, NameAccess,
+    SymbolQueryProvider, bind_owner_surface_path, bind_surface_path_with_re_exports,
 };
 use bray_declarations::DeclarationTable;
 use bray_diagnostics::DiagnosticResult;
@@ -122,13 +122,19 @@ impl<'compilation> CompilationBindingContext<'compilation> {
             return Ok(None);
         };
 
-        let package = symbols
-            .package_by_identity(identity)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+        let package = symbols.package_by_identity(identity).ok_or_else(|| {
+            // Package identities are Arc-backed and retained only on this failure path.
+            BindingQueryError::Binding(BindingError::ImportedPackageUnavailable(identity.clone()))
+        })?;
 
         ImportedPathRoot::for_path(symbols, package.id(), components)
             .map(Some)
-            .ok_or(BindingQueryError::DependencyUnavailable)
+            .ok_or(BindingQueryError::Binding(
+                BindingError::ImportedPathUnavailable {
+                    package: package.id(),
+                    component_count: components.len(),
+                },
+            ))
     }
 
     pub(in crate::compilation) fn imported_symbols(
@@ -456,7 +462,13 @@ impl Compilation {
             .symbols
             .contains_symbol_key(key.declared_owner())
         {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::Unit(key.clone()),
+                crate::compilation::SemanticQueryViolation::Missing(
+                    crate::compilation::SemanticDataKind::SymbolKey,
+                ),
+            )
+            .into());
         }
 
         Ok(binding_context)

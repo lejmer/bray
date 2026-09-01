@@ -368,7 +368,30 @@ pub enum DiagnosticEmissionEvaluationFailure {
     UninitInitializerResultUnavailable,
     ImportedExecutableTemplateMismatch,
     SemanticContext,
+    /// A semantic query failed with an exact compiler-owned category.
+    SemanticQuery(DiagnosticSemanticQueryFailure),
     Checker(DiagnosticCheckerFailure),
+}
+
+/// Stable semantic-query failure category retained for product diagnostics.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticSemanticQueryFailure {
+    /// A retained semantic relationship violated its compiler contract.
+    ContractViolation,
+    /// A callable signature violated its structural contract.
+    CallableSignature,
+    /// A generic substitution violated its declared parameter shape.
+    GenericSubstitution,
+    /// A bound unit violated its key, tree, or root contract.
+    BoundUnit,
+    /// Implementation selection or durable evidence was malformed.
+    Implementation,
+    /// Checked constant-term publication rejected its occurrence input.
+    CheckedConstantTerms,
+    /// A type-associated surface rejected its member input.
+    TypeSurface,
+    /// Generated preparsed syntax violated its event contract.
+    PreparsedSyntax,
 }
 
 /// Exact compiler-owned failure observed while binding one source-level program element.
@@ -379,6 +402,7 @@ pub enum DiagnosticBindingFailure {
     MissingSyntax,
     MissingOwner,
     MissingModule,
+    InvalidSurfaceName,
     SemanticValue(DiagnosticSemanticValueFailure),
     Construction,
     Binding,
@@ -701,7 +725,24 @@ impl DiagnosticEmissionEvaluationFailure {
             Self::UninitInitializerResultUnavailable => "uninit_initializer_result_unavailable",
             Self::ImportedExecutableTemplateMismatch => "imported_executable_template_mismatch",
             Self::SemanticContext => "semantic_context",
+            Self::SemanticQuery(failure) => failure.as_str(),
             Self::Checker(failure) => failure.as_str(),
+        }
+    }
+}
+
+impl DiagnosticSemanticQueryFailure {
+    /// Returns this failure category's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::ContractViolation => "semantic_query_contract_violation",
+            Self::CallableSignature => "semantic_query_callable_signature",
+            Self::GenericSubstitution => "semantic_query_generic_substitution",
+            Self::BoundUnit => "semantic_query_bound_unit",
+            Self::Implementation => "semantic_query_implementation",
+            Self::CheckedConstantTerms => "semantic_query_checked_constant_terms",
+            Self::TypeSurface => "semantic_query_type_surface",
+            Self::PreparsedSyntax => "semantic_query_preparsed_syntax",
         }
     }
 }
@@ -714,6 +755,7 @@ impl DiagnosticBindingFailure {
             Self::MissingSyntax => "binding_missing_syntax",
             Self::MissingOwner => "binding_missing_owner",
             Self::MissingModule => "binding_missing_module",
+            Self::InvalidSurfaceName => "binding_invalid_surface_name",
             Self::SemanticValue(failure) => failure.as_str(),
             Self::Construction => "binding_construction",
             Self::Binding => "binding_recovery_root",

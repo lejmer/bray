@@ -4,8 +4,8 @@ use super::support::{
 };
 use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenTypeKind, IntrinsicCall};
 use bray_ir::{MirBinaryOperator, MirOperand, MirUnaryOperator};
-use inkwell::types::BasicTypeEnum;
 use inkwell::IntPredicate;
+use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -203,18 +203,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let equal_tag = self.union_variant_tag(result_type, equal_variant, tag_type)?;
         let greater_tag = self.union_variant_tag(result_type, greater_variant, tag_type)?;
 
-        let not_less = llvm(self.builder.build_select(
-            greater,
-            greater_tag,
-            equal_tag,
-            "compare.not_less",
-        ))?;
+        let not_less =
+            llvm(
+                self.builder
+                    .build_select(greater, greater_tag, equal_tag, "compare.not_less"),
+            )?;
 
         let not_less = int_value(not_less).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let selected_tag = llvm(self
-            .builder
-            .build_select(less, less_tag, not_less, "compare.ordering.tag"))?;
+        let selected_tag =
+            llvm(
+                self.builder
+                    .build_select(less, less_tag, not_less, "compare.ordering.tag"),
+            )?;
 
         let llvm_type = self.types.map(result_type)?;
         let storage = self.allocate_temporary(llvm_type, "compare.ordering")?;

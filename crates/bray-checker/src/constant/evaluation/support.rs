@@ -50,7 +50,9 @@ where
         expression: BoundExpressionId,
     ) -> Result<TypeId, EvaluationFailure> {
         let Some(result) = self.input.expression_types().expression(expression) else {
-            return Err(EvaluationFailure::invalid_input());
+            return Err(EvaluationFailure::constant(
+                crate::CheckerConstantEvaluationFailure::MissingExpressionType { expression },
+            ));
         };
 
         if result.status() == ExpressionTypeStatus::Recovered {
@@ -91,9 +93,9 @@ where
             .semantic_values()
             .intern_constant_value(ConstantValueData::new(ty, kind))
             .map_err(|error| {
-                EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                )
+                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
             })
     }
 
@@ -115,9 +117,9 @@ where
             .semantic_values()
             .intern_constant_term(data)
             .map_err(|error| {
-                EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                )
+                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
             })
     }
 
@@ -136,9 +138,9 @@ where
             .semantic_values()
             .type_data(target_type)
             .map_err(|error| {
-                EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                )
+                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
             })?;
 
         if !matches!(target.as_ref(), TypeData::Nullable(contained) if *contained == source_type) {
@@ -149,10 +151,7 @@ where
             Some(value) => {
                 self.intern_value_term(target_type, ConstantValueKind::NullablePresent(value))
             }
-            None => self.intern_typed_term(
-                target_type,
-                ConstantTermData::NullablePresent(term),
-            ),
+            None => self.intern_typed_term(target_type, ConstantTermData::NullablePresent(term)),
         }
     }
 
@@ -187,9 +186,9 @@ where
             .semantic_values()
             .constant_term_data(term)
             .map_err(|error| {
-                EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                )
+                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
             })?;
 
         Ok(match data.as_ref() {
@@ -320,9 +319,7 @@ where
         let values = self.request.semantic_values();
 
         let data = values.type_data(ty).map_err(|error| {
-            EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                error,
-            ))
+            EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
         })?;
 
         let TypeData::Named { substitution, .. } = data.as_ref() else {
@@ -359,9 +356,9 @@ where
             .semantic_values()
             .constant_value_data(value)
             .map_err(|error| {
-                EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                )
+                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
             })
     }
 
@@ -408,6 +405,10 @@ pub(in crate::constant) enum EvaluationFailure {
 impl EvaluationFailure {
     pub(super) const fn invalid_input() -> Self {
         Self::Infrastructure(CheckerInfrastructureError::InvalidConstantEvaluationInput)
+    }
+
+    pub(super) const fn constant(failure: crate::CheckerConstantEvaluationFailure) -> Self {
+        Self::Infrastructure(CheckerInfrastructureError::ConstantEvaluation(failure))
     }
 
     pub(super) const fn invalid_expression(expression: BoundExpressionId) -> Self {

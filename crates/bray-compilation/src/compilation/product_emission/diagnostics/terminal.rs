@@ -869,9 +869,7 @@ mod tests {
             },
         ));
 
-        assert!(
-            package_interface_export_failure_diagnostic(&error, &product, &target).is_some()
-        );
+        assert!(package_interface_export_failure_diagnostic(&error, &product, &target).is_some());
     }
 
     #[test]

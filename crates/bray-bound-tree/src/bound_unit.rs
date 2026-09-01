@@ -131,7 +131,7 @@ impl From<BoundUnitRoot> for AnyBoundNodeId {
 }
 
 /// A contract violation that prevents creation of a bound unit.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum BoundUnitBuildError {
     /// The root category does not match the semantic unit key.
     RootKindMismatch,

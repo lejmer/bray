@@ -12,7 +12,7 @@ use crate::lookup::{
     NameReference, ResolvedName, bind_source_path, classify_type, combine_name_lookups,
     lookup_diagnostic, lookup_surface_name, lookup_surface_name_with_imports,
 };
-use crate::{BindingQueryError, BindingQueryResult};
+use crate::{BindingError, BindingQueryError, BindingQueryResult};
 
 impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     pub(super) fn bind_trait(
@@ -22,7 +22,11 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         let definition = self.bind_trait_path(&syntax.path())?;
 
         let MemberLookupResult::Found(definition) = definition else {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(BindingQueryError::Binding(
+                BindingError::UnresolvedTraitApplication(
+                    bray_declarations::SyntaxAnchor::from_node(syntax),
+                ),
+            ));
         };
 
         let parameters = self.trait_parameters(definition)?;
@@ -51,7 +55,9 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         };
 
         let Some(owner) = GenericOwnerId::try_new(template.definition().into()) else {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(BindingQueryError::Binding(
+                BindingError::GenericOwnerUnavailable(template.definition().into()),
+            ));
         };
 
         let substitution = GenericSubstitutionData::try_new(
@@ -59,7 +65,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             template.parameters().iter().copied(),
             arguments,
         )
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+        .map_err(|error| BindingQueryError::Binding(BindingError::GenericSubstitution(error)))?;
 
         let substitution = self
             .semantic_values
@@ -266,7 +272,9 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
                 }),
             },
         }
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::Binding(
+            BindingError::SymbolRecordUnavailable(definition.into_any()),
+        ))?;
 
         self.generic_parameters(type_parameters, const_parameters)
     }
@@ -289,7 +297,9 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
                 })
             }),
         }
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::Binding(
+            BindingError::SymbolRecordUnavailable(definition.into()),
+        ))?;
 
         self.generic_parameters(parameters.0, parameters.1)
     }
@@ -312,7 +322,9 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
                 })
             }),
         }
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or(BindingQueryError::Binding(
+            BindingError::SymbolRecordUnavailable(definition.into()),
+        ))?;
 
         self.generic_parameters(parameters.0, parameters.1)
     }
@@ -333,7 +345,9 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
                     .and_then(|symbols| symbols.generic_type_parameter(*parameter))
                     .map(|record| record.ordinal()),
             }
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::Binding(
+                BindingError::SymbolRecordUnavailable((*parameter).into()),
+            ))?;
 
             parameters.push((ordinal, GenericParameterSymbolId::from(*parameter)));
         }
@@ -347,7 +361,9 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
                     .and_then(|symbols| symbols.generic_const_parameter(*parameter))
                     .map(|record| record.ordinal()),
             }
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::Binding(
+                BindingError::SymbolRecordUnavailable((*parameter).into()),
+            ))?;
 
             parameters.push((ordinal, GenericParameterSymbolId::from(*parameter)));
         }

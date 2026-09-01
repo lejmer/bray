@@ -8,7 +8,8 @@ use bray_symbols::{AnySymbolId, NamedTypeSymbolId, TypeId};
 use super::super::super::Compilation;
 use super::super::super::binder::CompilationBindingContext;
 use super::super::model::OperationResolution;
-use super::super::query::construction_operands;
+use super::super::query::{construction_operands, operation_contract_failure};
+use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
 use crate::fact::{CancellationToken, FactQueryError, OperationSelectionQueryKey};
 
 impl Compilation {
@@ -21,10 +22,12 @@ impl Compilation {
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<OperationResolution>, FactQueryError> {
-        let expression = unit
-            .view()
-            .expression(key.expression())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let expression = unit.view().expression(key.expression()).ok_or_else(|| {
+            operation_contract_failure(
+                key,
+                SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression),
+            )
+        })?;
 
         let Some(result_type) =
             self.construction_result_type(binding_context, unit, types, key.expression())?
@@ -81,13 +84,19 @@ impl Compilation {
                 if structured.kind() == BoundStructuredExpressionKind::TypeFormConstruction =>
             {
                 self.type_form_construction_candidate(
+                    key,
                     binding_context,
                     result_type,
                     cancellation,
                     diagnostics,
                 )?
             }
-            _ => return Err(FactQueryError::InfrastructureFailure),
+            _ => {
+                return Err(operation_contract_failure(
+                    key,
+                    SemanticQueryViolation::Unsupported(SemanticDataKind::OperationSelection),
+                ));
+            }
         };
 
         if candidate.is_none() && matches!(expression, BoundExpression::UnqualifiedVariant(_)) {

@@ -4,9 +4,10 @@ use bray_bound_tree::{
     SelectionKind,
 };
 
-use crate::unit::semantic_inputs_match;
+use crate::unit::semantic_input_failure;
 use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
+    CheckerInfrastructureError, CheckerInputKind, CheckerQueryError, CheckerRequestContext,
+    CheckerUnitView,
 };
 
 use super::super::{
@@ -322,10 +323,17 @@ fn validate_request<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if input.kind() == SelectionKind::Callable
-        || !semantic_inputs_match(request, [(types.unit(), types.kind())])
-        || !expression_matches_request(request, input)
-    {
+    if let Some(error) = semantic_input_failure(
+        request,
+        [(
+            CheckerInputKind::ExpressionTypes,
+            (types.unit(), types.kind()),
+        )],
+    ) {
+        return Err(error);
+    }
+
+    if input.kind() == SelectionKind::Callable || !expression_matches_request(request, input) {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     }
 

@@ -431,10 +431,7 @@ impl Lowerer<'_> {
         let mut alternates = Vec::with_capacity(labels.len());
 
         for label in labels {
-            let data = self
-                .input
-                .semantic_values()
-                .type_data(label.ty)?;
+            let data = self.input.semantic_values().type_data(label.ty)?;
 
             let TypeData::Callable(callable) = data.as_ref() else {
                 return Err(LoweringError::MissingSemanticSelection(expression));

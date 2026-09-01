@@ -67,7 +67,16 @@ impl Compilation {
         FactQueryError,
     > {
         if matches!(implementation, ImplementationSymbolId::Inherent(_)) {
-            return Err(FactQueryError::InfrastructureFailure);
+            let symbol = implementation.into_any();
+
+            return Err(crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::Symbol(symbol),
+                crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: crate::compilation::SemanticSymbolCategory::TraitImplementation,
+                    actual: symbol.kind(),
+                },
+            )
+            .into());
         }
 
         let cell = self
@@ -117,7 +126,13 @@ impl Compilation {
         let imported = imported.value().as_deref();
 
         let Some(trait_application) = coherence.value().trait_application() else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::Symbol(implementation.into_any()),
+                crate::compilation::SemanticQueryViolation::Missing(
+                    crate::compilation::SemanticDataKind::TraitApplication,
+                ),
+            )
+            .into());
         };
 
         let trait_application_data = values
@@ -130,7 +145,16 @@ impl Compilation {
                 imported
                     .and_then(|symbols| symbols.trait_symbol(trait_application_data.definition()))
             })
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                crate::compilation::SemanticQueryFailure::contract(
+                    crate::compilation::SemanticQueryContext::Symbol(
+                        trait_application_data.definition().into(),
+                    ),
+                    crate::compilation::SemanticQueryViolation::Missing(
+                        crate::compilation::SemanticDataKind::Symbol,
+                    ),
+                )
+            })?;
 
         let mut requirements = trait_requirements(trait_symbol);
         let mut fulfillments = implementation_fulfillments(symbols, implementation)?;
@@ -231,7 +255,11 @@ impl Compilation {
                                 DiagnosticKind::CheckingIncompatibleTraitFulfillment,
                                 implementation.into_any(),
                                 &slot,
-                                Some(self.diagnostic_trait_mismatch(mismatch, cancellation)?),
+                                Some(self.diagnostic_trait_mismatch(
+                                    implementation,
+                                    mismatch,
+                                    cancellation,
+                                )?),
                                 [(
                                     DiagnosticRelatedLocationKind::RequirementOrigin,
                                     requirement.symbol(),
@@ -273,7 +301,11 @@ impl Compilation {
                                     DiagnosticKind::CheckingIncompatibleTraitFulfillment,
                                     fulfillment.symbol(),
                                     &slot,
-                                    Some(self.diagnostic_trait_mismatch(mismatch, cancellation)?),
+                                    Some(self.diagnostic_trait_mismatch(
+                                        implementation,
+                                        mismatch,
+                                        cancellation,
+                                    )?),
                                     [(
                                         DiagnosticRelatedLocationKind::RequirementOrigin,
                                         requirement.symbol(),
@@ -379,9 +411,12 @@ impl Compilation {
 
     fn diagnostic_trait_mismatch(
         &self,
+        implementation: ImplementationSymbolId,
         mismatch: TraitFulfillmentMismatch,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticTraitFulfillmentMismatch, FactQueryError> {
+        let diagnostic_count = |value| diagnostic_count(implementation, value);
+
         let type_value = |template: &TypeExpressionTemplate| {
             crate::compilation::foreign::diagnostic::template_diagnostic_type(
                 self,
@@ -424,7 +459,7 @@ impl Compilation {
                 },
                 GenericSurfaceMismatch::Constraints(mismatch) => {
                     DiagnosticTraitFulfillmentMismatch::GenericConstraints(
-                        diagnostic_generic_constraint_mismatch(mismatch)?,
+                        diagnostic_generic_constraint_mismatch(implementation, mismatch)?,
                     )
                 }
             },
@@ -517,7 +552,7 @@ impl Compilation {
             },
             TraitFulfillmentMismatch::CallableContract(mismatch) => {
                 DiagnosticTraitFulfillmentMismatch::CallableContract(
-                    diagnostic_callable_contract_mismatch(mismatch)?,
+                    diagnostic_callable_contract_mismatch(implementation, mismatch)?,
                 )
             }
             TraitFulfillmentMismatch::ConstantType { required, provided } => {
@@ -562,13 +597,28 @@ impl Compilation {
     }
 }
 
-fn diagnostic_count(value: usize) -> Result<u64, FactQueryError> {
-    u64::try_from(value).map_err(|_| FactQueryError::InfrastructureFailure)
+fn diagnostic_count(
+    implementation: ImplementationSymbolId,
+    value: usize,
+) -> Result<u64, FactQueryError> {
+    u64::try_from(value).map_err(|_| {
+        crate::compilation::SemanticQueryFailure::contract(
+            crate::compilation::SemanticQueryContext::Symbol(implementation.into_any()),
+            crate::compilation::SemanticQueryViolation::CapacityExceeded {
+                data: crate::compilation::SemanticDataKind::Diagnostic,
+                value,
+            },
+        )
+        .into()
+    })
 }
 
 fn diagnostic_generic_constraint_mismatch(
+    implementation: ImplementationSymbolId,
     mismatch: GenericConstraintMismatch,
 ) -> Result<DiagnosticGenericConstraintMismatch, FactQueryError> {
+    let diagnostic_count = |value| diagnostic_count(implementation, value);
+
     let mismatch = match mismatch {
         GenericConstraintMismatch::Count { required, provided } => {
             DiagnosticGenericConstraintMismatch::Count {
@@ -603,8 +653,11 @@ fn diagnostic_generic_constraint_mismatch(
 }
 
 fn diagnostic_callable_contract_mismatch(
+    implementation: ImplementationSymbolId,
     mismatch: CallableContractMismatch,
 ) -> Result<DiagnosticCallableContractMismatch, FactQueryError> {
+    let diagnostic_count = |value| diagnostic_count(implementation, value);
+
     let mismatch = match mismatch {
         CallableContractMismatch::ClauseCount {
             surface,
@@ -879,7 +932,14 @@ fn implementation_fulfillments(
 ) -> Result<Vec<TraitMemberFulfillmentId>, FactQueryError> {
     macro_rules! collect {
         ($implementation:expr) => {{
-            let implementation = $implementation.ok_or(FactQueryError::InfrastructureFailure)?;
+            let implementation = $implementation.ok_or_else(|| {
+                crate::compilation::SemanticQueryFailure::contract(
+                    crate::compilation::SemanticQueryContext::Symbol(implementation.into_any()),
+                    crate::compilation::SemanticQueryViolation::Missing(
+                        crate::compilation::SemanticDataKind::Implementation,
+                    ),
+                )
+            })?;
 
             implementation
                 .callable_fulfillments()
@@ -961,7 +1021,16 @@ fn implementation_fulfillments(
             collect!(symbols.named_trait_implementation(id))
         }
         ImplementationSymbolId::Inherent(_) => {
-            return Err(FactQueryError::InfrastructureFailure);
+            let symbol = implementation.into_any();
+
+            return Err(crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::Symbol(symbol),
+                crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: crate::compilation::SemanticSymbolCategory::TraitImplementation,
+                    actual: symbol.kind(),
+                },
+            )
+            .into());
         }
     })
 }
@@ -972,7 +1041,23 @@ fn sort_by_symbol_key<T>(
     values: &mut [T],
     symbol: impl Fn(&T) -> bray_symbols::AnySymbolId,
 ) -> Result<(), FactQueryError> {
-    let mut missing_key = false;
+    for value in values.iter() {
+        let symbol = symbol(value);
+
+        let key = symbols
+            .symbol_key(symbol)
+            .or_else(|| imported.and_then(|symbols| symbols.symbol_key(symbol)));
+
+        if key.is_none() {
+            return Err(crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::Symbol(symbol),
+                crate::compilation::SemanticQueryViolation::Missing(
+                    crate::compilation::SemanticDataKind::SymbolKey,
+                ),
+            )
+            .into());
+        }
+    }
 
     values.sort_by(|left, right| {
         let left = symbols
@@ -985,17 +1070,11 @@ fn sort_by_symbol_key<T>(
 
         match (left, right) {
             (Some(left), Some(right)) => left.cmp(right),
-            _ => {
-                missing_key = true;
-
-                std::cmp::Ordering::Equal
-            }
+            // Both graphs are immutable across this sort, so prevalidation makes this fallback
+            // unreachable without hiding a query failure in the comparison callback.
+            _ => std::cmp::Ordering::Equal,
         }
     });
-
-    if missing_key {
-        return Err(FactQueryError::InfrastructureFailure);
-    }
 
     Ok(())
 }
@@ -1023,7 +1102,14 @@ fn member_slot(
         .member_name(symbol)
         .or_else(|| imported.and_then(|symbols| symbols.member_name(symbol)))
         .cloned()
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .ok_or_else(|| {
+            crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::Symbol(symbol),
+                crate::compilation::SemanticQueryViolation::Missing(
+                    crate::compilation::SemanticDataKind::MemberName,
+                ),
+            )
+        })?;
 
     Ok(MemberSlot::Named(kind, name))
 }
@@ -1128,8 +1214,16 @@ fn subject_lifecycle_fulfillments(
             | bray_symbols::TypeAssociatedLifecycleSlot::ScopeExit => continue,
         };
 
-        let callable = bray_symbols::CallableSymbolId::try_from_any(member.id())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let callable =
+            bray_symbols::CallableSymbolId::try_from_any(member.id()).ok_or_else(|| {
+                crate::compilation::SemanticQueryFailure::contract(
+                    crate::compilation::SemanticQueryContext::Symbol(member.id()),
+                    crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
+                        expected: crate::compilation::SemanticSymbolCategory::Callable,
+                        actual: member.id().kind(),
+                    },
+                )
+            })?;
 
         fulfillments.insert(slot, (member.id(), callable));
     }
@@ -1200,7 +1294,14 @@ fn conformance_diagnostic(
 ) -> Result<Diagnostic, FactQueryError> {
     let anchor = symbols
         .declaration_syntax_anchor(span_symbol)
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .ok_or_else(|| {
+            crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::Symbol(span_symbol),
+                crate::compilation::SemanticQueryViolation::Missing(
+                    crate::compilation::SemanticDataKind::SourceAnchor,
+                ),
+            )
+        })?;
 
     let member = match slot {
         MemberSlot::Named(_, name) => DiagnosticArg::trait_member_name(name.as_str()),
@@ -1258,8 +1359,58 @@ mod tests {
     use bray_symbols::{ImplementationSymbolId, SymbolOrigin, TraitRequirementResolution};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
-    use crate::fact::CompilationFactKey;
+    use crate::compilation::{
+        SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation, SemanticSymbolCategory,
+    };
+    use crate::fact::{CompilationFactKey, FactQueryError};
     use crate::test_support::compilation;
+
+    #[test]
+    fn inherent_implementation_rejection_retains_the_exact_symbol_kind() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "\n",
+            "struct Holder\n",
+            "{\n",
+            "}\n",
+            "\n",
+            "impl Holder\n",
+            "{\n",
+            "}\n",
+        ));
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
+
+        let implementation = symbols
+            .inherent_implementations()
+            .iter()
+            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .map(|symbol| ImplementationSymbolId::from(symbol.id()))
+            .unwrap_or_else(|| panic!("test source must declare one inherent implementation"));
+
+        let error = compilation
+            .trait_implementation_conformance(implementation)
+            .expect_err("an inherent implementation cannot have trait conformance");
+
+        let FactQueryError::SemanticQuery(error) = error else {
+            panic!("implementation-kind mismatch must retain a semantic-query failure");
+        };
+
+        let symbol = implementation.into_any();
+
+        assert_eq!(
+            error.cause(),
+            &SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(symbol),
+                SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: SemanticSymbolCategory::TraitImplementation,
+                    actual: symbol.kind(),
+                },
+            )
+        );
+    }
 
     #[test]
     fn complete_trait_implementations_publish_exact_fulfillment_links_once() {

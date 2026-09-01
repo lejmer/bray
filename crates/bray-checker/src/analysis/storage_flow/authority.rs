@@ -47,7 +47,11 @@ where
 
     let mut mutable = BTreeSet::new();
 
-    let modes = parameter_modes(request, callable.into_any(), signature.value().callable_type())?;
+    let modes = parameter_modes(
+        request,
+        callable.into_any(),
+        signature.value().callable_type(),
+    )?;
 
     if modes.len() != signature.value().parameters().len() {
         return Err(CheckerQueryError::Infrastructure(
@@ -104,9 +108,9 @@ where
             .collect()),
         TypeExpressionTemplate::Resolved(ty) => {
             let data = request.semantic_values().type_data(*ty).map_err(|error| {
-                CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                )
+                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
             })?;
 
             let TypeData::Callable(callable) = data.as_ref() else {

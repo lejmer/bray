@@ -152,11 +152,9 @@ pub(super) fn checked_constraint_expression(
     )
     .ok_or_else(|| incomplete(expression.owner()))?;
 
-    let values = compilation
-        .semantic_value_store()
-        .map_err(|error| {
-            super::super::fact_query_export_error(error, incomplete(expression.owner()))
-        })?;
+    let values = compilation.semantic_value_store().map_err(|error| {
+        super::super::fact_query_export_error(error, incomplete(expression.owner()))
+    })?;
 
     let substitution = crate::compilation::substitution::identity_substitution(
         values,

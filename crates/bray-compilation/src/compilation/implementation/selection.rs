@@ -118,8 +118,12 @@ impl Compilation {
             (true, _) => ImplementationSelection::Deferred,
             (false, []) => ImplementationSelection::Unavailable,
             (false, [candidate]) => ImplementationSelection::Selected(candidate.instance()),
-            (false, _) => ImplementationSelection::ambiguous(applicable)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?,
+            (false, _) => ImplementationSelection::ambiguous(applicable).map_err(|cause| {
+                crate::compilation::SemanticQueryFailure::ImplementationAmbiguity {
+                    requirement: key,
+                    cause,
+                }
+            })?,
         };
 
         Ok(DiagnosticResult::new(selection, diagnostics))

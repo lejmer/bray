@@ -183,8 +183,7 @@ impl AvailableCompilerKnownSymbols {
             [crate::GenericParameterSymbolId::Type(*parameter)],
             [crate::GenericArgument::Type(argument)],
         )
-        .ok()
-        else {
+        .ok() else {
             return Ok(None);
         };
 
@@ -548,7 +547,9 @@ mod tests {
 
         let future = view
             .unary_representation_type(&values, RepresentationRole::Future, completion)
-            .unwrap_or_else(|error| panic!("Future construction must read semantic values: {error:?}"))
+            .unwrap_or_else(|error| {
+                panic!("Future construction must read semantic values: {error:?}")
+            })
             .unwrap_or_else(|| panic!("Future must be available"));
 
         let run_result = view

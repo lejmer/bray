@@ -198,13 +198,13 @@ where
     };
 
     let Some(future) = request
-            .available_compiler_known_symbols()
-            .unary_representation_type(
-                request.semantic_values(),
-                RepresentationRole::Future,
-                completion,
-            )
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?
+        .available_compiler_known_symbols()
+        .unary_representation_type(
+            request.semantic_values(),
+            RepresentationRole::Future,
+            completion,
+        )
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?
     else {
         return Ok(());
     };

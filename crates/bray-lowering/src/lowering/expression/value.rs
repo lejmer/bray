@@ -26,10 +26,7 @@ impl Lowerer<'_> {
         nullable: TypeId,
         contained: TypeId,
     ) -> Result<bool, LoweringError> {
-        let data = self
-            .input
-            .semantic_values()
-            .type_data(nullable)?;
+        let data = self.input.semantic_values().type_data(nullable)?;
 
         Ok(matches!(data.as_ref(), TypeData::Nullable(element) if *element == contained))
     }

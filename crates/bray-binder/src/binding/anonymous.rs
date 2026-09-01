@@ -200,7 +200,8 @@ mod tests {
             Some(module.id()),
             "captured",
             crate::lookup::NameAccess::Internal,
-        );
+        )
+        .expect("lookup metadata must remain available");
 
         assert_eq!(capture_lookup, MemberLookupResult::NotFound);
 
@@ -211,7 +212,8 @@ mod tests {
             Some(module.id()),
             "value",
             crate::lookup::NameAccess::Internal,
-        );
+        )
+        .expect("lookup metadata must remain available");
 
         assert!(matches!(
             parameter_lookup,

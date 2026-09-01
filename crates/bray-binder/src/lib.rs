@@ -15,8 +15,8 @@ mod unit;
 
 pub use binder::BinderDependency;
 pub use binding::{
-    CallableTypeQualifiers, TypeExpressionBinder, TypeExpressionImports, TypeExpressionScope,
-    TypeParameterBinding, bind_callable_abi, bind_callable_type_directives,
+    BindingError, CallableTypeQualifiers, TypeExpressionBinder, TypeExpressionImports,
+    TypeExpressionScope, TypeParameterBinding, bind_callable_abi, bind_callable_type_directives,
     bind_directive_template, bind_expression_candidates, bind_member_callable_template,
     malformed_directive_argument_diagnostic, qualified_union_variant,
 };
@@ -34,6 +34,7 @@ pub use lookup::{
     bind_named_trait_implementation_path, bind_owner_surface_path,
     bind_surface_path_with_re_exports,
 };
+pub use publication::BoundUnitAssemblyError;
 pub use query::{
     BindingQueryContext, BindingQueryError, BindingQueryResult, BindingSymbolQueryEvaluator,
     SymbolQueryErrorProvider, SymbolQueryProvider,
@@ -44,3 +45,4 @@ pub use surface::{
     BoundTrustedCapability, PredicateClauseBindingContext, bind_predicate_clause,
     bind_trusted_capability_clause,
 };
+pub use unit::BoundUnitConstructionError;

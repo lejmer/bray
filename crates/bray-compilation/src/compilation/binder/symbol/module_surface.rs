@@ -2,7 +2,8 @@ use crate::compilation::binder::BindingQueryResult;
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_binder::{
-    BindingQueryContext, BindingQueryError, NameAccess, bind_surface_path_with_re_exports,
+    BindingError, BindingQueryContext, BindingQueryError, NameAccess,
+    bind_surface_path_with_re_exports,
 };
 use bray_declarations::{DeclarationKind, DeclarationRecord};
 use bray_diagnostics::{
@@ -14,13 +15,16 @@ use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, MemberLookupResult, MemberVisibility, ModulePathKey, ModuleReExport,
     ModuleSurface, ModuleSurfaceQuery, ModuleSymbolId, ModuleUsing, SymbolKey, SymbolKeyData,
-    SymbolKind, SymbolName, SymbolQueryRequest, SymbolRootKey,
+    SymbolKind, SymbolName, SymbolQueryContract, SymbolQueryRequest, SymbolRootKey,
 };
 use bray_syntax::{ExportDeclarationSyntax, PathSyntax, SourceSyntaxNode, UsingDeclarationSyntax};
 
 use super::binding::CompilationSymbolQueryEvaluator;
 use super::cache::CompilationSymbolSemantics;
-use crate::compilation::binder::CompilationBindingContext;
+use crate::compilation::binder::{
+    CompilationBindingContext, symbol_query_contract_binding_error as query_contract,
+};
+use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
 use crate::fact::SymbolQueryCache;
 
 impl CompilationSymbolQueryEvaluator<ModuleSurfaceQuery> for CompilationSymbolSemantics {
@@ -72,7 +76,7 @@ impl<'binding_context, 'compilation> ModuleSurfaceResolver<'binding_context, 'co
         if self.active.contains(&module) {
             self.detected_cycles = self.detected_cycles.saturating_add(1);
 
-            return empty_surface();
+            return empty_surface(module);
         }
 
         self.active.push(module);
@@ -81,7 +85,14 @@ impl<'binding_context, 'compilation> ModuleSurfaceResolver<'binding_context, 'co
         let popped = self.active.pop();
 
         if popped != Some(module) {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(query_contract(
+                module.into(),
+                ModuleSurfaceQuery::KIND,
+                SemanticQueryViolation::QueryStackMismatch {
+                    expected: module.into(),
+                    actual: popped.map(Into::into),
+                },
+            ));
         }
 
         let result = result?;
@@ -105,7 +116,7 @@ impl<'binding_context, 'compilation> ModuleSurfaceResolver<'binding_context, 'co
             self.bind_re_exports(module, &declarations, &internal_paths, &mut diagnostics)?;
 
         let surface = ModuleSurface::new(usings, re_exports)
-            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+            .map_err(|cause| module_surface_error(module, cause))?;
 
         Ok(DiagnosticResult::new(surface, diagnostics))
     }
@@ -365,20 +376,20 @@ impl<'binding_context, 'compilation> ModuleSurfaceResolver<'binding_context, 'co
         &self,
         module: ModuleSymbolId,
     ) -> BindingQueryResult<Vec<bray_declarations::DeclarationId>> {
-        let module = self
-            .context
-            .symbols()
-            .module(module)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+        let module = self.context.symbols().module(module).ok_or_else(|| {
+            query_contract(
+                module.into(),
+                ModuleSurfaceQuery::KIND,
+                SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+            )
+        })?;
 
         let mut declarations = Vec::new();
 
         for part in module.module_parts() {
-            let part = self
-                .context
-                .declarations()
-                .module_part(*part)
-                .ok_or(BindingQueryError::DependencyUnavailable)?;
+            let part = self.context.declarations().module_part(*part).ok_or(
+                BindingQueryError::Binding(BindingError::ModulePartRecordUnavailable(*part)),
+            )?;
 
             for declaration in part.declarations() {
                 declarations.push(*declaration);
@@ -389,11 +400,23 @@ impl<'binding_context, 'compilation> ModuleSurfaceResolver<'binding_context, 'co
     }
 }
 
-fn empty_surface() -> BindingQueryResult<DiagnosticResult<ModuleSurface>> {
+fn empty_surface(module: ModuleSymbolId) -> BindingQueryResult<DiagnosticResult<ModuleSurface>> {
     let surface =
-        ModuleSurface::new([], []).map_err(|_| BindingQueryError::DependencyUnavailable)?;
+        ModuleSurface::new([], []).map_err(|cause| module_surface_error(module, cause))?;
 
     Ok(DiagnosticResult::without_diagnostics(surface))
+}
+
+fn module_surface_error(
+    module: ModuleSymbolId,
+    cause: bray_symbols::MemberCollectionBuildError<AnySymbolId>,
+) -> BindingQueryError<crate::fact::FactQueryError> {
+    let bray_symbols::MemberCollectionBuildError::DuplicateMember(member) = cause;
+
+    crate::compilation::binder::semantic_contract_binding_error(
+        crate::compilation::SemanticQueryContext::Symbol(module.into()),
+        crate::compilation::SemanticQueryViolation::DuplicateSymbol(member),
+    )
 }
 
 fn path_name(path: &PathSyntax) -> Option<SymbolName> {

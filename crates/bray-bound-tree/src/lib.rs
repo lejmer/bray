@@ -104,7 +104,10 @@ pub use selection::{
     SelectedPropagationBoundary, SelectedReceiver, SelectionKind, SemanticSelection,
     SemanticSelectionEntry, SemanticSelectionTableBuildError,
 };
-pub use semantic::{CheckedBodySemantics, CheckedExpressionSemantics, SemanticSnapshotBuildError};
+pub use semantic::{
+    CheckedBodySemantics, CheckedExpressionSemantics, SemanticSnapshotBuildError,
+    SemanticSnapshotInputKind,
+};
 pub use storage::{
     BorrowCapabilityId, BorrowCapabilityOrigin, LastUse, LiveAcrossScope, LiveAcrossSuspension,
     Liveness, LivenessBuildError, OwnerRetention, PlannedBorrowCapability, StorageAccess,

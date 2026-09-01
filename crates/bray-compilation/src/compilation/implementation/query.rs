@@ -10,7 +10,7 @@ use bray_symbols::{
 };
 
 use super::index::{ImplementationHeader, ImplementationHeaderIndex};
-use super::matching::{ImplementationMatchError, match_implementation_header};
+use super::matching::{implementation_match_query_error, match_implementation_header};
 use crate::compilation::source_graph::{
     source_declaration_module_parts, source_symbol_contribution_gate,
 };
@@ -91,8 +91,17 @@ impl super::super::Compilation {
                     super::super::binder::imported_implementation(&binding_context, address)
                         .map_err(super::super::binder::binding_query_error)?;
 
-                let owner = GenericOwnerId::try_new(implementation.into_any())
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let symbol = implementation.into_any();
+
+                let owner = GenericOwnerId::try_new(symbol).ok_or_else(|| {
+                    crate::compilation::SemanticQueryFailure::contract(
+                        crate::compilation::SemanticQueryContext::Symbol(symbol),
+                        crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
+                            expected: crate::compilation::SemanticSymbolCategory::GenericOwner,
+                            actual: symbol.kind(),
+                        },
+                    )
+                })?;
 
                 let generic = binding_context
                     .resolve_symbol_query(
@@ -214,11 +223,11 @@ impl super::super::Compilation {
             ) {
                 Ok(Some(substitution)) => substitution,
                 Ok(None) => continue,
-                Err(ImplementationMatchError::InvalidSubstitution) => {
-                    return Err(FactQueryError::InfrastructureFailure);
-                }
-                Err(ImplementationMatchError::SemanticValue(error)) => {
-                    return Err(FactQueryError::SemanticValueStore(error));
+                Err(error) => {
+                    return Err(implementation_match_query_error(
+                        header.implementation(),
+                        error,
+                    ));
                 }
             };
 
@@ -226,8 +235,12 @@ impl super::super::Compilation {
         }
 
         let candidates = if matched.is_empty() {
-            ImplementationCandidateSet::try_new(key, [])
-                .map_err(|_| FactQueryError::InfrastructureFailure)?
+            ImplementationCandidateSet::try_new(key, []).map_err(|cause| {
+                crate::compilation::SemanticQueryFailure::ImplementationCandidateSet {
+                    requirement: key,
+                    cause,
+                }
+            })?
         } else {
             let coherence = ImplementationCoherenceEvidence::try_new(
                 key,
@@ -239,26 +252,44 @@ impl super::super::Compilation {
                     )
                 }),
             )
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(|cause| {
+                crate::compilation::SemanticQueryFailure::ImplementationCoherenceEvidence {
+                    requirement: key,
+                    cause,
+                }
+            })?;
 
             let candidates = matched.into_iter().map(|(header, substitution)| {
+                let implementation = header.implementation();
+
                 // Candidate records independently retain Arc-backed declaration evidence.
                 ImplementationCandidate::try_new(
                     header.key().clone(),
-                    header.implementation(),
+                    implementation,
                     substitution,
                     header.constraints().iter().cloned(),
                     header.target_dependencies().iter().cloned(),
                     coherence.clone(),
                 )
+                .map_err(|cause| {
+                    crate::compilation::SemanticQueryFailure::ImplementationCandidate {
+                        requirement: key,
+                        implementation,
+                        cause,
+                    }
+                })
             });
 
             let candidates = candidates
                 .collect::<Result<Vec<_>, _>>()
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::from)?;
 
-            ImplementationCandidateSet::try_new(key, candidates)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?
+            ImplementationCandidateSet::try_new(key, candidates).map_err(|cause| {
+                crate::compilation::SemanticQueryFailure::ImplementationCandidateSet {
+                    requirement: key,
+                    cause,
+                }
+            })?
         };
 
         Ok(DiagnosticResult::new(candidates, diagnostics))

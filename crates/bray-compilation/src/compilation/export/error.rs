@@ -133,10 +133,9 @@ pub(in crate::compilation::export) fn fact_query_export_error(
 ) -> PackageInterfaceExportError {
     match error {
         FactQueryError::Cancelled => PackageInterfaceExportError::Cancelled,
-        error
-            @ (FactQueryError::Cycle(_)
-            | FactQueryError::InfrastructureFailure
-            | FactQueryError::Runtime(_)) => PackageInterfaceExportError::Query(error),
+        error @ (FactQueryError::Cycle(_)
+        | FactQueryError::InfrastructureFailure
+        | FactQueryError::Runtime(_)) => PackageInterfaceExportError::Query(error),
         FactQueryError::SemanticValueStoreCreate(error) => {
             PackageInterfaceExportError::SemanticValueStoreCreate(error)
         }
@@ -195,9 +194,7 @@ const fn semantic_value_checker_error(
 mod tests {
     use bray_binder::BoundUnitBindingError;
     use bray_checker::CheckerInfrastructureError;
-    use bray_symbols::{
-        SemanticValueKind, SemanticValueStoreCreateError, SemanticValueStoreError,
-    };
+    use bray_symbols::{SemanticValueKind, SemanticValueStoreCreateError, SemanticValueStoreError};
 
     use super::{
         PackageInterfaceExportError, binding_query_export_error,
@@ -315,10 +312,7 @@ mod tests {
         );
 
         assert_eq!(
-            executable_template_evaluation_export_error(
-                declaration,
-                FactQueryError::Cancelled,
-            ),
+            executable_template_evaluation_export_error(declaration, FactQueryError::Cancelled,),
             PackageInterfaceExportError::Cancelled
         );
 

@@ -18,9 +18,10 @@ use super::result::{
 };
 use crate::expression::{TemplateResolution, resolve_type_template};
 use crate::pattern::input::{PatternCheckInput, PatternConstantEvidence};
+use crate::unit::semantic_input_failure;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerQueryResult,
-    CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
+    CheckerInfrastructureError, CheckerInputKind, CheckerOutcome, CheckerQueryError,
+    CheckerQueryResult, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 pub(crate) fn check_patterns<C>(
@@ -148,9 +149,19 @@ where
         expression_types: &'view CheckedExpressionTypes,
         input: &'input PatternCheckInput,
     ) -> Result<Self, CheckerQueryError<C::UpstreamError>> {
-        if !input.is_consistent() {
+        if let Some(error) = semantic_input_failure(
+            request,
+            [(
+                CheckerInputKind::ExpressionTypes,
+                (expression_types.unit(), expression_types.kind()),
+            )],
+        ) {
+            return Err(CheckerQueryError::Infrastructure(error));
+        }
+
+        if let Some(failure) = input.failure() {
             return Err(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::InvalidPatternCheckInput,
+                CheckerInfrastructureError::PatternInput(failure),
             ));
         }
 
@@ -229,22 +240,19 @@ where
                                 if let Some(declared) =
                                     self.declared_patterns.get(&binding.pattern()).copied()
                                 {
-                                    let data = match self
-                                        .request
-                                        .semantic_values()
-                                        .type_data(declared)
-                                    {
-                                        Ok(data) => data,
-                                        Err(error) => {
-                                            failure = Some(CheckerQueryError::Infrastructure(
-                                                CheckerInfrastructureError::SemanticValueStore(
-                                                    error,
-                                                ),
-                                            ));
+                                    let data =
+                                        match self.request.semantic_values().type_data(declared) {
+                                            Ok(data) => data,
+                                            Err(error) => {
+                                                failure = Some(CheckerQueryError::Infrastructure(
+                                                    CheckerInfrastructureError::SemanticValueStore(
+                                                        error,
+                                                    ),
+                                                ));
 
-                                            return BoundWalkControl::Stop;
-                                        }
-                                    };
+                                                return BoundWalkControl::Stop;
+                                            }
+                                        };
 
                                     if matches!(data.as_ref(), TypeData::Nullable(contained) if *contained == subject.ty)
                                     {

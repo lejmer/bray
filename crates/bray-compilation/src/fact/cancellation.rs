@@ -70,10 +70,7 @@ impl CancellationToken {
         }
     }
 
-    fn checked_is_cancelled_with(
-        &self,
-        active: &mut Vec<usize>,
-    ) -> Result<bool, FactQueryError> {
+    fn checked_is_cancelled_with(&self, active: &mut Vec<usize>) -> Result<bool, FactQueryError> {
         let shared = match &*self.state {
             CancellationState::Request(cancelled) => {
                 return Ok(cancelled.load(Ordering::Acquire));
@@ -101,13 +98,15 @@ impl CancellationToken {
         shared: &SharedCancellationState,
         active: &mut Vec<usize>,
     ) -> Result<bool, FactQueryError> {
-        let interests = shared.interests.lock().map_err(|_| {
-            FactRuntimeFailure::SynchronizationPoisoned {
-                component: SynchronizationComponent::CancellationInterests,
-                fact: None,
-                task: None,
-            }
-        })?;
+        let interests =
+            shared
+                .interests
+                .lock()
+                .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
+                    component: SynchronizationComponent::CancellationInterests,
+                    fact: None,
+                    task: None,
+                })?;
 
         let interests = interests.values().cloned().collect::<Vec<_>>();
 
@@ -200,14 +199,15 @@ impl SharedCancellation {
                 task: None,
             })?;
 
-        let mut interests = state
-            .interests
-            .lock()
-            .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
-                component: SynchronizationComponent::CancellationInterests,
-                fact: None,
-                task: None,
-            })?;
+        let mut interests =
+            state
+                .interests
+                .lock()
+                .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
+                    component: SynchronizationComponent::CancellationInterests,
+                    fact: None,
+                    task: None,
+                })?;
 
         // Shared demand retains the caller's Arc-backed request signal until interest ends.
         interests.insert(identity, cancellation.clone());

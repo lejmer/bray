@@ -31,11 +31,13 @@ where
         &mut self,
         expression: BoundExpressionId,
     ) -> Result<EvaluationFlow, EvaluationFailure> {
-        let bound = self
-            .request
-            .view()
-            .expression(expression)
-            .ok_or(EvaluationFailure::invalid_input())?;
+        let bound =
+            self.request
+                .view()
+                .expression(expression)
+                .ok_or(EvaluationFailure::constant(
+                    crate::CheckerConstantEvaluationFailure::MissingExpression { expression },
+                ))?;
 
         let evaluated = match bound {
             BoundExpression::Block(block) => {
@@ -83,15 +85,13 @@ where
                 };
 
                 match transfer.kind() {
-                    BoundControlTransferKind::Yield => Ok(EvaluationFlow::Yield {
-                        term,
-                        source_type,
-                    }),
+                    BoundControlTransferKind::Yield => {
+                        Ok(EvaluationFlow::Yield { term, source_type })
+                    }
                     BoundControlTransferKind::Return => {
                         let result_type = self.input.result_type().unwrap_or(source_type);
 
-                        let term =
-                            self.adapt_nullable_present(term, source_type, result_type)?;
+                        let term = self.adapt_nullable_present(term, source_type, result_type)?;
 
                         Ok(EvaluationFlow::Return(term))
                     }
@@ -119,7 +119,9 @@ where
             .request
             .view()
             .block(block)
-            .ok_or(EvaluationFailure::invalid_input())?;
+            .ok_or(EvaluationFailure::constant(
+                crate::CheckerConstantEvaluationFailure::MissingBlock { block },
+            ))?;
 
         let initial = self.intern_value_term(result_type, ConstantValueKind::Unit)?;
         let mut result = (initial, result_type);
@@ -155,8 +157,7 @@ where
                         result = (value, self.expression_type(*expression)?);
                     }
                     EvaluationFlow::Yield { term, source_type } => {
-                        let term =
-                            self.adapt_nullable_present(term, source_type, result_type)?;
+                        let term = self.adapt_nullable_present(term, source_type, result_type)?;
 
                         return Ok(EvaluationFlow::Value(term));
                     }
@@ -338,9 +339,9 @@ where
             .type_data(ty)
             .map(|ty| matches!(ty.as_ref(), bray_symbols::TypeData::Nullable(_)))
             .map_err(|error| {
-                EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                )
+                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
             })
     }
 

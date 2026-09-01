@@ -28,10 +28,25 @@ pub enum DiagnosticCheckerFailure {
     InvalidExpressionTypeInput {
         expression: DiagnosticCheckerNode,
     },
+    IncompatibleInput {
+        input: &'static str,
+        expected_unit: u32,
+        expected_kind: &'static str,
+        actual_unit: u32,
+        actual_kind: &'static str,
+    },
+    CheckedConstantTerms {
+        owner: DiagnosticCheckerSymbol,
+        source: bray_source::SourceSpan,
+    },
+    LiteralValue(DiagnosticLiteralValueFailure),
+    PatternInput(DiagnosticPatternInputFailure),
+    ConstantInput(DiagnosticConstantInputFailure),
+    ConstantEvaluation(DiagnosticConstantEvaluationFailure),
     InvalidSemanticSelectionInput,
-    InvalidLiteralValueInput,
+    /// Final semantic-selection table construction rejected one exact relationship.
+    SemanticSelection(DiagnosticSemanticSelectionFailure),
     InvalidConstantEvaluationInput,
-    InvalidPatternCheckInput,
     InvalidStoragePlan,
     InvalidLiveness,
     InvalidRefinementInput,
@@ -44,6 +59,8 @@ pub enum DiagnosticCheckerFailure {
         status: &'static str,
     },
     InvalidBodySemantics,
+    /// Correlated semantic results describe different bound units or unit categories.
+    SemanticSnapshot(DiagnosticSemanticSnapshotFailure),
     InvalidBoundNode {
         node: DiagnosticCheckerNode,
     },
@@ -102,6 +119,159 @@ impl DiagnosticCheckerNode {
     }
 }
 
+/// Locale-neutral identity retained for a local symbol involved in a checker failure.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiagnosticCheckerLocal {
+    kind: &'static str,
+    region: u32,
+    ordinal: u32,
+}
+
+impl DiagnosticCheckerLocal {
+    pub const fn new(kind: &'static str, region: u32, ordinal: u32) -> Self {
+        Self {
+            kind,
+            region,
+            ordinal,
+        }
+    }
+
+    pub const fn kind(self) -> &'static str {
+        self.kind
+    }
+
+    pub const fn region(self) -> u32 {
+        self.region
+    }
+
+    pub const fn ordinal(self) -> u32 {
+        self.ordinal
+    }
+}
+
+/// Exact literal-value contract failure retained across compiler boundaries.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticLiteralValueFailure {
+    ForeignExpressionTypes,
+    InvalidLiteral(DiagnosticCheckerNode),
+    MissingExpressionType(DiagnosticCheckerNode),
+    MissingLiteralValue(DiagnosticCheckerNode),
+    ValueTypeMismatch(DiagnosticCheckerNode),
+    DuplicateExpression(DiagnosticCheckerNode),
+}
+
+/// Exact pattern-input conflict retained across compiler boundaries.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticPatternInputFailure {
+    ConflictingDeclaredPattern(DiagnosticCheckerNode),
+    ConflictingConstantPattern(DiagnosticCheckerNode),
+    ConflictingGuard(DiagnosticCheckerNode),
+}
+
+/// Exact constant-input conflict retained across compiler boundaries.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticConstantInputFailure {
+    ConflictingReference(DiagnosticCheckerNode),
+    ConflictingLocalTerm(DiagnosticCheckerLocal),
+}
+
+/// Exact constant-evaluation contract failure retained across compiler boundaries.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticConstantEvaluationFailure {
+    InvalidExpressionRoot(DiagnosticCheckerNode),
+    InvalidBlockRoot(DiagnosticCheckerNode),
+    MissingExpressionType(DiagnosticCheckerNode),
+    MissingBlockResultType(DiagnosticCheckerNode),
+    MissingExpression(DiagnosticCheckerNode),
+    MissingBlock(DiagnosticCheckerNode),
+    MissingPatternInput(DiagnosticCheckerNode),
+    MissingPattern(DiagnosticCheckerNode),
+    MissingPatternBinding(DiagnosticCheckerLocal),
+    UnexpectedPropagation { store: u64, slot: u32 },
+}
+
+/// Exact semantic-selection table contract failure retained across compiler boundaries.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticSemanticSelectionFailure {
+    /// Expression types describe another bound unit.
+    ForeignExpressionTypes {
+        /// Requested bound unit identity.
+        expected_unit: u32,
+        /// Requested bound unit category.
+        expected_kind: &'static str,
+        /// Supplied bound unit identity.
+        actual_unit: u32,
+        /// Supplied bound unit category.
+        actual_kind: &'static str,
+    },
+    /// A selection names no expression in the requested unit.
+    InvalidExpression(DiagnosticCheckerNode),
+    /// More than one selection was supplied for one expression.
+    DuplicateExpression(DiagnosticCheckerNode),
+    /// A selection category does not match its bound expression.
+    SelectionKindMismatch(DiagnosticCheckerNode),
+    /// A selected result disagrees with the final expression type.
+    ResultTypeMismatch(DiagnosticCheckerNode),
+    /// A selected operand disagrees with the final operand type.
+    OperandTypeMismatch(DiagnosticCheckerNode),
+    /// An implementation subject disagrees with the final subject type.
+    SubjectTypeMismatch(DiagnosticCheckerNode),
+}
+
+/// Exact semantic-snapshot identity mismatch retained across compiler boundaries.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiagnosticSemanticSnapshotFailure {
+    input: &'static str,
+    expected_unit: u32,
+    expected_kind: &'static str,
+    actual_unit: u32,
+    actual_kind: &'static str,
+}
+
+impl DiagnosticSemanticSnapshotFailure {
+    /// Creates one locale-neutral semantic-snapshot failure.
+    pub const fn new(
+        input: &'static str,
+        expected_unit: u32,
+        expected_kind: &'static str,
+        actual_unit: u32,
+        actual_kind: &'static str,
+    ) -> Self {
+        Self {
+            input,
+            expected_unit,
+            expected_kind,
+            actual_unit,
+            actual_kind,
+        }
+    }
+
+    /// Returns the semantic result whose identity disagreed.
+    pub const fn input(self) -> &'static str {
+        self.input
+    }
+
+    /// Returns the requested bound unit identity.
+    pub const fn expected_unit(self) -> u32 {
+        self.expected_unit
+    }
+
+    /// Returns the requested bound unit category.
+    pub const fn expected_kind(self) -> &'static str {
+        self.expected_kind
+    }
+
+    /// Returns the supplied bound unit identity.
+    pub const fn actual_unit(self) -> u32 {
+        self.actual_unit
+    }
+
+    /// Returns the supplied bound unit category.
+    pub const fn actual_kind(self) -> &'static str {
+        self.actual_kind
+    }
+}
+
 impl DiagnosticCheckerFailure {
     pub const fn as_str(self) -> &'static str {
         match self {
@@ -123,10 +293,15 @@ impl DiagnosticCheckerFailure {
                 "checker_compiler_known_representation_unavailable"
             }
             Self::InvalidExpressionTypeInput { .. } => "checker_invalid_expression_type_input",
+            Self::IncompatibleInput { .. } => "checker_incompatible_input",
+            Self::CheckedConstantTerms { .. } => "checker_checked_constant_terms",
+            Self::LiteralValue(_) => "checker_literal_value_failure",
+            Self::PatternInput(_) => "checker_pattern_input_failure",
+            Self::ConstantInput(_) => "checker_constant_input_failure",
+            Self::ConstantEvaluation(_) => "checker_constant_evaluation_failure",
             Self::InvalidSemanticSelectionInput => "checker_invalid_semantic_selection_input",
-            Self::InvalidLiteralValueInput => "checker_invalid_literal_value_input",
+            Self::SemanticSelection(_) => "checker_semantic_selection_failure",
             Self::InvalidConstantEvaluationInput => "checker_invalid_constant_evaluation_input",
-            Self::InvalidPatternCheckInput => "checker_invalid_pattern_check_input",
             Self::InvalidStoragePlan => "checker_invalid_storage_plan",
             Self::InvalidLiveness => "checker_invalid_liveness",
             Self::InvalidRefinementInput => "checker_invalid_refinement_input",
@@ -137,6 +312,7 @@ impl DiagnosticCheckerFailure {
             Self::StorageFlow(_) => "checker_storage_flow_failure",
             Self::InvalidStorageOperation { .. } => "checker_invalid_storage_operation",
             Self::InvalidBodySemantics => "checker_invalid_body_semantics",
+            Self::SemanticSnapshot(_) => "checker_semantic_snapshot_failure",
             Self::InvalidBoundNode { .. } => "checker_invalid_bound_node",
             Self::ExpressionTypeCapacityExceeded => "checker_expression_type_capacity_exceeded",
             Self::InvalidUnitView(_) => "checker_invalid_unit_view",

@@ -713,15 +713,13 @@ mod tests {
     use bray_compiler_known::{ImplementationHook, RepresentationRole};
     use bray_symbols::{
         CallableDefinitionId, CallableInstanceData, GenericArgument, GenericOwnerId,
-        GenericParameterSymbolId, GenericSubstitutionData, NamedTypeSymbolId,
-        SemanticValueStore, SemanticValueStoreError, TypeCallableMemberSymbolId, TypeData, TypeId,
-        UnionSymbolId,
+        GenericParameterSymbolId, GenericSubstitutionData, NamedTypeSymbolId, SemanticValueStore,
+        SemanticValueStoreError, TypeCallableMemberSymbolId, TypeData, TypeId, UnionSymbolId,
     };
 
     use super::{
         ControlFlowGraphBuildOutcome, build_control_flow_graph, build_storage_control_flow_graph,
     };
-    use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerUnitView};
     use crate::analysis::model::ControlFlowGraph;
     use crate::analysis::model::{
         AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisScopeExitPhase,
@@ -732,6 +730,7 @@ mod tests {
         callable_unit, error_type, push_block as push_bound_block, push_callable, push_expression,
         recovered_tree, semantic_values,
     };
+    use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerUnitView};
 
     #[test]
     fn recovered_nodes_produce_typed_recovery_operations_edges_and_exits() {

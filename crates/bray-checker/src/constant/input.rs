@@ -8,6 +8,7 @@ use bray_source::SourceSpan;
 use bray_symbols::{AnyLocalSymbolId, ConstantTermId, ConstantValueId, TypeId};
 
 use super::{ConstantCallResolver, ConstantEvaluationLimits, EvaluatedConstantCall};
+use crate::CheckerConstantInputFailure;
 
 /// The exact root evaluated by one constant request.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -45,7 +46,7 @@ pub struct ConstantEvaluationInput<'input, Upstream = std::convert::Infallible> 
     result_type: Option<TypeId>,
     references: BTreeMap<BoundExpressionId, ConstantReferenceResolution>,
     local_terms: BTreeMap<AnyLocalSymbolId, ConstantTermId>,
-    is_consistent: bool,
+    failure: Option<CheckerConstantInputFailure>,
     call_resolver: Option<&'input dyn ConstantCallResolver<UpstreamError = Upstream>>,
     allow_static_address_borrows: bool,
     retain_nested_term_types: bool,
@@ -79,7 +80,7 @@ impl<'input, Upstream> ConstantEvaluationInput<'input, Upstream> {
             result_type: None,
             references: BTreeMap::new(),
             local_terms: BTreeMap::new(),
-            is_consistent: true,
+            failure: None,
             call_resolver: None,
             allow_static_address_borrows: false,
             retain_nested_term_types: false,
@@ -145,7 +146,10 @@ impl<'input, Upstream> ConstantEvaluationInput<'input, Upstream> {
                 .insert(expression, resolution)
                 .is_some_and(|existing| existing != resolution)
             {
-                self.is_consistent = false;
+                self.failure
+                    .get_or_insert(CheckerConstantInputFailure::ConflictingReference {
+                        expression,
+                    });
             }
         }
 
@@ -164,7 +168,8 @@ impl<'input, Upstream> ConstantEvaluationInput<'input, Upstream> {
                 .insert(local, term)
                 .is_some_and(|existing| existing != term)
             {
-                self.is_consistent = false;
+                self.failure
+                    .get_or_insert(CheckerConstantInputFailure::ConflictingLocalTerm { local });
             }
         }
 
@@ -215,8 +220,8 @@ impl<'input, Upstream> ConstantEvaluationInput<'input, Upstream> {
         self.call_resolver
     }
 
-    pub(crate) const fn is_consistent(&self) -> bool {
-        self.is_consistent
+    pub(crate) const fn failure(&self) -> Option<CheckerConstantInputFailure> {
+        self.failure
     }
 
     pub(crate) const fn allows_static_address_borrows(&self) -> bool {

@@ -193,13 +193,10 @@ impl Lowerer<'_> {
             bray_bound_tree::SelectedImplementationWitness::new(requirement, witness)
         });
 
-        let result_type = self
-            .input
-            .semantic_values()
-            .intern_type(TypeData::Borrow {
-                kind: borrow_kind,
-                target: self.expression_type(id)?,
-            })?;
+        let result_type = self.input.semantic_values().intern_type(TypeData::Borrow {
+            kind: borrow_kind,
+            target: self.expression_type(id)?,
+        })?;
 
         let mut call = MirCall::protocol(
             MirCallTarget::Direct(MirCallableReference::new(callable, CallableAbi::Bray)),
@@ -224,11 +221,9 @@ impl Lowerer<'_> {
     ) -> Result<TypeId, LoweringError> {
         let values = self.input.semantic_values();
 
-        let application = values
-            .trait_application_data(requirement.trait_application())?;
+        let application = values.trait_application_data(requirement.trait_application())?;
 
-        let substitution = values
-            .generic_substitution_data(application.substitution())?;
+        let substitution = values.generic_substitution_data(application.substitution())?;
 
         let [binding] = substitution.bindings() else {
             return Err(LoweringError::SemanticValueUnavailable);

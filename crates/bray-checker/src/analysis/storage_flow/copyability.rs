@@ -153,9 +153,15 @@ where
     }
 
     fn resolve_uncached(&mut self, ty: TypeId) -> CheckerQueryResult<bool, C::UpstreamError> {
-        let data = self.context.semantic_values().type_data(ty).map_err(|error| {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
-        })?;
+        let data = self
+            .context
+            .semantic_values()
+            .type_data(ty)
+            .map_err(|error| {
+                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
+            })?;
 
         match data.as_ref() {
             TypeData::Error => Ok(true),

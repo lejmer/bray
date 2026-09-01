@@ -14,6 +14,7 @@ use super::builder::BoundUnitLocalBuilder;
 use super::{AnonymousCallableBoundary, BoundUnitConstructionResult};
 
 pub(crate) struct Fixture {
+    pub(crate) graph: SymbolGraph,
     pub(crate) key: BoundUnitKey,
     pub(crate) first: SyntaxAnchor,
     pub(crate) second: SyntaxAnchor,
@@ -105,6 +106,7 @@ pub(crate) fn fixture() -> Fixture {
     };
 
     Fixture {
+        graph,
         key,
         first,
         second,

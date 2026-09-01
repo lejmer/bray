@@ -75,9 +75,15 @@ where
             return Ok(CleanupShape::BOTH);
         }
 
-        let data = self.request.semantic_values().type_data(ty).map_err(|error| {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
-        })?;
+        let data = self
+            .request
+            .semantic_values()
+            .type_data(ty)
+            .map_err(|error| {
+                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
+            })?;
 
         let shape = match data.as_ref() {
             TypeData::Error => CleanupShape {

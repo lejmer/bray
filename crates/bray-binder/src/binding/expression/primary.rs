@@ -313,7 +313,8 @@ impl ExpressionBinder {
         let context = self.path_context_for(scope, access);
 
         let route = if let Some(token) = root_token.as_ref() {
-            let root = binder.lookup_reference_identifier(context, syntax.source(), token.clone());
+            let root =
+                binder.lookup_reference_identifier(context, syntax.source(), token.clone())?;
 
             if matches!(root, bray_symbols::MemberLookupResult::NotFound) {
                 binder.lookup_module_route(context, syntax.source(), route_tokens)?
@@ -424,7 +425,7 @@ impl ExpressionBinder {
                 context,
                 syntax.source(),
                 token,
-            ));
+            )?);
 
             return match resolution {
                 ReferenceResolution::Unresolved(kind, candidates) => self.push(
@@ -447,10 +448,10 @@ impl ExpressionBinder {
 
         let result = match self.unresolved_names {
             UnresolvedNameBinding::ContextualVariant => {
-                binder.bind_contextual_variant_identifier(context, syntax.source(), token)
+                binder.bind_contextual_variant_identifier(context, syntax.source(), token)?
             }
             UnresolvedNameBinding::Diagnostic => {
-                binder.bind_reference_identifier(context, syntax.source(), token)
+                binder.bind_reference_identifier(context, syntax.source(), token)?
             }
         };
 

@@ -15,10 +15,10 @@ use crate::analysis::model::{
     AnalysisScopeExitPhase, ControlFlowGraph,
 };
 use crate::analysis::reachability::{ReachabilityResult, analyze_reachability};
-use crate::unit::semantic_inputs_match;
+use crate::unit::semantic_input_failure;
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerUnitView,
+    CheckerInfrastructureError, CheckerInputKind, CheckerOutcome, CheckerQueryError,
+    CheckerRequestContext, CheckerSemanticQueryProvider, CheckerUnitView,
 };
 
 use super::effects::OperationEffects;
@@ -32,14 +32,24 @@ pub(crate) fn analyze_storage_liveness<C>(
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
-    if !semantic_inputs_match(
+    if let Some(error) = semantic_input_failure(
         request,
         [
-            (selections.unit(), selections.kind()),
-            (storage.unit(), storage.kind()),
+            (
+                CheckerInputKind::SemanticSelections,
+                (selections.unit(), selections.kind()),
+            ),
+            (
+                CheckerInputKind::StoragePlan,
+                (storage.unit(), storage.kind()),
+            ),
+            (
+                CheckerInputKind::MemoryOperations,
+                (memory.unit(), memory.kind()),
+            ),
         ],
     ) {
-        return CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::InvalidLiveness);
+        return CheckerOutcome::InfrastructureFailure(error);
     }
 
     let graph = match build_storage_control_flow_graph(request, storage, selections) {

@@ -112,10 +112,7 @@ pub(super) fn count_field(name: &'static str, value: u32) -> DiagnosticEmissionF
 }
 
 pub(super) fn count_u64_field(name: &'static str, value: u64) -> DiagnosticEmissionFieldJson {
-    field(
-        name,
-        DiagnosticEmissionFieldValueJson::Count(value),
-    )
+    field(name, DiagnosticEmissionFieldValueJson::Count(value))
 }
 
 pub(super) fn text_field(

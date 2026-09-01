@@ -428,6 +428,9 @@ impl Compilation {
             Err(FactQueryError::SemanticUnitContext(error)) => {
                 panic!("scheduled semantic unit context failed: {error:?}")
             }
+            Err(FactQueryError::SemanticQuery(error)) => {
+                panic!("scheduled semantic query failed: {error}")
+            }
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("scheduled checker infrastructure failed: {error:?}")
             }
@@ -569,6 +572,9 @@ impl Compilation {
             }
             Err(FactQueryError::SemanticUnitContext(error)) => {
                 panic!("semantic unit context failed: {error:?}")
+            }
+            Err(FactQueryError::SemanticQuery(error)) => {
+                panic!("compilation semantic query failed: {error}")
             }
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("semantic checker infrastructure failed: {error:?}")
@@ -763,6 +769,9 @@ mod tests {
     };
     use bray_syntax::SourceSyntaxNode;
 
+    use crate::compilation::{
+        SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+    };
     use crate::fact::{CompilationFactKey, CompilationInputKey, FactQueryError};
     use crate::request::{CompilationOptions, CompilationRequest};
     use crate::test_support::{
@@ -1508,10 +1517,17 @@ mod tests {
 
         let foreign = compilation.control_flow(foreign_key.clone());
 
-        assert!(matches!(
-            foreign,
-            Err(FactQueryError::InfrastructureFailure)
-        ));
+        assert!(
+            matches!(
+                &foreign,
+                Err(FactQueryError::SemanticQuery(error))
+                    if error.cause() == &SemanticQueryFailure::contract(
+                        SemanticQueryContext::Unit(foreign_key.clone()),
+                        SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
+                    )
+            ),
+            "{foreign:?}"
+        );
 
         assert_eq!(
             compilation

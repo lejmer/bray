@@ -6,10 +6,11 @@ use bray_symbols::TypeId;
 use super::super::Compilation;
 use super::super::binder::CompilationBindingContext;
 use super::super::unit::semantic_unit_context_for;
+use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
 use crate::fact::{CancellationToken, FactQueryError, OperationSelectionQueryKey};
 
 use super::model::{ConversionPlan, OperationResolution, TraitOperation};
-use super::query::expression_type;
+use super::query::{expression_type, operation_contract_failure, unit_contract_failure};
 
 impl Compilation {
     pub(super) fn resolve_conversion_operation(
@@ -24,7 +25,10 @@ impl Compilation {
         let Some(BoundExpression::Conversion(conversion)) =
             unit.view().expression(key.expression())
         else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(operation_contract_failure(
+                key,
+                SemanticQueryViolation::Unsupported(SemanticDataKind::OperationSelection),
+            ));
         };
 
         let source_type = expression_type(types, conversion.operand())?;
@@ -38,12 +42,18 @@ impl Compilation {
 
         let candidate = self
             .resolve_conversion_plan(
+                key,
                 request,
                 binding_context,
                 binding_context
                     .symbols()
                     .symbol_for_key(unit.key().declared_owner())
-                    .ok_or(FactQueryError::InfrastructureFailure)?,
+                    .ok_or_else(|| {
+                        unit_contract_failure(
+                            unit.key(),
+                            SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                        )
+                    })?,
                 source_type,
                 target_type,
                 cancellation,
@@ -65,6 +75,7 @@ impl Compilation {
 
     fn resolve_conversion_plan(
         &self,
+        key: &OperationSelectionQueryKey,
         request: bray_checker::CheckerUnitView<
             '_,
             super::super::checker::CompilationCheckerContext<'_>,
@@ -89,6 +100,7 @@ impl Compilation {
 
             for (source, target) in children {
                 let Some(plan) = self.resolve_conversion_plan(
+                    key,
                     request,
                     binding_context,
                     owner,
@@ -123,6 +135,6 @@ impl Compilation {
             return Ok(None);
         };
 
-        ConversionPlan::trait_backed(candidate).map(Some)
+        ConversionPlan::trait_backed(candidate, key).map(Some)
     }
 }

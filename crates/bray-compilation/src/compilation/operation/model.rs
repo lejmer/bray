@@ -10,7 +10,10 @@ use bray_checker::{
 };
 use bray_symbols::{SymbolKey, TypeId};
 
-use crate::fact::FactQueryError;
+use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
+use crate::fact::{FactQueryError, OperationSelectionQueryKey};
+
+use super::query::operation_contract_failure;
 
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub(in crate::compilation) struct OperationResolution {
@@ -93,9 +96,15 @@ impl ConversionPlan {
         }
     }
 
-    pub(super) fn trait_backed(candidate: TraitOperationCandidate) -> Result<Self, FactQueryError> {
+    pub(super) fn trait_backed(
+        candidate: TraitOperationCandidate,
+        key: &OperationSelectionQueryKey,
+    ) -> Result<Self, FactQueryError> {
         let SelectedOperation::Conversion(conversion) = candidate.operation else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(operation_contract_failure(
+                key,
+                SemanticQueryViolation::Unsupported(SemanticDataKind::OperationSelection),
+            ));
         };
 
         Ok(Self {

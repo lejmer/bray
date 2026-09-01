@@ -6,8 +6,9 @@ mod value_type_surface;
 
 pub(super) use context::CompilationBindingContext;
 pub(in crate::compilation) use error::{
-    BindingQueryResult, binding_query_error, callable_signature_binding_error,
-    semantic_value_binding_error,
+    BindingQueryResult, binding_error, binding_query_error, callable_signature_binding_error,
+    semantic_contract_binding_error, semantic_query_binding_error, semantic_value_binding_error,
+    symbol_query_contract_binding_error,
 };
 pub(in crate::compilation) use symbol::{
     CompilationSymbolSemantics, bind_declared_execution_requirements,

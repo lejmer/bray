@@ -234,7 +234,7 @@ fn canonical_equal_type(
         }
     }
 
-    component
+    let canonical = component
         .into_iter()
         .map(|candidate| {
             let data = values
@@ -250,7 +250,9 @@ fn canonical_equal_type(
         .into_iter()
         .min_by_key(|(key, _)| *key)
         .map(|(_, candidate)| candidate)
-        .ok_or(FactQueryError::InfrastructureFailure)
+        .unwrap_or(ty);
+
+    Ok(canonical)
 }
 
 fn normalize_application(
@@ -302,8 +304,12 @@ fn normalize_substitution(
         .unzip();
 
     let substitution =
-        GenericSubstitutionData::try_new(substitution.owner(), parameters, arguments)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        GenericSubstitutionData::try_new(substitution.owner(), parameters, arguments).map_err(
+            |cause| crate::compilation::SemanticQueryFailure::GenericSubstitution {
+                owner: Some(substitution.owner()),
+                cause,
+            },
+        )?;
 
     values
         .intern_generic_substitution(substitution)

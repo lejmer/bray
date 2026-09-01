@@ -1,7 +1,7 @@
 use bray_bound_tree::{
-    BoundExpressionId, BoundMemberSelector, BoundOperator, ConstructionInputId,
-    ConstructionTarget, ConversionTarget, IndexTarget, OperatorTarget, SelectedConstructionInput,
-    SelectedOperation, SemanticSelection,
+    BoundExpressionId, BoundMemberSelector, BoundOperator, ConstructionInputId, ConstructionTarget,
+    ConversionTarget, IndexTarget, OperatorTarget, SelectedConstructionInput, SelectedOperation,
+    SemanticSelection,
 };
 use bray_compiler_known::NumericRepresentationKind;
 use bray_diagnostics::DiagnosticConstantOperation;

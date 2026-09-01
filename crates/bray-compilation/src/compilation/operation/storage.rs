@@ -13,6 +13,10 @@ use super::super::binder::{CompilationBindingContext, binding_query_error};
 use super::super::implementation::{
     implementation_callable_instance, implementation_fulfillments, implementation_requirement,
 };
+use super::query::symbol_contract_failure;
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+};
 use crate::fact::{CancellationToken, FactQueryError};
 
 type SelectedStorageCallable = (
@@ -30,15 +34,22 @@ pub(in crate::compilation) fn selected_storage_callable(
     member_key: &CompilerKnownDeclarationKey,
     cancellation: &CancellationToken,
 ) -> Result<DiagnosticResult<Option<SelectedStorageCallable>>, FactQueryError> {
+    let role = CompilerKnownOperationRole::BoxConstruction;
+
     let contract = compilation
         .available_compiler_known_symbols()
-        .operation_contract(CompilerKnownOperationRole::BoxConstruction)
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .operation_contract(role)
+        .ok_or_else(|| compiler_known_operation_unavailable(storage, target, role))?;
 
     let trait_symbol = binding_context
         .symbols()
         .trait_symbol(contract.trait_definition())
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .ok_or_else(|| {
+            symbol_contract_failure(
+                contract.trait_definition().into(),
+                SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+            )
+        })?;
 
     let parameters = trait_symbol
         .generic_type_parameters()
@@ -73,7 +84,7 @@ pub(in crate::compilation) fn selected_storage_callable(
     let member = compilation
         .available_compiler_known_symbols()
         .declaration_symbol::<TraitCallableMemberSymbolId>(member_key)
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .ok_or_else(|| compiler_known_declaration_unavailable(member_key))?;
 
     let application = binding_context
         .semantic_values()
@@ -123,4 +134,84 @@ pub(in crate::compilation) fn selected_storage_callable(
         signature.map(|signature| (requirement, *witness, callable, signature)),
         diagnostics,
     ))
+}
+
+fn compiler_known_operation_unavailable(
+    storage: TypeId,
+    target: TypeId,
+    role: CompilerKnownOperationRole,
+) -> FactQueryError {
+    SemanticQueryFailure::contract(
+        SemanticQueryContext::Type(storage),
+        SemanticQueryViolation::CompilerKnownOperationUnavailable {
+            storage,
+            target,
+            role,
+        },
+    )
+    .into()
+}
+
+fn compiler_known_declaration_unavailable(key: &CompilerKnownDeclarationKey) -> FactQueryError {
+    SemanticQueryFailure::contract(
+        SemanticQueryContext::CompilerKnownDeclaration(key.clone()),
+        SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+    )
+    .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_compiler_known::CompilerKnownOperationRole;
+    use bray_symbols::{SemanticValueStore, TypeData};
+
+    use super::{compiler_known_declaration_unavailable, compiler_known_operation_unavailable};
+    use crate::compilation::{
+        SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+    };
+    use crate::fact::FactQueryError;
+
+    #[test]
+    fn missing_storage_contract_retains_types_and_operation_role() {
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic store must build: {error:?}"));
+
+        let storage = values
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("storage type must intern: {error:?}"));
+
+        let target = values
+            .intern_type(TypeData::tuple([storage]))
+            .unwrap_or_else(|error| panic!("target type must intern: {error:?}"));
+
+        let role = CompilerKnownOperationRole::BoxConstruction;
+
+        assert_eq!(
+            compiler_known_operation_unavailable(storage, target, role),
+            FactQueryError::from(SemanticQueryFailure::contract(
+                SemanticQueryContext::Type(storage),
+                SemanticQueryViolation::CompilerKnownOperationUnavailable {
+                    storage,
+                    target,
+                    role,
+                },
+            ))
+        );
+    }
+
+    #[test]
+    fn missing_storage_member_retains_compiler_known_declaration_key() {
+        let Some(key) = bray_compiler_known::CompilerKnownDeclarationKey::try_new("StorageCreate")
+        else {
+            panic!("test compiler-known declaration key must be valid");
+        };
+
+        assert_eq!(
+            compiler_known_declaration_unavailable(&key),
+            FactQueryError::from(SemanticQueryFailure::contract(
+                SemanticQueryContext::CompilerKnownDeclaration(key),
+                SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+            ))
+        );
+    }
 }

@@ -332,17 +332,13 @@ impl<T> FactCell<T> {
         loop {
             cancellation.check()?;
 
-            let mut state = self
-                .storage
-                .state
-                .lock()
-                .map_err(|_| {
-                    FactRuntimeFailure::SynchronizationPoisoned {
-                        component: SynchronizationComponent::FactCell,
-                        fact: Some(key.clone()),
-                        task: None,
-                    }
-                })?;
+            let mut state = self.storage.state.lock().map_err(|_| {
+                FactRuntimeFailure::SynchronizationPoisoned {
+                    component: SynchronizationComponent::FactCell,
+                    fact: Some(key.clone()),
+                    task: None,
+                }
+            })?;
 
             match &*state {
                 FactCellState::Ready => {
@@ -406,10 +402,8 @@ impl<T> FactCell<T> {
                         value
                     });
 
-                    let value = preserve_shared_cancellation_failure(
-                        value,
-                        shared_cancellation.token(),
-                    )?;
+                    let value =
+                        preserve_shared_cancellation_failure(value, shared_cancellation.token())?;
 
                     #[cfg(test)]
                     self.observe(FactCellTestEvent::Computed)?;
@@ -484,17 +478,13 @@ impl<T> FactCell<T> {
                         profile.start_query(crate::profile::ProfileOperation::DependencyWait, &key)
                     });
 
-                    let state = self
-                        .storage
-                        .state
-                        .lock()
-                        .map_err(|_| {
-                            FactRuntimeFailure::SynchronizationPoisoned {
-                                component: SynchronizationComponent::FactCell,
-                                fact: Some(key.clone()),
-                                task: Some(task),
-                            }
-                        })?;
+                    let state = self.storage.state.lock().map_err(|_| {
+                        FactRuntimeFailure::SynchronizationPoisoned {
+                            component: SynchronizationComponent::FactCell,
+                            fact: Some(key.clone()),
+                            task: Some(task),
+                        }
+                    })?;
 
                     let same_evaluation = matches!(
                         &*state,
@@ -510,12 +500,10 @@ impl<T> FactCell<T> {
                             .storage
                             .changed
                             .wait_timeout(state, CANCELLATION_POLL_INTERVAL)
-                            .map_err(|_| {
-                                FactRuntimeFailure::SynchronizationPoisoned {
-                                    component: SynchronizationComponent::FactCell,
-                                    fact: Some(key.clone()),
-                                    task: Some(task),
-                                }
+                            .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
+                                component: SynchronizationComponent::FactCell,
+                                fact: Some(key.clone()),
+                                task: Some(task),
                             })?;
 
                         drop(waited);
@@ -541,17 +529,15 @@ impl<T> FactCell<T> {
         commit: EvaluationCommit<'_>,
     ) -> Result<&T, FactQueryError> {
         // Publication failures leave the cell lock boundary and therefore own exact keys.
-        let mut state = self
-            .storage
-            .state
-            .lock()
-            .map_err(|_| {
-                FactRuntimeFailure::SynchronizationPoisoned {
+        let mut state =
+            self.storage
+                .state
+                .lock()
+                .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
                     component: SynchronizationComponent::FactCell,
                     fact: Some(key.as_ref().clone()),
                     task: Some(task),
-                }
-            })?;
+                })?;
 
         if !matches!(
             &*state,
@@ -1853,11 +1839,8 @@ mod tests {
         let cell = FactCell::new();
         let key = CompilationFactKey::SyntaxTree;
 
-        let result = cell.get_or_compute_requested(
-            &runtime,
-            key,
-            &cancellation,
-            |shared_cancellation| {
+        let result =
+            cell.get_or_compute_requested(&runtime, key, &cancellation, |shared_cancellation| {
                 shared_cancellation.poison_shared_interests();
 
                 if shared_cancellation.is_cancelled() {
@@ -1865,8 +1848,7 @@ mod tests {
                 } else {
                     Ok(7_u32)
                 }
-            },
-        );
+            });
 
         assert!(matches!(
             result,

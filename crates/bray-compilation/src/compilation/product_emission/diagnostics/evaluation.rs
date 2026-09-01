@@ -75,6 +75,9 @@ pub(super) fn diagnostic_evaluation_failure(
         FactQueryError::SemanticUnitContext(_) => {
             DiagnosticEmissionEvaluationFailure::SemanticContext
         }
+        FactQueryError::SemanticQuery(error) => DiagnosticEmissionEvaluationFailure::SemanticQuery(
+            crate::fact::diagnostic_semantic_query_failure(error.kind()),
+        ),
         FactQueryError::CheckerInfrastructure(error) => match error {
             bray_checker::CheckerInfrastructureError::AtomicRepresentationTypeUnavailable => {
                 DiagnosticEmissionEvaluationFailure::AtomicRepresentationTypeUnavailable

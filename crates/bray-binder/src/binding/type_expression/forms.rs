@@ -4,7 +4,7 @@ use bray_symbols::{MemberLookupResult, TypeData, TypeExpressionTemplate};
 use bray_syntax::TypeExpressionSyntax;
 
 use super::core::TypeExpressionBinder;
-use crate::{BindingQueryError, BindingQueryResult};
+use crate::{BindingError, BindingQueryError, BindingQueryResult};
 
 impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     pub(super) fn bind_type_valued_member_projection(
@@ -201,7 +201,9 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             .symbols
             .compiler_known_provider()
             .heap_storage_policy()
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::Binding(
+                BindingError::CompilerKnownHeapStoragePolicyUnavailable,
+            ))?;
 
         self.bind_named_type(definition.into(), None)
     }

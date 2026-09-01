@@ -39,12 +39,7 @@ where
             Vec::with_capacity(call.arguments().len() + usize::from(call.receiver().is_some()));
 
         if let Some(receiver) = call.receiver() {
-            arguments.push((
-                None,
-                receiver.expression(),
-                None,
-                receiver.source_type(),
-            ));
+            arguments.push((None, receiver.expression(), None, receiver.source_type()));
         }
 
         for argument in call.arguments() {
@@ -72,9 +67,7 @@ where
             .into_iter()
             .map(|(_, argument, conversion, ty)| {
                 let term = match conversion {
-                    Some(conversion) => {
-                        self.evaluate_selected_conversion(argument, &conversion)?
-                    }
+                    Some(conversion) => self.evaluate_selected_conversion(argument, &conversion)?,
                     None => self.evaluate(argument)?,
                 };
 
@@ -104,13 +97,7 @@ where
             _ => return Err(EvaluationFailure::invalid_expression(expression)),
         };
 
-        self.evaluate_call_terms(
-            expression,
-            callable,
-            selected_implementation,
-            arguments,
-            ty,
-        )
+        self.evaluate_call_terms(expression, callable, selected_implementation, arguments, ty)
     }
 
     fn evaluate_selected_conversion(

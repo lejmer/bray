@@ -11,8 +11,26 @@ use crate::binder::Binder;
 use crate::binding::BindingError;
 use crate::lookup::{NameAccess, PathBindingContext};
 use crate::publication::BoundUnitAssemblyError;
-use crate::unit::{BoundUnitConstructionError, BoundUnitLocalBuilder};
+use crate::unit::BoundUnitLocalBuilder;
 use crate::{BindingQueryContext, SymbolQueryProvider};
+
+pub(super) fn missing_syntax<Upstream>(key: &BoundUnitKey) -> BoundUnitBindingError<Upstream> {
+    BoundUnitBindingError::MissingSyntax {
+        source: key.source(),
+    }
+}
+
+pub(super) fn missing_owner<Upstream>(
+    key: &BoundUnitKey,
+    symbol: Option<AnySymbolId>,
+) -> BoundUnitBindingError<Upstream> {
+    // Unit keys and symbol keys are Arc-backed stable identities.
+    BoundUnitBindingError::MissingOwner {
+        source: key.source(),
+        owner: key.declared_owner().clone(),
+        symbol,
+    }
+}
 
 pub(super) fn create_binder<C>(
     binding_context: &C,
@@ -26,7 +44,7 @@ where
     let start = key.source().syntax().full_range().start();
 
     let unit = BoundUnitLocalBuilder::new(unit, key, region, start)
-        .map_err(|_| BoundUnitBindingError::Construction)?;
+        .map_err(BoundUnitBindingError::Construction)?;
 
     Ok(Binder::new(binding_context, unit))
 }
@@ -42,13 +60,16 @@ where
         .binding_context()
         .symbols()
         .symbol_for_key(binder.unit().key().declared_owner())
-        .ok_or(BoundUnitBindingError::MissingOwner)?;
+        .ok_or_else(|| missing_owner(binder.unit().key(), None))?;
 
     let module = binder
         .binding_context()
         .symbols()
         .containing_module(symbol)
-        .ok_or(BoundUnitBindingError::MissingModule)?;
+        .ok_or(BoundUnitBindingError::MissingModule {
+            source: binder.unit().key().source(),
+            owner: symbol,
+        })?;
 
     Ok(PathBindingContext::new(
         scope,
@@ -71,7 +92,7 @@ where
         .symbols()
         .symbol_for_key(binder.unit().key().declared_owner())
         .and_then(CallableSymbolId::try_from_any)
-        .ok_or(BoundUnitBindingError::MissingOwner)?;
+        .ok_or_else(|| missing_owner(binder.unit().key(), None))?;
 
     push_callable_inputs_for(binder, scope, callable)
 }
@@ -101,7 +122,7 @@ where
     signature
         .value()
         .execution(binder.binding_context().semantic_values())
-        .map_err(|error| map_signature_error(error, BoundUnitBindingError::Construction))
+        .map_err(map_signature_error)
 }
 
 pub(super) fn insert_callable_inputs<C>(
@@ -130,11 +151,11 @@ where
 
     let parameter_types = signature
         .parameter_type_templates(binder.binding_context().semantic_values())
-        .map_err(|error| map_signature_error(error, BoundUnitBindingError::Binding))?;
+        .map_err(map_signature_error)?;
 
     let parameter_names = signature
         .parameter_names(binder.binding_context().semantic_values())
-        .map_err(|error| map_signature_error(error, BoundUnitBindingError::Binding))?;
+        .map_err(map_signature_error)?;
 
     for ((parameter, name), ty) in signature
         .parameters()
@@ -177,7 +198,9 @@ where
     values
         .intern_open_named_type(binder.binding_context().symbols(), *definition)
         .map_err(BoundUnitBindingError::SemanticValue)?
-        .ok_or(BoundUnitBindingError::Binding)
+        .ok_or(BoundUnitBindingError::Binding(
+            BindingError::SymbolRecordUnavailable((*definition).into_any()),
+        ))
 }
 
 pub(super) fn insert_surface<C>(
@@ -211,7 +234,7 @@ where
         .symbols()
         .member_name(symbol)
         .cloned()
-        .ok_or(BoundUnitBindingError::MissingOwner)?;
+        .ok_or_else(|| missing_owner(binder.unit().key(), Some(symbol)))?;
 
     insert_named_surface(binder, scope, symbol, name.as_str())
 }
@@ -225,12 +248,15 @@ pub(super) fn insert_named_surface<C>(
 where
     C: BindingQueryContext + ?Sized,
 {
-    let name = SymbolName::try_new(name).ok_or(BoundUnitBindingError::MissingOwner)?;
+    let name = SymbolName::try_new(name).ok_or(BoundUnitBindingError::InvalidSurfaceName {
+        source: binder.unit().key().source(),
+        symbol,
+    })?;
 
     binder
         .unit_mut()
         .insert_surface_name(scope, name, symbol)
-        .map_err(|_| BoundUnitBindingError::Construction)
+        .map_err(BoundUnitBindingError::Construction)
 }
 
 pub(super) fn error_type<C>(
@@ -263,45 +289,62 @@ pub(super) fn map_binding_error<Upstream>(
         }
         BindingError::SemanticValue(error) => BoundUnitBindingError::SemanticValue(error),
         BindingError::Upstream(error) => BoundUnitBindingError::Upstream(error),
-        BindingError::Construction(BoundUnitConstructionError::BoundTree(_))
-        | BindingError::Construction(BoundUnitConstructionError::LocalSymbol(_))
-        | BindingError::Construction(BoundUnitConstructionError::LocalAlreadyActivated(_))
-        | BindingError::Construction(
-            BoundUnitConstructionError::AnonymousCallableBoundaryMismatch
-            | BoundUnitConstructionError::AnonymousCallableAlreadyAssigned { .. }
-            | BoundUnitConstructionError::AnonymousCallableParameterAlreadyAssigned { .. }
-            | BoundUnitConstructionError::AnonymousCallableSourceMismatch { .. }
-            | BoundUnitConstructionError::AnonymousCallableSourceVersionMismatch { .. },
-        ) => BoundUnitBindingError::Construction,
-        BindingError::DependencyUnavailable
+        BindingError::Construction(error) => BoundUnitBindingError::Construction(error),
+        BindingError::Assembly(error) => BoundUnitBindingError::Assembly(error),
+        error @ (BindingError::DependencyUnavailable
+        | BindingError::MissingSyntax { .. }
+        | BindingError::MissingOwner { .. }
+        | BindingError::MissingModule { .. }
+        | BindingError::InvalidSurfaceName { .. }
         | BindingError::IdentityCapacityExceeded
         | BindingError::RollbackFailed
         | BindingError::TransactionContextMismatch
         | BindingError::ControlTargetMismatch
-        | BindingError::UnsupportedSyntax => BoundUnitBindingError::Binding,
+        | BindingError::UnsupportedSyntax
+        | BindingError::SyntaxContract(_)
+        | BindingError::GenericOwnerUnavailable(_)
+        | BindingError::CompilerKnownRepresentationUnavailable(_)
+        | BindingError::SymbolRecordUnavailable(_)
+        | BindingError::ModulePartRecordUnavailable(_)
+        | BindingError::DeclarationRecordUnavailable(_)
+        | BindingError::UnresolvedTraitApplication(_)
+        | BindingError::ContextualSelfUnavailable(_)
+        | BindingError::UnresolvedTypeTemplate
+        | BindingError::InvalidUnitKey { .. }
+        | BindingError::CallableParameterCountMismatch { .. }
+        | BindingError::CallableParameterOwnerMismatch { .. }
+        | BindingError::ReceiverParameterOwnerMismatch { .. }
+        | BindingError::ReceiverContextMismatch { .. }
+        | BindingError::CallableTypeExpected { .. }
+        | BindingError::CallableTypeTemplateExpected(_)
+        | BindingError::CompilerKnownHeapStoragePolicyUnavailable
+        | BindingError::ImportedPackageUnavailable(_)
+        | BindingError::ImportedPathUnavailable { .. }
+        | BindingError::BoundWalkStopped(_)
+        | BindingError::CallableSignature(_)
+        | BindingError::GenericSubstitution(_)) => BoundUnitBindingError::Binding(error),
     }
 }
 
 fn map_signature_error<Upstream>(
     error: CallableSignatureTemplateError,
-    structural: BoundUnitBindingError<Upstream>,
 ) -> BoundUnitBindingError<Upstream> {
     match error {
         CallableSignatureTemplateError::SemanticValue(error) => {
             BoundUnitBindingError::SemanticValue(error)
         }
-        CallableSignatureTemplateError::InvalidCallableType
+        error @ (CallableSignatureTemplateError::InvalidCallableType
         | CallableSignatureTemplateError::ParameterCountMismatch
-        | CallableSignatureTemplateError::ParameterIdentityMismatch => structural,
+        | CallableSignatureTemplateError::ParameterIdentityMismatch) => {
+            BoundUnitBindingError::Binding(BindingError::CallableSignature(error))
+        }
     }
 }
 
 pub(super) fn map_assembly_error<Upstream>(
     error: BoundUnitAssemblyError,
 ) -> BoundUnitBindingError<Upstream> {
-    match error {
-        BoundUnitAssemblyError::InvalidBoundUnit(_) => BoundUnitBindingError::Assembly,
-    }
+    BoundUnitBindingError::Assembly(error)
 }
 
 pub(super) fn map_query_error<Upstream>(
@@ -316,6 +359,73 @@ pub(super) fn map_query_error<Upstream>(
             BoundUnitBindingError::SemanticValue(error)
         }
         crate::BindingQueryError::Upstream(error) => BoundUnitBindingError::Upstream(error),
-        crate::BindingQueryError::DependencyUnavailable => BoundUnitBindingError::Binding,
+        crate::BindingQueryError::DependencyUnavailable => {
+            BoundUnitBindingError::Binding(BindingError::DependencyUnavailable)
+        }
+        crate::BindingQueryError::MissingSyntax { source } => {
+            BoundUnitBindingError::MissingSyntax { source }
+        }
+        crate::BindingQueryError::MissingOwner {
+            source,
+            owner,
+            symbol,
+        } => BoundUnitBindingError::MissingOwner {
+            source,
+            owner,
+            symbol,
+        },
+        crate::BindingQueryError::MissingModule { source, owner } => {
+            BoundUnitBindingError::MissingModule { source, owner }
+        }
+        crate::BindingQueryError::InvalidSurfaceName { source, symbol } => {
+            BoundUnitBindingError::InvalidSurfaceName { source, symbol }
+        }
+        crate::BindingQueryError::Construction(error) => BoundUnitBindingError::Construction(error),
+        crate::BindingQueryError::Binding(error) => map_binding_error(error),
+        crate::BindingQueryError::Assembly(error) => BoundUnitBindingError::Assembly(error),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_bound_tree::{BoundTreeBuildError, BoundUnitBuildError, BoundUnitId};
+
+    use super::{map_assembly_error, map_binding_error, map_query_error};
+    use crate::{
+        BindingError, BindingQueryError, BoundUnitAssemblyError, BoundUnitBindingError,
+        BoundUnitConstructionError,
+    };
+
+    #[test]
+    fn unit_binding_mappers_preserve_exact_local_causes() {
+        let construction =
+            BoundUnitConstructionError::BoundTree(BoundTreeBuildError::ForeignNode {
+                expected: BoundUnitId::new(2),
+                actual: BoundUnitId::new(7),
+                kind: bray_bound_tree::BoundNodeKind::Pattern,
+            });
+
+        let assembly =
+            BoundUnitAssemblyError::InvalidBoundUnit(BoundUnitBuildError::RootKindMismatch);
+
+        assert_eq!(
+            map_binding_error::<u8>(BindingError::Construction(construction)),
+            BoundUnitBindingError::Construction(construction)
+        );
+
+        assert_eq!(
+            map_binding_error::<u8>(BindingError::ControlTargetMismatch),
+            BoundUnitBindingError::Binding(BindingError::ControlTargetMismatch)
+        );
+
+        assert_eq!(
+            map_assembly_error::<u8>(assembly),
+            BoundUnitBindingError::Assembly(assembly)
+        );
+
+        assert_eq!(
+            map_query_error::<u8>(BindingQueryError::Binding(BindingError::RollbackFailed)),
+            BoundUnitBindingError::Binding(BindingError::RollbackFailed)
+        );
     }
 }

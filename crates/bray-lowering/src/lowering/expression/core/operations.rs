@@ -200,10 +200,7 @@ impl Lowerer<'_> {
 
         let ty = self.expression_type(expression)?;
 
-        let data = self
-            .input
-            .semantic_values()
-            .type_data(ty)?;
+        let data = self.input.semantic_values().type_data(ty)?;
 
         let TypeData::Callable(callable) = data.as_ref() else {
             return Ok(None);
@@ -363,13 +360,12 @@ impl Lowerer<'_> {
 
         let left_type = match selection {
             OperatorTarget::BuiltIn(_) => self.expression_type(*left_id)?,
-            OperatorTarget::Trait { .. } | OperatorTarget::TraitConstraint { .. } => self
-                .input
-                .semantic_values()
-                .intern_type(TypeData::Borrow {
+            OperatorTarget::Trait { .. } | OperatorTarget::TraitConstraint { .. } => {
+                self.input.semantic_values().intern_type(TypeData::Borrow {
                     kind: BorrowKind::Shared,
                     target: self.expression_type(*left_id)?,
-                })?,
+                })?
+            }
         };
 
         let left = if self.later_evaluation_may_check_call_panic([*right_id])? {
@@ -719,13 +715,10 @@ impl Lowerer<'_> {
         let left = match selection {
             OperatorTarget::BuiltIn(_) => MirOperand::Copy(destination),
             OperatorTarget::Trait { .. } | OperatorTarget::TraitConstraint { .. } => {
-                let borrow_type = self
-                    .input
-                    .semantic_values()
-                    .intern_type(TypeData::Borrow {
-                        kind: BorrowKind::Shared,
-                        target: destination.ty(),
-                    })?;
+                let borrow_type = self.input.semantic_values().intern_type(TypeData::Borrow {
+                    kind: BorrowKind::Shared,
+                    target: destination.ty(),
+                })?;
 
                 self.push_typed_value_operation(
                     id,

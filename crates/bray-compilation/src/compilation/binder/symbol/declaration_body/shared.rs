@@ -1,4 +1,6 @@
-use crate::compilation::binder::BindingQueryResult;
+use crate::compilation::binder::{
+    BindingQueryResult, semantic_contract_binding_error as binding_contract,
+};
 use bray_binder::BindingQueryError;
 use bray_bound_tree::{
     BoundUnit, BoundUnitKey, BoundUnitRoot, CheckedBodySemantics, CheckedExpressionSemantics,
@@ -38,7 +40,11 @@ pub(in crate::compilation::binder::symbol) fn checked_source_expression(
         .map_err(super::super::binding::binder_error)?;
 
     let BoundUnitRoot::Expression(root) = bound.result().value().root() else {
-        return Err(BindingQueryError::DependencyUnavailable);
+        return Err(unexpected_unit_root(
+            key,
+            bray_bound_tree::BoundNodeKind::Expression,
+            bound.result().value().root(),
+        ));
     };
 
     let semantics = compilation
@@ -50,7 +56,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_expression(
         .map_err(super::super::binding::binder_error)?;
 
     let body = compilation
-        .body_semantics_with_cancellation(key, context.cancellation)
+        .body_semantics_with_cancellation(key.clone(), context.cancellation)
         .map_err(super::super::binding::binder_error)?;
 
     let result = semantics
@@ -58,21 +64,36 @@ pub(in crate::compilation::binder::symbol) fn checked_source_expression(
         .value()
         .types()
         .expression(root)
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or_else(|| {
+            binding_contract(
+                crate::compilation::SemanticQueryContext::Expression {
+                    unit: key.clone(),
+                    expression: root,
+                },
+                crate::compilation::SemanticQueryViolation::Missing(
+                    crate::compilation::SemanticDataKind::Type,
+                ),
+            )
+        })?;
 
     let expression = bound
         .result()
         .value()
         .view()
         .expression(root)
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or_else(|| {
+            binding_contract(
+                crate::compilation::SemanticQueryContext::Unit(key.clone()),
+                crate::compilation::SemanticQueryViolation::MissingBoundNode(root.into()),
+            )
+        })?;
 
     let dependencies = body.result().value().dependencies();
 
     let contract = dependencies
         .expression(root)
         .and_then(|contract| dependencies.contract(contract))
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or_else(|| missing_dependency_contract(key.clone(), root))?;
 
     let dependency_contract =
         portable_dependency_contract(context, storage.result().value(), contract)?;
@@ -100,7 +121,11 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         .map_err(super::super::binding::binder_error)?;
 
     let BoundUnitRoot::ExpressionSequence(root) = bound.result().value().root() else {
-        return Err(BindingQueryError::DependencyUnavailable);
+        return Err(unexpected_unit_root(
+            key,
+            bray_bound_tree::BoundNodeKind::Block,
+            bound.result().value().root(),
+        ));
     };
 
     let semantics = compilation
@@ -112,7 +137,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         .map_err(super::super::binding::binder_error)?;
 
     let body = compilation
-        .body_semantics_with_cancellation(key, context.cancellation)
+        .body_semantics_with_cancellation(key.clone(), context.cancellation)
         .map_err(super::super::binding::binder_error)?;
 
     let dependencies = body.result().value().dependencies();
@@ -120,7 +145,10 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
     let block = bound.result().value().view().block(root);
 
     let Some(block) = block else {
-        return Err(BindingQueryError::DependencyUnavailable);
+        return Err(binding_contract(
+            crate::compilation::SemanticQueryContext::Unit(key.clone()),
+            crate::compilation::SemanticQueryViolation::MissingBoundNode(root.into()),
+        ));
     };
 
     let mut dependency_contracts = Vec::new();
@@ -132,7 +160,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
             .and_then(|contract| dependencies.contract(contract));
 
         let Some(contract) = contract else {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(missing_dependency_contract(key.clone(), expression));
         };
 
         dependency_contracts.push(portable_dependency_contract(
@@ -159,6 +187,35 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
         execution_requirements,
         diagnostics,
     })
+}
+
+fn unexpected_unit_root(
+    key: BoundUnitKey,
+    expected: bray_bound_tree::BoundNodeKind,
+    actual: BoundUnitRoot,
+) -> BindingQueryError<crate::fact::FactQueryError> {
+    binding_contract(
+        crate::compilation::SemanticQueryContext::Unit(key),
+        crate::compilation::SemanticQueryViolation::UnexpectedBoundUnitRoot {
+            expected,
+            actual: actual.into(),
+        },
+    )
+}
+
+fn missing_dependency_contract(
+    key: BoundUnitKey,
+    expression: bray_bound_tree::BoundExpressionId,
+) -> BindingQueryError<crate::fact::FactQueryError> {
+    binding_contract(
+        crate::compilation::SemanticQueryContext::Expression {
+            unit: key,
+            expression,
+        },
+        crate::compilation::SemanticQueryViolation::Missing(
+            crate::compilation::SemanticDataKind::DependencyContract,
+        ),
+    )
 }
 
 fn execution_requirement(

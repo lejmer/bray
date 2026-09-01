@@ -3,8 +3,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_binder::{
-    BindingQueryContext, BindingQueryError, PredicateClauseBindingContext, SymbolQueryProvider,
-    bind_predicate_clause, bind_trusted_capability_clause,
+    BindingError, BindingQueryContext, BindingQueryError, PredicateClauseBindingContext,
+    SymbolQueryProvider, bind_predicate_clause, bind_trusted_capability_clause,
 };
 use bray_diagnostics::{
     DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
@@ -17,7 +17,8 @@ use bray_symbols::{
     CallableSignatureQuery, CallableSymbolId, CallableTrust, CheckedConstraint,
     CurrentRunCancellation, DependencyContractTemplateId, GenericConstraintSet,
     GenericConstraintsQuery, GenericDeclarationTemplateQuery, GenericOwnerId, SymbolOrigin,
-    SymbolQueryRequest, TrustedCapabilityRequirement, TrustedCapabilitySymbolId, TypeData,
+    SymbolQueryContract, SymbolQueryRequest, TrustedCapabilityRequirement,
+    TrustedCapabilitySymbolId, TypeData,
 };
 use bray_syntax::{
     EnsuresClauseSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxNodeView, SyntaxWalkControl,
@@ -29,8 +30,15 @@ use super::cache::CompilationSymbolSemantics;
 use super::declaration_body::{CheckedSourcePredicateSequence, checked_source_predicate_sequence};
 use super::environment::type_binder;
 use super::surface::{symbol_ordinal, with_declaration_root};
-use crate::compilation::binder::{BindingQueryResult, CompilationBindingContext};
+use crate::compilation::binder::{
+    BindingQueryResult, CompilationBindingContext,
+    semantic_contract_binding_error as binding_contract,
+    symbol_query_contract_binding_error as query_contract,
+};
 use crate::compilation::diagnostics::source_diagnostic;
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryViolation, SemanticSymbolCategory,
+};
 use crate::fact::SymbolQueryCache;
 
 impl CompilationSymbolQueryEvaluator<GenericConstraintsQuery> for CompilationSymbolSemantics {
@@ -77,8 +85,16 @@ fn bind_generic_constraints(
         <GenericConstraintsQuery as bray_symbols::SymbolQueryContract>::Value,
     >,
 > {
-    let generic_owner =
-        GenericOwnerId::try_new(owner).ok_or(BindingQueryError::DependencyUnavailable)?;
+    let generic_owner = GenericOwnerId::try_new(owner).ok_or_else(|| {
+        query_contract(
+            owner,
+            GenericConstraintsQuery::KIND,
+            SemanticQueryViolation::UnexpectedSymbolKind {
+                expected: SemanticSymbolCategory::GenericOwner,
+                actual: owner.kind(),
+            },
+        )
+    })?;
 
     let template = context.resolve_symbol_query(SymbolQueryRequest::<
         GenericDeclarationTemplateQuery,
@@ -93,9 +109,13 @@ fn bind_generic_constraints(
             .constraints()
             .iter()
             .map(|constraint| {
-                constraint
-                    .resolved()
-                    .ok_or(BindingQueryError::DependencyUnavailable)
+                constraint.resolved().ok_or_else(|| {
+                    query_contract(
+                        owner,
+                        GenericConstraintsQuery::KIND,
+                        SemanticQueryViolation::Missing(SemanticDataKind::GenericConstraint),
+                    )
+                })
             })
             .collect::<BindingQueryResult<Vec<_>>>()?;
 
@@ -118,7 +138,17 @@ fn bind_generic_constraints(
                 .value()
                 .constraints()
                 .get(constraints.len())
-                .ok_or(BindingQueryError::DependencyUnavailable)?;
+                .ok_or_else(|| {
+                    query_contract(
+                        owner,
+                        GenericConstraintsQuery::KIND,
+                        SemanticQueryViolation::CountMismatch {
+                            data: SemanticDataKind::GenericConstraint,
+                            expected: constraints.len().saturating_add(1),
+                            actual: template.value().constraints().len(),
+                        },
+                    )
+                })?;
 
             let constraint = match source {
                 bray_symbols::GenericConstraintTemplate::TraitSatisfaction { .. } => {
@@ -141,13 +171,25 @@ fn bind_generic_constraints(
                     diagnostics = diagnostics.merged(&clause_diagnostics);
 
                     let [predicate] = predicates.as_ref() else {
-                        return Err(BindingQueryError::DependencyUnavailable);
+                        return Err(query_contract(
+                            owner,
+                            GenericConstraintsQuery::KIND,
+                            SemanticQueryViolation::CountMismatch {
+                                data: SemanticDataKind::GenericConstraint,
+                                expected: 1,
+                                actual: predicates.len(),
+                            },
+                        ));
                     };
 
                     CheckedConstraint::new(ordinal, *predicate)
                 }
                 bray_symbols::GenericConstraintTemplate::Resolved(_) => {
-                    return Err(BindingQueryError::DependencyUnavailable);
+                    return Err(query_contract(
+                        owner,
+                        GenericConstraintsQuery::KIND,
+                        SemanticQueryViolation::Unsupported(SemanticDataKind::GenericConstraint),
+                    ));
                 }
             };
 
@@ -236,14 +278,31 @@ fn bind_callable_contracts(
 
             match &*data {
                 TypeData::Callable(callable) => (callable.execution(), callable.trust()),
-                _ => return Err(BindingQueryError::DependencyUnavailable),
+                _ => {
+                    return Err(binding_contract(
+                        SemanticQueryContext::Type(*ty),
+                        SemanticQueryViolation::Unsupported(SemanticDataKind::CallableSignature),
+                    ));
+                }
             }
         }
-        _ => return Err(BindingQueryError::DependencyUnavailable),
+        _ => {
+            return Err(query_contract(
+                owner.into_any(),
+                CallableContractsQuery::KIND,
+                SemanticQueryViolation::Unsupported(SemanticDataKind::CallableSignature),
+            ));
+        }
     };
 
-    let definition = bray_symbols::CallableDefinitionId::try_new(owner.into_any())
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+    let definition =
+        bray_symbols::CallableDefinitionId::try_new(owner.into_any()).ok_or_else(|| {
+            query_contract(
+                owner.into_any(),
+                CallableContractsQuery::KIND,
+                SemanticQueryViolation::Unsupported(SemanticDataKind::BoundUnit),
+            )
+        })?;
 
     let body_key = context
         .compilation()
@@ -507,7 +566,13 @@ fn validate_trusted_capabilities(
         let anchor = context
             .symbols
             .declaration_syntax_anchor(owner.into_any())
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or_else(|| {
+                query_contract(
+                    owner.into_any(),
+                    CallableContractsQuery::KIND,
+                    SemanticQueryViolation::Missing(SemanticDataKind::SourceAnchor),
+                )
+            })?;
 
         for capability in declared.union(&used) {
             diagnostics.add(trusted_capability_diagnostic(
@@ -533,7 +598,13 @@ fn validate_trusted_capabilities(
     let anchor = context
         .symbols
         .declaration_syntax_anchor(owner.into_any())
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or_else(|| {
+            query_contract(
+                owner.into_any(),
+                CallableContractsQuery::KIND,
+                SemanticQueryViolation::Missing(SemanticDataKind::SourceAnchor),
+            )
+        })?;
 
     for capability in used.difference(&declared) {
         diagnostics.add(trusted_capability_diagnostic(
@@ -578,7 +649,12 @@ fn trusted_capability_diagnostic(
     let name = context
         .symbols
         .member_name(capability.into())
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or_else(|| {
+            binding_contract(
+                SemanticQueryContext::Symbol(capability.into()),
+                SemanticQueryViolation::Missing(SemanticDataKind::MemberName),
+            )
+        })?;
 
     let origins = origins.into_iter().collect::<BTreeSet<_>>();
     let anchor = origins.first().copied().unwrap_or(fallback);
@@ -685,24 +761,35 @@ fn checked_callable_predicates(
     syntax: SyntaxNodeView<'_>,
     expression_count: usize,
 ) -> BindingQueryResult<CheckedSourcePredicateSequence> {
-    let owner_key = context
-        .symbols
-        .symbol_key(owner)
-        .cloned()
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+    let owner_key = context.symbols.symbol_key(owner).cloned().ok_or_else(|| {
+        query_contract(
+            owner,
+            CallableContractsQuery::KIND,
+            SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
+        )
+    })?;
 
     let source = context
         .compilation()
         .bound_source(bray_declarations::SyntaxAnchor::from_node(&syntax))
         .map_err(super::binding::binder_error)?;
 
-    let key = bray_bound_tree::BoundUnitKey::contract_clause(owner_key, source)
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+    let key = bray_bound_tree::BoundUnitKey::contract_clause(owner_key, source).ok_or(
+        BindingQueryError::Binding(BindingError::InvalidUnitKey { source, owner }),
+    )?;
 
     let checked = checked_source_predicate_sequence(context, key)?;
 
     if checked.dependency_contracts.len() != expression_count {
-        return Err(BindingQueryError::DependencyUnavailable);
+        return Err(query_contract(
+            owner,
+            CallableContractsQuery::KIND,
+            SemanticQueryViolation::CountMismatch {
+                data: SemanticDataKind::DependencyContract,
+                expected: expression_count,
+                actual: checked.dependency_contracts.len(),
+            },
+        ));
     }
 
     Ok(checked)
@@ -713,12 +800,22 @@ fn resolve_trait_satisfaction_constraint(
     constraint: &bray_symbols::GenericConstraintTemplate,
     diagnostics: &mut DiagnosticBag,
 ) -> BindingQueryResult<CheckedConstraint> {
+    let query_context = constraint_context(constraint);
+
     let Some((subject, application)) = constraint.trait_satisfaction_templates() else {
-        return Err(BindingQueryError::DependencyUnavailable);
+        return Err(binding_contract(
+            query_context,
+            SemanticQueryViolation::Unsupported(SemanticDataKind::GenericConstraint),
+        ));
     };
 
-    let (subject, application) =
-        resolve_trait_satisfaction_templates(context, subject, application, diagnostics)?;
+    let (subject, application) = resolve_trait_satisfaction_templates(
+        context,
+        subject,
+        application,
+        query_context,
+        diagnostics,
+    )?;
 
     Ok(CheckedConstraint::trait_satisfaction(
         constraint.ordinal(),
@@ -732,12 +829,17 @@ fn resolve_type_equality_constraint(
     constraint: &bray_symbols::GenericConstraintTemplate,
     diagnostics: &mut DiagnosticBag,
 ) -> BindingQueryResult<CheckedConstraint> {
+    let query_context = constraint_context(constraint);
+
     let Some((left, right)) = constraint.type_equality_templates() else {
-        return Err(BindingQueryError::DependencyUnavailable);
+        return Err(binding_contract(
+            query_context,
+            SemanticQueryViolation::Unsupported(SemanticDataKind::GenericConstraint),
+        ));
     };
 
-    let left = resolve_type_template(context, left, diagnostics)?;
-    let right = resolve_type_template(context, right, diagnostics)?;
+    let left = resolve_type_template(context, left, query_context.clone(), diagnostics)?;
+    let right = resolve_type_template(context, right, query_context, diagnostics)?;
 
     Ok(CheckedConstraint::type_equality(
         constraint.ordinal(),
@@ -749,6 +851,7 @@ fn resolve_type_equality_constraint(
 fn resolve_type_template(
     context: &CompilationBindingContext<'_>,
     template: &bray_symbols::TypeExpressionTemplate,
+    query_context: crate::compilation::SemanticQueryContext,
     diagnostics: &mut DiagnosticBag,
 ) -> BindingQueryResult<bray_symbols::TypeId> {
     let mut terms = BTreeMap::new();
@@ -764,17 +867,20 @@ fn resolve_type_template(
     }
 
     let constants = bray_checker::CheckedConstantTerms::try_from_terms(terms)
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+        .map_err(checked_constant_terms_binding_error)?;
 
     bray_checker::resolve_type_expression_template(context.semantic_values, template, &constants)
         .map_err(BindingQueryError::CheckerInfrastructure)?
-        .ok_or(BindingQueryError::DependencyUnavailable)
+        .ok_or_else(|| {
+            missing_semantic_data(query_context, crate::compilation::SemanticDataKind::Type)
+        })
 }
 
 fn resolve_trait_satisfaction_templates(
     context: &CompilationBindingContext<'_>,
     subject: &bray_symbols::TypeExpressionTemplate,
     application: &bray_symbols::TraitApplicationTemplate,
+    query_context: crate::compilation::SemanticQueryContext,
     diagnostics: &mut DiagnosticBag,
 ) -> BindingQueryResult<(bray_symbols::TypeId, bray_symbols::TraitApplicationId)> {
     let mut terms = BTreeMap::new();
@@ -794,7 +900,7 @@ fn resolve_trait_satisfaction_templates(
     }
 
     let constants = bray_checker::CheckedConstantTerms::try_from_terms(terms)
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+        .map_err(checked_constant_terms_binding_error)?;
 
     let subject = bray_checker::resolve_type_expression_template(
         context.semantic_values,
@@ -802,7 +908,12 @@ fn resolve_trait_satisfaction_templates(
         &constants,
     )
     .map_err(BindingQueryError::CheckerInfrastructure)?
-    .ok_or(BindingQueryError::DependencyUnavailable)?;
+    .ok_or_else(|| {
+        missing_semantic_data(
+            query_context.clone(),
+            crate::compilation::SemanticDataKind::Type,
+        )
+    })?;
 
     let application = bray_checker::resolve_trait_application_template(
         context.semantic_values,
@@ -810,9 +921,43 @@ fn resolve_trait_satisfaction_templates(
         &constants,
     )
     .map_err(BindingQueryError::CheckerInfrastructure)?
-    .ok_or(BindingQueryError::DependencyUnavailable)?;
+    .ok_or_else(|| {
+        missing_semantic_data(
+            query_context,
+            crate::compilation::SemanticDataKind::TraitApplication,
+        )
+    })?;
 
     Ok((subject, application))
+}
+
+fn checked_constant_terms_binding_error(
+    cause: bray_checker::CheckedConstantTermsBuildError,
+) -> BindingQueryError<crate::fact::FactQueryError> {
+    crate::compilation::binder::semantic_query_binding_error(
+        crate::compilation::SemanticQueryFailure::CheckedConstantTerms { unit: None, cause },
+    )
+}
+
+fn constraint_context(
+    constraint: &bray_symbols::GenericConstraintTemplate,
+) -> crate::compilation::SemanticQueryContext {
+    constraint
+        .unit_syntax()
+        .map(|unit| crate::compilation::SemanticQueryContext::Source(unit.source_id()))
+        .unwrap_or(crate::compilation::SemanticQueryContext::Fact(
+            crate::fact::CompilationFactKey::CheckDiagnostics,
+        ))
+}
+
+fn missing_semantic_data(
+    context: crate::compilation::SemanticQueryContext,
+    data: crate::compilation::SemanticDataKind,
+) -> BindingQueryError<crate::fact::FactQueryError> {
+    crate::compilation::binder::semantic_contract_binding_error(
+        context,
+        crate::compilation::SemanticQueryViolation::Missing(data),
+    )
 }
 
 fn bind_callable_static_constraints(
@@ -839,6 +984,7 @@ fn bind_callable_static_constraints(
                 context,
                 subject.value(),
                 application.value(),
+                crate::compilation::SemanticQueryContext::Symbol(owner),
                 diagnostics,
             )?;
 
@@ -858,7 +1004,15 @@ fn bind_callable_static_constraints(
             *diagnostics = diagnostics.merged(&expression_diagnostics);
 
             let [predicate] = checked.as_ref() else {
-                return Err(BindingQueryError::DependencyUnavailable);
+                return Err(query_contract(
+                    owner,
+                    CallableContractsQuery::KIND,
+                    SemanticQueryViolation::CountMismatch {
+                        data: SemanticDataKind::GenericConstraint,
+                        expected: 1,
+                        actual: checked.len(),
+                    },
+                ));
             };
 
             CallableContractClause::new(ordinal, CallableContractClauseKind::Static, *predicate)

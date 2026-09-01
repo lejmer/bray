@@ -36,10 +36,7 @@ impl Lowerer<'_> {
         &self,
         ty: TypeId,
     ) -> Result<Option<RepresentationRole>, LoweringError> {
-        let data = self
-            .input
-            .semantic_values()
-            .type_data(ty)?;
+        let data = self.input.semantic_values().type_data(ty)?;
 
         let role = match data.as_ref() {
             TypeData::Named { definition, .. } => match definition {
@@ -59,10 +56,7 @@ impl Lowerer<'_> {
     }
 
     pub(super) fn named_type_arguments(&self, ty: TypeId) -> Result<Vec<TypeId>, LoweringError> {
-        let data = self
-            .input
-            .semantic_values()
-            .type_data(ty)?;
+        let data = self.input.semantic_values().type_data(ty)?;
 
         let TypeData::Named { substitution, .. } = data.as_ref() else {
             return Err(LoweringError::SemanticValueUnavailable);

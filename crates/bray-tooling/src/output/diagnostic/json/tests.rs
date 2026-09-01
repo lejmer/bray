@@ -4,31 +4,29 @@ use std::path::{Path, PathBuf};
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArgName, DiagnosticArgValue,
     DiagnosticArrayGeneratorCardinalityProblem, DiagnosticArrayLength, DiagnosticArtifactDigest,
-    DiagnosticArtifactDigestAlgorithm, DiagnosticBag, DiagnosticCallableOverloadArm,
-    DiagnosticBindingFailure, DiagnosticCallableOverloadProblem, DiagnosticCallbackStateProblem,
-    DiagnosticCheckerFailure,
-    DiagnosticConstructionInputRejection, DiagnosticDependencySubjectKind,
-    DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure,
-    DiagnosticGenericParameterCategory, DiagnosticId, DiagnosticInterfaceDeclarationIdentity,
-    DiagnosticInterfaceLimit, DiagnosticInterfaceSection, DiagnosticInterfaceSemanticProblem,
-    DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolKind,
-    DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind, DiagnosticLayoutOption,
-    DiagnosticLayoutProblem, DiagnosticLoweringFailure, DiagnosticLoweringFailureKind,
-    DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind,
-    DiagnosticMemoryOperation,
-    DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNamedType,
-    DiagnosticNativeProductFailureKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink,
-    DiagnosticPatternCoverage, DiagnosticPatternMissingCase, DiagnosticProjectManifestField,
-    DiagnosticPropagationProblem, DiagnosticRefinementCapacity,
-    DiagnosticRefinementCapacitySurface, DiagnosticRejectedSelectionCandidate,
-    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticRuntimeAbiVersion,
-    DiagnosticRuntimeArtifactProblem, DiagnosticSelectionCandidate,
+    DiagnosticArtifactDigestAlgorithm, DiagnosticBag, DiagnosticBindingFailure,
+    DiagnosticCallableOverloadArm, DiagnosticCallableOverloadProblem,
+    DiagnosticCallbackStateProblem, DiagnosticCheckerFailure, DiagnosticConstructionInputRejection,
+    DiagnosticDependencySubjectKind, DiagnosticEmissionEvaluationFailure,
+    DiagnosticEmissionFailure, DiagnosticGenericParameterCategory, DiagnosticId,
+    DiagnosticInterfaceDeclarationIdentity, DiagnosticInterfaceLimit, DiagnosticInterfaceSection,
+    DiagnosticInterfaceSemanticProblem, DiagnosticInterfaceSymbolIdentity,
+    DiagnosticInterfaceSymbolKind, DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind,
+    DiagnosticLayoutOption, DiagnosticLayoutProblem, DiagnosticLoweringFailure,
+    DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
+    DiagnosticLoweringInputFailureKind, DiagnosticMemoryOperation, DiagnosticModuleTrust,
+    DiagnosticNameKind, DiagnosticNamedType, DiagnosticNativeProductFailureKind, DiagnosticNote,
+    DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticPatternCoverage,
+    DiagnosticPatternMissingCase, DiagnosticProjectManifestField, DiagnosticPropagationProblem,
+    DiagnosticRefinementCapacity, DiagnosticRefinementCapacitySurface,
+    DiagnosticRejectedSelectionCandidate, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
+    DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem, DiagnosticSelectionCandidate,
     DiagnosticSelectionCandidateIdentity, DiagnosticSelectionCandidateSignature,
     DiagnosticSelectionCandidates, DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
-    DiagnosticSelectionRejections, DiagnosticSourceEdit, DiagnosticStorageAccess,
+    DiagnosticSelectionRejections, DiagnosticSemanticContentProblem,
+    DiagnosticSemanticValueFailure, DiagnosticSourceEdit, DiagnosticStorageAccess,
     DiagnosticStorageAccessPurpose, DiagnosticStorageProjection, DiagnosticStorageRoot,
-    DiagnosticSemanticContentProblem, DiagnosticSemanticValueFailure, DiagnosticSuggestion,
-    DiagnosticSuggestionApplicability, DiagnosticSuggestionKind,
+    DiagnosticSuggestion, DiagnosticSuggestionApplicability, DiagnosticSuggestionKind,
     DiagnosticTargetPredicateValueKind, DiagnosticTraitFulfillmentMismatch, DiagnosticType,
     DiagnosticTypeArgument, DiagnosticVisibility, DiagnosticYieldCardinality, SeverityKind,
 };
@@ -247,14 +245,12 @@ fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
         SeverityKind::Error,
     )
     .with_arg(DiagnosticArg::emission_failure(
-        DiagnosticEmissionFailure::Evaluation(
-            DiagnosticEmissionEvaluationFailure::SemanticValue(
-                DiagnosticSemanticValueFailure::ForeignId {
-                    expected_store: 11,
-                    actual_store: 29,
-                },
-            ),
-        ),
+        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::SemanticValue(
+            DiagnosticSemanticValueFailure::ForeignId {
+                expected_store: 11,
+                actual_store: 29,
+            },
+        )),
     ))
     .with_arg(DiagnosticArg::native_product_failure_kind(
         DiagnosticNativeProductFailureKind::EvaluationSemanticValue(
@@ -298,19 +294,17 @@ fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
         ),
     ))
     .with_arg(DiagnosticArg::emission_failure(
-        DiagnosticEmissionFailure::Evaluation(
-            DiagnosticEmissionEvaluationFailure::LoweringInput(
-                DiagnosticLoweringInputFailure::new(
-                    DiagnosticLoweringInputFailureKind::SemanticValue(
-                        DiagnosticSemanticValueFailure::ForeignId {
-                            expected_store: 41,
-                            actual_store: 43,
-                        },
-                    ),
-                    source,
+        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::LoweringInput(
+            DiagnosticLoweringInputFailure::new(
+                DiagnosticLoweringInputFailureKind::SemanticValue(
+                    DiagnosticSemanticValueFailure::ForeignId {
+                        expected_store: 41,
+                        actual_store: 43,
+                    },
                 ),
+                source,
             ),
-        ),
+        )),
     ))
     .with_arg(DiagnosticArg::emission_failure(
         DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Lowering(
@@ -416,7 +410,12 @@ fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
     );
 
     assert_eq!(native_lowering_input["context"][2]["value"]["value"], 47);
-    assert_eq!(native_lowering_input["context"][3]["value"]["value"], "trait");
+
+    assert_eq!(
+        native_lowering_input["context"][3]["value"]["value"],
+        "trait"
+    );
+
     assert_eq!(native_lowering_input["context"][4]["value"]["value"], 53);
 
     assert_eq!(

@@ -1,23 +1,61 @@
-use bray_bound_tree::{BoundUnit, BoundUnitKeyData, BoundUnitRoot};
+use bray_bound_tree::{BoundUnit, BoundUnitKey, BoundUnitKeyData, BoundUnitRoot};
 use bray_checker::{
     AnonymousCallableContext, ContractClauseContext, DeclaredUnitContext, SemanticUnitContext,
 };
-use bray_symbols::{CallableContractClauseKind, SymbolGraph, SymbolKind};
+use bray_symbols::{
+    AnonymousCallableSymbolId, AnySymbolId, CallableContractClauseKind, SymbolGraph, SymbolKind,
+};
 use bray_syntax::SyntaxKind;
 
 /// A bound-unit invariant that prevents semantic-context construction.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum SemanticUnitContextError {
     /// The anonymous callable root does not resolve through its local snapshot.
-    MissingAnonymousCallable,
+    MissingAnonymousCallable {
+        /// The exact semantic unit whose local snapshot was incomplete.
+        unit: BoundUnitKey,
+        /// The unresolved local callable identity.
+        callable: AnonymousCallableSymbolId,
+    },
     /// The bound-unit root does not match its stable unit key.
-    RootKindMismatch,
+    RootKindMismatch {
+        /// The stable key whose category defines the expected root shape.
+        unit: BoundUnitKey,
+        /// The incompatible root retained by the bound unit.
+        root: BoundUnitRoot,
+    },
     /// The stable unit owner does not resolve in the symbol graph.
-    MissingOwner,
+    MissingOwner {
+        /// The exact semantic unit whose declared owner was unavailable.
+        unit: BoundUnitKey,
+    },
     /// A synthesized unit owner does not resolve to its containing declaration.
-    MissingDeclaration,
+    MissingDeclaration {
+        /// The exact semantic unit requiring a containing declaration.
+        unit: BoundUnitKey,
+        /// The resolved synthesized owner missing its declaration relationship.
+        owner: AnySymbolId,
+    },
     /// A contract-clause unit does not retain a recognized callable clause kind.
-    InvalidContractClauseKind,
+    InvalidContractClauseKind {
+        /// The exact contract-clause unit with incompatible syntax.
+        unit: BoundUnitKey,
+        /// The incompatible source syntax category.
+        actual: SyntaxKind,
+    },
+}
+
+impl SemanticUnitContextError {
+    /// Returns the exact source-correlated semantic unit affected by this failure.
+    pub const fn unit(&self) -> &BoundUnitKey {
+        match self {
+            Self::MissingAnonymousCallable { unit, .. }
+            | Self::RootKindMismatch { unit, .. }
+            | Self::MissingOwner { unit }
+            | Self::MissingDeclaration { unit, .. }
+            | Self::InvalidContractClauseKind { unit, .. } => unit,
+        }
+    }
 }
 
 /// Constructs the category-specific semantic context for one bound unit.
@@ -38,7 +76,10 @@ pub fn semantic_unit_context(
             },
         ) => {
             let Some(callable) = unit.local_symbols().anonymous_callable(callable) else {
-                return Err(SemanticUnitContextError::MissingAnonymousCallable);
+                return Err(SemanticUnitContextError::MissingAnonymousCallable {
+                    unit: error_unit(unit),
+                    callable,
+                });
             };
 
             // The context and bound unit share the same immutable key identity.
@@ -84,18 +125,26 @@ pub fn semantic_unit_context(
         (BoundUnitKeyData::TargetGate(_), BoundUnitRoot::Expression(_)) => Ok(
             SemanticUnitContext::TargetGate(declared_entry(symbols, unit)?),
         ),
-        _ => Err(SemanticUnitContextError::RootKindMismatch),
+        _ => Err(SemanticUnitContextError::RootKindMismatch {
+            unit: error_unit(unit),
+            root: unit.root(),
+        }),
     }
 }
 
 fn contract_clause_kind(
     unit: &BoundUnit,
 ) -> Result<CallableContractClauseKind, SemanticUnitContextError> {
-    match unit.key().source().syntax().syntax_kind() {
+    let actual = unit.key().source().syntax().syntax_kind();
+
+    match actual {
         SyntaxKind::RequiresClause => Ok(CallableContractClauseKind::Requires),
         SyntaxKind::EnsuresClause => Ok(CallableContractClauseKind::Ensures),
         SyntaxKind::WithClause => Ok(CallableContractClauseKind::Static),
-        _ => Err(SemanticUnitContextError::InvalidContractClauseKind),
+        _ => Err(SemanticUnitContextError::InvalidContractClauseKind {
+            unit: error_unit(unit),
+            actual,
+        }),
     }
 }
 
@@ -104,13 +153,20 @@ fn declared_entry(
     unit: &BoundUnit,
 ) -> Result<DeclaredUnitContext, SemanticUnitContextError> {
     let Some(owner) = symbols.symbol_for_key(unit.key().declared_owner()) else {
-        return Err(SemanticUnitContextError::MissingOwner);
+        return Err(SemanticUnitContextError::MissingOwner {
+            unit: error_unit(unit),
+        });
     };
 
     let declaration = if is_runtime_default_provider(owner.kind()) {
-        symbols
-            .containing_symbol(owner)
-            .ok_or(SemanticUnitContextError::MissingDeclaration)?
+        let Some(declaration) = symbols.containing_symbol(owner) else {
+            return Err(SemanticUnitContextError::MissingDeclaration {
+                unit: error_unit(unit),
+                owner,
+            });
+        };
+
+        declaration
     } else {
         owner
     };
@@ -121,6 +177,11 @@ fn declared_entry(
         owner,
         declaration,
     ))
+}
+
+fn error_unit(unit: &BoundUnit) -> BoundUnitKey {
+    // Context failures outlive the unit borrow, and bound-unit keys are Arc-backed identities.
+    unit.key().clone()
 }
 
 const fn is_runtime_default_provider(kind: SymbolKind) -> bool {

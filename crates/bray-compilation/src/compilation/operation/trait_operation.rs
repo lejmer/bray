@@ -6,11 +6,10 @@ use bray_bound_tree::{
 use bray_checker::{CompilerKnownOperationEvidence, ImplementationSelectionEvidence};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    AnySymbolId, BorrowKind, CallableParameterData, CallableParameterSignature, CallableSignature,
-    CallableSignatureQuery, CallableTypeData, CheckedConstraint, CheckedConstraintKind,
-    GenericArgument, GenericParameterSymbolId, ImplementationSelection, NamedTypeSymbolId,
-    ReceiverMode, ReceiverParameterSignature, SymbolQueryRequest, TraitConstraintDispatch,
-    TypeData, TypeExpressionTemplate, TypeId,
+    AnySymbolId, BorrowKind, CallableParameterSignature, CallableSignature, CallableSignatureQuery,
+    CheckedConstraint, CheckedConstraintKind, GenericArgument, GenericParameterSymbolId,
+    ImplementationSelection, NamedTypeSymbolId, ReceiverMode, ReceiverParameterSignature,
+    SymbolQueryRequest, TraitConstraintDispatch, TypeData, TypeId,
 };
 
 use super::super::Compilation;
@@ -19,10 +18,14 @@ use super::super::implementation::{
     TypeValuedMemberResolution, callable_instance, implementation_callable_instance,
     implementation_fulfillments, implementation_requirement, selected_type_valued_member,
 };
+use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
 use crate::fact::{CancellationToken, FactQueryError, OperationSelectionQueryKey};
 
 use super::model::{OperationResolution, TraitOperation, TraitOperationCandidate};
-use super::query::expression_type;
+use super::query::{
+    expression_type, operation_contract_failure, symbol_contract_failure, unit_contract_failure,
+};
+use super::signature::operation_callable_type;
 
 impl Compilation {
     pub(super) fn resolve_operator_operation(
@@ -34,10 +37,12 @@ impl Compilation {
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<OperationResolution>, FactQueryError> {
-        let expression = unit
-            .view()
-            .expression(key.expression())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let expression = unit.view().expression(key.expression()).ok_or_else(|| {
+            operation_contract_failure(
+                key,
+                SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression),
+            )
+        })?;
 
         let (operator, operands) = match expression {
             BoundExpression::Unary(expression) => (expression.operator(), expression.operands()),
@@ -66,7 +71,14 @@ impl Compilation {
             .split_first()
             .map(|(subject, arguments)| (*subject, arguments))
         else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(operation_contract_failure(
+                key,
+                SemanticQueryViolation::CountMismatch {
+                    data: SemanticDataKind::Type,
+                    expected: 1,
+                    actual: 0,
+                },
+            ));
         };
 
         let candidate = self
@@ -75,7 +87,12 @@ impl Compilation {
                 binding_context
                     .symbols()
                     .symbol_for_key(unit.key().declared_owner())
-                    .ok_or(FactQueryError::InfrastructureFailure)?,
+                    .ok_or_else(|| {
+                        unit_contract_failure(
+                            unit.key(),
+                            SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                        )
+                    })?,
                 role,
                 subject,
                 arguments,
@@ -121,14 +138,24 @@ impl Compilation {
         };
 
         let [destination, _] = operands else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(operation_contract_failure(
+                key,
+                SemanticQueryViolation::CountMismatch {
+                    data: SemanticDataKind::BoundExpression,
+                    expected: 2,
+                    actual: operands.len(),
+                },
+            ));
         };
 
         let assignment_type = expression_type(types, key.expression())?;
         let operation_type = resolution.result_type();
 
         let Some(SelectedOperation::Operator { target, .. }) = resolution.selection() else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(operation_contract_failure(
+                key,
+                SemanticQueryViolation::Unsupported(SemanticDataKind::OperationSelection),
+            ));
         };
 
         let selection = SelectedOperation::CompoundAssignment(SelectedCompoundAssignment::new(
@@ -165,12 +192,22 @@ impl Compilation {
         let contract = self
             .available_compiler_known_symbols()
             .operation_contract(role)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                symbol_contract_failure(
+                    owner,
+                    SemanticQueryViolation::Missing(SemanticDataKind::OperationSelection),
+                )
+            })?;
 
         let trait_symbol = binding_context
             .symbols()
             .trait_symbol(contract.trait_definition())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                symbol_contract_failure(
+                    contract.trait_definition().into(),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         let parameters = trait_symbol
             .generic_type_parameters()
@@ -180,7 +217,14 @@ impl Compilation {
             .collect::<Vec<_>>();
 
         if parameters.len() != trait_arguments.len() {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(symbol_contract_failure(
+                owner,
+                SemanticQueryViolation::CountMismatch {
+                    data: SemanticDataKind::GenericSubstitution,
+                    expected: parameters.len(),
+                    actual: trait_arguments.len(),
+                },
+            ));
         }
 
         let requirement = implementation_requirement(
@@ -192,7 +236,10 @@ impl Compilation {
         )?;
 
         let Some(member) = contract.callable() else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(symbol_contract_failure(
+                contract.trait_definition().into(),
+                SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+            ));
         };
 
         let constraints =
@@ -255,8 +302,12 @@ impl Compilation {
             return Ok(None);
         };
 
-        let result_type =
-            self.operation_expression_result_type(binding_context, role, operation_result_type)?;
+        let result_type = self.operation_expression_result_type(
+            binding_context,
+            role,
+            operation_result_type,
+            member.into(),
+        )?;
 
         let callable_result_type =
             self.operation_callable_result_type(binding_context, operation, operation_result_type)?;
@@ -344,7 +395,12 @@ impl Compilation {
         let key = binding_context
             .symbol_key(instance.definition().into_any())
             .map_err(binding_query_error)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                symbol_contract_failure(
+                    instance.definition().into_any(),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         // The candidate and its implementation evidence own shared semantic identities.
         Ok(Some(TraitOperationCandidate {
@@ -401,11 +457,20 @@ impl Compilation {
                     requirement.trait_application(),
                     constraints,
                 )?
-                .ok_or(FactQueryError::InfrastructureFailure)?,
+                .ok_or_else(|| {
+                    symbol_contract_failure(
+                        member.into(),
+                        SemanticQueryViolation::Missing(SemanticDataKind::Type),
+                    )
+                })?,
         };
 
-        let result_type =
-            self.operation_expression_result_type(binding_context, role, operation_result_type)?;
+        let result_type = self.operation_expression_result_type(
+            binding_context,
+            role,
+            operation_result_type,
+            member.into(),
+        )?;
 
         let callable_result_type =
             self.operation_callable_result_type(binding_context, operation, operation_result_type)?;
@@ -466,7 +531,12 @@ impl Compilation {
         let key = binding_context
             .symbol_key(member.into())
             .map_err(binding_query_error)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                symbol_contract_failure(
+                    member.into(),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         Ok(Some(TraitOperationCandidate {
             key: key.clone(),
@@ -518,6 +588,7 @@ impl Compilation {
                 .representation_type(
                     binding_context,
                     bray_compiler_known::RepresentationRole::ScalarBool,
+                    contract.trait_definition().into(),
                 )
                 .map(Some);
         }
@@ -561,6 +632,7 @@ impl Compilation {
                 .representation_type(
                     binding_context,
                     bray_compiler_known::RepresentationRole::ScalarBool,
+                    contract.trait_definition().into(),
                 )
                 .map(Some);
         }
@@ -572,11 +644,17 @@ impl Compilation {
         &self,
         binding_context: &CompilationBindingContext<'_>,
         role: bray_compiler_known::RepresentationRole,
+        subject: AnySymbolId,
     ) -> Result<TypeId, FactQueryError> {
         let definition = self
             .available_compiler_known_symbols()
             .representation_symbol::<bray_symbols::StructSymbolId>(role)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                symbol_contract_failure(
+                    subject,
+                    SemanticQueryViolation::Missing(SemanticDataKind::Type),
+                )
+            })?;
 
         super::super::substitution::named_type(
             binding_context.semantic_values(),
@@ -589,11 +667,13 @@ impl Compilation {
         binding_context: &CompilationBindingContext<'_>,
         role: bray_compiler_known::CompilerKnownOperationRole,
         callable_result: TypeId,
+        subject: AnySymbolId,
     ) -> Result<TypeId, FactQueryError> {
         if role == bray_compiler_known::CompilerKnownOperationRole::Comparison {
             return self.representation_type(
                 binding_context,
                 bray_compiler_known::RepresentationRole::ScalarBool,
+                subject,
             );
         }
 
@@ -644,11 +724,23 @@ impl Compilation {
         let receiver_parameter = template
             .value()
             .receiver()
-            .ok_or(FactQueryError::InfrastructureFailure)?
+            .ok_or_else(|| {
+                symbol_contract_failure(
+                    member.into(),
+                    SemanticQueryViolation::Missing(SemanticDataKind::CallableSignature),
+                )
+            })?
             .parameter();
 
         if template.value().parameters().len() != parameters.len() {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(symbol_contract_failure(
+                member.into(),
+                SemanticQueryViolation::CountMismatch {
+                    data: SemanticDataKind::CallableSignature,
+                    expected: template.value().parameters().len(),
+                    actual: parameters.len(),
+                },
+            ));
         }
 
         let callable_type = operation_callable_type(
@@ -656,6 +748,7 @@ impl Compilation {
             template.value().callable_type(),
             parameters,
             result,
+            member.into(),
         )?;
 
         let parameters = template
@@ -677,83 +770,4 @@ impl Compilation {
             result,
         ))
     }
-}
-
-fn operation_callable_type(
-    values: &bray_symbols::SemanticValueStore,
-    template: &TypeExpressionTemplate,
-    parameters: &[TypeId],
-    result: TypeId,
-) -> Result<TypeId, FactQueryError> {
-    let (parameter_surface, constness, trust, abi, dependencies, phase_behaviors) = match template {
-        TypeExpressionTemplate::Callable(callable) => {
-            let parameters = callable
-                .parameters()
-                .iter()
-                .map(|parameter| {
-                    (
-                        parameter.name().clone(),
-                        parameter.position(),
-                        parameter.mode(),
-                    )
-                })
-                .collect::<Vec<_>>();
-
-            (
-                parameters,
-                callable.constness(),
-                callable.trust(),
-                callable.abi(),
-                callable.dependencies(),
-                callable.phase_behaviors().clone(),
-            )
-        }
-        TypeExpressionTemplate::Resolved(ty) => {
-            let data = values
-                .type_data(*ty)
-                .map_err(FactQueryError::SemanticValueStore)?;
-
-            let TypeData::Callable(callable) = data.as_ref() else {
-                return Err(FactQueryError::InfrastructureFailure);
-            };
-
-            let parameters = callable
-                .parameters()
-                .iter()
-                .map(|parameter| {
-                    (
-                        parameter.name().clone(),
-                        parameter.position(),
-                        parameter.mode(),
-                    )
-                })
-                .collect::<Vec<_>>();
-
-            (
-                parameters,
-                callable.constness(),
-                callable.trust(),
-                callable.abi(),
-                callable.dependency_contracts(),
-                callable.phase_behaviors().clone(),
-            )
-        }
-        _ => return Err(FactQueryError::InfrastructureFailure),
-    };
-
-    if parameter_surface.len() != parameters.len() {
-        return Err(FactQueryError::InfrastructureFailure);
-    }
-
-    let parameters = parameter_surface
-        .into_iter()
-        .zip(parameters.iter().copied())
-        .map(|((name, position, mode), ty)| CallableParameterData::new(name, position, mode, ty));
-
-    let callable = CallableTypeData::new(parameters, result, constness, trust, abi, dependencies)
-        .with_phase_behaviors(phase_behaviors);
-
-    values
-        .intern_type(TypeData::Callable(callable))
-        .map_err(FactQueryError::SemanticValueStore)
 }

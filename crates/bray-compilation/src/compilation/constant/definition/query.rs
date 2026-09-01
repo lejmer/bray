@@ -11,7 +11,7 @@ use bray_bound_tree::{
 use bray_checker::{
     ConstantChecker, ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluator,
     ConstantReferenceResolution, DefaultConstantChecker, DefaultConstantEvaluator,
-    EvaluatedConstantCall, evaluate_constant_definition_template,
+    EvaluatedConstantCall, evaluate_constant_definition_template, resolve_type_expression_template,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_source::SourceSpan;
@@ -19,7 +19,8 @@ use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, CallableDefinitionId, ConstantDefinition,
     ConstantDefinitionQuery, ConstantDefinitionState, ConstantInstanceKey, ConstantTermData,
     ConstantTermId, ConstantValueId, ErrorConstantDefinition, GenericSubstitutionId,
-    SymbolQueryRequest, TraitConstantFulfillmentDefinitionQuery,
+    SymbolQueryRequest, TraitConstantFulfillmentDeclaredTypeQuery,
+    TraitConstantFulfillmentDefinitionQuery, TraitConstantMemberDeclaredTypeQuery,
     TraitConstantMemberDefinitionQuery,
 };
 
@@ -38,6 +39,10 @@ use crate::compilation::constant::call::{
 };
 use crate::compilation::substitution::empty_substitution;
 use crate::compilation::unit::semantic_unit_context_for;
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+    SemanticSymbolCategory,
+};
 use crate::fact::{
     CancellationToken, CompilationFactKey, ConstantInstanceQueryKey, FactQueryError,
     PublishedUnitResult,
@@ -147,9 +152,12 @@ impl Compilation {
         &self,
         definition: AnyConstantDefinitionId,
     ) -> Result<Arc<DiagnosticResult<ConstantTermId>>, FactQueryError> {
-        let key = self
-            .constant_template_key(definition)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let key = self.constant_template_key(definition)?.ok_or_else(|| {
+            SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(definition.into_any()),
+                SemanticQueryViolation::Missing(SemanticDataKind::BoundUnit),
+            )
+        })?;
 
         let published =
             self.symbolic_constant_term_with_cancellation(key, &self.state.cancellation)?;
@@ -202,7 +210,25 @@ impl Compilation {
                 )
                 .map_err(binding_query_error)?;
 
-                let diagnostics = result.diagnostics().clone();
+                let mut diagnostics = result.diagnostics().clone();
+
+                if result.value().is_none() && diagnostics.has_errors() {
+                    let declared = self.constant_error_definition_type(
+                        &binding_context,
+                        definition,
+                        cancellation,
+                    )?;
+
+                    diagnostics = diagnostics.merged(declared.diagnostics());
+
+                    return Ok(DiagnosticResult::new(
+                        ConstantDefinitionState::Error(ErrorConstantDefinition::new(
+                            *declared.value(),
+                        )),
+                        diagnostics,
+                    ));
+                }
+
                 let state = imported_constant_definition(definition, result.value().as_ref())?;
 
                 return Ok(DiagnosticResult::new(state, diagnostics));
@@ -214,7 +240,11 @@ impl Compilation {
                 ),
                 AnyConstantDefinitionId::Constant(_)
                 | AnyConstantDefinitionId::TraitFulfillment(_) => {
-                    Err(FactQueryError::InfrastructureFailure)
+                    Err(SemanticQueryFailure::contract(
+                        SemanticQueryContext::Symbol(definition.into_any()),
+                        SemanticQueryViolation::Missing(SemanticDataKind::ConstantDefinition),
+                    )
+                    .into())
                 }
             };
         };
@@ -225,13 +255,20 @@ impl Compilation {
         let expressions = self.expression_semantics_with_cancellation(key, cancellation)?;
 
         let Some(root_type) = expressions.result().value().types().expression(root) else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(SemanticQueryFailure::contract(
+                SemanticQueryContext::Expression {
+                    unit: bound.result().value().key().clone(),
+                    expression: root,
+                },
+                SemanticQueryViolation::Missing(SemanticDataKind::Type),
+            )
+            .into());
         };
 
         let diagnostics = term.result().diagnostics().clone();
 
         let state = if diagnostics.has_errors() {
-            ConstantDefinitionState::Error(ErrorConstantDefinition)
+            ConstantDefinitionState::Error(ErrorConstantDefinition::new(root_type.ty()))
         } else {
             ConstantDefinitionState::Defined(ConstantDefinition::new(
                 root_type.ty(),
@@ -240,6 +277,54 @@ impl Compilation {
         };
 
         Ok(DiagnosticResult::new(state, diagnostics))
+    }
+
+    fn constant_error_definition_type(
+        &self,
+        binding_context: &crate::compilation::binder::CompilationBindingContext<'_>,
+        definition: AnyConstantDefinitionId,
+        cancellation: &CancellationToken,
+    ) -> Result<DiagnosticResult<bray_symbols::TypeId>, FactQueryError> {
+        let template = match definition {
+            AnyConstantDefinitionId::Constant(owner) => binding_context
+                .resolve_symbol_query(
+                    SymbolQueryRequest::<bray_symbols::ConstantDeclaredTypeQuery>::new(owner),
+                )
+                .map_err(binding_query_error)?,
+            AnyConstantDefinitionId::TraitMember(owner) => binding_context
+                .resolve_symbol_query(
+                    SymbolQueryRequest::<TraitConstantMemberDeclaredTypeQuery>::new(owner),
+                )
+                .map_err(binding_query_error)?,
+            AnyConstantDefinitionId::TraitFulfillment(owner) => binding_context
+                .resolve_symbol_query(SymbolQueryRequest::<
+                    TraitConstantFulfillmentDeclaredTypeQuery,
+                >::new(owner))
+                .map_err(binding_query_error)?,
+        };
+
+        let constants = self.checked_constant_terms_for_templates_with_cancellation(
+            [template.value()],
+            cancellation,
+        )?;
+
+        let ty = resolve_type_expression_template(
+            self.semantic_value_store()?,
+            template.value(),
+            constants.value(),
+        )
+        .map_err(FactQueryError::from)?
+        .ok_or_else(|| {
+            SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(definition.into_any()),
+                SemanticQueryViolation::Missing(SemanticDataKind::Type),
+            )
+        })?;
+
+        Ok(DiagnosticResult::new(
+            ty,
+            template.diagnostics().merged(constants.diagnostics()),
+        ))
     }
 
     pub(in crate::compilation) fn symbolic_constant_term_with_cancellation(
@@ -251,7 +336,11 @@ impl Compilation {
             key.kind(),
             BoundUnitKind::ConstantTemplate | BoundUnitKind::EmbeddedConstant
         ) {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(SemanticQueryFailure::contract(
+                SemanticQueryContext::Unit(key),
+                SemanticQueryViolation::Unsupported(SemanticDataKind::ConstantTerm),
+            )
+            .into());
         }
 
         self.unit_query(
@@ -376,7 +465,15 @@ impl Compilation {
 
             let ty = types
                 .expression(root)
-                .ok_or(FactQueryError::InfrastructureFailure)?
+                .ok_or_else(|| {
+                    SemanticQueryFailure::contract(
+                        SemanticQueryContext::Expression {
+                            unit: bound.result().value().key().clone(),
+                            expression: root,
+                        },
+                        SemanticQueryViolation::Missing(SemanticDataKind::Type),
+                    )
+                })?
                 .ty();
 
             let value = self
@@ -433,7 +530,12 @@ impl Compilation {
         let address = binding_context
             .imported_semantic_address(instance.definition().into_any())
             .map_err(binding_query_error)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                SemanticQueryFailure::contract(
+                    SemanticQueryContext::Symbol(instance.definition().into_any()),
+                    SemanticQueryViolation::Missing(SemanticDataKind::ImportedTemplate),
+                )
+            })?;
 
         let template = imported_declaration_template(
             &binding_context,
@@ -445,27 +547,62 @@ impl Compilation {
         let definition_result =
             self.constant_definition_with_cancellation(instance.definition(), cancellation)?;
 
-        let ConstantDefinitionState::Defined(definition) = definition_result.value() else {
-            return Err(FactQueryError::InfrastructureFailure);
+        let definition = match definition_result.value() {
+            ConstantDefinitionState::Defined(definition) => *definition,
+            ConstantDefinitionState::Error(error) => {
+                return recovered_error_constant_instance(
+                    self.semantic_value_store()?,
+                    *error,
+                    instance.substitution().substitution(),
+                    DiagnosticBag::merged_all([
+                        template.diagnostics(),
+                        definition_result.diagnostics(),
+                    ]),
+                );
+            }
+            ConstantDefinitionState::Required => {
+                return Err(SemanticQueryFailure::contract(
+                    SemanticQueryContext::Symbol(instance.definition().into_any()),
+                    SemanticQueryViolation::Unsupported(SemanticDataKind::ConstantDefinition),
+                )
+                .into());
+            }
         };
 
-        let imported = template
-            .value()
-            .as_ref()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let imported = template.value().as_ref().ok_or_else(|| {
+            SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(instance.definition().into_any()),
+                SemanticQueryViolation::Missing(SemanticDataKind::ImportedTemplate),
+            )
+        })?;
 
         let imported_symbols =
             self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
 
-        let imported_symbols = imported_symbols
-            .value()
-            .as_deref()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let Some(symbols) = imported_symbols.value().as_deref() else {
+            if imported_symbols.diagnostics().has_errors() {
+                return recovered_error_constant_instance(
+                    self.semantic_value_store()?,
+                    ErrorConstantDefinition::new(definition.ty()),
+                    instance.substitution().substitution(),
+                    DiagnosticBag::merged_all([
+                        template.diagnostics(),
+                        definition_result.diagnostics(),
+                        imported_symbols.diagnostics(),
+                    ]),
+                );
+            }
+
+            return Err(SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(instance.definition().into_any()),
+                SemanticQueryViolation::Missing(SemanticDataKind::ImportedTemplate),
+            )
+            .into());
+        };
 
         let context = self.checker_context(cancellation)?;
 
-        let resolver =
-            CompilationConstantTemplateResolver::new(self, cancellation, imported_symbols);
+        let resolver = CompilationConstantTemplateResolver::new(self, cancellation, symbols);
 
         let diagnostic_span = self
             .dependency_interface_input(address.interface())
@@ -484,6 +621,7 @@ impl Compilation {
         let diagnostics = DiagnosticBag::merged_all([
             template.diagnostics(),
             definition_result.diagnostics(),
+            imported_symbols.diagnostics(),
             evaluated.diagnostics(),
         ]);
 
@@ -491,15 +629,12 @@ impl Compilation {
             return Ok(DiagnosticResult::new(*evaluated, diagnostics));
         }
 
-        let value = self
-            .semantic_value_store()?
-            .intern_error_constant_value(definition.ty())
-            .map_err(FactQueryError::SemanticValueStore)?;
-
-        Ok(DiagnosticResult::new(
-            EvaluatedConstantCall::new(value, Default::default()),
+        recovered_error_constant_instance(
+            self.semantic_value_store()?,
+            ErrorConstantDefinition::new(definition.ty()),
+            instance.substitution().substitution(),
             diagnostics,
-        ))
+        )
     }
 
     pub(in crate::compilation) fn symbolic_references(
@@ -673,9 +808,10 @@ impl Compilation {
             .transpose()?;
 
         let mut dependency_diagnostics = DiagnosticBag::new();
+        let unit = bound.key().clone();
 
         let references =
-            collect_constant_references(bound, selections, |_, target| match target {
+            collect_constant_references(bound, selections, |expression, target| match target {
                 BoundReferenceTarget::Surface(symbol)
                     if context.parameters.contains_key(&symbol) =>
                 {
@@ -684,17 +820,40 @@ impl Compilation {
                         .get(&symbol)
                         .copied()
                         .map(ConstantReferenceResolution::Value)
-                        .ok_or(FactQueryError::InfrastructureFailure)
+                        .ok_or_else(|| {
+                            SemanticQueryFailure::contract(
+                                SemanticQueryContext::Expression {
+                                    unit: unit.clone(),
+                                    expression,
+                                },
+                                SemanticQueryViolation::Missing(SemanticDataKind::LiteralValue),
+                            )
+                            .into()
+                        })
                 }
                 BoundReferenceTarget::Surface(AnySymbolId::GenericConstParameter(parameter)) => {
                     let Some(substitution) = &substitution else {
-                        return Err(FactQueryError::InfrastructureFailure);
+                        return Err(SemanticQueryFailure::contract(
+                            SemanticQueryContext::Expression {
+                                unit: unit.clone(),
+                                expression,
+                            },
+                            SemanticQueryViolation::Missing(SemanticDataKind::GenericSubstitution),
+                        )
+                        .into());
                     };
 
                     let Some(bray_symbols::GenericArgument::Constant(term)) = substitution
                         .argument_for(bray_symbols::GenericParameterSymbolId::Const(parameter))
                     else {
-                        return Err(FactQueryError::InfrastructureFailure);
+                        return Err(SemanticQueryFailure::contract(
+                            SemanticQueryContext::Expression {
+                                unit: unit.clone(),
+                                expression,
+                            },
+                            SemanticQueryViolation::Missing(SemanticDataKind::ConstantTerm),
+                        )
+                        .into());
                     };
 
                     let data = values
@@ -705,21 +864,32 @@ impl Compilation {
                         ConstantTermData::Value(value) => {
                             Ok(ConstantReferenceResolution::Value(*value))
                         }
-                        _ => Err(FactQueryError::InfrastructureFailure),
+                        _ => Err(SemanticQueryFailure::contract(
+                            SemanticQueryContext::Expression {
+                                unit: unit.clone(),
+                                expression,
+                            },
+                            SemanticQueryViolation::Unsupported(SemanticDataKind::ConstantTerm),
+                        )
+                        .into()),
                     }
                 }
                 BoundReferenceTarget::Surface(symbol) => {
                     let Some(definition) = constant_definition_id(symbol) else {
-                        return Err(FactQueryError::InfrastructureFailure);
+                        return Err(SemanticQueryFailure::contract(
+                            SemanticQueryContext::Symbol(symbol),
+                            SemanticQueryViolation::Unsupported(
+                                SemanticDataKind::ConstantDefinition,
+                            ),
+                        )
+                        .into());
                     };
 
-                    let dependency = if context
+                    let dependency = if let Some(instance) = context
                         .current_constant
-                        .is_some_and(|instance| definition == instance.definition())
+                        .filter(|instance| definition == instance.definition())
                     {
-                        context
-                            .current_constant
-                            .ok_or(FactQueryError::InfrastructureFailure)?
+                        instance
                     } else {
                         ConstantInstanceKey::new(
                             definition,
@@ -744,7 +914,14 @@ impl Compilation {
                         Err(error) => Err(error),
                     }
                 }
-                BoundReferenceTarget::Local(_) => Err(FactQueryError::InfrastructureFailure),
+                BoundReferenceTarget::Local(_) => Err(SemanticQueryFailure::contract(
+                    SemanticQueryContext::Expression {
+                        unit: unit.clone(),
+                        expression,
+                    },
+                    SemanticQueryViolation::Unsupported(SemanticDataKind::ConstantDefinition),
+                )
+                .into()),
             })?;
 
         Ok((references, dependency_diagnostics))
@@ -775,7 +952,12 @@ impl Compilation {
         let record = source_graph
             .declarations()
             .declaration(declaration)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                SemanticQueryFailure::contract(
+                    SemanticQueryContext::Symbol(definition.into_any()),
+                    SemanticQueryViolation::Missing(SemanticDataKind::SourceAnchor),
+                )
+            })?;
 
         let anchor = record.syntax_anchor();
 
@@ -803,13 +985,33 @@ impl Compilation {
 
                     let symbol = symbols
                         .symbol_for_key(key.declared_owner())
-                        .ok_or(FactQueryError::InfrastructureFailure)?;
+                        .ok_or_else(|| {
+                            SemanticQueryFailure::contract(
+                                SemanticQueryContext::Unit(key.clone()),
+                                SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                            )
+                        })?;
 
-                    let definition = CallableDefinitionId::try_new(symbol)
-                        .ok_or(FactQueryError::InfrastructureFailure)?;
+                    let definition = CallableDefinitionId::try_new(symbol).ok_or_else(|| {
+                        SemanticQueryFailure::contract(
+                            SemanticQueryContext::Unit(key.clone()),
+                            SemanticQueryViolation::UnexpectedSymbolKind {
+                                expected: SemanticSymbolCategory::Callable,
+                                actual: symbol.kind(),
+                            },
+                        )
+                    })?;
 
                     if bodies.insert(definition, key).is_some() {
-                        return Err(FactQueryError::InfrastructureFailure);
+                        return Err(SemanticQueryFailure::contract(
+                            SemanticQueryContext::Symbol(definition.callable_symbol().into_any()),
+                            SemanticQueryViolation::CountMismatch {
+                                data: SemanticDataKind::BoundUnit,
+                                expected: 1,
+                                actual: 2,
+                            },
+                        )
+                        .into());
                     }
                 }
 
@@ -840,14 +1042,27 @@ impl Compilation {
 
                     let symbol = symbols
                         .symbol_for_key(key.declared_owner())
-                        .ok_or(FactQueryError::InfrastructureFailure)?;
+                        .ok_or_else(|| {
+                            SemanticQueryFailure::contract(
+                                SemanticQueryContext::Unit(key.clone()),
+                                SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                            )
+                        })?;
 
                     let Some(definition) = constant_definition_id(symbol) else {
                         continue;
                     };
 
                     if templates.insert(definition, key).is_some() {
-                        return Err(FactQueryError::InfrastructureFailure);
+                        return Err(SemanticQueryFailure::contract(
+                            SemanticQueryContext::Symbol(definition.into_any()),
+                            SemanticQueryViolation::CountMismatch {
+                                data: SemanticDataKind::BoundUnit,
+                                expected: 1,
+                                actual: 2,
+                            },
+                        )
+                        .into());
                     }
                 }
 
@@ -862,17 +1077,38 @@ impl Compilation {
     }
 }
 
+fn recovered_error_constant_instance(
+    values: &bray_symbols::SemanticValueStore,
+    definition: ErrorConstantDefinition,
+    substitution: GenericSubstitutionId,
+    diagnostics: DiagnosticBag,
+) -> Result<DiagnosticResult<EvaluatedConstantCall>, FactQueryError> {
+    let ty = values
+        .substitute_type(definition.ty(), substitution)
+        .map_err(FactQueryError::SemanticValueStore)?;
+
+    let value = values
+        .intern_error_constant_value(ty)
+        .map_err(FactQueryError::SemanticValueStore)?;
+
+    Ok(DiagnosticResult::new(
+        EvaluatedConstantCall::new(value, Default::default()),
+        diagnostics,
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
 
-    use bray_diagnostics::{DiagnosticKind, DiagnosticRelatedLocationKind};
+    use bray_diagnostics::{DiagnosticBag, DiagnosticKind, DiagnosticRelatedLocationKind};
     use bray_symbols::{
         AnyConstantDefinitionId, CallableDefinitionId, CallableInstanceData,
         CallableParameterSignature, CallableParameterSymbolId, CallableSignature,
         ConstantDefinitionState, ConstantField, ConstantInstanceKey, ConstantTermData,
-        ConstantValueData, ConstantValueId, ConstantValueKind, GenericArgument, GenericOwnerId,
-        GenericParameterSymbolId, GenericSubstitutionData, IntegerConstant, IntegerSign,
+        ConstantValueData, ConstantValueId, ConstantValueKind, ErrorConstantDefinition,
+        FunctionSymbolId, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
+        GenericSubstitutionData, GenericTypeParameterSymbolId, IntegerConstant, IntegerSign,
         NamedTypeSymbolId, ReceiverMode, ReceiverParameterSignature, ReceiverParameterSymbolId,
         SymbolId, SymbolOrigin, TypeData, UnionSymbolId,
     };
@@ -882,6 +1118,7 @@ mod tests {
     use super::super::support::{
         call_parameter_values, constant_callable_root, empty_concrete_substitution,
     };
+    use super::recovered_error_constant_instance;
     use crate::SelectedTarget;
     use crate::fact::{ConstantCallQueryKey, ConstantInstanceQueryKey, FactCellTestEvent};
     use crate::test_support::{FactTestGate, compilation};
@@ -1212,11 +1449,139 @@ mod tests {
         let first = integer_constant(&compilation, ty, 1);
         let second = integer_constant(&compilation, ty, 2);
 
-        let parameters = call_parameter_values(values, &signature, &[first, second])
-            .unwrap_or_else(|error| panic!("constant call arguments must map: {error:?}"));
+        let parameters = call_parameter_values(
+            values,
+            &signature,
+            &[first, second],
+            crate::compilation::SemanticQueryContext::Symbol(receiver.into()),
+        )
+        .unwrap_or_else(|error| panic!("constant call arguments must map: {error:?}"));
 
         assert_eq!(parameters.get(&receiver.into()), Some(&first));
         assert_eq!(parameters.get(&parameter.into()), Some(&second));
+    }
+
+    #[test]
+    fn constant_call_argument_count_failure_retains_call_context_and_counts() {
+        let compilation = compilation("module app;");
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
+
+        let ty = i32_type(&compilation);
+        let receiver = ReceiverParameterSymbolId::from_symbol_id(SymbolId::new(72));
+        let parameter = CallableParameterSymbolId::from_symbol_id(SymbolId::new(73));
+
+        let signature = CallableSignature::new(
+            ty,
+            Some(ReceiverParameterSignature::new(
+                receiver,
+                ty,
+                ReceiverMode::Shared,
+            )),
+            [CallableParameterSignature::new(parameter, ty)],
+            ty,
+        );
+
+        let argument = integer_constant(&compilation, ty, 1);
+        let context = crate::compilation::SemanticQueryContext::Symbol(receiver.into());
+
+        let expected: crate::FactQueryError = crate::compilation::SemanticQueryFailure::contract(
+            context.clone(),
+            crate::compilation::SemanticQueryViolation::CountMismatch {
+                data: crate::compilation::SemanticDataKind::ConstantTerm,
+                expected: 2,
+                actual: 1,
+            },
+        )
+        .into();
+
+        assert_eq!(
+            call_parameter_values(values, &signature, &[argument], context),
+            Err(expected)
+        );
+    }
+
+    #[test]
+    fn constant_call_argument_type_failure_retains_parameter_and_types() {
+        let compilation = compilation("module app;");
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
+
+        let expected_type = i32_type(&compilation);
+        let actual_type = bool_type(&compilation);
+        let parameter = CallableParameterSymbolId::from_symbol_id(SymbolId::new(74));
+
+        let signature = CallableSignature::new(
+            expected_type,
+            None,
+            [CallableParameterSignature::new(parameter, expected_type)],
+            expected_type,
+        );
+
+        let argument = boolean_constant(&compilation, actual_type, true);
+        let context = crate::compilation::SemanticQueryContext::Symbol(parameter.into());
+
+        let expected: crate::FactQueryError = crate::compilation::SemanticQueryFailure::contract(
+            context.clone(),
+            crate::compilation::SemanticQueryViolation::TypeMismatch {
+                expected: expected_type,
+                actual: actual_type,
+            },
+        )
+        .into();
+
+        assert_eq!(
+            call_parameter_values(values, &signature, &[argument], context),
+            Err(expected)
+        );
+    }
+
+    #[test]
+    fn malformed_imported_constant_definition_builds_typed_recovery_value() {
+        let compilation = compilation("module app;");
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must publish: {error:?}"));
+
+        let ty = i32_type(&compilation);
+        let parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(75));
+
+        let template_type = values
+            .intern_type(TypeData::TypeParameter(parameter))
+            .unwrap_or_else(|error| panic!("template type must intern: {error:?}"));
+
+        let owner =
+            GenericOwnerId::try_new(FunctionSymbolId::from_symbol_id(SymbolId::new(76)).into())
+                .unwrap_or_else(|| panic!("function must own a generic substitution"));
+
+        let substitution = GenericSubstitutionData::try_new(
+            owner,
+            [GenericParameterSymbolId::Type(parameter)],
+            [GenericArgument::Type(ty)],
+        )
+        .unwrap_or_else(|error| panic!("generic substitution must validate: {error:?}"));
+
+        let substitution = values
+            .intern_generic_substitution(substitution)
+            .unwrap_or_else(|error| panic!("generic substitution must intern: {error:?}"));
+
+        let result = recovered_error_constant_instance(
+            values,
+            ErrorConstantDefinition::new(template_type),
+            substitution,
+            DiagnosticBag::new(),
+        )
+        .unwrap_or_else(|error| panic!("malformed imported definition must recover: {error:?}"));
+
+        let value = constant_value(&compilation, result.value().value());
+
+        assert_eq!(value.ty(), ty);
+        assert_eq!(value.kind(), &ConstantValueKind::Error);
     }
 
     #[test]

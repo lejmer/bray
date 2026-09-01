@@ -6,16 +6,32 @@ use bray_symbols::{
 };
 
 use super::binder::CompilationBindingContext;
+use super::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+    SemanticSymbolCategory,
+};
 use crate::fact::FactQueryError;
 
 pub(super) fn empty_substitution(
     values: &bray_symbols::SemanticValueStore,
     definition: AnySymbolId,
 ) -> Result<GenericSubstitutionId, FactQueryError> {
-    let owner = GenericOwnerId::try_new(definition).ok_or(FactQueryError::InfrastructureFailure)?;
+    let owner = GenericOwnerId::try_new(definition).ok_or_else(|| {
+        SemanticQueryFailure::contract(
+            SemanticQueryContext::Symbol(definition),
+            SemanticQueryViolation::UnexpectedSymbolKind {
+                expected: SemanticSymbolCategory::GenericOwner,
+                actual: definition.kind(),
+            },
+        )
+    })?;
 
-    let substitution = GenericSubstitutionData::try_new(owner, [], [])
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+    let substitution = GenericSubstitutionData::try_new(owner, [], []).map_err(|cause| {
+        SemanticQueryFailure::GenericSubstitution {
+            owner: Some(owner),
+            cause,
+        }
+    })?;
 
     values
         .intern_generic_substitution(substitution)
@@ -27,7 +43,18 @@ pub(super) fn substitution_for_owner(
     owner: AnySymbolId,
     substitutions: impl IntoIterator<Item = GenericSubstitutionId>,
 ) -> Result<GenericSubstitutionId, FactQueryError> {
-    let owner = GenericOwnerId::try_new(owner).ok_or(FactQueryError::InfrastructureFailure)?;
+    let symbol = owner;
+
+    let owner = GenericOwnerId::try_new(symbol).ok_or_else(|| {
+        SemanticQueryFailure::contract(
+            SemanticQueryContext::Symbol(symbol),
+            SemanticQueryViolation::UnexpectedSymbolKind {
+                expected: SemanticSymbolCategory::GenericOwner,
+                actual: symbol.kind(),
+            },
+        )
+    })?;
+
     let mut parameters = Vec::new();
     let mut arguments = Vec::new();
 
@@ -42,8 +69,13 @@ pub(super) fn substitution_for_owner(
         }
     }
 
-    let substitution = GenericSubstitutionData::try_new(owner, parameters, arguments)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+    let substitution =
+        GenericSubstitutionData::try_new(owner, parameters, arguments).map_err(|cause| {
+            SemanticQueryFailure::GenericSubstitution {
+                owner: Some(owner),
+                cause,
+            }
+        })?;
 
     values
         .intern_generic_substitution(substitution)
@@ -71,8 +103,12 @@ pub(super) fn identity_substitution(
         .collect::<Result<Vec<_>, _>>()?;
 
     let substitution =
-        GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments).map_err(
+            |cause| SemanticQueryFailure::GenericSubstitution {
+                owner: Some(owner),
+                cause,
+            },
+        )?;
 
     values
         .intern_generic_substitution(substitution)
@@ -83,14 +119,31 @@ pub(super) fn contextual_self_type(
     binding_context: &CompilationBindingContext<'_>,
     context: SelfTypeContext,
 ) -> Result<TypeId, FactQueryError> {
-    let definition = NamedTypeSymbolId::try_from_any(context.symbol())
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+    let symbol = context.symbol();
+
+    let definition = NamedTypeSymbolId::try_from_any(symbol).ok_or_else(|| {
+        SemanticQueryFailure::contract(
+            SemanticQueryContext::Symbol(symbol),
+            SemanticQueryViolation::UnexpectedSymbolKind {
+                expected: SemanticSymbolCategory::NamedType,
+                actual: symbol.kind(),
+            },
+        )
+    })?;
 
     binding_context
         .semantic_values()
         .intern_open_named_type(binding_context.symbols(), definition)
         .map_err(FactQueryError::SemanticValueStore)
-        .and_then(|ty| ty.ok_or(FactQueryError::InfrastructureFailure))
+        .and_then(|ty| {
+            ty.ok_or_else(|| {
+                SemanticQueryFailure::contract(
+                    SemanticQueryContext::Symbol(symbol),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Type),
+                )
+                .into()
+            })
+        })
 }
 
 pub(super) fn named_type(

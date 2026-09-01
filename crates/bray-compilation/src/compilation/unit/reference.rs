@@ -2,13 +2,14 @@ use bray_binder::BindingQueryContext;
 use bray_bound_tree::{BoundExpression, BoundUnit, SemanticSelection, SemanticSelectionEntry};
 use bray_checker::check_generic_arguments;
 use bray_diagnostics::DiagnosticBag;
+use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, GenericOwnerId,
     GenericSubstitutionData, GenericSubstitutionId, StaticSymbolId,
 };
 use bray_syntax::GenericArgumentListSyntax;
 
-use super::support::checker_unit_view;
+use super::support::{checker_unit_view, unit_contract_failure};
 use crate::compilation::binder::{binding_query_error, generic_parameter_ids, type_binder};
 use crate::compilation::checker::checker_result;
 use crate::compilation::state::Compilation;
@@ -33,7 +34,14 @@ impl Compilation {
         let owner = binding_context
             .symbols()
             .symbol_for_key(key.declared_owner())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                unit_contract_failure(
+                    key,
+                    crate::compilation::SemanticQueryViolation::Missing(
+                        crate::compilation::SemanticDataKind::Symbol,
+                    ),
+                )
+            })?;
 
         let unit = checker_unit_view(bound, semantic_context, checker_context)?;
 
@@ -117,7 +125,15 @@ impl Compilation {
             Some(anchor) => {
                 let arguments = anchor
                     .find_descendant::<GenericArgumentListSyntax>(self.syntax_tree())
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                    .ok_or_else(|| {
+                        crate::compilation::SemanticQueryFailure::located_contract(
+                            crate::compilation::SemanticQueryContext::Symbol(symbol),
+                            crate::compilation::SemanticQueryViolation::Missing(
+                                crate::compilation::SemanticDataKind::Syntax,
+                            ),
+                            SourceSpan::new(anchor.source_id(), anchor.full_range()),
+                        )
+                    })?;
 
                 let arguments = arguments.generic_arguments().collect::<Vec<_>>();
 
@@ -146,10 +162,23 @@ impl Compilation {
             None => return Ok(None),
         };
 
-        let owner = GenericOwnerId::try_new(symbol).ok_or(FactQueryError::InfrastructureFailure)?;
+        let owner = GenericOwnerId::try_new(symbol).ok_or_else(|| {
+            crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::Symbol(symbol),
+                crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: crate::compilation::SemanticSymbolCategory::GenericOwner,
+                    actual: symbol.kind(),
+                },
+            )
+        })?;
 
-        let substitution = GenericSubstitutionData::try_new(owner, parameters, resolved)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        let substitution =
+            GenericSubstitutionData::try_new(owner, parameters, resolved).map_err(|cause| {
+                crate::compilation::SemanticQueryFailure::GenericSubstitution {
+                    owner: Some(owner),
+                    cause,
+                }
+            })?;
 
         binding_context
             .semantic_values()

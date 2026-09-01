@@ -137,16 +137,12 @@ fn constant_callable_bodies(
             .map_err(super::super::invalid_compilation_binding_error)?;
 
         if signature.diagnostics().has_errors()
-            || signature
-                .value()
-                .constness(values)
-                .map_err(|error| {
-                    super::super::callable_signature_export_error(
-                        error,
-                        PackageInterfaceExportError::InvalidCompilation,
-                    )
-                })?
-                != CallableConstness::Constant
+            || signature.value().constness(values).map_err(|error| {
+                super::super::callable_signature_export_error(
+                    error,
+                    PackageInterfaceExportError::InvalidCompilation,
+                )
+            })? != CallableConstness::Constant
         {
             continue;
         }
@@ -173,10 +169,7 @@ fn constant_callable_bodies(
                 &compilation.state.cancellation,
             )
             .map_err(|cause| {
-                super::super::constant_callable_evaluation_export_error(
-                    declaration.clone(),
-                    cause,
-                )
+                super::super::constant_callable_evaluation_export_error(declaration.clone(), cause)
             })?;
 
         if evaluated.diagnostics().has_errors() {
@@ -422,15 +415,14 @@ fn executable_templates(
             return Err(PackageInterfaceExportError::InvalidCompilation);
         };
 
-        let (family_templates, family_requirement) =
-            export_executable_template_family(
-                compilation,
-                graph,
-                owner,
-                &declaration,
-                root,
-                export,
-            )?;
+        let (family_templates, family_requirement) = export_executable_template_family(
+            compilation,
+            graph,
+            owner,
+            &declaration,
+            root,
+            export,
+        )?;
 
         templates.extend(family_templates);
 
@@ -517,10 +509,7 @@ fn export_executable_template_family(
         };
 
         let lowered = compilation.lowered_unit(key).map_err(|cause| {
-            super::super::executable_template_evaluation_export_error(
-                declaration.clone(),
-                cause,
-            )
+            super::super::executable_template_evaluation_export_error(declaration.clone(), cause)
         })?;
 
         if lowered.diagnostics().has_errors() {
@@ -620,14 +609,9 @@ fn executable_template_unit(
     }
 
     if let Some(definition) = bray_symbols::CallableDefinitionId::try_new(owner) {
-        return compilation
-            .callable_body_key(definition)
-            .map_err(|cause| {
-                super::super::executable_template_evaluation_export_error(
-                    declaration.clone(),
-                    cause,
-                )
-            });
+        return compilation.callable_body_key(definition).map_err(|cause| {
+            super::super::executable_template_evaluation_export_error(declaration.clone(), cause)
+        });
     }
 
     if graph.runtime_default_subject(owner).is_none() {

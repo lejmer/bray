@@ -1,4 +1,3 @@
-use bray_base::Cancellation;
 use bray_bound_tree::{
     BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit,
     BoundUnresolvedReferenceKind, DeclaredValueTypeTerm,
@@ -19,12 +18,14 @@ use bray_symbols::{
 };
 use bray_syntax::{GenericArgumentSyntax, PathSyntax};
 
-use super::template::{callable_declaration_template, combined_generic_declaration};
+use super::template::{
+    bind_generic_arguments, callable_declaration_template, combined_generic_declaration,
+};
 
 use crate::lookup::{NameAccess, ResolvedName, bind_module_path, bind_owner_path};
 use crate::{
     BindingQueryContext, BindingQueryError, BindingQueryResult, SymbolQueryProvider,
-    TypeExpressionBinder, TypeExpressionScope,
+    TypeExpressionScope,
 };
 
 use super::constructor::{
@@ -41,17 +42,6 @@ pub(super) struct CallGenericContext<'syntax> {
 pub(super) struct InheritedGenericContext<'syntax> {
     pub(super) owner: NamedTypeSymbolId,
     pub(super) arguments: &'syntax [GenericArgumentSyntax],
-}
-
-struct CandidateCancellation<'context, C: ?Sized>(&'context C);
-
-impl<C> Cancellation for CandidateCancellation<'_, C>
-where
-    C: BindingQueryContext,
-{
-    fn is_cancelled(&self) -> bool {
-        self.0.is_cancelled()
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -589,66 +579,6 @@ where
         declaration,
         arguments: arguments.arguments,
         has_diagnostics: inherited_diagnostics || direct_diagnostics || arguments.has_diagnostics,
-    }))
-}
-
-pub(super) struct BoundGenericArguments {
-    pub(super) arguments: Vec<GenericArgumentTemplate>,
-    pub(super) has_diagnostics: bool,
-}
-
-pub(super) fn bind_generic_arguments<C>(
-    context: &C,
-    call: CallGenericContext<'_>,
-    declaration: &GenericDeclarationTemplate,
-    diagnostics: &mut DiagnosticBag,
-) -> BindingQueryResult<Option<BoundGenericArguments>, C::UpstreamError>
-where
-    C: BindingQueryContext,
-{
-    if call.arguments.len() > declaration.parameters().len() {
-        return Ok(None);
-    }
-
-    let result = if call.arguments.is_empty() {
-        DiagnosticResult::without_diagnostics(Vec::new())
-    } else {
-        let cancellation = CandidateCancellation(context);
-
-        // Each overload candidate owns an isolated type-expression binding scope.
-        match TypeExpressionBinder::new(
-            context.symbols(),
-            context,
-            context.semantic_values(),
-            call.scope.clone(),
-            &cancellation,
-        )
-        .bind_call_generic_arguments(call.arguments, declaration.parameters())
-        {
-            Ok(arguments) => arguments,
-            Err(BindingQueryError::Cancelled) => return Err(BindingQueryError::Cancelled),
-            Err(BindingQueryError::CheckerInfrastructure(error)) => {
-                return Err(BindingQueryError::CheckerInfrastructure(error));
-            }
-            Err(BindingQueryError::SemanticValue(error)) => {
-                return Err(BindingQueryError::SemanticValue(error));
-            }
-            Err(BindingQueryError::Upstream(error)) => {
-                return Err(BindingQueryError::Upstream(error));
-            }
-            Err(BindingQueryError::DependencyUnavailable) => return Ok(None),
-        }
-    };
-
-    let (arguments, argument_diagnostics) = result.into_parts();
-
-    let has_diagnostics = !argument_diagnostics.is_empty();
-
-    *diagnostics = diagnostics.merged(&argument_diagnostics);
-
-    Ok(Some(BoundGenericArguments {
-        arguments,
-        has_diagnostics,
     }))
 }
 

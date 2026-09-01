@@ -31,10 +31,7 @@ impl Lowerer<'_> {
         let source = self.source(expression.origin());
         let result_type = self.expression_type(id)?;
 
-        let result_data = self
-            .input
-            .semantic_values()
-            .type_data(result_type)?;
+        let result_data = self.input.semantic_values().type_data(result_type)?;
 
         let TypeData::Borrow {
             kind: result_kind,
@@ -225,15 +222,9 @@ impl Lowerer<'_> {
             return Ok(None);
         };
 
-        let data = self
-            .input
-            .semantic_values()
-            .constant_value_data(value)?;
+        let data = self.input.semantic_values().constant_value_data(value)?;
 
-        let representation = self
-            .input
-            .semantic_values()
-            .type_data(result_type)?;
+        let representation = self.input.semantic_values().type_data(result_type)?;
 
         let TypeData::Borrow { target, .. } = representation.as_ref() else {
             return Ok(None);
@@ -628,10 +619,7 @@ impl Lowerer<'_> {
             return Ok(source_type);
         }
 
-        let data = self
-            .input
-            .semantic_values()
-            .type_data(source_type)?;
+        let data = self.input.semantic_values().type_data(source_type)?;
 
         let TypeData::Borrow { target, .. } = data.as_ref() else {
             return Ok(source_type);
@@ -656,10 +644,7 @@ impl Lowerer<'_> {
             return Ok(source_type);
         }
 
-        let data = self
-            .input
-            .semantic_values()
-            .type_data(source_type)?;
+        let data = self.input.semantic_values().type_data(source_type)?;
 
         let TypeData::Borrow { target, .. } = data.as_ref() else {
             return Ok(source_type);
