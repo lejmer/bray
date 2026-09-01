@@ -359,6 +359,9 @@ impl Compilation {
             Err(FactQueryError::Product(error)) => {
                 panic!("semantic diagnostic product query failed: {error:?}")
             }
+            Err(FactQueryError::Foreign(error)) => {
+                panic!("semantic diagnostic foreign query failed: {error:?}")
+            }
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("semantic checker infrastructure failed: {error:?}")
             }
@@ -429,6 +432,9 @@ impl Compilation {
             }
             Err(FactQueryError::Product(error)) => {
                 panic!("check diagnostic product query failed: {error:?}")
+            }
+            Err(FactQueryError::Foreign(error)) => {
+                panic!("check diagnostic foreign query failed: {error:?}")
             }
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("check diagnostic checker infrastructure failed: {error:?}")

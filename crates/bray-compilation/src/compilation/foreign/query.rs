@@ -23,6 +23,7 @@ use super::validation::validate_platform_service_surface;
 use super::validation::{callable_surface, validate_callable_surface};
 use crate::compilation::binder::binding_query_error;
 use crate::compilation::directive::first_directive;
+use crate::compilation::{ForeignDataKind, ForeignQueryContext, ForeignQueryFailure};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 impl Compilation {
@@ -76,19 +77,32 @@ impl Compilation {
         let record = binding_context
             .function(function)
             .map_err(binding_query_error)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                missing_foreign_data(
+                    ForeignQueryContext::Function(function),
+                    ForeignDataKind::FunctionBindingRecord,
+                )
+            })?;
 
         if record.origin() != SymbolOrigin::Source {
             return Ok(Arc::new(DiagnosticResult::without_diagnostics(None)));
         }
 
-        let anchor = record
-            .syntax_anchor()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let anchor = record.syntax_anchor().ok_or_else(|| {
+            missing_foreign_data(
+                ForeignQueryContext::Function(function),
+                ForeignDataKind::SourceAnchor,
+            )
+        })?;
 
         let syntax = anchor
             .find_descendant::<FunctionDeclarationSyntax>(self.syntax_tree())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                missing_foreign_data(
+                    ForeignQueryContext::Function(function),
+                    ForeignDataKind::FunctionDeclarationSyntax,
+                )
+            })?;
 
         let signature = binding_context
             .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
@@ -98,7 +112,7 @@ impl Compilation {
 
         let mut diagnostics = signature.diagnostics().clone();
 
-        let callable = callable_surface(self.semantic_value_store()?, signature.value())?;
+        let callable = callable_surface(function, self.semantic_value_store()?, signature.value())?;
         let abi = callable.abi;
 
         let declaration_directives = self.declaration_directives(function.into())?;
@@ -265,9 +279,12 @@ impl Compilation {
                 continue;
             };
 
-            let anchor = function
-                .syntax_anchor()
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let anchor = function.syntax_anchor().ok_or_else(|| {
+                missing_foreign_data(
+                    ForeignQueryContext::Function(function.id()),
+                    ForeignDataKind::SourceAnchor,
+                )
+            })?;
 
             match native_symbols.entry(contract.symbol().identity().clone()) {
                 std::collections::btree_map::Entry::Vacant(entry) => {
@@ -299,9 +316,12 @@ impl Compilation {
                 continue;
             };
 
-            let anchor = static_symbol
-                .syntax_anchor()
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let anchor = static_symbol.syntax_anchor().ok_or_else(|| {
+                missing_foreign_data(
+                    ForeignQueryContext::Static(static_symbol.id()),
+                    ForeignDataKind::SourceAnchor,
+                )
+            })?;
 
             match native_symbols.entry(contract.symbol().identity().clone()) {
                 std::collections::btree_map::Entry::Vacant(entry) => {
@@ -318,6 +338,10 @@ impl Compilation {
 
         Ok(diagnostics)
     }
+}
+
+fn missing_foreign_data(context: ForeignQueryContext, data: ForeignDataKind) -> FactQueryError {
+    ForeignQueryFailure::missing(context, data).into()
 }
 
 fn native_symbol_display(identity: &bray_symbols::NativeSymbolIdentity) -> String {

@@ -4,6 +4,7 @@ use bray_symbols::{DirectiveKind, DirectiveSurface, DirectiveTemplate, SymbolNam
 use bray_syntax::{ExpressionSyntax, SyntaxTree};
 
 use super::Compilation;
+use super::{ForeignDataKind, ForeignQueryContext, ForeignQueryFailure};
 use crate::fact::FactQueryError;
 
 pub(super) fn first_directive(
@@ -53,5 +54,11 @@ pub(super) fn directive_source_text<'compilation>(
     compilation
         .source(syntax.source_id())
         .and_then(|source| source.text_slice(syntax.full_range()))
-        .ok_or(FactQueryError::InfrastructureFailure)
+        .ok_or_else(|| {
+            ForeignQueryFailure::missing(
+                ForeignQueryContext::Directive(syntax),
+                ForeignDataKind::SourceText,
+            )
+            .into()
+        })
 }

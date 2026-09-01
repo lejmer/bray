@@ -1,5 +1,7 @@
 use super::super::source::{format_english_artifact_digest, format_english_artifact_kind};
 use super::checker::format_english_checker_failure;
+use super::foreign_query::format_english_foreign_query_failure;
+use super::linking::format_english_native_link_input_failure;
 use super::product_query::format_english_product_query_failure;
 use bray_diagnostics::DiagnosticArtifactDigest;
 
@@ -69,6 +71,7 @@ pub(crate) fn format_english_emission_evaluation_failure(
             return format_english_semantic_query_failure(*failure);
         }
         Failure::Product(failure) => return format_english_product_query_failure(failure),
+        Failure::Foreign(failure) => return format_english_foreign_query_failure(failure),
         Failure::Checker(failure) => return format_english_checker_failure(*failure),
     };
 
@@ -107,7 +110,9 @@ pub(crate) fn format_english_native_product_failure(
         }
         Kind::MissingRuntime => "the asynchronous product has no selected runtime",
         Kind::InvalidSymbolName => "a generated binary symbol name is not representable",
-        Kind::InvalidNativeLinkInput => "a configured native link input is invalid",
+        Kind::InvalidNativeLinkInput(failure) => {
+            return format_english_native_link_input_failure(failure);
+        }
         Kind::EvaluationCycle => "a dependency cycle occurred during compiler evaluation",
         Kind::EvaluationInfrastructure => {
             "product construction failed because compiler evaluation state is inconsistent"
@@ -151,6 +156,7 @@ pub(crate) fn format_english_native_product_failure(
         }
         Kind::SemanticContextFailure => "a program element has inconsistent checking context",
         Kind::EvaluationProduct(failure) => return format_english_product_query_failure(failure),
+        Kind::EvaluationForeign(failure) => return format_english_foreign_query_failure(failure),
         Kind::CheckingInfrastructureFailure => "semantic checking could not complete",
         Kind::EvaluationChecker(failure) => {
             return format_english_checker_failure(*failure);

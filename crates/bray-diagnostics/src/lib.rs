@@ -37,12 +37,12 @@ pub use argument::{
     DiagnosticLinkRequirementKind, DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind,
     DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
     DiagnosticLoweringInputFailureKind, DiagnosticMirUnitBuildFailure, DiagnosticModuleTrust,
-    DiagnosticNameKind, DiagnosticNamedType, DiagnosticNativeProductFailureKind,
-    DiagnosticOutputSink, DiagnosticProductKind, DiagnosticRuntimeAbiVersion,
-    DiagnosticRuntimeArtifactProblem, DiagnosticRuntimeArtifactPurpose, DiagnosticSelectionKind,
-    DiagnosticSourceConstructKind, DiagnosticStandardLibraryManifestProblem,
-    DiagnosticStandardLibraryOptimizationMetadataProblem, DiagnosticTargetRepresentation,
-    DiagnosticType, DiagnosticTypeArgument, DiagnosticVisibility,
+    DiagnosticNameKind, DiagnosticNamedType, DiagnosticNativeLinkInputFailure,
+    DiagnosticNativeProductFailureKind, DiagnosticOutputSink, DiagnosticProductKind,
+    DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem,
+    DiagnosticRuntimeArtifactPurpose, DiagnosticSelectionKind, DiagnosticSourceConstructKind,
+    DiagnosticStandardLibraryManifestProblem, DiagnosticStandardLibraryOptimizationMetadataProblem,
+    DiagnosticTargetRepresentation, DiagnosticType, DiagnosticTypeArgument, DiagnosticVisibility,
 };
 pub use bag::DiagnosticBag;
 pub use checking::{
@@ -80,13 +80,15 @@ pub use emission::{
     DiagnosticConstantInputFailure, DiagnosticEmissionArtifact, DiagnosticEmissionCodegenFailure,
     DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure,
     DiagnosticEmissionLinkPlanFailure, DiagnosticEmissionPlanningFailure,
-    DiagnosticEmissionStagingFailure, DiagnosticHostEnvironmentVariable,
-    DiagnosticLiteralValueFailure, DiagnosticLlvmToolRole, DiagnosticPackageInterfaceFailure,
-    DiagnosticPatternInputFailure, DiagnosticProductDataKind, DiagnosticProductQueryContext,
-    DiagnosticProductQueryContextKind, DiagnosticProductQueryFailure, DiagnosticProductValueKind,
-    DiagnosticSemanticQueryFailure, DiagnosticSemanticSelectionFailure,
-    DiagnosticSemanticSnapshotFailure, DiagnosticSemanticValueFailure,
-    DiagnosticStorageFlowFailure, DiagnosticUnsupportedEmissionReason,
+    DiagnosticEmissionStagingFailure, DiagnosticForeignDataKind, DiagnosticForeignQueryContext,
+    DiagnosticForeignQueryContextKind, DiagnosticForeignQueryFailure,
+    DiagnosticHostEnvironmentVariable, DiagnosticLiteralValueFailure, DiagnosticLlvmToolRole,
+    DiagnosticPackageInterfaceFailure, DiagnosticPatternInputFailure, DiagnosticProductDataKind,
+    DiagnosticProductQueryContext, DiagnosticProductQueryContextKind,
+    DiagnosticProductQueryFailure, DiagnosticProductValueKind, DiagnosticSemanticQueryFailure,
+    DiagnosticSemanticSelectionFailure, DiagnosticSemanticSnapshotFailure,
+    DiagnosticSemanticValueFailure, DiagnosticStorageFlowFailure,
+    DiagnosticUnsupportedEmissionReason,
 };
 pub use id::DiagnosticId;
 pub use inspection::{

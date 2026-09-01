@@ -373,6 +373,8 @@ pub enum DiagnosticEmissionEvaluationFailure {
     SemanticQuery(DiagnosticSemanticQueryFailure),
     /// Product specialization or realization violated an exact retained contract.
     Product(DiagnosticProductQueryFailure),
+    /// Foreign-boundary construction violated an exact retained contract.
+    Foreign(crate::DiagnosticForeignQueryFailure),
     Checker(DiagnosticCheckerFailure),
 }
 
@@ -730,6 +732,7 @@ impl DiagnosticEmissionEvaluationFailure {
             Self::SemanticContext => "semantic_context",
             Self::SemanticQuery(failure) => failure.as_str(),
             Self::Product(failure) => failure.as_str(),
+            Self::Foreign(failure) => failure.as_str(),
             Self::Checker(failure) => failure.as_str(),
         }
     }

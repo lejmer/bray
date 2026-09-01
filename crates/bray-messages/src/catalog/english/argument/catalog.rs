@@ -54,6 +54,10 @@ pub(crate) const USER_FACING_SOURCES: &[(&str, &str)] = &[
         include_str!("native/external.rs"),
     ),
     (
+        "argument/native/foreign_query.rs",
+        include_str!("native/foreign_query.rs"),
+    ),
+    (
         "argument/native/linking.rs",
         include_str!("native/linking.rs"),
     ),

@@ -46,6 +46,10 @@ pub use codegen::CodegenPreparationError;
 pub use configuration::BuildConfiguration;
 pub use emission::{EmissionCodegenError, EmissionCodegenErrorKind};
 pub use export::PackageInterfaceExportError;
+pub(crate) use foreign::{
+    ForeignDataKind, ForeignIntegerWidth, ForeignQueryContext, ForeignQueryFailure, ForeignTypeKind,
+};
+pub use foreign::{ForeignQueryError, ForeignQueryErrorKind};
 pub use linking::LinkedProductEmissionError;
 pub use load::CompilationLoadError;
 pub use product::{

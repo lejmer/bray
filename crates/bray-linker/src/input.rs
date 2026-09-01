@@ -283,7 +283,7 @@ fn validate_input(
 }
 
 /// A contract violation that prevents link-input construction.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum LinkInputBuildError {
     /// A file-backed input has an empty path.
     EmptyFilePath,

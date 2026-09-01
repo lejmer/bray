@@ -8,6 +8,7 @@ use bray_symbols::{
 };
 
 use super::super::Compilation;
+use crate::compilation::{ForeignDataKind, ForeignQueryContext, ForeignQueryFailure};
 use crate::fact::{CancellationToken, FactQueryError};
 
 pub(super) fn aggregate_alignment(
@@ -112,7 +113,15 @@ fn named_alignment(
                 .available_compiler_known_symbols()
                 .unary_representation_argument(values, role, wrapper)
                 .map_err(FactQueryError::SemanticValueStore)?
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    ForeignQueryFailure::missing(
+                        ForeignQueryContext::CompilerKnownRepresentation {
+                            role,
+                            ty: Some(wrapper),
+                        },
+                        ForeignDataKind::UnaryRepresentationArgument,
+                    )
+                })?;
 
             return alignment_of_type(compilation, element, cancellation, pending);
         }
@@ -130,7 +139,12 @@ fn named_alignment(
             let structure = binding_context
                 .structure(structure)
                 .map_err(super::super::binder::binding_query_error)?
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    ForeignQueryFailure::missing(
+                        ForeignQueryContext::Symbol(structure.into()),
+                        ForeignDataKind::StructureRecord,
+                    )
+                })?;
 
             let mut alignments = Vec::with_capacity(structure.fields().len());
 
@@ -159,7 +173,12 @@ fn named_alignment(
             let union = binding_context
                 .union(union)
                 .map_err(super::super::binder::binding_query_error)?
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    ForeignQueryFailure::missing(
+                        ForeignQueryContext::Symbol(union.into()),
+                        ForeignDataKind::UnionRecord,
+                    )
+                })?;
 
             let mut alignment = match representation.value().union_tag_type() {
                 Some(tag) => {
@@ -178,7 +197,12 @@ fn named_alignment(
                 let variant = binding_context
                     .union_variant(*variant)
                     .map_err(super::super::binder::binding_query_error)?
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                    .ok_or_else(|| {
+                        ForeignQueryFailure::missing(
+                            ForeignQueryContext::Symbol((*variant).into()),
+                            ForeignDataKind::UnionVariantRecord,
+                        )
+                    })?;
 
                 for field in variant.payload_fields() {
                     let field = binding_context
@@ -224,16 +248,27 @@ fn atomic_alignment(
 ) -> Result<Option<NonZeroU64>, FactQueryError> {
     let values = compilation.semantic_value_store()?;
 
-    let substitution = values
+    let substitution_data = values
         .generic_substitution_data(substitution)
         .map_err(FactQueryError::SemanticValueStore)?;
 
-    let [binding] = substitution.bindings() else {
-        return Err(FactQueryError::InfrastructureFailure);
+    let [binding] = substitution_data.bindings() else {
+        return Err(ForeignQueryFailure::count_mismatch(
+            ForeignQueryContext::Substitution(substitution),
+            ForeignDataKind::UnaryRepresentationArgument,
+            1,
+            substitution_data.bindings().len(),
+        )
+        .into());
     };
 
     let GenericArgument::Type(value) = binding.argument() else {
-        return Err(FactQueryError::InfrastructureFailure);
+        return Err(ForeignQueryFailure::UnexpectedGenericArgument {
+            substitution,
+            expected: bray_symbols::GenericArgumentKind::Type,
+            actual: binding.argument().kind(),
+        }
+        .into());
     };
 
     let Some(representation) = compilation.atomic_representation_for_type(value, cancellation)?
@@ -377,11 +412,14 @@ fn pointer_alignment(compilation: &Compilation) -> NonZeroU64 {
 
 #[cfg(test)]
 mod tests {
-    use bray_symbols::{NamedTypeSymbolId, SymbolOrigin};
+    use bray_compiler_known::RepresentationRole;
+    use bray_symbols::{NamedTypeSymbolId, StructSymbolId, SymbolOrigin};
 
     use super::aggregate_alignment;
     use crate::CancellationToken;
     use crate::compilation::substitution::empty_substitution;
+    use crate::compilation::{ForeignDataKind, ForeignQueryContext, ForeignQueryFailure};
+    use crate::fact::FactQueryError;
     use crate::test_support::{
         compilation, compilation_with_dependencies, encoded_semantic_dependency,
     };
@@ -470,5 +508,45 @@ mod tests {
         .unwrap_or_else(|error| panic!("imported aggregate alignment must resolve: {error:?}"));
 
         assert_eq!(alignment, Some(std::num::NonZeroU64::MIN));
+    }
+
+    #[test]
+    fn target_atomic_alignment_failure_retains_substitution_shape() {
+        let compilation = compilation("module app;");
+
+        let definition = compilation
+            .available_compiler_known_symbols()
+            .representation_symbol::<StructSymbolId>(RepresentationRole::Atomic)
+            .map(NamedTypeSymbolId::Struct)
+            .unwrap_or_else(|| panic!("atomic representation must be available"));
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must resolve: {error:?}"));
+
+        let substitution = empty_substitution(values, definition.into_any())
+            .unwrap_or_else(|error| panic!("empty substitution must intern: {error:?}"));
+
+        let error = aggregate_alignment(
+            &compilation,
+            definition,
+            substitution,
+            &CancellationToken::new(),
+        )
+        .expect_err("atomic alignment requires its element argument");
+
+        let FactQueryError::Foreign(error) = error else {
+            panic!("atomic alignment must retain a foreign query failure: {error:?}");
+        };
+
+        assert_eq!(
+            error.cause(),
+            &ForeignQueryFailure::CountMismatch {
+                context: ForeignQueryContext::Substitution(substitution),
+                data: ForeignDataKind::UnaryRepresentationArgument,
+                expected: 1,
+                actual: 0,
+            }
+        );
     }
 }

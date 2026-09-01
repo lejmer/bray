@@ -434,6 +434,9 @@ impl Compilation {
             Err(FactQueryError::Product(error)) => {
                 panic!("scheduled product query failed: {error:?}")
             }
+            Err(FactQueryError::Foreign(error)) => {
+                panic!("scheduled foreign query failed: {error:?}")
+            }
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("scheduled checker infrastructure failed: {error:?}")
             }
@@ -581,6 +584,9 @@ impl Compilation {
             }
             Err(FactQueryError::Product(error)) => {
                 panic!("compilation product query failed: {error:?}")
+            }
+            Err(FactQueryError::Foreign(error)) => {
+                panic!("compilation foreign query failed: {error:?}")
             }
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("semantic checker infrastructure failed: {error:?}")

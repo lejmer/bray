@@ -3,17 +3,34 @@ use bray_runtime_interface::SourceRoleBinding;
 use bray_symbols::FunctionSymbolId;
 
 use super::super::Compilation;
+use super::{ForeignQueryFailure, ForeignSourceRole};
 use crate::fact::FactQueryError;
 
 pub(in crate::compilation) fn has_source_role(
     compilation: &Compilation,
     function: FunctionSymbolId,
 ) -> Result<bool, FactQueryError> {
-    let runtime = source_role(compilation, function, compilation.runtime_roles())?;
-    let platform = source_role(compilation, function, compilation.platform_services())?;
+    let runtime = source_role(
+        compilation,
+        function,
+        compilation.runtime_roles(),
+        ForeignSourceRole::Runtime,
+    )?;
 
-    if runtime.is_some() && platform.is_some() {
-        return Err(FactQueryError::InfrastructureFailure);
+    let platform = source_role(
+        compilation,
+        function,
+        compilation.platform_services(),
+        ForeignSourceRole::Platform,
+    )?;
+
+    if let (Some(runtime), Some(platform)) = (runtime, platform) {
+        return Err(ForeignQueryFailure::ConflictingSourceRoles {
+            function,
+            runtime,
+            platform,
+        }
+        .into());
     }
 
     Ok(runtime.is_some() || platform.is_some())
@@ -23,6 +40,7 @@ pub(super) fn source_role<Role: Copy>(
     compilation: &Compilation,
     function: FunctionSymbolId,
     bindings: &[SourceRoleBinding<Role>],
+    foreign_role: impl Fn(Role) -> ForeignSourceRole,
 ) -> Result<Option<Role>, FactQueryError> {
     if bindings.is_empty() {
         return Ok(None);
@@ -66,8 +84,13 @@ pub(super) fn source_role<Role: Copy>(
 
     let role = matched.next().map(SourceRoleBinding::role);
 
-    if matched.next().is_some() {
-        return Err(FactQueryError::InfrastructureFailure);
+    if let (Some(first), Some(duplicate)) = (role, matched.next().map(SourceRoleBinding::role)) {
+        return Err(ForeignQueryFailure::DuplicateSourceRole {
+            function,
+            first: foreign_role(first),
+            duplicate: foreign_role(duplicate),
+        }
+        .into());
     }
 
     Ok(role)

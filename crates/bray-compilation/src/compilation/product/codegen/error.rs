@@ -13,6 +13,36 @@ use bray_symbols::ProductIdentity;
 
 use crate::fact::{BatchCompletionError, FactQueryError};
 
+/// Exact native link-input contract failure found during product planning.
+#[derive(Debug, Hash)]
+pub enum NativeLinkInputPlanningError {
+    /// A standard-library artifact has no supported static link representation.
+    UnsupportedStandardLibraryArtifact {
+        /// Exact imported artifact path.
+        path: std::path::PathBuf,
+        /// Exact rejected standard-library artifact category.
+        kind: bray_standard_library::StandardLibraryArtifactKind,
+    },
+    /// A standard-library artifact could not form its retained link-input specification.
+    InvalidStandardLibraryArtifact {
+        /// Exact imported artifact path.
+        path: std::path::PathBuf,
+        /// Selected linker input category.
+        kind: bray_linker::LinkInputKind,
+        /// Exact link-input contract failure.
+        cause: bray_linker::LinkInputBuildError,
+    },
+    /// A source or platform native-link requirement could not form a linker input.
+    InvalidRequirement {
+        /// Exact requested native input name.
+        name: String,
+        /// Exact requested native link category.
+        kind: bray_symbols::NativeLinkKind,
+        /// Exact provider retained for the input.
+        provenance: bray_linker::LinkInputProvenance,
+    },
+}
+
 /// A failure to derive complete native product plans.
 #[derive(Debug, Hash)]
 pub enum NativeProductPlanningError {
@@ -31,7 +61,7 @@ pub enum NativeProductPlanningError {
     /// A generated binary symbol name is invalid.
     InvalidSymbolName,
     /// A configured native link input is invalid.
-    InvalidNativeLinkInput,
+    InvalidNativeLinkInput(NativeLinkInputPlanningError),
     /// A lazy compilation plan could not be evaluated.
     Query(FactQueryError),
     /// The selected code generation target is invalid.
@@ -184,7 +214,9 @@ fn native_product_failure_kind(
             Kind::LibraryCleanupRequiresMainThread
         }
         NativeProductPlanningError::InvalidSymbolName => Kind::InvalidSymbolName,
-        NativeProductPlanningError::InvalidNativeLinkInput => Kind::InvalidNativeLinkInput,
+        NativeProductPlanningError::InvalidNativeLinkInput(error) => {
+            Kind::InvalidNativeLinkInput(diagnostic_native_link_input_failure(error))
+        }
         NativeProductPlanningError::Query(error) => fact_query_failure_kind(error)?,
         NativeProductPlanningError::InvalidCodegenTarget(error) => match error {
             CodegenTargetBuildError::UnsupportedProfile => Kind::CodegenTargetUnsupportedProfile,
@@ -259,6 +291,37 @@ fn native_product_failure_kind(
         NativeProductPlanningError::StandardLibrary(_) => Kind::StandardLibraryUnavailable,
         NativeProductPlanningError::Codegen(error) => codegen_preparation_failure_kind(error)?,
     })
+}
+
+fn diagnostic_native_link_input_failure(
+    error: &NativeLinkInputPlanningError,
+) -> bray_diagnostics::DiagnosticNativeLinkInputFailure {
+    use bray_diagnostics::DiagnosticNativeLinkInputFailure as DiagnosticFailure;
+
+    match error {
+        NativeLinkInputPlanningError::UnsupportedStandardLibraryArtifact { path, kind } => {
+            DiagnosticFailure::UnsupportedStandardLibraryArtifact {
+                path: path.to_string_lossy().into_owned(),
+                artifact_kind: format!("{kind:?}"),
+            }
+        }
+        NativeLinkInputPlanningError::InvalidStandardLibraryArtifact { path, kind, cause } => {
+            DiagnosticFailure::InvalidStandardLibraryArtifact {
+                path: path.to_string_lossy().into_owned(),
+                input_kind: format!("{kind:?}"),
+                cause: format!("{cause:?}"),
+            }
+        }
+        NativeLinkInputPlanningError::InvalidRequirement {
+            name,
+            kind,
+            provenance,
+        } => DiagnosticFailure::InvalidRequirement {
+            name: name.clone(),
+            link_kind: kind.as_str().to_owned(),
+            provenance: format!("{provenance:?}"),
+        },
+    }
 }
 
 const fn codegen_unit_failure_kind(
@@ -363,6 +426,9 @@ fn fact_query_failure_kind(error: &FactQueryError) -> Option<DiagnosticNativePro
         FactQueryError::SemanticQuery(_) => Some(Kind::SemanticContextFailure),
         FactQueryError::Product(error) => Some(Kind::EvaluationProduct(
             super::super::super::product_emission::diagnostics::product_query::diagnostic_product_query_failure(error),
+        )),
+        FactQueryError::Foreign(error) => Some(Kind::EvaluationForeign(
+            super::super::super::product_emission::diagnostics::foreign_query::diagnostic_foreign_query_failure(error),
         )),
         FactQueryError::CheckerInfrastructure(error) => Some(match error {
             bray_checker::CheckerInfrastructureError::AtomicRepresentationTypeUnavailable => {
@@ -619,6 +685,7 @@ mod tests {
         );
 
         let artifact_path = std::path::PathBuf::from("targets/test/libstd.a");
+
         let infrastructure = NativeProductPlanningError::StandardLibrary(
             bray_standard_library::StandardLibraryLoadError::Infrastructure {
                 path: artifact_path.clone(),

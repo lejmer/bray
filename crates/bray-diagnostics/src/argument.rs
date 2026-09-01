@@ -26,8 +26,8 @@ pub use emission::{
     DiagnosticCodegenVerificationStage, DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
     DiagnosticEmissionArtifactOperation, DiagnosticLoweringFailure, DiagnosticLoweringFailureKind,
     DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind,
-    DiagnosticMirUnitBuildFailure, DiagnosticNativeProductFailureKind, DiagnosticProductKind,
-    DiagnosticSourceConstructKind,
+    DiagnosticMirUnitBuildFailure, DiagnosticNativeLinkInputFailure,
+    DiagnosticNativeProductFailureKind, DiagnosticProductKind, DiagnosticSourceConstructKind,
 };
 pub use external::{
     DiagnosticExternalToolFailureKind, DiagnosticExternalToolOperation, DiagnosticIoErrorKind,

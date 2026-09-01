@@ -16,12 +16,12 @@ mod test_support;
 pub use compilation::{
     AsyncAnalysisView, BuildConfiguration, CodegenPreparationError, Compilation,
     CompilationLoadError, CompletionCandidate, DependencyContractsView, EmissionCodegenError,
-    EmissionCodegenErrorKind, ExpressionTypesView, LinkedProductEmissionError, LiteralValuesView,
-    LivenessView, NativeProductPlan, NativeProductPlanningError, PackageInterfaceExportError,
-    ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs, ProductQueryError,
-    ProductQueryErrorKind, ProductSourceGraph, RefinementsView, SemanticAvailability,
-    SemanticQueryError, SemanticQueryErrorKind, SemanticSelectionsView, StorageFlowView,
-    TestDiscovery,
+    EmissionCodegenErrorKind, ExpressionTypesView, ForeignQueryError, ForeignQueryErrorKind,
+    LinkedProductEmissionError, LiteralValuesView, LivenessView, NativeProductPlan,
+    NativeProductPlanningError, PackageInterfaceExportError, ProductEmissionError,
+    ProductEmissionErrorKind, ProductEmissionInputs, ProductQueryError, ProductQueryErrorKind,
+    ProductSourceGraph, RefinementsView, SemanticAvailability, SemanticQueryError,
+    SemanticQueryErrorKind, SemanticSelectionsView, StorageFlowView, TestDiscovery,
 };
 pub use compiler_known::{
     CompilerKnownCatalogCheckError, CompilerKnownCatalogCheckReport, check_compiler_known_catalog,

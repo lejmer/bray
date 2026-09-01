@@ -11,7 +11,7 @@ use bray_runtime_interface::{ExecutableHostContract, RuntimeArtifactSelection};
 use bray_symbols::{NativeLinkKind, NativeLinkRequirement, ProductKind};
 
 use super::super::super::Compilation;
-use super::error::NativeProductPlanningError;
+use super::error::{NativeLinkInputPlanningError, NativeProductPlanningError};
 
 struct StandardLibraryLinkSelection {
     inputs: Vec<Result<LinkInputSpec, NativeProductPlanningError>>,
@@ -394,7 +394,12 @@ impl Compilation {
                     return None;
                 }
                 bray_standard_library::StandardLibraryArtifactKind::SharedLibrary => {
-                    return Some(Err(NativeProductPlanningError::InvalidNativeLinkInput));
+                    return Some(Err(NativeProductPlanningError::InvalidNativeLinkInput(
+                        NativeLinkInputPlanningError::UnsupportedStandardLibraryArtifact {
+                            path: artifact.path().to_path_buf(),
+                            kind: artifact.metadata().kind(),
+                        },
+                    )));
                 }
             };
 
@@ -405,7 +410,15 @@ impl Compilation {
                     standard_library_artifact_provenance(artifact.metadata(), &package),
                     LinkInputMode::Ordinary,
                 )
-                .map_err(|_| NativeProductPlanningError::InvalidNativeLinkInput),
+                .map_err(|cause| {
+                    NativeProductPlanningError::InvalidNativeLinkInput(
+                        NativeLinkInputPlanningError::InvalidStandardLibraryArtifact {
+                            path: artifact.path().to_path_buf(),
+                            kind,
+                            cause,
+                        },
+                    )
+                }),
             )
         });
 
@@ -637,6 +650,8 @@ fn native_link_input(
     requirement: &NativeLinkRequirement,
     provenance: LinkInputProvenance,
 ) -> Result<LinkInputSpec, NativeProductPlanningError> {
+    let diagnostic_provenance = provenance.clone();
+
     let input = match requirement.kind() {
         NativeLinkKind::Dynamic | NativeLinkKind::Static | NativeLinkKind::System => {
             LinkInputSpec::try_native_library(requirement.name(), provenance)
@@ -644,7 +659,15 @@ fn native_link_input(
         NativeLinkKind::Framework => LinkInputSpec::try_framework(requirement.name(), provenance),
     };
 
-    input.ok_or(NativeProductPlanningError::InvalidNativeLinkInput)
+    input.ok_or_else(|| {
+        NativeProductPlanningError::InvalidNativeLinkInput(
+            NativeLinkInputPlanningError::InvalidRequirement {
+                name: requirement.name().to_owned(),
+                kind: requirement.kind(),
+                provenance: diagnostic_provenance,
+            },
+        )
+    })
 }
 
 #[cfg(test)]

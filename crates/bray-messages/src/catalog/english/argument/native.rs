@@ -3,6 +3,7 @@ mod checker;
 mod dependency;
 mod document;
 mod external;
+mod foreign_query;
 mod linking;
 mod product_query;
 mod standard_library;
