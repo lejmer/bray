@@ -118,7 +118,7 @@ internal func ordered_tree_rotate_nodes_left(
     ordered_tree_update_node_height(&mut nodes, index = index);
     ordered_tree_update_node_height(&mut nodes, index = pivot);
 
-    return(pivot, updated_root);
+    return (pivot, updated_root);
 }
 
 internal func ordered_tree_rotate_nodes_right(
@@ -160,7 +160,7 @@ internal func ordered_tree_rotate_nodes_right(
     ordered_tree_update_node_height(&mut nodes, index = index);
     ordered_tree_update_node_height(&mut nodes, index = pivot);
 
-    return(pivot, updated_root);
+    return (pivot, updated_root);
 }
 
 internal func ordered_tree_rebalance_nodes(
