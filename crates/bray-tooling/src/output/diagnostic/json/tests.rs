@@ -364,9 +364,13 @@ fn imported_template_mismatches_preserve_exact_context_in_emission_and_native_js
         "imported_query_executable_template_mismatch",
         [
             DiagnosticFailureField::new(
-                "address",
-                DiagnosticFailureValue::Identity([3; 32]),
+                "interface",
+                DiagnosticFailureValue::Count(7),
             ),
+            DiagnosticFailureField::new("symbol", DiagnosticFailureValue::Count(11)),
+            DiagnosticFailureField::new("template", DiagnosticFailureValue::Count(0)),
+            DiagnosticFailureField::new("expected_unit", DiagnosticFailureValue::Count(17)),
+            DiagnosticFailureField::new("actual_unit", DiagnosticFailureValue::Count(29)),
             DiagnosticFailureField::new(
                 "expected_key",
                 DiagnosticFailureValue::Identity([5; 32]),
@@ -376,8 +380,12 @@ fn imported_template_mismatches_preserve_exact_context_in_emission_and_native_js
                 DiagnosticFailureValue::Identity([7; 32]),
             ),
             DiagnosticFailureField::new(
-                "target_triple",
+                "expected_target_identity",
                 DiagnosticFailureValue::Text("x86_64-unknown-linux-gnu".to_owned()),
+            ),
+            DiagnosticFailureField::new(
+                "actual_target_identity",
+                DiagnosticFailureValue::Text("x86_64-pc-windows-msvc".to_owned()),
             ),
         ],
     );
@@ -414,24 +422,34 @@ fn imported_template_mismatches_preserve_exact_context_in_emission_and_native_js
 
     assert_eq!(emission["context"][0]["name"], "category");
     assert_eq!(emission["context"][0]["value"]["value"], "imported_query");
-    assert_eq!(emission["context"][1]["name"], "address");
-    assert_eq!(emission["context"][2]["name"], "expected_key");
-    assert_eq!(emission["context"][3]["name"], "actual_key");
-    assert_eq!(emission["context"][4]["name"], "target_triple");
+    assert_eq!(emission["context"][1]["name"], "interface");
+    assert_eq!(emission["context"][2]["name"], "symbol");
+    assert_eq!(emission["context"][3]["name"], "template");
+    assert_eq!(emission["context"][4]["name"], "expected_unit");
+    assert_eq!(emission["context"][5]["name"], "actual_unit");
+    assert_eq!(emission["context"][6]["name"], "expected_key");
+    assert_eq!(emission["context"][7]["name"], "actual_key");
+    assert_eq!(emission["context"][8]["name"], "expected_target_identity");
+    assert_eq!(emission["context"][9]["name"], "actual_target_identity");
 
     assert_eq!(
-        emission["context"][2]["value"]["value"],
+        emission["context"][6]["value"]["value"],
         "0505050505050505050505050505050505050505050505050505050505050505"
     );
 
     assert_eq!(
-        emission["context"][3]["value"]["value"],
+        emission["context"][7]["value"]["value"],
         "0707070707070707070707070707070707070707070707070707070707070707"
     );
 
     assert_eq!(
-        emission["context"][4]["value"]["value"],
+        emission["context"][8]["value"]["value"],
         "x86_64-unknown-linux-gnu"
+    );
+
+    assert_eq!(
+        emission["context"][9]["value"]["value"],
+        "x86_64-pc-windows-msvc"
     );
 
     assert_eq!(native["reason"], emission["reason"]);

@@ -166,8 +166,7 @@ pub(crate) fn diagnostic_failure(
         },
         InterfaceValidationError::SurfaceBuild { cause } => {
             DiagnosticInterfaceValidationFailure::SurfaceBuild {
-                // The diagnostic payload owns the exact surface leaf after this validation error.
-                cause: Box::new(crate::surface::diagnostic_surface_problem((**cause).clone())),
+                cause: Box::new(crate::surface::diagnostic_surface_problem(cause)),
             }
         }
         InterfaceValidationError::ArtifactHashMismatch { expected, actual } => {

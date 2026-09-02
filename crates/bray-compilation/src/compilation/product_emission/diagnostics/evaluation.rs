@@ -223,11 +223,11 @@ fn diagnostic_imported_query_failure(
             let mut fields = vec![
                 crate::fact::diagnostic_context::count_field(
                     "interface",
-                    u64::from(failure.address().interface().raw()),
+                    u64::from(failure.interface().raw()),
                 ),
                 crate::fact::diagnostic_context::count_field(
                     "symbol",
-                    u64::from(failure.address().symbol().raw()),
+                    u64::from(failure.symbol().raw()),
                 ),
                 crate::fact::diagnostic_context::count_field(
                     "template",
@@ -343,10 +343,15 @@ mod tests {
         DiagnosticInterfaceValidationFailure,
     };
     use bray_package_interface::InterfaceSemanticRecordKind;
-    use bray_symbols::{ImportedInterfaceId, InterfaceSymbolId};
+    use bray_symbols::{
+        ImportedInterfaceId, InterfaceSymbolId, PackageIdentity, ProductIdentity,
+    };
 
     use super::{diagnostic_evaluation_failure, diagnostic_imported_query_failure};
-    use crate::fact::{FactQueryError, ImportedQueryFailure, ImportedSemanticRecordKey};
+    use crate::fact::{
+        FactQueryError, ImportedExecutableTemplateMismatch, ImportedQueryFailure,
+        ImportedSemanticRecordKey,
+    };
 
     #[test]
     fn imported_query_conversion_preserves_interface_owner_and_record_kind() {
@@ -381,6 +386,84 @@ mod tests {
             failure.context()[0].value(),
             &DiagnosticFailureValue::Count(23)
         );
+    }
+
+    #[test]
+    fn imported_template_mismatch_conversion_preserves_the_real_payload() {
+        let package = PackageIdentity::try_new("example")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let expected_product = ProductIdentity::try_new(package.clone(), "expected")
+            .unwrap_or_else(|| panic!("test product identity must be valid"));
+
+        let actual_product = ProductIdentity::try_new(package, "actual")
+            .unwrap_or_else(|| panic!("test product identity must be valid"));
+
+        let expected_target = bray_ir::MirTargetContract::new(
+            bray_target::test_support::test_target_profile(),
+            bray_runtime_interface::RuntimeAbiVersion::new(3, 7),
+        );
+
+        let actual_target = bray_ir::MirTargetContract::new(
+            bray_target::NativeTarget::X86_64WindowsMsvc.profile(),
+            bray_runtime_interface::RuntimeAbiVersion::new(4, 1),
+        );
+
+        let error = ImportedQueryFailure::ExecutableTemplateMismatch(Box::new(
+            ImportedExecutableTemplateMismatch::new(
+                ImportedInterfaceId::new(7),
+                InterfaceSymbolId::new(11),
+                bray_ir::MirExecutableTemplateId::ROOT,
+                bray_ir::MirUnitId::new(17),
+                bray_ir::MirUnitId::new(29),
+                bray_ir::MirUnitKey::ExecutableHost(expected_product),
+                bray_ir::MirUnitKey::ExecutableHost(actual_product),
+                expected_target,
+                actual_target,
+            ),
+        ));
+
+        let failure = diagnostic_imported_query_failure(&error);
+        let fields = failure.context();
+        let names: Vec<_> = fields.iter().map(|field| field.name()).collect();
+
+        assert_eq!(failure.category(), "imported_query");
+
+        assert_eq!(
+            failure.reason(),
+            "imported_query_executable_template_mismatch"
+        );
+
+        assert_eq!(
+            &names[..7],
+            [
+                "interface",
+                "symbol",
+                "template",
+                "expected_unit",
+                "actual_unit",
+                "expected_key",
+                "actual_key",
+            ]
+        );
+
+        assert_eq!(fields[0].value(), &DiagnosticFailureValue::Count(7));
+        assert_eq!(fields[1].value(), &DiagnosticFailureValue::Count(11));
+        assert_eq!(fields[2].value(), &DiagnosticFailureValue::Count(0));
+        assert_eq!(fields[3].value(), &DiagnosticFailureValue::Count(17));
+        assert_eq!(fields[4].value(), &DiagnosticFailureValue::Count(29));
+        assert_ne!(fields[5].value(), fields[6].value());
+
+        for expected in [
+            "expected_target_identity",
+            "expected_runtime_abi_major",
+            "expected_runtime_abi_minor",
+            "actual_target_identity",
+            "actual_runtime_abi_major",
+            "actual_runtime_abi_minor",
+        ] {
+            assert!(names.contains(&expected), "missing target field {expected}");
+        }
     }
 
     #[test]

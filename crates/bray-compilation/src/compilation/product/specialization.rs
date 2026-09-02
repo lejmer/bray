@@ -585,7 +585,8 @@ impl Compilation {
                 return Err(FactQueryError::from(
                     crate::ImportedQueryFailure::ExecutableTemplateMismatch(Box::new(
                         crate::ImportedExecutableTemplateMismatch::new(
-                            address,
+                            address.interface(),
+                            address.symbol(),
                             bray_ir::MirExecutableTemplateId::ROOT,
                             template.unit(),
                             template.unit(),

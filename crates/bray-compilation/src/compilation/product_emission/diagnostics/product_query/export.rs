@@ -207,7 +207,7 @@ fn push_export_surface_failure(
             fields.push(DiagnosticFailureField::new(
                 "surface_problem",
                 DiagnosticFailureValue::InterfaceSymbolGraphProblem(
-                    bray_package_interface::diagnostic_surface_problem(problem.clone()),
+                    bray_package_interface::diagnostic_surface_problem(problem),
                 ),
             ));
 
@@ -234,7 +234,7 @@ fn push_export_bundle_failure(
             fields.push(DiagnosticFailureField::new(
                 "interface_validation_cause",
                 DiagnosticFailureValue::InterfaceValidationFailure(
-                    cause.clone().into_diagnostic_failure(),
+                    cause.diagnostic_failure(),
                 ),
             ));
 

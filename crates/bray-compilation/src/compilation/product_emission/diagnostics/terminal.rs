@@ -581,7 +581,7 @@ fn package_interface_structural_failure_diagnostic(
 ) -> Diagnostic {
     package_failure_diagnostic(
         DiagnosticPackageInterfaceFailure::SymbolGraph(
-            bray_package_interface::diagnostic_surface_problem(error.clone()),
+            bray_package_interface::diagnostic_surface_problem(error),
         ),
         product,
         target,

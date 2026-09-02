@@ -15,7 +15,8 @@ pub struct FactCycle {
 /// Exact retained values for one imported executable template mismatch.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ImportedExecutableTemplateMismatch {
-    address: bray_symbols::ImportedSemanticAddress,
+    interface: bray_symbols::ImportedInterfaceId,
+    symbol: bray_symbols::InterfaceSymbolId,
     template: bray_ir::MirExecutableTemplateId,
     expected_unit: bray_ir::MirUnitId,
     actual_unit: bray_ir::MirUnitId,
@@ -46,7 +47,8 @@ pub enum ImportedQueryFailure {
 
 impl ImportedExecutableTemplateMismatch {
     pub(crate) fn new(
-        address: bray_symbols::ImportedSemanticAddress,
+        interface: bray_symbols::ImportedInterfaceId,
+        symbol: bray_symbols::InterfaceSymbolId,
         template: bray_ir::MirExecutableTemplateId,
         expected_unit: bray_ir::MirUnitId,
         actual_unit: bray_ir::MirUnitId,
@@ -56,7 +58,8 @@ impl ImportedExecutableTemplateMismatch {
         actual_target: bray_ir::MirTargetContract,
     ) -> Self {
         Self {
-            address,
+            interface,
+            symbol,
             template,
             expected_unit,
             actual_unit,
@@ -67,9 +70,14 @@ impl ImportedExecutableTemplateMismatch {
         }
     }
 
-    /// Returns the imported declaration whose executable template was inspected.
-    pub const fn address(&self) -> bray_symbols::ImportedSemanticAddress {
-        self.address
+    /// Returns the loaded interface containing the imported declaration.
+    pub const fn interface(&self) -> bray_symbols::ImportedInterfaceId {
+        self.interface
+    }
+
+    /// Returns the interface-local declaration whose executable template was inspected.
+    pub const fn symbol(&self) -> bray_symbols::InterfaceSymbolId {
+        self.symbol
     }
 
     /// Returns the executable template whose retained contract was inconsistent.

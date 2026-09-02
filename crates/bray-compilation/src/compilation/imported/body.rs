@@ -360,7 +360,8 @@ impl super::super::Compilation {
         {
             return Err(ImportedQueryFailure::ExecutableTemplateMismatch(Box::new(
                 crate::ImportedExecutableTemplateMismatch::new(
-                    address.symbol(),
+                    address.symbol().interface(),
+                    address.symbol().symbol(),
                     address.template(),
                     unit,
                     template.unit(),
