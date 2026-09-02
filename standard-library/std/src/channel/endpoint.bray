@@ -180,6 +180,7 @@ struct Receiver<T>
                 if channel.receive_waiters.is_head(registration.ticket) && channel.length > 0
                 {
                     channel.receive_waiters.pop_head();
+
                     let message: T = trusted channel.take_received_message();
 
                     trusted registration.complete();

@@ -49,6 +49,7 @@ func files_and_directories_follow_the_portable_contract() -> Result<unit, std.io
 func buffered_file_io_preserves_order_and_flushes() -> Result<unit, std.io.IoError>
 {
     let path: std.path.Path = test_path("bray-buffered-file-conformance");
+
     discard_existing_file(&path);
 
     let options: std.fs.OpenOptions = std.fs.OpenOptions(
@@ -130,6 +131,7 @@ async func asynchronous_file_operations_preserve_data_and_metadata() -> Result<u
     assert(read[1] == 89);
 
     let metadata: std.fs.FileMetadata = try await file.metadata_async();
+
     assert(metadata.bytes == 2);
 
     try await file.close_async();
@@ -148,6 +150,7 @@ async func asynchronous_file_operations_preserve_data_and_metadata() -> Result<u
 func missing_files_report_the_portable_error_kind()
 {
     let path: std.path.Path = test_path("bray-missing-file-conformance");
+
     discard_existing_file(&path);
 
     let error: std.io.IoError = std.testing.assert_error<std.fs.FileMetadata, std.io.IoError>(std.fs.metadata(&path));

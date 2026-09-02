@@ -171,6 +171,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
     );
 
     try write(&mut sink, Argument<char>(&escaped_character, options = escaped_character_options));
+
     let formatted: &[u8] = bytes(&sink);
 
     assert(formatted.length() == 81, "formatted length differs");

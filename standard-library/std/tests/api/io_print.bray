@@ -352,6 +352,7 @@ func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<u
     assert(write_error.transferred == 0);
 
     let retried: usize = try recovering(std.io.Writer).write(&trailing[..]);
+
     assert(retried == 1);
 
     let flush_error: std.io.IoError = std.testing.assert_error<unit, std.io.IoError>(recovering(std.io.Writer).flush());

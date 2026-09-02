@@ -72,6 +72,7 @@ trusted internal func child_descriptors(
                 case Error(status)
                 {
                     let _: i32 = trusted std.os.unix.close(pair[1]);
+
                     return Error(status);
                 }
             };
@@ -82,6 +83,7 @@ trusted internal func child_descriptors(
                 case Error(status)
                 {
                     let _: i32 = trusted std.os.unix.close(pair[0]);
+
                     return Error(status);
                 }
             };
@@ -122,10 +124,12 @@ trusted internal func normalized_descriptor(pos descriptor: i32) -> Result<i32, 
     {
         let status: std.platform.PlatformStatus = trusted internal std.platform.unix_error_status();
         let _: i32 = trusted std.os.unix.close(descriptor);
+
         return Error(status);
     }
 
     let _: i32 = trusted std.os.unix.close(descriptor);
+
     return Ok(normalized);
 }
 

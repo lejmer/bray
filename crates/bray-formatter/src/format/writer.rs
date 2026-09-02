@@ -56,11 +56,19 @@ impl FormatWriter {
         self.elements.push(LayoutElement::Indent(-1));
     }
 
-    pub(super) fn begin_block_item(&mut self, item: usize, previous: Option<usize>) {
+    pub(super) fn begin_block_item(
+        &mut self,
+        item: usize,
+        previous: Option<usize>,
+        category_boundary: bool,
+    ) {
         self.flush_layout();
 
-        self.elements
-            .push(LayoutElement::BlockItemStart { item, previous });
+        self.elements.push(LayoutElement::BlockItemStart {
+            item,
+            previous,
+            category_boundary,
+        });
     }
 
     pub(super) fn end_block_item(&mut self, item: usize) {

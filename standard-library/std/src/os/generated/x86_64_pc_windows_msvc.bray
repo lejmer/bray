@@ -191,7 +191,7 @@ struct FileNotifyInformation
     next_entry_offset: u32;
     action: u32;
     file_name_length: u32;
-    file_name: [u16;..];
+    file_name: [u16; ..];
 }
 
 // Native `FILETIME` has size 8, alignment 4, and integer ABI classification.

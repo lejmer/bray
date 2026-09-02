@@ -59,6 +59,7 @@ trusted internal func windows_environment(
     let destination: RawPointer<u8> = std.memory.pointer<u8>(&storage);
     let values: &[PlatformEnvironmentEntry] = trusted std.memory.initialized_slice<PlatformEnvironmentEntry>(&ordered);
     let mut offset: usize = 0;
+
     index = 0;
 
     while index < count

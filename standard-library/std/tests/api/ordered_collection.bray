@@ -81,6 +81,7 @@ trusted func ordered_map_orders_lookup_updates_and_ranges() -> Result<unit, std.
     let replaced: u64? = try trusted map.insert(31, 999);
 
     assert(std.testing.assert_present(replaced) == 310);
+
     let updated: &u64 = std.testing.assert_present(map.get(&31));
 
     assert(updated == 999);
@@ -261,6 +262,7 @@ trusted func ordered_collections_remain_balanced_under_monotonic_updates() -> Re
     while value < 1024
     {
         let _: u64? = try trusted ascending.insert(value, value);
+
         value += 1;
     }
 

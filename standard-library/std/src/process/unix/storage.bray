@@ -120,7 +120,9 @@ trusted internal func spawn_storage(
 
     let mut offset: usize = 0;
     let executable_pointer: RawPointer<u8> = trusted internal copy_native_text(text_pointer, offset, executable);
+
     offset += executable_length + 1;
+
     let mut working_directory: RawPointer<u8> = std.memory.null<u8>();
 
     if working_length > 0
@@ -136,6 +138,7 @@ trusted internal func spawn_storage(
     {
         let span: PlatformNativeText = arguments[index];
         let copied: RawPointer<u8> = trusted internal copy_native_text(text_pointer, offset, span);
+
         offset += std.truncate_to<usize>(span.length) + 1;
 
         trusted std.memory.write<RawPointer<u8>>(
@@ -157,6 +160,7 @@ trusted internal func spawn_storage(
     {
         let entry: PlatformEnvironmentEntry = environment[index];
         let copied: RawPointer<u8> = trusted internal copy_environment_entry(text_pointer, offset, entry);
+
         offset += std.truncate_to<usize>(entry.key.length) + std.truncate_to<usize>(entry.value.length) + 2;
 
         trusted std.memory.write<RawPointer<u8>>(
@@ -274,6 +278,7 @@ trusted internal func copy_native_text(
 {
     let start: RawPointer<u8> = std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(offset));
     let length: usize = std.truncate_to<usize>(text.length);
+
     trusted internal std.memory.byte_buffer_copy(text.address, start, count = length);
     trusted std.memory.write<u8>(std.memory.offset<u8>(start, elements = std.truncate_to<isize>(length)), value = 0);
     return start;
@@ -288,6 +293,7 @@ trusted internal func copy_environment_entry(
     let start: RawPointer<u8> = std.memory.offset<u8>(destination, elements = std.truncate_to<isize>(offset));
     let key_length: usize = std.truncate_to<usize>(entry.key.length);
     let value_length: usize = std.truncate_to<usize>(entry.value.length);
+
     trusted internal std.memory.byte_buffer_copy(entry.key.address, start, count = key_length);
 
     trusted std.memory.write<u8>(

@@ -122,6 +122,7 @@ trusted internal func platform_child_spawn(
     if attribute_size == 0
     {
         let status: std.platform.PlatformStatus = trusted internal std.platform.windows_error_status();
+
         trusted internal release_windows_child_handles(input);
         trusted internal release_windows_child_handles(output);
         trusted internal release_windows_child_handles(error);
@@ -150,6 +151,7 @@ trusted internal func platform_child_spawn(
     ) == 0
     {
         let status: std.platform.PlatformStatus = trusted internal std.platform.windows_error_status();
+
         trusted internal release_windows_child_handles(input);
         trusted internal release_windows_child_handles(output);
         trusted internal release_windows_child_handles(error);
@@ -169,6 +171,7 @@ trusted internal func platform_child_spawn(
     ) == 0
     {
         let status: std.platform.PlatformStatus = trusted internal std.platform.windows_error_status();
+
         trusted std.os.windows.delete_proc_thread_attribute_list(attributes_pointer);
         trusted internal release_windows_child_handles(input);
         trusted internal release_windows_child_handles(output);
@@ -240,6 +243,7 @@ trusted internal func platform_child_spawn(
     );
 
     let creation_status: std.platform.PlatformStatus = trusted internal std.platform.windows_error_status();
+
     trusted std.os.windows.delete_proc_thread_attribute_list(attributes_pointer);
     trusted internal release_windows_child_ends(input);
     trusted internal release_windows_child_ends(output);
@@ -274,6 +278,7 @@ trusted internal func platform_child_spawn(
     }
 
     let _: i32 = trusted std.os.windows.close_handle(thread_handle);
+
     trusted std.memory.write<u64>(child, value = trusted internal std.platform.pointer_handle(process_handle));
     trusted std.memory.write<u64>(standard_input, value = trusted internal windows_handle(input.parent));
     trusted std.memory.write<u64>(standard_output, value = trusted internal windows_handle(output.parent));

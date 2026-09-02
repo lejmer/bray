@@ -256,6 +256,7 @@ trusted func socket_pair(pos descriptors: RawPointer<i32>) -> i32
 
         let _: i32 = trusted std.os.darwin.close(first);
         let _: i32 = trusted std.os.darwin.close(second);
+
         trusted std.memory.write<i32>(error_location, value = error);
 
         return -1;

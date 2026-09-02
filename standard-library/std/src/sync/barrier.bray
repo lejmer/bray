@@ -55,7 +55,9 @@ struct Barrier
         if guard.get().arrived == self.participants
         {
             guard.get().arrived = 0;
+
             let _: u32 = core.atomic.fetch_add<u32, 2>(&self.generation, 1);
+
             guard.unlock();
 
             trusted internal std.atomic.platform_wake_all_words(&self.generation);
