@@ -32,6 +32,31 @@ pub(crate) fn diagnostic_evaluation_failure(
             crate::fact::diagnostic_cycle_failure(cycle),
         ),
         FactQueryError::InfrastructureFailure => DiagnosticEmissionEvaluationFailure::Infrastructure,
+        FactQueryError::SymbolGraph(error) => DiagnosticEmissionEvaluationFailure::SemanticQuery(
+            crate::fact::diagnostic_symbol_graph_failure(*error),
+        ),
+        FactQueryError::CodegenTarget(error) => {
+            DiagnosticEmissionEvaluationFailure::Product(
+                bray_diagnostics::DiagnosticProductQueryFailure::new(
+                    codegen_target_reason(*error),
+                    [crate::fact::diagnostic_context::identity_field(
+                        "codegen_target_cause",
+                        error,
+                    )],
+                ),
+            )
+        }
+        FactQueryError::PackageInterface(error) => {
+            DiagnosticEmissionEvaluationFailure::Product(
+                bray_diagnostics::DiagnosticProductQueryFailure::new(
+                    interface_validation_reason(error),
+                    [crate::fact::diagnostic_context::identity_field(
+                        "interface_validation_cause",
+                        error,
+                    )],
+                ),
+            )
+        }
         FactQueryError::Runtime(error) => DiagnosticEmissionEvaluationFailure::Runtime(
             crate::fact::diagnostic_fact_runtime_failure(error),
         ),
@@ -45,7 +70,10 @@ pub(crate) fn diagnostic_evaluation_failure(
         }
         FactQueryError::BindingDependencyUnavailable => {
             DiagnosticEmissionEvaluationFailure::Binding(
-                bray_diagnostics::DiagnosticBindingFailure::DependencyUnavailable,
+                bray_diagnostics::DiagnosticBindingFailure::new(
+                    "binding_dependency_unavailable",
+                    [],
+                ),
             )
         }
         FactQueryError::Binding(error) => DiagnosticEmissionEvaluationFailure::Binding(
@@ -112,5 +140,58 @@ pub(crate) fn diagnostic_evaluation_failure(
                 crate::fact::diagnostic_checker_failure(*error),
             ),
         },
+    }
+}
+
+const fn codegen_target_reason(error: bray_codegen::CodegenTargetBuildError) -> &'static str {
+    match error {
+        bray_codegen::CodegenTargetBuildError::UnsupportedProfile => {
+            "codegen_target_unsupported_profile"
+        }
+        bray_codegen::CodegenTargetBuildError::EmptyTriple => "codegen_target_empty_triple",
+        bray_codegen::CodegenTargetBuildError::EmptyCpu => "codegen_target_empty_cpu",
+        bray_codegen::CodegenTargetBuildError::EmptyFeature => "codegen_target_empty_feature",
+    }
+}
+
+const fn interface_validation_reason(
+    error: &bray_package_interface::InterfaceValidationError,
+) -> &'static str {
+    use bray_package_interface::InterfaceValidationError as Error;
+
+    match error {
+        Error::InvalidMagic { .. } => "interface_invalid_magic",
+        Error::UnsupportedFormatRevision { .. } => "interface_unsupported_format_revision",
+        Error::UnsupportedLanguageRevision { .. } => "interface_unsupported_language_revision",
+        Error::UnsupportedByteOrder { .. } => "interface_unsupported_byte_order",
+        Error::UnsupportedRequiredFlags { .. } => "interface_unsupported_required_flags",
+        Error::Truncated { .. } => "interface_truncated",
+        Error::TrailingBytes { .. } => "interface_trailing_bytes",
+        Error::Malformed { .. } => "interface_malformed",
+        Error::InvalidUtf8 { .. } => "interface_invalid_utf8",
+        Error::Compression { .. } => "interface_compression",
+        Error::DigestUnavailable { .. } => "interface_digest_unavailable",
+        Error::AllocationUnavailable { .. } => "interface_allocation_unavailable",
+        Error::SurfaceBuild { .. } => "interface_surface_build",
+        Error::ArtifactHashMismatch { .. } => "interface_artifact_hash_mismatch",
+        Error::ContentHashMismatch { .. } => "interface_content_hash_mismatch",
+        Error::SectionChecksumMismatch { .. } => "interface_section_checksum_mismatch",
+        Error::UnknownSectionChecksumMismatch { .. } => {
+            "interface_unknown_section_checksum_mismatch"
+        }
+        Error::SectionContentHashMismatch { .. } => "interface_section_content_hash_mismatch",
+        Error::PayloadChecksumMismatch { .. } => "interface_payload_checksum_mismatch",
+        Error::PayloadContentHashMismatch { .. } => "interface_payload_content_hash_mismatch",
+        Error::SpecializationKeyMismatch { .. } => "interface_specialization_key_mismatch",
+        Error::ImplementationConfigurationMismatch { .. } => {
+            "interface_implementation_configuration_mismatch"
+        }
+        Error::ImplementationInterfaceIdentityMismatch { .. } => {
+            "interface_implementation_identity_mismatch"
+        }
+        Error::ImplementationDependencyMismatch { .. } => {
+            "interface_implementation_dependency_mismatch"
+        }
+        Error::ResourceLimitExceeded { .. } => "interface_resource_limit_exceeded",
     }
 }

@@ -300,6 +300,12 @@ pub enum FactQueryError {
     Cycle(FactCycle),
     /// The fact request encountered a compiler-domain infrastructure or invariant failure.
     InfrastructureFailure,
+    /// Immutable symbol-graph construction violated an exact structural contract.
+    SymbolGraph(bray_symbols::SymbolGraphBuildError),
+    /// Selected native target construction violated an exact target contract.
+    CodegenTarget(bray_codegen::CodegenTargetBuildError),
+    /// Imported package implementation access violated its encoded interface contract.
+    PackageInterface(bray_package_interface::InterfaceValidationError),
     /// The compiler query runtime could not preserve its coordination contract.
     Runtime(FactRuntimeError),
     /// The compilation could not allocate its canonical semantic-value store identity.
@@ -441,6 +447,11 @@ impl std::fmt::Display for FactQueryError {
             ),
             Self::InfrastructureFailure => {
                 formatter.write_str("fact evaluation encountered an infrastructure failure")
+            }
+            Self::SymbolGraph(error) => write!(formatter, "symbol graph construction failed: {error}"),
+            Self::CodegenTarget(_) => formatter.write_str("native target construction failed"),
+            Self::PackageInterface(_) => {
+                formatter.write_str("package interface validation failed")
             }
             Self::Runtime(error) => write!(formatter, "{error}"),
             Self::SemanticValueStoreCreate(error) => {

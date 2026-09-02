@@ -229,10 +229,13 @@ pub(super) fn evaluation_failure_context(
             context
         }
         Failure::SemanticValue(failure)
-        | Failure::Binding(bray_diagnostics::DiagnosticBindingFailure::SemanticValue(failure))
         | Failure::Checker(bray_diagnostics::DiagnosticCheckerFailure::SemanticValue(failure)) => {
             semantic_value_failure_context(*failure)
         }
+        Failure::Binding(failure) => match failure.semantic_value_failure() {
+            Some(failure) => semantic_value_failure_context(failure),
+            None => diagnostic_failure_context(failure.context()),
+        },
         Failure::LoweringInput(failure) => match failure.kind() {
             bray_diagnostics::DiagnosticLoweringInputFailureKind::SemanticValue(failure) => {
                 semantic_value_failure_context(failure)

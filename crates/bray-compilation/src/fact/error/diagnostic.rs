@@ -1,12 +1,17 @@
+// rust-style: allow(module-too-large, reason = "fact-domain failures share one exhaustive conversion surface and common typed-field helpers")
+
 use bray_checker::CheckerInfrastructureError;
 use bray_diagnostics::{
     DiagnosticBindingFailure, DiagnosticCheckerFailure, DiagnosticEvaluationFailureDetail,
     DiagnosticFailureField, DiagnosticFailureValue, DiagnosticSemanticSelectionFailure,
-    DiagnosticSemanticSnapshotFailure, DiagnosticSemanticValueFailure,
+    DiagnosticSemanticQueryFailure, DiagnosticSemanticSnapshotFailure,
+    DiagnosticSemanticValueFailure,
 };
 use bray_source::SourceSpan;
 
-use super::diagnostic_context::{identity, identity_field, push_symbol, text_field};
+use super::diagnostic_context::{
+    identity, identity_field, natural_field, push_symbol, text_field,
+};
 
 pub(crate) fn diagnostic_cycle_failure(
     cycle: &super::FactCycle,
@@ -39,6 +44,101 @@ pub(crate) fn diagnostic_cycle_failure(
             ),
         ],
     )
+}
+
+pub(crate) fn diagnostic_symbol_graph_failure(
+    error: bray_symbols::SymbolGraphBuildError,
+) -> DiagnosticSemanticQueryFailure {
+    use bray_symbols::SymbolGraphBuildError as Error;
+
+    let (reason, mut context) = match error {
+        Error::CompilerKnown(cause) => (
+            "symbol_graph_compiler_known",
+            vec![identity_field("compiler_known_cause", &cause)],
+        ),
+        Error::SymbolCapacityExceeded { index } => (
+            "symbol_graph_capacity_exceeded",
+            vec![natural_field("index", index)],
+        ),
+        Error::MissingContainer {
+            declaration,
+            container,
+        } => (
+            "symbol_graph_missing_container",
+            vec![
+                identity_field("declaration", &declaration),
+                identity_field("container", &container),
+            ],
+        ),
+        Error::MissingModuleOwner {
+            declaration,
+            container,
+        } => (
+            "symbol_graph_missing_module_owner",
+            vec![
+                identity_field("declaration", &declaration),
+                identity_field("container", &container),
+            ],
+        ),
+        Error::MissingModulePath { container } => (
+            "symbol_graph_missing_module_path",
+            vec![identity_field("container", &container)],
+        ),
+        Error::MissingModulePart {
+            container,
+            module_part,
+        } => (
+            "symbol_graph_missing_module_part",
+            vec![
+                identity_field("container", &container),
+                identity_field("module_part", &module_part),
+            ],
+        ),
+        Error::MissingContainingDeclaration {
+            declaration,
+            container,
+        } => (
+            "symbol_graph_missing_containing_declaration",
+            vec![
+                identity_field("declaration", &declaration),
+                identity_field("container", &container),
+            ],
+        ),
+        Error::MissingContainingSymbol {
+            declaration,
+            containing_declaration,
+        } => (
+            "symbol_graph_missing_containing_symbol",
+            vec![
+                identity_field("declaration", &declaration),
+                identity_field("containing_declaration", &containing_declaration),
+            ],
+        ),
+        Error::MissingSourceSymbol { declaration } => (
+            "symbol_graph_missing_source_symbol",
+            vec![identity_field("declaration", &declaration)],
+        ),
+        Error::InvalidSourceSymbolKind {
+            declaration,
+            declaration_kind,
+            symbol_kind,
+        } => (
+            "symbol_graph_invalid_source_symbol_kind",
+            vec![
+                identity_field("declaration", &declaration),
+                text_field("declaration_kind", declaration_kind.as_str()),
+                text_field("symbol_kind", symbol_kind.as_str()),
+            ],
+        ),
+        Error::MissingRecoveredModuleAnchor { container } => (
+            "symbol_graph_missing_recovered_module_anchor",
+            vec![identity_field("container", &container)],
+        ),
+    };
+
+    context.insert(0, identity_field("symbol_graph_cause", &error));
+
+    DiagnosticSemanticQueryFailure::new("symbol_graph", reason, context)
 }
 
 pub(crate) fn diagnostic_semantic_context_failure(
@@ -88,23 +188,227 @@ pub(crate) fn diagnostic_binding_failure(
 ) -> DiagnosticBindingFailure {
     use bray_binder::BoundUnitBindingError as Error;
 
-    match error {
+    let (reason, context) = match error {
         Error::Cancelled | Error::CheckerInfrastructure(_) => {
             unreachable!("fact binding failures contain only binding-owned causes")
         }
         Error::Upstream(error) => match *error {},
-        Error::InvalidUnitKey => DiagnosticBindingFailure::InvalidUnitKey,
-        Error::MissingSyntax { .. } => DiagnosticBindingFailure::MissingSyntax,
-        Error::MissingOwner { .. } => DiagnosticBindingFailure::MissingOwner,
-        Error::MissingModule { .. } => DiagnosticBindingFailure::MissingModule,
-        Error::InvalidSurfaceName { .. } => DiagnosticBindingFailure::InvalidSurfaceName,
-        Error::SemanticValue(error) => {
-            DiagnosticBindingFailure::SemanticValue(diagnostic_semantic_value_failure(*error))
+        Error::InvalidUnitKey => ("binding_invalid_unit_key", Vec::new()),
+        Error::MissingSyntax { source } => (
+            "binding_missing_syntax",
+            diagnostic_bound_source("source", *source),
+        ),
+        Error::MissingOwner {
+            source,
+            owner,
+            symbol,
+        } => {
+            let mut context = diagnostic_bound_source("source", *source);
+            context.push(identity_field("owner", owner));
+
+            if let Some(symbol) = symbol {
+                push_symbol(&mut context, "related_symbol_kind", "related_symbol", *symbol);
+            }
+
+            ("binding_missing_owner", context)
         }
-        Error::Construction(_) => DiagnosticBindingFailure::Construction,
-        Error::Binding(_) => DiagnosticBindingFailure::Binding,
-        Error::Assembly(_) => DiagnosticBindingFailure::Assembly,
+        Error::MissingModule { source, owner } => {
+            let mut context = diagnostic_bound_source("source", *source);
+            push_symbol(&mut context, "owner_kind", "owner", *owner);
+
+            ("binding_missing_module", context)
+        }
+        Error::InvalidSurfaceName { source, symbol } => {
+            let mut context = diagnostic_bound_source("source", *source);
+            push_symbol(&mut context, "symbol_kind", "symbol", *symbol);
+
+            ("binding_invalid_surface_name", context)
+        }
+        Error::SemanticValue(error) => {
+            return DiagnosticBindingFailure::semantic_value(diagnostic_semantic_value_failure(
+                *error,
+            ));
+        }
+        Error::Construction(error) => diagnostic_bound_unit_construction_failure(error),
+        Error::Binding(error) => diagnostic_nested_binding_failure(error),
+        Error::Assembly(error) => diagnostic_bound_unit_assembly_failure(error),
+    };
+
+    DiagnosticBindingFailure::new(reason, context)
+}
+
+fn diagnostic_bound_source(
+    name: &'static str,
+    source: bray_bound_tree::BoundSourceAnchor,
+) -> Vec<DiagnosticFailureField> {
+    let syntax = source.syntax();
+    let mut context = vec![identity_field(name, &source)];
+
+    context.push(DiagnosticFailureField::new(
+        "source_id",
+        DiagnosticFailureValue::Count(u64::from(syntax.source_id().raw())),
+    ));
+
+    context.push(DiagnosticFailureField::new(
+        "source_start",
+        DiagnosticFailureValue::Count(u64::from(syntax.full_range().start().bytes())),
+    ));
+
+    context.push(DiagnosticFailureField::new(
+        "source_end",
+        DiagnosticFailureValue::Count(u64::from(syntax.full_range().end().bytes())),
+    ));
+
+    context.push(DiagnosticFailureField::new(
+        "source_version",
+        DiagnosticFailureValue::Count(source.source_version().raw()),
+    ));
+
+    context
+}
+
+fn diagnostic_bound_unit_construction_failure(
+    error: &bray_binder::BoundUnitConstructionError,
+) -> (&'static str, Vec<DiagnosticFailureField>) {
+    use bray_binder::BoundUnitConstructionError as Error;
+
+    let reason = match error {
+        Error::BoundTree(_) => "binding_construction_bound_tree",
+        Error::LocalSymbol(_) => "binding_construction_local_symbol",
+        Error::LocalAlreadyActivated(_) => "binding_construction_local_already_activated",
+        Error::UnknownSurfaceSymbol(_) => "binding_construction_unknown_surface_symbol",
+        Error::AnonymousCallableBoundaryMismatch => {
+            "binding_construction_anonymous_callable_boundary_mismatch"
+        }
+        Error::AnonymousCallableAlreadyAssigned { .. } => {
+            "binding_construction_anonymous_callable_already_assigned"
+        }
+        Error::AnonymousCallableParameterAlreadyAssigned { .. } => {
+            "binding_construction_anonymous_callable_parameter_already_assigned"
+        }
+        Error::AnonymousCallableSourceMismatch { .. } => {
+            "binding_construction_anonymous_callable_source_mismatch"
+        }
+        Error::AnonymousCallableSourceVersionMismatch { .. } => {
+            "binding_construction_anonymous_callable_source_version_mismatch"
+        }
+    };
+
+    (reason, vec![identity_field("construction_cause", error)])
+}
+
+fn diagnostic_nested_binding_failure(
+    error: &bray_binder::BindingError,
+) -> (&'static str, Vec<DiagnosticFailureField>) {
+    use bray_binder::BindingError as Error;
+
+    let reason = match error {
+        Error::Cancelled
+        | Error::CheckerInfrastructure(_)
+        | Error::SemanticValue(_)
+        | Error::Upstream(_) => unreachable!("nested binding retains binding-owned causes"),
+        Error::DependencyUnavailable => "binding_dependency_unavailable",
+        Error::MissingSyntax { .. } => "binding_missing_syntax",
+        Error::MissingOwner { .. } => "binding_missing_owner",
+        Error::MissingModule { .. } => "binding_missing_module",
+        Error::InvalidSurfaceName { .. } => "binding_invalid_surface_name",
+        Error::IdentityCapacityExceeded => "binding_identity_capacity_exceeded",
+        Error::RollbackFailed => "binding_rollback_failed",
+        Error::TransactionContextMismatch => "binding_transaction_context_mismatch",
+        Error::ControlTargetMismatch => "binding_control_target_mismatch",
+        Error::UnsupportedSyntax => "binding_unsupported_syntax",
+        Error::SyntaxContract(_) => "binding_syntax_contract",
+        Error::GenericOwnerUnavailable(_) => "binding_generic_owner_unavailable",
+        Error::CompilerKnownRepresentationUnavailable(_) => {
+            "binding_compiler_known_representation_unavailable"
+        }
+        Error::SymbolRecordUnavailable(_) => "binding_symbol_record_unavailable",
+        Error::ModulePartRecordUnavailable(_) => "binding_module_part_record_unavailable",
+        Error::DeclarationRecordUnavailable(_) => "binding_declaration_record_unavailable",
+        Error::UnresolvedTraitApplication(_) => "binding_unresolved_trait_application",
+        Error::ContextualSelfUnavailable(_) => "binding_contextual_self_unavailable",
+        Error::UnresolvedTypeTemplate => "binding_unresolved_type_template",
+        Error::InvalidUnitKey { .. } => "binding_invalid_unit_key",
+        Error::CallableParameterCountMismatch { .. } => {
+            "binding_callable_parameter_count_mismatch"
+        }
+        Error::CallableParameterOwnerMismatch { .. } => {
+            "binding_callable_parameter_owner_mismatch"
+        }
+        Error::ReceiverParameterOwnerMismatch { .. } => {
+            "binding_receiver_parameter_owner_mismatch"
+        }
+        Error::ReceiverContextMismatch { .. } => "binding_receiver_context_mismatch",
+        Error::CallableTypeExpected { .. } => "binding_callable_type_expected",
+        Error::CallableTypeTemplateExpected(_) => "binding_callable_type_template_expected",
+        Error::CompilerKnownHeapStoragePolicyUnavailable => {
+            "binding_compiler_known_heap_storage_policy_unavailable"
+        }
+        Error::ImportedPackageUnavailable(_) => "binding_imported_package_unavailable",
+        Error::ImportedPathUnavailable { .. } => "binding_imported_path_unavailable",
+        Error::BoundWalkStopped(_) => "binding_bound_walk_stopped",
+        Error::Construction(_) => "binding_construction",
+        Error::Assembly(_) => "binding_assembly",
+        Error::CallableSignature(_) => "binding_callable_signature",
+        Error::GenericSubstitution(_) => "binding_generic_substitution",
+    };
+
+    let mut context = vec![identity_field("binding_cause", error)];
+    push_nested_binding_context(&mut context, error);
+
+    (reason, context)
+}
+
+fn push_nested_binding_context(
+    context: &mut Vec<DiagnosticFailureField>,
+    error: &bray_binder::BindingError,
+) {
+    use bray_binder::BindingError as Error;
+
+    match error {
+        Error::MissingSyntax { source } => context.extend(diagnostic_bound_source("source", *source)),
+        Error::MissingOwner {
+            source,
+            owner,
+            symbol,
+        } => {
+            context.extend(diagnostic_bound_source("source", *source));
+            context.push(identity_field("owner", owner));
+
+            if let Some(symbol) = symbol {
+                push_symbol(context, "related_symbol_kind", "related_symbol", *symbol);
+            }
+        }
+        Error::MissingModule { source, owner } => {
+            context.extend(diagnostic_bound_source("source", *source));
+            push_symbol(context, "owner_kind", "owner", *owner);
+        }
+        Error::InvalidSurfaceName { source, symbol } => {
+            context.extend(diagnostic_bound_source("source", *source));
+            push_symbol(context, "symbol_kind", "symbol", *symbol);
+        }
+        Error::CallableParameterCountMismatch {
+            syntax_count,
+            symbol_count,
+            ..
+        } => {
+            context.push(natural_field("syntax_count", *syntax_count));
+            context.push(natural_field("symbol_count", *symbol_count));
+        }
+        Error::ImportedPathUnavailable {
+            component_count, ..
+        } => context.push(natural_field("component_count", *component_count)),
+        _ => {}
     }
+}
+
+fn diagnostic_bound_unit_assembly_failure(
+    error: &bray_binder::BoundUnitAssemblyError,
+) -> (&'static str, Vec<DiagnosticFailureField>) {
+    (
+        "binding_assembly_invalid_bound_unit",
+        vec![identity_field("assembly_cause", error)],
+    )
 }
 
 pub(crate) const fn diagnostic_semantic_value_failure(
@@ -653,5 +957,40 @@ const fn diagnostic_symbol_query_kind(kind: bray_symbols::SymbolQueryKind) -> &'
         Kind::ImplementationCoherence => "implementation_coherence",
         Kind::OverloadArms => "overload_arms",
         Kind::OverloadSignatureTemplate => "overload_signature_template",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_binder::{BoundUnitBindingError, BoundUnitConstructionError};
+    use bray_symbols::{AnySymbolId, FunctionSymbolId, SymbolId, SymbolGraphBuildError};
+
+    use super::{diagnostic_binding_failure, diagnostic_symbol_graph_failure};
+
+    #[test]
+    fn binding_construction_retains_leaf_reason_and_identity() {
+        let symbol = AnySymbolId::Function(FunctionSymbolId::from_symbol_id(SymbolId::new(19)));
+
+        let failure = diagnostic_binding_failure(&BoundUnitBindingError::Construction(
+            BoundUnitConstructionError::UnknownSurfaceSymbol(symbol),
+        ));
+
+        assert_eq!(
+            failure.as_str(),
+            "binding_construction_unknown_surface_symbol"
+        );
+
+        assert_eq!(failure.context()[0].name(), "construction_cause");
+    }
+
+    #[test]
+    fn symbol_graph_failures_retain_exact_capacity_index() {
+        let failure = diagnostic_symbol_graph_failure(
+            SymbolGraphBuildError::SymbolCapacityExceeded { index: 47 },
+        );
+
+        assert_eq!(failure.category(), "symbol_graph");
+        assert_eq!(failure.reason(), "symbol_graph_capacity_exceeded");
+        assert_eq!(failure.context()[1].name(), "index");
     }
 }

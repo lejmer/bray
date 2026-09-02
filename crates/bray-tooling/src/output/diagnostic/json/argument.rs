@@ -397,12 +397,13 @@ impl DiagnosticNativeProductFailureJson {
                 context
             }
             Kind::EvaluationSemanticValue(failure)
-            | Kind::EvaluationBinding(bray_diagnostics::DiagnosticBindingFailure::SemanticValue(
-                failure,
-            ))
             | Kind::EvaluationChecker(bray_diagnostics::DiagnosticCheckerFailure::SemanticValue(
                 failure,
             )) => semantic_value_failure_context(*failure),
+            Kind::EvaluationBinding(failure) => match failure.semantic_value_failure() {
+                Some(failure) => semantic_value_failure_context(failure),
+                None => diagnostic_failure_context(failure.context()),
+            },
             Kind::EvaluationLoweringInput(failure) => match failure.kind() {
                 bray_diagnostics::DiagnosticLoweringInputFailureKind::SemanticValue(failure) => {
                     semantic_value_failure_context(failure)

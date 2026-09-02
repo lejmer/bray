@@ -2754,7 +2754,7 @@ mod tests {
         assert_eq!(
             result
                 .diagnostics()
-                .by_kind(bray_diagnostics::DiagnosticKind::InterfaceExecutableTemplateUnavailable)
+                .by_kind(bray_diagnostics::DiagnosticKind::InterfaceValidationFailed)
                 .count(),
             1
         );

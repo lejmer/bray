@@ -1,152 +1,193 @@
-use bray_diagnostics::{
-    DiagnosticForeignDataKind, DiagnosticForeignQueryContext, DiagnosticForeignQueryContextKind,
-    DiagnosticForeignQueryFailure,
-};
+use bray_diagnostics::{DiagnosticFailureField, DiagnosticForeignQueryFailure};
 
-use crate::compilation::foreign::ForeignSourceRole;
 use crate::compilation::{
-    ForeignDataKind, ForeignQueryContext, ForeignQueryError, ForeignQueryFailure, ForeignTypeKind,
+    ForeignDataKind, ForeignQueryContext, ForeignQueryError, ForeignQueryFailure,
 };
+use crate::fact::diagnostic_context::{identity_field, natural_field, text_field};
 
-pub(in crate::compilation) fn diagnostic_foreign_query_failure(
+pub(super) fn diagnostic_foreign_query_failure(
     error: &ForeignQueryError,
 ) -> DiagnosticForeignQueryFailure {
-    match error.cause() {
-        ForeignQueryFailure::Missing { context, data } => DiagnosticForeignQueryFailure::Missing {
-            context: diagnostic_foreign_context(context),
-            data: diagnostic_foreign_data_kind(*data),
-        },
-        ForeignQueryFailure::CountMismatch {
+    use ForeignQueryFailure as Failure;
+
+    let (reason, context) = match error.cause() {
+        Failure::Missing { context, data } => (
+            "foreign_query_missing",
+            context_with_data(context, *data),
+        ),
+        Failure::CountMismatch {
             context,
             data,
             expected,
             actual,
-        } => DiagnosticForeignQueryFailure::CountMismatch {
-            context: diagnostic_foreign_context(context),
-            data: diagnostic_foreign_data_kind(*data),
-            expected: *expected,
-            actual: *actual,
-        },
-        ForeignQueryFailure::UnexpectedSemanticType {
+        } => {
+            let mut fields = context_with_data(context, *data);
+
+            fields.extend([
+                natural_field("expected_count", *expected),
+                natural_field("actual_count", *actual),
+            ]);
+
+            ("foreign_query_count_mismatch", fields)
+        }
+        Failure::UnexpectedSemanticType {
             ty,
             expected,
             actual,
-        } => DiagnosticForeignQueryFailure::UnexpectedSemanticType {
-            ty: format!("{ty:?}"),
-            expected: diagnostic_foreign_type_kind(*expected),
-            actual: format!("{actual:?}"),
-        },
-        ForeignQueryFailure::UnexpectedTypeTemplate {
+        } => (
+            "foreign_query_unexpected_semantic_type",
+            vec![
+                identity_field("semantic_type", ty),
+                identity_field("expected_type_kind", expected),
+                identity_field("actual_semantic_type", actual),
+            ],
+        ),
+        Failure::UnexpectedTypeTemplate {
             context,
             expected,
             actual,
-        } => DiagnosticForeignQueryFailure::UnexpectedTypeTemplate {
-            context: diagnostic_foreign_context(context),
-            expected: diagnostic_foreign_type_kind(*expected),
-            actual: format!("{actual:?}"),
-        },
-        ForeignQueryFailure::UnexpectedGenericArgument {
+        } => {
+            let mut fields = foreign_query_context(context);
+
+            fields.extend([
+                identity_field("expected_type_kind", expected),
+                identity_field("actual_type_template", actual),
+            ]);
+
+            ("foreign_query_unexpected_type_template", fields)
+        }
+        Failure::UnexpectedGenericArgument {
             substitution,
             expected,
             actual,
-        } => DiagnosticForeignQueryFailure::UnexpectedGenericArgument {
-            substitution: format!("{substitution:?}"),
-            expected: format!("{expected:?}"),
-            actual: format!("{actual:?}"),
-        },
-        ForeignQueryFailure::NumericOverflow {
+        } => (
+            "foreign_query_unexpected_generic_argument",
+            vec![
+                identity_field("substitution", substitution),
+                identity_field("expected_argument_kind", expected),
+                identity_field("actual_argument_kind", actual),
+            ],
+        ),
+        Failure::NumericOverflow {
             context,
             value,
             target,
-        } => DiagnosticForeignQueryFailure::NumericOverflow {
-            context: diagnostic_foreign_context(context),
-            value: *value,
-            target: format!("{target:?}"),
-        },
-        ForeignQueryFailure::InvalidPlatformServiceRole { role } => {
-            DiagnosticForeignQueryFailure::InvalidPlatformServiceRole {
-                role: role.as_str().to_owned(),
-            }
+        } => {
+            let mut fields = foreign_query_context(context);
+
+            fields.extend([
+                natural_field("value", *value),
+                identity_field("integer_width", target),
+            ]);
+
+            ("foreign_query_numeric_overflow", fields)
         }
-        ForeignQueryFailure::CallableSignature { function, cause } => {
-            DiagnosticForeignQueryFailure::CallableSignature {
-                function: format!("{function:?}"),
-                cause: format!("{cause:?}"),
-            }
-        }
-        ForeignQueryFailure::ConflictingSourceRoles {
+        Failure::InvalidPlatformServiceRole { role } => (
+            "foreign_query_invalid_platform_service_role",
+            vec![text_field("platform_service_role", role.as_str())],
+        ),
+        Failure::CallableSignature { function, cause } => (
+            "foreign_query_callable_signature",
+            vec![
+                identity_field("function", function),
+                identity_field("signature_cause", cause),
+            ],
+        ),
+        Failure::ConflictingSourceRoles {
             function,
             runtime,
             platform,
-        } => DiagnosticForeignQueryFailure::ConflictingSourceRoles {
-            function: format!("{function:?}"),
-            runtime: runtime.as_str().to_owned(),
-            platform: platform.as_str().to_owned(),
-        },
-        ForeignQueryFailure::DuplicateSourceRole {
+        } => (
+            "foreign_query_conflicting_source_roles",
+            vec![
+                identity_field("function", function),
+                text_field("runtime_role", runtime.as_str()),
+                text_field("platform_role", platform.as_str()),
+            ],
+        ),
+        Failure::DuplicateSourceRole {
             function,
             first,
             duplicate,
-        } => DiagnosticForeignQueryFailure::DuplicateSourceRole {
-            function: format!("{function:?}"),
-            first: diagnostic_source_role(*first),
-            duplicate: diagnostic_source_role(*duplicate),
-        },
-    }
-}
-
-fn diagnostic_foreign_context(context: &ForeignQueryContext) -> DiagnosticForeignQueryContext {
-    let kind = match context {
-        ForeignQueryContext::Symbol(_) => DiagnosticForeignQueryContextKind::Symbol,
-        ForeignQueryContext::Function(_) => DiagnosticForeignQueryContextKind::Function,
-        ForeignQueryContext::Static(_) => DiagnosticForeignQueryContextKind::Static,
-        ForeignQueryContext::Directive(_) => DiagnosticForeignQueryContextKind::Directive,
-        ForeignQueryContext::Source(_) => DiagnosticForeignQueryContextKind::Source,
-        ForeignQueryContext::Substitution(_) => DiagnosticForeignQueryContextKind::Substitution,
-        ForeignQueryContext::CompilerKnownRepresentation { .. } => {
-            DiagnosticForeignQueryContextKind::CompilerKnownRepresentation
-        }
-        ForeignQueryContext::PlatformService(_) => {
-            DiagnosticForeignQueryContextKind::PlatformService
-        }
+        } => (
+            "foreign_query_duplicate_source_role",
+            vec![
+                identity_field("function", function),
+                identity_field("first_role", first),
+                identity_field("duplicate_role", duplicate),
+            ],
+        ),
     };
 
-    DiagnosticForeignQueryContext::new(kind, format!("{context:?}"))
+    DiagnosticForeignQueryFailure::new(reason, context)
 }
 
-const fn diagnostic_foreign_data_kind(kind: ForeignDataKind) -> DiagnosticForeignDataKind {
+fn foreign_query_context(context: &ForeignQueryContext) -> Vec<DiagnosticFailureField> {
+    use ForeignQueryContext as Context;
+
+    let kind = match context {
+        Context::Symbol(_) => "symbol",
+        Context::Function(_) => "function",
+        Context::Static(_) => "static",
+        Context::Directive(_) => "directive",
+        Context::Source(_) => "source",
+        Context::Substitution(_) => "substitution",
+        Context::CompilerKnownRepresentation { .. } => "compiler_known_representation",
+        Context::PlatformService(_) => "platform_service",
+    };
+
+    vec![
+        text_field("foreign_context_kind", kind),
+        identity_field("foreign_context_identity", context),
+    ]
+}
+
+fn context_with_data(
+    context: &ForeignQueryContext,
+    data: ForeignDataKind,
+) -> Vec<DiagnosticFailureField> {
+    let mut fields = foreign_query_context(context);
+    fields.push(text_field("data_kind", foreign_data_kind(data)));
+
+    fields
+}
+
+const fn foreign_data_kind(kind: ForeignDataKind) -> &'static str {
     match kind {
-        ForeignDataKind::ContainingModule => DiagnosticForeignDataKind::ContainingModule,
-        ForeignDataKind::SourceAnchor => DiagnosticForeignDataKind::SourceAnchor,
-        ForeignDataKind::FunctionBindingRecord => DiagnosticForeignDataKind::FunctionBindingRecord,
-        ForeignDataKind::StaticBindingRecord => DiagnosticForeignDataKind::StaticBindingRecord,
-        ForeignDataKind::FunctionDeclarationSyntax => {
-            DiagnosticForeignDataKind::FunctionDeclarationSyntax
-        }
-        ForeignDataKind::StaticDeclarationSyntax => {
-            DiagnosticForeignDataKind::StaticDeclarationSyntax
-        }
-        ForeignDataKind::SourceSnapshot => DiagnosticForeignDataKind::SourceSnapshot,
-        ForeignDataKind::SourceText => DiagnosticForeignDataKind::SourceText,
-        ForeignDataKind::StructureRecord => DiagnosticForeignDataKind::StructureRecord,
-        ForeignDataKind::UnionRecord => DiagnosticForeignDataKind::UnionRecord,
-        ForeignDataKind::UnionVariantRecord => DiagnosticForeignDataKind::UnionVariantRecord,
-        ForeignDataKind::UnaryRepresentationArgument => {
-            DiagnosticForeignDataKind::UnaryRepresentationArgument
-        }
-        ForeignDataKind::RepresentationSymbol => DiagnosticForeignDataKind::RepresentationSymbol,
+        ForeignDataKind::ContainingModule => "containing_module",
+        ForeignDataKind::SourceAnchor => "source_anchor",
+        ForeignDataKind::FunctionBindingRecord => "function_binding_record",
+        ForeignDataKind::StaticBindingRecord => "static_binding_record",
+        ForeignDataKind::FunctionDeclarationSyntax => "function_declaration_syntax",
+        ForeignDataKind::StaticDeclarationSyntax => "static_declaration_syntax",
+        ForeignDataKind::SourceSnapshot => "source_snapshot",
+        ForeignDataKind::SourceText => "source_text",
+        ForeignDataKind::StructureRecord => "structure_record",
+        ForeignDataKind::UnionRecord => "union_record",
+        ForeignDataKind::UnionVariantRecord => "union_variant_record",
+        ForeignDataKind::UnaryRepresentationArgument => "unary_representation_argument",
+        ForeignDataKind::RepresentationSymbol => "representation_symbol",
     }
 }
 
-fn diagnostic_foreign_type_kind(kind: ForeignTypeKind) -> String {
-    match kind {
-        ForeignTypeKind::Callable => "callable".to_owned(),
-    }
-}
+#[cfg(test)]
+mod tests {
+    use bray_symbols::{CallableSignatureTemplateError, FunctionSymbolId, SymbolId};
 
-fn diagnostic_source_role(role: ForeignSourceRole) -> String {
-    match role {
-        ForeignSourceRole::Runtime(role) => format!("runtime:{}", role.as_str()),
-        ForeignSourceRole::Platform(role) => format!("platform:{}", role.as_str()),
+    use super::diagnostic_foreign_query_failure;
+    use crate::compilation::{ForeignQueryError, ForeignQueryFailure};
+
+    #[test]
+    fn foreign_query_conversion_uses_typed_function_and_cause_fields() {
+        let error = ForeignQueryError::from(ForeignQueryFailure::CallableSignature {
+            function: FunctionSymbolId::from_symbol_id(SymbolId::new(13)),
+            cause: CallableSignatureTemplateError::InvalidCallableType,
+        });
+
+        let failure = diagnostic_foreign_query_failure(&error);
+
+        assert_eq!(failure.as_str(), "foreign_query_callable_signature");
+        assert_eq!(failure.context()[0].name(), "function");
+        assert_eq!(failure.context()[1].name(), "signature_cause");
     }
 }

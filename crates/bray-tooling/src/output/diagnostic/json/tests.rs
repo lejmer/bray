@@ -18,8 +18,7 @@ use bray_diagnostics::{
     DiagnosticLoweringInputFailureKind, DiagnosticMemoryOperation, DiagnosticModuleTrust,
     DiagnosticNameKind, DiagnosticNamedType, DiagnosticNativeProductFailureKind, DiagnosticNote,
     DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticPatternCoverage,
-    DiagnosticPatternMissingCase, DiagnosticProductDataKind, DiagnosticProductQueryContext,
-    DiagnosticProductQueryContextKind, DiagnosticProductQueryFailure,
+    DiagnosticPatternMissingCase, DiagnosticProductQueryFailure,
     DiagnosticProjectManifestField, DiagnosticPropagationProblem, DiagnosticRefinementCapacity,
     DiagnosticRefinementCapacitySurface, DiagnosticRejectedSelectionCandidate,
     DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticRuntimeAbiVersion,
@@ -245,13 +244,23 @@ fn emission_evaluation_failures_use_domain_named_json_categories() {
 
 #[test]
 fn product_query_failures_preserve_exact_context_in_emission_and_native_json() {
-    let failure = DiagnosticProductQueryFailure::Missing {
-        context: DiagnosticProductQueryContext::new(
-            DiagnosticProductQueryContextKind::Instance,
-            "function#7[type#3]",
-        ),
-        data: DiagnosticProductDataKind::CallableSignature,
-    };
+    let failure = DiagnosticProductQueryFailure::new(
+        "product_query_missing",
+        [
+            DiagnosticFailureField::new(
+                "product_context_kind",
+                DiagnosticFailureValue::Text("instance".to_owned()),
+            ),
+            DiagnosticFailureField::new(
+                "product_context_identity",
+                DiagnosticFailureValue::Identity([7; 32]),
+            ),
+            DiagnosticFailureField::new(
+                "data_kind",
+                DiagnosticFailureValue::Text("callable_signature".to_owned()),
+            ),
+        ],
+    );
 
     let diagnostic = Diagnostic::new(
         DiagnosticId::new(0),
@@ -284,7 +293,7 @@ fn product_query_failures_preserve_exact_context_in_emission_and_native_json() {
 
     assert_eq!(
         emission["context"][2]["value"]["value"],
-        "function#7[type#3]"
+        "0707070707070707070707070707070707070707070707070707070707070707"
     );
 
     assert_eq!(
@@ -429,7 +438,7 @@ fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
     ))
     .with_arg(DiagnosticArg::emission_failure(
         DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Binding(
-            DiagnosticBindingFailure::SemanticValue(DiagnosticSemanticValueFailure::UnknownId {
+            DiagnosticBindingFailure::semantic_value(DiagnosticSemanticValueFailure::UnknownId {
                 kind: "type",
             }),
         )),
@@ -448,7 +457,7 @@ fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
     ))
     .with_arg(DiagnosticArg::native_product_failure_kind(
         DiagnosticNativeProductFailureKind::EvaluationBinding(
-            DiagnosticBindingFailure::SemanticValue(
+            DiagnosticBindingFailure::semantic_value(
                 DiagnosticSemanticValueFailure::OpenSubstitution,
             ),
         ),

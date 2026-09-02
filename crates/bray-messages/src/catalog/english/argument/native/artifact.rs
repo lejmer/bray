@@ -39,7 +39,7 @@ pub(crate) fn format_english_emission_evaluation_failure(
         Failure::SemanticValue(failure) => {
             return format_english_semantic_value_failure(*failure);
         }
-        Failure::Binding(failure) => return format_english_binding_failure(*failure),
+        Failure::Binding(failure) => return format_english_binding_failure(failure),
         Failure::LoweringInput(failure) => return format_english_lowering_input_failure(*failure),
         Failure::Lowering(failure) => return format_english_lowering_failure(*failure),
         Failure::ConstantCallableBodyUnavailable => {
@@ -115,7 +115,7 @@ pub(crate) fn format_english_native_product_failure(
             return format_english_semantic_value_failure(*failure);
         }
         Kind::EvaluationBinding(failure) => {
-            return format_english_binding_failure(*failure);
+            return format_english_binding_failure(failure);
         }
         Kind::EvaluationLoweringInput(failure) => {
             return format_english_lowering_input_failure(*failure);
@@ -640,29 +640,16 @@ const fn format_english_runtime_artifact_purpose(
     }
 }
 
-fn format_english_binding_failure(failure: bray_diagnostics::DiagnosticBindingFailure) -> String {
-    use bray_diagnostics::DiagnosticBindingFailure as Failure;
+fn format_english_binding_failure(
+    failure: &bray_diagnostics::DiagnosticBindingFailure,
+) -> String {
+    if let Some(failure) = failure.semantic_value_failure() {
+        return format_english_semantic_value_failure(failure);
+    }
 
-    let detail = match failure {
-        Failure::DependencyUnavailable => "a name required by this product could not be resolved",
-        Failure::InvalidUnitKey => {
-            "the source declaration or body to compile could not be identified"
-        }
-        Failure::MissingSyntax => "source syntax required by this product was unavailable",
-        Failure::MissingOwner => "the declaration that owns a source body could not be identified",
-        Failure::MissingModule => "the module containing a declaration could not be identified",
-        Failure::InvalidSurfaceName => "found a declaration without a valid local lookup name",
-        Failure::SemanticValue(failure) => {
-            return format_english_semantic_value_failure(failure);
-        }
-        Failure::Construction => "a source declaration or body could not be analyzed",
-        Failure::Binding => {
-            "a source declaration or body could not be recovered after an earlier error"
-        }
-        Failure::Assembly => "a source declaration or body could not be validated",
-    };
-
-    super::format_internal_compiler_error(detail)
+    super::format_internal_compiler_error(
+        "a source declaration or body violated an internal analysis contract",
+    )
 }
 
 pub(super) fn format_english_semantic_value_failure(
@@ -699,9 +686,8 @@ pub(crate) const fn format_english_semantic_value_failure_detail(
 mod tests {
     use bray_diagnostics::{
         DiagnosticCheckerNode, DiagnosticCheckerSymbol, DiagnosticFactRuntimeFailure,
-        DiagnosticFailureField, DiagnosticFailureValue, DiagnosticProductDataKind,
-        DiagnosticProductQueryContext, DiagnosticProductQueryContextKind,
-        DiagnosticProductQueryFailure, DiagnosticSemanticQueryFailure,
+        DiagnosticFailureField, DiagnosticFailureValue, DiagnosticProductQueryFailure,
+        DiagnosticSemanticQueryFailure,
     };
     use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 
@@ -713,19 +699,21 @@ mod tests {
     use crate::catalog::english::INTERNAL_COMPILER_ERROR;
 
     #[test]
-    fn product_query_failures_render_exact_context_and_cause() {
-        let message =
-            format_english_product_query_failure(&DiagnosticProductQueryFailure::Missing {
-                context: DiagnosticProductQueryContext::new(
-                    DiagnosticProductQueryContextKind::Instance,
-                    "function#7[type#3]",
-                ),
-                data: DiagnosticProductDataKind::CallableSignature,
-            });
+    fn product_query_failures_hide_internal_context() {
+        let message = format_english_product_query_failure(
+            &DiagnosticProductQueryFailure::new(
+                "product_query_missing",
+                [DiagnosticFailureField::new(
+                    "product_context_identity",
+                    DiagnosticFailureValue::Identity([7; 32]),
+                )],
+            ),
+        );
 
-        assert!(message.contains("callable signature"));
-        assert!(message.contains("instance"));
-        assert!(message.contains("function#7[type#3]"));
+        assert!(message.starts_with(INTERNAL_COMPILER_ERROR));
+        assert!(!message.contains("product_query_missing"));
+        assert!(!message.contains("07"));
+        assert!(!message.contains(';'));
     }
 
     #[test]
@@ -780,17 +768,24 @@ mod tests {
     }
 
     #[test]
-    fn binding_failures_render_distinct_user_facing_causes() {
+    fn binding_failures_share_actor_free_user_facing_prose() {
         use bray_diagnostics::DiagnosticBindingFailure as Failure;
 
-        let syntax = format_english_binding_failure(Failure::MissingSyntax);
-        let owner = format_english_binding_failure(Failure::MissingOwner);
+        let syntax = format_english_binding_failure(&Failure::new(
+            "binding_missing_syntax",
+            [],
+        ));
 
-        assert_ne!(syntax, owner);
-        assert!(syntax.contains("source syntax"));
-        assert!(owner.contains("declaration"));
+        let owner = format_english_binding_failure(&Failure::new(
+            "binding_missing_owner",
+            [],
+        ));
+
+        assert_eq!(syntax, owner);
         assert!(syntax.starts_with(INTERNAL_COMPILER_ERROR));
         assert!(owner.starts_with(INTERNAL_COMPILER_ERROR));
+        assert!(!syntax.contains("binding_missing"));
+        assert!(!syntax.contains(';'));
     }
 
     #[test]

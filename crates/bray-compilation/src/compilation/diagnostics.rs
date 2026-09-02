@@ -38,6 +38,10 @@ use bray_syntax::{
 use super::binder::has_visible_generic_parameters;
 use super::constant::{constant_definition_id, empty_concrete_substitution};
 use super::state::Compilation;
+use super::{
+    ProductQueryFailure, ProductValueKind, SemanticDataKind, SemanticQueryContext,
+    SemanticQueryFailure, SemanticQueryViolation,
+};
 use crate::fact::{
     BatchWork, CancellationToken, CompilationFactKey, DiagnosticPublicationOrder, FactQueryError,
     OrderedDiagnosticCollection, PublishedUnitResult, publish_diagnostics,
@@ -272,7 +276,12 @@ pub(super) fn symbol_diagnostic_identity(
     let key = symbols
         .symbol_key(symbol)
         .or_else(|| imported.and_then(|imported| imported.symbol_key(symbol)))
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .ok_or_else(|| {
+            FactQueryError::from(SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(symbol),
+                SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
+            ))
+        })?;
 
     if let Some(name) = symbols.member_name(symbol)
         && let Some(owner) = symbols.containing_symbol(symbol)
@@ -648,7 +657,12 @@ impl Compilation {
 
             let owner = symbols
                 .symbol_for_key(key.declared_owner())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    FactQueryError::from(SemanticQueryFailure::contract(
+                        SemanticQueryContext::SymbolKey(key.declared_owner().clone()),
+                        SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                    ))
+                })?;
 
             if let AnySymbolId::Static(declaration) = owner {
                 sources.push(SemanticDiagnosticSource::StaticTemplate(
@@ -658,8 +672,12 @@ impl Compilation {
                 return Ok((bound, sources));
             }
 
-            let definition =
-                constant_definition_id(owner).ok_or(FactQueryError::InfrastructureFailure)?;
+            let definition = constant_definition_id(owner).ok_or_else(|| {
+                FactQueryError::from(SemanticQueryFailure::contract(
+                    SemanticQueryContext::Symbol(owner),
+                    SemanticQueryViolation::Missing(SemanticDataKind::ConstantDefinition),
+                ))
+            })?;
 
             let template = self.constant_definition(definition)?;
 
@@ -700,7 +718,12 @@ impl Compilation {
             let owner = symbols
                 .symbol_key(symbol)
                 .cloned()
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    FactQueryError::from(SemanticQueryFailure::contract(
+                        SemanticQueryContext::Symbol(symbol),
+                        SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
+                    ))
+                })?;
 
             self.push_primary_unit_key(&mut keys, declaration, owner.clone(), &syntax_index)?;
 
@@ -734,9 +757,12 @@ impl Compilation {
         let anchor = declaration.syntax_anchor();
 
         if callable_body_kind(declaration.kind()) && syntax.has_callable_body(anchor) {
+            let context = SemanticQueryContext::SymbolKey(owner.clone());
+
             push_key(
                 keys,
                 BoundUnitKey::callable_body(owner, self.bound_source(anchor)?),
+                context,
             )?;
 
             return Ok(());
@@ -756,7 +782,13 @@ impl Compilation {
             return Ok(());
         };
 
-        push_key(keys, constructor(owner, self.bound_source(expression)?))
+        let context = SemanticQueryContext::SymbolKey(owner.clone());
+
+        push_key(
+            keys,
+            constructor(owner, self.bound_source(expression)?),
+            context,
+        )
     }
 
     fn push_surface_unit_keys(
@@ -770,18 +802,24 @@ impl Compilation {
     ) -> Result<(), FactQueryError> {
         for anchor in declaration.surface().constraints() {
             if syntax.has_bound_constraint_expression(*anchor) {
+                let context = SemanticQueryContext::SymbolKey(owner.clone());
+
                 push_key(
                     keys,
                     BoundUnitKey::constraint(owner.clone(), self.bound_source(*anchor)?),
+                    context,
                 )?;
             }
         }
 
         for anchor in declaration.surface().contract_clauses() {
             if syntax.has_bound_constraint_expression(*anchor) {
+                let context = SemanticQueryContext::SymbolKey(owner.clone());
+
                 push_key(
                     keys,
                     BoundUnitKey::contract_clause(owner.clone(), self.bound_source(*anchor)?),
+                    context,
                 )?;
             }
         }
@@ -796,17 +834,30 @@ impl Compilation {
 
         let provider = symbols
             .runtime_default_provider(symbol)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                FactQueryError::from(SemanticQueryFailure::contract(
+                    SemanticQueryContext::Symbol(symbol),
+                    SemanticQueryViolation::Missing(SemanticDataKind::RuntimeDefault),
+                ))
+            })?;
 
         // Synthesized provider keys are Arc-backed and retained by the runtime-default unit key.
         let provider = symbols
             .symbol_key(provider)
             .cloned()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                FactQueryError::from(SemanticQueryFailure::contract(
+                    SemanticQueryContext::Symbol(provider),
+                    SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
+                ))
+            })?;
+
+        let context = SemanticQueryContext::SymbolKey(provider.clone());
 
         push_key(
             keys,
             BoundUnitKey::runtime_default(provider, self.bound_source(expression)?),
+            context,
         )
     }
 
@@ -853,7 +904,15 @@ impl Compilation {
             let expression = unit
                 .view()
                 .expression(entry.expression())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    FactQueryError::from(SemanticQueryFailure::contract(
+                        SemanticQueryContext::BoundExpression {
+                            unit: unit.unit(),
+                            expression: entry.expression(),
+                        },
+                        SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression),
+                    ))
+                })?;
 
             let request = TargetValidityRequest::new(
                 expression.origin().source_anchor(),
@@ -879,19 +938,39 @@ impl Compilation {
             let Some(BoundExpression::Call(expression)) =
                 unit.view().expression(entry.expression())
             else {
-                return Err(FactQueryError::InfrastructureFailure);
+                return Err(SemanticQueryFailure::contract(
+                    SemanticQueryContext::BoundExpression {
+                        unit: unit.unit(),
+                        expression: entry.expression(),
+                    },
+                    SemanticQueryViolation::Unsupported(SemanticDataKind::BoundExpression),
+                )
+                .into());
             };
 
             let callee = types
                 .expression(expression.callee())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    FactQueryError::from(SemanticQueryFailure::contract(
+                        SemanticQueryContext::BoundExpression {
+                            unit: unit.unit(),
+                            expression: expression.callee(),
+                        },
+                        SemanticQueryViolation::Missing(SemanticDataKind::Type),
+                    ))
+                })?;
 
             let data = values
                 .type_data(callee.ty())
                 .map_err(FactQueryError::SemanticValueStore)?;
 
             let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
-                return Err(FactQueryError::InfrastructureFailure);
+                return Err(ProductQueryFailure::UnexpectedSemanticType {
+                    ty: callee.ty(),
+                    expected: ProductValueKind::CallableType,
+                    actual: data.as_ref().clone(),
+                }
+                .into());
             };
 
             let mut parameters = callable
@@ -1154,8 +1233,17 @@ fn callable_body_kind(kind: DeclarationKind) -> bool {
     )
 }
 
-fn push_key(keys: &mut Vec<BoundUnitKey>, key: Option<BoundUnitKey>) -> Result<(), FactQueryError> {
-    let key = key.ok_or(FactQueryError::InfrastructureFailure)?;
+fn push_key(
+    keys: &mut Vec<BoundUnitKey>,
+    key: Option<BoundUnitKey>,
+    context: SemanticQueryContext,
+) -> Result<(), FactQueryError> {
+    let key = key.ok_or_else(|| {
+        FactQueryError::from(SemanticQueryFailure::contract(
+            context,
+            SemanticQueryViolation::Missing(SemanticDataKind::BoundUnit),
+        ))
+    })?;
 
     keys.push(key);
 

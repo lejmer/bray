@@ -420,7 +420,7 @@ impl Compilation {
                     self.syntax_tree(),
                     provider,
                 )
-                .map_err(|_| FactQueryError::InfrastructureFailure)
+                .map_err(FactQueryError::SymbolGraph)
             },
         )
         .as_ref()
@@ -442,7 +442,7 @@ impl Compilation {
                     self.syntax_tree(),
                     provider,
                 )
-                .map_err(|_| FactQueryError::InfrastructureFailure)
+                .map_err(FactQueryError::SymbolGraph)
             },
         )
         .as_ref()

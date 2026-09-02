@@ -3,32 +3,32 @@ use std::hash::Hash;
 use bray_base::StableDigestHasher;
 use bray_diagnostics::{DiagnosticFailureField, DiagnosticFailureValue};
 
-pub(super) fn text_field(
+pub(crate) fn text_field(
     name: &'static str,
     value: impl Into<String>,
 ) -> DiagnosticFailureField {
     DiagnosticFailureField::new(name, DiagnosticFailureValue::Text(value.into()))
 }
 
-pub(super) fn identity_field(
+pub(crate) fn identity_field(
     name: &'static str,
     value: &impl Hash,
 ) -> DiagnosticFailureField {
     DiagnosticFailureField::new(name, DiagnosticFailureValue::Identity(identity(value)))
 }
 
-pub(super) fn identity(value: &impl Hash) -> [u8; 32] {
+pub(crate) fn identity(value: &impl Hash) -> [u8; 32] {
     let mut hasher = StableDigestHasher::new();
     value.hash(&mut hasher);
 
     hasher.finalize()
 }
 
-pub(super) fn natural_field(name: &'static str, value: usize) -> DiagnosticFailureField {
+pub(crate) fn natural_field(name: &'static str, value: usize) -> DiagnosticFailureField {
     DiagnosticFailureField::new(name, DiagnosticFailureValue::Natural(value.to_string()))
 }
 
-pub(super) fn count_field(name: &'static str, value: u64) -> DiagnosticFailureField {
+pub(crate) fn count_field(name: &'static str, value: u64) -> DiagnosticFailureField {
     DiagnosticFailureField::new(name, DiagnosticFailureValue::Count(value))
 }
 
@@ -36,7 +36,7 @@ pub(super) fn signed_field(name: &'static str, value: i64) -> DiagnosticFailureF
     DiagnosticFailureField::new(name, DiagnosticFailureValue::Signed(value))
 }
 
-pub(super) fn push_symbol(
+pub(crate) fn push_symbol(
     context: &mut Vec<DiagnosticFailureField>,
     kind_name: &'static str,
     identity_name: &'static str,

@@ -1,662 +1,582 @@
 use bray_diagnostics::{
-    DiagnosticProductDataKind, DiagnosticProductQueryContext, DiagnosticProductQueryContextKind,
-    DiagnosticProductQueryFailure, DiagnosticProductValueKind,
+    DiagnosticFailureField, DiagnosticFailureValue, DiagnosticProductQueryFailure,
 };
 
 use crate::compilation::{
     ProductDataKind, ProductQueryContext, ProductQueryError, ProductQueryFailure, ProductValueKind,
 };
+use crate::fact::diagnostic_context::{
+    count_field, identity_field, natural_field, push_symbol, text_field,
+};
 
-pub(in crate::compilation) fn diagnostic_product_query_failure(
+// rust-style: allow(function-too-large, reason = "product-query variants form one exhaustive flat conversion into typed diagnostic fields")
+pub(super) fn diagnostic_product_query_failure(
     error: &ProductQueryError,
 ) -> DiagnosticProductQueryFailure {
-    match error.cause() {
-        ProductQueryFailure::Missing { context, data } => DiagnosticProductQueryFailure::Missing {
-            context: diagnostic_product_query_context(context),
-            data: diagnostic_product_data_kind(*data),
-        },
-        ProductQueryFailure::Conflict { context, data } => {
-            DiagnosticProductQueryFailure::Conflict {
-                context: diagnostic_product_query_context(context),
-                data: diagnostic_product_data_kind(*data),
-            }
-        }
-        ProductQueryFailure::UnexpectedKind {
+    use ProductQueryFailure as Failure;
+
+    let (reason, context) = match error.cause() {
+        Failure::Missing { context, data } => (
+            "product_query_missing",
+            context_with_data(context, *data),
+        ),
+        Failure::Conflict { context, data } => (
+            "product_query_conflict",
+            context_with_data(context, *data),
+        ),
+        Failure::UnexpectedKind {
             context,
             expected,
             actual,
-        } => DiagnosticProductQueryFailure::UnexpectedKind {
-            context: diagnostic_product_query_context(context),
-            expected: diagnostic_product_value_kind(*expected),
-            actual: diagnostic_product_value_kind(*actual),
-        },
-        ProductQueryFailure::CountMismatch {
+        } => {
+            let mut fields = product_query_context(context);
+
+            fields.extend([
+                text_field("expected_value_kind", product_value_kind(*expected)),
+                text_field("actual_value_kind", product_value_kind(*actual)),
+            ]);
+
+            ("product_query_unexpected_kind", fields)
+        }
+        Failure::CountMismatch {
             context,
             data,
             expected,
             actual,
-        } => DiagnosticProductQueryFailure::CountMismatch {
-            context: diagnostic_product_query_context(context),
-            data: diagnostic_product_data_kind(*data),
-            expected: *expected,
-            actual: *actual,
-        },
-        ProductQueryFailure::UnsupportedConstantValue { value, kind } => {
-            DiagnosticProductQueryFailure::UnsupportedConstantValue {
-                value: format!("{value:?}"),
-                kind: format!("{kind:?}"),
-            }
+        } => {
+            let mut fields = context_with_data(context, *data);
+
+            fields.extend([
+                natural_field("expected_count", *expected),
+                natural_field("actual_count", *actual),
+            ]);
+
+            ("product_query_count_mismatch", fields)
         }
-        ProductQueryFailure::GenericSubstitution {
+        Failure::UnsupportedConstantValue { value, kind } => (
+            "product_query_unsupported_constant_value",
+            vec![
+                identity_field("constant_value", value),
+                identity_field("constant_value_kind", kind),
+            ],
+        ),
+        Failure::GenericSubstitution {
             substitution,
             cause,
-        } => diagnostic_generic_substitution(*substitution, cause),
-        ProductQueryFailure::TraitApplicationMismatch {
+        } => {
+            let mut fields = vec![identity_field("substitution_cause", cause)];
+            push_optional_identity(&mut fields, "substitution", substitution.as_ref());
+
+            ("product_query_generic_substitution", fields)
+        }
+        Failure::TraitApplicationMismatch {
             witness,
             expected,
             actual,
-        } => diagnostic_trait_application_mismatch(*witness, *expected, *actual),
-        ProductQueryFailure::ConflictingImplementationWitness {
+        } => (
+            "product_query_trait_application_mismatch",
+            vec![
+                identity_field("witness", witness),
+                identity_field("expected_trait_application", expected),
+                identity_field("actual_trait_application", actual),
+            ],
+        ),
+        Failure::ConflictingImplementationWitness {
             identity,
             existing,
             actual,
-        } => diagnostic_conflicting_implementation_witness(identity, *existing, *actual),
-        ProductQueryFailure::UnexpectedSemanticType {
+        } => (
+            "product_query_conflicting_implementation_witness",
+            vec![
+                identity_field("witness_identity", identity),
+                identity_field("existing_implementation", existing),
+                identity_field("actual_implementation", actual),
+            ],
+        ),
+        Failure::UnexpectedSemanticType {
             ty,
             expected,
             actual,
-        } => diagnostic_unexpected_semantic_type(*ty, *expected, actual),
-        ProductQueryFailure::SynchronizationPoisoned { component } => {
-            diagnostic_synchronization_poisoned(*component)
-        }
-        ProductQueryFailure::StaticDependencyOverflow { static_instance } => {
-            DiagnosticProductQueryFailure::StaticDependencyOverflow {
-                static_instance: format!("{static_instance:?}"),
-            }
-        }
-        ProductQueryFailure::StaticDependencyUnderflow { static_instance } => {
-            DiagnosticProductQueryFailure::StaticDependencyUnderflow {
-                static_instance: format!("{static_instance:?}"),
-            }
-        }
-        ProductQueryFailure::StaticLifecycleCycle { instances } => {
-            diagnostic_static_lifecycle_cycle(instances)
-        }
-        ProductQueryFailure::ConflictingConcreteInstance { key } => {
-            DiagnosticProductQueryFailure::ConflictingConcreteInstance {
-                key: format!("{key:?}"),
-            }
-        }
-        ProductQueryFailure::ConflictingStaticRelocation { value } => {
-            DiagnosticProductQueryFailure::ConflictingStaticRelocation {
-                value: format!("{value:?}"),
-            }
-        }
-        ProductQueryFailure::CallableDefinitionMismatch {
+        } => (
+            "product_query_unexpected_semantic_type",
+            vec![
+                identity_field("semantic_type", ty),
+                text_field("expected_value_kind", product_value_kind(*expected)),
+                identity_field("actual_semantic_type", actual),
+            ],
+        ),
+        Failure::SynchronizationPoisoned { component } => (
+            "product_query_synchronization_poisoned",
+            vec![identity_field("synchronization_component", component)],
+        ),
+        Failure::StaticDependencyOverflow { static_instance } => (
+            "product_query_static_dependency_overflow",
+            vec![identity_field("static_instance", static_instance)],
+        ),
+        Failure::StaticDependencyUnderflow { static_instance } => (
+            "product_query_static_dependency_underflow",
+            vec![identity_field("static_instance", static_instance)],
+        ),
+        Failure::StaticLifecycleCycle { instances } => (
+            "product_query_static_lifecycle_cycle",
+            vec![DiagnosticFailureField::new(
+                "static_instances",
+                DiagnosticFailureValue::IdentityList(
+                    instances
+                        .iter()
+                        .map(crate::fact::diagnostic_context::identity)
+                        .collect::<Vec<_>>()
+                        .into_boxed_slice(),
+                ),
+            )],
+        ),
+        Failure::ConflictingConcreteInstance { key } => (
+            "product_query_conflicting_concrete_instance",
+            vec![identity_field("instance", key)],
+        ),
+        Failure::ConflictingStaticRelocation { value } => (
+            "product_query_conflicting_static_relocation",
+            vec![identity_field("constant_value", value)],
+        ),
+        Failure::CallableDefinitionMismatch {
             instance,
             expected,
             actual,
-        } => diagnostic_callable_definition_mismatch(instance, *expected, *actual),
-        ProductQueryFailure::TraitDefinitionMismatch {
+        } => (
+            "product_query_callable_definition_mismatch",
+            vec![
+                identity_field("instance", instance),
+                identity_field("expected_callable_definition", expected),
+                identity_field("actual_callable_definition", actual),
+            ],
+        ),
+        Failure::TraitDefinitionMismatch {
             context,
             expected,
             actual,
-        } => diagnostic_trait_definition_mismatch(context, *expected, *actual),
-        ProductQueryFailure::InvalidCodegenSourceFile { source, path } => {
-            diagnostic_invalid_codegen_source_file(*source, path)
+        } => {
+            let mut fields = product_query_context(context);
+
+            fields.extend([
+                identity_field("expected_trait_definition", expected),
+                identity_field("actual_trait_definition", actual),
+            ]);
+
+            ("product_query_trait_definition_mismatch", fields)
         }
-        ProductQueryFailure::SourceIndex { source, cause } => {
-            DiagnosticProductQueryFailure::SourceIndex {
-                source: source.raw(),
-                cause: format!("{cause:?}"),
+        Failure::InvalidCodegenSourceFile { source, path } => {
+            let mut fields = vec![text_field("path", path)];
+
+            if let Some(source) = source {
+                fields.push(count_field("source", u64::from(source.raw())));
             }
+
+            ("product_query_invalid_codegen_source_file", fields)
         }
-        ProductQueryFailure::ExternalSymbolIdentity { symbol, cause } => {
-            DiagnosticProductQueryFailure::ExternalSymbolIdentity {
-                symbol: diagnostic_symbol_identity(*symbol),
-                cause: format!("{cause:?}"),
-            }
+        Failure::SourceIndex { source, cause } => (
+            "product_query_source_index",
+            vec![
+                count_field("source", u64::from(source.raw())),
+                identity_field("source_index_cause", cause),
+            ],
+        ),
+        Failure::ExternalSymbolIdentity { symbol, cause } => {
+            let mut fields = Vec::new();
+            push_symbol(&mut fields, "symbol_kind", "symbol", *symbol);
+            fields.push(identity_field("external_symbol_cause", cause));
+
+            ("product_query_external_symbol_identity", fields)
         }
-        ProductQueryFailure::InvalidCompilerKnownDeclarationKey { key } => {
-            DiagnosticProductQueryFailure::InvalidCompilerKnownDeclarationKey { key: key.clone() }
-        }
-        ProductQueryFailure::InvalidRecognizedStandardLibraryDeclarationKey { key } => {
-            DiagnosticProductQueryFailure::InvalidRecognizedStandardLibraryDeclarationKey {
-                key: key.clone(),
-            }
-        }
-        ProductQueryFailure::InvalidPackageIdentity { identity } => {
-            DiagnosticProductQueryFailure::InvalidPackageIdentity {
-                identity: identity.clone(),
-            }
-        }
-        ProductQueryFailure::UnexpectedEntryResult { actual } => {
-            DiagnosticProductQueryFailure::UnexpectedEntryResult {
-                actual: format!("{actual:?}"),
-            }
-        }
-        ProductQueryFailure::CompilerKnownRepresentationMismatch {
+        Failure::InvalidCompilerKnownDeclarationKey { key } => (
+            "product_query_invalid_compiler_known_declaration_key",
+            vec![text_field("declaration_key", key)],
+        ),
+        Failure::InvalidRecognizedStandardLibraryDeclarationKey { key } => (
+            "product_query_invalid_recognized_standard_library_declaration_key",
+            vec![text_field("declaration_key", key)],
+        ),
+        Failure::InvalidPackageIdentity { identity } => (
+            "product_query_invalid_package_identity",
+            vec![text_field("package_identity", identity)],
+        ),
+        Failure::UnexpectedEntryResult { actual } => (
+            "product_query_unexpected_entry_result",
+            vec![identity_field("actual_entry_result", actual)],
+        ),
+        Failure::CompilerKnownRepresentationMismatch {
             ty,
             expected,
             actual,
-        } => diagnostic_compiler_known_representation_mismatch(*ty, *expected, *actual),
-        ProductQueryFailure::NativeBoundaryKindMismatch { reference, actual } => {
-            DiagnosticProductQueryFailure::NativeBoundaryKindMismatch {
-                reference: format!("{reference:?}"),
-                actual: format!("{actual:?}"),
+        } => {
+            let mut fields = vec![
+                identity_field("semantic_type", ty),
+                text_field("expected_representation", expected.as_str()),
+            ];
+
+            if let Some(actual) = actual {
+                fields.push(text_field("actual_representation", actual.as_str()));
             }
+
+            ("product_query_compiler_known_representation_mismatch", fields)
         }
-        ProductQueryFailure::UnexpectedSymbolKind {
+        Failure::NativeBoundaryKindMismatch { reference, actual } => (
+            "product_query_native_boundary_kind_mismatch",
+            vec![
+                identity_field("static_reference", reference),
+                identity_field("actual_boundary_kind", actual),
+            ],
+        ),
+        Failure::UnexpectedSymbolKind {
             symbol,
             expected,
             actual,
-        } => diagnostic_unexpected_symbol_kind(*symbol, *expected, *actual),
-        ProductQueryFailure::ImplementationSymbolKeyExpected { key, actual } => {
-            DiagnosticProductQueryFailure::ImplementationSymbolKeyExpected {
-                key: format!("{key:?}"),
-                actual: actual.as_str().to_owned(),
-            }
+        } => {
+            let mut fields = Vec::new();
+            push_symbol(&mut fields, "symbol_kind", "symbol", *symbol);
+
+            fields.extend([
+                text_field("expected_symbol_kind", expected.as_str()),
+                text_field("actual_symbol_kind", actual.as_str()),
+            ]);
+
+            ("product_query_unexpected_symbol_kind", fields)
         }
-        ProductQueryFailure::UnsupportedRuntimeRole { role } => {
-            DiagnosticProductQueryFailure::UnsupportedRuntimeRole {
-                role: role.as_str().to_owned(),
-            }
-        }
-        ProductQueryFailure::InvalidHelperOperation {
+        Failure::ImplementationSymbolKeyExpected { key, actual } => (
+            "product_query_implementation_symbol_key_expected",
+            vec![
+                identity_field("symbol_key", key),
+                text_field("actual_symbol_kind", actual.as_str()),
+            ],
+        ),
+        Failure::UnsupportedRuntimeRole { role } => (
+            "product_query_unsupported_runtime_role",
+            vec![text_field("runtime_role", role.as_str())],
+        ),
+        Failure::InvalidHelperOperation {
             context,
             helper,
             operation,
-        } => diagnostic_invalid_helper_operation(context, helper, operation),
-        ProductQueryFailure::InvalidHelperCallTarget {
+        } => {
+            let mut fields = product_query_context(context);
+
+            fields.extend([
+                identity_field("helper", helper),
+                identity_field("operation", operation),
+            ]);
+
+            ("product_query_invalid_helper_operation", fields)
+        }
+        Failure::InvalidHelperCallTarget {
             context,
             helper,
             target,
-        } => diagnostic_invalid_helper_call_target(context, helper, target),
-        ProductQueryFailure::LifecycleRoleMismatch {
+        } => {
+            let mut fields = product_query_context(context);
+
+            fields.extend([
+                identity_field("helper", helper),
+                identity_field("call_target", target),
+            ]);
+
+            ("product_query_invalid_helper_call_target", fields)
+        }
+        Failure::LifecycleRoleMismatch {
             instance,
             expected,
             actual,
-        } => diagnostic_lifecycle_role_mismatch(instance, *expected, *actual),
-        ProductQueryFailure::BuiltInProofMismatch {
+        } => {
+            let mut fields = vec![identity_field("instance", instance)];
+            push_optional_identity(&mut fields, "expected_lifecycle_role", expected.as_ref());
+            push_optional_identity(&mut fields, "actual_lifecycle_role", actual.as_ref());
+
+            ("product_query_lifecycle_role_mismatch", fields)
+        }
+        Failure::BuiltInProofMismatch {
             requirement,
             actual,
-        } => diagnostic_built_in_proof_mismatch(requirement, *actual),
-        ProductQueryFailure::ImplementationSelectionMismatch {
+        } => {
+            let mut fields = vec![identity_field("requirement", requirement)];
+            push_optional_identity(&mut fields, "actual_proof", actual.as_ref());
+
+            ("product_query_built_in_proof_mismatch", fields)
+        }
+        Failure::ImplementationSelectionMismatch {
             requirement,
             actual,
-        } => DiagnosticProductQueryFailure::ImplementationSelectionMismatch {
-            requirement: format!("{requirement:?}"),
-            actual: format!("{actual:?}"),
-        },
-        ProductQueryFailure::UnsupportedRuntimeDefaultSubject { provider, subject } => {
-            diagnostic_unsupported_runtime_default_subject(provider, subject)
+        } => (
+            "product_query_implementation_selection_mismatch",
+            vec![
+                identity_field("requirement", requirement),
+                identity_field("actual_selection", actual),
+            ],
+        ),
+        Failure::UnsupportedRuntimeDefaultSubject { provider, subject } => {
+            let mut fields = Vec::new();
+            push_symbol(&mut fields, "provider_kind", "provider", *provider);
+            push_symbol(&mut fields, "subject_kind", "subject", *subject);
+
+            ("product_query_unsupported_runtime_default_subject", fields)
         }
-        ProductQueryFailure::InvalidCallableDefinitionSymbol { symbol, actual } => {
-            DiagnosticProductQueryFailure::InvalidCallableDefinitionSymbol {
-                symbol: diagnostic_symbol_identity(*symbol),
-                actual: actual.as_str().to_owned(),
-            }
+        Failure::InvalidCallableDefinitionSymbol { symbol, actual } => {
+            let mut fields = Vec::new();
+            push_symbol(&mut fields, "symbol_kind", "symbol", *symbol);
+            fields.push(text_field("actual_symbol_kind", actual.as_str()));
+
+            ("product_query_invalid_callable_definition_symbol", fields)
         }
-        ProductQueryFailure::UnsupportedLifecycleRole { role } => {
-            DiagnosticProductQueryFailure::UnsupportedLifecycleRole {
-                role: format!("{role:?}"),
-            }
-        }
-        ProductQueryFailure::SourceSnapshotMismatch {
+        Failure::UnsupportedLifecycleRole { role } => (
+            "product_query_unsupported_lifecycle_role",
+            vec![identity_field("lifecycle_role", role)],
+        ),
+        Failure::SourceSnapshotMismatch {
             source,
             expected,
             actual,
-        } => DiagnosticProductQueryFailure::SourceSnapshotMismatch {
-            source: source.raw(),
-            expected: format!("{expected:?}"),
-            actual: actual.map(|version| format!("{version:?}")),
-        },
-        ProductQueryFailure::TestProductMismatch {
+        } => {
+            let mut fields = vec![
+                count_field("source", u64::from(source.raw())),
+                count_field("expected_source_version", expected.raw()),
+            ];
+
+            if let Some(actual) = actual {
+                fields.push(count_field("actual_source_version", actual.raw()));
+            }
+
+            ("product_query_source_snapshot_mismatch", fields)
+        }
+        Failure::TestProductMismatch {
             requested,
             compilation_package,
             compilation_kind,
-        } => diagnostic_test_product_mismatch(requested, compilation_package, *compilation_kind),
-        ProductQueryFailure::TestCatalog {
+        } => (
+            "product_query_test_product_mismatch",
+            vec![
+                text_field("requested_product", requested.to_string()),
+                text_field("compilation_package", compilation_package.as_str()),
+                identity_field("compilation_product_kind", compilation_kind),
+            ],
+        ),
+        Failure::TestCatalog {
             product,
             identity,
             cause,
-        } => diagnostic_test_catalog(product, identity, *cause),
-        ProductQueryFailure::InvalidTestErrorTypeIdentity { digest } => {
-            diagnostic_invalid_test_error_type_identity(*digest)
-        }
-        ProductQueryFailure::InvalidModulePath {
+        } => (
+            "product_query_test_catalog",
+            vec![
+                text_field("product", product.to_string()),
+                identity_field("test_identity", identity),
+                identity_field("test_catalog_cause", cause),
+            ],
+        ),
+        Failure::InvalidTestErrorTypeIdentity { digest } => (
+            "product_query_invalid_test_error_type_identity",
+            vec![DiagnosticFailureField::new(
+                "type_digest",
+                DiagnosticFailureValue::Identity(*digest),
+            )],
+        ),
+        Failure::InvalidModulePath {
             declaration,
             segments,
-        } => DiagnosticProductQueryFailure::InvalidModulePath {
-            declaration: declaration.raw(),
-            segments: segments.clone(),
-        },
-        ProductQueryFailure::UnsupportedEntryResultType { ty, actual } => {
-            DiagnosticProductQueryFailure::UnsupportedEntryResultType {
-                ty: format!("{ty:?}"),
-                actual: actual.map(|role| role.as_str().to_owned()),
-            }
-        }
-        ProductQueryFailure::InvalidCodegenRequest { unit, cause } => {
-            DiagnosticProductQueryFailure::InvalidCodegenRequest {
-                unit: super::common::codegen_unit_identity(unit),
-                cause: format!("{cause:?}"),
-            }
-        }
-        ProductQueryFailure::CodegenBackendSelection { unit, cause } => {
-            DiagnosticProductQueryFailure::CodegenBackendSelection {
-                unit: super::common::codegen_unit_identity(unit),
-                cause: format!("{cause:?}"),
-            }
-        }
-    }
-}
-
-fn diagnostic_built_in_proof_mismatch(
-    requirement: &bray_symbols::ImplementationRequirementKey,
-    actual: Option<bray_symbols::ProofOutcome>,
-) -> DiagnosticProductQueryFailure {
-    DiagnosticProductQueryFailure::BuiltInProofMismatch {
-        requirement: format!("{requirement:?}"),
-        actual: actual.map(|proof| format!("{proof:?}")),
-    }
-}
-
-fn diagnostic_test_catalog(
-    product: &bray_symbols::ProductIdentity,
-    identity: &bray_test_protocol::TestIdentity,
-    cause: crate::compilation::ProductTestCatalogFailureKind,
-) -> DiagnosticProductQueryFailure {
-    DiagnosticProductQueryFailure::TestCatalog {
-        product: product.to_string(),
-        identity: format!("{identity:?}"),
-        cause: format!("{cause:?}"),
-    }
-}
-
-fn diagnostic_unexpected_semantic_type(
-    ty: bray_symbols::TypeId,
-    expected: ProductValueKind,
-    actual: &bray_symbols::TypeData,
-) -> DiagnosticProductQueryFailure {
-    DiagnosticProductQueryFailure::UnexpectedSemanticType {
-        ty: format!("{ty:?}"),
-        expected: diagnostic_product_value_kind(expected),
-        actual: format!("{actual:?}"),
-    }
-}
-
-fn diagnostic_invalid_codegen_source_file(
-    source: Option<bray_source::SourceId>,
-    path: &str,
-) -> DiagnosticProductQueryFailure {
-    DiagnosticProductQueryFailure::InvalidCodegenSourceFile {
-        source: source.map(bray_source::SourceId::raw),
-        path: path.to_owned(),
-    }
-}
-
-fn diagnostic_unexpected_symbol_kind(
-    symbol: bray_symbols::AnySymbolId,
-    expected: bray_symbols::SymbolKind,
-    actual: bray_symbols::SymbolKind,
-) -> DiagnosticProductQueryFailure {
-    DiagnosticProductQueryFailure::UnexpectedSymbolKind {
-        symbol: diagnostic_symbol_identity(symbol),
-        expected: expected.as_str().to_owned(),
-        actual: actual.as_str().to_owned(),
-    }
-}
-
-fn diagnostic_invalid_helper_operation(
-    context: &ProductQueryContext,
-    helper: &bray_ir::MirHelperReference,
-    operation: &bray_ir::MirOperationKind,
-) -> DiagnosticProductQueryFailure {
-    DiagnosticProductQueryFailure::InvalidHelperOperation {
-        context: diagnostic_product_query_context(context),
-        helper: format!("{helper:?}"),
-        operation: format!("{operation:?}"),
-    }
-}
-
-fn diagnostic_invalid_helper_call_target(
-    context: &ProductQueryContext,
-    helper: &bray_ir::MirHelperReference,
-    target: &bray_ir::MirCallTarget,
-) -> DiagnosticProductQueryFailure {
-    DiagnosticProductQueryFailure::InvalidHelperCallTarget {
-        context: diagnostic_product_query_context(context),
-        helper: format!("{helper:?}"),
-        target: format!("{target:?}"),
-    }
-}
-
-fn diagnostic_lifecycle_role_mismatch(
-    instance: &bray_codegen::CodegenInstanceKey,
-    expected: Option<bray_ir::MirGeneratedLifecycleRole>,
-    actual: Option<bray_ir::MirGeneratedLifecycleRole>,
-) -> DiagnosticProductQueryFailure {
-    DiagnosticProductQueryFailure::LifecycleRoleMismatch {
-        instance: format!("{instance:?}"),
-        expected: expected.map(|role| format!("{role:?}")),
-        actual: actual.map(|role| format!("{role:?}")),
-    }
-}
-
-fn diagnostic_generic_substitution(
-    substitution: Option<bray_symbols::GenericSubstitutionId>,
-    cause: &bray_symbols::GenericSubstitutionShapeError,
-) -> DiagnosticProductQueryFailure {
-    DiagnosticProductQueryFailure::GenericSubstitution {
-        substitution: substitution.map(|identity| format!("{identity:?}")),
-        cause: format!("{cause:?}"),
-    }
-}
-
-fn diagnostic_trait_application_mismatch(
-    witness: bray_symbols::ImplementationInstanceId,
-    expected: bray_symbols::TraitApplicationId,
-    actual: bray_symbols::TraitApplicationId,
-) -> DiagnosticProductQueryFailure {
-    DiagnosticProductQueryFailure::TraitApplicationMismatch {
-        witness: format!("{witness:?}"),
-        expected: format!("{expected:?}"),
-        actual: format!("{actual:?}"),
-    }
-}
-
-fn diagnostic_conflicting_implementation_witness(
-    identity: &bray_codegen::CodegenImplementationWitness,
-    existing: bray_symbols::ImplementationInstanceId,
-    actual: bray_symbols::ImplementationInstanceId,
-) -> DiagnosticProductQueryFailure {
-    DiagnosticProductQueryFailure::ConflictingImplementationWitness {
-        identity: format!("{identity:?}"),
-        existing: format!("{existing:?}"),
-        actual: format!("{actual:?}"),
-    }
-}
-
-fn diagnostic_callable_definition_mismatch(
-    instance: &bray_codegen::CodegenInstanceKey,
-    expected: bray_symbols::CallableDefinitionId,
-    actual: bray_symbols::CallableDefinitionId,
-) -> DiagnosticProductQueryFailure {
-    DiagnosticProductQueryFailure::CallableDefinitionMismatch {
-        instance: format!("{instance:?}"),
-        expected: expected.symbol().symbol_id().raw(),
-        actual: actual.symbol().symbol_id().raw(),
-    }
-}
-
-fn diagnostic_trait_definition_mismatch(
-    context: &ProductQueryContext,
-    expected: bray_symbols::TraitSymbolId,
-    actual: bray_symbols::TraitSymbolId,
-) -> DiagnosticProductQueryFailure {
-    DiagnosticProductQueryFailure::TraitDefinitionMismatch {
-        context: diagnostic_product_query_context(context),
-        expected: expected.symbol_id().raw(),
-        actual: actual.symbol_id().raw(),
-    }
-}
-
-fn diagnostic_compiler_known_representation_mismatch(
-    ty: bray_symbols::TypeId,
-    expected: bray_compiler_known::RepresentationRole,
-    actual: Option<bray_compiler_known::RepresentationRole>,
-) -> DiagnosticProductQueryFailure {
-    DiagnosticProductQueryFailure::CompilerKnownRepresentationMismatch {
-        ty: format!("{ty:?}"),
-        expected: expected.as_str().to_owned(),
-        actual: actual.map(|role| role.as_str().to_owned()),
-    }
-}
-
-fn diagnostic_synchronization_poisoned(
-    component: crate::compilation::ProductSynchronizationComponent,
-) -> DiagnosticProductQueryFailure {
-    let component = match component {
-        crate::compilation::ProductSynchronizationComponent::LifecycleNeeds => "lifecycle_needs",
-    };
-
-    DiagnosticProductQueryFailure::SynchronizationPoisoned {
-        component: component.to_owned(),
-    }
-}
-
-fn diagnostic_static_lifecycle_cycle(
-    instances: &[bray_codegen::CodegenStaticInstanceKey],
-) -> DiagnosticProductQueryFailure {
-    DiagnosticProductQueryFailure::StaticLifecycleCycle {
-        instances: instances
-            .iter()
-            .map(|instance| format!("{instance:?}"))
-            .collect(),
-    }
-}
-
-fn diagnostic_unsupported_runtime_default_subject(
-    provider: &bray_symbols::AnySymbolId,
-    subject: &bray_symbols::AnySymbolId,
-) -> DiagnosticProductQueryFailure {
-    DiagnosticProductQueryFailure::UnsupportedRuntimeDefaultSubject {
-        provider: diagnostic_symbol_identity(*provider),
-        subject: diagnostic_symbol_identity(*subject),
-    }
-}
-
-fn diagnostic_test_product_mismatch(
-    requested: &bray_symbols::ProductIdentity,
-    compilation_package: &bray_symbols::PackageIdentity,
-    compilation_kind: bray_symbols::ProductKind,
-) -> DiagnosticProductQueryFailure {
-    let compilation_kind = match compilation_kind {
-        bray_symbols::ProductKind::Executable => "executable",
-        bray_symbols::ProductKind::Library => "library",
-        bray_symbols::ProductKind::Test => "test",
-    };
-
-    DiagnosticProductQueryFailure::TestProductMismatch {
-        requested: requested.to_string(),
-        compilation_package: compilation_package.as_str().to_owned(),
-        compilation_kind: compilation_kind.to_owned(),
-    }
-}
-
-fn diagnostic_invalid_test_error_type_identity(digest: [u8; 32]) -> DiagnosticProductQueryFailure {
-    DiagnosticProductQueryFailure::InvalidTestErrorTypeIdentity {
-        digest: bray_diagnostics::DiagnosticArtifactDigest::new(
-            bray_diagnostics::DiagnosticArtifactDigestAlgorithm::Blake3,
-            digest,
+        } => (
+            "product_query_invalid_module_path",
+            vec![
+                identity_field("declaration", declaration),
+                DiagnosticFailureField::new(
+                    "module_path_segments",
+                    DiagnosticFailureValue::TextList(segments.clone()),
+                ),
+            ],
         ),
-    }
-}
+        Failure::UnsupportedEntryResultType { ty, actual } => {
+            let mut fields = vec![identity_field("semantic_type", ty)];
 
-fn diagnostic_symbol_identity(symbol: bray_symbols::AnySymbolId) -> String {
-    format!("{}:{}", symbol.kind().as_str(), symbol.symbol_id().raw())
-}
+            if let Some(actual) = actual {
+                fields.push(text_field("actual_representation", actual.as_str()));
+            }
 
-fn diagnostic_product_query_context(
-    context: &ProductQueryContext,
-) -> DiagnosticProductQueryContext {
-    let kind = match context {
-        ProductQueryContext::Product(_) => DiagnosticProductQueryContextKind::Product,
-        ProductQueryContext::Function(_) => DiagnosticProductQueryContextKind::Function,
-        ProductQueryContext::Symbol(_) => DiagnosticProductQueryContextKind::Symbol,
-        ProductQueryContext::Declaration(_) => DiagnosticProductQueryContextKind::Declaration,
-        ProductQueryContext::Container(_) => DiagnosticProductQueryContextKind::Container,
-        ProductQueryContext::ModulePath { .. } => DiagnosticProductQueryContextKind::ModulePath,
-        ProductQueryContext::SymbolKey(_) => DiagnosticProductQueryContextKind::SymbolKey,
-        ProductQueryContext::Source(_) => DiagnosticProductQueryContextKind::Source,
-        ProductQueryContext::Target(_) => DiagnosticProductQueryContextKind::Target,
-        ProductQueryContext::Instance(_) => DiagnosticProductQueryContextKind::Instance,
-        ProductQueryContext::CallSite(_) => DiagnosticProductQueryContextKind::CallSite,
-        ProductQueryContext::CodegenUnit(_) => DiagnosticProductQueryContextKind::CodegenUnit,
-        ProductQueryContext::CodegenStatic(_) => DiagnosticProductQueryContextKind::CodegenStatic,
-        ProductQueryContext::CallableData(_) => DiagnosticProductQueryContextKind::CallableData,
-        ProductQueryContext::Implementation(_) => DiagnosticProductQueryContextKind::Implementation,
-        ProductQueryContext::StaticReference(_) => {
-            DiagnosticProductQueryContextKind::StaticReference
+            ("product_query_unsupported_entry_result_type", fields)
         }
-        ProductQueryContext::Substitution(_) => DiagnosticProductQueryContextKind::Substitution,
-        ProductQueryContext::GenericOwner(_) => DiagnosticProductQueryContextKind::GenericOwner,
-        ProductQueryContext::Type(_) => DiagnosticProductQueryContextKind::Type,
-        ProductQueryContext::ImplementationRequirement(_) => {
-            DiagnosticProductQueryContextKind::ImplementationRequirement
-        }
-        ProductQueryContext::MirUnit(_) => DiagnosticProductQueryContextKind::MirUnit,
-        ProductQueryContext::MirHelper(_) => DiagnosticProductQueryContextKind::MirHelper,
-        ProductQueryContext::UnaryRepresentation { .. } => {
-            DiagnosticProductQueryContextKind::UnaryRepresentation
-        }
-        ProductQueryContext::Operation { .. } => DiagnosticProductQueryContextKind::Operation,
-        ProductQueryContext::MirOperation { .. } => DiagnosticProductQueryContextKind::MirOperation,
-        ProductQueryContext::CallableDefinition(_) => {
-            DiagnosticProductQueryContextKind::CallableDefinition
-        }
-        ProductQueryContext::SourceLocation { .. } => {
-            DiagnosticProductQueryContextKind::SourceLocation
-        }
-        ProductQueryContext::CompilerKnownRepresentation(_) => {
-            DiagnosticProductQueryContextKind::CompilerKnownRepresentation
-        }
-        ProductQueryContext::CompilerKnownDeclaration(_) => {
-            DiagnosticProductQueryContextKind::CompilerKnownDeclaration
-        }
+        Failure::InvalidCodegenRequest { unit, cause } => (
+            "product_query_invalid_codegen_request",
+            vec![
+                identity_field("codegen_unit", unit),
+                identity_field("codegen_cause", cause),
+            ],
+        ),
+        Failure::CodegenBackendSelection { unit, cause } => (
+            "product_query_codegen_backend_selection",
+            vec![
+                identity_field("codegen_unit", unit),
+                identity_field("codegen_cause", cause),
+            ],
+        ),
     };
 
-    DiagnosticProductQueryContext::new(kind, format!("{context:?}"))
+    DiagnosticProductQueryFailure::new(reason, context)
 }
 
-const fn diagnostic_product_data_kind(kind: ProductDataKind) -> DiagnosticProductDataKind {
-    match kind {
-        ProductDataKind::Symbol => DiagnosticProductDataKind::Symbol,
-        ProductDataKind::TestResult => DiagnosticProductDataKind::TestResult,
-        ProductDataKind::ContainingModule => DiagnosticProductDataKind::ContainingModule,
-        ProductDataKind::ContainingSymbol => DiagnosticProductDataKind::ContainingSymbol,
-        ProductDataKind::MemberName => DiagnosticProductDataKind::MemberName,
-        ProductDataKind::SourceAnchor => DiagnosticProductDataKind::SourceAnchor,
-        ProductDataKind::SourceSnapshot => DiagnosticProductDataKind::SourceSnapshot,
-        ProductDataKind::SymbolKey => DiagnosticProductDataKind::SymbolKey,
-        ProductDataKind::ConcreteInstance => DiagnosticProductDataKind::ConcreteInstance,
-        ProductDataKind::CallableInstance => DiagnosticProductDataKind::CallableInstance,
-        ProductDataKind::AnonymousCallableInstance => {
-            DiagnosticProductDataKind::AnonymousCallableInstance
-        }
-        ProductDataKind::BoundHelperInstance => DiagnosticProductDataKind::BoundHelperInstance,
-        ProductDataKind::GeneratedLifecycleInstance => {
-            DiagnosticProductDataKind::GeneratedLifecycleInstance
-        }
-        ProductDataKind::ContextualSelfWitness => DiagnosticProductDataKind::ContextualSelfWitness,
-        ProductDataKind::TraitDispatch => DiagnosticProductDataKind::TraitDispatch,
-        ProductDataKind::GenericSubstitution => DiagnosticProductDataKind::GenericSubstitution,
-        ProductDataKind::ImplementationWitness => DiagnosticProductDataKind::ImplementationWitness,
-        ProductDataKind::CallableFulfillment => DiagnosticProductDataKind::CallableFulfillment,
-        ProductDataKind::GenericConstraint => DiagnosticProductDataKind::GenericConstraint,
-        ProductDataKind::GenericOwner => DiagnosticProductDataKind::GenericOwner,
-        ProductDataKind::Intrinsic => DiagnosticProductDataKind::Intrinsic,
-        ProductDataKind::ConversionPlan => DiagnosticProductDataKind::ConversionPlan,
-        ProductDataKind::CompilerKnownRepresentation => {
-            DiagnosticProductDataKind::CompilerKnownRepresentation
-        }
-        ProductDataKind::LifecycleRole => DiagnosticProductDataKind::LifecycleRole,
-        ProductDataKind::LifecycleMember => DiagnosticProductDataKind::LifecycleMember,
-        ProductDataKind::LifecycleType => DiagnosticProductDataKind::LifecycleType,
-        ProductDataKind::RealizedStatic => DiagnosticProductDataKind::RealizedStatic,
-        ProductDataKind::StaticDependencyCounter => {
-            DiagnosticProductDataKind::StaticDependencyCounter
-        }
-        ProductDataKind::StaticDeclaredType => DiagnosticProductDataKind::StaticDeclaredType,
-        ProductDataKind::StaticInitializer => DiagnosticProductDataKind::StaticInitializer,
-        ProductDataKind::ImplementationHeader => DiagnosticProductDataKind::ImplementationHeader,
-        ProductDataKind::TestDiscovery => DiagnosticProductDataKind::TestDiscovery,
-        ProductDataKind::DeclarationChunk => DiagnosticProductDataKind::DeclarationChunk,
-        ProductDataKind::DeclarationContainer => DiagnosticProductDataKind::DeclarationContainer,
-        ProductDataKind::ModulePath => DiagnosticProductDataKind::ModulePath,
-        ProductDataKind::PackageRoot => DiagnosticProductDataKind::PackageRoot,
-        ProductDataKind::Module => DiagnosticProductDataKind::Module,
-        ProductDataKind::ReachabilityRealization => {
-            DiagnosticProductDataKind::ReachabilityRealization
-        }
-        ProductDataKind::ReachabilityEvaluation => {
-            DiagnosticProductDataKind::ReachabilityEvaluation
-        }
-        ProductDataKind::PartitionInstance => DiagnosticProductDataKind::PartitionInstance,
-        ProductDataKind::CodegenUnitMapping => DiagnosticProductDataKind::CodegenUnitMapping,
-        ProductDataKind::ProductHostOwnerUnit => DiagnosticProductDataKind::ProductHostOwnerUnit,
-        ProductDataKind::ProductHostStaticMapping => {
-            DiagnosticProductDataKind::ProductHostStaticMapping
-        }
-        ProductDataKind::ResultRepresentation => DiagnosticProductDataKind::ResultRepresentation,
-        ProductDataKind::CallableSignature => DiagnosticProductDataKind::CallableSignature,
-        ProductDataKind::RuntimeDefaultSubject => DiagnosticProductDataKind::RuntimeDefaultSubject,
-        ProductDataKind::RuntimeDefaultUnit => DiagnosticProductDataKind::RuntimeDefaultUnit,
-        ProductDataKind::OperationResultType => DiagnosticProductDataKind::OperationResultType,
-        ProductDataKind::SourceLineIndex => DiagnosticProductDataKind::SourceLineIndex,
-        ProductDataKind::SourceLocation => DiagnosticProductDataKind::SourceLocation,
-        ProductDataKind::NativeStaticContract => DiagnosticProductDataKind::NativeStaticContract,
-        ProductDataKind::CallableParameters => DiagnosticProductDataKind::CallableParameters,
-        ProductDataKind::CallableReceiver => DiagnosticProductDataKind::CallableReceiver,
-        ProductDataKind::StaticSubstitution => DiagnosticProductDataKind::StaticSubstitution,
-        ProductDataKind::ImportedSemanticAddress => {
-            DiagnosticProductDataKind::ImportedSemanticAddress
-        }
-        ProductDataKind::ResolvedType => DiagnosticProductDataKind::ResolvedType,
+fn product_query_context(context: &ProductQueryContext) -> Vec<DiagnosticFailureField> {
+    use ProductQueryContext as Context;
+
+    let kind = match context {
+        Context::Product(_) => "product",
+        Context::Function(_) => "function",
+        Context::Symbol(_) => "symbol",
+        Context::Declaration(_) => "declaration",
+        Context::Container(_) => "container",
+        Context::ModulePath { .. } => "module_path",
+        Context::SymbolKey(_) => "symbol_key",
+        Context::Source(_) => "source",
+        Context::Target(_) => "target",
+        Context::Instance(_) => "instance",
+        Context::CallSite(_) => "call_site",
+        Context::CodegenUnit(_) => "codegen_unit",
+        Context::CodegenStatic(_) => "codegen_static",
+        Context::CallableData(_) => "callable_data",
+        Context::Implementation(_) => "implementation",
+        Context::StaticReference(_) => "static_reference",
+        Context::Substitution(_) => "substitution",
+        Context::GenericOwner(_) => "generic_owner",
+        Context::Type(_) => "type",
+        Context::ImplementationRequirement(_) => "implementation_requirement",
+        Context::MirUnit(_) => "mir_unit",
+        Context::MirHelper(_) => "mir_helper",
+        Context::UnaryRepresentation { .. } => "unary_representation",
+        Context::Operation { .. } => "operation",
+        Context::MirOperation { .. } => "mir_operation",
+        Context::CallableDefinition(_) => "callable_definition",
+        Context::SourceLocation { .. } => "source_location",
+        Context::CompilerKnownRepresentation(_) => "compiler_known_representation",
+        Context::CompilerKnownDeclaration(_) => "compiler_known_declaration",
+    };
+
+    vec![
+        text_field("product_context_kind", kind),
+        identity_field("product_context_identity", context),
+    ]
+}
+
+fn context_with_data(
+    context: &ProductQueryContext,
+    data: ProductDataKind,
+) -> Vec<DiagnosticFailureField> {
+    let mut fields = product_query_context(context);
+    fields.push(text_field("data_kind", product_data_kind(data)));
+
+    fields
+}
+
+fn push_optional_identity<T: std::hash::Hash>(
+    fields: &mut Vec<DiagnosticFailureField>,
+    name: &'static str,
+    value: Option<&T>,
+) {
+    if let Some(value) = value {
+        fields.push(identity_field(name, value));
     }
 }
 
-const fn diagnostic_product_value_kind(kind: ProductValueKind) -> DiagnosticProductValueKind {
+const fn product_value_kind(kind: ProductValueKind) -> &'static str {
     match kind {
-        ProductValueKind::TypeArgument => DiagnosticProductValueKind::TypeArgument,
-        ProductValueKind::ConstantArgument => DiagnosticProductValueKind::ConstantArgument,
-        ProductValueKind::TraitSatisfactionConstraint => {
-            DiagnosticProductValueKind::TraitSatisfactionConstraint
-        }
-        ProductValueKind::PredicateConstraint => DiagnosticProductValueKind::PredicateConstraint,
-        ProductValueKind::TypeEqualityConstraint => {
-            DiagnosticProductValueKind::TypeEqualityConstraint
-        }
-        ProductValueKind::GenericTypeArgument => DiagnosticProductValueKind::GenericTypeArgument,
-        ProductValueKind::ClosedStaticReference => {
-            DiagnosticProductValueKind::ClosedStaticReference
-        }
-        ProductValueKind::OpenStaticReference => DiagnosticProductValueKind::OpenStaticReference,
-        ProductValueKind::NamedType => DiagnosticProductValueKind::NamedType,
-        ProductValueKind::CallableType => DiagnosticProductValueKind::CallableType,
-        ProductValueKind::LifecycleRepresentableType => {
-            DiagnosticProductValueKind::LifecycleRepresentableType
-        }
+        ProductValueKind::TypeArgument => "type_argument",
+        ProductValueKind::ConstantArgument => "constant_argument",
+        ProductValueKind::TraitSatisfactionConstraint => "trait_satisfaction_constraint",
+        ProductValueKind::PredicateConstraint => "predicate_constraint",
+        ProductValueKind::TypeEqualityConstraint => "type_equality_constraint",
+        ProductValueKind::GenericTypeArgument => "generic_type_argument",
+        ProductValueKind::ClosedStaticReference => "closed_static_reference",
+        ProductValueKind::OpenStaticReference => "open_static_reference",
+        ProductValueKind::NamedType => "named_type",
+        ProductValueKind::CallableType => "callable_type",
+        ProductValueKind::LifecycleRepresentableType => "lifecycle_representable_type",
+    }
+}
+
+const fn product_data_kind(kind: ProductDataKind) -> &'static str {
+    match kind {
+        ProductDataKind::Symbol => "symbol",
+        ProductDataKind::TestResult => "test_result",
+        ProductDataKind::ContainingModule => "containing_module",
+        ProductDataKind::ContainingSymbol => "containing_symbol",
+        ProductDataKind::MemberName => "member_name",
+        ProductDataKind::SourceAnchor => "source_anchor",
+        ProductDataKind::SourceSnapshot => "source_snapshot",
+        ProductDataKind::SymbolKey => "symbol_key",
+        ProductDataKind::ConcreteInstance => "concrete_instance",
+        ProductDataKind::CallableInstance => "callable_instance",
+        ProductDataKind::AnonymousCallableInstance => "anonymous_callable_instance",
+        ProductDataKind::BoundHelperInstance => "bound_helper_instance",
+        ProductDataKind::GeneratedLifecycleInstance => "generated_lifecycle_instance",
+        ProductDataKind::ContextualSelfWitness => "contextual_self_witness",
+        ProductDataKind::TraitDispatch => "trait_dispatch",
+        ProductDataKind::GenericSubstitution => "generic_substitution",
+        ProductDataKind::GenericOwner => "generic_owner",
+        ProductDataKind::ImplementationWitness => "implementation_witness",
+        ProductDataKind::CallableFulfillment => "callable_fulfillment",
+        ProductDataKind::GenericConstraint => "generic_constraint",
+        ProductDataKind::Intrinsic => "intrinsic",
+        ProductDataKind::ConversionPlan => "conversion_plan",
+        ProductDataKind::CompilerKnownRepresentation => "compiler_known_representation",
+        ProductDataKind::LifecycleRole => "lifecycle_role",
+        ProductDataKind::LifecycleMember => "lifecycle_member",
+        ProductDataKind::LifecycleType => "lifecycle_type",
+        ProductDataKind::RealizedStatic => "realized_static",
+        ProductDataKind::StaticDependencyCounter => "static_dependency_counter",
+        ProductDataKind::StaticDeclaredType => "static_declared_type",
+        ProductDataKind::StaticInitializer => "static_initializer",
+        ProductDataKind::ImplementationHeader => "implementation_header",
+        ProductDataKind::TestDiscovery => "test_discovery",
+        ProductDataKind::DeclarationChunk => "declaration_chunk",
+        ProductDataKind::DeclarationContainer => "declaration_container",
+        ProductDataKind::ModulePath => "module_path",
+        ProductDataKind::PackageRoot => "package_root",
+        ProductDataKind::Module => "module",
+        ProductDataKind::ReachabilityRealization => "reachability_realization",
+        ProductDataKind::ReachabilityEvaluation => "reachability_evaluation",
+        ProductDataKind::PartitionInstance => "partition_instance",
+        ProductDataKind::CodegenUnitMapping => "codegen_unit_mapping",
+        ProductDataKind::ProductHostOwnerUnit => "product_host_owner_unit",
+        ProductDataKind::ProductHostStaticMapping => "product_host_static_mapping",
+        ProductDataKind::ResultRepresentation => "result_representation",
+        ProductDataKind::CallableSignature => "callable_signature",
+        ProductDataKind::RuntimeDefaultSubject => "runtime_default_subject",
+        ProductDataKind::RuntimeDefaultUnit => "runtime_default_unit",
+        ProductDataKind::OperationResultType => "operation_result_type",
+        ProductDataKind::SourceLineIndex => "source_line_index",
+        ProductDataKind::SourceLocation => "source_location",
+        ProductDataKind::NativeStaticContract => "native_static_contract",
+        ProductDataKind::CallableParameters => "callable_parameters",
+        ProductDataKind::CallableReceiver => "callable_receiver",
+        ProductDataKind::StaticSubstitution => "static_substitution",
+        ProductDataKind::ImportedSemanticAddress => "imported_semantic_address",
+        ProductDataKind::ResolvedType => "resolved_type",
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{DiagnosticProductDataKind, DiagnosticProductQueryContextKind};
-    use bray_source::SourceId;
+    use bray_symbols::{AnySymbolId, FunctionSymbolId, SymbolId, SymbolKind};
 
     use super::diagnostic_product_query_failure;
-    use crate::compilation::{
-        ProductDataKind, ProductQueryContext, ProductQueryError, ProductQueryFailure,
-    };
+    use crate::compilation::{ProductQueryError, ProductQueryFailure};
 
     #[test]
-    fn adapter_preserves_exact_missing_product_context() {
-        let error = ProductQueryError::from(ProductQueryFailure::Missing {
-            context: ProductQueryContext::Source(SourceId::new(17)),
-            data: ProductDataKind::SourceSnapshot,
+    fn product_query_conversion_uses_typed_symbol_fields() {
+        let symbol = AnySymbolId::Function(FunctionSymbolId::from_symbol_id(SymbolId::new(11)));
+
+        let error = ProductQueryError::from(ProductQueryFailure::UnexpectedSymbolKind {
+            symbol,
+            expected: SymbolKind::Trait,
+            actual: SymbolKind::Function,
         });
 
-        let diagnostic = diagnostic_product_query_failure(&error);
+        let failure = diagnostic_product_query_failure(&error);
 
-        let bray_diagnostics::DiagnosticProductQueryFailure::Missing { context, data } = diagnostic
-        else {
-            panic!("missing product data should retain a structured missing-data diagnostic");
-        };
-
-        assert_eq!(context.kind(), DiagnosticProductQueryContextKind::Source);
-        assert!(context.identity().contains("17"));
-        assert_eq!(data, DiagnosticProductDataKind::SourceSnapshot);
+        assert_eq!(failure.as_str(), "product_query_unexpected_symbol_kind");
+        assert_eq!(failure.context()[0].name(), "symbol_kind");
+        assert_eq!(failure.context()[1].name(), "symbol");
+        assert_eq!(failure.context()[2].name(), "expected_symbol_kind");
+        assert_eq!(failure.context()[3].name(), "actual_symbol_kind");
     }
 }

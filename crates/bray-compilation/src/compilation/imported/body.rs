@@ -118,21 +118,19 @@ impl super::super::Compilation {
 
         let configuration = self
             .package_implementation_configuration(None)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::CodegenTarget)?;
 
-        if implementation
+        implementation
             .validate_interface(interface, surface)
-            .is_err()
-            || implementation
-                .validate_configuration(&configuration)
-                .is_err()
-        {
-            return Err(FactQueryError::InfrastructureFailure);
-        }
+            .map_err(FactQueryError::PackageInterface)?;
+
+        implementation
+            .validate_configuration(&configuration)
+            .map_err(FactQueryError::PackageInterface)?;
 
         implementation
             .native_boundary(address.symbol())
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+            .map_err(FactQueryError::PackageInterface)
     }
 
     pub(in crate::compilation) fn imported_executable_template_with_cancellation(
@@ -200,24 +198,35 @@ impl super::super::Compilation {
 
         let configuration = self
             .package_implementation_configuration(None)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::CodegenTarget)?;
 
-        if artifact.validate_interface(validated, surface).is_err()
-            || artifact.validate_configuration(&configuration).is_err()
-        {
+        if let Err(error) = artifact.validate_interface(validated, surface) {
             return Ok(DiagnosticResult::new(
                 None,
-                executable_template_diagnostics(input),
+                implementation_validation_diagnostics(error, input),
+            ));
+        }
+
+        if let Err(error) = artifact.validate_configuration(&configuration) {
+            return Ok(DiagnosticResult::new(
+                None,
+                implementation_validation_diagnostics(error, input),
             ));
         }
 
         let template =
             match artifact.executable_template(symbol_address.symbol(), address.template()) {
                 Ok(Some(template)) => template,
-                Ok(None) | Err(_) => {
+                Ok(None) => {
                     return Ok(DiagnosticResult::new(
                         None,
                         executable_template_diagnostics(input),
+                    ));
+                }
+                Err(error) => {
+                    return Ok(DiagnosticResult::new(
+                        None,
+                        implementation_validation_diagnostics(error, input),
                     ));
                 }
             };
@@ -391,14 +400,19 @@ impl super::super::Compilation {
 
         let configuration = self
             .package_implementation_configuration(None)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::CodegenTarget)?;
 
-        if artifact.validate_interface(validated, surface).is_err()
-            || artifact.validate_configuration(&configuration).is_err()
-        {
+        if let Err(error) = artifact.validate_interface(validated, surface) {
             return Ok(DiagnosticResult::new(
                 None,
-                implementation_body_diagnostics(input),
+                implementation_validation_diagnostics(error, input),
+            ));
+        }
+
+        if let Err(error) = artifact.validate_configuration(&configuration) {
+            return Ok(DiagnosticResult::new(
+                None,
+                implementation_validation_diagnostics(error, input),
             ));
         }
 
@@ -415,10 +429,16 @@ impl super::super::Compilation {
 
         let body = match artifact.constant_callable_body(address.symbol(), surface) {
             Ok(Some(body)) => body,
-            Ok(None) | Err(_) => {
+            Ok(None) => {
                 return Ok(DiagnosticResult::new(
                     None,
                     implementation_body_diagnostics(input),
+                ));
+            }
+            Err(error) => {
+                return Ok(DiagnosticResult::new(
+                    None,
+                    implementation_validation_diagnostics(error, input),
                 ));
             }
         };

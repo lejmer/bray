@@ -413,18 +413,40 @@ impl DiagnosticSemanticQueryFailure {
 }
 
 /// Exact compiler-owned failure observed while binding one source-level program element.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticBindingFailure {
-    DependencyUnavailable,
-    InvalidUnitKey,
-    MissingSyntax,
-    MissingOwner,
-    MissingModule,
-    InvalidSurfaceName,
-    SemanticValue(DiagnosticSemanticValueFailure),
-    Construction,
-    Binding,
-    Assembly,
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiagnosticBindingFailure {
+    reason: &'static str,
+    context: Box<[crate::DiagnosticFailureField]>,
+    semantic_value: Option<DiagnosticSemanticValueFailure>,
+}
+
+impl DiagnosticBindingFailure {
+    pub fn new(
+        reason: &'static str,
+        context: impl Into<Box<[crate::DiagnosticFailureField]>>,
+    ) -> Self {
+        Self {
+            reason,
+            context: context.into(),
+            semantic_value: None,
+        }
+    }
+
+    pub fn semantic_value(failure: DiagnosticSemanticValueFailure) -> Self {
+        Self {
+            reason: failure.as_str(),
+            context: Box::new([]),
+            semantic_value: Some(failure),
+        }
+    }
+
+    pub const fn context(&self) -> &[crate::DiagnosticFailureField] {
+        &self.context
+    }
+
+    pub const fn semantic_value_failure(&self) -> Option<DiagnosticSemanticValueFailure> {
+        self.semantic_value
+    }
 }
 
 /// Exact canonical-value failure that prevented semantic binding.
@@ -731,19 +753,8 @@ impl DiagnosticEmissionEvaluationFailure {
 }
 
 impl DiagnosticBindingFailure {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::DependencyUnavailable => "binding_dependency_unavailable",
-            Self::InvalidUnitKey => "binding_invalid_unit_key",
-            Self::MissingSyntax => "binding_missing_syntax",
-            Self::MissingOwner => "binding_missing_owner",
-            Self::MissingModule => "binding_missing_module",
-            Self::InvalidSurfaceName => "binding_invalid_surface_name",
-            Self::SemanticValue(failure) => failure.as_str(),
-            Self::Construction => "binding_construction",
-            Self::Binding => "binding_recovery_root",
-            Self::Assembly => "binding_assembly",
-        }
+    pub const fn as_str(&self) -> &'static str {
+        self.reason
     }
 }
 

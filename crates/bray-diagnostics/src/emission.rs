@@ -20,14 +20,8 @@ pub use failure::{
     DiagnosticEvaluationFailureDetail, DiagnosticSemanticQueryFailure,
     DiagnosticSemanticValueFailure, DiagnosticTestCatalogFailure,
 };
-pub use foreign_query::{
-    DiagnosticForeignDataKind, DiagnosticForeignQueryContext, DiagnosticForeignQueryContextKind,
-    DiagnosticForeignQueryFailure,
-};
-pub use product_query::{
-    DiagnosticProductDataKind, DiagnosticProductQueryContext, DiagnosticProductQueryContextKind,
-    DiagnosticProductQueryFailure, DiagnosticProductValueKind,
-};
+pub use foreign_query::DiagnosticForeignQueryFailure;
+pub use product_query::DiagnosticProductQueryFailure;
 pub use runtime::{
     DiagnosticFactRuntimeFailure, DiagnosticFailureField, DiagnosticFailureValue,
 };
