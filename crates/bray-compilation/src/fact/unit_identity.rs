@@ -71,9 +71,7 @@ impl BoundUnitIdentityMap {
         let mut claimed_units = self
             .claimed_units
             .lock()
-            .map_err(|_| FactRuntimeFailure::UnitIdentityStatePoisoned {
-                unit: key.clone(),
-            })?;
+            .map_err(|_| FactRuntimeFailure::UnitIdentityStatePoisoned { unit: key.clone() })?;
 
         if let Some(existing) = claimed_units.get(&unit) {
             return if existing == key {
@@ -181,10 +179,7 @@ mod tests {
 
         let identities = BoundUnitIdentityMap {
             source_ordinals: BTreeMap::from([(requested.source(), 0)]),
-            claimed_units: Mutex::new(BTreeMap::from([(
-                BoundUnitId::new(0),
-                existing.clone(),
-            )])),
+            claimed_units: Mutex::new(BTreeMap::from([(BoundUnitId::new(0), existing.clone())])),
         };
 
         let error = match identities.unit_id(&requested) {

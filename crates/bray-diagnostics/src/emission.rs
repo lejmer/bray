@@ -3,7 +3,10 @@ mod failure;
 mod unsupported;
 
 pub use checker::{
-    DiagnosticCheckerFailure, DiagnosticCheckerNode, DiagnosticCheckerSymbol,
+    DiagnosticCheckerFailure, DiagnosticCheckerLocal, DiagnosticCheckerNode,
+    DiagnosticCheckerSymbol, DiagnosticConstantEvaluationFailure, DiagnosticConstantInputFailure,
+    DiagnosticLiteralValueFailure, DiagnosticPatternInputFailure,
+    DiagnosticSemanticSelectionFailure, DiagnosticSemanticSnapshotFailure,
     DiagnosticStorageFlowFailure,
 };
 pub use failure::{
@@ -11,7 +14,7 @@ pub use failure::{
     DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure,
     DiagnosticEmissionLinkPlanFailure, DiagnosticEmissionPlanningFailure,
     DiagnosticEmissionStagingFailure, DiagnosticPackageInterfaceFailure,
-    DiagnosticSemanticValueFailure,
+    DiagnosticSemanticQueryFailure, DiagnosticSemanticValueFailure,
 };
 pub use unsupported::{
     DiagnosticHostEnvironmentVariable, DiagnosticLlvmToolRole, DiagnosticUnsupportedEmissionReason,

@@ -1,7 +1,7 @@
 use crate::compilation::binder::BindingQueryResult;
 use std::sync::Arc;
 
-use bray_binder::{BindingQueryContext, BindingQueryError, SymbolQueryProvider};
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_bound_tree::{
     BoundReferenceTarget, BoundUnitKind, BoundUnitRoot, DeclaredValueTypeConstraintKind,
     DeclaredValueTypeTerm,
@@ -20,10 +20,13 @@ use bray_symbols::{
 use bray_syntax::{LambdaExpressionSyntax, StaticDeclarationSyntax};
 use bray_target::TargetPropertyKind;
 
-use super::CompilationBindingContext;
 use super::symbol::{type_binder, visible_generic_const_parameters};
 use super::value_type::{DeclaredValueTypeBinding, local_value};
+use super::{CompilationBindingContext, semantic_contract_binding_error as binding_contract};
 use crate::compilation::substitution::contextual_self_type;
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryViolation, SemanticSymbolCategory,
+};
 
 impl DeclaredValueTypeBinding<'_> {
     pub(super) fn bind_visible_generic_const_parameters(&mut self) -> BindingQueryResult<()> {
@@ -62,8 +65,15 @@ impl DeclaredValueTypeBinding<'_> {
         owner: AnySymbolId,
         supplies_result_expectation: bool,
     ) -> BindingQueryResult<()> {
-        let callable = CallableSymbolId::try_from_any(owner)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+        let callable = CallableSymbolId::try_from_any(owner).ok_or_else(|| {
+            binding_contract(
+                SemanticQueryContext::Symbol(owner),
+                SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: SemanticSymbolCategory::Callable,
+                    actual: owner.kind(),
+                },
+            )
+        })?;
 
         let result = self
             .context
@@ -143,7 +153,10 @@ impl DeclaredValueTypeBinding<'_> {
                 .map_err(super::semantic_value_binding_error)?;
 
             let bray_symbols::TypeData::Named { substitution, .. } = self_data.as_ref() else {
-                return Err(BindingQueryError::DependencyUnavailable);
+                return Err(binding_contract(
+                    SemanticQueryContext::Type(self_ty),
+                    SemanticQueryViolation::Missing(SemanticDataKind::GenericSubstitution),
+                ));
             };
 
             let result = self
@@ -176,14 +189,22 @@ impl DeclaredValueTypeBinding<'_> {
 
     fn bind_anonymous_callable_surface(&mut self) -> BindingQueryResult<()> {
         let BoundUnitRoot::AnonymousCallable { callable, .. } = self.unit.root() else {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(binding_contract(
+                SemanticQueryContext::Unit(self.unit.key().clone()),
+                SemanticQueryViolation::Unsupported(SemanticDataKind::BoundUnit),
+            ));
         };
 
         let symbol = self
             .unit
             .local_symbols()
             .anonymous_callable(callable)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or_else(|| {
+                binding_contract(
+                    SemanticQueryContext::Unit(self.unit.key().clone()),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         let syntax = self
             .unit
@@ -191,7 +212,12 @@ impl DeclaredValueTypeBinding<'_> {
             .source()
             .syntax()
             .find_descendant::<LambdaExpressionSyntax>(self.context.syntax())
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or_else(|| {
+                binding_contract(
+                    SemanticQueryContext::Unit(self.unit.key().clone()),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Syntax),
+                )
+            })?;
 
         let callable_type =
             type_binder(self.context, self.owner)?.bind_anonymous_callable_type(&syntax)?;
@@ -204,7 +230,14 @@ impl DeclaredValueTypeBinding<'_> {
         let parameters = syntax.parameter_list().parameters().collect::<Vec<_>>();
 
         if parameters.len() != symbol.parameters().len() {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(binding_contract(
+                SemanticQueryContext::Unit(self.unit.key().clone()),
+                SemanticQueryViolation::CountMismatch {
+                    data: SemanticDataKind::CallableSignature,
+                    expected: symbol.parameters().len(),
+                    actual: parameters.len(),
+                },
+            ));
         }
 
         for (parameter, syntax) in symbol.parameters().iter().copied().zip(parameters) {
@@ -248,12 +281,20 @@ impl DeclaredValueTypeBinding<'_> {
             .context
             .symbols()
             .runtime_default_subject(self.owner)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or_else(|| {
+                binding_contract(
+                    SemanticQueryContext::Symbol(self.owner),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         let template = self.declared_surface_value_type(declaration)?;
 
         let BoundUnitRoot::Expression(expression) = self.unit.root() else {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(binding_contract(
+                SemanticQueryContext::Unit(self.unit.key().clone()),
+                SemanticQueryViolation::Unsupported(SemanticDataKind::BoundExpression),
+            ));
         };
 
         let value = surface_value(declaration);
@@ -273,7 +314,10 @@ impl DeclaredValueTypeBinding<'_> {
         let template = self.constant_declared_type(self.owner)?;
 
         let BoundUnitRoot::Expression(initializer) = self.unit.root() else {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(binding_contract(
+                SemanticQueryContext::Unit(self.unit.key().clone()),
+                SemanticQueryViolation::Unsupported(SemanticDataKind::BoundExpression),
+            ));
         };
 
         let value = surface_value(self.owner);
@@ -291,7 +335,10 @@ impl DeclaredValueTypeBinding<'_> {
 
     fn bind_embedded_constant_surface(&mut self) -> BindingQueryResult<()> {
         let BoundUnitRoot::Expression(expression) = self.unit.root() else {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(binding_contract(
+                SemanticQueryContext::Unit(self.unit.key().clone()),
+                SemanticQueryViolation::Unsupported(SemanticDataKind::BoundExpression),
+            ));
         };
 
         let occurrence =
@@ -301,7 +348,7 @@ impl DeclaredValueTypeBinding<'_> {
             .context
             .compilation()
             .embedded_constant_expected_type(occurrence)
-            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+            .map_err(super::symbol::binder_error)?;
 
         let template = match expected {
             ConstantExpressionExpectedType::Resolved(ty) => TypeExpressionTemplate::Resolved(ty),
@@ -319,8 +366,15 @@ impl DeclaredValueTypeBinding<'_> {
     }
 
     fn bind_predicate_surface(&mut self) -> BindingQueryResult<()> {
-        let predicate = PredicateDefinitionSymbolId::try_from_any(self.owner)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+        let predicate = PredicateDefinitionSymbolId::try_from_any(self.owner).ok_or_else(|| {
+            binding_contract(
+                SemanticQueryContext::Symbol(self.owner),
+                SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: SemanticSymbolCategory::PredicateDefinition,
+                    actual: self.owner.kind(),
+                },
+            )
+        })?;
 
         let result = self.context.resolve_symbol_query(SymbolQueryRequest::<
             PredicateSignatureTemplateQuery,
@@ -358,7 +412,10 @@ impl DeclaredValueTypeBinding<'_> {
 
     fn bind_target_gate_surface(&mut self) -> BindingQueryResult<()> {
         let BoundUnitRoot::Expression(expression) = self.unit.root() else {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(binding_contract(
+                SemanticQueryContext::Unit(self.unit.key().clone()),
+                SemanticQueryViolation::Unsupported(SemanticDataKind::BoundExpression),
+            ));
         };
 
         let boolean = self
@@ -380,8 +437,15 @@ impl DeclaredValueTypeBinding<'_> {
         owner: AnySymbolId,
     ) -> BindingQueryResult<Arc<bray_diagnostics::DiagnosticResult<CallableSignatureTemplate>>>
     {
-        let callable = CallableSymbolId::try_from_any(owner)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+        let callable = CallableSymbolId::try_from_any(owner).ok_or_else(|| {
+            binding_contract(
+                SemanticQueryContext::Symbol(owner),
+                SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: SemanticSymbolCategory::Callable,
+                    actual: owner.kind(),
+                },
+            )
+        })?;
 
         self.context
             .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(callable))
@@ -397,7 +461,12 @@ impl DeclaredValueTypeBinding<'_> {
                     .context
                     .symbols()
                     .callable_parameter(parameter)
-                    .ok_or(BindingQueryError::DependencyUnavailable)?;
+                    .ok_or_else(|| {
+                        binding_contract(
+                            SemanticQueryContext::Symbol(parameter.into()),
+                            SemanticQueryViolation::Missing(SemanticDataKind::DeclarationRecord),
+                        )
+                    })?;
 
                 let signature = self.callable_signature(record.owner().into_any())?;
 
@@ -418,7 +487,10 @@ impl DeclaredValueTypeBinding<'_> {
                 .context
                 .resolve_symbol_query(SymbolQueryRequest::<UnionPayloadFieldTypeQuery>::new(field))
                 .map(|result| owned_template(result.value())),
-            _ => Err(BindingQueryError::DependencyUnavailable),
+            _ => Err(binding_contract(
+                SemanticQueryContext::Symbol(declaration),
+                SemanticQueryViolation::Unsupported(SemanticDataKind::TypeSurface),
+            )),
         }
     }
 
@@ -448,7 +520,10 @@ impl DeclaredValueTypeBinding<'_> {
                     TraitConstantFulfillmentDeclaredTypeQuery,
                 >::new(fulfillment))
                 .map(|result| owned_template(result.value())),
-            _ => Err(BindingQueryError::DependencyUnavailable),
+            _ => Err(binding_contract(
+                SemanticQueryContext::Symbol(owner),
+                SemanticQueryViolation::Unsupported(SemanticDataKind::ConstantDefinition),
+            )),
         }
     }
 
@@ -461,7 +536,12 @@ impl DeclaredValueTypeBinding<'_> {
             .context
             .symbols()
             .static_symbol(declaration)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or_else(|| {
+                binding_contract(
+                    SemanticQueryContext::Symbol(declaration.into()),
+                    SemanticQueryViolation::Missing(SemanticDataKind::DeclarationRecord),
+                )
+            })?;
 
         let exposes_address = match record.syntax_anchor() {
             Some(anchor) => {
@@ -469,7 +549,12 @@ impl DeclaredValueTypeBinding<'_> {
                     .find_descendant::<StaticDeclarationSyntax>(
                         self.context.compilation().syntax_tree(),
                     )
-                    .ok_or(BindingQueryError::DependencyUnavailable)?;
+                    .ok_or_else(|| {
+                        binding_contract(
+                            SemanticQueryContext::Symbol(declaration.into()),
+                            SemanticQueryViolation::Missing(SemanticDataKind::Syntax),
+                        )
+                    })?;
 
                 syntax
                     .static_declaration_modifiers()
@@ -509,15 +594,31 @@ impl DeclaredValueTypeBinding<'_> {
 
         let raw_pointer = available
             .representation_symbol::<bray_symbols::StructSymbolId>(RepresentationRole::RawPointer)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or_else(|| {
+                binding_contract(
+                    SemanticQueryContext::CompilerKnownRepresentation(
+                        RepresentationRole::RawPointer,
+                    ),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
-        let raw_pointer = available
-            .provider()
-            .symbol(raw_pointer)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+        let raw_pointer = available.provider().symbol(raw_pointer).ok_or_else(|| {
+            binding_contract(
+                SemanticQueryContext::Symbol(raw_pointer.into()),
+                SemanticQueryViolation::Missing(SemanticDataKind::DeclarationRecord),
+            )
+        })?;
 
         let [parameter] = raw_pointer.generic_type_parameters() else {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(binding_contract(
+                SemanticQueryContext::Symbol(raw_pointer.id().into()),
+                SemanticQueryViolation::CountMismatch {
+                    data: SemanticDataKind::GenericSubstitution,
+                    expected: 1,
+                    actual: raw_pointer.generic_type_parameters().len(),
+                },
+            ));
         };
 
         Ok(TypeExpressionTemplate::Named {

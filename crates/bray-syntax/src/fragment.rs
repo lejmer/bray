@@ -150,7 +150,7 @@ impl PendingNode {
 }
 
 /// A violated invariant in generated preparsed syntax events.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum PreparsedSyntaxFragmentError {
     /// An enter event used a token kind.
     ExpectedNodeKind(SyntaxKind),

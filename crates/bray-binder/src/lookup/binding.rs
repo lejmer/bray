@@ -5,7 +5,7 @@ use bray_symbols::{
 
 use super::category::ResolvedName;
 use super::path::NameAccess;
-use crate::unit::BoundUnitLocalBuilder;
+use crate::unit::{BoundUnitConstructionError, BoundUnitLocalBuilder};
 
 pub(super) type NameLookupResult<T> = MemberLookupResult<T, ResolvedName>;
 
@@ -16,49 +16,34 @@ pub(crate) fn lookup_unqualified_name(
     module: Option<ModuleSymbolId>,
     name: &str,
     access: NameAccess,
-) -> NameLookupResult<ResolvedName> {
+) -> Result<NameLookupResult<ResolvedName>, BoundUnitConstructionError> {
     let mut current = Some(scope);
 
     while let Some(scope) = current {
         if name == "result" {
-            let result = match unit.postcondition_result(scope) {
-                Ok(result) => result,
-                Err(_) => return MemberLookupResult::Malformed(Box::new([])),
-            };
+            let result = unit.postcondition_result(scope)?;
 
             if let Some(result) = result {
                 let is_recovered = unit.local_symbol_is_recovered(result.into());
                 let result = ResolvedName::Local(result.into());
 
-                return match is_recovered {
-                    Ok(true) => MemberLookupResult::Malformed(Box::new([result])),
-                    Ok(false) => MemberLookupResult::Found(result),
-                    Err(_) => MemberLookupResult::Malformed(Box::new([])),
-                };
+                return Ok(match is_recovered? {
+                    true => MemberLookupResult::Malformed(Box::new([result])),
+                    false => MemberLookupResult::Found(result),
+                });
             }
         }
 
-        let locals = match unit.local_symbols_named(scope, name) {
-            Ok(locals) => locals,
-            Err(_) => return MemberLookupResult::Malformed(Box::new([])),
-        };
-
-        let surfaces = match unit.surface_symbols_named(scope, name) {
-            Ok(surfaces) => surfaces,
-            Err(_) => return MemberLookupResult::Malformed(Box::new([])),
-        };
+        let locals = unit.local_symbols_named(scope, name)?;
+        let surfaces = unit.surface_symbols_named(scope, name)?;
 
         if !locals.is_empty() || !surfaces.is_empty() {
             let mut has_recovered_local = false;
 
             for local in locals {
-                match unit.local_symbol_is_recovered(*local) {
-                    Ok(true) => {
-                        has_recovered_local = true;
-                        break;
-                    }
-                    Ok(false) => {}
-                    Err(_) => return MemberLookupResult::Malformed(Box::new([])),
+                if unit.local_symbol_is_recovered(*local)? {
+                    has_recovered_local = true;
+                    break;
                 }
             }
 
@@ -71,7 +56,9 @@ pub(crate) fn lookup_unqualified_name(
                         break;
                     }
                     Some(false) => {}
-                    None => return MemberLookupResult::Malformed(Box::new([])),
+                    None => {
+                        return Err(BoundUnitConstructionError::UnknownSurfaceSymbol(*surface));
+                    }
                 }
             }
 
@@ -83,28 +70,22 @@ pub(crate) fn lookup_unqualified_name(
                 .collect::<Vec<_>>();
 
             if has_recovered_local || has_recovered_surface {
-                return MemberLookupResult::Malformed(candidates.into_boxed_slice());
+                return Ok(MemberLookupResult::Malformed(candidates.into_boxed_slice()));
             }
 
-            return match candidates.as_slice() {
+            return Ok(match candidates.as_slice() {
                 [candidate] => MemberLookupResult::Found(*candidate),
                 _ => MemberLookupResult::Ambiguous(candidates.into_boxed_slice()),
-            };
+            });
         }
 
-        let boundary = match unit.scope_boundary(scope) {
-            Ok(boundary) => boundary,
-            Err(_) => return MemberLookupResult::Malformed(Box::new([])),
-        };
+        let boundary = unit.scope_boundary(scope)?;
 
         if boundary == LocalScopeBoundary::Callable {
             break;
         }
 
-        current = match unit.scope_parent(scope) {
-            Ok(parent) => parent,
-            Err(_) => return MemberLookupResult::Malformed(Box::new([])),
-        };
+        current = unit.scope_parent(scope)?;
     }
 
     let generic_lookup = symbols
@@ -113,7 +94,7 @@ pub(crate) fn lookup_unqualified_name(
         .unwrap_or(MemberLookupResult::NotFound);
 
     if !matches!(generic_lookup, MemberLookupResult::NotFound) {
-        return generic_lookup;
+        return Ok(generic_lookup);
     }
 
     let module_lookup = module
@@ -127,7 +108,7 @@ pub(crate) fn lookup_unqualified_name(
         access,
     );
 
-    combine_name_lookups(module_lookup, ambient_lookup)
+    Ok(combine_name_lookups(module_lookup, ambient_lookup))
 }
 
 fn lookup_visible_generic_parameter(
@@ -238,6 +219,37 @@ fn collect_lookup_candidates(
             *has_malformed = true;
             accessible.extend(candidates);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::{LocalSymbolBuildError, LocalSymbolRegionId};
+
+    use super::lookup_unqualified_name;
+    use crate::lookup::NameAccess;
+    use crate::unit::BoundUnitConstructionError;
+    use crate::unit::test_support::{builder, fixture};
+
+    #[test]
+    fn unqualified_lookup_preserves_local_builder_failure() {
+        let fixture = fixture();
+        let unit = builder(&fixture, LocalSymbolRegionId::new(11));
+        let foreign = builder(&fixture, LocalSymbolRegionId::new(12));
+
+        assert_eq!(
+            lookup_unqualified_name(
+                &unit,
+                &fixture.graph,
+                foreign.root_scope(),
+                None,
+                "value",
+                NameAccess::Internal,
+            ),
+            Err(BoundUnitConstructionError::LocalSymbol(
+                LocalSymbolBuildError::ForeignRegion,
+            )),
+        );
     }
 }
 

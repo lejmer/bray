@@ -3,8 +3,8 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::RepresentationRole;
 
-use crate::{CheckerInfrastructureError, CheckerRequestContext};
 use crate::representation::type_representation;
+use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
 use super::build::ControlFlowGraphBuilder;
 use super::id::AnalysisBlockId;

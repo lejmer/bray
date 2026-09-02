@@ -2,7 +2,7 @@ use crate::compilation::binder::BindingQueryResult;
 use std::sync::Arc;
 
 use bray_binder::{
-    BindingQueryError, SymbolQueryProvider,
+    BindingError, BindingQueryError, SymbolQueryProvider,
     bind_callable_type_directives as bind_callable_type_directive_surface, bind_directive_template,
 };
 use bray_bound_tree::{BoundSourceAnchor, BoundUnitKey};
@@ -19,7 +19,11 @@ use super::binding::{CompilationSymbolQueryEvaluator, binder_error};
 use super::cache::CompilationSymbolSemantics;
 use super::surface::{syntax_node_for_anchor, with_declaration_root};
 use crate::compilation::Compilation;
-use crate::compilation::binder::{CompilationBindingContext, binding_query_error};
+use crate::compilation::binder::{
+    CompilationBindingContext, binding_query_error,
+    symbol_query_contract_binding_error as query_contract,
+};
+use crate::compilation::{SemanticDataKind, SemanticQueryContext, SemanticQueryViolation};
 use crate::fact::{FactQueryError, SymbolQueryCache};
 
 impl CompilationSymbolQueryEvaluator<DeclarationDirectivesQuery> for CompilationSymbolSemantics {
@@ -47,7 +51,15 @@ impl Compilation {
         symbol: AnySymbolId,
     ) -> Result<Arc<DiagnosticResult<DirectiveSurface>>, FactQueryError> {
         if !DeclarationDirectivesQuery::KIND.is_applicable_to(symbol) {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::Symbol(symbol),
+                crate::compilation::SemanticQueryViolation::Unsupported(
+                    crate::compilation::SemanticDataKind::SymbolQuery(
+                        DeclarationDirectivesQuery::KIND,
+                    ),
+                ),
+            )
+            .into());
         }
 
         let binding_context = self.binding_context(&self.state.cancellation)?;
@@ -131,10 +143,13 @@ fn bind_module_directives(
     owner: ModuleSymbolId,
     diagnostics: &mut DiagnosticBag,
 ) -> BindingQueryResult<Vec<DirectiveTemplate>> {
-    let module = context
-        .symbols
-        .module(owner)
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+    let module = context.symbols.module(owner).ok_or_else(|| {
+        query_contract(
+            owner.into(),
+            DeclarationDirectivesQuery::KIND,
+            SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+        )
+    })?;
 
     let declarations = context.declarations();
     let mut directives = Vec::new();
@@ -142,7 +157,9 @@ fn bind_module_directives(
     for part in module.module_parts() {
         let part = declarations
             .module_part(*part)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::Binding(
+                BindingError::ModulePartRecordUnavailable(*part),
+            ))?;
 
         let attachment = DirectiveAttachment::ModulePart(part.id());
 
@@ -200,17 +217,21 @@ fn bind_nonmodule_directives(
     owner: AnySymbolId,
     diagnostics: &mut DiagnosticBag,
 ) -> BindingQueryResult<Vec<DirectiveTemplate>> {
-    let key = context
-        .symbols
-        .symbol_key(owner)
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+    let key = context.symbols.symbol_key(owner).ok_or_else(|| {
+        query_contract(
+            owner,
+            DeclarationDirectivesQuery::KIND,
+            SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
+        )
+    })?;
 
     match key.data() {
         SymbolKeyData::SourceDeclaration { declaration, .. } => {
-            let declaration = context
-                .declarations()
-                .declaration(*declaration)
-                .ok_or(BindingQueryError::DependencyUnavailable)?;
+            let declaration = context.declarations().declaration(*declaration).ok_or(
+                BindingQueryError::Binding(BindingError::DeclarationRecordUnavailable(
+                    *declaration,
+                )),
+            )?;
 
             let mut directives = Vec::new();
 
@@ -230,7 +251,13 @@ fn bind_nonmodule_directives(
         }
         SymbolKeyData::External(_) => Ok(Vec::new()),
         SymbolKeyData::Root(_) | SymbolKeyData::Module { .. } | SymbolKeyData::Synthesized(_) => {
-            Err(BindingQueryError::DependencyUnavailable)
+            Err(query_contract(
+                owner,
+                DeclarationDirectivesQuery::KIND,
+                SemanticQueryViolation::Unsupported(SemanticDataKind::SymbolQuery(
+                    DeclarationDirectivesQuery::KIND,
+                )),
+            ))
         }
     }
 }
@@ -272,10 +299,13 @@ fn bind_directive_argument_diagnostics(
     directives: &[DirectiveTemplate],
     diagnostics: &mut DiagnosticBag,
 ) -> BindingQueryResult<()> {
-    let owner_key = context
-        .symbols
-        .symbol_key(owner)
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+    let owner_key = context.symbols.symbol_key(owner).ok_or_else(|| {
+        query_contract(
+            owner,
+            DeclarationDirectivesQuery::KIND,
+            SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
+        )
+    })?;
 
     for directive in directives {
         // Target-gate units own target argument binding and diagnostics.
@@ -296,11 +326,11 @@ fn bind_directive_argument_diagnostics(
             }
 
             // Each bound argument unit owns the stable Arc-backed declaration identity.
-            let key = BoundUnitKey::embedded_constant(
-                owner_key.clone(),
-                BoundSourceAnchor::new(syntax, source.version()),
-            )
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            let source = BoundSourceAnchor::new(syntax, source.version());
+
+            let key = BoundUnitKey::embedded_constant(owner_key.clone(), source).ok_or(
+                BindingQueryError::Binding(BindingError::InvalidUnitKey { source, owner }),
+            )?;
 
             let bound = context
                 .compilation()
@@ -321,7 +351,12 @@ fn directive_argument_is_bare_symbol(
     let source = context
         .compilation()
         .source(syntax.source_id())
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or_else(|| {
+            crate::compilation::binder::semantic_contract_binding_error(
+                SemanticQueryContext::Source(syntax.source_id()),
+                SemanticQueryViolation::Missing(SemanticDataKind::SourceSnapshot),
+            )
+        })?;
 
     Ok(crate::compilation::directive::bare_directive_argument_name(
         context.compilation().syntax_tree_result().syntax_tree(),

@@ -12,7 +12,8 @@ use bray_symbols::{
 };
 
 use crate::compilation::binder::CompilationBindingContext;
-use crate::fact::ImportedSemanticRecordKey;
+use crate::compilation::{SemanticDataKind, SemanticQueryContext, SemanticQueryViolation};
+use crate::fact::{CompilationFactKey, ImportedSemanticRecordKey};
 
 pub(super) fn imported_callable_signature(
     context: &CompilationBindingContext<'_>,
@@ -25,7 +26,11 @@ pub(super) fn imported_callable_signature(
     )?;
 
     let [ImportedSemanticRecord::CallableSignature(signature)] = result.value().as_ref() else {
-        return Err(BindingQueryError::DependencyUnavailable);
+        return Err(invalid_imported_record_set(
+            address,
+            InterfaceSemanticRecordKind::CallableSignature,
+            result.value(),
+        ));
     };
 
     // Candidate-facing results retain shallow Arc-backed templates and diagnostics.
@@ -51,7 +56,13 @@ pub(super) fn imported_generic_declaration(
             declaration.declaration().clone()
         }
         [] => GenericDeclarationTemplate::new(owner, [], []),
-        _ => return Err(BindingQueryError::DependencyUnavailable),
+        records => {
+            return Err(invalid_imported_record_set(
+                address,
+                InterfaceSemanticRecordKind::GenericDeclaration,
+                records,
+            ));
+        }
     };
 
     // The returned result owns immutable declaration data and diagnostics beyond this exact query.
@@ -73,7 +84,11 @@ pub(super) fn imported_callable_parameter_default(
 
     let [ImportedSemanticRecord::CallableParameterDefault(default)] = result.value().as_ref()
     else {
-        return Err(BindingQueryError::DependencyUnavailable);
+        return Err(invalid_imported_record_set(
+            address,
+            InterfaceSemanticRecordKind::CallableParameterDefault,
+            result.value(),
+        ));
     };
 
     // Imported results share immutable diagnostic storage.
@@ -94,7 +109,11 @@ pub(super) fn imported_predicate_definition_state(
     )?;
 
     let [ImportedSemanticRecord::PredicateDefinition(definition)] = result.value().as_ref() else {
-        return Err(BindingQueryError::DependencyUnavailable);
+        return Err(invalid_imported_record_set(
+            address,
+            InterfaceSemanticRecordKind::PredicateDefinition,
+            result.value(),
+        ));
     };
 
     Ok(DiagnosticResult::new(
@@ -110,7 +129,11 @@ pub(super) fn imported_declared_type(
     let result = imported_records(context, address, InterfaceSemanticRecordKind::DeclaredType)?;
 
     let [ImportedSemanticRecord::DeclaredType(declared)] = result.value().as_ref() else {
-        return Err(BindingQueryError::DependencyUnavailable);
+        return Err(invalid_imported_record_set(
+            address,
+            InterfaceSemanticRecordKind::DeclaredType,
+            result.value(),
+        ));
     };
 
     Ok(DiagnosticResult::new(
@@ -130,7 +153,11 @@ pub(super) fn imported_callable_contract(
     )?;
 
     let [ImportedSemanticRecord::CallableContracts(contracts)] = result.value().as_ref() else {
-        return Err(BindingQueryError::DependencyUnavailable);
+        return Err(invalid_imported_record_set(
+            address,
+            InterfaceSemanticRecordKind::CallableContracts,
+            result.value(),
+        ));
     };
 
     // The candidate-facing result shares the imported contract and diagnostics.
@@ -151,7 +178,11 @@ pub(super) fn imported_callable_contracts(
     )?;
 
     let [ImportedSemanticRecord::CallableContracts(contracts)] = result.value().as_ref() else {
-        return Err(BindingQueryError::DependencyUnavailable);
+        return Err(invalid_imported_record_set(
+            address,
+            InterfaceSemanticRecordKind::CallableContracts,
+            result.value(),
+        ));
     };
 
     Ok(DiagnosticResult::new(
@@ -182,20 +213,29 @@ pub(in crate::compilation) fn imported_declaration_template_at(
         InterfaceSemanticRecordKind::DeclarationTemplate,
     )?;
 
-    let mut templates = result.value().iter().filter_map(|record| match record {
-        ImportedSemanticRecord::DeclarationTemplate(template)
-            if template.kind() == kind && template.ordinal() == ordinal =>
-        {
-            Some(template)
-        }
-        _ => None,
-    });
+    let templates = result
+        .value()
+        .iter()
+        .filter_map(|record| match record {
+            ImportedSemanticRecord::DeclarationTemplate(template)
+                if template.kind() == kind && template.ordinal() == ordinal =>
+            {
+                Some(template)
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
 
-    let template = templates.next();
-
-    if templates.next().is_some() {
-        return Err(BindingQueryError::DependencyUnavailable);
+    if templates.len() > 1 {
+        return Err(imported_record_count_mismatch(
+            address,
+            InterfaceSemanticRecordKind::DeclarationTemplate,
+            1,
+            templates.len(),
+        ));
     }
+
+    let template = templates.first().copied();
 
     // The imported result and this typed view share the same immutable template graph.
     Ok(DiagnosticResult::new(
@@ -215,7 +255,11 @@ pub(in crate::compilation) fn imported_implementation(
     )?;
 
     let [ImportedSemanticRecord::Implementation(implementation)] = result.value().as_ref() else {
-        return Err(BindingQueryError::DependencyUnavailable);
+        return Err(invalid_imported_record_set(
+            address,
+            InterfaceSemanticRecordKind::Implementation,
+            result.value(),
+        ));
     };
 
     // The adapter owns an Arc-backed header independently of the exact query result.
@@ -236,7 +280,11 @@ pub(super) fn imported_implemented_trait_application(
     )?;
 
     let [ImportedSemanticRecord::Implementation(implementation)] = result.value().as_ref() else {
-        return Err(BindingQueryError::DependencyUnavailable);
+        return Err(invalid_imported_record_set(
+            address,
+            InterfaceSemanticRecordKind::Implementation,
+            result.value(),
+        ));
     };
 
     let Some(application) = implementation.trait_application() else {
@@ -285,4 +333,175 @@ fn imported_records(
             context.cancellation,
         )
         .map_err(super::binding::binder_error)
+}
+
+fn invalid_imported_record_set(
+    address: ImportedSemanticAddress,
+    kind: InterfaceSemanticRecordKind,
+    records: &[ImportedSemanticRecord],
+) -> BindingQueryError<crate::fact::FactQueryError> {
+    if records.len() != 1 {
+        return imported_record_count_mismatch(address, kind, 1, records.len());
+    }
+
+    imported_record_contract(
+        address,
+        kind,
+        SemanticQueryViolation::ImportedRecordKindMismatch {
+            expected: kind,
+            actual: records[0].kind(),
+        },
+    )
+}
+
+fn imported_record_count_mismatch(
+    address: ImportedSemanticAddress,
+    kind: InterfaceSemanticRecordKind,
+    expected: usize,
+    actual: usize,
+) -> BindingQueryError<crate::fact::FactQueryError> {
+    imported_record_contract(
+        address,
+        kind,
+        SemanticQueryViolation::CountMismatch {
+            data: SemanticDataKind::DeclarationRecord,
+            expected,
+            actual,
+        },
+    )
+}
+
+pub(in crate::compilation) fn missing_imported_template(
+    address: ImportedSemanticAddress,
+    kind: InterfaceSemanticRecordKind,
+) -> BindingQueryError<crate::fact::FactQueryError> {
+    imported_record_contract(
+        address,
+        kind,
+        SemanticQueryViolation::Missing(SemanticDataKind::ImportedTemplate),
+    )
+}
+
+fn imported_record_contract(
+    address: ImportedSemanticAddress,
+    kind: InterfaceSemanticRecordKind,
+    violation: SemanticQueryViolation,
+) -> BindingQueryError<crate::fact::FactQueryError> {
+    let key = ImportedSemanticRecordKey::new(address.interface(), address.symbol(), kind);
+
+    crate::compilation::binder::semantic_contract_binding_error(
+        SemanticQueryContext::Fact(CompilationFactKey::ImportedSemanticRecord(key)),
+        violation,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_package_interface::{
+        InterfaceSemanticRecordKind, test_support::encoded_semantic_test_interface,
+    };
+
+    use super::{invalid_imported_record_set, missing_imported_template};
+    use crate::compilation::binder::binding_query_error;
+    use crate::compilation::{
+        SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+    };
+    use crate::fact::{CompilationFactKey, FactQueryError, ImportedSemanticRecordKey};
+    use crate::test_support::{compilation_with_dependencies, encoded_semantic_dependency};
+
+    #[test]
+    fn imported_record_failures_retain_exact_artifact_address_and_kinds() {
+        let fixture = encoded_semantic_test_interface();
+
+        let compilation =
+            compilation_with_dependencies("module app;", [encoded_semantic_dependency(&fixture)]);
+
+        let skeleton = compilation
+            .imported_symbol_skeleton_result()
+            .unwrap_or_else(|error| panic!("imported skeleton must load: {error:?}"));
+
+        let skeleton = skeleton
+            .value()
+            .as_deref()
+            .unwrap_or_else(|| panic!("valid dependency must publish its symbol skeleton"));
+
+        let function = skeleton
+            .functions()
+            .iter()
+            .find(|function| {
+                function
+                    .imported_semantic_key()
+                    .is_some_and(|key| key.symbol() == fixture.template_owner)
+            })
+            .unwrap_or_else(|| panic!("fixture function must be imported"));
+
+        let address = skeleton
+            .imported_semantic_address(function.id().into())
+            .unwrap_or_else(|| panic!("imported function must retain its semantic address"));
+
+        let kind = InterfaceSemanticRecordKind::CallableSignature;
+        let key = ImportedSemanticRecordKey::new(address.interface(), address.symbol(), kind);
+
+        let expected: FactQueryError = SemanticQueryFailure::contract(
+            SemanticQueryContext::Fact(CompilationFactKey::ImportedSemanticRecord(key)),
+            SemanticQueryViolation::CountMismatch {
+                data: SemanticDataKind::DeclarationRecord,
+                expected: 1,
+                actual: 0,
+            },
+        )
+        .into();
+
+        assert_eq!(
+            binding_query_error(invalid_imported_record_set(address, kind, &[])),
+            expected
+        );
+
+        let template_kind = InterfaceSemanticRecordKind::DeclarationTemplate;
+
+        let template_key =
+            ImportedSemanticRecordKey::new(address.interface(), address.symbol(), template_kind);
+
+        let expected: FactQueryError = SemanticQueryFailure::contract(
+            SemanticQueryContext::Fact(CompilationFactKey::ImportedSemanticRecord(template_key)),
+            SemanticQueryViolation::Missing(SemanticDataKind::ImportedTemplate),
+        )
+        .into();
+
+        assert_eq!(
+            binding_query_error(missing_imported_template(address, template_kind)),
+            expected
+        );
+
+        let records = compilation
+            .imported_semantics(ImportedSemanticRecordKey::new(
+                address.interface(),
+                address.symbol(),
+                kind,
+            ))
+            .unwrap_or_else(|error| panic!("imported semantics must load: {error:?}"));
+
+        let requested_kind = InterfaceSemanticRecordKind::GenericDeclaration;
+
+        let requested_key =
+            ImportedSemanticRecordKey::new(address.interface(), address.symbol(), requested_kind);
+
+        let expected: FactQueryError = SemanticQueryFailure::contract(
+            SemanticQueryContext::Fact(CompilationFactKey::ImportedSemanticRecord(requested_key)),
+            SemanticQueryViolation::ImportedRecordKindMismatch {
+                expected: requested_kind,
+                actual: kind,
+            },
+        )
+        .into();
+
+        assert_eq!(
+            binding_query_error(invalid_imported_record_set(
+                address,
+                requested_kind,
+                records.value(),
+            )),
+            expected,
+        );
+    }
 }

@@ -24,6 +24,9 @@ use super::super::binder::{self, CompilationBindingContext};
 use super::super::checker::checker_query_error;
 use super::super::substitution::named_type;
 use super::support::{checked_integer, checked_integer_constant, integer_role, symbol_span};
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+};
 use crate::fact::{
     CancellationToken, CompilationFactKey, FactQueryError, ImportedSemanticRecordKey,
 };
@@ -98,7 +101,12 @@ impl Compilation {
             NamedTypeSymbolId::Struct(id) => {
                 let record =
                     SymbolProvider::<StructSymbolId>::symbol(binding_context.symbols(), id)
-                        .ok_or(FactQueryError::InfrastructureFailure)?;
+                        .ok_or_else(|| {
+                            symbol_contract_failure(
+                                id.into(),
+                                SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                            )
+                        })?;
 
                 let fields = record
                     .fields()
@@ -131,10 +139,12 @@ impl Compilation {
                 )
             }
             NamedTypeSymbolId::Union(id) => {
-                let record = binding_context
-                    .symbols()
-                    .union(id)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let record = binding_context.symbols().union(id).ok_or_else(|| {
+                    symbol_contract_failure(
+                        id.into(),
+                        SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                    )
+                })?;
 
                 let span = symbol_span(
                     binding_context.symbols(),
@@ -174,7 +184,12 @@ impl Compilation {
         let record = binding_context
             .symbols()
             .struct_field(field)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                symbol_contract_failure(
+                    field.into(),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         let ty = binding_context
             .resolve_symbol_query(SymbolQueryRequest::<StructFieldTypeQuery>::new(field))
@@ -203,7 +218,12 @@ impl Compilation {
         let record = binding_context
             .symbols()
             .union_variant(variant)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                symbol_contract_failure(
+                    variant.into(),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         let span = symbol_span(
             binding_context.symbols(),
@@ -239,7 +259,12 @@ impl Compilation {
         let record = binding_context
             .symbols()
             .union_payload_field(field)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                symbol_contract_failure(
+                    field.into(),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         let ty = binding_context
             .resolve_symbol_query(SymbolQueryRequest::<UnionPayloadFieldTypeQuery>::new(field))
@@ -258,6 +283,13 @@ impl Compilation {
             record.is_recovered(),
         ))
     }
+}
+
+fn symbol_contract_failure(
+    symbol: bray_symbols::AnySymbolId,
+    violation: SemanticQueryViolation,
+) -> FactQueryError {
+    SemanticQueryFailure::contract(SemanticQueryContext::Symbol(symbol), violation).into()
 }
 
 struct CompilationTypeRepresentationContext<'compilation> {

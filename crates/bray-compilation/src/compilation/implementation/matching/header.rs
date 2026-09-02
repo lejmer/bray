@@ -2,15 +2,15 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_symbols::{
     CallableTypeData, GenericArgument, GenericParameterSymbolId, GenericSubstitutionData,
-    GenericSubstitutionId, ImplementationSymbolId, SemanticValueStore, SemanticValueStoreError,
-    TraitApplicationId, TypeData, TypeId,
+    GenericSubstitutionId, GenericSubstitutionShapeError, ImplementationSymbolId,
+    SemanticValueStore, SemanticValueStoreError, TraitApplicationId, TypeData, TypeId,
 };
 
 use super::super::index::ImplementationHeader;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::compilation) enum ImplementationMatchError {
-    InvalidSubstitution,
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum ImplementationMatchError {
+    InvalidSubstitution(GenericSubstitutionShapeError),
     SemanticValue(SemanticValueStoreError),
 }
 
@@ -103,7 +103,7 @@ impl<'values> HeaderMatcher<'values> {
 
         let substitution =
             GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments)
-                .map_err(|_| ImplementationMatchError::InvalidSubstitution)?;
+                .map_err(ImplementationMatchError::InvalidSubstitution)?;
 
         self.values
             .intern_generic_substitution(substitution)
@@ -383,9 +383,7 @@ mod tests {
         SemanticValueStore, SymbolId, TypeData,
     };
 
-    use super::{
-        HeaderMatcher, ImplementationMatchError, match_implementation_subject,
-    };
+    use super::{HeaderMatcher, ImplementationMatchError, match_implementation_subject};
 
     #[test]
     fn equal_generic_parameters_are_recorded_as_substitution_arguments() {

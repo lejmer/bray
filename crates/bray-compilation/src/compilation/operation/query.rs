@@ -12,12 +12,15 @@ use bray_checker::{
     ExpressionTypeInput, OperationCandidate, OperationSelectionRequest, SemanticSelector,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
-use bray_symbols::TypeId;
+use bray_symbols::{AnySymbolId, TypeId};
 
 use super::super::Compilation;
 use super::super::binder::CompilationBindingContext;
 use super::super::checker::checker_result;
 use super::super::unit::semantic_unit_context_for;
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+};
 use crate::fact::{
     CancellationToken, CompilationFactKey, FactQueryError, OperationSelectionQueryKey,
 };
@@ -164,10 +167,12 @@ impl Compilation {
         cancellation: &CancellationToken,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<OperationResolution>, FactQueryError> {
-        let expression = unit
-            .view()
-            .expression(key.expression())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let expression = unit.view().expression(key.expression()).ok_or_else(|| {
+            operation_contract_failure(
+                key,
+                SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression),
+            )
+        })?;
 
         let selection_kind =
             selection_kind_for(binding_context, unit, key.expression(), expression)?;
@@ -264,9 +269,13 @@ impl Compilation {
         let mut entries = provisional.entries().to_vec();
 
         for operand in selection_operands(expression, kind) {
-            let result = provisional
-                .expression(operand)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let result = provisional.expression(operand).ok_or_else(|| {
+                expression_contract_failure(
+                    key.unit(),
+                    operand,
+                    SemanticQueryViolation::Missing(SemanticDataKind::Type),
+                )
+            })?;
 
             if !result.is_recovered() {
                 continue;
@@ -280,16 +289,20 @@ impl Compilation {
                 .expression(operand)
                 .and_then(bray_bound_tree::SemanticSelection::result_type)
             {
-                replace_expression_type(&mut entries, operand, ty)?;
+                replace_expression_type(key, &mut entries, operand, ty)?;
 
                 continue;
             }
 
             let Some(operand_expression) = unit.view().expression(operand) else {
-                return Err(FactQueryError::InfrastructureFailure);
+                return Err(expression_contract_failure(
+                    key.unit(),
+                    operand,
+                    SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression),
+                ));
             };
 
-            if selection_kind(operand_expression).is_err() {
+            if selection_kind(unit, operand, operand_expression).is_err() {
                 return Ok(None);
             }
 
@@ -306,7 +319,7 @@ impl Compilation {
                 return Ok(None);
             };
 
-            replace_expression_type(&mut entries, operand, resolution.result_type())?;
+            replace_expression_type(key, &mut entries, operand, resolution.result_type())?;
         }
 
         let types = bray_bound_tree::CheckedExpressionTypes::new(
@@ -349,9 +362,12 @@ impl Compilation {
                 binding_context,
                 unit,
                 key.expression(),
-                unit.view()
-                    .expression(key.expression())
-                    .ok_or(FactQueryError::InfrastructureFailure)?,
+                unit.view().expression(key.expression()).ok_or_else(|| {
+                    operation_contract_failure(
+                        key,
+                        SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression),
+                    )
+                })?,
             )?,
             operands,
             candidates,
@@ -368,9 +384,9 @@ impl Compilation {
             return Ok(None);
         };
 
-        let result_type = operation
-            .result_type()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let result_type = operation.result_type().ok_or_else(|| {
+            operation_contract_failure(key, SemanticQueryViolation::Missing(SemanticDataKind::Type))
+        })?;
 
         let expectations = match &operation {
             bray_bound_tree::SelectedOperation::Construction(construction) => construction
@@ -396,6 +412,7 @@ impl Compilation {
 }
 
 fn replace_expression_type(
+    key: &OperationSelectionQueryKey,
     entries: &mut [ExpressionTypeEntry],
     expression: BoundExpressionId,
     ty: TypeId,
@@ -404,7 +421,11 @@ fn replace_expression_type(
         .iter_mut()
         .find(|entry| entry.expression() == expression)
     else {
-        return Err(FactQueryError::InfrastructureFailure);
+        return Err(expression_contract_failure(
+            key.unit(),
+            expression,
+            SemanticQueryViolation::Missing(SemanticDataKind::Type),
+        ));
     };
 
     *entry = ExpressionTypeEntry::new(
@@ -416,6 +437,8 @@ fn replace_expression_type(
 }
 
 pub(in crate::compilation) fn selection_kind(
+    unit: &BoundUnit,
+    expression_id: BoundExpressionId,
     expression: &BoundExpression,
 ) -> Result<bray_bound_tree::SelectionKind, FactQueryError> {
     match expression {
@@ -449,7 +472,11 @@ pub(in crate::compilation) fn selection_kind(
         {
             Ok(bray_bound_tree::SelectionKind::Construction)
         }
-        _ => Err(FactQueryError::InfrastructureFailure),
+        _ => Err(expression_contract_failure(
+            unit.key(),
+            expression_id,
+            SemanticQueryViolation::Unsupported(SemanticDataKind::OperationSelection),
+        )),
     }
 }
 
@@ -511,11 +538,11 @@ fn operation_expressions(
 ) -> Result<Vec<BoundExpressionId>, FactQueryError> {
     let variant_construction_callees = variant_construction_callees(binding_context, unit);
     let mut expressions = Vec::new();
-    let mut cancellation_failure = None;
+    let mut walk_failure = None;
 
     let outcome = walk_bound_unit_view(unit.view(), unit.root(), |event| {
         if let Err(error) = cancellation.check() {
-            cancellation_failure = Some(error);
+            walk_failure = Some(error);
 
             return BoundWalkControl::Stop;
         }
@@ -525,22 +552,42 @@ fn operation_expressions(
         };
 
         let Some(expression) = unit.view().expression(id) else {
+            walk_failure = Some(expression_contract_failure(
+                unit.key(),
+                id,
+                SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression),
+            ));
+
             return BoundWalkControl::Stop;
         };
 
-        if selection_kind(expression).is_ok() && !variant_construction_callees.contains(&id) {
+        if selection_kind(unit, id, expression).is_ok()
+            && !variant_construction_callees.contains(&id)
+        {
             expressions.push(id);
         }
 
         BoundWalkControl::Continue
     });
 
-    if let Some(error) = cancellation_failure {
+    if let Some(error) = walk_failure {
         return Err(error);
     }
 
-    if outcome != BoundWalkOutcome::Completed {
-        return Err(FactQueryError::InfrastructureFailure);
+    match outcome {
+        BoundWalkOutcome::Completed => {}
+        BoundWalkOutcome::MissingNode(node) => {
+            return Err(unit_contract_failure(
+                unit.key(),
+                SemanticQueryViolation::MissingBoundNode(node),
+            ));
+        }
+        BoundWalkOutcome::Stopped => {
+            return Err(unit_contract_failure(
+                unit.key(),
+                SemanticQueryViolation::UnexpectedWalkOutcome(outcome),
+            ));
+        }
     }
 
     Ok(expressions)
@@ -556,7 +603,43 @@ fn selection_kind_for(
         return Ok(bray_bound_tree::SelectionKind::Construction);
     }
 
-    selection_kind(expression)
+    selection_kind(unit, expression_id, expression)
+}
+
+pub(super) fn operation_contract_failure(
+    key: &OperationSelectionQueryKey,
+    violation: SemanticQueryViolation,
+) -> FactQueryError {
+    expression_contract_failure(key.unit(), key.expression(), violation)
+}
+
+pub(super) fn expression_contract_failure(
+    unit: &BoundUnitKey,
+    expression: BoundExpressionId,
+    violation: SemanticQueryViolation,
+) -> FactQueryError {
+    SemanticQueryFailure::contract(
+        SemanticQueryContext::Expression {
+            unit: unit.clone(),
+            expression,
+        },
+        violation,
+    )
+    .into()
+}
+
+pub(super) fn unit_contract_failure(
+    unit: &BoundUnitKey,
+    violation: SemanticQueryViolation,
+) -> FactQueryError {
+    SemanticQueryFailure::contract(SemanticQueryContext::Unit(unit.clone()), violation).into()
+}
+
+pub(super) fn symbol_contract_failure(
+    symbol: AnySymbolId,
+    violation: SemanticQueryViolation,
+) -> FactQueryError {
+    SemanticQueryFailure::contract(SemanticQueryContext::Symbol(symbol), violation).into()
 }
 
 fn selection_operands(
@@ -596,11 +679,135 @@ pub(super) fn expression_type(
     types: &bray_bound_tree::CheckedExpressionTypes,
     expression: BoundExpressionId,
 ) -> Result<TypeId, FactQueryError> {
-    let result = types
-        .expression(expression)
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+    let context = SemanticQueryContext::BoundExpression {
+        unit: types.unit(),
+        expression,
+    };
+
+    let result = types.expression(expression).ok_or_else(|| {
+        SemanticQueryFailure::contract(
+            context.clone(),
+            SemanticQueryViolation::Missing(SemanticDataKind::Type),
+        )
+    })?;
 
     (!result.is_recovered())
         .then_some(result.ty())
-        .ok_or(FactQueryError::InfrastructureFailure)
+        .ok_or_else(|| {
+            SemanticQueryFailure::contract(
+                context,
+                SemanticQueryViolation::Unsupported(SemanticDataKind::Type),
+            )
+            .into()
+        })
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_bound_tree::{
+        BoundErrorExpression, BoundExpression, BoundExpressionId, BoundNodeOrigin,
+        BoundTreeBuilder, BoundUnitId, BoundUnitKind, CheckedExpressionTypes, ExpressionTypeEntry,
+        ExpressionTypeResult, ExpressionTypeStatus, testing::push_expression,
+    };
+    use bray_symbols::{
+        AnySymbolId, FunctionSymbolId, SemanticValueStore, SymbolId, TypeData, TypeId,
+    };
+
+    use super::{operation_contract_failure, symbol_contract_failure};
+    use crate::compilation::{
+        SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+    };
+    use crate::fact::{FactQueryError, OperationSelectionQueryKey};
+    use crate::test_support::callable_body_key;
+
+    #[test]
+    fn operation_contract_failure_retains_unit_expression_and_violation() {
+        let unit = callable_body_key(7);
+        let expression = expression_id(BoundUnitId::new(11), &unit);
+        let key = OperationSelectionQueryKey::new(unit.clone(), expression);
+        let violation = SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression);
+
+        assert_eq!(
+            operation_contract_failure(&key, violation.clone()),
+            FactQueryError::from(SemanticQueryFailure::contract(
+                SemanticQueryContext::Expression { unit, expression },
+                violation,
+            ))
+        );
+    }
+
+    #[test]
+    fn symbol_contract_failure_retains_exact_operation_subject() {
+        let symbol = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(17)));
+        let violation = SemanticQueryViolation::Missing(SemanticDataKind::OperationSelection);
+
+        assert_eq!(
+            symbol_contract_failure(symbol, violation.clone()),
+            FactQueryError::from(SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(symbol),
+                violation,
+            ))
+        );
+    }
+
+    #[test]
+    fn missing_expression_type_retains_bound_unit_and_expression() {
+        let unit = BoundUnitId::new(11);
+        let key = callable_body_key(7);
+        let expression = expression_id(unit, &key);
+        let types = CheckedExpressionTypes::new(unit, BoundUnitKind::CallableBody, []);
+
+        assert_eq!(
+            super::expression_type(&types, expression),
+            Err(FactQueryError::from(SemanticQueryFailure::contract(
+                SemanticQueryContext::BoundExpression { unit, expression },
+                SemanticQueryViolation::Missing(SemanticDataKind::Type),
+            )))
+        );
+    }
+
+    #[test]
+    fn recovered_expression_type_retains_bound_unit_and_expression() {
+        let unit = BoundUnitId::new(11);
+        let key = callable_body_key(7);
+        let expression = expression_id(unit, &key);
+
+        let types = CheckedExpressionTypes::new(
+            unit,
+            BoundUnitKind::CallableBody,
+            [ExpressionTypeEntry::new(
+                expression,
+                ExpressionTypeResult::new(test_type(), ExpressionTypeStatus::Recovered),
+            )],
+        );
+
+        assert_eq!(
+            super::expression_type(&types, expression),
+            Err(FactQueryError::from(SemanticQueryFailure::contract(
+                SemanticQueryContext::BoundExpression { unit, expression },
+                SemanticQueryViolation::Unsupported(SemanticDataKind::Type),
+            )))
+        );
+    }
+
+    fn expression_id(unit: BoundUnitId, key: &bray_bound_tree::BoundUnitKey) -> BoundExpressionId {
+        let mut tree = BoundTreeBuilder::new(unit);
+
+        push_expression(
+            &mut tree,
+            BoundExpression::Error(BoundErrorExpression::new(
+                BoundNodeOrigin::source(key.source()),
+                test_type(),
+            )),
+        )
+    }
+
+    fn test_type() -> TypeId {
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("semantic store must build: {error:?}"));
+
+        values
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("error type must intern: {error:?}"))
+    }
 }

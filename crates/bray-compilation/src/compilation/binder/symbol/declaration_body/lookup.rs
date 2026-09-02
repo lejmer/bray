@@ -1,5 +1,5 @@
 use crate::compilation::binder::BindingQueryResult;
-use bray_binder::{BindingQueryContext, BindingQueryError};
+use bray_binder::{BindingError, BindingQueryContext, BindingQueryError};
 use bray_symbols::{
     AnySymbolId, CallableParameterSymbolId, StructFieldSymbolId, UnionPayloadFieldSymbolId,
     UnionVariantSymbolId,
@@ -47,7 +47,9 @@ pub(super) fn callable_parameter<'binding>(
     context
         .imported_symbols()?
         .and_then(|symbols| symbols.callable_parameter(owner))
-        .ok_or(BindingQueryError::DependencyUnavailable)
+        .ok_or(BindingQueryError::Binding(
+            BindingError::SymbolRecordUnavailable(owner.into()),
+        ))
 }
 
 pub(super) fn struct_field<'binding>(
@@ -61,7 +63,9 @@ pub(super) fn struct_field<'binding>(
     context
         .imported_symbols()?
         .and_then(|symbols| symbols.struct_field(owner))
-        .ok_or(BindingQueryError::DependencyUnavailable)
+        .ok_or(BindingQueryError::Binding(
+            BindingError::SymbolRecordUnavailable(owner.into()),
+        ))
 }
 
 pub(super) fn union_payload_field<'binding>(
@@ -75,7 +79,9 @@ pub(super) fn union_payload_field<'binding>(
     context
         .imported_symbols()?
         .and_then(|symbols| symbols.union_payload_field(owner))
-        .ok_or(BindingQueryError::DependencyUnavailable)
+        .ok_or(BindingQueryError::Binding(
+            BindingError::SymbolRecordUnavailable(owner.into()),
+        ))
 }
 
 pub(super) fn union_variant<'binding>(
@@ -89,5 +95,7 @@ pub(super) fn union_variant<'binding>(
     context
         .imported_symbols()?
         .and_then(|symbols| symbols.union_variant(owner))
-        .ok_or(BindingQueryError::DependencyUnavailable)
+        .ok_or(BindingQueryError::Binding(
+            BindingError::SymbolRecordUnavailable(owner.into()),
+        ))
 }

@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use bray_base::Cancellation;
 use bray_compiler_known::RepresentationRole;
+use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableContractSymbolId, ConstantTermData, GenericArgument,
@@ -17,7 +18,9 @@ use bray_syntax::{
 };
 
 use super::contract::TypeExpressionScope;
-use crate::{BindingQueryContext, BindingQueryError, BindingQueryResult, ImportedPathRoot};
+use crate::{
+    BindingError, BindingQueryContext, BindingQueryError, BindingQueryResult, ImportedPathRoot,
+};
 
 /// Supplies imported symbols only when type binding reaches an imported path or declaration.
 pub trait TypeExpressionImports<Upstream = std::convert::Infallible> {
@@ -220,7 +223,9 @@ impl<'binding_context, Upstream> TypeExpressionBinder<'binding_context, Upstream
                 Some(context) => self
                     .intern_type(TypeData::ContextualSelf(context))
                     .map(TypeExpressionTemplate::Resolved),
-                None => Err(BindingQueryError::DependencyUnavailable),
+                None => Err(BindingQueryError::Binding(
+                    BindingError::ContextualSelfUnavailable(SyntaxAnchor::from_node(syntax)),
+                )),
             };
         }
 
@@ -260,7 +265,9 @@ impl<'binding_context, Upstream> TypeExpressionBinder<'binding_context, Upstream
             };
         }
 
-        Err(BindingQueryError::DependencyUnavailable)
+        Err(BindingQueryError::Binding(BindingError::SyntaxContract(
+            SyntaxAnchor::from_node(syntax),
+        )))
     }
 
     fn bind_borrow_type(
@@ -301,11 +308,15 @@ impl<'binding_context, Upstream> TypeExpressionBinder<'binding_context, Upstream
         let mut nested = syntax.type_expressions();
 
         let Some(target) = nested.next() else {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(BindingQueryError::Binding(BindingError::SyntaxContract(
+                SyntaxAnchor::from_node(syntax),
+            )));
         };
 
         if nested.next().is_some() {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(BindingQueryError::Binding(BindingError::SyntaxContract(
+                SyntaxAnchor::from_node(syntax),
+            )));
         }
 
         self.bind_type(&target)
@@ -357,11 +368,15 @@ impl<'binding_context, Upstream> TypeExpressionBinder<'binding_context, Upstream
             .map(|parameter| self.contextual_generic_argument(parameter))
             .collect::<BindingQueryResult<Vec<_>, Upstream>>()?;
 
-        let owner = GenericOwnerId::try_new(trait_definition.into())
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+        let owner =
+            GenericOwnerId::try_new(trait_definition.into()).ok_or(BindingQueryError::Binding(
+                BindingError::GenericOwnerUnavailable(trait_definition.into()),
+            ))?;
 
-        let substitution = GenericSubstitutionData::try_new(owner, parameters, arguments)
-            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+        let substitution =
+            GenericSubstitutionData::try_new(owner, parameters, arguments).map_err(|error| {
+                BindingQueryError::Binding(BindingError::GenericSubstitution(error))
+            })?;
 
         let substitution = self
             .semantic_values
@@ -417,9 +432,9 @@ impl<'binding_context, Upstream> TypeExpressionBinder<'binding_context, Upstream
         &self,
         template: &TypeExpressionTemplate,
     ) -> BindingQueryResult<TypeId, Upstream> {
-        template
-            .resolved_type()
-            .ok_or(BindingQueryError::DependencyUnavailable)
+        template.resolved_type().ok_or(BindingQueryError::Binding(
+            BindingError::UnresolvedTypeTemplate,
+        ))
     }
 
     fn bind_borrow_template(

@@ -244,7 +244,7 @@ impl TypeAssociatedImplementation {
 }
 
 /// Reports malformed input while assembling a type-associated surface.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum TypeAssociatedSurfaceBuildError {
     /// The same member identity appears more than once.
     DuplicateMember(AnySymbolId),

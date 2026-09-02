@@ -7,7 +7,7 @@ use bray_symbols::{
 use bray_syntax::{ExpressionSyntax, GenericArgumentSyntax, SourceSyntaxNode};
 
 use super::core::TypeExpressionBinder;
-use crate::{BindingQueryError, BindingQueryResult};
+use crate::{BindingError, BindingQueryError, BindingQueryResult};
 
 impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     pub(super) fn bind_array_length(
@@ -41,7 +41,9 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             return Ok(self.constant_expression_occurrence(argument, expected));
         }
 
-        Err(BindingQueryError::DependencyUnavailable)
+        Err(BindingQueryError::Binding(BindingError::SyntaxContract(
+            SyntaxAnchor::from_node(argument),
+        )))
     }
 
     fn constant_expression_occurrence(

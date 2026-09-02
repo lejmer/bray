@@ -145,19 +145,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
             .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
                 owner,
             ))
-            .map_err(|error| match error {
-                BindingQueryError::Cancelled => CheckerQueryError::Cancelled,
-                BindingQueryError::CheckerInfrastructure(error) => {
-                    CheckerQueryError::Infrastructure(error)
-                }
-                BindingQueryError::SemanticValue(error) => CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                ),
-                BindingQueryError::DependencyUnavailable => {
-                    CheckerQueryError::Upstream(FactQueryError::BindingDependencyUnavailable)
-                }
-                BindingQueryError::Upstream(error) => CheckerQueryError::Upstream(error),
-            })?;
+            .map_err(checker_binder_error)?;
 
         for constraint in generic.value().constraints() {
             let Some((subject, application)) = constraint.trait_satisfaction_templates() else {
@@ -216,8 +204,10 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
             terms.push((occurrence.key(), *result.value()));
         }
 
-        CheckedConstantTerms::try_from_terms(terms).map_err(|_| {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+        CheckedConstantTerms::try_from_terms(terms).map_err(|error| {
+            CheckerQueryError::Infrastructure(CheckerInfrastructureError::CheckedConstantTerms(
+                error,
+            ))
         })
     }
 
@@ -600,9 +590,9 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .semantic_values()
             .implementation_instance_data(instance)
             .map_err(|error| {
-                CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                )
+                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
             })?;
 
         let fulfillments =
@@ -794,11 +784,38 @@ fn checker_binder_error(error: BindingQueryError<FactQueryError>) -> CheckerQuer
     match error {
         BindingQueryError::Cancelled => CheckerQueryError::Cancelled,
         BindingQueryError::CheckerInfrastructure(error) => CheckerQueryError::Infrastructure(error),
-        BindingQueryError::SemanticValue(error) => CheckerQueryError::Infrastructure(
-            CheckerInfrastructureError::SemanticValueStore(error),
-        ),
+        BindingQueryError::SemanticValue(error) => {
+            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
+        }
         BindingQueryError::DependencyUnavailable => {
             CheckerQueryError::Upstream(FactQueryError::BindingDependencyUnavailable)
+        }
+        error @ (BindingQueryError::MissingSyntax { .. }
+        | BindingQueryError::MissingOwner { .. }
+        | BindingQueryError::MissingModule { .. }
+        | BindingQueryError::InvalidSurfaceName { .. }) => {
+            CheckerQueryError::Upstream(super::binder::binding_query_error(error))
+        }
+        BindingQueryError::Construction(error) => {
+            CheckerQueryError::Upstream(super::binder::binding_query_error(BindingQueryError::<
+                FactQueryError,
+            >::Construction(
+                error
+            )))
+        }
+        BindingQueryError::Binding(error) => {
+            CheckerQueryError::Upstream(super::binder::binding_query_error(BindingQueryError::<
+                FactQueryError,
+            >::Binding(
+                error
+            )))
+        }
+        BindingQueryError::Assembly(error) => {
+            CheckerQueryError::Upstream(super::binder::binding_query_error(BindingQueryError::<
+                FactQueryError,
+            >::Assembly(
+                error
+            )))
         }
         BindingQueryError::Upstream(error) => CheckerQueryError::Upstream(error),
     }
@@ -832,6 +849,27 @@ where
                         kind: request.kind(),
                     },
                 ),
+                error @ (BindingQueryError::MissingSyntax { .. }
+                | BindingQueryError::MissingOwner { .. }
+                | BindingQueryError::MissingModule { .. }
+                | BindingQueryError::InvalidSurfaceName { .. }) => {
+                    CheckerQueryError::Upstream(super::binder::binding_query_error(error))
+                }
+                BindingQueryError::Construction(error) => {
+                    CheckerQueryError::Upstream(super::binder::binding_query_error(
+                        BindingQueryError::<FactQueryError>::Construction(error),
+                    ))
+                }
+                BindingQueryError::Binding(error) => {
+                    CheckerQueryError::Upstream(super::binder::binding_query_error(
+                        BindingQueryError::<FactQueryError>::Binding(error),
+                    ))
+                }
+                BindingQueryError::Assembly(error) => {
+                    CheckerQueryError::Upstream(super::binder::binding_query_error(
+                        BindingQueryError::<FactQueryError>::Assembly(error),
+                    ))
+                }
                 BindingQueryError::Upstream(error) => CheckerQueryError::Upstream(error),
             })
     }
@@ -935,7 +973,7 @@ mod tests {
 
     #[test]
     fn checker_boundaries_preserve_exact_compilation_failures() {
-        let error = FactQueryError::Binding(bray_binder::BoundUnitBindingError::MissingOwner);
+        let error = FactQueryError::Binding(bray_binder::BoundUnitBindingError::InvalidUnitKey);
 
         assert_eq!(
             checker_query_error(error.clone()),

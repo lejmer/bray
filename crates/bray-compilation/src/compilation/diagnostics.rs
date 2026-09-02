@@ -90,15 +90,13 @@ fn checker_failure_diagnostics(
 ) -> DiagnosticBag {
     let anchor = key.source().syntax();
 
-    let source = checker_failure_node(&error)
-        .and_then(|node| bound.and_then(|bound| bound_node_source(bound, node)))
+    let source = checker_failure_source(&error, bound)
         .unwrap_or_else(|| SourceSpan::new(anchor.source_id(), anchor.full_range()));
 
-    let failure = DiagnosticEmissionFailure::Evaluation(
-        DiagnosticEmissionEvaluationFailure::Checker(crate::fact::diagnostic_checker_failure(
-            error,
-        )),
-    );
+    let failure =
+        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Checker(
+            crate::fact::diagnostic_checker_failure(error),
+        ));
 
     let diagnostic = Diagnostic::new(
         DiagnosticId::new(anchor.full_range().start().bytes()),
@@ -107,26 +105,109 @@ fn checker_failure_diagnostics(
     )
     .with_arg(DiagnosticArg::emission_failure(failure));
 
-    DiagnosticBag::single(with_compiler_defect_source(
-        diagnostic,
-        source,
-    ))
+    DiagnosticBag::single(with_compiler_defect_source(diagnostic, source))
+}
+
+fn semantic_query_failure_diagnostics(
+    key: &BoundUnitKey,
+    error: &crate::compilation::SemanticQueryError,
+) -> DiagnosticBag {
+    let anchor = key.source().syntax();
+
+    let source = error
+        .source()
+        .unwrap_or_else(|| SourceSpan::new(anchor.source_id(), anchor.full_range()));
+
+    let failure =
+        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::SemanticQuery(
+            crate::fact::diagnostic_semantic_query_failure(error.kind()),
+        ));
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(anchor.full_range().start().bytes()),
+        DiagnosticKind::CheckingCompilerDefect,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::emission_failure(failure));
+
+    DiagnosticBag::single(with_compiler_defect_source(diagnostic, source))
+}
+
+fn checker_failure_source(
+    error: &bray_checker::CheckerInfrastructureError,
+    bound: Option<&BoundUnit>,
+) -> Option<SourceSpan> {
+    use bray_checker::{
+        CheckedConstantTermsBuildError, CheckerConstantEvaluationFailure,
+        CheckerConstantInputFailure, CheckerInfrastructureError as Error,
+    };
+
+    match error {
+        Error::CheckedConstantTerms(CheckedConstantTermsBuildError::DuplicateOccurrence(key)) => {
+            let syntax = key.syntax();
+
+            Some(SourceSpan::new(syntax.source_id(), syntax.full_range()))
+        }
+        Error::ConstantInput(CheckerConstantInputFailure::ConflictingLocalTerm { local }) => {
+            bound.and_then(|bound| local_symbol_source(bound, (*local).into()))
+        }
+        Error::ConstantEvaluation(CheckerConstantEvaluationFailure::MissingPatternBinding {
+            binding,
+        }) => bound.and_then(|bound| local_symbol_source(bound, (*binding).into())),
+        _ => checker_failure_node(error)
+            .and_then(|node| bound.and_then(|bound| bound_node_source(bound, node))),
+    }
 }
 
 fn checker_failure_node(
     error: &bray_checker::CheckerInfrastructureError,
 ) -> Option<AnyBoundNodeId> {
-    use bray_checker::{CheckerInfrastructureError as Error, CheckerStorageFlowFailure as Flow};
+    use bray_checker::{
+        CheckerConstantEvaluationFailure as ConstantEvaluation,
+        CheckerConstantInputFailure as ConstantInput, CheckerInfrastructureError as Error,
+        CheckerLiteralValueFailure as Literal, CheckerPatternInputFailure as Pattern,
+        CheckerStorageFlowFailure as Flow,
+    };
 
     match error {
         Error::InvalidExpressionTypeInput { expression }
         | Error::InvalidStorageOperation { expression, .. } => Some((*expression).into()),
         Error::InvalidBoundNode { node } => Some(*node),
+        Error::LiteralValue(failure) => match failure {
+            Literal::InvalidLiteral { expression }
+            | Literal::MissingExpressionType { expression }
+            | Literal::MissingLiteralValue { expression }
+            | Literal::ValueTypeMismatch { expression }
+            | Literal::DuplicateExpression { expression } => Some((*expression).into()),
+            Literal::ForeignExpressionTypes => None,
+        },
+        Error::PatternInput(failure) => match failure {
+            Pattern::ConflictingDeclaredPattern { pattern }
+            | Pattern::ConflictingConstantPattern { pattern } => Some((*pattern).into()),
+            Pattern::ConflictingGuard { expression } => Some((*expression).into()),
+        },
+        Error::ConstantInput(failure) => match failure {
+            ConstantInput::ConflictingReference { expression } => Some((*expression).into()),
+            ConstantInput::ConflictingLocalTerm { .. } => None,
+        },
+        Error::ConstantEvaluation(failure) => match failure {
+            ConstantEvaluation::InvalidExpressionRoot { expression }
+            | ConstantEvaluation::MissingExpressionType { expression }
+            | ConstantEvaluation::MissingExpression { expression } => Some((*expression).into()),
+            ConstantEvaluation::InvalidBlockRoot { block }
+            | ConstantEvaluation::MissingBlockResultType { block }
+            | ConstantEvaluation::MissingBlock { block } => Some((*block).into()),
+            ConstantEvaluation::MissingPatternInput { pattern }
+            | ConstantEvaluation::MissingPattern { pattern } => Some((*pattern).into()),
+            ConstantEvaluation::MissingPatternBinding { .. }
+            | ConstantEvaluation::UnexpectedPropagation { .. } => None,
+        },
         Error::StorageFlow(failure) => match failure {
             Flow::MissingAwaitDependencyContract { expression }
             | Flow::MissingDependencyContract { expression, .. } => Some((*expression).into()),
             Flow::MissingExitOrigin { exit } => Some(*exit),
-            Flow::MissingBlock { block } | Flow::UnbalancedScopes {
+            Flow::MissingBlock { block }
+            | Flow::UnbalancedScopes {
                 open_scope: Some(block),
             } => Some((*block).into()),
             Flow::MissingPattern { pattern } => Some((*pattern).into()),
@@ -136,11 +217,22 @@ fn checker_failure_node(
     }
 }
 
+fn local_symbol_source(
+    bound: &BoundUnit,
+    local: bray_symbols::AnyLocalSymbolId,
+) -> Option<SourceSpan> {
+    let anchor = bound.local_symbols().syntax_anchor(local)?;
+
+    Some(SourceSpan::new(anchor.source_id(), anchor.full_range()))
+}
+
 fn bound_node_source(bound: &BoundUnit, node: AnyBoundNodeId) -> Option<SourceSpan> {
     let view = bound.view();
 
     let origin = match node {
-        AnyBoundNodeId::Expression(expression) => view.expression(expression).map(BoundExpression::origin),
+        AnyBoundNodeId::Expression(expression) => {
+            view.expression(expression).map(BoundExpression::origin)
+        }
         AnyBoundNodeId::Pattern(pattern) => view.pattern(pattern).map(BoundPattern::origin),
         AnyBoundNodeId::Block(block) => view.block(block).map(BoundBlock::origin),
         AnyBoundNodeId::CallableBody(body) => view
@@ -261,6 +353,9 @@ impl Compilation {
             Err(FactQueryError::SemanticUnitContext(error)) => {
                 panic!("semantic unit context failed: {error:?}")
             }
+            Err(FactQueryError::SemanticQuery(error)) => {
+                panic!("semantic query failed: {error}")
+            }
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("semantic checker infrastructure failed: {error:?}")
             }
@@ -325,6 +420,9 @@ impl Compilation {
             }
             Err(FactQueryError::SemanticUnitContext(error)) => {
                 panic!("check diagnostic semantic unit context failed: {error:?}")
+            }
+            Err(FactQueryError::SemanticQuery(error)) => {
+                panic!("check diagnostic semantic query failed: {error}")
             }
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("check diagnostic checker infrastructure failed: {error:?}")
@@ -470,19 +568,15 @@ impl Compilation {
             .fact_runtime
             .complete_batch(roots, cancellation, |(_, _, _, key)| {
                 // Each scheduled request owns the Arc-backed unit identity past the plan borrow.
-                let (bound, sources) = match self
-                    .semantic_unit_diagnostic_sources(key.clone(), cancellation)
-                {
-                    Ok(result) => result,
-                    Err(FactQueryError::CheckerInfrastructure(error)) => {
-                        let bound = self
-                            .bound_unit_with_cancellation(key.clone(), cancellation)
-                            .ok();
+                let (bound, sources) =
+                    match self.semantic_unit_diagnostic_sources(key.clone(), cancellation) {
+                        Ok(result) => result,
+                        Err(FactQueryError::CheckerInfrastructure(error)) => {
+                            let bound = self
+                                .bound_unit_with_cancellation(key.clone(), cancellation)
+                                .ok();
 
-                        let nested = bound
-                            .as_ref()
-                            .into_iter()
-                            .flat_map(|bound| {
+                            let nested = bound.as_ref().into_iter().flat_map(|bound| {
                                 bound
                                     .result()
                                     .value()
@@ -493,19 +587,42 @@ impl Compilation {
                                     .collect::<Vec<_>>()
                             });
 
-                        return Ok::<_, FactQueryError>(BatchWork::new(
-                            vec![SemanticDiagnosticSource::Failure(
-                                checker_failure_diagnostics(
-                                    &key,
-                                    bound.as_ref().map(|bound| bound.result().value()),
-                                    error,
-                                ),
-                            )],
-                            nested,
-                        ));
-                    }
-                    Err(error) => return Err(error),
-                };
+                            return Ok::<_, FactQueryError>(BatchWork::new(
+                                vec![SemanticDiagnosticSource::Failure(
+                                    checker_failure_diagnostics(
+                                        &key,
+                                        bound.as_ref().map(|bound| bound.result().value()),
+                                        error,
+                                    ),
+                                )],
+                                nested,
+                            ));
+                        }
+                        Err(FactQueryError::SemanticQuery(error)) => {
+                            let bound = self
+                                .bound_unit_with_cancellation(key.clone(), cancellation)
+                                .ok();
+
+                            let nested = bound.as_ref().into_iter().flat_map(|bound| {
+                                bound
+                                    .result()
+                                    .value()
+                                    .nested_units()
+                                    .iter()
+                                    .cloned()
+                                    .map(unit_order_key)
+                                    .collect::<Vec<_>>()
+                            });
+
+                            return Ok::<_, FactQueryError>(BatchWork::new(
+                                vec![SemanticDiagnosticSource::Failure(
+                                    semantic_query_failure_diagnostics(&key, &error),
+                                )],
+                                nested,
+                            ));
+                        }
+                        Err(error) => return Err(error),
+                    };
 
                 // Nested unit keys are Arc-backed immutable identities shared with their owner.
                 let nested = bound

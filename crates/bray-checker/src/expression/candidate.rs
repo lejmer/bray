@@ -404,18 +404,18 @@ where
             .semantic_values()
             .substitute_type(subject, obligation.substitution())
             .map_err(|error| {
-                CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                )
+                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
             })?;
 
         let application = request
             .semantic_values()
             .substitute_trait_application(application, obligation.substitution())
             .map_err(|error| {
-                CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                )
+                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
             })?;
 
         if active.contains(&(subject, application)) {
@@ -432,8 +432,8 @@ where
 
         let requirement = ImplementationRequirementKey::new(subject, application);
 
-        let selection = request
-            .implementation_selection_with_constraint_evidence(requirement, &evidence)?;
+        let selection =
+            request.implementation_selection_with_constraint_evidence(requirement, &evidence)?;
 
         diagnostics.extend(selection.diagnostics().iter().cloned());
 
@@ -1371,9 +1371,14 @@ where
             .expression(expression)
             .ok_or_else(invalid_selection_input)?;
 
-        let data = request.semantic_values().type_data(ty.ty()).map_err(|error| {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
-        })?;
+        let data = request
+            .semantic_values()
+            .type_data(ty.ty())
+            .map_err(|error| {
+                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
+            })?;
 
         if let TypeData::Borrow { kind, .. } = data.as_ref() {
             return Ok(borrow_receiver_capability(*kind, mutable_projection));
@@ -1475,8 +1480,8 @@ where
 
         let requirement = ImplementationRequirementKey::new(subject, application);
 
-        let selection = request
-            .implementation_selection_with_constraint_evidence(requirement, &evidence)?;
+        let selection =
+            request.implementation_selection_with_constraint_evidence(requirement, &evidence)?;
 
         diagnostics.extend(selection.diagnostics().iter().cloned());
 

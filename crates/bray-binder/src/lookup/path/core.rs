@@ -170,22 +170,28 @@ fn module_uses_path<C>(
 where
     C: BindingQueryContext + ?Sized,
 {
-    let module = binding_context
-        .symbols()
-        .module(module)
-        .ok_or(crate::BindingQueryError::DependencyUnavailable)?;
+    let module =
+        binding_context
+            .symbols()
+            .module(module)
+            .ok_or(crate::BindingQueryError::Binding(
+                crate::BindingError::SymbolRecordUnavailable(module.into()),
+            ))?;
 
     for part in module.module_parts() {
-        let part = binding_context
-            .declarations()
-            .module_part(*part)
-            .ok_or(crate::BindingQueryError::DependencyUnavailable)?;
+        let part = binding_context.declarations().module_part(*part).ok_or(
+            crate::BindingQueryError::Binding(crate::BindingError::ModulePartRecordUnavailable(
+                *part,
+            )),
+        )?;
 
         for declaration in part.declarations() {
             let declaration = binding_context
                 .declarations()
                 .declaration(*declaration)
-                .ok_or(crate::BindingQueryError::DependencyUnavailable)?;
+                .ok_or(crate::BindingQueryError::Binding(
+                    crate::BindingError::DeclarationRecordUnavailable(*declaration),
+                ))?;
 
             if declaration.kind() != DeclarationKind::Using {
                 continue;
@@ -507,14 +513,14 @@ where
         context: PathBindingContext,
         source: &SourceSnapshot,
         token: SyntaxToken,
-    ) -> NameLookupResult<ResolvedName> {
-        let (reference, result) = self.reference_identifier_lookup(context, source, token);
+    ) -> BindingQueryResult<NameLookupResult<ResolvedName>, C::UpstreamError> {
+        let (reference, result) = self.reference_identifier_lookup(context, source, token)?;
 
         if let Some(reference) = reference {
             report_lookup_result(self, &reference, DiagnosticNameKind::Value, &result);
         }
 
-        result
+        Ok(result)
     }
 
     pub(crate) fn bind_contextual_variant_identifier(
@@ -522,8 +528,8 @@ where
         context: PathBindingContext,
         source: &SourceSnapshot,
         token: SyntaxToken,
-    ) -> NameLookupResult<ResolvedName> {
-        let (reference, result) = self.reference_identifier_lookup(context, source, token);
+    ) -> BindingQueryResult<NameLookupResult<ResolvedName>, C::UpstreamError> {
+        let (reference, result) = self.reference_identifier_lookup(context, source, token)?;
 
         if !matches!(result, MemberLookupResult::NotFound)
             && let Some(reference) = reference
@@ -531,7 +537,7 @@ where
             report_lookup_result(self, &reference, DiagnosticNameKind::Value, &result);
         }
 
-        result
+        Ok(result)
     }
 
     pub(crate) fn lookup_reference_identifier(
@@ -539,8 +545,9 @@ where
         context: PathBindingContext,
         source: &SourceSnapshot,
         token: SyntaxToken,
-    ) -> NameLookupResult<ResolvedName> {
-        self.reference_identifier_lookup(context, source, token).1
+    ) -> BindingQueryResult<NameLookupResult<ResolvedName>, C::UpstreamError> {
+        self.reference_identifier_lookup(context, source, token)
+            .map(|(_, result)| result)
     }
 
     fn reference_identifier_lookup(
@@ -548,14 +555,15 @@ where
         context: PathBindingContext,
         source: &SourceSnapshot,
         token: SyntaxToken,
-    ) -> (Option<NameReference>, NameLookupResult<ResolvedName>) {
+    ) -> BindingQueryResult<(Option<NameReference>, NameLookupResult<ResolvedName>), C::UpstreamError>
+    {
         let Some(reference) = token_reference(source, token) else {
-            return (None, malformed_lookup());
+            return Ok((None, malformed_lookup()));
         };
 
-        let result = self.lookup_reference_name(context, &reference);
+        let result = self.lookup_reference_name(context, &reference)?;
 
-        (Some(reference), result)
+        Ok((Some(reference), result))
     }
 
     #[cfg(test)]
@@ -576,7 +584,7 @@ where
         &self,
         context: PathBindingContext,
         reference: &NameReference,
-    ) -> NameLookupResult<ResolvedName> {
+    ) -> BindingQueryResult<NameLookupResult<ResolvedName>, C::UpstreamError> {
         let ordinary = lookup_unqualified_name(
             self.unit(),
             self.binding_context().symbols(),
@@ -584,7 +592,8 @@ where
             context.module,
             reference.text(),
             context.access,
-        );
+        )
+        .map_err(crate::BindingQueryError::Construction)?;
 
         let module_prefix = source_module_prefix(
             self.binding_context().symbols(),
@@ -594,7 +603,7 @@ where
             context.access,
         );
 
-        combine_name_lookups(ordinary, module_prefix)
+        Ok(combine_name_lookups(ordinary, module_prefix))
     }
 
     #[cfg(test)]
@@ -672,7 +681,8 @@ where
             context.module,
             first.text(),
             context.access,
-        );
+        )
+        .map_err(crate::BindingQueryError::Construction)?;
 
         bind_path_with_ordinary(
             self.binding_context().symbols(),

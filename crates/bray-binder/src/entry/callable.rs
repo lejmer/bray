@@ -6,7 +6,8 @@ use bray_syntax::{CallableBodyBlockExpressionSyntax, LambdaExpressionSyntax};
 
 use super::BoundUnitBindingError;
 use super::support::{
-    anchored_descendant, error_type, map_assembly_error, map_binding_error, push_callable_inputs,
+    anchored_descendant, error_type, map_assembly_error, map_binding_error, missing_syntax,
+    push_callable_inputs,
 };
 use crate::binder::BinderOutput;
 use crate::publication::{
@@ -77,7 +78,7 @@ where
         binding_context,
         key.source().syntax(),
     )
-    .ok_or(BoundUnitBindingError::MissingSyntax)?;
+    .ok_or_else(|| missing_syntax(&key))?;
 
     let mut binder = super::support::create_binder(binding_context, unit, key)?;
     let root_scope = binder.unit().root_scope();
@@ -108,11 +109,12 @@ where
         .unit_mut()
         .tree_mut()
         .push_callable_body(callable)
-        .map_err(|_| BoundUnitBindingError::Construction)?;
+        .map_err(crate::unit::BoundUnitConstructionError::from)
+        .map_err(BoundUnitBindingError::Construction)?;
 
     let output = binder
         .finish()
-        .map_err(|_| BoundUnitBindingError::Construction)?;
+        .map_err(BoundUnitBindingError::Construction)?;
 
     let nested_units = direct_nested_units(output.unit().key(), output.dependencies());
 
@@ -135,7 +137,7 @@ where
 {
     let syntax =
         anchored_descendant::<_, LambdaExpressionSyntax>(binding_context, key.source().syntax())
-            .ok_or(BoundUnitBindingError::MissingSyntax)?;
+            .ok_or_else(|| missing_syntax(&key))?;
 
     let mut binder = super::support::create_binder(binding_context, unit, key)?;
     let root_scope = binder.unit().root_scope();
@@ -164,7 +166,8 @@ where
         .unit_mut()
         .tree_mut()
         .push_callable_body(callable_body)
-        .map_err(|_| BoundUnitBindingError::Construction)?;
+        .map_err(crate::unit::BoundUnitConstructionError::from)
+        .map_err(BoundUnitBindingError::Construction)?;
 
     let callable = boundary.callable();
 
@@ -176,7 +179,7 @@ where
 
     let output = binder
         .finish()
-        .map_err(|_| BoundUnitBindingError::Construction)?;
+        .map_err(BoundUnitBindingError::Construction)?;
 
     let nested_units = direct_nested_units(output.unit().key(), output.dependencies());
 
@@ -192,8 +195,8 @@ where
 #[cfg(test)]
 mod tests {
     use super::bind_callable_body;
-    use crate::BindingQueryContext;
     use crate::query::test_support::TestFixture;
+    use crate::{BindingQueryContext, SemanticUnitContextError};
 
     #[test]
     fn production_callable_binding_publishes_a_bound_unit() {
@@ -242,5 +245,53 @@ mod tests {
 
         assert_eq!(entry.kind(), bray_bound_tree::BoundUnitKind::CallableBody);
         assert_eq!(entry.key(), computation.result().value().key());
+    }
+
+    #[test]
+    fn missing_semantic_context_owners_retain_the_exact_unit() {
+        let primary = TestFixture::from_source(concat!(
+            "module app;\n",
+            "const size: i32 = 1;\n",
+            "func main()\n",
+            "{\n",
+            "}\n",
+        ));
+
+        let binding_context = primary.context();
+
+        let (binder, _) = crate::binding::binder_and_block(&binding_context);
+
+        let key = binder.unit().key().clone();
+
+        let pending = match bind_callable_body(
+            &binding_context,
+            bray_bound_tree::BoundUnitId::new(41),
+            key,
+        ) {
+            Ok(pending) => pending,
+            Err(error) => panic!("source callable body must bind: {error:?}"),
+        };
+
+        let computation = match pending.finish::<std::convert::Infallible>() {
+            Ok(computation) => computation,
+            Err(error) => panic!("source callable body must finalize: {error:?}"),
+        };
+
+        let foreign = TestFixture::from_source(concat!(
+            "module other;\n",
+            "const size: i32 = 1;\n",
+            "func other()\n",
+            "{\n",
+            "}\n",
+        ));
+
+        let expected_unit = computation.result().value().key().clone();
+
+        assert_eq!(
+            crate::semantic_unit_context(foreign.context().symbols(), computation.result().value()),
+            Err(SemanticUnitContextError::MissingOwner {
+                unit: expected_unit,
+            })
+        );
     }
 }

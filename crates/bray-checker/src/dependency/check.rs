@@ -220,11 +220,9 @@ where
     ) {
         Ok(contracts) => contracts,
         Err(error) => {
-            return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::StorageFlow(
-                    CheckerStorageFlowFailure::DependencyContractsConstruction(error),
-                ),
-            );
+            return CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::StorageFlow(
+                CheckerStorageFlowFailure::DependencyContractsConstruction(error),
+            ));
         }
     };
 

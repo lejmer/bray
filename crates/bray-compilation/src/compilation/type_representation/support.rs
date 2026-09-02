@@ -3,6 +3,9 @@ use bray_declarations::SyntaxAnchor;
 use bray_source::SourceSpan;
 use bray_symbols::{AnySymbolId, IntegerConstant, SymbolGraph};
 
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+};
 use crate::fact::FactQueryError;
 
 pub(super) fn checked_integer(
@@ -51,12 +54,20 @@ pub(super) fn symbol_span(
     let semantics = symbols
         .compiler_known_provider()
         .declaration_semantics_for_symbol(symbol)
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .ok_or_else(|| {
+            SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(symbol),
+                SemanticQueryViolation::Missing(SemanticDataKind::Syntax),
+            )
+        })?;
 
-    let fragment = semantics
-        .surface()
-        .syntax_fragment()
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+    let fragment = semantics.surface().syntax_fragment().map_err(|cause| {
+        crate::compilation::SemanticQueryFailure::PreparsedSyntax {
+            symbol,
+            source: None,
+            cause,
+        }
+    })?;
 
     Ok(SourceSpan::new(
         fragment.source().source_id(),

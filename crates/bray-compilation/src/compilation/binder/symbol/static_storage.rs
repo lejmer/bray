@@ -2,7 +2,7 @@ use crate::compilation::binder::BindingQueryResult;
 use std::collections::BTreeSet;
 use std::sync::Arc;
 
-use bray_binder::{BindingQueryContext, BindingQueryError, SymbolQueryProvider};
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_bound_tree::{
     BoundUnitKey, CheckedTemplateKind, CheckedTemplateOperation, SemanticSelection,
 };
@@ -25,7 +25,13 @@ use super::declaration_body::{
 };
 use super::imported::imported_declaration_template;
 use super::initializer::validate_static_initializer_template;
-use crate::compilation::binder::CompilationBindingContext;
+use crate::compilation::binder::{
+    CompilationBindingContext, semantic_contract_binding_error as binding_contract,
+    symbol_query_contract_binding_error as query_contract,
+};
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryViolation, SemanticSymbolCategory,
+};
 use crate::fact::SymbolQueryCache;
 
 impl CompilationSymbolQueryEvaluator<StaticInstanceTemplateQuery> for CompilationSymbolSemantics {
@@ -291,7 +297,13 @@ fn static_initializer_behavior(
 
     let address = context
         .imported_semantic_address(declaration.into())?
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or_else(|| {
+            query_contract(
+                declaration.into(),
+                StaticInstanceTemplateQuery::KIND,
+                SemanticQueryViolation::Missing(SemanticDataKind::ImportedTemplate),
+            )
+        })?;
 
     let product = imported_declaration_template(
         context,
@@ -308,10 +320,24 @@ fn static_initializer_behavior(
     *diagnostics =
         DiagnosticBag::merged_all([diagnostics, product.diagnostics(), thread.diagnostics()]);
 
-    let (duration, template) = match (product.value().as_ref(), thread.value().as_ref()) {
+    let product_template = product.value().as_ref();
+    let thread_template = thread.value().as_ref();
+
+    let (duration, template) = match (product_template, thread_template) {
         (Some(template), None) => (StaticStorageDuration::Product, template.template()),
         (None, Some(template)) => (StaticStorageDuration::ExactThread, template.template()),
-        _ => return Err(BindingQueryError::DependencyUnavailable),
+        _ => {
+            return Err(query_contract(
+                declaration.into(),
+                StaticInstanceTemplateQuery::KIND,
+                SemanticQueryViolation::CountMismatch {
+                    data: SemanticDataKind::ImportedTemplate,
+                    expected: 1,
+                    actual: usize::from(product_template.is_some())
+                        .saturating_add(usize::from(thread_template.is_some())),
+                },
+            ));
+        }
     };
 
     let mut lifecycle_dependencies =
@@ -492,7 +518,12 @@ fn collect_witness_subject_requirement(
     let key = context
         .symbols()
         .symbol_key(instance.definition().into_any())
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or_else(|| {
+            binding_contract(
+                SemanticQueryContext::Symbol(instance.definition().into_any()),
+                SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
+            )
+        })?;
 
     requirements.push(key.clone());
 
@@ -574,8 +605,15 @@ fn static_type_lifecycle_dependencies(
             continue;
         }
 
-        let callable = CallableSymbolId::try_from_any(lifecycle.id())
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+        let callable = CallableSymbolId::try_from_any(lifecycle.id()).ok_or_else(|| {
+            binding_contract(
+                SemanticQueryContext::Type(ty),
+                SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: SemanticSymbolCategory::Callable,
+                    actual: lifecycle.id().kind(),
+                },
+            )
+        })?;
 
         let contracts = context
             .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(callable))?;
@@ -604,8 +642,13 @@ fn static_source_callable_dependencies(
     context: &CompilationBindingContext<'_>,
     callable: CallableSymbolId,
 ) -> BindingQueryResult<Vec<StaticSymbolId>> {
-    let definition = bray_symbols::CallableDefinitionId::try_new(callable.into_any())
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+    let definition =
+        bray_symbols::CallableDefinitionId::try_new(callable.into_any()).ok_or_else(|| {
+            binding_contract(
+                SemanticQueryContext::Symbol(callable.into_any()),
+                SemanticQueryViolation::Unsupported(SemanticDataKind::BoundUnit),
+            )
+        })?;
 
     let Some(key) = context
         .compilation()

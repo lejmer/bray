@@ -26,7 +26,7 @@ pub(crate) fn format_english_emission_evaluation_failure(
     use bray_diagnostics::DiagnosticEmissionEvaluationFailure as Failure;
 
     let message = match failure {
-        Failure::Cycle => "compiler evaluation encountered a dependency cycle",
+        Failure::Cycle => "a dependency cycle occurred during compiler evaluation",
         Failure::Infrastructure => "compiler evaluation state is inconsistent",
         Failure::SemanticValueStoreCreate => {
             "process-local semantic-value store identity capacity was exhausted during compiler evaluation"
@@ -64,10 +64,32 @@ pub(crate) fn format_english_emission_evaluation_failure(
         Failure::SemanticContext => {
             "the selected program element has inconsistent checking context"
         }
+        Failure::SemanticQuery(failure) => {
+            return format_english_semantic_query_failure(failure);
+        }
         Failure::Checker(failure) => return format_english_checker_failure(failure),
     };
 
     message.to_owned()
+}
+
+fn format_english_semantic_query_failure(
+    failure: bray_diagnostics::DiagnosticSemanticQueryFailure,
+) -> String {
+    use bray_diagnostics::DiagnosticSemanticQueryFailure as Failure;
+
+    let detail = match failure {
+        Failure::ContractViolation => "found inconsistent declaration information",
+        Failure::CallableSignature => "found an inconsistent callable signature",
+        Failure::GenericSubstitution => "found inconsistent generic arguments",
+        Failure::BoundUnit => "found an inconsistent bound source unit",
+        Failure::Implementation => "found inconsistent implementation evidence",
+        Failure::CheckedConstantTerms => "found inconsistent checked constant terms",
+        Failure::TypeSurface => "found inconsistent type-member information",
+        Failure::PreparsedSyntax => "found inconsistent generated syntax",
+    };
+
+    super::format_internal_compiler_error(detail)
 }
 
 pub(crate) fn format_english_native_product_failure(
@@ -84,7 +106,7 @@ pub(crate) fn format_english_native_product_failure(
         Kind::MissingRuntime => "the asynchronous product has no selected runtime",
         Kind::InvalidSymbolName => "a generated binary symbol name is not representable",
         Kind::InvalidNativeLinkInput => "a configured native link input is invalid",
-        Kind::EvaluationCycle => "compiler evaluation encountered a dependency cycle",
+        Kind::EvaluationCycle => "a dependency cycle occurred during compiler evaluation",
         Kind::EvaluationInfrastructure => {
             "product construction failed because compiler evaluation state is inconsistent"
         }
@@ -175,7 +197,7 @@ pub(crate) fn format_english_native_product_failure(
             "a compiled program item lacks native-code grouping compatibility"
         }
         Kind::PartitionInvalidUnit => "native-code grouping produced an invalid work item",
-        Kind::GeneratedHostMirInvalid => "the compiler-generated executable host is invalid",
+        Kind::GeneratedHostMirInvalid => "the generated executable host is invalid",
         Kind::ExecutableHostDuplicateRole => {
             "the executable host binds one runtime role more than once"
         }
@@ -293,7 +315,7 @@ fn format_english_lowering_input_failure(
         }
     };
 
-    super::format_internal_compiler_error(format!("{prevented_operation} failed"))
+    super::format_internal_compiler_error(format!("could not complete {prevented_operation}"))
 }
 
 fn format_english_lowering_failure(failure: bray_diagnostics::DiagnosticLoweringFailure) -> String {
@@ -305,13 +327,13 @@ fn format_english_lowering_failure(failure: bray_diagnostics::DiagnosticLowering
         }
         Failure::MissingSourceNode(kind) => {
             return super::format_internal_compiler_error(format!(
-                "executable code could not be generated for the highlighted {}",
+                "could not generate executable code for the highlighted {}",
                 format_source_construct(kind),
             ));
         }
         Failure::RecoveredSourceNode(kind) => {
             return super::format_internal_compiler_error(format!(
-                "executable code could not be generated for the highlighted {} after an earlier error",
+                "could not generate executable code for the highlighted {} after an earlier error",
                 format_source_construct(kind),
             ));
         }
@@ -380,7 +402,7 @@ fn format_english_lowering_failure(failure: bray_diagnostics::DiagnosticLowering
         Failure::Mir(failure) => return format_english_mir_unit_failure(failure),
     };
 
-    super::format_internal_compiler_error(format!("{prevented_operation} failed"))
+    super::format_internal_compiler_error(format!("could not complete {prevented_operation}"))
 }
 
 const fn format_source_construct(
@@ -509,7 +531,7 @@ fn format_english_mir_unit_failure(
         }
     };
 
-    super::format_internal_compiler_error(format!("{prevented_operation} failed"))
+    super::format_internal_compiler_error(format!("could not complete {prevented_operation}"))
 }
 
 pub(crate) fn format_english_runtime_artifact_problem(
@@ -617,7 +639,10 @@ fn format_english_binding_failure(failure: bray_diagnostics::DiagnosticBindingFa
         Failure::MissingSyntax => "source syntax required by this product was unavailable",
         Failure::MissingOwner => "the declaration that owns a source body could not be identified",
         Failure::MissingModule => "the module containing a declaration could not be identified",
-        Failure::SemanticValue(failure) => return format_english_semantic_value_failure(failure),
+        Failure::InvalidSurfaceName => "found a declaration without a valid local lookup name",
+        Failure::SemanticValue(failure) => {
+            return format_english_semantic_value_failure(failure);
+        }
         Failure::Construction => "a source declaration or body could not be analyzed",
         Failure::Binding => {
             "a source declaration or body could not be recovered after an earlier error"
@@ -628,7 +653,7 @@ fn format_english_binding_failure(failure: bray_diagnostics::DiagnosticBindingFa
     super::format_internal_compiler_error(detail)
 }
 
-pub(crate) fn format_english_semantic_value_failure(
+pub(super) fn format_english_semantic_value_failure(
     failure: bray_diagnostics::DiagnosticSemanticValueFailure,
 ) -> String {
     super::format_internal_compiler_error(format_english_semantic_value_failure_detail(failure))
@@ -684,7 +709,12 @@ mod tests {
     fn checker_failures_render_distinct_source_level_operations() {
         use bray_diagnostics::DiagnosticCheckerFailure as Failure;
 
-        let pattern = format_english_checker_failure(Failure::InvalidPatternCheckInput);
+        let pattern = format_english_checker_failure(Failure::PatternInput(
+            bray_diagnostics::DiagnosticPatternInputFailure::ConflictingDeclaredPattern(
+                bray_diagnostics::DiagnosticCheckerNode::new("pattern", 1, 2),
+            ),
+        ));
+
         let storage = format_english_checker_failure(Failure::InvalidStoragePlan);
 
         assert_ne!(pattern, storage);
@@ -734,7 +764,7 @@ mod tests {
         }
 
         assert!(missing.contains("source text"));
-        assert!(version.contains("source-text revision"));
+        assert!(version.contains("wrong source-text revision"));
         assert!(range.contains("source range"));
         assert!(query.contains("member declarations"));
         assert!(query.contains("highlighted module declaration"));

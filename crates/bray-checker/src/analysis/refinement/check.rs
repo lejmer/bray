@@ -9,8 +9,8 @@ use bray_diagnostics::{
     DiagnosticLabelKind, DiagnosticRefinementCapacity, SeverityKind,
 };
 
-use crate::unit::semantic_inputs_match;
-use crate::{CheckerOutcome, CheckerRequestContext, CheckerUnitView};
+use crate::unit::semantic_input_failure;
+use crate::{CheckerInputKind, CheckerOutcome, CheckerRequestContext, CheckerUnitView};
 
 use super::super::build::{ControlFlowGraphBuildOutcome, build_storage_control_flow_graph};
 use super::super::fixed_point::{
@@ -33,17 +33,24 @@ pub(crate) fn check_refinements<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if !semantic_inputs_match(
+    if let Some(error) = semantic_input_failure(
         request,
         [
-            (patterns.unit(), patterns.kind()),
-            (selections.unit(), selections.kind()),
-            (storage.unit(), storage.kind()),
+            (
+                CheckerInputKind::Patterns,
+                (patterns.unit(), patterns.kind()),
+            ),
+            (
+                CheckerInputKind::SemanticSelections,
+                (selections.unit(), selections.kind()),
+            ),
+            (
+                CheckerInputKind::StoragePlan,
+                (storage.unit(), storage.kind()),
+            ),
         ],
     ) {
-        return CheckerOutcome::InfrastructureFailure(
-            crate::CheckerInfrastructureError::InvalidRefinementInput,
-        );
+        return CheckerOutcome::InfrastructureFailure(error);
     }
 
     let graph = match build_storage_control_flow_graph(request, storage, selections) {

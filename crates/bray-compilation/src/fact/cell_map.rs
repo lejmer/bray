@@ -47,25 +47,26 @@ where
     }
 
     pub(crate) fn cell(&self, key: K) -> Result<Arc<FactCell<V>>, FactQueryError> {
-        let mut state = self
-            .state
-            .lock()
-            .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
-                component: SynchronizationComponent::CellMap,
-                fact: None,
-                task: None,
-            })?;
+        let mut state =
+            self.state
+                .lock()
+                .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
+                    component: SynchronizationComponent::CellMap,
+                    fact: None,
+                    task: None,
+                })?;
 
         let access = state.next_access;
 
-        state.next_access = state
-            .next_access
-            .checked_add(1)
-            .ok_or(FactRuntimeFailure::CapacityExhausted {
-                resource: CapacityResource::CellMapAccessIdentity,
-                fact: None,
-                task: None,
-            })?;
+        state.next_access =
+            state
+                .next_access
+                .checked_add(1)
+                .ok_or(FactRuntimeFailure::CapacityExhausted {
+                    resource: CapacityResource::CellMapAccessIdentity,
+                    fact: None,
+                    task: None,
+                })?;
 
         if let Some(entry) = state.cells.get_mut(&key) {
             entry.last_access = access;

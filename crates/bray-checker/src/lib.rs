@@ -47,9 +47,10 @@ pub use constant::{
     resolve_trait_application_template, resolve_type_expression_template,
 };
 pub use context::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
-    CheckerSemanticQueryProvider, CheckerSource, CheckerStorageFlowFailure,
-    ImplementationHookResolution, StorageFlowInputKind,
+    CheckerConstantEvaluationFailure, CheckerConstantInputFailure, CheckerInfrastructureError,
+    CheckerInputKind, CheckerLiteralValueFailure, CheckerPatternInputFailure, CheckerQueryError,
+    CheckerQueryResult, CheckerRequestContext, CheckerSemanticQueryProvider, CheckerSource,
+    CheckerStorageFlowFailure, ImplementationHookResolution, StorageFlowInputKind,
 };
 pub use diagnostic::diagnostic_type;
 pub use expression::{NestedCallableEvidence, check_generic_arguments};

@@ -19,6 +19,7 @@ use bray_syntax::{ImplementationOverloadDeclarationSyntax, PathSyntax};
 
 use super::super::Compilation;
 use super::index::{ImplementationFamilyKey, ImplementationFamilySubject};
+use super::participation::participant_source_anchor;
 use crate::compilation::binder::{CompilationBindingContext, binding_query_error};
 use crate::compilation::diagnostics::{source_diagnostic, symbol_diagnostic_identity};
 use crate::compilation::limits::try_count_comparison;
@@ -125,7 +126,17 @@ impl Compilation {
                     if !try_count_comparison(&mut comparisons, maximum_comparisons) {
                         let attempted = comparisons
                             .checked_add(1)
-                            .ok_or(FactQueryError::InfrastructureFailure)?;
+                            .ok_or_else(|| {
+                                crate::compilation::SemanticQueryFailure::contract(
+                                    crate::compilation::SemanticQueryContext::Fact(
+                                        CompilationFactKey::ImplementationCoherence,
+                                    ),
+                                    crate::compilation::SemanticQueryViolation::CountOverflow {
+                                        data: crate::compilation::SemanticDataKind::ImplementationComparison,
+                                        value: comparisons,
+                                    },
+                                )
+                            })?;
 
                         diagnostics.add(coherence_limit_diagnostic(
                             left_participant,
@@ -280,18 +291,37 @@ impl Compilation {
         {
             cancellation.check()?;
 
-            let declaration = family
-                .syntax_anchor()
-                .and_then(|anchor| {
-                    anchor.find_descendant::<ImplementationOverloadDeclarationSyntax>(
-                        self.syntax_tree(),
-                    )
-                })
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let family_symbol = family.id().into();
 
-            let module = symbols
-                .containing_module(family.id().into())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let family_anchor = family.syntax_anchor().ok_or_else(|| {
+                crate::compilation::SemanticQueryFailure::contract(
+                    crate::compilation::SemanticQueryContext::Symbol(family_symbol),
+                    crate::compilation::SemanticQueryViolation::Missing(
+                        crate::compilation::SemanticDataKind::SourceAnchor,
+                    ),
+                )
+            })?;
+
+            let declaration = family_anchor
+                .find_descendant::<ImplementationOverloadDeclarationSyntax>(self.syntax_tree())
+                .ok_or_else(|| {
+                    crate::compilation::SemanticQueryFailure::located_contract(
+                        crate::compilation::SemanticQueryContext::Symbol(family_symbol),
+                        crate::compilation::SemanticQueryViolation::Missing(
+                            crate::compilation::SemanticDataKind::Syntax,
+                        ),
+                        SourceSpan::new(family_anchor.source_id(), family_anchor.full_range()),
+                    )
+                })?;
+
+            let module = symbols.containing_module(family_symbol).ok_or_else(|| {
+                crate::compilation::SemanticQueryFailure::contract(
+                    crate::compilation::SemanticQueryContext::Symbol(family_symbol),
+                    crate::compilation::SemanticQueryViolation::Missing(
+                        crate::compilation::SemanticDataKind::ContainingModule,
+                    ),
+                )
+            })?;
 
             let expected = bind_family_header(
                 binding_context,
@@ -307,7 +337,15 @@ impl Compilation {
             for arm_anchor in family.arm_syntax() {
                 let path = arm_anchor
                     .find_descendant::<PathSyntax>(self.syntax_tree())
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                    .ok_or_else(|| {
+                        crate::compilation::SemanticQueryFailure::located_contract(
+                            crate::compilation::SemanticQueryContext::Symbol(family_symbol),
+                            crate::compilation::SemanticQueryViolation::Missing(
+                                crate::compilation::SemanticDataKind::Syntax,
+                            ),
+                            SourceSpan::new(arm_anchor.source_id(), arm_anchor.full_range()),
+                        )
+                    })?;
 
                 let Some(implementation) = bind_family_arm(
                     binding_context,
@@ -353,9 +391,15 @@ impl Compilation {
                     continue;
                 };
 
-                let header = headers
-                    .get(&implementation)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let header = headers.get(&implementation).ok_or_else(|| {
+                    crate::compilation::SemanticQueryFailure::located_contract(
+                        crate::compilation::SemanticQueryContext::Symbol(implementation.into_any()),
+                        crate::compilation::SemanticQueryViolation::Missing(
+                            crate::compilation::SemanticDataKind::ImplementationCandidate,
+                        ),
+                        SourceSpan::new(arm_anchor.source_id(), arm_anchor.full_range()),
+                    )
+                })?;
 
                 let actual = header
                     .family_key(values)
@@ -743,21 +787,6 @@ fn coherence_limit_diagnostic(
     diagnostic
         .with_arg(DiagnosticArg::actual_count(actual))
         .with_arg(DiagnosticArg::maximum_count(maximum))
-}
-
-fn participant_source_anchor(
-    participant: &bray_symbols::ParticipatingImplementation,
-    symbols: &bray_symbols::SymbolGraph,
-) -> Option<SyntaxAnchor> {
-    match participant.evidence().kind() {
-        ImplementationParticipationKind::Declared => {
-            symbols.declaration_syntax_anchor(participant.implementation().into_any())
-        }
-        ImplementationParticipationKind::ExplicitUsing => {
-            participant.evidence().using_declarations().first().copied()
-        }
-        ImplementationParticipationKind::CompilerKnown => None,
-    }
 }
 
 #[cfg(test)]

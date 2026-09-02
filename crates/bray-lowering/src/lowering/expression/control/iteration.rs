@@ -664,10 +664,7 @@ impl Lowerer<'_> {
     }
 
     fn is_range_type(&self, ty: bray_symbols::TypeId) -> Result<bool, LoweringError> {
-        let data = self
-            .input
-            .semantic_values()
-            .type_data(ty)?;
+        let data = self.input.semantic_values().type_data(ty)?;
 
         let bray_symbols::TypeData::Named { definition, .. } = data.as_ref() else {
             return Ok(false);

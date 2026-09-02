@@ -14,9 +14,7 @@ use bray_test_protocol::{MAXIMUM_TEST_BATCH_REQUEST_BYTES, TestBatchRequest};
 use bray_tooling::{OutputFormat, write_diagnostic_groups, write_diagnostics};
 
 use crate::tack::compiler::ProjectCompiler;
-use crate::tack::error::{
-    operation_diagnostics, selection_diagnostics, tool_execution_failure,
-};
+use crate::tack::error::{operation_diagnostics, selection_diagnostics, tool_execution_failure};
 use crate::tack::init::initialize_project;
 use crate::tack::inspection::render_project_inspection;
 use crate::tack::install::{install_git_repository, run_project_process};

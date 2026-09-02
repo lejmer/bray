@@ -4,16 +4,32 @@ use std::sync::Arc;
 use bray_binder::{BindingQueryContext, bind_implementation_using};
 use bray_declarations::{DeclarationKind, SyntaxAnchor};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
+use bray_source::SourceSpan;
 use bray_symbols::{
     AvailableCompilerKnownSymbols, ImplementationCoherenceDomainKey,
-    ImplementationParticipationEvidence, ImplementationParticipationQuery,
-    ImplementationParticipationSet, ImplementationSymbolId, NamedTraitImplementationSymbolId,
-    ParticipatingImplementation, SymbolOrigin,
+    ImplementationParticipationEvidence, ImplementationParticipationKind,
+    ImplementationParticipationQuery, ImplementationParticipationSet, ImplementationSymbolId,
+    NamedTraitImplementationSymbolId, ParticipatingImplementation, SymbolGraph, SymbolOrigin,
 };
 use bray_syntax::UsingDeclarationSyntax;
 
 use super::super::Compilation;
 use crate::fact::{CompilationFactKey, FactQueryError};
+
+pub(super) fn participant_source_anchor(
+    participant: &ParticipatingImplementation,
+    symbols: &SymbolGraph,
+) -> Option<SyntaxAnchor> {
+    match participant.evidence().kind() {
+        ImplementationParticipationKind::Declared => {
+            symbols.declaration_syntax_anchor(participant.implementation().into_any())
+        }
+        ImplementationParticipationKind::ExplicitUsing => {
+            participant.evidence().using_declarations().first().copied()
+        }
+        ImplementationParticipationKind::CompilerKnown => None,
+    }
+}
 
 impl Compilation {
     /// Returns the implementations participating in one package coherence domain.
@@ -44,7 +60,14 @@ impl Compilation {
         FactQueryError,
     > {
         if domain.package() != self.package_identity() {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::ImplementationDomain(domain.clone()),
+                crate::compilation::SemanticQueryViolation::PackageMismatch {
+                    expected: self.package_identity().clone(),
+                    actual: domain.package().clone(),
+                },
+            )
+            .into());
         }
 
         // The cache and runtime each own the domain identity after this request returns.
@@ -114,26 +137,30 @@ impl Compilation {
             };
 
             // The published result owns its stable key independently of the symbol graph borrow.
-            let participant =
-                ParticipatingImplementation::try_new(key.clone(), implementation, evidence)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+            let participant = participating_implementation(key.clone(), implementation, evidence)?;
 
             participating.push(participant);
         }
 
         let (imported, diagnostics) =
-            self.bind_imported_implementation_usings(symbols, cancellation)?;
+            self.bind_imported_implementation_usings(&domain, symbols, cancellation)?;
 
         participating.extend(imported);
 
-        let participation = ImplementationParticipationSet::try_new(domain, participating)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        let participation = ImplementationParticipationSet::try_new(domain.clone(), participating)
+            .map_err(|cause| {
+                crate::compilation::SemanticQueryFailure::ImplementationParticipation {
+                    domain,
+                    cause,
+                }
+            })?;
 
         Ok(DiagnosticResult::new(participation, diagnostics))
     }
 
     fn bind_imported_implementation_usings(
         &self,
+        domain: &ImplementationCoherenceDomainKey,
         symbols: &bray_symbols::SymbolGraph,
         cancellation: &crate::fact::CancellationToken,
     ) -> Result<(Vec<ParticipatingImplementation>, DiagnosticBag), FactQueryError> {
@@ -152,10 +179,24 @@ impl Compilation {
         {
             cancellation.check()?;
 
-            let using_declaration = declaration
-                .syntax_anchor()
+            let declaration_anchor = declaration.syntax_anchor();
+
+            let using_declaration = declaration_anchor
                 .find_descendant::<UsingDeclarationSyntax>(self.syntax_tree())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    crate::compilation::SemanticQueryFailure::located_contract(
+                        crate::compilation::SemanticQueryContext::ImplementationDomain(
+                            domain.clone(),
+                        ),
+                        crate::compilation::SemanticQueryViolation::Missing(
+                            crate::compilation::SemanticDataKind::Syntax,
+                        ),
+                        SourceSpan::new(
+                            declaration_anchor.source_id(),
+                            declaration_anchor.full_range(),
+                        ),
+                    )
+                })?;
 
             let module = self.source_module_for_declaration(symbols, declaration)?;
 
@@ -186,23 +227,78 @@ impl Compilation {
                 .symbol_key(implementation.into())
                 .map_err(super::super::binder::binding_query_error)?
                 .cloned()
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    crate::compilation::SemanticQueryFailure::contract(
+                        crate::compilation::SemanticQueryContext::Symbol(implementation.into()),
+                        crate::compilation::SemanticQueryViolation::Missing(
+                            crate::compilation::SemanticDataKind::SymbolKey,
+                        ),
+                    )
+                })?;
 
-            let evidence = ImplementationParticipationEvidence::explicit_using(anchors)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let anchors = anchors.into_iter().collect::<Vec<_>>();
 
-            let participant = ParticipatingImplementation::try_new(
+            let evidence =
+                ImplementationParticipationEvidence::explicit_using(anchors.iter().copied())
+                    .ok_or_else(|| {
+                        let violation = if anchors.is_empty() {
+                            crate::compilation::SemanticQueryViolation::CountMismatch {
+                                data: crate::compilation::SemanticDataKind::ImplementationUsing,
+                                expected: 1,
+                                actual: 0,
+                            }
+                        } else {
+                            crate::compilation::SemanticQueryViolation::UnexpectedOrder(
+                                crate::compilation::SemanticDataKind::ImplementationUsing,
+                            )
+                        };
+
+                        crate::compilation::SemanticQueryFailure::contract(
+                            crate::compilation::SemanticQueryContext::Symbol(implementation.into()),
+                            violation,
+                        )
+                    })?;
+
+            let participant = participating_implementation(
                 key,
                 ImplementationSymbolId::from(implementation),
                 evidence,
-            )
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            )?;
 
             participating.push(participant);
         }
 
         Ok((participating, diagnostics))
     }
+}
+
+fn participating_implementation(
+    key: bray_symbols::SymbolKey,
+    implementation: ImplementationSymbolId,
+    evidence: ImplementationParticipationEvidence,
+) -> Result<ParticipatingImplementation, FactQueryError> {
+    // Retain the stable key so a rejected construction can report its actual symbol kind.
+    ParticipatingImplementation::try_new(key.clone(), implementation, evidence).ok_or_else(|| {
+        let symbol = implementation.into_any();
+
+        let violation = if matches!(implementation, ImplementationSymbolId::Inherent(_)) {
+            crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
+                expected: crate::compilation::SemanticSymbolCategory::TraitImplementation,
+                actual: symbol.kind(),
+            }
+        } else {
+            crate::compilation::SemanticQueryViolation::SymbolKindMismatch {
+                expected: symbol.kind(),
+                actual: key.kind(),
+            }
+        };
+
+        crate::compilation::SemanticQueryFailure::contract(
+            crate::compilation::SemanticQueryContext::Symbol(symbol),
+            violation,
+        )
+        .into()
+    })
 }
 
 fn participation_evidence(
@@ -232,7 +328,8 @@ mod tests {
     };
     use bray_syntax::{SyntaxText, UsingDeclarationSyntax};
 
-    use crate::fact::{CompilationFactKey, FactCellTestEvent};
+    use crate::compilation::{SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation};
+    use crate::fact::{CompilationFactKey, FactCellTestEvent, FactQueryError};
     use crate::test_support::{
         FactTestGate, compilation, encoded_semantic_dependency, package_identity, source_input,
     };
@@ -314,10 +411,25 @@ impl First
         let package = bray_symbols::PackageIdentity::try_new("other.package")
             .unwrap_or_else(|| panic!("test package identity must be valid"));
 
-        assert!(
-            compilation
-                .implementation_participation(ImplementationCoherenceDomainKey::new(package))
-                .is_err()
+        let domain = ImplementationCoherenceDomainKey::new(package.clone());
+
+        let error = compilation
+            .implementation_participation(domain.clone())
+            .expect_err("an unselected coherence domain must be rejected");
+
+        let FactQueryError::SemanticQuery(error) = error else {
+            panic!("domain mismatch must retain a semantic-query failure");
+        };
+
+        assert_eq!(
+            error.cause(),
+            &SemanticQueryFailure::contract(
+                SemanticQueryContext::ImplementationDomain(domain),
+                SemanticQueryViolation::PackageMismatch {
+                    expected: compilation.package_identity().clone(),
+                    actual: package,
+                },
+            )
         );
     }
 

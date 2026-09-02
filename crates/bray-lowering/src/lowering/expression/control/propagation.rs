@@ -52,10 +52,7 @@ impl Lowerer<'_> {
 
         let operand_type = self.expression_type(*operand_id)?;
 
-        let data = self
-            .input
-            .semantic_values()
-            .type_data(operand_type)?;
+        let data = self.input.semantic_values().type_data(operand_type)?;
 
         let TypeData::Nullable(value_type) = data.as_ref() else {
             return Err(LoweringError::UnsupportedExpression(id));

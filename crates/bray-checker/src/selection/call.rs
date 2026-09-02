@@ -13,9 +13,10 @@ use bray_symbols::{
     ImplementationSelection, ReceiverMode, TypeData,
 };
 
-use crate::unit::semantic_inputs_match;
+use crate::unit::semantic_input_failure;
 use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
+    CheckerInfrastructureError, CheckerInputKind, CheckerQueryError, CheckerRequestContext,
+    CheckerUnitView,
 };
 
 use super::{
@@ -1055,8 +1056,14 @@ fn validate_unit<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    if !semantic_inputs_match(request, [(types.unit(), types.kind())]) {
-        return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
+    if let Some(error) = semantic_input_failure(
+        request,
+        [(
+            CheckerInputKind::ExpressionTypes,
+            (types.unit(), types.kind()),
+        )],
+    ) {
+        return Err(error);
     }
 
     let Some(bray_bound_tree::BoundExpression::Call(call)) =

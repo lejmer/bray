@@ -7,6 +7,9 @@ use bray_symbols::{
 
 use super::query::NamedTypeRecord;
 use crate::compilation::binder::CompilationBindingContext;
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+};
 use crate::fact::FactQueryError;
 
 type LifecycleMemberInput = (AnySymbolId, TypeAssociatedLifecycleSlot);
@@ -295,7 +298,12 @@ where
                 .symbols()
                 .symbol_key(erased)
                 .or_else(|| imported.and_then(|symbols| symbols.symbol_key(erased)))
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    SemanticQueryFailure::contract(
+                        SemanticQueryContext::Symbol(erased),
+                        SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                    )
+                })?;
 
             Ok::<_, FactQueryError>((order(key), symbol))
         })

@@ -284,9 +284,9 @@ where
         values
             .inherit_generic_substitution(substitution, callable_owner)
             .map_err(|error| {
-                CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                )
+                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
             })?
     };
 
@@ -490,8 +490,10 @@ where
 
     CheckedConstantTerms::try_from_terms(terms)
         .map(TemplateResolution::Resolved)
-        .map_err(|_| {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+        .map_err(|error| {
+            CheckerQueryError::Infrastructure(CheckerInfrastructureError::CheckedConstantTerms(
+                error,
+            ))
         })
 }
 

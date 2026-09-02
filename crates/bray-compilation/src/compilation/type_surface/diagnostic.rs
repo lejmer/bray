@@ -6,6 +6,9 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{AnySymbolId, TypeAssociatedSurface};
 
 use crate::compilation::binder::CompilationBindingContext;
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+};
 use crate::fact::FactQueryError;
 
 pub(super) fn lifecycle_slot_diagnostics(
@@ -26,7 +29,11 @@ pub(super) fn lifecycle_slot_diagnostics(
         };
 
         let Some(record) = declarations.declaration(declaration) else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(SemanticQueryFailure::contract(
+                SemanticQueryContext::Declaration(declaration),
+                SemanticQueryViolation::Missing(SemanticDataKind::DeclarationRecord),
+            )
+            .into());
         };
 
         if record.is_recovered() {

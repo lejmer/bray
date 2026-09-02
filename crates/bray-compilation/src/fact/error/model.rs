@@ -1,0 +1,376 @@
+use bray_binder::SemanticUnitContextError;
+use bray_checker::CheckerInfrastructureError;
+use bray_lowering::{LoweringError, LoweringInputError};
+use bray_source::SourceSpan;
+
+use crate::compilation::{SemanticQueryError, SemanticQueryFailure};
+use crate::fact::{CompilationFactKey, FactRuntimeError, FactRuntimeFailure};
+
+/// One detected cycle in the compilation fact dependency graph.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct FactCycle {
+    facts: Box<[CompilationFactKey]>,
+}
+
+impl FactCycle {
+    pub(crate) fn new(facts: impl Into<Box<[CompilationFactKey]>>) -> Self {
+        Self {
+            facts: canonical_cycle(facts.into()),
+        }
+    }
+
+    pub(crate) fn facts(&self) -> &[CompilationFactKey] {
+        &self.facts
+    }
+}
+
+fn canonical_cycle(facts: Box<[CompilationFactKey]>) -> Box<[CompilationFactKey]> {
+    let mut facts = facts.into_vec();
+
+    let Some(closing) = facts.last().cloned() else {
+        return facts.into_boxed_slice();
+    };
+
+    let Some(start) = facts[..facts.len().saturating_sub(1)]
+        .iter()
+        .position(|fact| fact == &closing)
+    else {
+        return facts.into_boxed_slice();
+    };
+
+    facts.drain(..start);
+
+    let cycle_len = facts.len().saturating_sub(1);
+
+    let Some((canonical_start, _)) = facts[..cycle_len]
+        .iter()
+        .enumerate()
+        .min_by(|(_, left), (_, right)| left.cmp(right))
+    else {
+        return facts.into_boxed_slice();
+    };
+
+    let mut canonical = facts[..cycle_len]
+        .iter()
+        .cycle()
+        .skip(canonical_start)
+        .take(cycle_len)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if let Some(first) = canonical.first().cloned() {
+        canonical.push(first);
+    }
+
+    canonical.into_boxed_slice()
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::DiagnosticSemanticValueFailure;
+    use bray_source::SourceId;
+    use bray_symbols::{
+        FunctionSymbolId, GenericOwnerId, SemanticValueKind, SemanticValueStore,
+        SemanticValueStoreCreateError, SemanticValueStoreError, SymbolId,
+    };
+
+    use super::{CompilationFactKey, FactCycle, FactQueryError};
+    use crate::fact::diagnostic_semantic_value_failure;
+
+    #[test]
+    fn cycle_paths_remove_prefixes_and_use_a_canonical_start() {
+        let syntax = CompilationFactKey::SyntaxTree;
+        let declaration = CompilationFactKey::DeclarationTable;
+        let prefix = CompilationFactKey::SourceUnitSyntax(SourceId::new(0));
+
+        let cycle = FactCycle::new([prefix, syntax.clone(), declaration.clone(), syntax.clone()]);
+
+        assert_eq!(cycle.facts(), &[declaration.clone(), syntax, declaration]);
+    }
+
+    #[test]
+    fn semantic_value_failures_retain_every_leaf_payload() {
+        let first = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("first semantic store must build: {error:?}"));
+
+        let second = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("second semantic store must build: {error:?}"));
+
+        let foreign = SemanticValueStoreError::ForeignId {
+            expected: first.id(),
+            actual: second.id(),
+        };
+
+        assert_eq!(
+            diagnostic_semantic_value_failure(foreign),
+            DiagnosticSemanticValueFailure::ForeignId {
+                expected_store: first.id().raw(),
+                actual_store: second.id().raw(),
+            }
+        );
+
+        assert_eq!(
+            FactQueryError::from(foreign),
+            FactQueryError::SemanticValueStore(foreign)
+        );
+
+        let unknown = SemanticValueStoreError::UnknownId {
+            kind: SemanticValueKind::Type,
+        };
+
+        let capacity = SemanticValueStoreError::CapacityExhausted {
+            kind: SemanticValueKind::ConstantTerm,
+        };
+
+        assert_eq!(
+            diagnostic_semantic_value_failure(unknown),
+            DiagnosticSemanticValueFailure::UnknownId { kind: "type" }
+        );
+
+        assert_eq!(
+            diagnostic_semantic_value_failure(capacity),
+            DiagnosticSemanticValueFailure::CapacityExhausted {
+                kind: "constant_term",
+            }
+        );
+
+        let expected_symbol = FunctionSymbolId::from_symbol_id(SymbolId::new(1));
+        let actual_symbol = FunctionSymbolId::from_symbol_id(SymbolId::new(2));
+
+        let expected = GenericOwnerId::try_new(expected_symbol.into())
+            .unwrap_or_else(|| panic!("function must be a generic owner"));
+
+        let actual = GenericOwnerId::try_new(actual_symbol.into())
+            .unwrap_or_else(|| panic!("function must be a generic owner"));
+
+        assert_eq!(
+            diagnostic_semantic_value_failure(SemanticValueStoreError::GenericOwnerMismatch {
+                expected,
+                actual
+            }),
+            DiagnosticSemanticValueFailure::GenericOwnerMismatch {
+                expected_kind: expected_symbol.kind().as_str(),
+                expected: expected_symbol.symbol_id().raw(),
+                actual_kind: actual_symbol.kind().as_str(),
+                actual: actual_symbol.symbol_id().raw(),
+            }
+        );
+
+        assert_eq!(
+            diagnostic_semantic_value_failure(SemanticValueStoreError::OpenSubstitution),
+            DiagnosticSemanticValueFailure::OpenSubstitution
+        );
+
+        assert_eq!(
+            FactQueryError::from(SemanticValueStoreCreateError::IdentitySpaceExhausted),
+            FactQueryError::SemanticValueStoreCreate(
+                SemanticValueStoreCreateError::IdentitySpaceExhausted,
+            )
+        );
+    }
+}
+
+/// A compiler-owned lowering failure and the Bray source construct being compiled.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct LocatedLoweringFailure<E> {
+    cause: E,
+    source: SourceSpan,
+}
+
+impl<E> LocatedLoweringFailure<E> {
+    pub(crate) const fn new(cause: E, source: SourceSpan) -> Self {
+        Self { cause, source }
+    }
+
+    /// Returns the exact compiler contract failure.
+    pub const fn cause(&self) -> &E {
+        &self.cause
+    }
+
+    /// Returns the closest Bray source construct affected by the failure.
+    pub const fn source(&self) -> SourceSpan {
+        self.source
+    }
+}
+
+/// An outer compiler-query outcome that must not be represented as a source diagnostic.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum FactQueryError {
+    /// The requesting operation was cancelled before completion.
+    Cancelled,
+    /// Evaluation encountered a same-worker or cross-worker dependency cycle.
+    Cycle(FactCycle),
+    /// The fact request encountered a compiler-domain infrastructure or invariant failure.
+    InfrastructureFailure,
+    /// The compiler query runtime could not preserve its coordination contract.
+    Runtime(FactRuntimeError),
+    /// The compilation could not allocate its canonical semantic-value store identity.
+    SemanticValueStoreCreate(bray_symbols::SemanticValueStoreCreateError),
+    /// The canonical semantic-value store rejected a construction or lookup operation.
+    SemanticValueStore(bray_symbols::SemanticValueStoreError),
+    /// Name binding could not obtain a required semantic dependency.
+    BindingDependencyUnavailable,
+    /// Binding one semantic unit violated a typed binding contract.
+    Binding(bray_binder::BoundUnitBindingError),
+    /// A selected constant callable has no body available for durable evaluation.
+    ConstantCallableBodyUnavailable,
+    /// A selected constant callable body has no evaluable result expression.
+    ConstantCallableRootUnavailable,
+    /// The atomic initializer argument has no available compile-time value.
+    AtomicInitializerArgumentUnavailable,
+    /// The atomic initializer result cannot be retained as a compile-time value.
+    AtomicInitializerResultUnavailable,
+    /// The uninitialized-storage initializer result cannot be retained as a compile-time value.
+    UninitInitializerResultUnavailable,
+    /// An imported native operation does not match its compiled definition.
+    ImportedExecutableTemplateMismatch,
+    /// Semantic-context construction found an inconsistent bound unit.
+    SemanticUnitContext(SemanticUnitContextError),
+    /// Semantic checking could not complete because a typed dependency was unavailable.
+    CheckerInfrastructure(CheckerInfrastructureError),
+    /// Binding or semantic compilation violated an exact query contract.
+    SemanticQuery(SemanticQueryError),
+    /// Checked lowering inputs violated the lowering boundary contract.
+    LoweringInput(LocatedLoweringFailure<LoweringInputError>),
+    /// MIR lowering violated a checked semantic or MIR construction contract.
+    Lowering(LocatedLoweringFailure<LoweringError>),
+}
+
+impl From<std::convert::Infallible> for FactQueryError {
+    fn from(error: std::convert::Infallible) -> Self {
+        match error {}
+    }
+}
+
+impl From<CheckerInfrastructureError> for FactQueryError {
+    fn from(error: CheckerInfrastructureError) -> Self {
+        Self::CheckerInfrastructure(error)
+    }
+}
+
+impl From<FactRuntimeFailure> for FactQueryError {
+    fn from(error: FactRuntimeFailure) -> Self {
+        Self::Runtime(error.into())
+    }
+}
+
+impl From<SemanticQueryFailure> for FactQueryError {
+    fn from(error: SemanticQueryFailure) -> Self {
+        Self::SemanticQuery(error.into())
+    }
+}
+
+impl From<bray_symbols::SemanticValueStoreCreateError> for FactQueryError {
+    fn from(error: bray_symbols::SemanticValueStoreCreateError) -> Self {
+        Self::SemanticValueStoreCreate(error)
+    }
+}
+
+impl From<bray_symbols::SemanticValueStoreError> for FactQueryError {
+    fn from(error: bray_symbols::SemanticValueStoreError) -> Self {
+        Self::SemanticValueStore(error)
+    }
+}
+
+impl From<bray_symbols::CallableSignatureTemplateError> for FactQueryError {
+    fn from(error: bray_symbols::CallableSignatureTemplateError) -> Self {
+        match error {
+            bray_symbols::CallableSignatureTemplateError::SemanticValue(error) => {
+                Self::SemanticValueStore(error)
+            }
+            error @ (bray_symbols::CallableSignatureTemplateError::InvalidCallableType
+            | bray_symbols::CallableSignatureTemplateError::ParameterCountMismatch
+            | bray_symbols::CallableSignatureTemplateError::ParameterIdentityMismatch) => {
+                SemanticQueryFailure::CallableSignature {
+                    callable: None,
+                    cause: error,
+                }
+                .into()
+            }
+        }
+    }
+}
+
+impl<Upstream> From<bray_checker::CheckerQueryError<Upstream>> for FactQueryError
+where
+    Upstream: Into<Self>,
+{
+    fn from(error: bray_checker::CheckerQueryError<Upstream>) -> Self {
+        match error {
+            bray_checker::CheckerQueryError::Cancelled => Self::Cancelled,
+            bray_checker::CheckerQueryError::Infrastructure(error) => {
+                Self::CheckerInfrastructure(error)
+            }
+            bray_checker::CheckerQueryError::Upstream(error) => error.into(),
+        }
+    }
+}
+
+impl std::fmt::Display for FactQueryError {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Cancelled => formatter.write_str("fact evaluation was cancelled"),
+            Self::Cycle(cycle) => write!(
+                formatter,
+                "fact evaluation encountered a dependency cycle: {:?}",
+                cycle.facts()
+            ),
+            Self::InfrastructureFailure => {
+                formatter.write_str("fact evaluation encountered an infrastructure failure")
+            }
+            Self::Runtime(error) => write!(formatter, "{error}"),
+            Self::SemanticValueStoreCreate(error) => {
+                write!(formatter, "semantic value store creation failed: {error:?}")
+            }
+            Self::SemanticValueStore(error) => {
+                write!(
+                    formatter,
+                    "semantic value store operation failed: {error:?}"
+                )
+            }
+            Self::BindingDependencyUnavailable => {
+                formatter.write_str("name binding could not obtain a required dependency")
+            }
+            Self::Binding(error) => write!(formatter, "semantic unit binding failed: {error:?}"),
+            Self::ConstantCallableBodyUnavailable => {
+                formatter.write_str("the constant callable has no available body")
+            }
+            Self::ConstantCallableRootUnavailable => {
+                formatter.write_str("the constant callable body has no result expression")
+            }
+            Self::AtomicInitializerArgumentUnavailable => {
+                formatter.write_str("the atomic initializer argument is unavailable")
+            }
+            Self::AtomicInitializerResultUnavailable => {
+                formatter.write_str("the atomic initializer result cannot be retained")
+            }
+            Self::UninitInitializerResultUnavailable => formatter
+                .write_str("the uninitialized-storage initializer result cannot be retained"),
+            Self::ImportedExecutableTemplateMismatch => {
+                formatter.write_str("an imported native operation has a mismatched template")
+            }
+            Self::SemanticUnitContext(error) => {
+                write!(formatter, "semantic unit context failed: {error:?}")
+            }
+            Self::CheckerInfrastructure(error) => {
+                write!(
+                    formatter,
+                    "semantic checking infrastructure failed: {error:?}"
+                )
+            }
+            Self::SemanticQuery(error) => write!(formatter, "{error}"),
+            Self::LoweringInput(error) => {
+                write!(
+                    formatter,
+                    "lowering input validation failed: {:?}",
+                    error.cause()
+                )
+            }
+            Self::Lowering(error) => {
+                write!(formatter, "MIR lowering failed: {:?}", error.cause())
+            }
+        }
+    }
+}
+
+impl std::error::Error for FactQueryError {}

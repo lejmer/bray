@@ -29,7 +29,21 @@ impl ConstantDefinition {
 
 /// Marks an invalid constant definition whose diagnostics belong to the query result.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct ErrorConstantDefinition;
+pub struct ErrorConstantDefinition {
+    ty: TypeId,
+}
+
+impl ErrorConstantDefinition {
+    /// Creates an invalid definition while retaining its declared result type for recovery.
+    pub const fn new(ty: TypeId) -> Self {
+        Self { ty }
+    }
+
+    /// Returns the declared type used to construct a typed recovery value.
+    pub const fn ty(self) -> TypeId {
+        self.ty
+    }
+}
 
 /// The checked declaration state of a constant definition.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

@@ -121,6 +121,29 @@ pub enum ImportedSemanticRecord {
     Runtime(ImportedRuntimeRequirement),
 }
 
+impl ImportedSemanticRecord {
+    /// Returns the stable semantic record category retained by this imported value.
+    pub const fn kind(&self) -> crate::InterfaceSemanticRecordKind {
+        use crate::InterfaceSemanticRecordKind as Kind;
+
+        match self {
+            Self::CallableSignature(_) => Kind::CallableSignature,
+            Self::GenericDeclaration(_) => Kind::GenericDeclaration,
+            Self::CallableParameterDefault(_) => Kind::CallableParameterDefault,
+            Self::PredicateDefinition(_) => Kind::PredicateDefinition,
+            Self::DeclaredType(_) => Kind::DeclaredType,
+            Self::TypeRepresentation(_) => Kind::TypeRepresentation,
+            Self::GenericConstraint(_) => Kind::GenericConstraint,
+            Self::CallableContracts(_) => Kind::CallableContracts,
+            Self::DeclarationTemplate(_) => Kind::DeclarationTemplate,
+            Self::Implementation(_) => Kind::Implementation,
+            Self::TargetProperty(_) => Kind::TargetProperty,
+            Self::Abi(_) => Kind::Abi,
+            Self::Runtime(_) => Kind::Runtime,
+        }
+    }
+}
+
 /// One imported declaration-owned checked type.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct ImportedDeclaredType {

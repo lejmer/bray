@@ -224,8 +224,17 @@ fn callable_is_compatible(
         return Ok(Some(TraitFulfillmentMismatch::Generic(mismatch)));
     }
 
-    let requirement_type = callable_type_template(values, requirement_signature.value())?;
-    let fulfillment_type = callable_type_template(values, fulfillment_signature.value())?;
+    let requirement_type = callable_type_template(
+        values,
+        requirement.into_any(),
+        requirement_signature.value(),
+    )?;
+
+    let fulfillment_type = callable_type_template(
+        values,
+        fulfillment.into_any(),
+        fulfillment_signature.value(),
+    )?;
 
     let required_receiver = requirement_signature
         .value()
@@ -366,6 +375,7 @@ fn callable_is_compatible(
 
 fn callable_type_template(
     values: &bray_symbols::SemanticValueStore,
+    callable: bray_symbols::AnySymbolId,
     signature: &CallableSignatureTemplate,
 ) -> Result<CallableTypeTemplate, FactQueryError> {
     match signature.callable_type() {
@@ -375,16 +385,19 @@ fn callable_type_template(
                 .type_data(*ty)
                 .map_err(FactQueryError::SemanticValueStore)?;
 
-            let TypeData::Callable(callable) = data.as_ref() else {
-                return Err(FactQueryError::InfrastructureFailure);
+            let TypeData::Callable(callable_data) = data.as_ref() else {
+                return Err(callable_signature_error(
+                    callable,
+                    bray_symbols::CallableSignatureTemplateError::InvalidCallableType,
+                ));
             };
 
             let parameter_types = signature
                 .parameter_type_templates(values)
-                .map_err(FactQueryError::from)?;
+                .map_err(|cause| callable_signature_error(callable, cause))?;
 
             let parameters =
-                callable
+                callable_data
                     .parameters()
                     .iter()
                     .zip(parameter_types)
@@ -400,15 +413,34 @@ fn callable_type_template(
             Ok(CallableTypeTemplate::new(
                 parameters,
                 signature.result().clone(),
-                callable.constness(),
-                callable.trust(),
-                callable.abi(),
-                callable.dependency_contracts(),
+                callable_data.constness(),
+                callable_data.trust(),
+                callable_data.abi(),
+                callable_data.dependency_contracts(),
             )
-            .with_variadic(callable.is_variadic())
-            .with_phase_behaviors(callable.phase_behaviors().clone()))
+            .with_variadic(callable_data.is_variadic())
+            .with_phase_behaviors(callable_data.phase_behaviors().clone()))
         }
-        _ => Err(FactQueryError::InfrastructureFailure),
+        _ => Err(callable_signature_error(
+            callable,
+            bray_symbols::CallableSignatureTemplateError::InvalidCallableType,
+        )),
+    }
+}
+
+fn callable_signature_error(
+    callable: bray_symbols::AnySymbolId,
+    cause: bray_symbols::CallableSignatureTemplateError,
+) -> FactQueryError {
+    match cause {
+        bray_symbols::CallableSignatureTemplateError::SemanticValue(cause) => {
+            FactQueryError::SemanticValueStore(cause)
+        }
+        cause => crate::compilation::SemanticQueryFailure::CallableSignature {
+            callable: Some(callable),
+            cause,
+        }
+        .into(),
     }
 }
 
@@ -507,7 +539,12 @@ fn generic_surfaces_are_compatible(
         requirement.value().parameters().iter().copied(),
         arguments,
     )
-    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+    .map_err(
+        |cause| crate::compilation::SemanticQueryFailure::GenericSubstitution {
+            owner: Some(requirement_owner),
+            cause,
+        },
+    )?;
 
     let substitution = values
         .intern_generic_substitution(substitution)
@@ -607,12 +644,26 @@ fn parameter_default_mismatch(
         let requirement = symbols
             .callable_parameter(*requirement)
             .or_else(|| imported.and_then(|symbols| symbols.callable_parameter(*requirement)))
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                crate::compilation::SemanticQueryFailure::contract(
+                    crate::compilation::SemanticQueryContext::Symbol((*requirement).into()),
+                    crate::compilation::SemanticQueryViolation::Missing(
+                        crate::compilation::SemanticDataKind::Symbol,
+                    ),
+                )
+            })?;
 
         let fulfillment = symbols
             .callable_parameter(*fulfillment)
             .or_else(|| imported.and_then(|symbols| symbols.callable_parameter(*fulfillment)))
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                crate::compilation::SemanticQueryFailure::contract(
+                    crate::compilation::SemanticQueryContext::Symbol((*fulfillment).into()),
+                    crate::compilation::SemanticQueryViolation::Missing(
+                        crate::compilation::SemanticDataKind::Symbol,
+                    ),
+                )
+            })?;
 
         let required = matches!(
             requirement.default_presence(),
@@ -951,14 +1002,32 @@ fn predicate_is_compatible(
             .or_else(|| {
                 imported.and_then(|symbols| symbols.member_name(requirement.parameter().into()))
             })
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                crate::compilation::SemanticQueryFailure::contract(
+                    crate::compilation::SemanticQueryContext::Symbol(
+                        requirement.parameter().into(),
+                    ),
+                    crate::compilation::SemanticQueryViolation::Missing(
+                        crate::compilation::SemanticDataKind::MemberName,
+                    ),
+                )
+            })?;
 
         let fulfillment_name = symbols
             .member_name(fulfillment.parameter().into())
             .or_else(|| {
                 imported.and_then(|symbols| symbols.member_name(fulfillment.parameter().into()))
             })
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                crate::compilation::SemanticQueryFailure::contract(
+                    crate::compilation::SemanticQueryContext::Symbol(
+                        fulfillment.parameter().into(),
+                    ),
+                    crate::compilation::SemanticQueryViolation::Missing(
+                        crate::compilation::SemanticDataKind::MemberName,
+                    ),
+                )
+            })?;
 
         if requirement_name != fulfillment_name {
             return Ok(Some(TraitFulfillmentMismatch::PredicateParameterName {

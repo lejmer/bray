@@ -32,11 +32,25 @@ pub(in crate::compilation) fn implementation_requirement(
     parameters: impl IntoIterator<Item = bray_symbols::GenericParameterSymbolId>,
     arguments: impl IntoIterator<Item = GenericArgument>,
 ) -> Result<bray_symbols::ImplementationRequirementKey, FactQueryError> {
-    let owner =
-        GenericOwnerId::try_new(definition.into()).ok_or(FactQueryError::InfrastructureFailure)?;
+    let symbol = definition.into();
 
-    let substitution = GenericSubstitutionData::try_new(owner, parameters, arguments)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+    let owner = GenericOwnerId::try_new(symbol).ok_or_else(|| {
+        crate::compilation::SemanticQueryFailure::contract(
+            crate::compilation::SemanticQueryContext::Symbol(symbol),
+            crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
+                expected: crate::compilation::SemanticSymbolCategory::GenericOwner,
+                actual: symbol.kind(),
+            },
+        )
+    })?;
+
+    let substitution =
+        GenericSubstitutionData::try_new(owner, parameters, arguments).map_err(|cause| {
+            crate::compilation::SemanticQueryFailure::GenericSubstitution {
+                owner: Some(owner),
+                cause,
+            }
+        })?;
 
     let substitution = values
         .intern_generic_substitution(substitution)
@@ -68,10 +82,14 @@ pub(in crate::compilation) fn implementation_instance_requirement(
         ))
         .map_err(binding_query_error)?;
 
-    let application = coherence
-        .value()
-        .trait_application()
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+    let application = coherence.value().trait_application().ok_or_else(|| {
+        crate::compilation::SemanticQueryFailure::contract(
+            crate::compilation::SemanticQueryContext::Symbol(instance.definition().into_any()),
+            crate::compilation::SemanticQueryViolation::Missing(
+                crate::compilation::SemanticDataKind::TraitApplication,
+            ),
+        )
+    })?;
 
     let subject = values
         .substitute_type(coherence.value().subject(), instance.substitution())
@@ -91,8 +109,14 @@ pub(in crate::compilation) fn selected_type_valued_member(
     member: TraitTypeMemberSymbolId,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<TypeValuedMemberResolution, FactQueryError> {
-    let expected_name = fulfillment_name(binding_context, member.into())
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+    let expected_name = fulfillment_name(binding_context, member.into()).ok_or_else(|| {
+        crate::compilation::SemanticQueryFailure::contract(
+            crate::compilation::SemanticQueryContext::Symbol(member.into()),
+            crate::compilation::SemanticQueryViolation::Missing(
+                crate::compilation::SemanticDataKind::MemberName,
+            ),
+        )
+    })?;
 
     let mut matching = fulfillments.iter().copied().filter(|fulfillment| {
         fulfillment_name(binding_context, (*fulfillment).into())
@@ -199,7 +223,15 @@ pub(in crate::compilation) fn implementation_fulfillments<'binding_context>(
             }),
     };
 
-    imported.ok_or(FactQueryError::InfrastructureFailure)
+    imported.ok_or_else(|| {
+        crate::compilation::SemanticQueryFailure::contract(
+            crate::compilation::SemanticQueryContext::Symbol(implementation.into_any()),
+            crate::compilation::SemanticQueryViolation::Missing(
+                crate::compilation::SemanticDataKind::Implementation,
+            ),
+        )
+        .into()
+    })
 }
 
 pub(in crate::compilation) fn selected_callable(
@@ -287,8 +319,15 @@ pub(in crate::compilation) fn callable_instance(
     callable: AnySymbolId,
     substitutions: impl IntoIterator<Item = bray_symbols::GenericSubstitutionId>,
 ) -> Result<CallableInstanceData, FactQueryError> {
-    let definition =
-        CallableDefinitionId::try_new(callable).ok_or(FactQueryError::InfrastructureFailure)?;
+    let definition = CallableDefinitionId::try_new(callable).ok_or_else(|| {
+        crate::compilation::SemanticQueryFailure::contract(
+            crate::compilation::SemanticQueryContext::Symbol(callable),
+            crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
+                expected: crate::compilation::SemanticSymbolCategory::Callable,
+                actual: callable.kind(),
+            },
+        )
+    })?;
 
     let substitution =
         super::super::substitution::substitution_for_owner(values, callable, substitutions)?;

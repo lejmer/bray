@@ -312,11 +312,9 @@ where
     ) {
         Ok(analysis) => analysis,
         Err(error) => {
-            return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::StorageFlow(
-                    CheckerStorageFlowFailure::AsyncConstruction(error),
-                ),
-            );
+            return CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::StorageFlow(
+                CheckerStorageFlowFailure::AsyncConstruction(error),
+            ));
         }
     };
 
@@ -374,12 +372,18 @@ where
     storage_flow_input_failure(
         request,
         [
-            (StorageFlowInputKind::ExpressionTypes, (types.unit(), types.kind())),
+            (
+                StorageFlowInputKind::ExpressionTypes,
+                (types.unit(), types.kind()),
+            ),
             (
                 StorageFlowInputKind::SemanticSelections,
                 (selections.unit(), selections.kind()),
             ),
-            (StorageFlowInputKind::Liveness, (liveness.unit(), liveness.kind())),
+            (
+                StorageFlowInputKind::Liveness,
+                (liveness.unit(), liveness.kind()),
+            ),
             (
                 StorageFlowInputKind::DependencyContracts,
                 (dependencies.unit(), dependencies.kind()),
@@ -496,7 +500,7 @@ fn expression_deferred_calls<C>(
     expression: BoundExpressionId,
     memoized: &mut BTreeMap<BoundExpressionId, BTreeSet<BodyBehaviorCall>>,
     active: &mut BTreeSet<BoundExpressionId>,
-    ) -> Result<BTreeSet<BodyBehaviorCall>, CheckerInfrastructureError>
+) -> Result<BTreeSet<BodyBehaviorCall>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -822,11 +826,9 @@ mod tests {
 
     #[test]
     fn non_recovered_await_without_an_inferred_dependency_contract_is_infrastructure_failure() {
-        let CheckerOutcome::InfrastructureFailure(
-            crate::CheckerInfrastructureError::StorageFlow(
-                crate::CheckerStorageFlowFailure::MissingAwaitDependencyContract { expression },
-            ),
-        ) = await_outcome(false, true)
+        let CheckerOutcome::InfrastructureFailure(crate::CheckerInfrastructureError::StorageFlow(
+            crate::CheckerStorageFlowFailure::MissingAwaitDependencyContract { expression },
+        )) = await_outcome(false, true)
         else {
             panic!("missing await dependencies must retain the exact expression")
         };

@@ -1,8 +1,10 @@
 use crate::compilation::binder::BindingQueryResult;
-use bray_binder::{BindingQueryContext, BindingQueryError};
+use bray_binder::{
+    BindingError, BindingQueryContext, BindingQueryError, BoundUnitConstructionError,
+};
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundBlockItem, BoundExpression, BoundReferenceTarget, BoundUnit,
-    BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, DeclaredValueTypeConstraint,
+    AnyBoundNodeId, BoundBlockItem, BoundExpression, BoundReferenceTarget, BoundTreeBuildError,
+    BoundUnit, BoundWalkControl, BoundWalkEvent, BoundWalkOutcome, DeclaredValueTypeConstraint,
     DeclaredValueTypeConstraintKind, DeclaredValueTypeEvidence, DeclaredValueTypeTemplates,
     DeclaredValueTypeTerm, walk_bound_unit_view,
 };
@@ -20,7 +22,14 @@ pub(in crate::compilation) fn bind_declared_value_type_templates(
     let owner = context
         .symbols()
         .symbol_for_key(unit.key().declared_owner())
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or_else(|| {
+            // Bound-unit and symbol keys are Arc-backed stable identities.
+            BindingQueryError::Binding(BindingError::MissingOwner {
+                source: unit.key().source(),
+                owner: unit.key().declared_owner().clone(),
+                symbol: None,
+            })
+        })?;
 
     let mut binding = DeclaredValueTypeBinding::new(context, unit, owner);
 
@@ -89,9 +98,10 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
 
         match outcome {
             BoundWalkOutcome::Completed => Ok(()),
-            BoundWalkOutcome::Stopped | BoundWalkOutcome::MissingNode(_) => {
-                Err(BindingQueryError::DependencyUnavailable)
-            }
+            BoundWalkOutcome::Stopped => Err(BindingQueryError::Binding(
+                BindingError::BoundWalkStopped(root),
+            )),
+            BoundWalkOutcome::MissingNode(node) => Err(missing_bound_node(node)),
         }
     }
 
@@ -103,7 +113,7 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
                     .unit
                     .tree()
                     .pattern(id)
-                    .ok_or(BindingQueryError::DependencyUnavailable)?;
+                    .ok_or_else(|| missing_bound_node(id.into()))?;
 
                 for binding in pattern.bindings() {
                     self.add_constraint(
@@ -128,7 +138,7 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
             .unit
             .tree()
             .expression(id)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or_else(|| missing_bound_node(id.into()))?;
 
         match expression {
             BoundExpression::Name(name) => {
@@ -156,7 +166,7 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
             .unit
             .tree()
             .block(id)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or_else(|| missing_bound_node(id.into()))?;
 
         for item in block.items() {
             match item {
@@ -254,10 +264,7 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
     }
 
     pub(super) fn check_cancellation(&self) -> BindingQueryResult<()> {
-        self.context
-            .cancellation
-            .check()
-            .map_err(binder_error)
+        self.context.cancellation.check().map_err(binder_error)
     }
 
     fn finish(self) -> DiagnosticResult<DeclaredValueTypeTemplates> {
@@ -277,4 +284,13 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
 
 pub(super) const fn local_value(symbol: AnyLocalSymbolId) -> DeclaredValueTypeTerm {
     DeclaredValueTypeTerm::Value(BoundReferenceTarget::Local(symbol))
+}
+
+fn missing_bound_node(node: AnyBoundNodeId) -> BindingQueryError<crate::fact::FactQueryError> {
+    BindingQueryError::Construction(BoundUnitConstructionError::BoundTree(
+        BoundTreeBuildError::MissingNode {
+            kind: node.kind(),
+            slot: node.ordinal(),
+        },
+    ))
 }

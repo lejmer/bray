@@ -28,6 +28,7 @@ mod pattern;
 mod product;
 mod product_emission;
 mod representation;
+mod semantic_error;
 mod snapshot;
 mod source_graph;
 mod source_module;
@@ -49,6 +50,7 @@ pub use linking::LinkedProductEmissionError;
 pub use load::CompilationLoadError;
 pub use product::{NativeProductPlan, NativeProductPlanningError};
 pub use product_emission::{ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs};
+pub use semantic_error::{SemanticQueryError, SemanticQueryErrorKind};
 pub use source_graph::ProductSourceGraph;
 pub use state::Compilation;
 pub use testing::TestDiscovery;
@@ -56,4 +58,9 @@ pub use tooling::{CompletionCandidate, SemanticAvailability};
 pub use unit::{
     AsyncAnalysisView, DependencyContractsView, ExpressionTypesView, LiteralValuesView,
     LivenessView, RefinementsView, SemanticSelectionsView, StorageFlowView,
+};
+
+pub(crate) use semantic_error::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+    SemanticSymbolCategory,
 };

@@ -34,15 +34,23 @@ use super::super::binder::{
     visible_generic_parameters,
 };
 use super::super::implementation::{
-    implementation_callable_instance, implementation_fulfillments, match_implementation_subject,
+    implementation_callable_instance, implementation_fulfillments,
+    implementation_match_query_error, match_implementation_subject,
 };
 use super::super::substitution::{
     contextual_self_type, identity_substitution, substitution_for_owner,
 };
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+    SemanticSymbolCategory,
+};
 use crate::fact::{CancellationToken, FactQueryError, OperationSelectionQueryKey};
 
 use super::model::{OperationResolution, TraitOperation, TraitOperationCandidate};
-use super::query::expression_type;
+use super::query::{
+    expression_contract_failure, expression_type, operation_contract_failure,
+    symbol_contract_failure, unit_contract_failure,
+};
 use super::signature::{
     member_callable_signature, normalize_callable_type_equalities,
     normalize_callable_type_valued_members, substitute_callable_self,
@@ -77,7 +85,13 @@ fn member_call_generic_arguments(
             argument
                 .syntax()
                 .find_descendant::<GenericArgumentSyntax>(compilation.syntax_tree())
-                .ok_or(FactQueryError::InfrastructureFailure)
+                .ok_or_else(|| {
+                    expression_contract_failure(
+                        unit.key(),
+                        expression,
+                        SemanticQueryViolation::Missing(SemanticDataKind::Syntax),
+                    )
+                })
         })
         .collect()
 }
@@ -106,7 +120,13 @@ impl Compilation {
 
         let (receiver, selector) = match unit.view().expression(expression) {
             Some(BoundExpression::MemberAccess(member)) => (member.receiver(), member.selector()),
-            _ => return Err(FactQueryError::InfrastructureFailure),
+            _ => {
+                return Err(expression_contract_failure(
+                    unit.key(),
+                    expression,
+                    SemanticQueryViolation::Unsupported(SemanticDataKind::OperationSelection),
+                ));
+            }
         };
 
         let raw_receiver_type = expression_type(types, receiver)?;
@@ -209,7 +229,12 @@ impl Compilation {
         let member_origin = surface
             .value()
             .member(member)
-            .ok_or(FactQueryError::InfrastructureFailure)?
+            .ok_or_else(|| {
+                symbol_contract_failure(
+                    member,
+                    SemanticQueryViolation::Missing(SemanticDataKind::TypeSurface),
+                )
+            })?
             .origin();
 
         let (result_type, operation) = match member {
@@ -239,7 +264,14 @@ impl Compilation {
                             .implementations()
                             .iter()
                             .find(|candidate| candidate.implementation() == implementation)
-                            .ok_or(FactQueryError::InfrastructureFailure)?;
+                            .ok_or_else(|| {
+                                symbol_contract_failure(
+                                    implementation.into(),
+                                    SemanticQueryViolation::Missing(
+                                        SemanticDataKind::ImplementationUsing,
+                                    ),
+                                )
+                            })?;
 
                         let pattern = self.resolve_implementation_self_type(
                             binding_context,
@@ -256,7 +288,12 @@ impl Compilation {
                         ) {
                             Ok(Some(substitution)) => substitution,
                             Ok(None) => return Ok(None),
-                            Err(_) => return Err(FactQueryError::InfrastructureFailure),
+                            Err(error) => {
+                                return Err(implementation_match_query_error(
+                                    implementation.into(),
+                                    error,
+                                ));
+                            }
                         }
                     }
                 };
@@ -314,13 +351,23 @@ impl Compilation {
         binding_context: &CompilationBindingContext<'_>,
         key: &'static str,
     ) -> Result<(NamedTypeSymbolId, bray_symbols::GenericSubstitutionId), FactQueryError> {
-        let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new(key)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let key =
+            bray_compiler_known::CompilerKnownDeclarationKey::try_new(key).ok_or_else(|| {
+                SemanticQueryFailure::contract(
+                    SemanticQueryContext::CompilerKnownDeclarationName(key),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         let definition = self
             .available_compiler_known_symbols()
             .declaration_symbol::<bray_symbols::StructSymbolId>(&key)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                SemanticQueryFailure::contract(
+                    SemanticQueryContext::CompilerKnownDeclaration(key.clone()),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         let substitution = super::super::substitution::empty_substitution(
             binding_context.semantic_values(),
@@ -379,7 +426,12 @@ impl Compilation {
                 ) {
                     Ok(Some(substitution)) => substitution,
                     Ok(None) => continue,
-                    Err(_) => return Err(FactQueryError::InfrastructureFailure),
+                    Err(error) => {
+                        return Err(implementation_match_query_error(
+                            header.implementation(),
+                            error,
+                        ));
+                    }
                 };
 
                 let application = values
@@ -454,7 +506,12 @@ impl Compilation {
             let key = binding_context
                 .symbol_key(implementation.definition().into_any())
                 .map_err(binding_query_error)?
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    symbol_contract_failure(
+                        implementation.definition().into_any(),
+                        SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
+                    )
+                })?;
 
             let candidate = OperationCandidate::symbol(
                 key.clone(),
@@ -620,8 +677,15 @@ impl Compilation {
             return Ok(None);
         };
 
-        let owner = GenericOwnerId::try_new(trait_definition.into())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let owner = GenericOwnerId::try_new(trait_definition.into()).ok_or_else(|| {
+            symbol_contract_failure(
+                trait_definition.into(),
+                SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: SemanticSymbolCategory::GenericOwner,
+                    actual: trait_definition.kind(),
+                },
+            )
+        })?;
 
         let parameters =
             visible_generic_parameters(binding_context.symbols(), trait_definition.into());
@@ -664,7 +728,12 @@ impl Compilation {
         let owner = binding_context
             .symbols()
             .symbol_for_key(unit.key().declared_owner())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                unit_contract_failure(
+                    unit.key(),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         let constraints =
             super::constraint::enclosing_generic_constraints(binding_context, owner, diagnostics)?;
@@ -863,7 +932,13 @@ impl Compilation {
             checked.value(),
         )
         .map_err(FactQueryError::from)?
-        .ok_or(FactQueryError::InfrastructureFailure)
+        .ok_or_else(|| {
+            SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(implementation.into_any()),
+                SemanticQueryViolation::Unsupported(SemanticDataKind::Type),
+            )
+            .into()
+        })
     }
 
     fn resolve_trait_qualified_member_operation(
@@ -884,12 +959,23 @@ impl Compilation {
         let owner = binding_context
             .symbols()
             .symbol_for_key(unit.key().declared_owner())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                unit_contract_failure(
+                    unit.key(),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         let syntax = member
             .trait_syntax()
             .find_descendant::<TraitApplicationSyntax>(binding_context.syntax())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                expression_contract_failure(
+                    unit.key(),
+                    expression,
+                    SemanticQueryViolation::Missing(SemanticDataKind::Syntax),
+                )
+            })?;
 
         let bound = type_binder(binding_context, owner)
             .map_err(binding_query_error)?
@@ -902,7 +988,13 @@ impl Compilation {
             .map_err(binding_query_error)?
             .resolve_trait_application_template(bound.value())
             .map_err(binding_query_error)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                expression_contract_failure(
+                    unit.key(),
+                    expression,
+                    SemanticQueryViolation::Missing(SemanticDataKind::TraitApplication),
+                )
+            })?;
 
         let application_data = binding_context
             .semantic_values()
@@ -1048,8 +1140,15 @@ impl Compilation {
     ) -> Result<Option<bray_bound_tree::CallableDeclarationTemplate>, FactQueryError> {
         let arguments = member_call_generic_arguments(self, unit, expression)?;
 
-        let member_owner =
-            GenericOwnerId::try_new(member).ok_or(FactQueryError::InfrastructureFailure)?;
+        let member_owner = GenericOwnerId::try_new(member).ok_or_else(|| {
+            symbol_contract_failure(
+                member,
+                SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: SemanticSymbolCategory::GenericOwner,
+                    actual: member.kind(),
+                },
+            )
+        })?;
 
         let direct_generic = binding_context
             .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
@@ -1085,7 +1184,12 @@ impl Compilation {
         let owner = binding_context
             .symbols()
             .symbol_for_key(unit.key().declared_owner())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                unit_contract_failure(
+                    unit.key(),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         let scope = type_scope(binding_context, owner).map_err(binding_query_error)?;
 
@@ -1135,7 +1239,12 @@ impl Compilation {
             let provider = binding_context
                 .callable_parameter_default_provider(parameter)
                 .map_err(binding_query_error)?
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    symbol_contract_failure(
+                        parameter.into(),
+                        SemanticQueryViolation::Missing(SemanticDataKind::ConstantDefinition),
+                    )
+                })?;
 
             defaults.push((parameter, provider));
         }
@@ -1150,8 +1259,15 @@ impl Compilation {
         substitutions: impl IntoIterator<Item = bray_symbols::GenericSubstitutionId>,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<ResolvedCallableMember>, FactQueryError> {
-        let definition =
-            CallableDefinitionId::try_new(member).ok_or(FactQueryError::InfrastructureFailure)?;
+        let definition = CallableDefinitionId::try_new(member).ok_or_else(|| {
+            symbol_contract_failure(
+                member,
+                SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: SemanticSymbolCategory::Callable,
+                    actual: member.kind(),
+                },
+            )
+        })?;
 
         let substitution =
             substitution_for_owner(binding_context.semantic_values(), member, substitutions)?;
@@ -1247,7 +1363,11 @@ impl Compilation {
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<OperationResolution>, FactQueryError> {
         let Some(BoundExpression::Structured(index)) = unit.view().expression(expression) else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(expression_contract_failure(
+                unit.key(),
+                expression,
+                SemanticQueryViolation::Unsupported(SemanticDataKind::OperationSelection),
+            ));
         };
 
         let Some(receiver) = index.operands().first().copied() else {
@@ -1290,12 +1410,17 @@ impl Compilation {
         };
 
         if let Some((target, result_type)) = built_in {
+            let role = bray_compiler_known::RepresentationRole::ScalarUsize;
+
             let usize_type = self
                 .available_compiler_known_symbols()
-                .representation_symbol::<bray_symbols::StructSymbolId>(
-                    bray_compiler_known::RepresentationRole::ScalarUsize,
-                )
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .representation_symbol::<bray_symbols::StructSymbolId>(role)
+                .ok_or_else(|| {
+                    SemanticQueryFailure::contract(
+                        SemanticQueryContext::CompilerKnownRepresentation(role),
+                        SemanticQueryViolation::Missing(SemanticDataKind::Type),
+                    )
+                })?;
 
             let substitution = super::super::substitution::empty_substitution(
                 binding_context.semantic_values(),
@@ -1344,7 +1469,10 @@ impl Compilation {
     ) -> Result<Option<OperationResolution>, FactQueryError> {
         let Some(BoundExpression::Structured(index)) = unit.view().expression(key.expression())
         else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(operation_contract_failure(
+                key,
+                SemanticQueryViolation::Unsupported(SemanticDataKind::OperationSelection),
+            ));
         };
 
         let operand_types = index
@@ -1358,7 +1486,14 @@ impl Compilation {
             .split_first()
             .map(|(subject, selectors)| (*subject, selectors))
         else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(operation_contract_failure(
+                key,
+                SemanticQueryViolation::CountMismatch {
+                    data: SemanticDataKind::Type,
+                    expected: 1,
+                    actual: 0,
+                },
+            ));
         };
 
         let borrow_kind = custom_index_borrow_kind(unit, key.expression())?;
@@ -1401,13 +1536,23 @@ impl Compilation {
                     vec![bound; selectors.len()],
                 )
             }
-            _ => return Err(FactQueryError::InfrastructureFailure),
+            _ => {
+                return Err(operation_contract_failure(
+                    key,
+                    SemanticQueryViolation::Unsupported(SemanticDataKind::OperationSelection),
+                ));
+            }
         };
 
         let owner = binding_context
             .symbols()
             .symbol_for_key(unit.key().declared_owner())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                unit_contract_failure(
+                    unit.key(),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         let candidate = self.trait_operation_candidate_data(
             binding_context,
@@ -1430,7 +1575,12 @@ impl Compilation {
                 BoundStructuredExpressionKind::SliceIndex => {
                     bray_compiler_known::CompilerKnownOperationRole::SliceIndex
                 }
-                _ => return Err(FactQueryError::InfrastructureFailure),
+                _ => {
+                    return Err(operation_contract_failure(
+                        key,
+                        SemanticQueryViolation::Unsupported(SemanticDataKind::OperationSelection),
+                    ));
+                }
             };
 
             let shared = self.trait_operation_candidate_data(
@@ -1465,10 +1615,12 @@ impl Compilation {
                     .with_arg(DiagnosticArg::referenced_name(role.as_str())),
                 );
 
-                let result_type = shared
-                    .operation
-                    .result_type()
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let result_type = shared.operation.result_type().ok_or_else(|| {
+                    operation_contract_failure(
+                        key,
+                        SemanticQueryViolation::Missing(SemanticDataKind::Type),
+                    )
+                })?;
 
                 return Ok(Some(OperationResolution::new(
                     key.expression(),
@@ -1502,9 +1654,13 @@ fn custom_index_borrow_kind(
     let mut child = expression;
 
     while let Some(parent) = view.expression_parent(child) {
-        let parent_expression = view
-            .expression(parent)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let parent_expression = view.expression(parent).ok_or_else(|| {
+            expression_contract_failure(
+                unit.key(),
+                parent,
+                SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression),
+            )
+        })?;
 
         match parent_expression {
             BoundExpression::Assignment(assignment)
@@ -1516,9 +1672,13 @@ fn custom_index_borrow_kind(
                 if structured.operands().first() == Some(&child)
                     && structured.kind() == BoundStructuredExpressionKind::Borrow =>
             {
-                return structured
-                    .borrow_kind()
-                    .ok_or(FactQueryError::InfrastructureFailure);
+                return structured.borrow_kind().ok_or_else(|| {
+                    expression_contract_failure(
+                        unit.key(),
+                        parent,
+                        SemanticQueryViolation::Unsupported(SemanticDataKind::OperationSelection),
+                    )
+                });
             }
             BoundExpression::Structured(structured)
                 if structured.operands().first() == Some(&child)

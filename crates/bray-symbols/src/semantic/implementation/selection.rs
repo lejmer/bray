@@ -59,7 +59,7 @@ impl ImplementationSelectionCandidate {
 }
 
 /// Reports candidate sets that cannot represent an implementation ambiguity.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum ImplementationAmbiguityError {
     /// Fewer than two distinct semantic implementation keys remain.
     TooFewCandidates,

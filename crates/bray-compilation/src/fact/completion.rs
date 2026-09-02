@@ -106,15 +106,16 @@ where
         }
     };
 
-    let diagnostics = runtime
-        .complete_batch(plan.requests().iter().copied(), cancellation, |request| {
-            match catch_unwind(AssertUnwindSafe(|| evaluator.evaluate(*request))) {
-                Ok(Ok(diagnostics)) => Ok(BatchWork::leaf(diagnostics)),
-                Ok(Err(error)) => Err(CompletionEvaluatorOutcome::Error(error)),
-                Err(_) => Err(CompletionEvaluatorOutcome::Panic),
-            }
-        })
-        .map_err(symbol_completion_error)?;
+    let diagnostics =
+        runtime
+            .complete_batch(plan.requests().iter().copied(), cancellation, |request| {
+                match catch_unwind(AssertUnwindSafe(|| evaluator.evaluate(*request))) {
+                    Ok(Ok(diagnostics)) => Ok(BatchWork::leaf(diagnostics)),
+                    Ok(Err(error)) => Err(CompletionEvaluatorOutcome::Error(error)),
+                    Err(_) => Err(CompletionEvaluatorOutcome::Panic),
+                }
+            })
+            .map_err(symbol_completion_error)?;
 
     let diagnostics = diagnostics
         .iter()

@@ -13,10 +13,7 @@ impl Lowerer<'_> {
             return Ok(None);
         };
 
-        let data = self
-            .input
-            .semantic_values()
-            .constant_value_data(*value)?;
+        let data = self.input.semantic_values().constant_value_data(*value)?;
 
         match data.kind() {
             ConstantValueKind::Boolean(value) => Ok(Some(*value)),

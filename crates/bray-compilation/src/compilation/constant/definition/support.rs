@@ -14,6 +14,9 @@ use bray_symbols::{
 };
 
 use crate::compilation::substitution::empty_substitution;
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+};
 use crate::fact::FactQueryError;
 
 pub(super) fn imported_constant_definition(
@@ -24,23 +27,44 @@ pub(super) fn imported_constant_definition(
         return match definition {
             AnyConstantDefinitionId::TraitMember(_) => Ok(ConstantDefinitionState::Required),
             AnyConstantDefinitionId::Constant(_) | AnyConstantDefinitionId::TraitFulfillment(_) => {
-                Err(FactQueryError::InfrastructureFailure)
+                Err(SemanticQueryFailure::contract(
+                    SemanticQueryContext::Symbol(definition.into_any()),
+                    SemanticQueryViolation::Missing(SemanticDataKind::ImportedTemplate),
+                )
+                .into())
             }
         };
     };
 
     let template = template.template();
 
-    let index = usize::try_from(template.result().raw())
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+    let index = usize::try_from(template.result().raw()).map_err(|_| {
+        SemanticQueryFailure::contract(
+            SemanticQueryContext::Symbol(definition.into_any()),
+            SemanticQueryViolation::CountOverflow {
+                data: SemanticDataKind::BoundExpression,
+                value: u64::from(template.result().raw()),
+            },
+        )
+    })?;
 
-    let result = template
-        .nodes()
-        .get(index)
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+    let result = template.nodes().get(index).ok_or_else(|| {
+        SemanticQueryFailure::contract(
+            SemanticQueryContext::Symbol(definition.into_any()),
+            SemanticQueryViolation::CountMismatch {
+                data: SemanticDataKind::BoundExpression,
+                expected: index.saturating_add(1),
+                actual: template.nodes().len(),
+            },
+        )
+    })?;
 
     let CheckedTemplateOperation::Constant { term, .. } = result.operation() else {
-        return Err(FactQueryError::InfrastructureFailure);
+        return Err(SemanticQueryFailure::contract(
+            SemanticQueryContext::Symbol(definition.into_any()),
+            SemanticQueryViolation::Unsupported(SemanticDataKind::ConstantDefinition),
+        )
+        .into());
     };
 
     Ok(ConstantDefinitionState::Defined(ConstantDefinition::new(
@@ -53,6 +77,7 @@ pub(in crate::compilation::constant) fn call_parameter_values(
     values: &bray_symbols::SemanticValueStore,
     signature: &bray_symbols::CallableSignature,
     arguments: &[ConstantValueId],
+    context: SemanticQueryContext,
 ) -> Result<BTreeMap<AnySymbolId, ConstantValueId>, FactQueryError> {
     let parameters = signature
         .receiver()
@@ -67,7 +92,15 @@ pub(in crate::compilation::constant) fn call_parameter_values(
         .collect::<Vec<_>>();
 
     if parameters.len() != arguments.len() {
-        return Err(FactQueryError::InfrastructureFailure);
+        return Err(SemanticQueryFailure::contract(
+            context,
+            SemanticQueryViolation::CountMismatch {
+                data: SemanticDataKind::ConstantTerm,
+                expected: parameters.len(),
+                actual: arguments.len(),
+            },
+        )
+        .into());
     }
 
     let mut resolved = BTreeMap::new();
@@ -78,7 +111,14 @@ pub(in crate::compilation::constant) fn call_parameter_values(
             .map_err(FactQueryError::SemanticValueStore)?;
 
         if actual.ty() != expected {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(parameter),
+                SemanticQueryViolation::TypeMismatch {
+                    expected,
+                    actual: actual.ty(),
+                },
+            )
+            .into());
         }
 
         resolved.insert(parameter, value);
@@ -218,7 +258,11 @@ pub(in crate::compilation) fn collect_constant_references_from(
     }
 
     if !matches!(outcome, bray_bound_tree::BoundWalkOutcome::Completed) {
-        return Err(FactQueryError::InfrastructureFailure);
+        return Err(SemanticQueryFailure::contract(
+            SemanticQueryContext::Unit(bound.key().clone()),
+            SemanticQueryViolation::UnexpectedWalkOutcome(outcome),
+        )
+        .into());
     }
 
     Ok(references)
@@ -258,7 +302,11 @@ pub(super) fn expression_root(bound: &BoundUnit) -> Result<BoundExpressionId, Fa
         BoundUnitRoot::Expression(root) => Ok(root),
         BoundUnitRoot::CallableBody { .. }
         | BoundUnitRoot::AnonymousCallable { .. }
-        | BoundUnitRoot::ExpressionSequence(_) => Err(FactQueryError::InfrastructureFailure),
+        | BoundUnitRoot::ExpressionSequence(_) => Err(SemanticQueryFailure::contract(
+            SemanticQueryContext::Unit(bound.key().clone()),
+            SemanticQueryViolation::Unsupported(SemanticDataKind::BoundExpression),
+        )
+        .into()),
     }
 }
 

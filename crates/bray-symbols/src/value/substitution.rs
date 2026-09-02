@@ -74,7 +74,7 @@ impl GenericBinding {
 }
 
 /// Reports malformed ordered generic substitution input.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum GenericSubstitutionShapeError {
     /// Parameter and argument counts differ.
     ArgumentCountMismatch {

@@ -1,7 +1,5 @@
 use crate::compilation::binder::BindingQueryResult;
-use bray_binder::{
-    BindingQueryError, TypeExpressionBinder, TypeExpressionScope, TypeParameterBinding,
-};
+use bray_binder::{TypeExpressionBinder, TypeExpressionScope, TypeParameterBinding};
 use bray_compiler_known::CatalogGenericParameterKind;
 use bray_symbols::{
     AnySymbolId, GenericConstParameterSymbolId, GenericParameterSymbolId,
@@ -10,6 +8,8 @@ use bray_symbols::{
 };
 
 use super::super::context::CompilationBindingContext;
+use crate::compilation::binder::semantic_contract_binding_error as binding_contract;
+use crate::compilation::{SemanticDataKind, SemanticQueryContext, SemanticQueryViolation};
 
 pub(in crate::compilation) fn type_binder<'binding>(
     context: &'binding CompilationBindingContext<'binding>,
@@ -127,7 +127,12 @@ fn type_parameter_name(
     let record = context
         .symbols
         .generic_type_parameter(parameter)
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or_else(|| {
+            binding_contract(
+                SemanticQueryContext::Symbol(parameter.into()),
+                SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+            )
+        })?;
 
     if let Some(name) = record.inferred_name() {
         // Binder environments retain their own cheaply shared semantic name handle.
@@ -154,39 +159,93 @@ fn parameter_name(
 ) -> BindingQueryResult<SymbolName> {
     match origin {
         SymbolOrigin::Source => {
-            let declaration = declaration
-                .and_then(|id| context.declarations().declaration(id))
-                .ok_or(BindingQueryError::DependencyUnavailable)?;
+            let declaration = declaration.ok_or_else(|| {
+                binding_contract(
+                    SemanticQueryContext::Symbol(owner),
+                    SemanticQueryViolation::Missing(SemanticDataKind::DeclarationRecord),
+                )
+            })?;
 
-            declaration
+            let declaration_record =
+                context
+                    .declarations()
+                    .declaration(declaration)
+                    .ok_or_else(|| {
+                        binding_contract(
+                            SemanticQueryContext::Declaration(declaration),
+                            SemanticQueryViolation::Missing(SemanticDataKind::DeclarationRecord),
+                        )
+                    })?;
+
+            declaration_record
                 .name()
                 .and_then(bray_declarations::DeclarationName::as_identifier)
                 .and_then(SymbolName::try_new)
-                .ok_or(BindingQueryError::DependencyUnavailable)
+                .ok_or_else(|| {
+                    binding_contract(
+                        SemanticQueryContext::Declaration(declaration),
+                        SemanticQueryViolation::Unsupported(SemanticDataKind::MemberName),
+                    )
+                })
         }
         SymbolOrigin::CompilerKnown | SymbolOrigin::CompilerProvided => {
             let semantics = context
                 .symbols
                 .compiler_known_provider()
                 .declaration_semantics_for_symbol(owner)
-                .ok_or(BindingQueryError::DependencyUnavailable)?;
+                .ok_or_else(|| {
+                    binding_contract(
+                        SemanticQueryContext::Symbol(owner),
+                        SemanticQueryViolation::Missing(SemanticDataKind::DeclarationRecord),
+                    )
+                })?;
 
-            let ordinal =
-                usize::try_from(ordinal).map_err(|_| BindingQueryError::DependencyUnavailable)?;
+            let ordinal = usize::try_from(ordinal).map_err(|_| {
+                crate::compilation::binder::semantic_contract_binding_error(
+                    crate::compilation::SemanticQueryContext::Symbol(owner),
+                    crate::compilation::SemanticQueryViolation::CountOverflow {
+                        data: crate::compilation::SemanticDataKind::GenericSubstitution,
+                        value: u64::from(ordinal),
+                    },
+                )
+            })?;
 
             let signature = semantics.surface().signature();
 
-            let parameter = signature
-                .generic_parameters()
-                .get(ordinal)
-                .filter(|parameter| parameter.kind() == kind)
-                .ok_or(BindingQueryError::DependencyUnavailable)?;
+            let parameters = signature.generic_parameters();
 
-            SymbolName::try_new(parameter.name()).ok_or(BindingQueryError::DependencyUnavailable)
+            let parameter = parameters.get(ordinal).ok_or_else(|| {
+                binding_contract(
+                    SemanticQueryContext::Symbol(owner),
+                    SemanticQueryViolation::CountMismatch {
+                        data: SemanticDataKind::GenericSubstitution,
+                        expected: ordinal.saturating_add(1),
+                        actual: parameters.len(),
+                    },
+                )
+            })?;
+
+            if parameter.kind() != kind {
+                return Err(binding_contract(
+                    SemanticQueryContext::Symbol(owner),
+                    SemanticQueryViolation::GenericParameterKindMismatch {
+                        expected: kind,
+                        actual: parameter.kind(),
+                    },
+                ));
+            }
+
+            SymbolName::try_new(parameter.name()).ok_or_else(|| {
+                binding_contract(
+                    SemanticQueryContext::Symbol(owner),
+                    SemanticQueryViolation::Unsupported(SemanticDataKind::MemberName),
+                )
+            })
         }
-        SymbolOrigin::Imported | SymbolOrigin::Synthesized => {
-            Err(BindingQueryError::DependencyUnavailable)
-        }
+        origin @ (SymbolOrigin::Imported | SymbolOrigin::Synthesized) => Err(binding_contract(
+            SemanticQueryContext::Symbol(owner),
+            SemanticQueryViolation::UnexpectedSymbolOrigin(origin),
+        )),
     }
 }
 
@@ -335,11 +394,20 @@ pub(in crate::compilation) fn generic_parameter_ids(
 
     parameters.sort_by_key(|parameter| symbols.generic_parameter_ordinal(*parameter));
 
-    if parameters
+    if let Some(parameter) = parameters
         .iter()
-        .any(|parameter| symbols.generic_parameter_ordinal(*parameter).is_none())
+        .copied()
+        .find(|parameter| symbols.generic_parameter_ordinal(*parameter).is_none())
     {
-        return Err(BindingQueryError::DependencyUnavailable);
+        let parameter = match parameter {
+            GenericParameterSymbolId::Type(parameter) => AnySymbolId::from(parameter),
+            GenericParameterSymbolId::Const(parameter) => AnySymbolId::from(parameter),
+        };
+
+        return Err(binding_contract(
+            SemanticQueryContext::Symbol(parameter),
+            SemanticQueryViolation::Missing(SemanticDataKind::GenericSubstitution),
+        ));
     }
 
     Ok(parameters)

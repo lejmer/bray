@@ -24,7 +24,7 @@ pub enum BoundWalkEvent {
 }
 
 /// The reason a bound-tree traversal finished.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum BoundWalkOutcome {
     /// The root and all selected descendants were visited.
     Completed,

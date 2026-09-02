@@ -127,7 +127,9 @@ impl CheckerRequestContext for TestCheckerContext {
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {
-        self.semantic_values.as_ref().unwrap_or_else(|| semantic_values())
+        self.semantic_values
+            .as_ref()
+            .unwrap_or_else(|| semantic_values())
     }
 
     fn symbols(&self) -> &SymbolGraph {

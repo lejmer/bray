@@ -52,9 +52,7 @@ pub(super) fn implementation_semantics(
             .resolve_symbol_query(SymbolQueryRequest::<ImplementationCoherenceQuery>::new(
                 implementation,
             ))
-            .map_err(|error| {
-                super::super::binding_query_export_error(error, incomplete(symbol))
-            })?;
+            .map_err(|error| super::super::binding_query_export_error(error, incomplete(symbol)))?;
 
         if checked.diagnostics().has_errors() {
             return Err(incomplete(symbol));
@@ -172,9 +170,7 @@ pub(super) fn export_static_semantics(
         .resolve_symbol_query(SymbolQueryRequest::<StaticInstanceTemplateQuery>::new(
             declaration,
         ))
-        .map_err(|error| {
-            super::super::binding_query_export_error(error, incomplete(symbol))
-        })?;
+        .map_err(|error| super::super::binding_query_export_error(error, incomplete(symbol)))?;
 
     if template.diagnostics().has_errors() {
         return Err(incomplete(symbol));
@@ -254,15 +250,12 @@ fn resolve_predicate_definition<'a, C>(
 ) -> Result<InterfacePredicateDefinitionState, PackageInterfaceExportError>
 where
     C: SymbolQueryContract<Value = PredicateDefinitionState<PredicateDefinition>>,
-    CompilationBindingContext<'a>:
-        SymbolQueryErrorProvider<UpstreamError = crate::fact::FactQueryError>
-            + SymbolQueryProvider<C>,
+    CompilationBindingContext<'a>: SymbolQueryErrorProvider<UpstreamError = crate::fact::FactQueryError>
+        + SymbolQueryProvider<C>,
 {
     let semantics = binder
         .resolve_symbol_query(request)
-        .map_err(|error| {
-            super::super::binding_query_export_error(error, incomplete(symbol))
-        })?;
+        .map_err(|error| super::super::binding_query_export_error(error, incomplete(symbol)))?;
 
     if semantics.diagnostics().has_errors() {
         return Err(incomplete(symbol));

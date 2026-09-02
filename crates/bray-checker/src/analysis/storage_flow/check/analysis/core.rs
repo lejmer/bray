@@ -62,7 +62,10 @@ where
                 StorageFlowInputKind::StoragePlan,
                 (storage.unit(), storage.kind()),
             ),
-            (StorageFlowInputKind::Liveness, (liveness.unit(), liveness.kind())),
+            (
+                StorageFlowInputKind::Liveness,
+                (liveness.unit(), liveness.kind()),
+            ),
             (
                 StorageFlowInputKind::Refinements,
                 (refinements.unit(), refinements.kind()),
@@ -237,11 +240,9 @@ where
     {
         Ok(analysis) => analysis,
         Err(error) => {
-            return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::StorageFlow(
-                    CheckerStorageFlowFailure::FlowConstruction(error),
-                ),
-            );
+            return CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::StorageFlow(
+                CheckerStorageFlowFailure::FlowConstruction(error),
+            ));
         }
     };
 
@@ -946,12 +947,12 @@ where
         access_id: StorageAccessId,
         purpose: StorageAccessPurpose,
     ) -> Result<DiagnosticStorageAccess, CheckerQueryError<C::UpstreamError>> {
-        let access = self
-            .storage
-            .access(access_id)
-            .ok_or(CheckerInfrastructureError::StorageFlow(
-                CheckerStorageFlowFailure::MissingStorageAccess { access: access_id },
-            ))?;
+        let access =
+            self.storage
+                .access(access_id)
+                .ok_or(CheckerInfrastructureError::StorageFlow(
+                    CheckerStorageFlowFailure::MissingStorageAccess { access: access_id },
+                ))?;
 
         let root = match access.root() {
             StorageAccessRoot::Storage(storage) => self.diagnostic_storage_identity(storage)?,

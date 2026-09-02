@@ -167,10 +167,12 @@ impl LlvmCodeGenerator {
             return Ok(CodegenOutcome::cancelled(DiagnosticBag::new()));
         }
 
-        module.verify().map_err(|error| CodegenFailure::BackendRejectedModule {
-            stage: DiagnosticCodegenVerificationStage::BeforeOptimization,
-            report: Arc::from(error.to_string()),
-        })?;
+        module
+            .verify()
+            .map_err(|error| CodegenFailure::BackendRejectedModule {
+                stage: DiagnosticCodegenVerificationStage::BeforeOptimization,
+                report: Arc::from(error.to_string()),
+            })?;
 
         if request.cancellation().is_cancelled() {
             return Ok(CodegenOutcome::cancelled(DiagnosticBag::new()));
@@ -182,10 +184,12 @@ impl LlvmCodeGenerator {
             return Ok(CodegenOutcome::cancelled(DiagnosticBag::new()));
         }
 
-        module.verify().map_err(|error| CodegenFailure::BackendRejectedModule {
-            stage: DiagnosticCodegenVerificationStage::AfterOptimization,
-            report: Arc::from(error.to_string()),
-        })?;
+        module
+            .verify()
+            .map_err(|error| CodegenFailure::BackendRejectedModule {
+                stage: DiagnosticCodegenVerificationStage::AfterOptimization,
+                report: Arc::from(error.to_string()),
+            })?;
 
         let mut serialized: BTreeMap<BackendArtifactKind, ArtifactContent> = BTreeMap::new();
 

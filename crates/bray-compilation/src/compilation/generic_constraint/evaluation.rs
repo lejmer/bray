@@ -10,6 +10,7 @@ use bray_checker::{
     resolve_type_expression_template, type_is_copyable_in_context,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
+use bray_source::SourceSpan;
 use bray_symbols::{
     ConstantExpressionOccurrence, ConstantValueKind, GenericConstraintObligationKey,
     GenericConstraintTemplate, GenericDeclarationTemplate, GenericSubstitutionId,
@@ -21,7 +22,11 @@ use super::super::Compilation;
 use super::super::checker::{CompilationCheckerContext, checker_result};
 use super::super::substitution::identity_substitution;
 use super::super::unit::semantic_unit_context_for;
-use crate::fact::{CancellationToken, FactQueryError};
+use super::context::type_template_context;
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+};
+use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 impl Compilation {
     pub(in crate::compilation) fn generic_declaration_may_be_satisfied(
@@ -228,7 +233,7 @@ impl Compilation {
     ) -> Result<DiagnosticResult<ProofOutcome>, FactQueryError> {
         let key = self.constraint_unit_key(expression.owner(), unit)?;
         let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
-        let semantics = self.expression_semantics_with_cancellation(key, cancellation)?;
+        let semantics = self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
 
         let diagnostics = DiagnosticBag::merged_all([
             bound.result().diagnostics(),
@@ -239,8 +244,17 @@ impl Compilation {
             return Ok(DiagnosticResult::new(ProofOutcome::Recovered, diagnostics));
         }
 
-        let root = constraint_expression(bound.result().value(), expression.syntax())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let root = constraint_expression(bound.result().value(), expression.syntax()).ok_or_else(
+            || {
+                let syntax = expression.syntax();
+
+                SemanticQueryFailure::located_contract(
+                    SemanticQueryContext::Unit(key.clone()),
+                    SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression),
+                    SourceSpan::new(syntax.source_id(), syntax.full_range()),
+                )
+            },
+        )?;
 
         let references = self.concrete_call_references(
             bound.result().value(),
@@ -290,7 +304,14 @@ impl Compilation {
             return Ok(DiagnosticResult::new(ProofOutcome::Recovered, diagnostics));
         }
 
-        let outcome = constant_predicate_outcome(self.semantic_value_store()?, *evaluated.value())?;
+        let outcome = constant_predicate_outcome(
+            self.semantic_value_store()?,
+            *evaluated.value(),
+            SemanticQueryContext::Expression {
+                unit: key,
+                expression: root,
+            },
+        )?;
 
         Ok(DiagnosticResult::new(outcome, diagnostics))
     }
@@ -318,7 +339,11 @@ impl Compilation {
             .imported_semantic_address(owner.symbol())
             .map_err(super::super::binder::binding_query_error)?
         else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(owner.symbol()),
+                SemanticQueryViolation::Missing(SemanticDataKind::ImportedTemplate),
+            )
+            .into());
         };
 
         let template_result = super::super::binder::imported_declaration_template_at(
@@ -330,32 +355,72 @@ impl Compilation {
         .map_err(super::super::binder::binding_query_error)?;
 
         let Some(template) = template_result.value() else {
-            return Err(FactQueryError::InfrastructureFailure);
+            if template_result.diagnostics().has_errors() {
+                return Ok(DiagnosticResult::new(
+                    ProofOutcome::Recovered,
+                    template_result.diagnostics().clone(),
+                ));
+            }
+
+            return Err(SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(owner.symbol()),
+                SemanticQueryViolation::Missing(SemanticDataKind::ImportedTemplate),
+            )
+            .into());
         };
 
         let imported = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
 
-        let imported = imported
-            .value()
-            .as_deref()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let Some(imported_symbols) = imported.value().as_deref() else {
+            if imported.diagnostics().has_errors() {
+                return Ok(DiagnosticResult::new(
+                    ProofOutcome::Recovered,
+                    DiagnosticBag::merged_all([
+                        template_result.diagnostics(),
+                        imported.diagnostics(),
+                    ]),
+                ));
+            }
+
+            return Err(SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(owner.symbol()),
+                SemanticQueryViolation::Missing(SemanticDataKind::ImportedTemplate),
+            )
+            .into());
+        };
 
         let context = CompilationCheckerContext::new(binding_context);
 
         let resolver = super::super::constant::CompilationConstantTemplateResolver::new(
             self,
             cancellation,
-            imported,
+            imported_symbols,
         );
+
+        let result_index = usize::try_from(template.template().result().raw()).map_err(|_| {
+            SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(owner.symbol()),
+                SemanticQueryViolation::CountOverflow {
+                    data: SemanticDataKind::BoundExpression,
+                    value: u64::from(template.template().result().raw()),
+                },
+            )
+        })?;
 
         let result_type = template
             .template()
             .nodes()
-            .get(
-                usize::try_from(template.template().result().raw())
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?,
-            )
-            .ok_or(FactQueryError::InfrastructureFailure)?
+            .get(result_index)
+            .ok_or_else(|| {
+                SemanticQueryFailure::contract(
+                    SemanticQueryContext::Symbol(owner.symbol()),
+                    SemanticQueryViolation::CountMismatch {
+                        data: SemanticDataKind::BoundExpression,
+                        expected: result_index.saturating_add(1),
+                        actual: template.template().nodes().len(),
+                    },
+                )
+            })?
             .ty();
 
         let diagnostic_span = self
@@ -371,14 +436,21 @@ impl Compilation {
             diagnostic_span,
         ))?;
 
-        let diagnostics =
-            DiagnosticBag::merged_all([template_result.diagnostics(), evaluated.diagnostics()]);
+        let diagnostics = DiagnosticBag::merged_all([
+            template_result.diagnostics(),
+            imported.diagnostics(),
+            evaluated.diagnostics(),
+        ]);
 
         let Some(value) = evaluated.value() else {
             return Ok(DiagnosticResult::new(ProofOutcome::Recovered, diagnostics));
         };
 
-        let outcome = constant_predicate_outcome(values, *value)?;
+        let outcome = constant_predicate_outcome(
+            values,
+            *value,
+            SemanticQueryContext::Symbol(owner.symbol()),
+        )?;
 
         Ok(DiagnosticResult::new(outcome, diagnostics))
     }
@@ -464,8 +536,9 @@ impl Compilation {
             return Ok(DiagnosticResult::new(None, diagnostics));
         }
 
-        let constants = CheckedConstantTerms::try_from_terms(terms)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        let constants = CheckedConstantTerms::try_from_terms(terms).map_err(|cause| {
+            crate::compilation::SemanticQueryFailure::CheckedConstantTerms { unit: None, cause }
+        })?;
 
         let value = resolve(self.semantic_value_store()?, &constants)?;
 
@@ -577,7 +650,12 @@ impl Compilation {
         definition: TraitSymbolId,
     ) -> Result<bool, FactQueryError> {
         let key = bray_compiler_known::CompilerKnownDeclarationKey::try_new("Copyable")
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                SemanticQueryFailure::contract(
+                    SemanticQueryContext::Fact(CompilationFactKey::ProductSemantics),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         Ok(self
             .available_compiler_known_symbols()
@@ -592,17 +670,31 @@ impl Compilation {
     ) -> Result<BoundUnitKey, FactQueryError> {
         let symbols = self.symbol_graph()?;
 
-        let owner = symbols
-            .symbol_key(owner)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let owner_key = symbols.symbol_key(owner).ok_or_else(|| {
+            SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(owner),
+                SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+            )
+        })?;
 
-        let source = self
-            .source(syntax.source_id())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let source = self.source(syntax.source_id()).ok_or_else(|| {
+            SemanticQueryFailure::located_contract(
+                SemanticQueryContext::Symbol(owner),
+                SemanticQueryViolation::Missing(SemanticDataKind::SourceAnchor),
+                SourceSpan::new(syntax.source_id(), syntax.full_range()),
+            )
+        })?;
 
         let source = BoundSourceAnchor::new(syntax, source.version());
 
-        BoundUnitKey::constraint(owner.clone(), source).ok_or(FactQueryError::InfrastructureFailure)
+        BoundUnitKey::constraint(owner_key.clone(), source).ok_or_else(|| {
+            SemanticQueryFailure::located_contract(
+                SemanticQueryContext::Symbol(owner),
+                SemanticQueryViolation::Missing(SemanticDataKind::BoundUnit),
+                SourceSpan::new(syntax.source_id(), syntax.full_range()),
+            )
+            .into()
+        })
     }
 }
 
@@ -614,7 +706,12 @@ fn resolve_constraint_type(
 ) -> Result<TypeId, FactQueryError> {
     let resolved = resolve_type_expression_template(values, template, constants)
         .map_err(FactQueryError::from)?
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .ok_or_else(|| {
+            SemanticQueryFailure::contract(
+                type_template_context(template),
+                SemanticQueryViolation::Missing(SemanticDataKind::Type),
+            )
+        })?;
 
     values
         .substitute_type(resolved, substitution)
@@ -629,7 +726,12 @@ fn resolve_constraint_trait_application(
 ) -> Result<TraitApplicationId, FactQueryError> {
     let resolved = resolve_trait_application_template(values, template, constants)
         .map_err(FactQueryError::from)?
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .ok_or_else(|| {
+            SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(template.definition().into()),
+                SemanticQueryViolation::Missing(SemanticDataKind::TraitApplication),
+            )
+        })?;
 
     values
         .substitute_trait_application(resolved, substitution)
@@ -647,6 +749,7 @@ fn checker_dependency_error(error: CheckerQueryError<FactQueryError>) -> FactQue
 fn constant_predicate_outcome(
     values: &bray_symbols::SemanticValueStore,
     value: bray_symbols::ConstantValueId,
+    context: SemanticQueryContext,
 ) -> Result<ProofOutcome, FactQueryError> {
     let value = values
         .constant_value_data(value)
@@ -656,7 +759,11 @@ fn constant_predicate_outcome(
         ConstantValueKind::Boolean(true) => Ok(ProofOutcome::Proven),
         ConstantValueKind::Boolean(false) => Ok(ProofOutcome::Disproven),
         ConstantValueKind::Error => Ok(ProofOutcome::Recovered),
-        _ => Err(FactQueryError::InfrastructureFailure),
+        kind => Err(SemanticQueryFailure::contract(
+            context,
+            SemanticQueryViolation::UnexpectedConstantValueKind(kind.clone()),
+        )
+        .into()),
     }
 }
 

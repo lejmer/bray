@@ -6,6 +6,7 @@ use bray_checker::{
     CheckedConstantTerms, ConstantEvaluationInput, ConstantEvaluator, DefaultConstantEvaluator,
 };
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
+use bray_source::SourceSpan;
 use bray_symbols::{
     ConstantExpressionExpectedType, ConstantExpressionOccurrence, ConstantExpressionOccurrenceKey,
     ConstantTermId, ConstantValueId, TypeExpressionTemplate,
@@ -15,7 +16,12 @@ use super::super::Compilation;
 use super::super::checker::checker_result;
 use super::super::unit::semantic_unit_context_for;
 use super::CompilationConstantCallResolver;
-use crate::fact::{CancellationToken, FactQueryError};
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+};
+use crate::fact::{
+    CancellationToken, FactQueryError, FactRuntimeFailure, SynchronizationComponent,
+};
 
 impl Compilation {
     pub(in crate::compilation) fn embedded_constant_key(
@@ -26,7 +32,7 @@ impl Compilation {
             .state
             .embedded_constant_expectations
             .lock()
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(|_| embedded_constant_expectations_poisoned())?;
 
         match expectations.entry(occurrence.key()) {
             std::collections::btree_map::Entry::Vacant(entry) => {
@@ -35,7 +41,17 @@ impl Compilation {
             std::collections::btree_map::Entry::Occupied(entry)
                 if *entry.get() != occurrence.expected_type() =>
             {
-                return Err(FactQueryError::InfrastructureFailure);
+                let syntax = occurrence.key().syntax();
+
+                return Err(SemanticQueryFailure::located_contract(
+                    SemanticQueryContext::Symbol(occurrence.key().owner()),
+                    SemanticQueryViolation::ConstantExpectationMismatch {
+                        expected: *entry.get(),
+                        actual: occurrence.expected_type(),
+                    },
+                    SourceSpan::new(syntax.source_id(), syntax.full_range()),
+                )
+                .into());
             }
             std::collections::btree_map::Entry::Occupied(_) => {}
         }
@@ -45,20 +61,36 @@ impl Compilation {
         let owner = self
             .symbol_graph()?
             .symbol_key(occurrence.key().owner())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                SemanticQueryFailure::contract(
+                    SemanticQueryContext::Symbol(occurrence.key().owner()),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         let syntax = occurrence.key().syntax();
 
-        let source = self
-            .source(syntax.source_id())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let source = self.source(syntax.source_id()).ok_or_else(|| {
+            SemanticQueryFailure::located_contract(
+                SemanticQueryContext::Symbol(occurrence.key().owner()),
+                SemanticQueryViolation::Missing(SemanticDataKind::SourceAnchor),
+                SourceSpan::new(syntax.source_id(), syntax.full_range()),
+            )
+        })?;
 
         // Stable symbol keys are Arc-backed identities retained by the bound unit key.
         BoundUnitKey::embedded_constant(
             owner.clone(),
             BoundSourceAnchor::new(syntax, source.version()),
         )
-        .ok_or(FactQueryError::InfrastructureFailure)
+        .ok_or_else(|| {
+            SemanticQueryFailure::located_contract(
+                SemanticQueryContext::Symbol(occurrence.key().owner()),
+                SemanticQueryViolation::Missing(SemanticDataKind::BoundUnit),
+                SourceSpan::new(syntax.source_id(), syntax.full_range()),
+            )
+            .into()
+        })
     }
 
     pub(in crate::compilation) fn embedded_constant_expected_type(
@@ -68,10 +100,20 @@ impl Compilation {
         self.state
             .embedded_constant_expectations
             .lock()
-            .map_err(|_| FactQueryError::InfrastructureFailure)?
+            .map_err(|_| embedded_constant_expectations_poisoned())?
             .get(&occurrence)
             .copied()
-            .ok_or(FactQueryError::InfrastructureFailure)
+            .ok_or_else(|| {
+                SemanticQueryFailure::located_contract(
+                    SemanticQueryContext::Symbol(occurrence.owner()),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Type),
+                    SourceSpan::new(
+                        occurrence.syntax().source_id(),
+                        occurrence.syntax().full_range(),
+                    ),
+                )
+                .into()
+            })
     }
 
     /// Returns the checked symbolic term for one source constant expression embedded in a type.
@@ -173,8 +215,161 @@ impl Compilation {
         }
 
         let checked = CheckedConstantTerms::try_from_terms(terms)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(|cause| SemanticQueryFailure::CheckedConstantTerms { unit: None, cause })?;
 
         Ok(DiagnosticResult::new(checked, diagnostics))
+    }
+}
+
+fn embedded_constant_expectations_poisoned() -> FactRuntimeFailure {
+    FactRuntimeFailure::SynchronizationPoisoned {
+        component: SynchronizationComponent::EmbeddedConstantExpectations,
+        fact: None,
+        task: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::panic::{AssertUnwindSafe, catch_unwind};
+
+    use bray_declarations::SyntaxAnchor;
+    use bray_parser::parse_source_unit;
+    use bray_source::{SourceId, SourceIdentity, SourceOrigin, SourceSnapshot, SourceVersion};
+    use bray_symbols::{
+        AnySymbolId, ConstantExpressionExpectedType, ConstantExpressionOccurrence,
+        ConstantExpressionOccurrenceKey, ConstantSymbolId, GenericConstParameterSymbolId, SymbolId,
+    };
+    use bray_syntax::LiteralExpressionSyntax;
+
+    use super::Compilation;
+    use crate::fact::{
+        CancellationToken, FactQueryError, FactRuntimeFailure, SynchronizationComponent,
+    };
+    use crate::request::CompilationRequest;
+    use crate::test_support::package_identity;
+
+    #[test]
+    fn poisoned_embedded_constant_expectation_write_reports_runtime_component() {
+        let compilation = compilation();
+        let occurrence = occurrence();
+        poison_embedded_constant_expectations(&compilation);
+
+        assert_eq!(
+            compilation.embedded_constant_key(occurrence),
+            Err(poisoned_expectations_error())
+        );
+    }
+
+    #[test]
+    fn poisoned_embedded_constant_expectation_read_stays_distinct_from_cancellation() {
+        let compilation = compilation();
+        let occurrence = occurrence();
+        poison_embedded_constant_expectations(&compilation);
+
+        assert_eq!(
+            compilation.embedded_constant_expected_type(occurrence.key()),
+            Err(poisoned_expectations_error())
+        );
+
+        let cancellation = CancellationToken::new();
+        cancellation.cancel();
+
+        assert_eq!(cancellation.check(), Err(FactQueryError::Cancelled));
+    }
+
+    #[test]
+    fn conflicting_embedded_constant_expectations_retain_both_types_and_source() {
+        let compilation = compilation();
+        let expected = occurrence();
+
+        let actual = ConstantExpressionOccurrence::new(
+            expected.key(),
+            ConstantExpressionExpectedType::GenericParameter(
+                GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(3)),
+            ),
+        );
+
+        let _ = compilation.embedded_constant_key(expected);
+
+        let syntax = actual.key().syntax();
+
+        let expected_error: FactQueryError =
+            crate::compilation::SemanticQueryFailure::located_contract(
+                crate::compilation::SemanticQueryContext::Symbol(actual.key().owner()),
+                crate::compilation::SemanticQueryViolation::ConstantExpectationMismatch {
+                    expected: expected.expected_type(),
+                    actual: actual.expected_type(),
+                },
+                bray_source::SourceSpan::new(syntax.source_id(), syntax.full_range()),
+            )
+            .into();
+
+        assert_eq!(
+            compilation.embedded_constant_key(actual),
+            Err(expected_error)
+        );
+    }
+
+    fn compilation() -> Compilation {
+        match Compilation::load(CompilationRequest::new(package_identity(), Vec::new())) {
+            Ok(compilation) => compilation,
+            Err(error) => panic!("test compilation must load: {error:?}"),
+        }
+    }
+
+    fn occurrence() -> ConstantExpressionOccurrence {
+        let source = SourceSnapshot::new(
+            SourceId::new(0),
+            SourceIdentity::new(0),
+            SourceOrigin::virtual_source("embedded-constant-poison-test"),
+            SourceVersion::new(1),
+            "module example;\nconst value: u8 = 4;\n",
+        );
+
+        let source = match source {
+            Ok(source) => source,
+            Err(error) => panic!("test source must fit: {error:?}"),
+        };
+
+        let parsed = parse_source_unit(&source);
+
+        let literals =
+            bray_testing::syntax_descendants::<LiteralExpressionSyntax>(parsed.source_unit());
+
+        let [literal] = literals.as_slice() else {
+            panic!("test source must contain one literal");
+        };
+
+        ConstantExpressionOccurrence::new(
+            ConstantExpressionOccurrenceKey::new(
+                AnySymbolId::from(ConstantSymbolId::from_symbol_id(SymbolId::new(1))),
+                SyntaxAnchor::from_node(literal),
+            ),
+            ConstantExpressionExpectedType::GenericParameter(
+                GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(2)),
+            ),
+        )
+    }
+
+    fn poison_embedded_constant_expectations(compilation: &Compilation) {
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let _expectations = compilation
+                .state
+                .embedded_constant_expectations
+                .lock()
+                .unwrap_or_else(|_| panic!("expectation state must begin available"));
+
+            panic!("poison embedded constant expectations");
+        }));
+    }
+
+    fn poisoned_expectations_error() -> FactQueryError {
+        FactRuntimeFailure::SynchronizationPoisoned {
+            component: SynchronizationComponent::EmbeddedConstantExpectations,
+            fact: None,
+            task: None,
+        }
+        .into()
     }
 }

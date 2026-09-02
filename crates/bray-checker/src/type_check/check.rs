@@ -199,8 +199,7 @@ where
                 request.semantic_values(),
                 RepresentationRole::Range,
                 result.ty(),
-            )
-        {
+            ) {
             Ok(Some(element)) => element,
             Ok(None) => continue,
             Err(error) => {

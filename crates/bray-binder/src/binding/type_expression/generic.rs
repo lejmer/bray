@@ -3,15 +3,15 @@ use std::sync::Arc;
 use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
     CallableContractSymbolId, GenericArgumentTemplate, GenericOwnerId, GenericParameterSymbolId,
-    GenericSubstitutionData, MemberLookupResult, NamedTypeSymbolId, StructSymbolId, TypeData,
-    TypeExpressionTemplate, TypeId,
+    GenericSubstitutionData, GenericSubstitutionShapeError, MemberLookupResult, NamedTypeSymbolId,
+    StructSymbolId, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::{
     GenericArgumentListSyntax, GenericArgumentSyntax, PathSyntax, TypeExpressionSyntax,
 };
 
 use super::core::TypeExpressionBinder;
-use crate::{BindingQueryError, BindingQueryResult};
+use crate::{BindingError, BindingQueryError, BindingQueryResult};
 
 impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     /// Binds explicit call arguments against one candidate's generic parameter list.
@@ -26,7 +26,14 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         self.check_cancellation()?;
 
         let Some(parameters) = parameters.get(..arguments.len()) else {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(BindingQueryError::Binding(
+                BindingError::GenericSubstitution(
+                    GenericSubstitutionShapeError::ArgumentCountMismatch {
+                        parameter_count: parameters.len(),
+                        argument_count: arguments.len(),
+                    },
+                ),
+            ));
         };
 
         let arguments = self.bind_generic_argument_syntaxes(arguments, parameters)?;
@@ -46,19 +53,19 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         let mut nested = syntax.type_expressions();
 
         let Some(base) = nested.next() else {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(syntax_contract(syntax));
         };
 
         if nested.next().is_some() {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(syntax_contract(syntax));
         }
 
         let Some(path) = base.path() else {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(syntax_contract(syntax));
         };
 
         let Some(arguments) = syntax.generic_argument_lists().next() else {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(syntax_contract(syntax));
         };
 
         self.bind_named_path(&path, Some(&arguments))
@@ -138,11 +145,15 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         };
 
         let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(BindingQueryError::Binding(
+                BindingError::GenericOwnerUnavailable(definition.into_any()),
+            ));
         };
 
         let substitution = GenericSubstitutionData::try_new(owner, parameters, resolved_arguments)
-            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+            .map_err(|error| {
+                BindingQueryError::Binding(BindingError::GenericSubstitution(error))
+            })?;
 
         let substitution = self
             .semantic_values
@@ -165,7 +176,9 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             .compiler_known_provider()
             .role_registry()
             .representation_symbol::<StructSymbolId>(role)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or(BindingQueryError::Binding(
+                BindingError::CompilerKnownRepresentationUnavailable(role),
+            ))?;
 
         self.bind_named_type(definition.into(), None)
     }
@@ -188,7 +201,14 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             return if parameters.is_empty() {
                 Ok(Vec::new())
             } else {
-                Err(BindingQueryError::DependencyUnavailable)
+                Err(BindingQueryError::Binding(
+                    BindingError::GenericSubstitution(
+                        GenericSubstitutionShapeError::ArgumentCountMismatch {
+                            parameter_count: parameters.len(),
+                            argument_count: 0,
+                        },
+                    ),
+                ))
             };
         };
 
@@ -203,7 +223,14 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         parameters: &[GenericParameterSymbolId],
     ) -> BindingQueryResult<Vec<GenericArgumentTemplate>, Upstream> {
         if arguments.len() != parameters.len() {
-            return Err(BindingQueryError::DependencyUnavailable);
+            return Err(BindingQueryError::Binding(
+                BindingError::GenericSubstitution(
+                    GenericSubstitutionShapeError::ArgumentCountMismatch {
+                        parameter_count: parameters.len(),
+                        argument_count: arguments.len(),
+                    },
+                ),
+            ));
         }
 
         arguments
@@ -213,7 +240,11 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
                 GenericParameterSymbolId::Type(_) => argument
                     .type_expressions()
                     .next()
-                    .ok_or(BindingQueryError::DependencyUnavailable)
+                    .ok_or_else(|| {
+                        BindingQueryError::Binding(BindingError::SyntaxContract(
+                            bray_declarations::SyntaxAnchor::from_node(argument),
+                        ))
+                    })
                     .and_then(|ty| self.bind_type(&ty))
                     .map(GenericArgumentTemplate::Type),
                 GenericParameterSymbolId::Const(parameter) => self
@@ -222,4 +253,10 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             })
             .collect()
     }
+}
+
+fn syntax_contract<Upstream>(syntax: &TypeExpressionSyntax) -> BindingQueryError<Upstream> {
+    BindingQueryError::Binding(BindingError::SyntaxContract(
+        bray_declarations::SyntaxAnchor::from_node(syntax),
+    ))
 }

@@ -23,6 +23,10 @@ use super::diagnostics::symbol_diagnostic_identity;
 use super::foreign::diagnostic::template_diagnostic_type;
 use super::limits::try_count_comparison;
 use super::overlap::callable_selection_surfaces_overlap;
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+    SemanticSymbolCategory,
+};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -90,15 +94,20 @@ impl Compilation {
 
             let owner = symbols
                 .containing_symbol(family.id().into())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    SemanticQueryFailure::contract(
+                        SemanticQueryContext::Symbol(family.id().into()),
+                        SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                    )
+                })?;
 
             let mut seen = BTreeMap::<CallableSymbolId, Vec<SyntaxAnchor>>::new();
             let mut arms: Vec<CallableArm> = Vec::new();
 
             for anchor in family.arm_syntax() {
-                let path = anchor
-                    .find_descendant::<PathSyntax>(self.syntax_tree())
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let Some(path) = anchor.find_descendant::<PathSyntax>(self.syntax_tree()) else {
+                    continue;
+                };
 
                 let result = match owner {
                     AnySymbolId::Module(module) => {
@@ -214,9 +223,17 @@ impl Compilation {
                     }
 
                     if !try_count_comparison(&mut comparisons, maximum_comparisons) {
-                        let attempted = comparisons
-                            .checked_add(1)
-                            .ok_or(FactQueryError::InfrastructureFailure)?;
+                        let attempted = comparisons.checked_add(1).ok_or_else(|| {
+                            SemanticQueryFailure::contract(
+                                SemanticQueryContext::Fact(
+                                    CompilationFactKey::CallableOverloadValidation,
+                                ),
+                                SemanticQueryViolation::CountOverflow {
+                                    data: SemanticDataKind::OverloadComparison,
+                                    value: u64::try_from(comparisons).unwrap_or(u64::MAX),
+                                },
+                            )
+                        })?;
 
                         diagnostics.add(
                             source_diagnostic(
@@ -282,7 +299,14 @@ impl Compilation {
         diagnostics.add_range(signature.diagnostics().iter().cloned());
 
         let Some(owner) = GenericOwnerId::try_new(callable.into_any()) else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(callable.into_any()),
+                SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: SemanticSymbolCategory::GenericOwner,
+                    actual: callable.kind(),
+                },
+            )
+            .into());
         };
 
         let generic = binding_context

@@ -23,6 +23,9 @@ use super::super::unit::semantic_unit_context_for;
 use super::definition::{
     call_parameter_values, constant_callable_root, substitute_expression_types,
 };
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+};
 use crate::fact::{CancellationToken, CompilationFactKey, ConstantCallQueryKey, FactQueryError};
 
 type CheckerQueryError = bray_checker::CheckerQueryError<FactQueryError>;
@@ -354,10 +357,22 @@ impl Compilation {
             checked_terms.value(),
         )
         .map_err(FactQueryError::from)?
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .ok_or_else(|| {
+            SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(callable.definition().callable_symbol().into_any()),
+                SemanticQueryViolation::Missing(SemanticDataKind::CallableSignature),
+            )
+        })?;
 
         if signature.result() != key.result_type() {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(SemanticQueryFailure::contract(
+                SemanticQueryContext::Fact(CompilationFactKey::ConstantCall(key.clone())),
+                SemanticQueryViolation::TypeMismatch {
+                    expected: key.result_type(),
+                    actual: signature.result(),
+                },
+            )
+            .into());
         }
 
         let callable_type = values
@@ -365,7 +380,11 @@ impl Compilation {
             .map_err(FactQueryError::SemanticValueStore)?;
 
         let TypeData::Callable(callable_type) = callable_type.as_ref() else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(SemanticQueryFailure::contract(
+                SemanticQueryContext::Type(signature.callable_type()),
+                SemanticQueryViolation::Unsupported(SemanticDataKind::CallableSignature),
+            )
+            .into());
         };
 
         if callable_type.constness() != CallableConstness::Constant {
@@ -412,13 +431,32 @@ impl Compilation {
 
             let imported = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
 
-            let imported = imported
-                .value()
-                .as_deref()
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let Some(imported_symbols) = imported.value().as_deref() else {
+                if imported.diagnostics().has_errors() {
+                    return Ok(DiagnosticResult::new(
+                        None,
+                        DiagnosticBag::merged_all([
+                            signature_result.diagnostics(),
+                            checked_terms.diagnostics(),
+                            body.diagnostics(),
+                            imported.diagnostics(),
+                        ]),
+                    ));
+                }
+
+                return Err(SemanticQueryFailure::contract(
+                    SemanticQueryContext::Fact(CompilationFactKey::ImportedConstantCallableBody(
+                        address,
+                    )),
+                    SemanticQueryViolation::Missing(SemanticDataKind::ImportedTemplate),
+                )
+                .into());
+            };
 
             let context = self.checker_context(cancellation)?;
-            let resolver = CompilationConstantTemplateResolver::new(self, cancellation, imported);
+
+            let resolver =
+                CompilationConstantTemplateResolver::new(self, cancellation, imported_symbols);
 
             let diagnostic_span = self
                 .dependency_interface_input(address.interface())
@@ -446,6 +484,7 @@ impl Compilation {
                     signature_result.diagnostics(),
                     checked_terms.diagnostics(),
                     body.diagnostics(),
+                    imported.diagnostics(),
                     evaluated.diagnostics(),
                 ]),
             ));
@@ -481,7 +520,12 @@ impl Compilation {
             callable.substitution(),
         )?;
 
-        let parameters = call_parameter_values(values, &signature, key.arguments())?;
+        let parameters = call_parameter_values(
+            values,
+            &signature,
+            key.arguments(),
+            SemanticQueryContext::Fact(CompilationFactKey::ConstantCall(key.clone())),
+        )?;
 
         let (references, dependency_diagnostics) = self.concrete_call_references(
             bound.result().value(),
@@ -522,13 +566,7 @@ impl Compilation {
             evaluated.diagnostics(),
         ]);
 
-        Ok(DiagnosticResult::new(
-            Some(EvaluatedConstantCall::new(
-                evaluated.value().value(),
-                evaluated.value().usage(),
-            )),
-            diagnostics,
-        ))
+        Ok(evaluated_call_result(evaluated.value(), diagnostics))
     }
 
     fn compiler_known_constant_call(
@@ -626,4 +664,17 @@ impl Compilation {
 
 fn checker_constant_query_error(error: CheckerQueryError) -> FactQueryError {
     error.into()
+}
+
+fn evaluated_call_result(
+    evaluated: &bray_checker::EvaluatedConstant,
+    diagnostics: DiagnosticBag,
+) -> DiagnosticResult<Option<EvaluatedConstantCall>> {
+    DiagnosticResult::new(
+        Some(EvaluatedConstantCall::new(
+            evaluated.value(),
+            evaluated.usage(),
+        )),
+        diagnostics,
+    )
 }

@@ -178,7 +178,9 @@ where
     let symbols = binding_context.symbols();
 
     let Some(owner_key) = symbols.symbol_key(owner) else {
-        return Err(BindingQueryError::DependencyUnavailable);
+        return Err(BindingQueryError::Binding(
+            BindingError::SymbolRecordUnavailable(owner),
+        ));
     };
 
     let source =
@@ -191,13 +193,16 @@ where
         SurfaceUnitKind::Constraint => BoundUnitKey::constraint(owner_key, source),
         SurfaceUnitKind::ContractClause => BoundUnitKey::contract_clause(owner_key, source),
     }
-    .ok_or(BindingQueryError::DependencyUnavailable)?;
+    .ok_or(BindingQueryError::Binding(BindingError::InvalidUnitKey {
+        source,
+        owner,
+    }))?;
 
     let unit = BoundUnitId::new(0);
     let region = LocalSymbolRegionId::new(unit.raw());
 
     let builder = BoundUnitLocalBuilder::new(unit, key, region, syntax.full_range().start())
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+        .map_err(BindingQueryError::Construction)?;
 
     let mut binder = Binder::new(binding_context, builder);
     let scope = binder.unit().root_scope();
@@ -222,9 +227,7 @@ where
 
     let value = bind(&mut binder, path).map_err(binding_error)?;
 
-    let output = binder
-        .finish()
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+    let output = binder.finish().map_err(BindingQueryError::Construction)?;
 
     let (_, diagnostics, _) = output.into_parts();
 
@@ -243,13 +246,28 @@ fn bound_unit_error<Upstream>(
             BindingQueryError::SemanticValue(error)
         }
         crate::BoundUnitBindingError::Upstream(error) => BindingQueryError::Upstream(error),
-        crate::BoundUnitBindingError::InvalidUnitKey
-        | crate::BoundUnitBindingError::MissingSyntax
-        | crate::BoundUnitBindingError::MissingOwner
-        | crate::BoundUnitBindingError::MissingModule
-        | crate::BoundUnitBindingError::Construction
-        | crate::BoundUnitBindingError::Binding
-        | crate::BoundUnitBindingError::Assembly => BindingQueryError::DependencyUnavailable,
+        crate::BoundUnitBindingError::Construction(error) => BindingQueryError::Construction(error),
+        crate::BoundUnitBindingError::Binding(error) => BindingQueryError::Binding(error),
+        crate::BoundUnitBindingError::Assembly(error) => BindingQueryError::Assembly(error),
+        crate::BoundUnitBindingError::InvalidUnitKey => BindingQueryError::DependencyUnavailable,
+        crate::BoundUnitBindingError::MissingSyntax { source } => {
+            BindingQueryError::MissingSyntax { source }
+        }
+        crate::BoundUnitBindingError::MissingOwner {
+            source,
+            owner,
+            symbol,
+        } => BindingQueryError::MissingOwner {
+            source,
+            owner,
+            symbol,
+        },
+        crate::BoundUnitBindingError::MissingModule { source, owner } => {
+            BindingQueryError::MissingModule { source, owner }
+        }
+        crate::BoundUnitBindingError::InvalidSurfaceName { source, symbol } => {
+            BindingQueryError::InvalidSurfaceName { source, symbol }
+        }
     }
 }
 
@@ -261,12 +279,39 @@ fn binding_error<Upstream>(error: BindingError<Upstream>) -> BindingQueryError<U
         }
         BindingError::SemanticValue(error) => BindingQueryError::SemanticValue(error),
         BindingError::Upstream(error) => BindingQueryError::Upstream(error),
-        BindingError::DependencyUnavailable
-        | BindingError::Construction(_)
+        BindingError::Construction(error) => BindingQueryError::Construction(error),
+        BindingError::Assembly(error) => BindingQueryError::Assembly(error),
+        error @ (BindingError::DependencyUnavailable
+        | BindingError::MissingSyntax { .. }
+        | BindingError::MissingOwner { .. }
+        | BindingError::MissingModule { .. }
+        | BindingError::InvalidSurfaceName { .. }
         | BindingError::IdentityCapacityExceeded
         | BindingError::RollbackFailed
         | BindingError::TransactionContextMismatch
         | BindingError::ControlTargetMismatch
-        | BindingError::UnsupportedSyntax => BindingQueryError::DependencyUnavailable,
+        | BindingError::UnsupportedSyntax
+        | BindingError::SyntaxContract(_)
+        | BindingError::GenericOwnerUnavailable(_)
+        | BindingError::CompilerKnownRepresentationUnavailable(_)
+        | BindingError::SymbolRecordUnavailable(_)
+        | BindingError::ModulePartRecordUnavailable(_)
+        | BindingError::DeclarationRecordUnavailable(_)
+        | BindingError::UnresolvedTraitApplication(_)
+        | BindingError::ContextualSelfUnavailable(_)
+        | BindingError::UnresolvedTypeTemplate
+        | BindingError::InvalidUnitKey { .. }
+        | BindingError::CallableParameterCountMismatch { .. }
+        | BindingError::CallableParameterOwnerMismatch { .. }
+        | BindingError::ReceiverParameterOwnerMismatch { .. }
+        | BindingError::ReceiverContextMismatch { .. }
+        | BindingError::CallableTypeExpected { .. }
+        | BindingError::CallableTypeTemplateExpected(_)
+        | BindingError::CompilerKnownHeapStoragePolicyUnavailable
+        | BindingError::ImportedPackageUnavailable(_)
+        | BindingError::ImportedPathUnavailable { .. }
+        | BindingError::BoundWalkStopped(_)
+        | BindingError::CallableSignature(_)
+        | BindingError::GenericSubstitution(_)) => BindingQueryError::Binding(error),
     }
 }

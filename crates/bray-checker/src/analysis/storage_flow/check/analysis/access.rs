@@ -82,9 +82,7 @@ where
             .collect::<Vec<_>>();
 
         if !inactive_authorizing_borrows.is_empty() {
-            return Ok(Some(BorrowConflict::Borrows(
-                inactive_authorizing_borrows,
-            )));
+            return Ok(Some(BorrowConflict::Borrows(inactive_authorizing_borrows)));
         }
 
         let mut conflicts = Vec::new();
@@ -134,10 +132,10 @@ where
         match storage_access.root() {
             StorageAccessRoot::Recovery(_) => Ok(false),
             StorageAccessRoot::Storage(storage)
-            | StorageAccessRoot::OwnedIndirection { storage, .. } => {
-                Ok(self.projected_storage_borrow_kind(access)? == Some(BorrowKind::Mutable)
-                    || self.owned_storage_is_mutable(storage))
-            }
+            | StorageAccessRoot::OwnedIndirection { storage, .. } => Ok(self
+                .projected_storage_borrow_kind(access)?
+                == Some(BorrowKind::Mutable)
+                || self.owned_storage_is_mutable(storage)),
             StorageAccessRoot::Borrow(_) | StorageAccessRoot::BorrowedStorage { .. } => Ok(false),
         }
     }

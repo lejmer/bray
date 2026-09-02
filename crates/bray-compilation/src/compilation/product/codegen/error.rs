@@ -338,6 +338,7 @@ fn fact_query_failure_kind(error: &FactQueryError) -> Option<DiagnosticNativePro
             Some(Kind::EvaluationImportedExecutableTemplateMismatch)
         }
         FactQueryError::SemanticUnitContext(_) => Some(Kind::SemanticContextFailure),
+        FactQueryError::SemanticQuery(_) => Some(Kind::SemanticContextFailure),
         FactQueryError::CheckerInfrastructure(error) => Some(match error {
             bray_checker::CheckerInfrastructureError::AtomicRepresentationTypeUnavailable => {
                 Kind::EvaluationAtomicRepresentationTypeUnavailable

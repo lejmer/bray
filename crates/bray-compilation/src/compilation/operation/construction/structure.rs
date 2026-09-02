@@ -9,6 +9,8 @@ use bray_symbols::{
 
 use super::super::super::Compilation;
 use super::super::super::binder::{CompilationBindingContext, binding_query_error};
+use super::super::query::symbol_contract_failure;
+use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
 use crate::fact::FactQueryError;
 
 impl Compilation {
@@ -34,7 +36,12 @@ impl Compilation {
         let record = binding_context
             .structure(*structure)
             .map_err(binding_query_error)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                symbol_contract_failure(
+                    (*structure).into(),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         let inputs = record
             .fields()
@@ -55,7 +62,12 @@ impl Compilation {
         let key = binding_context
             .symbol_key((*structure).into())
             .map_err(binding_query_error)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                symbol_contract_failure(
+                    (*structure).into(),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         // The candidate owns the shared key returned by the immutable symbol table.
         Ok(Some(OperationCandidate::symbol_construction(
@@ -81,7 +93,12 @@ impl Compilation {
         let record = binding_context
             .struct_field(field)
             .map_err(binding_query_error)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                symbol_contract_failure(
+                    field.into(),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         let Some(name) = binding_context
             .member_name(field.into())

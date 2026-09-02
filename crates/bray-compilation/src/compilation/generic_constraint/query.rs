@@ -8,6 +8,9 @@ use bray_symbols::{
 };
 
 use super::super::Compilation;
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 impl Compilation {
@@ -70,7 +73,11 @@ impl Compilation {
             .map_err(FactQueryError::SemanticValueStore)?;
 
         if substitution.owner() != key.owner() {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(SemanticQueryFailure::contract(
+                SemanticQueryContext::Fact(CompilationFactKey::GenericConstraintSatisfaction(key)),
+                SemanticQueryViolation::Unsupported(SemanticDataKind::GenericSubstitution),
+            )
+            .into());
         }
 
         let binding_context = self.binding_context(cancellation)?;
@@ -104,5 +111,4 @@ impl Compilation {
 
         Ok(DiagnosticResult::new(outcome, diagnostics))
     }
-
 }

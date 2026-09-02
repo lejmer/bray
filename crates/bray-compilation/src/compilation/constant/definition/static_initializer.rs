@@ -16,6 +16,9 @@ use crate::compilation::constant::call::{
     CompilationConstantCallResolver, CompilationConstantTemplateResolver,
 };
 use crate::compilation::unit::semantic_unit_context_for;
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+};
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
@@ -100,7 +103,12 @@ impl Compilation {
         let address = binding_context
             .imported_semantic_address(declaration.into())
             .map_err(binding_query_error)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                SemanticQueryFailure::contract(
+                    SemanticQueryContext::Symbol(declaration.into()),
+                    SemanticQueryViolation::Missing(SemanticDataKind::ImportedTemplate),
+                )
+            })?;
 
         let kind = match duration {
             StaticStorageDuration::Product => CheckedTemplateKind::ProductStaticInitializer,
@@ -110,23 +118,55 @@ impl Compilation {
         let template = imported_declaration_template(&binding_context, address, kind)
             .map_err(binding_query_error)?;
 
-        let imported = template
-            .value()
-            .as_ref()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let Some(imported) = template.value().as_ref() else {
+            if template.diagnostics().has_errors() {
+                let value = self
+                    .semantic_value_store()?
+                    .intern_error_constant_value(result_type)
+                    .map_err(FactQueryError::SemanticValueStore)?;
+
+                return Ok(DiagnosticResult::new(
+                    EvaluatedConstantCall::new(value, Default::default()),
+                    template.diagnostics().clone(),
+                ));
+            }
+
+            return Err(SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(declaration.into()),
+                SemanticQueryViolation::Missing(SemanticDataKind::ImportedTemplate),
+            )
+            .into());
+        };
 
         let imported_symbols =
             self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
 
-        let imported_symbols = imported_symbols
-            .value()
-            .as_deref()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let Some(symbols) = imported_symbols.value().as_deref() else {
+            if imported_symbols.diagnostics().has_errors() {
+                let value = self
+                    .semantic_value_store()?
+                    .intern_error_constant_value(result_type)
+                    .map_err(FactQueryError::SemanticValueStore)?;
+
+                return Ok(DiagnosticResult::new(
+                    EvaluatedConstantCall::new(value, Default::default()),
+                    DiagnosticBag::merged_all([
+                        template.diagnostics(),
+                        imported_symbols.diagnostics(),
+                    ]),
+                ));
+            }
+
+            return Err(SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(declaration.into()),
+                SemanticQueryViolation::Missing(SemanticDataKind::ImportedTemplate),
+            )
+            .into());
+        };
 
         let context = self.checker_context(cancellation)?;
 
-        let resolver =
-            CompilationConstantTemplateResolver::new(self, cancellation, imported_symbols);
+        let resolver = CompilationConstantTemplateResolver::new(self, cancellation, symbols);
 
         let diagnostic_span = self
             .dependency_interface_input(address.interface())
@@ -143,8 +183,11 @@ impl Compilation {
             limits,
         ))?;
 
-        let diagnostics =
-            DiagnosticBag::merged_all([template.diagnostics(), evaluated.diagnostics()]);
+        let diagnostics = DiagnosticBag::merged_all([
+            template.diagnostics(),
+            imported_symbols.diagnostics(),
+            evaluated.diagnostics(),
+        ]);
 
         if let Some(evaluated) = evaluated.value() {
             return Ok(DiagnosticResult::new(*evaluated, diagnostics));

@@ -311,7 +311,7 @@ where
 
         state.pending_names.insert(name.clone(), span);
 
-        if !name_is_available(self, state.context, syntax.source(), &token) {
+        if !name_is_available(self, state.context, syntax.source(), &token)? {
             return Ok(None);
         }
 
@@ -373,7 +373,7 @@ where
             let span =
                 bray_source::SourceSpan::new(first_anchor.source_id(), first_anchor.full_range());
 
-            if !name_text_is_available(self, context, name.as_str(), span) {
+            if !name_text_is_available(self, context, name.as_str(), span)? {
                 continue;
             }
 

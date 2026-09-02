@@ -10,12 +10,15 @@ use bray_symbols::{ImplementationSelection, RuntimeDefaultPresence, SymbolName, 
 
 use super::super::super::Compilation;
 use super::super::super::binder::{CompilationBindingContext, binding_query_error};
+use super::super::query::{operation_contract_failure, symbol_contract_failure};
 use super::super::selected_storage_callable;
-use crate::fact::{CancellationToken, FactQueryError};
+use crate::compilation::{SemanticDataKind, SemanticQueryViolation};
+use crate::fact::{CancellationToken, FactQueryError, OperationSelectionQueryKey};
 
 impl Compilation {
     pub(super) fn type_form_construction_candidate(
         &self,
+        key: &OperationSelectionQueryKey,
         binding_context: &CompilationBindingContext<'_>,
         result_type: TypeId,
         cancellation: &CancellationToken,
@@ -30,8 +33,13 @@ impl Compilation {
             return Ok(None);
         };
 
-        let member_key = CompilerKnownDeclarationKey::try_new("StorageCreate")
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let member_key =
+            CompilerKnownDeclarationKey::try_new("StorageCreate").ok_or_else(|| {
+                operation_contract_failure(
+                    key,
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         let selected = selected_storage_callable(
             self,
@@ -54,11 +62,21 @@ impl Compilation {
             .map_err(FactQueryError::SemanticValueStore)?;
 
         let TypeData::Callable(callable_type) = callable_type.as_ref() else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(operation_contract_failure(
+                key,
+                SemanticQueryViolation::Unsupported(SemanticDataKind::CallableSignature),
+            ));
         };
 
         if callable_type.parameters().len() != resolved_signature.parameters().len() {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(operation_contract_failure(
+                key,
+                SemanticQueryViolation::CountMismatch {
+                    data: SemanticDataKind::CallableSignature,
+                    expected: resolved_signature.parameters().len(),
+                    actual: callable_type.parameters().len(),
+                },
+            ));
         }
 
         let mut state = OperationCandidateState::Available;
@@ -75,14 +93,23 @@ impl Compilation {
             let record = binding_context
                 .symbols()
                 .callable_parameter(parameter)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    symbol_contract_failure(
+                        parameter.into(),
+                        SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                    )
+                })?;
 
             if record.default_presence() == RuntimeDefaultPresence::Recovered {
                 state = OperationCandidateState::Recovered;
             }
 
-            let name = SymbolName::try_new(parameter_type.name().as_str())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let name = SymbolName::try_new(parameter_type.name().as_str()).ok_or_else(|| {
+                symbol_contract_failure(
+                    parameter.into(),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
             surfaces.push(ConstructionInputSurface::new(
                 ConstructionInputId::CallableParameter(parameter),
@@ -110,7 +137,12 @@ impl Compilation {
         let key = binding_context
             .symbol_key(implementation.definition().into_any())
             .map_err(binding_query_error)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                symbol_contract_failure(
+                    implementation.definition().into_any(),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         // The candidate owns the shared key returned by the immutable symbol table.
         Ok(Some(

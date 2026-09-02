@@ -17,9 +17,7 @@ pub(super) fn sources(workload: &str) -> Result<[PeerSource; 2], String> {
         "deque_mixed_ends" => ("deque_mixed_ends", "17"),
         "hash_map_growth_and_healthy_lookup" => ("hash_map_growth_and_healthy_lookup", "18"),
         "hash_map_collision_lookup" => ("hash_map_collision_lookup", "19"),
-        "ordered_collections_monotonic_updates" => {
-            ("ordered_collections_monotonic_updates", "20")
-        }
+        "ordered_collections_monotonic_updates" => ("ordered_collections_monotonic_updates", "20"),
         "filesystem_metadata" => ("filesystem_metadata", "4"),
         "process_context" => ("process_context", "5"),
         "monotonic_clock" => ("monotonic_clock", "6"),

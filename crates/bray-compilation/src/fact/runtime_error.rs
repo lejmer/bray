@@ -62,7 +62,11 @@ impl FactRuntimeError {
 
 impl std::fmt::Display for FactRuntimeError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "compiler query runtime failure: {:?}", self.cause())
+        write!(
+            formatter,
+            "compiler query runtime failure: {:?}",
+            self.cause()
+        )
     }
 }
 
@@ -236,9 +240,7 @@ impl FactRuntimeFailure {
             }
             Self::CapacityExhausted { .. }
             | Self::UnitSourceCapacityExhausted { .. }
-            | Self::UnitIdentityCapacityExhausted { .. } => {
-                FactRuntimeErrorKind::CapacityExhausted
-            }
+            | Self::UnitIdentityCapacityExhausted { .. } => FactRuntimeErrorKind::CapacityExhausted,
             Self::WorkerPoolCreation { .. } => FactRuntimeErrorKind::WorkerPoolCreation,
             Self::WorkerTerminated { .. } => FactRuntimeErrorKind::WorkerTerminated,
             Self::InvalidTaskState { .. } => FactRuntimeErrorKind::InvalidTaskState,
@@ -255,9 +257,7 @@ impl FactRuntimeFailure {
             Self::AbandonedComputation { .. } => FactRuntimeErrorKind::AbandonedComputation,
             Self::MissingDependencyRecord { .. }
             | Self::InvalidWaitGraph { .. }
-            | Self::MissingCycle { .. } => {
-                FactRuntimeErrorKind::DependencyStateMismatch
-            }
+            | Self::MissingCycle { .. } => FactRuntimeErrorKind::DependencyStateMismatch,
             Self::InvalidCancellationState { .. } | Self::RecursiveCancellationInterest => {
                 FactRuntimeErrorKind::InvalidCancellationState
             }
@@ -273,6 +273,7 @@ impl FactRuntimeFailure {
 pub(crate) enum SynchronizationComponent {
     CancellationInterests,
     CellMap,
+    EmbeddedConstantExpectations,
     FactCell,
     RuntimeDependencies,
     SchedulerSlots,
@@ -382,7 +383,8 @@ mod tests {
         TaskContextIdentity, TaskLocalOperation, TaskOperation, WorkerPoolKind,
     };
     use crate::fact::{
-        CompilationFactKey, CompilationInputKey, FactTaskIdentity, RuntimeIdentity, fact_fingerprint,
+        CompilationFactKey, CompilationInputKey, FactTaskIdentity, RuntimeIdentity,
+        fact_fingerprint,
     };
     use crate::test_support::callable_body_key;
 

@@ -1,7 +1,7 @@
 use crate::compilation::binder::BindingQueryResult;
 use std::collections::BTreeMap;
 
-use bray_binder::{BindingQueryContext, BindingQueryError, SymbolQueryProvider};
+use bray_binder::{BindingError, BindingQueryContext, BindingQueryError, SymbolQueryProvider};
 use bray_bound_tree::{BoundUnitKey, CheckedTemplateKind};
 use bray_diagnostics::DiagnosticResult;
 use bray_package_interface::InterfacePredicateDefinitionState;
@@ -15,7 +15,9 @@ use bray_symbols::{
 
 use super::super::binding::CompilationSymbolQueryEvaluator;
 use super::super::cache::CompilationSymbolSemantics;
-use super::super::imported::{imported_declaration_template, imported_predicate_definition_state};
+use super::super::imported::{
+    imported_declaration_template, imported_predicate_definition_state, missing_imported_template,
+};
 use super::shared::{checked_source_expression, syntax_diagnostics};
 use crate::compilation::binder::CompilationBindingContext;
 use crate::fact::{CompilationFactKey, SymbolQueryCache};
@@ -152,7 +154,10 @@ fn imported_predicate_definition(
             )?;
 
             let Some(template) = template_result.value() else {
-                return Err(BindingQueryError::DependencyUnavailable);
+                return Err(missing_imported_template(
+                    address,
+                    bray_package_interface::InterfaceSemanticRecordKind::DeclarationTemplate,
+                ));
             };
 
             let diagnostics = state.diagnostics().merged(template_result.diagnostics());
@@ -189,11 +194,37 @@ fn predicate_definition_key(
 
                 let symbol = symbols
                     .symbol_for_key(key.declared_owner())
-                    .and_then(PredicateDefinitionSymbolId::try_from_any)
-                    .ok_or(crate::fact::FactQueryError::InfrastructureFailure)?;
+                    .ok_or_else(|| {
+                        crate::compilation::SemanticQueryFailure::contract(
+                            crate::compilation::SemanticQueryContext::Unit(key.clone()),
+                            crate::compilation::SemanticQueryViolation::Missing(
+                                crate::compilation::SemanticDataKind::Symbol,
+                            ),
+                        )
+                    })?;
+
+                let symbol =
+                    PredicateDefinitionSymbolId::try_from_any(symbol).ok_or_else(|| {
+                        crate::compilation::SemanticQueryFailure::contract(
+                            crate::compilation::SemanticQueryContext::Symbol(symbol),
+                            crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
+                                expected:
+                                    crate::compilation::SemanticSymbolCategory::PredicateDefinition,
+                                actual: symbol.kind(),
+                            },
+                        )
+                    })?;
 
                 if definitions.insert(symbol, key).is_some() {
-                    return Err(crate::fact::FactQueryError::InfrastructureFailure);
+                    return Err(crate::compilation::SemanticQueryFailure::contract(
+                        crate::compilation::SemanticQueryContext::Symbol(symbol.into_any()),
+                        crate::compilation::SemanticQueryViolation::CountMismatch {
+                            data: crate::compilation::SemanticDataKind::BoundUnit,
+                            expected: 1,
+                            actual: 2,
+                        },
+                    )
+                    .into());
                 }
             }
 
@@ -225,7 +256,9 @@ fn predicate_origin(
             .trait_predicate_fulfillment(owner)
             .map(|record| record.origin()),
     }
-    .ok_or(BindingQueryError::DependencyUnavailable)
+    .ok_or(BindingQueryError::Binding(
+        BindingError::SymbolRecordUnavailable(owner.into_any()),
+    ))
 }
 
 #[cfg(test)]

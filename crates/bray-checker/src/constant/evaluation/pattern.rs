@@ -60,11 +60,13 @@ where
         subject: ConstantTermId,
         subject_value: ConstantValueId,
     ) -> Result<bool, EvaluationFailure> {
-        let pattern_node = self
-            .request
-            .view()
-            .pattern(pattern)
-            .ok_or(EvaluationFailure::invalid_input())?;
+        let pattern_node =
+            self.request
+                .view()
+                .pattern(pattern)
+                .ok_or(EvaluationFailure::constant(
+                    crate::CheckerConstantEvaluationFailure::MissingPattern { pattern },
+                ))?;
 
         if pattern_node.kind() == BoundPatternKind::Alternative {
             for alternative in pattern_node.children() {
@@ -80,14 +82,15 @@ where
             return Ok(false);
         }
 
-        let patterns = self
-            .input
-            .patterns()
-            .ok_or(EvaluationFailure::invalid_input())?;
+        let patterns = self.input.patterns().ok_or(EvaluationFailure::constant(
+            crate::CheckerConstantEvaluationFailure::MissingPatternInput { pattern },
+        ))?;
 
         let checked = patterns
             .pattern(pattern)
-            .ok_or(EvaluationFailure::invalid_input())?;
+            .ok_or(EvaluationFailure::constant(
+                crate::CheckerConstantEvaluationFailure::MissingPattern { pattern },
+            ))?;
 
         if checked.is_recovered()
             || !self.predicate_matches(owner, pattern_node, checked.test(), subject_value)?
@@ -101,9 +104,9 @@ where
         }
 
         for child in pattern_node.children() {
-            let child_pattern = patterns
-                .pattern(*child)
-                .ok_or(EvaluationFailure::invalid_input())?;
+            let child_pattern = patterns.pattern(*child).ok_or(EvaluationFailure::constant(
+                crate::CheckerConstantEvaluationFailure::MissingPattern { pattern: *child },
+            ))?;
 
             let (child_term, child_value) =
                 self.project_pattern_subject(subject_value, child_pattern.projection())?;
@@ -118,9 +121,12 @@ where
                 continue;
             };
 
-            let binding_type = patterns
-                .binding_type(binding)
-                .ok_or(EvaluationFailure::invalid_input())?;
+            let binding_type =
+                patterns
+                    .binding_type(binding)
+                    .ok_or(EvaluationFailure::constant(
+                        crate::CheckerConstantEvaluationFailure::MissingPatternBinding { binding },
+                    ))?;
 
             let (value, _) =
                 self.project_pattern_subject(subject_value, binding_type.projection())?;

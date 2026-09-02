@@ -15,7 +15,7 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 
 use super::support::{
     bind_unit, check_control_flow, check_patterns, checker_unit_view, expression_candidates,
-    map_binding_error, semantic_unit_context_for,
+    map_binding_error, semantic_unit_context_for, unit_walk_failure,
 };
 use super::view::{
     AsyncAnalysisView, DependencyContractsView, ExpressionTypesView, LiteralValuesView,
@@ -39,9 +39,14 @@ impl Compilation {
         &self,
         anchor: bray_declarations::SyntaxAnchor,
     ) -> Result<bray_bound_tree::BoundSourceAnchor, FactQueryError> {
-        let source = self
-            .source(anchor.source_id())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let source = self.source(anchor.source_id()).ok_or_else(|| {
+            crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::Source(anchor.source_id()),
+                crate::compilation::SemanticQueryViolation::Missing(
+                    crate::compilation::SemanticDataKind::SourceSnapshot,
+                ),
+            )
+        })?;
 
         Ok(bray_bound_tree::BoundSourceAnchor::new(
             anchor,
@@ -417,17 +422,17 @@ impl Compilation {
                 .cloned()
                 .chain(reference_selections),
         )
-        .map_err(|_| {
-            FactQueryError::CheckerInfrastructure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
-            )
+        .map_err(|error| {
+            FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::SemanticSelection(
+                error,
+            ))
         })?;
 
         let value =
-            CheckedExpressionSemantics::try_new(types, selections, literals).map_err(|_| {
-                FactQueryError::CheckerInfrastructure(
-                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
-                )
+            CheckedExpressionSemantics::try_new(types, selections, literals).map_err(|error| {
+                FactQueryError::CheckerInfrastructure(CheckerInfrastructureError::SemanticSnapshot(
+                    error,
+                ))
             })?;
 
         let diagnostics = DiagnosticBag::merged_all([
@@ -519,6 +524,7 @@ impl Compilation {
     > {
         let mut iterations = Vec::new();
         let mut cancellation_failure = None;
+        let mut missing_expression = None;
 
         let outcome = walk_bound_unit_view(bound.view(), bound.root(), |event| {
             if let Err(error) = cancellation.check() {
@@ -532,6 +538,8 @@ impl Compilation {
             };
 
             let Some(expression) = bound.view().expression(id) else {
+                missing_expression = Some(id);
+
                 return BoundWalkControl::Stop;
             };
 
@@ -554,8 +562,15 @@ impl Compilation {
             return Err(error);
         }
 
+        if let Some(expression) = missing_expression {
+            return Err(super::support::unit_contract_failure(
+                key,
+                crate::compilation::SemanticQueryViolation::MissingBoundNode(expression.into()),
+            ));
+        }
+
         if outcome != BoundWalkOutcome::Completed {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(unit_walk_failure(key, outcome));
         }
 
         let error_type = self
@@ -6074,7 +6089,7 @@ func main()
         let primary = callable_compilation();
         let key = source_callable_body_key(&primary);
 
-        let bound = match primary.bound_unit(key) {
+        let bound = match primary.bound_unit(key.clone()) {
             Ok(bound) => bound,
             Err(error) => panic!("bound unit must be available: {error:?}"),
         };
@@ -6095,8 +6110,9 @@ func other()
         assert!(matches!(
             semantic_unit_context_for(symbols, bound.value()),
             Err(FactQueryError::SemanticUnitContext(
-                SemanticUnitContextError::MissingOwner
+                SemanticUnitContextError::MissingOwner { unit }
             ))
+            if unit == key
         ));
     }
 

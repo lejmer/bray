@@ -626,9 +626,15 @@ where
         ty: TypeId,
         origin: Option<SourceSpan>,
     ) -> RepresentationQueryResult<C, MemberRepresentation> {
-        let data = self.context.semantic_values().type_data(ty).map_err(|error| {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
-        })?;
+        let data = self
+            .context
+            .semantic_values()
+            .type_data(ty)
+            .map_err(|error| {
+                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
+            })?;
 
         match data.as_ref() {
             TypeData::Error => Ok(MemberRepresentation::recovered_invalid()),
@@ -826,9 +832,9 @@ where
             .semantic_values()
             .type_data(element)
             .map_err(|error| {
-                CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                )
+                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
             })?;
 
         let actual = match data.as_ref() {

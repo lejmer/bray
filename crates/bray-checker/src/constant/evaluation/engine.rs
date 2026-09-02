@@ -23,15 +23,16 @@ use crate::constant::literal::{normalize_integer_literal, parse_literal};
 use crate::constant::operation::negate_real;
 use crate::diagnostic::{diagnostic_id, diagnostic_type, expression_category, expression_span};
 use crate::representation::type_representation;
-use crate::unit::semantic_inputs_match;
+use crate::unit::semantic_input_failure;
 
 use super::flow::EvaluationFlow;
 use super::result::EvaluatedConstant;
 use super::support::EvaluationFailure;
 
 use crate::{
-    CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
-    CheckerUnitRoot, CheckerUnitView, ConstantEvaluationInput, ConstantReferenceResolution,
+    CheckerConstantEvaluationFailure, CheckerInfrastructureError, CheckerInputKind, CheckerOutcome,
+    CheckerQueryError, CheckerRequestContext, CheckerUnitRoot, CheckerUnitView,
+    ConstantEvaluationInput, ConstantReferenceResolution,
 };
 
 pub(crate) fn evaluate_constant<C>(
@@ -85,9 +86,11 @@ where
             return CheckerOutcome::UpstreamFailure(evaluated.evaluator.take_upstream_failure());
         }
         Err(EvaluationFailure::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(EvaluationFailure::Propagate(_)) => {
+        Err(EvaluationFailure::Propagate(term)) => {
             return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidConstantEvaluationInput,
+                CheckerInfrastructureError::ConstantEvaluation(
+                    CheckerConstantEvaluationFailure::UnexpectedPropagation { term },
+                ),
             );
         }
         Err(EvaluationFailure::Source {
@@ -171,8 +174,18 @@ where
         {
             ConstantEvaluationRoot::Expression(root)
         }
+        (Some(ConstantEvaluationRoot::Expression(expression)), _) => {
+            return Err(EvaluationAbort::constant(
+                CheckerConstantEvaluationFailure::InvalidExpressionRoot { expression },
+            ));
+        }
         (Some(ConstantEvaluationRoot::Block(root)), _) if request.view().block(root).is_some() => {
             ConstantEvaluationRoot::Block(root)
+        }
+        (Some(ConstantEvaluationRoot::Block(block)), _) => {
+            return Err(EvaluationAbort::constant(
+                CheckerConstantEvaluationFailure::InvalidBlockRoot { block },
+            ));
         }
         (None, CheckerUnitRoot::Expression(root)) => ConstantEvaluationRoot::Expression(root),
         _ => {
@@ -180,23 +193,44 @@ where
         }
     };
 
-    if !semantic_inputs_match(
+    if let Some(error) = semantic_input_failure(
         request,
         [
             (
-                input.expression_types().unit(),
-                input.expression_types().kind(),
+                CheckerInputKind::ExpressionTypes,
+                (
+                    input.expression_types().unit(),
+                    input.expression_types().kind(),
+                ),
             ),
             (
-                input.semantic_selections().unit(),
-                input.semantic_selections().kind(),
+                CheckerInputKind::SemanticSelections,
+                (
+                    input.semantic_selections().unit(),
+                    input.semantic_selections().kind(),
+                ),
             ),
         ],
-    ) || input.patterns().is_some_and(|patterns| {
-        !semantic_inputs_match(request, [(patterns.unit(), patterns.kind())])
-    }) || !input.is_consistent()
+    ) {
+        return Err(EvaluationAbort::Infrastructure(error));
+    }
+
+    if let Some(patterns) = input.patterns()
+        && let Some(error) = semantic_input_failure(
+            request,
+            [(
+                CheckerInputKind::Patterns,
+                (patterns.unit(), patterns.kind()),
+            )],
+        )
     {
-        return Err(EvaluationAbort::invalid_input());
+        return Err(EvaluationAbort::Infrastructure(error));
+    }
+
+    if let Some(failure) = input.failure() {
+        return Err(EvaluationAbort::Infrastructure(
+            CheckerInfrastructureError::ConstantInput(failure),
+        ));
     }
 
     let mut evaluator = Evaluator::new(request, input, retain_target_literals);
@@ -206,10 +240,14 @@ where
             .expression_types()
             .expression(expression)
             .map(|result| result.ty())
-            .ok_or(EvaluationAbort::invalid_input())?,
-        ConstantEvaluationRoot::Block(_) => input
-            .result_type()
-            .ok_or(EvaluationAbort::invalid_input())?,
+            .ok_or(EvaluationAbort::constant(
+                CheckerConstantEvaluationFailure::MissingExpressionType { expression },
+            ))?,
+        ConstantEvaluationRoot::Block(block) => {
+            input.result_type().ok_or(EvaluationAbort::constant(
+                CheckerConstantEvaluationFailure::MissingBlockResultType { block },
+            ))?
+        }
     };
 
     let evaluated = match root {
@@ -412,6 +450,10 @@ enum EvaluationAbort<Upstream> {
 impl<Upstream> EvaluationAbort<Upstream> {
     const fn invalid_input() -> Self {
         Self::Infrastructure(CheckerInfrastructureError::InvalidConstantEvaluationInput)
+    }
+
+    const fn constant(failure: CheckerConstantEvaluationFailure) -> Self {
+        Self::Infrastructure(CheckerInfrastructureError::ConstantEvaluation(failure))
     }
 }
 
@@ -847,9 +889,9 @@ where
             .semantic_values()
             .constant_value_data(value)
             .map_err(|error| {
-                EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                )
+                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
             })?;
 
         let ConstantValueKind::Integer(integer) = data.kind() else {
@@ -910,9 +952,9 @@ where
             .semantic_values()
             .constant_value_data(value)
             .map_err(|error| {
-                EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(error),
-                )
+                EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
             })?;
 
         match data.kind() {
@@ -963,13 +1005,13 @@ mod tests {
         semantic_values, trait_callable_instance, tuple_type,
     };
     use crate::{
-        CheckerInfrastructureError, CheckerOutcome, CheckerQueryResult, CheckerUnitView,
-        ConstantCallRequest, ConstantCallResolution, ConstantCallResolver, ConstantChecker,
-        ConstantEvaluationInput, ConstantEvaluationLimits, ConstantEvaluationUsage,
-        ConstantEvaluator, ConstantReferenceResolution, DeclaredUnitContext,
-        DefaultConstantChecker, DefaultConstantEvaluator, DefaultExpressionTypeChecker,
-        EvaluatedConstantCall, ExpressionTypeChecker, ExpressionTypeExpectation,
-        ExpressionTypeInput, SemanticUnitContext,
+        CheckerConstantInputFailure, CheckerInfrastructureError, CheckerOutcome,
+        CheckerQueryResult, CheckerUnitView, ConstantCallRequest, ConstantCallResolution,
+        ConstantCallResolver, ConstantChecker, ConstantEvaluationInput, ConstantEvaluationLimits,
+        ConstantEvaluationUsage, ConstantEvaluator, ConstantReferenceResolution,
+        DeclaredUnitContext, DefaultConstantChecker, DefaultConstantEvaluator,
+        DefaultExpressionTypeChecker, EvaluatedConstantCall, ExpressionTypeChecker,
+        ExpressionTypeExpectation, ExpressionTypeInput, SemanticUnitContext,
     };
 
     #[test]
@@ -1905,9 +1947,9 @@ mod tests {
 
         assert_eq!(
             outcome,
-            CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidConstantEvaluationInput
-            )
+            CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::ConstantInput(
+                CheckerConstantInputFailure::ConflictingReference { expression: root }
+            ))
         );
     }
 

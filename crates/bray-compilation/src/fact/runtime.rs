@@ -18,9 +18,10 @@ use super::task::{
     run_with_evaluations,
 };
 use super::{
-    CompilationFactKey, CompilationInputKey, CompilationInputs, FactCycle, FactDependencyRecord,
-    CapacityResource, FactQueryError, FactRuntimeFailure, PublicationIdentity, PublicationState,
-    QueryPriority, QueryPriorityDemand, SynchronizationComponent, fact_fingerprint,
+    CapacityResource, CompilationFactKey, CompilationInputKey, CompilationInputs, FactCycle,
+    FactDependencyRecord, FactQueryError, FactRuntimeFailure, PublicationIdentity,
+    PublicationState, QueryPriority, QueryPriorityDemand, SynchronizationComponent,
+    fact_fingerprint,
 };
 
 #[derive(Debug)]
@@ -242,9 +243,7 @@ impl FactRuntime {
         record_completed_request(self.identity(), key)
     }
 
-    pub(crate) fn current_task_context(
-        &self,
-    ) -> Result<Option<FactTaskContext>, FactQueryError> {
+    pub(crate) fn current_task_context(&self) -> Result<Option<FactTaskContext>, FactQueryError> {
         current_context(self.identity())
     }
 
@@ -434,16 +433,14 @@ impl FactRuntime {
         fact: Option<&CompilationFactKey>,
         task: Option<FactTaskIdentity>,
     ) -> Result<MutexGuard<'_, RuntimeState>, FactQueryError> {
-        self.state
-            .lock()
-            .map_err(|_| {
-                FactRuntimeFailure::SynchronizationPoisoned {
-                    component: SynchronizationComponent::RuntimeDependencies,
-                    fact: fact.cloned(),
-                    task,
-                }
-                .into()
-            })
+        self.state.lock().map_err(|_| {
+            FactRuntimeFailure::SynchronizationPoisoned {
+                component: SynchronizationComponent::RuntimeDependencies,
+                fact: fact.cloned(),
+                task,
+            }
+            .into()
+        })
     }
 
     fn identity(&self) -> RuntimeIdentity {
@@ -466,9 +463,11 @@ impl FactRuntime {
                 .owners
                 .get(key)
                 .copied()
-                .map_or(PublicationState::Vacant, |task| PublicationState::Computing {
-                    task,
-                    fact: key.clone(),
+                .map_or(PublicationState::Vacant, |task| {
+                    PublicationState::Computing {
+                        task,
+                        fact: key.clone(),
+                    }
                 });
 
             return Err(FactRuntimeFailure::PublicationMismatch {

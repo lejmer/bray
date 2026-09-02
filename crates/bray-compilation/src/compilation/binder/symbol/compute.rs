@@ -1,5 +1,5 @@
 use crate::compilation::binder::BindingQueryResult;
-use bray_binder::{BindingQueryContext, BindingQueryError, SymbolQueryProvider};
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
     AnySymbolId, CallableContractTypeQuery, CallableSignatureQuery, CallableSymbolId,
@@ -24,6 +24,8 @@ use super::binding::CompilationSymbolQueryEvaluator;
 use super::cache::CompilationSymbolSemantics;
 use super::environment::type_binder;
 use super::surface::{declaration_callable_surface, declaration_child, declaration_syntax};
+use crate::compilation::binder::symbol_query_contract_binding_error as query_contract;
+use crate::compilation::{SemanticDataKind, SemanticQueryViolation, SemanticSymbolCategory};
 use crate::fact::SymbolQueryCache;
 
 impl CompilationSymbolQueryEvaluator<CallableSignatureQuery> for CompilationSymbolSemantics {
@@ -132,14 +134,28 @@ impl CompilationSymbolQueryEvaluator<GenericConstParameterDeclaredTypeQuery>
             return super::imported::imported_declared_type(context, address);
         }
 
-        let parameter = GenericConstParameterSymbolId::try_from_any(symbol)
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+        let parameter = GenericConstParameterSymbolId::try_from_any(symbol).ok_or_else(|| {
+            query_contract(
+                symbol,
+                GenericConstParameterDeclaredTypeQuery::KIND,
+                SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: SemanticSymbolCategory::GenericConstParameter,
+                    actual: symbol.kind(),
+                },
+            )
+        })?;
 
         let origin = context
             .symbols()
             .generic_const_parameter(parameter)
             .map(|parameter| parameter.origin())
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+            .ok_or_else(|| {
+                query_contract(
+                    symbol,
+                    GenericConstParameterDeclaredTypeQuery::KIND,
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
         match origin {
             SymbolOrigin::Source => {
@@ -153,9 +169,13 @@ impl CompilationSymbolQueryEvaluator<GenericConstParameterDeclaredTypeQuery>
                 type_binder(context, symbol)?
                     .bind_type_expression(&syntax.typed_identifier().type_expression())
             }
-            SymbolOrigin::Imported | SymbolOrigin::Synthesized => {
-                Err(BindingQueryError::DependencyUnavailable)
-            }
+            SymbolOrigin::Imported | SymbolOrigin::Synthesized => Err(query_contract(
+                symbol,
+                GenericConstParameterDeclaredTypeQuery::KIND,
+                SemanticQueryViolation::Unsupported(SemanticDataKind::SymbolQuery(
+                    GenericConstParameterDeclaredTypeQuery::KIND,
+                )),
+            )),
         }
     }
 }
@@ -167,12 +187,25 @@ fn compiler_known_generic_const_parameter(
     let parameter = context
         .symbols()
         .generic_const_parameter(symbol)
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or_else(|| {
+            query_contract(
+                symbol.into(),
+                GenericConstParameterDeclaredTypeQuery::KIND,
+                SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+            )
+        })?;
 
     let owner = parameter.owner().symbol();
 
-    let ordinal = usize::try_from(parameter.ordinal())
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+    let ordinal = usize::try_from(parameter.ordinal()).map_err(|_| {
+        crate::compilation::binder::semantic_contract_binding_error(
+            crate::compilation::SemanticQueryContext::Symbol(symbol.into()),
+            crate::compilation::SemanticQueryViolation::CountOverflow {
+                data: crate::compilation::SemanticDataKind::GenericSubstitution,
+                value: u64::from(parameter.ordinal()),
+            },
+        )
+    })?;
 
     super::surface::with_declaration_root(context, owner, |root| {
         let mut parameter = None;
@@ -209,7 +242,17 @@ fn compiler_known_generic_const_parameter(
             }
         });
 
-        parameter.ok_or(BindingQueryError::DependencyUnavailable)
+        parameter.ok_or_else(|| {
+            query_contract(
+                symbol.into(),
+                GenericConstParameterDeclaredTypeQuery::KIND,
+                SemanticQueryViolation::CountMismatch {
+                    data: SemanticDataKind::GenericSubstitution,
+                    expected: ordinal.saturating_add(1),
+                    actual: current,
+                },
+            )
+        })
     })
 }
 
@@ -364,10 +407,13 @@ impl CompilationSymbolQueryEvaluator<ImplementedTraitApplicationQuery>
         }
 
         if let ImplementationSymbolId::Inherent(id) = request.owner() {
-            context
-                .symbols
-                .inherent_implementation(id)
-                .ok_or(BindingQueryError::DependencyUnavailable)?;
+            context.symbols.inherent_implementation(id).ok_or_else(|| {
+                query_contract(
+                    symbol,
+                    ImplementedTraitApplicationQuery::KIND,
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                )
+            })?;
 
             return Ok(DiagnosticResult::without_diagnostics(None));
         }
@@ -414,16 +460,24 @@ impl CompilationSymbolQueryEvaluator<ImplementationCoherenceQuery> for Compilati
             ImplementedTraitApplicationQuery,
         >::new(owner))?;
 
-        let subject = subject
-            .value()
-            .ty()
-            .resolved_type()
-            .ok_or(BindingQueryError::DependencyUnavailable)?;
+        let subject = subject.value().ty().resolved_type().ok_or_else(|| {
+            query_contract(
+                owner.into_any(),
+                ImplementationCoherenceQuery::KIND,
+                SemanticQueryViolation::Missing(SemanticDataKind::Type),
+            )
+        })?;
 
         let trait_application = match trait_application.value() {
             Some(application) => type_binder(context, owner.into_any())?
                 .resolve_trait_application_template(application)?
-                .ok_or(BindingQueryError::DependencyUnavailable)?
+                .ok_or_else(|| {
+                    query_contract(
+                        owner.into_any(),
+                        ImplementationCoherenceQuery::KIND,
+                        SemanticQueryViolation::Missing(SemanticDataKind::TraitApplication),
+                    )
+                })?
                 .into(),
             None => None,
         };
@@ -451,7 +505,13 @@ fn bind_callable_signature(
     let (parameters, receiver) = context
         .symbols
         .callable_parameters_and_receiver(callable)
-        .ok_or(BindingQueryError::DependencyUnavailable)?;
+        .ok_or_else(|| {
+            query_contract(
+                symbol,
+                CallableSignatureQuery::KIND,
+                SemanticQueryViolation::Missing(SemanticDataKind::CallableSignature),
+            )
+        })?;
 
     let surface = declaration_callable_surface(context, symbol)?;
 

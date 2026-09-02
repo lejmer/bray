@@ -23,6 +23,10 @@ use super::binder::{
     bind_declared_trusted_capabilities, binding_query_error,
 };
 use super::state::Compilation;
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+    SemanticSymbolCategory,
+};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, PublishedUnitResult};
 
 #[derive(Default)]
@@ -245,7 +249,13 @@ impl Compilation {
                     }
                 }
                 Some(SymbolOrigin::Synthesized) => {}
-                None => return Err(FactQueryError::InfrastructureFailure),
+                None => {
+                    return Err(SemanticQueryFailure::contract(
+                        SemanticQueryContext::Symbol(callable.into_any()),
+                        SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                    )
+                    .into());
+                }
             }
         }
 
@@ -374,7 +384,11 @@ impl Compilation {
                     .map_err(FactQueryError::SemanticValueStore)?;
 
                 let TypeData::Callable(callable) = data.as_ref() else {
-                    return Err(FactQueryError::InfrastructureFailure);
+                    return Err(SemanticQueryFailure::contract(
+                        SemanticQueryContext::Type(ty),
+                        SemanticQueryViolation::Unsupported(SemanticDataKind::CallableSignature),
+                    )
+                    .into());
                 };
 
                 if let Some(phase) = phase_behavior_for(callable.phase_behaviors(), call.phase()) {
@@ -396,11 +410,17 @@ impl Compilation {
     ) -> Result<(), FactQueryError> {
         match provider {
             bray_bound_tree::ConstructionDefaultProvider::CallableParameter(provider) => {
-                let Some(AnySymbolId::CallableParameter(owner)) = binding_context
-                    .runtime_default_subject(provider.into())
-                    .map_err(binding_query_error)?
-                else {
-                    return Err(FactQueryError::InfrastructureFailure);
+                let subject = runtime_default_subject(binding_context, provider.into())?;
+
+                let AnySymbolId::CallableParameter(owner) = subject else {
+                    return Err(SemanticQueryFailure::contract(
+                        SemanticQueryContext::Symbol(subject),
+                        SemanticQueryViolation::UnexpectedSymbolKind {
+                            expected: SemanticSymbolCategory::CallableParameter,
+                            actual: subject.kind(),
+                        },
+                    )
+                    .into());
                 };
 
                 let template = binding_context
@@ -431,11 +451,17 @@ impl Compilation {
                 }
             }
             bray_bound_tree::ConstructionDefaultProvider::StructField(provider) => {
-                let Some(AnySymbolId::StructField(owner)) = binding_context
-                    .runtime_default_subject(provider.into())
-                    .map_err(binding_query_error)?
-                else {
-                    return Err(FactQueryError::InfrastructureFailure);
+                let subject = runtime_default_subject(binding_context, provider.into())?;
+
+                let AnySymbolId::StructField(owner) = subject else {
+                    return Err(SemanticQueryFailure::contract(
+                        SemanticQueryContext::Symbol(subject),
+                        SemanticQueryViolation::UnexpectedSymbolKind {
+                            expected: SemanticSymbolCategory::StructField,
+                            actual: subject.kind(),
+                        },
+                    )
+                    .into());
                 };
 
                 let template = binding_context
@@ -464,11 +490,17 @@ impl Compilation {
                 }
             }
             bray_bound_tree::ConstructionDefaultProvider::UnionPayload(provider) => {
-                let Some(AnySymbolId::UnionPayloadField(owner)) = binding_context
-                    .runtime_default_subject(provider.into())
-                    .map_err(binding_query_error)?
-                else {
-                    return Err(FactQueryError::InfrastructureFailure);
+                let subject = runtime_default_subject(binding_context, provider.into())?;
+
+                let AnySymbolId::UnionPayloadField(owner) = subject else {
+                    return Err(SemanticQueryFailure::contract(
+                        SemanticQueryContext::Symbol(subject),
+                        SemanticQueryViolation::UnexpectedSymbolKind {
+                            expected: SemanticSymbolCategory::UnionPayloadField,
+                            actual: subject.kind(),
+                        },
+                    )
+                    .into());
                 };
 
                 let template = binding_context
@@ -526,6 +558,22 @@ impl Compilation {
     }
 }
 
+fn runtime_default_subject(
+    binding_context: &CompilationBindingContext<'_>,
+    provider: AnySymbolId,
+) -> Result<AnySymbolId, FactQueryError> {
+    binding_context
+        .runtime_default_subject(provider)
+        .map_err(binding_query_error)?
+        .ok_or_else(|| {
+            SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(provider),
+                SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+            )
+            .into()
+        })
+}
+
 fn record_trusted_capability_use(
     capabilities: &mut BTreeMap<TrustedCapabilitySymbolId, BTreeSet<BoundSourceAnchor>>,
     source: Option<BoundSourceAnchor>,
@@ -560,10 +608,18 @@ fn callable_execution(
 
             match data.as_ref() {
                 TypeData::Callable(callable) => Ok(callable.execution()),
-                _ => Err(FactQueryError::InfrastructureFailure),
+                _ => Err(SemanticQueryFailure::contract(
+                    SemanticQueryContext::Type(*ty),
+                    SemanticQueryViolation::Unsupported(SemanticDataKind::CallableSignature),
+                )
+                .into()),
             }
         }
-        _ => Err(FactQueryError::InfrastructureFailure),
+        _ => Err(SemanticQueryFailure::contract(
+            SemanticQueryContext::Symbol(callable.into_any()),
+            SemanticQueryViolation::Unsupported(SemanticDataKind::CallableSignature),
+        )
+        .into()),
     }
 }
 

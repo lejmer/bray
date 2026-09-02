@@ -272,9 +272,7 @@ fn semantic_value_error<Upstream>(
 mod tests {
     use bray_symbols::{SemanticValueKind, SemanticValueStoreError};
 
-    use super::{
-        CheckerInfrastructureError, CheckerQueryError, semantic_value_error,
-    };
+    use super::{CheckerInfrastructureError, CheckerQueryError, semantic_value_error};
 
     #[test]
     fn normalization_retains_the_exact_semantic_value_store_failure() {

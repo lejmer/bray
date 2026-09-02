@@ -198,13 +198,11 @@ fn dependency_subject_is_initialized(
     subject: BoundDependencySubject,
 ) -> Result<bool, bray_symbols::SemanticValueStoreError> {
     match subject {
-        BoundDependencySubject::Storage(identity) => {
-            Ok(state.initialized().contains(&identity)
-                && !state
-                    .moved()
-                    .iter()
-                    .any(|moved| storage.root_identity(*moved) == Some(identity)))
-        }
+        BoundDependencySubject::Storage(identity) => Ok(state.initialized().contains(&identity)
+            && !state
+                .moved()
+                .iter()
+                .any(|moved| storage.root_identity(*moved) == Some(identity))),
         BoundDependencySubject::StorageAccess(access) => {
             let Some(root) = storage.root_identity(access) else {
                 return Ok(false);
@@ -547,36 +545,44 @@ mod tests {
             [mutable, reborrow],
         );
 
-        assert!(dependency_subject_has_exclusive_access(
-            semantic_values(),
-            &storage,
-            &mutable_state,
-            BoundDependencySubject::BorrowCapability(mutable)
-        )
-        .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}")));
+        assert!(
+            dependency_subject_has_exclusive_access(
+                semantic_values(),
+                &storage,
+                &mutable_state,
+                BoundDependencySubject::BorrowCapability(mutable)
+            )
+            .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}"))
+        );
 
-        assert!(!dependency_subject_has_exclusive_access(
-            semantic_values(),
-            &storage,
-            &shared_state,
-            BoundDependencySubject::BorrowCapability(shared)
-        )
-        .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}")));
+        assert!(
+            !dependency_subject_has_exclusive_access(
+                semantic_values(),
+                &storage,
+                &shared_state,
+                BoundDependencySubject::BorrowCapability(shared)
+            )
+            .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}"))
+        );
 
-        assert!(dependency_subject_has_exclusive_access(
-            semantic_values(),
-            &storage,
-            &moved_borrow_state,
-            BoundDependencySubject::BorrowCapability(mutable)
-        )
-        .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}")));
+        assert!(
+            dependency_subject_has_exclusive_access(
+                semantic_values(),
+                &storage,
+                &moved_borrow_state,
+                BoundDependencySubject::BorrowCapability(mutable)
+            )
+            .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}"))
+        );
 
-        assert!(dependency_subject_has_exclusive_access(
-            semantic_values(),
-            &storage,
-            &reborrow_state,
-            BoundDependencySubject::BorrowCapability(reborrow)
-        )
-        .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}")));
+        assert!(
+            dependency_subject_has_exclusive_access(
+                semantic_values(),
+                &storage,
+                &reborrow_state,
+                BoundDependencySubject::BorrowCapability(reborrow)
+            )
+            .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}"))
+        );
     }
 }

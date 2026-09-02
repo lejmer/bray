@@ -233,12 +233,7 @@ where
 
     diagnostics.add_range(result.diagnostics().iter().cloned());
 
-    template_internal_dependency(
-        result.value(),
-        semantic_values,
-        symbols,
-        declarations,
-    )
+    template_internal_dependency(result.value(), semantic_values, symbols, declarations)
 }
 
 pub(super) fn add_internal_dependency_diagnostic(

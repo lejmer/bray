@@ -940,14 +940,14 @@ mod tests {
         BoundBlockItem, BoundConversionExpression, BoundDependencyContract,
         BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,
         BoundExpression, BoundExpressionId, BoundLiteralExpression, BoundLiteralKind,
-        BoundNodeOrigin, BoundSourceAnchor,
-        BoundStructuredExpression, BoundStructuredExpressionKind, BoundTreeBuilder, BoundUnit,
-        BoundUnitId, BoundUnitRoot, CheckedAsync, CheckedBodyBehavior, CheckedControlFlow,
-        CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValueEntry,
-        CheckedLiteralValues, CheckedPatterns, CheckedRefinements, CheckedSemanticSelections,
-        ControlCompletion, ExpressionTypeEntry, ExpressionTypeResult, ExpressionTypeStatus, LastUse,
-        Liveness, PlannedBorrowCapability, StorageAccess, StorageAccessId, StorageAccessPurpose,
-        StorageAccessRoot, StorageExitDecision, StorageFlow, StorageIdentity, StorageIdentityId,
+        BoundNodeOrigin, BoundSourceAnchor, BoundStructuredExpression,
+        BoundStructuredExpressionKind, BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitRoot,
+        CheckedAsync, CheckedBodyBehavior, CheckedControlFlow, CheckedDependencyContracts,
+        CheckedExpressionTypes, CheckedLiteralValueEntry, CheckedLiteralValues, CheckedPatterns,
+        CheckedRefinements, CheckedSemanticSelections, ControlCompletion, ExpressionTypeEntry,
+        ExpressionTypeResult, ExpressionTypeStatus, LastUse, Liveness, PlannedBorrowCapability,
+        StorageAccess, StorageAccessId, StorageAccessPurpose, StorageAccessRoot,
+        StorageExitDecision, StorageFlow, StorageIdentity, StorageIdentityId,
         StorageOperationDecision, StorageOperationStatus, StoragePlanBuilder,
     };
     use bray_symbols::testing::available_compiler_known_symbols;
@@ -1133,10 +1133,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("test type must intern: {error:?}"));
 
         let value = first_store
-            .intern_constant_value(ConstantValueData::new(
-                ty,
-                ConstantValueKind::Boolean(true),
-            ))
+            .intern_constant_value(ConstantValueData::new(ty, ConstantValueKind::Boolean(true)))
             .unwrap_or_else(|error| panic!("test value must intern: {error:?}"));
 
         let unit = test_runtime_default_unit(36, |tree, origin| {

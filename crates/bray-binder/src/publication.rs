@@ -1,3 +1,5 @@
+use std::hash::{Hash, Hasher};
+
 use bray_bound_tree::{
     BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundUnit, BoundUnitBuildError,
     BoundUnitKey, BoundUnitKeyData, BoundUnitRoot,
@@ -8,9 +10,40 @@ use bray_symbols::{AnonymousCallableSymbolId, CallableExecution};
 use crate::binder::BinderOutput;
 use crate::{BinderDependency, BoundUnitComputation};
 
+/// A typed failure while assembling completed binder structures into a bound unit.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum BoundUnitAssemblyError {
+pub enum BoundUnitAssemblyError {
+    /// The completed bound tree and local symbols violate a bound-unit contract.
     InvalidBoundUnit(BoundUnitBuildError),
+}
+
+impl Hash for BoundUnitAssemblyError {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        std::mem::discriminant(self).hash(state);
+
+        match self {
+            Self::InvalidBoundUnit(error) => hash_bound_unit_error(*error, state),
+        }
+    }
+}
+
+fn hash_bound_unit_error<H: Hasher>(error: BoundUnitBuildError, state: &mut H) {
+    std::mem::discriminant(&error).hash(state);
+
+    match error {
+        BoundUnitBuildError::RootKindMismatch | BoundUnitBuildError::LocalSymbolRegionMismatch => {}
+        BoundUnitBuildError::MissingRoot { unit, kind } => {
+            unit.hash(state);
+            kind.hash(state);
+        }
+        BoundUnitBuildError::AnonymousCallableRegionMismatch { expected, actual } => {
+            expected.hash(state);
+            actual.hash(state);
+        }
+        BoundUnitBuildError::MissingAnonymousCallable { callable } => callable.hash(state),
+        BoundUnitBuildError::InvalidNestedUnit { index }
+        | BoundUnitBuildError::NonCanonicalNestedUnits { index } => index.hash(state),
+    }
 }
 
 impl From<BoundUnitBuildError> for BoundUnitAssemblyError {

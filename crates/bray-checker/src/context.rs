@@ -4,24 +4,25 @@ use bray_base::Cancellation;
 use bray_bound_tree::{
     AnyBoundNodeId, AsyncAnalysisBuildError, BorrowCapabilityId, BoundBlockId,
     BoundDependencyContractId, BoundExpressionId, BoundPatternId, BoundSourceAnchor, BoundUnit,
-    BoundUnitId, BoundUnitKind, DependencyContractsBuildError, StorageAccessId,
-    StorageFlowBuildError, StorageIdentityId, StorageOperationStatus,
+    BoundUnitId, BoundUnitKind, DependencyContractsBuildError, SemanticSelectionTableBuildError,
+    SemanticSnapshotBuildError, StorageAccessId, StorageFlowBuildError, StorageIdentityId,
+    StorageOperationStatus,
 };
 use bray_compiler_known::{ImplementationHook, RepresentationRole};
 use bray_diagnostics::DiagnosticResult;
 use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 use bray_symbols::{
-    AnySymbolId, AvailableCompilerKnownSymbols, DeclaredTypeRepresentation,
-    GenericConstraintObligationKey, ImplementationRequirementKey, ImplementationSelection,
-    MemberLookupResult, NamedTypeSymbolId, ProofOutcome, SemanticValueStore, StructSymbol,
-    StructSymbolId, SymbolGraph, SymbolKey, SymbolName, SymbolQueryContract, SymbolQueryKind,
-    SymbolQueryRequest, TraitApplicationId, TraitTypeMemberSymbolId, TypeId,
-    UnionPayloadFieldSymbol, UnionPayloadFieldSymbolId, UnionSymbol, UnionSymbolId,
-    UnionVariantSymbol, UnionVariantSymbolId,
+    AnyLocalSymbolId, AnySymbolId, AvailableCompilerKnownSymbols, ConstantTermId,
+    DeclaredTypeRepresentation, GenericConstraintObligationKey, ImplementationRequirementKey,
+    ImplementationSelection, LocalBindingSymbolId, MemberLookupResult, NamedTypeSymbolId,
+    ProofOutcome, SemanticValueStore, StructSymbol, StructSymbolId, SymbolGraph, SymbolKey,
+    SymbolName, SymbolQueryContract, SymbolQueryKind, SymbolQueryRequest, TraitApplicationId,
+    TraitTypeMemberSymbolId, TypeId, UnionPayloadFieldSymbol, UnionPayloadFieldSymbolId,
+    UnionSymbol, UnionSymbolId, UnionVariantSymbol, UnionVariantSymbolId,
 };
 use bray_target::TargetProfile;
 
-use crate::{CheckerUnitViewError, SemanticUnitContext};
+use crate::{CheckedConstantTermsBuildError, CheckerUnitViewError, SemanticUnitContext};
 
 /// A checker infrastructure failure that is neither a source diagnostic nor cancellation.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -78,14 +79,35 @@ pub enum CheckerInfrastructureError {
         /// The invalid expression identity.
         expression: BoundExpressionId,
     },
+    /// One correlated checker input belongs to another bound unit.
+    IncompatibleInput {
+        /// The input table whose identity disagreed with the requested unit.
+        input: CheckerInputKind,
+        /// Requested bound unit identity.
+        expected_unit: BoundUnitId,
+        /// Requested bound unit category.
+        expected_kind: BoundUnitKind,
+        /// Input table's bound unit identity.
+        actual_unit: BoundUnitId,
+        /// Input table's bound unit category.
+        actual_kind: BoundUnitKind,
+    },
+    /// Checked constant occurrences could not form one unambiguous term table.
+    CheckedConstantTerms(CheckedConstantTermsBuildError),
+    /// Literal-value table construction rejected one exact input relationship.
+    LiteralValue(CheckerLiteralValueFailure),
+    /// Pattern-checking input construction retained conflicting evidence.
+    PatternInput(CheckerPatternInputFailure),
+    /// Constant-evaluation input construction retained conflicting evidence.
+    ConstantInput(CheckerConstantInputFailure),
+    /// Constant evaluation encountered an invalid source-correlated input.
+    ConstantEvaluation(CheckerConstantEvaluationFailure),
     /// Semantic-selection inputs do not describe the requested bound unit or operation category.
     InvalidSemanticSelectionInput,
-    /// Literal-value inputs do not describe the requested bound unit.
-    InvalidLiteralValueInput,
+    /// Construction of the final semantic-selection table rejected one exact relationship.
+    SemanticSelection(SemanticSelectionTableBuildError),
     /// Constant-evaluation inputs do not describe the requested bound unit.
     InvalidConstantEvaluationInput,
-    /// Pattern-checking inputs disagree for one bound occurrence.
-    InvalidPatternCheckInput,
     /// Storage-planning inputs or constructed records violate the requested unit contract.
     InvalidStoragePlan,
     /// Liveness inputs or durable decisions violate the requested unit contract.
@@ -109,6 +131,8 @@ pub enum CheckerInfrastructureError {
     },
     /// Correlated body-semantic inputs or durable results violate the requested unit contract.
     InvalidBodySemantics,
+    /// Correlated semantic results describe different bound units or unit categories.
+    SemanticSnapshot(SemanticSnapshotBuildError),
     /// A committed bound relationship names a node absent from the requested unit.
     InvalidBoundNode {
         /// The missing bound node identity.
@@ -118,6 +142,171 @@ pub enum CheckerInfrastructureError {
     ExpressionTypeCapacityExceeded,
     /// A checker unit view did not match its canonical bound unit.
     InvalidUnitView(CheckerUnitViewError),
+}
+
+/// Identifies one correlated semantic input supplied to a checker service.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum CheckerInputKind {
+    /// Checked asynchronous behavior.
+    AsyncAnalysis,
+    /// Checked control-flow structure.
+    ControlFlow,
+    /// Declaration-provided value type templates.
+    DeclaredValueTypes,
+    /// Complete checked expression semantics.
+    ExpressionSemantics,
+    /// Checked expression types.
+    ExpressionTypes,
+    /// Checked literal values.
+    LiteralValues,
+    /// Checked memory operations.
+    MemoryOperations,
+    /// Checked pattern semantics.
+    Patterns,
+    /// Checked semantic selections.
+    SemanticSelections,
+    /// Planned storage operations.
+    StoragePlan,
+}
+
+impl CheckerInputKind {
+    /// Returns this input category's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::AsyncAnalysis => "async_analysis",
+            Self::ControlFlow => "control_flow",
+            Self::DeclaredValueTypes => "declared_value_types",
+            Self::ExpressionSemantics => "expression_semantics",
+            Self::ExpressionTypes => "expression_types",
+            Self::LiteralValues => "literal_values",
+            Self::MemoryOperations => "memory_operations",
+            Self::Patterns => "patterns",
+            Self::SemanticSelections => "semantic_selections",
+            Self::StoragePlan => "storage_plan",
+        }
+    }
+}
+
+/// One exact literal-value table contract violation retained by the checker boundary.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum CheckerLiteralValueFailure {
+    /// The expression-type table belongs to another unit.
+    ForeignExpressionTypes,
+    /// An entry does not name a literal expression.
+    InvalidLiteral {
+        /// The invalid literal expression identity.
+        expression: BoundExpressionId,
+    },
+    /// A literal expression has no checked type.
+    MissingExpressionType {
+        /// The literal expression without a checked type.
+        expression: BoundExpressionId,
+    },
+    /// A literal expression has no checked value.
+    MissingLiteralValue {
+        /// The literal expression without a checked value.
+        expression: BoundExpressionId,
+    },
+    /// A literal value has a type different from its expression.
+    ValueTypeMismatch {
+        /// The literal expression whose value has another type.
+        expression: BoundExpressionId,
+    },
+    /// More than one value was supplied for one literal expression.
+    DuplicateExpression {
+        /// The repeated literal expression identity.
+        expression: BoundExpressionId,
+    },
+}
+
+/// Conflicting evidence retained while constructing one pattern-checking request.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum CheckerPatternInputFailure {
+    /// One pattern has conflicting declared type templates.
+    ConflictingDeclaredPattern {
+        /// The pattern with conflicting declared types.
+        pattern: BoundPatternId,
+    },
+    /// One pattern has conflicting constant evidence.
+    ConflictingConstantPattern {
+        /// The pattern with conflicting constants.
+        pattern: BoundPatternId,
+    },
+    /// One guard expression has conflicting constant values.
+    ConflictingGuard {
+        /// The guard expression with conflicting constants.
+        expression: BoundExpressionId,
+    },
+}
+
+/// Conflicting evidence retained while constructing one constant-evaluation request.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum CheckerConstantInputFailure {
+    /// One reference expression has conflicting resolutions.
+    ConflictingReference {
+        /// The reference expression with conflicting resolutions.
+        expression: BoundExpressionId,
+    },
+    /// One local constant has conflicting symbolic terms.
+    ConflictingLocalTerm {
+        /// The local constant with conflicting terms.
+        local: AnyLocalSymbolId,
+    },
+}
+
+/// One invalid source-correlated input encountered during constant evaluation.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum CheckerConstantEvaluationFailure {
+    /// The requested expression root is absent from the unit.
+    InvalidExpressionRoot {
+        /// The unavailable expression root.
+        expression: BoundExpressionId,
+    },
+    /// The requested block root is absent from the unit.
+    InvalidBlockRoot {
+        /// The unavailable block root.
+        block: BoundBlockId,
+    },
+    /// The selected expression has no checked type.
+    MissingExpressionType {
+        /// The expression without a checked type.
+        expression: BoundExpressionId,
+    },
+    /// A block-rooted request has no declared result type.
+    MissingBlockResultType {
+        /// The block without a result type.
+        block: BoundBlockId,
+    },
+    /// Evaluation reached an expression absent from the unit.
+    MissingExpression {
+        /// The unavailable expression identity.
+        expression: BoundExpressionId,
+    },
+    /// Evaluation reached a block absent from the unit.
+    MissingBlock {
+        /// The unavailable block identity.
+        block: BoundBlockId,
+    },
+    /// Pattern evaluation was requested without checked pattern input.
+    MissingPatternInput {
+        /// The pattern that required checked input.
+        pattern: BoundPatternId,
+    },
+    /// A requested pattern is absent from the unit or checked pattern input.
+    MissingPattern {
+        /// The unavailable pattern identity.
+        pattern: BoundPatternId,
+    },
+    /// A requested pattern binding has no checked projection.
+    MissingPatternBinding {
+        /// The binding without a checked pattern projection.
+        binding: LocalBindingSymbolId,
+    },
+    /// Closed evaluation unexpectedly retained a propagating term.
+    UnexpectedPropagation {
+        /// The symbolic term that unexpectedly propagated.
+        term: ConstantTermId,
+    },
 }
 
 /// The exact storage-flow contract violated by checker inputs or constructed analysis.

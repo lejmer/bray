@@ -4,9 +4,76 @@ use super::{
     CheckedSemanticSelections, Liveness, StorageFlow,
 };
 
-/// An inconsistent set of semantic results cannot form one immutable snapshot.
+/// Identifies one semantic result whose unit identity is validated for a snapshot.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct SemanticSnapshotBuildError;
+pub enum SemanticSnapshotInputKind {
+    /// Checked semantic selections.
+    Selections,
+    /// Checked source-literal values.
+    Literals,
+    /// Checked flow-sensitive refinements.
+    Refinements,
+    /// Checked storage flow.
+    StorageFlow,
+    /// Checked dependency contracts.
+    Dependencies,
+    /// Checked asynchronous behavior.
+    Asynchronous,
+    /// Direct body-behavior contributions.
+    Behavior,
+}
+
+impl SemanticSnapshotInputKind {
+    /// Returns the stable machine-readable name of this semantic result.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Selections => "selections",
+            Self::Literals => "literals",
+            Self::Refinements => "refinements",
+            Self::StorageFlow => "storage_flow",
+            Self::Dependencies => "dependencies",
+            Self::Asynchronous => "asynchronous",
+            Self::Behavior => "behavior",
+        }
+    }
+}
+
+/// An exact unit-identity mismatch that prevents construction of one semantic snapshot.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub struct SemanticSnapshotBuildError {
+    input: SemanticSnapshotInputKind,
+    expected_unit: BoundUnitId,
+    expected_kind: BoundUnitKind,
+    actual_unit: BoundUnitId,
+    actual_kind: BoundUnitKind,
+}
+
+impl SemanticSnapshotBuildError {
+    /// Returns the semantic result whose identity did not match.
+    pub const fn input(self) -> SemanticSnapshotInputKind {
+        self.input
+    }
+
+    /// Returns the expected bound unit identity.
+    pub const fn expected_unit(self) -> BoundUnitId {
+        self.expected_unit
+    }
+
+    /// Returns the expected bound unit category.
+    pub const fn expected_kind(self) -> BoundUnitKind {
+        self.expected_kind
+    }
+
+    /// Returns the supplied bound unit identity.
+    pub const fn actual_unit(self) -> BoundUnitId {
+        self.actual_unit
+    }
+
+    /// Returns the supplied bound unit category.
+    pub const fn actual_kind(self) -> BoundUnitKind {
+        self.actual_kind
+    }
+}
 
 /// Expression semantics established together for one bound semantic unit.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
@@ -23,16 +90,21 @@ impl CheckedExpressionSemantics {
         selections: CheckedSemanticSelections,
         literals: CheckedLiteralValues,
     ) -> Result<Self, SemanticSnapshotBuildError> {
-        if !semantic_identity_matches(
+        require_semantic_identity(
             types.unit(),
             types.kind(),
-            [
-                (selections.unit(), selections.kind()),
-                (literals.unit(), literals.kind()),
-            ],
-        ) {
-            return Err(SemanticSnapshotBuildError);
-        }
+            selections.unit(),
+            selections.kind(),
+            SemanticSnapshotInputKind::Selections,
+        )?;
+
+        require_semantic_identity(
+            types.unit(),
+            types.kind(),
+            literals.unit(),
+            literals.kind(),
+            SemanticSnapshotInputKind::Literals,
+        )?;
 
         Ok(Self {
             types,
@@ -91,19 +163,45 @@ impl CheckedBodySemantics {
         let unit = liveness.unit();
         let kind = liveness.kind();
 
-        if !semantic_identity_matches(
+        require_semantic_identity(
             unit,
             kind,
-            [
-                (refinements.unit(), refinements.kind()),
-                (storage_flow.unit(), storage_flow.kind()),
-                (dependencies.unit(), dependencies.kind()),
-                (asynchronous.unit(), asynchronous.kind()),
-                (behavior.unit(), behavior.kind()),
-            ],
-        ) {
-            return Err(SemanticSnapshotBuildError);
-        }
+            refinements.unit(),
+            refinements.kind(),
+            SemanticSnapshotInputKind::Refinements,
+        )?;
+
+        require_semantic_identity(
+            unit,
+            kind,
+            storage_flow.unit(),
+            storage_flow.kind(),
+            SemanticSnapshotInputKind::StorageFlow,
+        )?;
+
+        require_semantic_identity(
+            unit,
+            kind,
+            dependencies.unit(),
+            dependencies.kind(),
+            SemanticSnapshotInputKind::Dependencies,
+        )?;
+
+        require_semantic_identity(
+            unit,
+            kind,
+            asynchronous.unit(),
+            asynchronous.kind(),
+            SemanticSnapshotInputKind::Asynchronous,
+        )?;
+
+        require_semantic_identity(
+            unit,
+            kind,
+            behavior.unit(),
+            behavior.kind(),
+            SemanticSnapshotInputKind::Behavior,
+        )?;
 
         Ok(Self {
             liveness,
@@ -156,12 +254,22 @@ impl CheckedBodySemantics {
     }
 }
 
-fn semantic_identity_matches<const N: usize>(
-    unit: BoundUnitId,
-    kind: BoundUnitKind,
-    components: [(BoundUnitId, BoundUnitKind); N],
-) -> bool {
-    components
-        .into_iter()
-        .all(|component| component == (unit, kind))
+fn require_semantic_identity(
+    expected_unit: BoundUnitId,
+    expected_kind: BoundUnitKind,
+    actual_unit: BoundUnitId,
+    actual_kind: BoundUnitKind,
+    input: SemanticSnapshotInputKind,
+) -> Result<(), SemanticSnapshotBuildError> {
+    if (actual_unit, actual_kind) != (expected_unit, expected_kind) {
+        return Err(SemanticSnapshotBuildError {
+            input,
+            expected_unit,
+            expected_kind,
+            actual_unit,
+            actual_kind,
+        });
+    }
+
+    Ok(())
 }

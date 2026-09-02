@@ -234,14 +234,12 @@ impl FactScheduler {
     pub(crate) fn current_priority(&self) -> Result<Option<QueryPriority>, FactQueryError> {
         ACTIVE_SCHEDULERS
             .try_with(|active| {
-                let active = active
-                    .try_borrow()
-                    .map_err(|_| {
-                        FactRuntimeFailure::SchedulerLocalStateUnavailable {
-                            operation: SchedulerLocalOperation::CurrentPriority,
-                            cause: LocalStateFailure::BorrowConflict,
-                        }
-                    })?;
+                let active = active.try_borrow().map_err(|_| {
+                    FactRuntimeFailure::SchedulerLocalStateUnavailable {
+                        operation: SchedulerLocalOperation::CurrentPriority,
+                        cause: LocalStateFailure::BorrowConflict,
+                    }
+                })?;
 
                 Ok(active
                     .iter()
@@ -249,11 +247,9 @@ impl FactScheduler {
                     .find(|active| active.identity == self.identity())
                     .map(|active| active.priority))
             })
-            .map_err(|_| {
-                FactRuntimeFailure::SchedulerLocalStateUnavailable {
-                    operation: SchedulerLocalOperation::CurrentPriority,
-                    cause: LocalStateFailure::Unavailable,
-                }
+            .map_err(|_| FactRuntimeFailure::SchedulerLocalStateUnavailable {
+                operation: SchedulerLocalOperation::CurrentPriority,
+                cause: LocalStateFailure::Unavailable,
             })?
     }
 
@@ -313,24 +309,20 @@ impl FactScheduler {
     fn is_active(&self) -> Result<bool, FactQueryError> {
         ACTIVE_SCHEDULERS
             .try_with(|active| {
-                let active = active
-                    .try_borrow()
-                    .map_err(|_| {
-                        FactRuntimeFailure::SchedulerLocalStateUnavailable {
-                            operation: SchedulerLocalOperation::Inspect,
-                            cause: LocalStateFailure::BorrowConflict,
-                        }
-                    })?;
+                let active = active.try_borrow().map_err(|_| {
+                    FactRuntimeFailure::SchedulerLocalStateUnavailable {
+                        operation: SchedulerLocalOperation::Inspect,
+                        cause: LocalStateFailure::BorrowConflict,
+                    }
+                })?;
 
                 Ok(active
                     .iter()
                     .any(|active| active.identity == self.identity()))
             })
-            .map_err(|_| {
-                FactRuntimeFailure::SchedulerLocalStateUnavailable {
-                    operation: SchedulerLocalOperation::Inspect,
-                    cause: LocalStateFailure::Unavailable,
-                }
+            .map_err(|_| FactRuntimeFailure::SchedulerLocalStateUnavailable {
+                operation: SchedulerLocalOperation::Inspect,
+                cause: LocalStateFailure::Unavailable,
             })?
     }
 
@@ -372,9 +364,7 @@ fn publish_scheduled_result<T>(
     Ok(())
 }
 
-fn collect_scheduled_results<T>(
-    slots: Vec<Mutex<Option<T>>>,
-) -> Result<Vec<T>, FactQueryError> {
+fn collect_scheduled_results<T>(slots: Vec<Mutex<Option<T>>>) -> Result<Vec<T>, FactQueryError> {
     slots
         .into_iter()
         .enumerate()
@@ -476,14 +466,13 @@ impl ExecutionSlots {
                 break;
             }
 
-            state = self
-                .available
-                .wait(state)
-                .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
+            state = self.available.wait(state).map_err(|_| {
+                FactRuntimeFailure::SynchronizationPoisoned {
                     component: SynchronizationComponent::SchedulerSlots,
                     fact: None,
                     task: None,
-                })?;
+                }
+            })?;
         }
 
         unregister_waiter(&mut state, interactive)?;
@@ -524,16 +513,14 @@ impl ExecutionSlots {
     }
 
     fn state(&self) -> Result<MutexGuard<'_, SlotState>, FactQueryError> {
-        self.state
-            .lock()
-            .map_err(|_| {
-                FactRuntimeFailure::SynchronizationPoisoned {
-                    component: SynchronizationComponent::SchedulerSlots,
-                    fact: None,
-                    task: None,
-                }
-                .into()
-            })
+        self.state.lock().map_err(|_| {
+            FactRuntimeFailure::SynchronizationPoisoned {
+                component: SynchronizationComponent::SchedulerSlots,
+                fact: None,
+                task: None,
+            }
+            .into()
+        })
     }
 
     fn priority_changed(&self) {
@@ -568,24 +555,26 @@ impl ExecutionSlots {
 
 fn grant_slot(state: &mut SlotState, interactive: bool) -> Result<(), FactQueryError> {
     let interactive_streak = if interactive {
-        state.interactive_streak.checked_add(1).ok_or(
-            FactRuntimeFailure::CapacityExhausted {
+        state
+            .interactive_streak
+            .checked_add(1)
+            .ok_or(FactRuntimeFailure::CapacityExhausted {
                 resource: CapacityResource::SchedulerInteractiveStreak,
                 fact: None,
                 task: None,
-            },
-        )?
+            })?
     } else {
         0
     };
 
-    let active = state.active.checked_add(1).ok_or(
-        FactRuntimeFailure::CapacityExhausted {
+    let active = state
+        .active
+        .checked_add(1)
+        .ok_or(FactRuntimeFailure::CapacityExhausted {
             resource: CapacityResource::SchedulerActiveSlots,
             fact: None,
             task: None,
-        },
-    )?;
+        })?;
 
     state.interactive_streak = interactive_streak;
     state.active = active;
@@ -603,13 +592,15 @@ fn register_waiter(state: &mut SlotState, interactive: bool) -> Result<(), FactQ
             },
         )?;
     } else {
-        state.ordinary_waiters = state.ordinary_waiters.checked_add(1).ok_or(
-            FactRuntimeFailure::CapacityExhausted {
-                resource: CapacityResource::SchedulerOrdinaryWaiters,
-                fact: None,
-                task: None,
-            },
-        )?;
+        state.ordinary_waiters =
+            state
+                .ordinary_waiters
+                .checked_add(1)
+                .ok_or(FactRuntimeFailure::CapacityExhausted {
+                    resource: CapacityResource::SchedulerOrdinaryWaiters,
+                    fact: None,
+                    task: None,
+                })?;
     }
 
     Ok(())
@@ -668,24 +659,20 @@ impl ActiveSchedulerGuard {
     fn enter(identity: usize, priority: QueryPriority) -> Result<Self, FactQueryError> {
         ACTIVE_SCHEDULERS
             .try_with(|active| {
-                let mut active = active
-                    .try_borrow_mut()
-                    .map_err(|_| {
-                        FactRuntimeFailure::SchedulerLocalStateUnavailable {
-                            operation: SchedulerLocalOperation::Enter,
-                            cause: LocalStateFailure::BorrowConflict,
-                        }
-                    })?;
+                let mut active = active.try_borrow_mut().map_err(|_| {
+                    FactRuntimeFailure::SchedulerLocalStateUnavailable {
+                        operation: SchedulerLocalOperation::Enter,
+                        cause: LocalStateFailure::BorrowConflict,
+                    }
+                })?;
 
                 active.push(ActiveScheduler { identity, priority });
 
                 Ok::<_, FactQueryError>(())
             })
-            .map_err(|_| {
-                FactRuntimeFailure::SchedulerLocalStateUnavailable {
-                    operation: SchedulerLocalOperation::Enter,
-                    cause: LocalStateFailure::Unavailable,
-                }
+            .map_err(|_| FactRuntimeFailure::SchedulerLocalStateUnavailable {
+                operation: SchedulerLocalOperation::Enter,
+                cause: LocalStateFailure::Unavailable,
             })??;
 
         Ok(Self { identity })

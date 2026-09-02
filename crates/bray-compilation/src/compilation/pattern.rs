@@ -19,6 +19,9 @@ use bray_symbols::{
 use super::Compilation;
 use super::checker::CompilationCheckerContext;
 use super::constant::{CompilationConstantCallResolver, collect_constant_references_from};
+use crate::compilation::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+};
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
@@ -232,9 +235,20 @@ impl Compilation {
             request.unit(),
             selections,
             expression,
-            |_, target| {
-                let BoundReferenceTarget::Surface(symbol) = target else {
-                    return Err(FactQueryError::InfrastructureFailure);
+            |reference, target| {
+                let symbol = match target {
+                    BoundReferenceTarget::Surface(symbol) => symbol,
+                    BoundReferenceTarget::Local(local) => {
+                        return Err(SemanticQueryFailure::contract(
+                            SemanticQueryContext::LocalReference {
+                                unit: request.unit().key().clone(),
+                                expression: reference,
+                                local,
+                            },
+                            SemanticQueryViolation::Unsupported(SemanticDataKind::ConstantTerm),
+                        )
+                        .into());
+                    }
                 };
 
                 if let AnySymbolId::GenericConstParameter(parameter) = symbol {
@@ -325,6 +339,7 @@ fn collect_constant_sites(
     let mut patterns = Vec::new();
     let mut guards = BTreeSet::new();
     let mut local_constants = BTreeMap::new();
+    let mut missing_node = None;
 
     let outcome = walk_bound_unit_view(request.view(), request.unit().root(), |event| {
         let BoundWalkEvent::Enter(node) = event else {
@@ -334,6 +349,8 @@ fn collect_constant_sites(
         match node {
             AnyBoundNodeId::Pattern(pattern) => {
                 let Some(bound) = request.view().pattern(pattern) else {
+                    missing_node = Some(AnyBoundNodeId::Pattern(pattern));
+
                     return BoundWalkControl::Stop;
                 };
 
@@ -353,6 +370,8 @@ fn collect_constant_sites(
             }
             AnyBoundNodeId::Block(block) => {
                 let Some(block) = request.view().block(block) else {
+                    missing_node = Some(AnyBoundNodeId::Block(block));
+
                     return BoundWalkControl::Stop;
                 };
 
@@ -378,8 +397,18 @@ fn collect_constant_sites(
             guards,
             local_constants,
         }),
-        BoundWalkOutcome::Stopped | BoundWalkOutcome::MissingNode(_) => {
-            Err(FactQueryError::InfrastructureFailure)
-        }
+        BoundWalkOutcome::MissingNode(node) => Err(SemanticQueryFailure::contract(
+            SemanticQueryContext::Unit(request.unit().key().clone()),
+            SemanticQueryViolation::MissingBoundNode(node),
+        )
+        .into()),
+        BoundWalkOutcome::Stopped => Err(SemanticQueryFailure::contract(
+            SemanticQueryContext::Unit(request.unit().key().clone()),
+            missing_node.map_or(
+                SemanticQueryViolation::UnexpectedWalkOutcome(BoundWalkOutcome::Stopped),
+                SemanticQueryViolation::MissingBoundNode,
+            ),
+        )
+        .into()),
     }
 }

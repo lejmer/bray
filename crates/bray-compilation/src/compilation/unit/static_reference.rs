@@ -12,6 +12,7 @@ use bray_symbols::{
     StaticInstanceTemplateId, StaticReferenceSelection, SymbolQueryRequest,
 };
 
+use super::support::{unit_contract_failure, unit_walk_failure};
 use crate::compilation::binder::binding_query_error;
 use crate::compilation::state::Compilation;
 use crate::fact::{CancellationToken, FactQueryError};
@@ -69,8 +70,17 @@ impl Compilation {
         binding_context: &crate::compilation::binder::CompilationBindingContext<'_>,
         source: bray_declarations::SyntaxAnchor,
     ) -> Result<(Vec<bray_symbols::ImplementationInstanceId>, DiagnosticBag), FactQueryError> {
-        let owner = GenericOwnerId::try_new(declaration.into())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let symbol = declaration.into();
+
+        let owner = GenericOwnerId::try_new(symbol).ok_or_else(|| {
+            crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::Symbol(symbol),
+                crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: crate::compilation::SemanticSymbolCategory::GenericOwner,
+                    actual: symbol.kind(),
+                },
+            )
+        })?;
 
         let satisfaction = self.generic_constraint_satisfaction_with_cancellation(
             GenericConstraintObligationKey::new(owner, substitution),
@@ -150,9 +160,16 @@ impl Compilation {
                 return BoundWalkControl::Continue;
             };
 
-            let Some(BoundExpression::AnonymousCallable(callable)) =
-                bound.view().expression(expression)
-            else {
+            let Some(expression_node) = bound.view().expression(expression) else {
+                failure = Some(unit_contract_failure(
+                    bound.key(),
+                    crate::compilation::SemanticQueryViolation::MissingBoundNode(expression.into()),
+                ));
+
+                return BoundWalkControl::Stop;
+            };
+
+            let BoundExpression::AnonymousCallable(callable) = expression_node else {
                 return BoundWalkControl::Continue;
             };
 
@@ -172,7 +189,13 @@ impl Compilation {
                 ..
             } = nested_bound.result().value().root()
             else {
-                failure = Some(FactQueryError::InfrastructureFailure);
+                failure = Some(
+                    crate::compilation::SemanticQueryFailure::BoundUnit {
+                        unit: callable.unit().clone(),
+                        cause: bray_bound_tree::BoundUnitBuildError::RootKindMismatch,
+                    }
+                    .into(),
+                );
 
                 return BoundWalkControl::Stop;
             };
@@ -190,7 +213,12 @@ impl Compilation {
             };
 
             let Some(callable_type) = nested.result().value().callable_type() else {
-                failure = Some(FactQueryError::InfrastructureFailure);
+                failure = Some(unit_contract_failure(
+                    callable.unit(),
+                    crate::compilation::SemanticQueryViolation::Missing(
+                        crate::compilation::SemanticDataKind::CallableSignature,
+                    ),
+                ));
 
                 return BoundWalkControl::Stop;
             };
@@ -209,11 +237,10 @@ impl Compilation {
             return Err(error);
         }
 
-        match outcome {
-            BoundWalkOutcome::Completed => Ok(evidence),
-            BoundWalkOutcome::Stopped | BoundWalkOutcome::MissingNode(_) => {
-                Err(FactQueryError::InfrastructureFailure)
-            }
+        if outcome != BoundWalkOutcome::Completed {
+            return Err(unit_walk_failure(bound.key(), outcome));
         }
+
+        Ok(evidence)
     }
 }
