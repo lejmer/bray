@@ -286,10 +286,10 @@ fn format_english_package_interface_failure(
         ),
         Failure::DeclarationDiscoveryFailure { cause, cycle } => {
             if cycle.is_empty() {
-                format!(
+                format_internal_compiler_error(format!(
                     "package-interface export failed because {}",
                     format_english_emission_evaluation_failure(cause)
-                )
+                ))
             } else {
                 format_internal_compiler_error(format!(
                     "package-interface export has mutually dependent internal requests: {}",
@@ -469,9 +469,9 @@ mod tests {
             },
         );
 
-        assert!(infrastructure.contains("package-interface export failed"));
-        assert!(infrastructure.contains("evaluation state is inconsistent"));
+        assert!(infrastructure.starts_with(crate::catalog::english::INTERNAL_COMPILER_ERROR));
         assert!(!infrastructure.contains("compiler evaluation"));
+        assert!(!infrastructure.contains(';'));
 
         let executable = format_english_package_interface_failure(
             &DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {

@@ -23,10 +23,18 @@ pub(super) fn format_english_native_link_input_failure(
         Failure::InvalidRequirement {
             name,
             link_kind,
-            provenance,
-        } => format!(
-            "native link requirement '{name}' of category '{link_kind}' from '{provenance}' is invalid"
-        ),
+            provenance_kind,
+            provenance_identity,
+        } => {
+            let provider = provenance_identity.as_ref().map_or_else(
+                || (*provenance_kind).to_owned(),
+                |identity| format!("{provenance_kind} '{identity}'"),
+            );
+
+            format!(
+                "native link requirement '{name}' of category '{link_kind}' from {provider} is invalid"
+            )
+        }
     }
 }
 

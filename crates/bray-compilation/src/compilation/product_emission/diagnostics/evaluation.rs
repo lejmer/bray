@@ -57,6 +57,11 @@ pub(crate) fn diagnostic_evaluation_failure(
                 ),
             )
         }
+        FactQueryError::ImportedQuery(error) => {
+            DiagnosticEmissionEvaluationFailure::SemanticQuery(diagnostic_imported_query_failure(
+                *error,
+            ))
+        }
         FactQueryError::Runtime(error) => DiagnosticEmissionEvaluationFailure::Runtime(
             crate::fact::diagnostic_fact_runtime_failure(error),
         ),
@@ -143,6 +148,76 @@ pub(crate) fn diagnostic_evaluation_failure(
     }
 }
 
+fn diagnostic_imported_query_failure(
+    error: crate::fact::ImportedQueryFailure,
+) -> bray_diagnostics::DiagnosticSemanticQueryFailure {
+    use crate::fact::ImportedQueryFailure as Error;
+
+    let (reason, context) = match error {
+        Error::MissingDependencyInput(interface) => (
+            "imported_query_missing_dependency_input",
+            vec![crate::fact::diagnostic_context::count_field(
+                "interface",
+                u64::from(interface.raw()),
+            )],
+        ),
+        Error::MissingLoadedInterface(interface) => (
+            "imported_query_missing_loaded_interface",
+            vec![crate::fact::diagnostic_context::count_field(
+                "interface",
+                u64::from(interface.raw()),
+            )],
+        ),
+        Error::MissingSemanticGraph(key)
+        | Error::MissingInterfaceSurface(key)
+        | Error::MissingInterfaceSymbol(key)
+        | Error::MissingImportedSymbol(key) => {
+            let reason = match error {
+                Error::MissingSemanticGraph(_) => "imported_query_missing_semantic_graph",
+                Error::MissingInterfaceSurface(_) => "imported_query_missing_interface_surface",
+                Error::MissingInterfaceSymbol(_) => "imported_query_missing_interface_symbol",
+                Error::MissingImportedSymbol(_) => "imported_query_missing_imported_symbol",
+                _ => unreachable!(),
+            };
+
+            (reason, imported_record_context(key))
+        }
+        Error::MissingLoadedInterfaceViews(interface) => (
+            "imported_query_missing_loaded_interface_views",
+            vec![crate::fact::diagnostic_context::count_field(
+                "interface",
+                u64::from(interface.raw()),
+            )],
+        ),
+        Error::MissingCurrentInterface(interface) => (
+            "imported_query_missing_current_interface",
+            vec![crate::fact::diagnostic_context::count_field(
+                "interface",
+                u64::from(interface.raw()),
+            )],
+        ),
+        Error::InterfaceCapacityExceeded(index) => (
+            "imported_query_interface_capacity_exceeded",
+            vec![crate::fact::diagnostic_context::natural_field("index", index)],
+        ),
+    };
+
+    bray_diagnostics::DiagnosticSemanticQueryFailure::new("imported_query", reason, context)
+}
+
+fn imported_record_context(
+    key: crate::fact::ImportedSemanticRecordKey,
+) -> Vec<bray_diagnostics::DiagnosticFailureField> {
+    vec![
+        crate::fact::diagnostic_context::count_field(
+            "interface",
+            u64::from(key.interface().raw()),
+        ),
+        crate::fact::diagnostic_context::count_field("owner", u64::from(key.owner().raw())),
+        crate::fact::diagnostic_context::text_field("record_kind", key.kind().as_str()),
+    ]
+}
+
 const fn codegen_target_reason(error: bray_codegen::CodegenTargetBuildError) -> &'static str {
     match error {
         bray_codegen::CodegenTargetBuildError::UnsupportedProfile => {
@@ -154,7 +229,7 @@ const fn codegen_target_reason(error: bray_codegen::CodegenTargetBuildError) -> 
     }
 }
 
-const fn interface_validation_reason(
+pub(super) const fn interface_validation_reason(
     error: &bray_package_interface::InterfaceValidationError,
 ) -> &'static str {
     use bray_package_interface::InterfaceValidationError as Error;
@@ -193,5 +268,33 @@ const fn interface_validation_reason(
             "interface_implementation_dependency_mismatch"
         }
         Error::ResourceLimitExceeded { .. } => "interface_resource_limit_exceeded",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_package_interface::InterfaceSemanticRecordKind;
+    use bray_symbols::{ImportedInterfaceId, InterfaceSymbolId};
+
+    use super::diagnostic_imported_query_failure;
+    use crate::fact::{ImportedQueryFailure, ImportedSemanticRecordKey};
+
+    #[test]
+    fn imported_query_conversion_preserves_interface_owner_and_record_kind() {
+        let key = ImportedSemanticRecordKey::new(
+            ImportedInterfaceId::new(7),
+            InterfaceSymbolId::new(11),
+            InterfaceSemanticRecordKind::CallableSignature,
+        );
+
+        let failure = diagnostic_imported_query_failure(
+            ImportedQueryFailure::MissingInterfaceSymbol(key),
+        );
+
+        let names: Vec<_> = failure.context().iter().map(|field| field.name()).collect();
+
+        assert_eq!(failure.category(), "imported_query");
+        assert_eq!(failure.reason(), "imported_query_missing_interface_symbol");
+        assert_eq!(names, ["interface", "owner", "record_kind"]);
     }
 }

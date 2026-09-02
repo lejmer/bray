@@ -162,7 +162,8 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
         Kind::InvalidNativeLinkInput(DiagnosticNativeLinkInputFailure::InvalidRequirement {
             name: "native".to_owned(),
             link_kind: "dynamic".to_owned(),
-            provenance: "test".to_owned(),
+            provenance_kind: "package",
+            provenance_identity: Some("test".to_owned()),
         }),
         Kind::EvaluationCycle(crate::DiagnosticEvaluationFailureDetail::new("cycle", [])),
         Kind::EvaluationInfrastructure,

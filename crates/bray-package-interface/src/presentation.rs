@@ -72,7 +72,9 @@ const fn diagnostic_kind(error: &InterfaceValidationError) -> DiagnosticKind {
     }
 }
 
-fn diagnostic_failure(error: InterfaceValidationError) -> DiagnosticInterfaceValidationFailure {
+pub(crate) fn diagnostic_failure(
+    error: InterfaceValidationError,
+) -> DiagnosticInterfaceValidationFailure {
     match error {
         InterfaceValidationError::InvalidMagic { actual } => {
             DiagnosticInterfaceValidationFailure::InvalidMagic { actual }

@@ -66,16 +66,16 @@ pub enum DiagnosticNativeLinkInputFailure {
         /// Exact imported artifact path.
         path: String,
         /// Stable rejected standard-library artifact category.
-        artifact_kind: String,
+        artifact_kind: &'static str,
     },
     /// An imported standard-library artifact could not form a link-input specification.
     InvalidStandardLibraryArtifact {
         /// Exact imported artifact path.
         path: String,
         /// Stable selected linker-input category.
-        input_kind: String,
+        input_kind: &'static str,
         /// Stable exact link-input contract failure.
-        cause: String,
+        cause: &'static str,
     },
     /// A source or platform native-link requirement could not form a linker input.
     InvalidRequirement {
@@ -84,7 +84,9 @@ pub enum DiagnosticNativeLinkInputFailure {
         /// Stable requested native-link category.
         link_kind: String,
         /// Exact retained provider identity.
-        provenance: String,
+        provenance_kind: &'static str,
+        /// Stable provider identity when the provenance names one.
+        provenance_identity: Option<String>,
     },
 }
 

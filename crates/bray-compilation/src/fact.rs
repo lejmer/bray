@@ -23,8 +23,10 @@ pub(crate) use error::{
     diagnostic_binding_failure, diagnostic_checker_failure, diagnostic_cycle_failure,
     diagnostic_fact_runtime_failure, diagnostic_semantic_context_failure,
     diagnostic_semantic_query_failure, diagnostic_semantic_value_failure,
-    diagnostic_symbol_graph_failure,
+    diagnostic_symbol_graph_failure, callable_signature_reason, generic_substitution_reason,
+    push_generic_substitution_failure, push_semantic_value_failure,
 };
+pub use error::ImportedQueryFailure;
 pub(crate) use error::diagnostic_context;
 pub use key::ImportedSemanticRecordKey;
 pub use priority::QueryPriority;

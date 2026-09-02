@@ -25,6 +25,14 @@ pub enum DiagnosticFailureValue {
     Count(u64),
     Identity([u8; 32]),
     IdentityList(Box<[[u8; 32]]>),
+    /// Exact nested evaluation failure retained without hashing its payload.
+    Evaluation(Box<super::DiagnosticEmissionEvaluationFailure>),
+    /// Exact package-interface declaration identity.
+    InterfaceSymbolIdentity(crate::DiagnosticInterfaceSymbolIdentity),
+    /// Exact package-interface symbol graph problem.
+    InterfaceSymbolGraphProblem(crate::DiagnosticInterfaceSymbolGraphProblem),
+    /// Exact package-interface validation failure.
+    InterfaceValidationFailure(crate::DiagnosticInterfaceValidationFailure),
     Natural(String),
     Signed(i64),
     Text(String),

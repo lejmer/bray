@@ -12,6 +12,20 @@ pub struct FactCycle {
     facts: Box<[CompilationFactKey]>,
 }
 
+/// One exact missing relationship in imported-interface query state.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ImportedQueryFailure {
+    MissingDependencyInput(bray_symbols::ImportedInterfaceId),
+    MissingLoadedInterface(bray_symbols::ImportedInterfaceId),
+    MissingSemanticGraph(crate::fact::ImportedSemanticRecordKey),
+    MissingInterfaceSurface(crate::fact::ImportedSemanticRecordKey),
+    MissingInterfaceSymbol(crate::fact::ImportedSemanticRecordKey),
+    MissingImportedSymbol(crate::fact::ImportedSemanticRecordKey),
+    MissingLoadedInterfaceViews(bray_symbols::ImportedInterfaceId),
+    MissingCurrentInterface(bray_symbols::ImportedInterfaceId),
+    InterfaceCapacityExceeded(usize),
+}
+
 impl FactCycle {
     pub(crate) fn new(facts: impl Into<Box<[CompilationFactKey]>>) -> Self {
         Self {
@@ -306,6 +320,8 @@ pub enum FactQueryError {
     CodegenTarget(bray_codegen::CodegenTargetBuildError),
     /// Imported package implementation access violated its encoded interface contract.
     PackageInterface(bray_package_interface::InterfaceValidationError),
+    /// Imported-interface query state omitted an exact required relationship.
+    ImportedQuery(ImportedQueryFailure),
     /// The compiler query runtime could not preserve its coordination contract.
     Runtime(FactRuntimeError),
     /// The compilation could not allocate its canonical semantic-value store identity.
@@ -390,6 +406,12 @@ impl From<crate::compilation::ForeignQueryFailure> for FactQueryError {
     }
 }
 
+impl From<ImportedQueryFailure> for FactQueryError {
+    fn from(error: ImportedQueryFailure) -> Self {
+        Self::ImportedQuery(error)
+    }
+}
+
 impl From<bray_symbols::SemanticValueStoreCreateError> for FactQueryError {
     fn from(error: bray_symbols::SemanticValueStoreCreateError) -> Self {
         Self::SemanticValueStoreCreate(error)
@@ -452,6 +474,9 @@ impl std::fmt::Display for FactQueryError {
             Self::CodegenTarget(_) => formatter.write_str("native target construction failed"),
             Self::PackageInterface(_) => {
                 formatter.write_str("package interface validation failed")
+            }
+            Self::ImportedQuery(error) => {
+                write!(formatter, "imported interface query failed: {error:?}")
             }
             Self::Runtime(error) => write!(formatter, "{error}"),
             Self::SemanticValueStoreCreate(error) => {

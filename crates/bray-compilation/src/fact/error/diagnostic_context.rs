@@ -46,7 +46,7 @@ pub(crate) fn push_symbol(
     context.push(count_field(identity_name, u64::from(symbol.symbol_id().raw())));
 }
 
-pub(super) fn push_source_span(
+pub(crate) fn push_source_span(
     context: &mut Vec<DiagnosticFailureField>,
     source_name: &'static str,
     start_name: &'static str,

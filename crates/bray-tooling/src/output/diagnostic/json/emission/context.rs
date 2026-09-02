@@ -281,6 +281,30 @@ pub(in crate::output::diagnostic::json) fn diagnostic_failure_context(
                             .collect(),
                     )
                 }
+                bray_diagnostics::DiagnosticFailureValue::Evaluation(value) => {
+                    DiagnosticEmissionFieldValueJson::Evaluation(Box::new(
+                        super::failure::DiagnosticEmissionFailureJson::from_failure(
+                            &bray_diagnostics::DiagnosticEmissionFailure::Evaluation(
+                                (**value).clone(),
+                            ),
+                        ),
+                    ))
+                }
+                bray_diagnostics::DiagnosticFailureValue::InterfaceSymbolIdentity(value) => {
+                    DiagnosticEmissionFieldValueJson::InterfaceSymbolIdentity(
+                        DiagnosticInterfaceSymbolIdentityJson::from_identity(value),
+                    )
+                }
+                bray_diagnostics::DiagnosticFailureValue::InterfaceSymbolGraphProblem(value) => {
+                    DiagnosticEmissionFieldValueJson::InterfaceSymbolGraphProblem(
+                        super::super::interface_symbol_graph_problem_json(value),
+                    )
+                }
+                bray_diagnostics::DiagnosticFailureValue::InterfaceValidationFailure(value) => {
+                    DiagnosticEmissionFieldValueJson::InterfaceValidationFailure(
+                        super::super::interface_validation_failure_json(value),
+                    )
+                }
                 bray_diagnostics::DiagnosticFailureValue::Natural(value) => {
                     DiagnosticEmissionFieldValueJson::Natural(value.clone())
                 }
@@ -558,11 +582,15 @@ pub(super) fn link_plan_failure_context(
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        DiagnosticEmissionEvaluationFailure, DiagnosticInterfaceSymbolIdentity,
+        DiagnosticEmissionEvaluationFailure, DiagnosticEvaluationFailureDetail,
+        DiagnosticFailureField, DiagnosticFailureValue, DiagnosticInterfaceSymbolIdentity,
         DiagnosticPackageInterfaceFailure, DiagnosticSemanticValueFailure,
     };
 
-    use super::{package_interface_failure_context, semantic_value_failure_context};
+    use super::{
+        diagnostic_failure_context, package_interface_failure_context,
+        semantic_value_failure_context,
+    };
 
     fn package(name: &str) -> DiagnosticInterfaceSymbolIdentity {
         DiagnosticInterfaceSymbolIdentity::Package(name.to_owned())
@@ -587,6 +615,79 @@ mod tests {
         assert_eq!(context[1]["value"]["value"]["package"], "example.second");
         assert_eq!(context[2]["name"], "stable_identity");
         assert_eq!(context[2]["value"]["value"]["package"], "example.shared");
+    }
+
+    #[test]
+    fn nested_evaluation_failures_serialize_their_exact_context() {
+        let context = diagnostic_failure_context(&[DiagnosticFailureField::new(
+            "evaluation_cause",
+            DiagnosticFailureValue::Evaluation(Box::new(
+                DiagnosticEmissionEvaluationFailure::SemanticContext(
+                    DiagnosticEvaluationFailureDetail::new(
+                        "missing_owner",
+                        [DiagnosticFailureField::new(
+                            "owner",
+                            DiagnosticFailureValue::Count(29),
+                        )],
+                    ),
+                ),
+            )),
+        )]);
+
+        let context = serde_json::to_value(context)
+            .unwrap_or_else(|error| panic!("nested evaluation context should serialize: {error:?}"));
+
+        assert_eq!(context[0]["value"]["value"]["category"], "evaluation");
+        assert_eq!(context[0]["value"]["value"]["reason"], "missing_owner");
+
+        assert_eq!(
+            context[0]["value"]["value"]["context"][0]["name"],
+            "cause"
+        );
+
+        assert_eq!(
+            context[0]["value"]["value"]["context"][1]["name"],
+            "owner"
+        );
+
+        assert_eq!(
+            context[0]["value"]["value"]["context"][1]["value"]["value"],
+            29
+        );
+    }
+
+    #[test]
+    fn nested_interface_validation_failures_serialize_their_exact_payload() {
+        let context = diagnostic_failure_context(&[DiagnosticFailureField::new(
+            "interface_validation_cause",
+            DiagnosticFailureValue::InterfaceValidationFailure(
+                bray_diagnostics::DiagnosticInterfaceValidationFailure::Truncated {
+                    context: bray_diagnostics::DiagnosticInterfaceValidationContext::Header,
+                    field: bray_diagnostics::DiagnosticInterfaceValidationField::RecordCount,
+                    offset: 13,
+                    expected_length: 8,
+                    actual_length: 3,
+                },
+            ),
+        )]);
+
+        let context = serde_json::to_value(context)
+            .unwrap_or_else(|error| panic!("nested validation context should serialize: {error:?}"));
+
+        assert_eq!(
+            context[0]["value"]["value"]["reason"],
+            "truncated"
+        );
+
+        assert_eq!(
+            context[0]["value"]["value"]["context"][0]["value"]["value"],
+            "header"
+        );
+
+        assert_eq!(
+            context[0]["value"]["value"]["context"][2]["value"]["value"],
+            13
+        );
     }
 
     #[test]

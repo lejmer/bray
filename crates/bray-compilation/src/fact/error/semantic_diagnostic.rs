@@ -410,7 +410,7 @@ fn push_optional_symbol(
     }
 }
 
-fn push_generic_substitution_failure(
+pub(crate) fn push_generic_substitution_failure(
     context: &mut Vec<DiagnosticFailureField>,
     cause: &bray_symbols::GenericSubstitutionShapeError,
 ) {
@@ -437,7 +437,7 @@ fn push_generic_substitution_failure(
     }
 }
 
-fn push_semantic_value_failure(
+pub(crate) fn push_semantic_value_failure(
     context: &mut Vec<DiagnosticFailureField>,
     cause: bray_symbols::SemanticValueStoreError,
 ) {
@@ -517,7 +517,7 @@ fn push_preparsed_syntax_failure(
     }
 }
 
-const fn callable_signature_reason(
+pub(crate) const fn callable_signature_reason(
     cause: &bray_symbols::CallableSignatureTemplateError,
 ) -> &'static str {
     use bray_symbols::CallableSignatureTemplateError as Error;
@@ -530,7 +530,7 @@ const fn callable_signature_reason(
     }
 }
 
-const fn generic_substitution_reason(
+pub(crate) const fn generic_substitution_reason(
     cause: &bray_symbols::GenericSubstitutionShapeError,
 ) -> &'static str {
     use bray_symbols::GenericSubstitutionShapeError as Error;

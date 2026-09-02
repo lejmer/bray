@@ -508,6 +508,11 @@ pub enum InterfaceValidationError {
 }
 
 impl InterfaceValidationError {
+    /// Converts this validation failure into its exact locale-neutral payload.
+    pub fn into_diagnostic_failure(self) -> bray_diagnostics::DiagnosticInterfaceValidationFailure {
+        crate::presentation::diagnostic_failure(self)
+    }
+
     /// Converts this validation failure into a locale-neutral diagnostic.
     pub fn into_diagnostic(self, id: DiagnosticId) -> Diagnostic {
         crate::presentation::validation_diagnostic(self, id)
