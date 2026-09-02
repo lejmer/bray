@@ -562,6 +562,7 @@ mod tests {
         );
 
         let infrastructure_path = std::path::PathBuf::from("interfaces/std-cache.brayi");
+
         let infrastructure_bag = standard_library_diagnostics(
             StandardLibraryLoadError::Infrastructure {
                 path: infrastructure_path.clone(),

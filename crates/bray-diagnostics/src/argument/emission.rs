@@ -13,4 +13,6 @@ pub use lowering::{
     DiagnosticLoweringInputFailureKind, DiagnosticMirUnitBuildFailure,
     DiagnosticSourceConstructKind,
 };
-pub use product::{DiagnosticNativeProductFailureKind, DiagnosticProductKind};
+pub use product::{
+    DiagnosticNativeLinkInputFailure, DiagnosticNativeProductFailureKind, DiagnosticProductKind,
+};

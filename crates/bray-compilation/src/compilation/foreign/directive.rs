@@ -22,6 +22,7 @@ use super::super::Compilation;
 use super::diagnostic::{missing_directive, source_diagnostic};
 use crate::compilation::directive::directives_of_kind;
 use crate::compilation::substitution::named_type;
+use crate::compilation::{ForeignDataKind, ForeignQueryContext, ForeignQueryFailure};
 use crate::fact::{CancellationToken, FactQueryError};
 
 pub(super) fn validate_foreign_import_requirements(
@@ -75,7 +76,12 @@ pub(super) fn foreign_link_requirements(
         let module = compilation
             .symbol_graph()?
             .containing_module(declaration)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                missing_foreign_data(
+                    ForeignQueryContext::Symbol(declaration),
+                    ForeignDataKind::ContainingModule,
+                )
+            })?;
 
         let module_directives = compilation.declaration_directives(module.id().into())?;
 
@@ -91,7 +97,12 @@ pub(super) fn foreign_link_requirements(
         let anchor = compilation
             .symbol_graph()?
             .declaration_syntax_anchor(declaration)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                missing_foreign_data(
+                    ForeignQueryContext::Symbol(declaration),
+                    ForeignDataKind::SourceAnchor,
+                )
+            })?;
 
         diagnostics.add(missing_directive(
             anchor,
@@ -351,7 +362,15 @@ fn directive_integer_argument(
     let usize_type = compilation
         .available_compiler_known_symbols()
         .representation_symbol::<StructSymbolId>(RepresentationRole::ScalarUsize)
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .ok_or_else(|| {
+            missing_foreign_data(
+                ForeignQueryContext::CompilerKnownRepresentation {
+                    role: RepresentationRole::ScalarUsize,
+                    ty: None,
+                },
+                ForeignDataKind::RepresentationSymbol,
+            )
+        })?;
 
     let usize_type = named_type(
         compilation.semantic_value_store()?,
@@ -425,7 +444,15 @@ fn directive_string_argument(
     let string = compilation
         .available_compiler_known_symbols()
         .representation_symbol::<StructSymbolId>(RepresentationRole::String)
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .ok_or_else(|| {
+            missing_foreign_data(
+                ForeignQueryContext::CompilerKnownRepresentation {
+                    role: RepresentationRole::String,
+                    ty: None,
+                },
+                ForeignDataKind::RepresentationSymbol,
+            )
+        })?;
 
     let string_type = named_type(
         compilation.semantic_value_store()?,
@@ -485,16 +512,28 @@ fn directive_source_text(
     compilation: &Compilation,
     syntax: bray_declarations::SyntaxAnchor,
 ) -> Result<&str, FactQueryError> {
-    let source = compilation
-        .source(syntax.source_id())
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+    let source = compilation.source(syntax.source_id()).ok_or_else(|| {
+        missing_foreign_data(
+            ForeignQueryContext::Directive(syntax),
+            ForeignDataKind::SourceSnapshot,
+        )
+    })?;
 
     let text = source
         .text_slice(syntax.full_range())
-        .ok_or(FactQueryError::InfrastructureFailure)?
+        .ok_or_else(|| {
+            missing_foreign_data(
+                ForeignQueryContext::Directive(syntax),
+                ForeignDataKind::SourceText,
+            )
+        })?
         .trim();
 
     Ok(text)
+}
+
+fn missing_foreign_data(context: ForeignQueryContext, data: ForeignDataKind) -> FactQueryError {
+    ForeignQueryFailure::missing(context, data).into()
 }
 
 fn native_link_requirement(

@@ -1,5 +1,6 @@
 mod checker;
 mod failure;
+mod foreign_query;
 mod product_query;
 mod unsupported;
 
@@ -16,6 +17,10 @@ pub use failure::{
     DiagnosticEmissionLinkPlanFailure, DiagnosticEmissionPlanningFailure,
     DiagnosticEmissionStagingFailure, DiagnosticPackageInterfaceFailure,
     DiagnosticSemanticQueryFailure, DiagnosticSemanticValueFailure,
+};
+pub use foreign_query::{
+    DiagnosticForeignDataKind, DiagnosticForeignQueryContext, DiagnosticForeignQueryContextKind,
+    DiagnosticForeignQueryFailure,
 };
 pub use product_query::{
     DiagnosticProductDataKind, DiagnosticProductQueryContext, DiagnosticProductQueryContextKind,

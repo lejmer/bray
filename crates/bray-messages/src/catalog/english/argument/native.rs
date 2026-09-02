@@ -3,12 +3,13 @@ mod checker;
 mod dependency;
 mod document;
 mod external;
+mod foreign_query;
 mod linking;
 mod product_query;
 mod standard_library;
 mod toolchain;
 
-use super::super::format_internal_compiler_error;
+pub(super) use super::super::format_internal_compiler_error;
 pub(crate) use artifact::format_english_semantic_value_failure_detail;
 pub(super) use artifact::{
     format_artifact_failure, format_english_emission_evaluation_failure,

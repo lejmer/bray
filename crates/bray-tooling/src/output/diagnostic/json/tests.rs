@@ -53,6 +53,8 @@ const JSON_SOURCE_INVENTORY: &[&str] = &[
     "output/diagnostic/json/emission.rs",
     "output/diagnostic/json/emission/context.rs",
     "output/diagnostic/json/emission/failure.rs",
+    "output/diagnostic/json/emission/foreign_query.rs",
+    "output/diagnostic/json/emission/native_link.rs",
     "output/diagnostic/json/emission/product_query.rs",
     "output/diagnostic/json/foreign.rs",
     "output/diagnostic/json/interface.rs",

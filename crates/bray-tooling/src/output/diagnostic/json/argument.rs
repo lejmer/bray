@@ -2,7 +2,8 @@ use bray_diagnostics::DiagnosticArgValue;
 use serde::Serialize;
 
 use super::emission::{
-    DiagnosticEmissionFieldJson, product_query_failure_context, semantic_value_failure_context,
+    DiagnosticEmissionFieldJson, foreign_query_failure_context, native_link_input_failure_context,
+    product_query_failure_context, semantic_value_failure_context,
 };
 use super::{
     DiagnosticArtifactDigestJson, DiagnosticCallableOverloadProblemJson,
@@ -400,6 +401,8 @@ impl DiagnosticNativeProductFailureJson {
                 _ => Vec::new(),
             },
             Kind::EvaluationProduct(failure) => product_query_failure_context(failure),
+            Kind::EvaluationForeign(failure) => foreign_query_failure_context(failure),
+            Kind::InvalidNativeLinkInput(failure) => native_link_input_failure_context(failure),
             _ => Vec::new(),
         };
 

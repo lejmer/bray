@@ -312,6 +312,8 @@ pub enum FactQueryError {
     SemanticQuery(SemanticQueryError),
     /// Product specialization or realization violated an exact query contract.
     Product(crate::ProductQueryError),
+    /// Foreign-boundary compilation violated an exact query contract.
+    Foreign(crate::ForeignQueryError),
     /// Checked lowering inputs violated the lowering boundary contract.
     LoweringInput(LocatedLoweringFailure<LoweringInputError>),
     /// MIR lowering violated a checked semantic or MIR construction contract.
@@ -345,6 +347,12 @@ impl From<SemanticQueryFailure> for FactQueryError {
 impl From<crate::compilation::ProductQueryFailure> for FactQueryError {
     fn from(error: crate::compilation::ProductQueryFailure) -> Self {
         Self::Product(error.into())
+    }
+}
+
+impl From<crate::compilation::ForeignQueryFailure> for FactQueryError {
+    fn from(error: crate::compilation::ForeignQueryFailure) -> Self {
+        Self::Foreign(error.into())
     }
 }
 
@@ -448,6 +456,7 @@ impl std::fmt::Display for FactQueryError {
             }
             Self::SemanticQuery(error) => write!(formatter, "{error}"),
             Self::Product(error) => write!(formatter, "product query failed: {error:?}"),
+            Self::Foreign(error) => write!(formatter, "foreign query failed: {error:?}"),
             Self::LoweringInput(error) => {
                 write!(
                     formatter,

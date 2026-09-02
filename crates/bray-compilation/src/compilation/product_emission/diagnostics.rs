@@ -1,5 +1,6 @@
 mod common;
 mod evaluation;
+pub(in crate::compilation) mod foreign_query;
 mod linking;
 mod model;
 mod planning;

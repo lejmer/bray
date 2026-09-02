@@ -58,6 +58,51 @@ pub enum DiagnosticProductKind {
     Test,
 }
 
+/// Exact native link-input failure retained by native product planning.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticNativeLinkInputFailure {
+    /// An imported standard-library artifact has no supported static link representation.
+    UnsupportedStandardLibraryArtifact {
+        /// Exact imported artifact path.
+        path: String,
+        /// Stable rejected standard-library artifact category.
+        artifact_kind: String,
+    },
+    /// An imported standard-library artifact could not form a link-input specification.
+    InvalidStandardLibraryArtifact {
+        /// Exact imported artifact path.
+        path: String,
+        /// Stable selected linker-input category.
+        input_kind: String,
+        /// Stable exact link-input contract failure.
+        cause: String,
+    },
+    /// A source or platform native-link requirement could not form a linker input.
+    InvalidRequirement {
+        /// Exact requested native input name.
+        name: String,
+        /// Stable requested native-link category.
+        link_kind: String,
+        /// Exact retained provider identity.
+        provenance: String,
+    },
+}
+
+impl DiagnosticNativeLinkInputFailure {
+    /// Returns the stable machine key for this link-input failure.
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::UnsupportedStandardLibraryArtifact { .. } => {
+                "native_link_input_unsupported_standard_library_artifact"
+            }
+            Self::InvalidStandardLibraryArtifact { .. } => {
+                "native_link_input_invalid_standard_library_artifact"
+            }
+            Self::InvalidRequirement { .. } => "native_link_input_invalid_requirement",
+        }
+    }
+}
+
 impl DiagnosticProductKind {
     /// Returns the stable machine key for this product category.
     pub const fn as_str(self) -> &'static str {
@@ -78,7 +123,7 @@ pub enum DiagnosticNativeProductFailureKind {
     MissingRuntime,
     LibraryCleanupRequiresMainThread,
     InvalidSymbolName,
-    InvalidNativeLinkInput,
+    InvalidNativeLinkInput(DiagnosticNativeLinkInputFailure),
     EvaluationCycle,
     EvaluationInfrastructure,
     EvaluationSemanticValueStoreCreate,
@@ -97,6 +142,8 @@ pub enum DiagnosticNativeProductFailureKind {
     SemanticContextFailure,
     /// Product specialization or realization violated an exact retained contract.
     EvaluationProduct(crate::DiagnosticProductQueryFailure),
+    /// Foreign-boundary construction violated an exact retained contract.
+    EvaluationForeign(crate::DiagnosticForeignQueryFailure),
     CheckingInfrastructureFailure,
     EvaluationChecker(crate::DiagnosticCheckerFailure),
     CodegenTargetUnsupportedProfile,
@@ -169,7 +216,7 @@ impl DiagnosticNativeProductFailureKind {
             Self::MissingRuntime => "missing_runtime",
             Self::LibraryCleanupRequiresMainThread => "library_cleanup_requires_main_thread",
             Self::InvalidSymbolName => "invalid_symbol_name",
-            Self::InvalidNativeLinkInput => "invalid_native_link_input",
+            Self::InvalidNativeLinkInput(failure) => failure.as_str(),
             Self::EvaluationCycle => "evaluation_cycle",
             Self::EvaluationInfrastructure => "evaluation_infrastructure",
             Self::EvaluationSemanticValueStoreCreate => "evaluation_semantic_value_store_create",
@@ -203,6 +250,7 @@ impl DiagnosticNativeProductFailureKind {
             }
             Self::SemanticContextFailure => "semantic_context_failure",
             Self::EvaluationProduct(failure) => failure.as_str(),
+            Self::EvaluationForeign(failure) => failure.as_str(),
             Self::CheckingInfrastructureFailure => "checking_infrastructure_failure",
             Self::EvaluationChecker(failure) => failure.as_str(),
             Self::CodegenTargetUnsupportedProfile => "codegen_target_unsupported_profile",

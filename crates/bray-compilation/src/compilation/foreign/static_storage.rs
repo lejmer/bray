@@ -13,6 +13,7 @@ use super::super::Compilation;
 use super::diagnostic::{missing_directive, source_diagnostic};
 use super::directive::{foreign_link_requirements, foreign_symbol_contract, invalid_symbol_policy};
 use super::validation::foreign_type_is_supported;
+use super::{ForeignDataKind, ForeignQueryContext, ForeignQueryFailure};
 use crate::compilation::binder::binding_query_error;
 use crate::compilation::directive::first_directive;
 use crate::fact::{CancellationToken, FactQueryError};
@@ -62,18 +63,28 @@ impl Compilation {
 
         let binder = self.binding_context(cancellation)?;
 
-        let record = binder
-            .symbols()
-            .static_symbol(declaration)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let record = binder.symbols().static_symbol(declaration).ok_or_else(|| {
+            ForeignQueryFailure::missing(
+                ForeignQueryContext::Static(declaration),
+                ForeignDataKind::StaticBindingRecord,
+            )
+        })?;
 
-        let anchor = record
-            .syntax_anchor()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let anchor = record.syntax_anchor().ok_or_else(|| {
+            ForeignQueryFailure::missing(
+                ForeignQueryContext::Static(declaration),
+                ForeignDataKind::SourceAnchor,
+            )
+        })?;
 
         let syntax = anchor
             .find_descendant::<StaticDeclarationSyntax>(self.syntax_tree())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                ForeignQueryFailure::missing(
+                    ForeignQueryContext::Static(declaration),
+                    ForeignDataKind::StaticDeclarationSyntax,
+                )
+            })?;
 
         let directives = self.declaration_directives(declaration.into())?;
         let mut diagnostics = directives.diagnostics().clone();
@@ -286,10 +297,34 @@ fn native_static_type_is_incomplete(
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticKind;
-    use bray_symbols::SymbolOrigin;
+    use bray_symbols::{StaticSymbolId, SymbolId, SymbolOrigin};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
+    use super::super::{ForeignDataKind, ForeignQueryContext, ForeignQueryFailure};
+    use crate::fact::FactQueryError;
     use crate::test_support::compilation;
+
+    #[test]
+    fn missing_static_records_retain_the_requested_declaration() {
+        let compilation = compilation("module app;\n");
+        let declaration = StaticSymbolId::from_symbol_id(SymbolId::new(37));
+
+        let error = compilation
+            .foreign_static_contract(declaration)
+            .expect_err("unknown static declaration must fail its foreign query");
+
+        let FactQueryError::Foreign(error) = error else {
+            panic!("missing static declaration must retain the foreign-query boundary")
+        };
+
+        assert_eq!(
+            error.cause(),
+            &ForeignQueryFailure::Missing {
+                context: ForeignQueryContext::Static(declaration),
+                data: ForeignDataKind::StaticBindingRecord,
+            }
+        );
+    }
 
     #[test]
     fn exported_static_symbol_name_is_checked_as_text() {

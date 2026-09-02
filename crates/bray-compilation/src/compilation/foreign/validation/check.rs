@@ -19,6 +19,9 @@ use super::super::super::Compilation;
 use super::super::diagnostic::{diagnostic_abi, source_diagnostic, template_diagnostic_type};
 use super::abi::{compiler_known_representation, target_abi_value};
 use super::temporal::{DATE_TIME_FIELDS, OBSERVATION_FIELDS, RESOLUTION_FIELDS, VALUE_FIELDS};
+use crate::compilation::{
+    ForeignDataKind, ForeignIntegerWidth, ForeignQueryContext, ForeignQueryFailure, ForeignTypeKind,
+};
 use crate::fact::{CancellationToken, FactQueryError};
 
 pub(in crate::compilation::foreign) struct CallableBoundarySurface {
@@ -31,12 +34,18 @@ pub(in crate::compilation::foreign) struct CallableBoundarySurface {
 }
 
 pub(in crate::compilation::foreign) fn callable_surface(
+    function: FunctionSymbolId,
     values: &SemanticValueStore,
     signature: &CallableSignatureTemplate,
 ) -> Result<CallableBoundarySurface, FactQueryError> {
     let parameters = signature
         .parameter_type_templates(values)
-        .map_err(FactQueryError::from)?;
+        .map_err(|cause| match cause {
+            bray_symbols::CallableSignatureTemplateError::SemanticValue(cause) => {
+                FactQueryError::SemanticValueStore(cause)
+            }
+            cause => ForeignQueryFailure::CallableSignature { function, cause }.into(),
+        })?;
 
     let (abi, trust, execution, variadic) = match signature.callable_type() {
         TypeExpressionTemplate::Callable(callable) => (
@@ -51,7 +60,14 @@ pub(in crate::compilation::foreign) fn callable_surface(
                 .map_err(FactQueryError::SemanticValueStore)?;
 
             let TypeData::Callable(callable) = data.as_ref() else {
-                return Err(FactQueryError::InfrastructureFailure);
+                // The failure outlives this semantic-store read and therefore retains the
+                // immutable semantic payload independently.
+                return Err(ForeignQueryFailure::UnexpectedSemanticType {
+                    ty: *ty,
+                    expected: ForeignTypeKind::Callable,
+                    actual: data.as_ref().clone(),
+                }
+                .into());
             };
 
             (
@@ -61,7 +77,16 @@ pub(in crate::compilation::foreign) fn callable_surface(
                 callable.is_variadic(),
             )
         }
-        _ => return Err(FactQueryError::InfrastructureFailure),
+        actual => {
+            // The failure outlives the borrowed signature query result and therefore retains the
+            // immutable template independently.
+            return Err(ForeignQueryFailure::UnexpectedTypeTemplate {
+                context: ForeignQueryContext::Function(function),
+                expected: ForeignTypeKind::Callable,
+                actual: actual.clone(),
+            }
+            .into());
+        }
     };
 
     Ok(CallableBoundarySurface {
@@ -122,9 +147,12 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
 
     let symbols = compilation.symbol_graph()?;
 
-    let record = symbols
-        .function(function)
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+    let record = symbols.function(function).ok_or_else(|| {
+        ForeignQueryFailure::missing(
+            ForeignQueryContext::Function(function),
+            ForeignDataKind::FunctionBindingRecord,
+        )
+    })?;
 
     if !record.generic_type_parameters().is_empty() || !record.generic_const_parameters().is_empty()
     {
@@ -166,9 +194,12 @@ pub(in crate::compilation::foreign) fn validate_callable_surface(
         )?;
     }
 
-    let source = compilation
-        .source(anchor.source_id())
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+    let source = compilation.source(anchor.source_id()).ok_or_else(|| {
+        ForeignQueryFailure::missing(
+            ForeignQueryContext::Source(anchor.source_id()),
+            ForeignDataKind::SourceSnapshot,
+        )
+    })?;
 
     let mut parameters = callable
         .parameters
@@ -228,14 +259,14 @@ pub(in crate::compilation::foreign) fn validate_platform_service_surface(
 ) -> Result<(), FactQueryError> {
     let expected = role.signature();
 
-    let role = bray_diagnostics::DiagnosticPlatformServiceRole::try_new(role.id())
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+    let diagnostic_role = bray_diagnostics::DiagnosticPlatformServiceRole::try_new(role.id())
+        .ok_or(ForeignQueryFailure::InvalidPlatformServiceRole { role })?;
 
     if callable.abi != CallableAbi::C {
         diagnostics.add(platform_service_signature_diagnostic(
             anchor,
             bray_diagnostics::DiagnosticPlatformServiceSignatureProblem::CallableAbi {
-                role,
+                role: diagnostic_role,
                 actual: diagnostic_callable_abi(callable.abi),
             },
         ));
@@ -245,23 +276,33 @@ pub(in crate::compilation::foreign) fn validate_platform_service_surface(
         diagnostics.add(platform_service_signature_diagnostic(
             anchor,
             bray_diagnostics::DiagnosticPlatformServiceSignatureProblem::Execution {
-                role,
+                role: diagnostic_role,
                 actual: diagnostic_callable_execution(callable.execution),
             },
         ));
     }
 
     if callable.parameters.len() != expected.parameters().len() {
-        let actual = u64::try_from(callable.parameters.len())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        let actual = u64::try_from(callable.parameters.len()).map_err(|_| {
+            ForeignQueryFailure::NumericOverflow {
+                context: ForeignQueryContext::PlatformService(role),
+                value: callable.parameters.len(),
+                target: ForeignIntegerWidth::U64,
+            }
+        })?;
 
-        let expected_count = u64::try_from(expected.parameters().len())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        let expected_count = u64::try_from(expected.parameters().len()).map_err(|_| {
+            ForeignQueryFailure::NumericOverflow {
+                context: ForeignQueryContext::PlatformService(role),
+                value: expected.parameters().len(),
+                target: ForeignIntegerWidth::U64,
+            }
+        })?;
 
         diagnostics.add(platform_service_signature_diagnostic(
             anchor,
             bray_diagnostics::DiagnosticPlatformServiceSignatureProblem::ParameterCount {
-                role,
+                role: diagnostic_role,
                 expected: expected_count,
                 actual,
             },
@@ -281,7 +322,7 @@ pub(in crate::compilation::foreign) fn validate_platform_service_surface(
         diagnostics.add(platform_service_signature_diagnostic(
             anchor,
             bray_diagnostics::DiagnosticPlatformServiceSignatureProblem::ParameterType {
-                role,
+                role: diagnostic_role,
                 ordinal,
                 expected: diagnostic_platform_abi_type(expected),
                 actual: template_diagnostic_type(compilation, actual, cancellation)?,
@@ -298,7 +339,7 @@ pub(in crate::compilation::foreign) fn validate_platform_service_surface(
         diagnostics.add(platform_service_signature_diagnostic(
             anchor,
             bray_diagnostics::DiagnosticPlatformServiceSignatureProblem::ResultType {
-                role,
+                role: diagnostic_role,
                 expected: diagnostic_platform_abi_type(expected.result()),
                 actual: template_diagnostic_type(compilation, &callable.result, cancellation)?,
             },
@@ -643,7 +684,12 @@ pub(in crate::compilation) fn c_struct_matches(
     let structure = binding_context
         .structure(*structure)
         .map_err(super::super::super::binder::binding_query_error)?
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .ok_or_else(|| {
+            ForeignQueryFailure::missing(
+                ForeignQueryContext::Symbol((*structure).into()),
+                ForeignDataKind::StructureRecord,
+            )
+        })?;
 
     if !structure.generic_type_parameters().is_empty()
         || !structure.generic_const_parameters().is_empty()
@@ -731,7 +777,12 @@ fn platform_status_matches(
     let structure = binding_context
         .structure(*structure)
         .map_err(super::super::super::binder::binding_query_error)?
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .ok_or_else(|| {
+            ForeignQueryFailure::missing(
+                ForeignQueryContext::Symbol((*structure).into()),
+                ForeignDataKind::StructureRecord,
+            )
+        })?;
 
     if !structure.generic_type_parameters().is_empty()
         || !structure.generic_const_parameters().is_empty()
@@ -959,7 +1010,15 @@ fn is_unit_template(
     let unit = compilation
         .available_compiler_known_symbols()
         .representation_symbol::<StructSymbolId>(RepresentationRole::Unit)
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .ok_or_else(|| {
+            ForeignQueryFailure::missing(
+                ForeignQueryContext::CompilerKnownRepresentation {
+                    role: RepresentationRole::Unit,
+                    ty: None,
+                },
+                ForeignDataKind::RepresentationSymbol,
+            )
+        })?;
 
     let data = compilation
         .semantic_value_store()?
@@ -1000,4 +1059,54 @@ const fn foreign_representation(role: RepresentationRole) -> bool {
             | RepresentationRole::ScalarC256
             | RepresentationRole::RawPointer
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::{
+        CallableSignatureTemplate, CallableSignatureTemplateError, TypeData, TypeExpressionTemplate,
+    };
+
+    use super::callable_surface;
+    use crate::compilation::ForeignQueryFailure;
+    use crate::fact::FactQueryError;
+    use crate::test_support::{compilation, source_function};
+
+    #[test]
+    fn source_callable_surface_failure_retains_function_and_signature_cause() {
+        let compilation = compilation("module app; func main() {}");
+        let function = source_function(&compilation, "main");
+
+        let values = compilation
+            .semantic_value_store()
+            .unwrap_or_else(|error| panic!("semantic values must resolve: {error:?}"));
+
+        let invalid = values
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("error type must intern: {error:?}"));
+
+        let signature = CallableSignatureTemplate::new(
+            TypeExpressionTemplate::Resolved(invalid),
+            None,
+            [],
+            TypeExpressionTemplate::Resolved(invalid),
+        );
+
+        let error = match callable_surface(function, values, &signature) {
+            Ok(_) => panic!("a non-callable signature must fail exactly"),
+            Err(error) => error,
+        };
+
+        let FactQueryError::Foreign(error) = error else {
+            panic!("callable surface must retain a foreign query failure: {error:?}");
+        };
+
+        assert_eq!(
+            error.cause(),
+            &ForeignQueryFailure::CallableSignature {
+                function,
+                cause: CallableSignatureTemplateError::InvalidCallableType,
+            }
+        );
+    }
 }

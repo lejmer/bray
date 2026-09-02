@@ -8,7 +8,8 @@ use super::{
     DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticArtifactDigest,
     DiagnosticArtifactDigestAlgorithm, DiagnosticIoErrorKind, DiagnosticLoweringFailure,
     DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
-    DiagnosticLoweringInputFailureKind, DiagnosticNameKind, DiagnosticNativeProductFailureKind,
+    DiagnosticLoweringInputFailureKind, DiagnosticNameKind, DiagnosticNativeLinkInputFailure,
+    DiagnosticNativeProductFailureKind,
 };
 
 #[test]
@@ -158,7 +159,11 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
         Kind::InvalidEntryResult,
         Kind::MissingRuntime,
         Kind::InvalidSymbolName,
-        Kind::InvalidNativeLinkInput,
+        Kind::InvalidNativeLinkInput(DiagnosticNativeLinkInputFailure::InvalidRequirement {
+            name: "native".to_owned(),
+            link_kind: "dynamic".to_owned(),
+            provenance: "test".to_owned(),
+        }),
         Kind::EvaluationCycle,
         Kind::EvaluationInfrastructure,
         Kind::EvaluationLoweringInput(DiagnosticLoweringInputFailure::new(

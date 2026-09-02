@@ -81,6 +81,9 @@ pub(super) fn diagnostic_evaluation_failure(
         FactQueryError::Product(error) => DiagnosticEmissionEvaluationFailure::Product(
             super::product_query::diagnostic_product_query_failure(error),
         ),
+        FactQueryError::Foreign(error) => DiagnosticEmissionEvaluationFailure::Foreign(
+            super::foreign_query::diagnostic_foreign_query_failure(error),
+        ),
         FactQueryError::CheckerInfrastructure(error) => match error {
             bray_checker::CheckerInfrastructureError::AtomicRepresentationTypeUnavailable => {
                 DiagnosticEmissionEvaluationFailure::AtomicRepresentationTypeUnavailable

@@ -1,6 +1,35 @@
 use super::super::source::format_english_quoted_text;
 use bray_diagnostics::{DiagnosticLinkOptimizationReportProblem, DiagnosticLinkRequirement};
 
+pub(super) fn format_english_native_link_input_failure(
+    failure: &bray_diagnostics::DiagnosticNativeLinkInputFailure,
+) -> String {
+    use bray_diagnostics::DiagnosticNativeLinkInputFailure as Failure;
+
+    match failure {
+        Failure::UnsupportedStandardLibraryArtifact {
+            path,
+            artifact_kind,
+        } => format!(
+            "standard-library artifact '{path}' has unsupported native link category '{artifact_kind}'"
+        ),
+        Failure::InvalidStandardLibraryArtifact {
+            path,
+            input_kind,
+            cause,
+        } => format!(
+            "standard-library artifact '{path}' could not form {input_kind} link input: {cause}"
+        ),
+        Failure::InvalidRequirement {
+            name,
+            link_kind,
+            provenance,
+        } => format!(
+            "native link requirement '{name}' of category '{link_kind}' from '{provenance}' is invalid"
+        ),
+    }
+}
+
 pub(crate) const fn format_english_link_optimization_report_problem(
     problem: DiagnosticLinkOptimizationReportProblem,
 ) -> &'static str {
