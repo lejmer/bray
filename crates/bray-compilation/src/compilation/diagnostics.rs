@@ -233,6 +233,9 @@ impl Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("semantic diagnostic infrastructure failed")
             }
+            Err(FactQueryError::Runtime(error)) => {
+                panic!("semantic diagnostic fact runtime failed: {error:?}")
+            }
             Err(
                 error @ (FactQueryError::SemanticValueStoreCreate(_)
                 | FactQueryError::SemanticValueStore(_)),
@@ -294,6 +297,9 @@ impl Compilation {
             }
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("check diagnostic infrastructure failed")
+            }
+            Err(FactQueryError::Runtime(error)) => {
+                panic!("check diagnostic fact runtime failed: {error:?}")
             }
             Err(
                 error @ (FactQueryError::SemanticValueStoreCreate(_)

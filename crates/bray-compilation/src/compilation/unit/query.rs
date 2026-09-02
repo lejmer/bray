@@ -518,9 +518,12 @@ impl Compilation {
         FactQueryError,
     > {
         let mut iterations = Vec::new();
+        let mut cancellation_failure = None;
 
         let outcome = walk_bound_unit_view(bound.view(), bound.root(), |event| {
-            if cancellation.is_cancelled() {
+            if let Err(error) = cancellation.check() {
+                cancellation_failure = Some(error);
+
                 return BoundWalkControl::Stop;
             }
 
@@ -547,8 +550,8 @@ impl Compilation {
             BoundWalkControl::Continue
         });
 
-        if cancellation.is_cancelled() {
-            return Err(FactQueryError::Cancelled);
+        if let Some(error) = cancellation_failure {
+            return Err(error);
         }
 
         if outcome != BoundWalkOutcome::Completed {

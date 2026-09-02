@@ -203,7 +203,24 @@ fn package_interface_export_failure_diagnostic(
     target: &TargetIdentity,
 ) -> Option<Diagnostic> {
     let diagnostic = match error {
-        PackageInterfaceExportError::Cancelled => return None,
+        PackageInterfaceExportError::Cancelled
+        | PackageInterfaceExportError::Query(FactQueryError::Cancelled)
+        | PackageInterfaceExportError::ConstantCallableEvaluation {
+            cause: FactQueryError::Cancelled,
+            ..
+        }
+        | PackageInterfaceExportError::ExecutableTemplateEvaluation {
+            cause: FactQueryError::Cancelled,
+            ..
+        }
+        | PackageInterfaceExportError::FragmentCoordination(FactQueryError::Cancelled) => {
+            return None;
+        }
+        PackageInterfaceExportError::Query(error) => emission_failure_diagnostic(
+            DiagnosticEmissionFailure::Evaluation(diagnostic_evaluation_failure(error)),
+            product,
+            target,
+        ),
         PackageInterfaceExportError::InvalidCompilation => package_failure_diagnostic(
             DiagnosticPackageInterfaceFailure::InvalidCompilation,
             product,
@@ -799,7 +816,7 @@ mod tests {
     };
     use crate::LocatedLoweringFailure;
     use crate::compilation::PackageInterfaceExportError;
-    use crate::fact::FactQueryError;
+    use crate::fact::{FactQueryError, FactRuntimeFailure};
 
     fn identities() -> (ProductIdentity, TargetIdentity) {
         let package = PackageIdentity::try_new("example.package")
@@ -818,13 +835,42 @@ mod tests {
     fn cancellation_does_not_produce_a_user_diagnostic() {
         let (product, target) = identities();
 
+        let declaration = DiagnosticInterfaceSymbolIdentity::Package("example.package".to_owned());
+
+        let errors = [
+            PackageInterfaceExportError::Cancelled,
+            PackageInterfaceExportError::Query(FactQueryError::Cancelled),
+            PackageInterfaceExportError::ConstantCallableEvaluation {
+                declaration: declaration.clone(),
+                cause: FactQueryError::Cancelled,
+            },
+            PackageInterfaceExportError::ExecutableTemplateEvaluation {
+                declaration,
+                cause: FactQueryError::Cancelled,
+            },
+            PackageInterfaceExportError::FragmentCoordination(FactQueryError::Cancelled),
+        ];
+
+        for error in errors {
+            assert!(
+                package_interface_export_failure_diagnostic(&error, &product, &target).is_none()
+            );
+        }
+    }
+
+    #[test]
+    fn package_interface_query_coordination_uses_the_evaluation_diagnostic_boundary() {
+        let (product, target) = identities();
+
+        let error = PackageInterfaceExportError::Query(FactQueryError::from(
+            FactRuntimeFailure::WorkerTerminated {
+                worker: Some(1),
+                item: None,
+            },
+        ));
+
         assert!(
-            package_interface_export_failure_diagnostic(
-                &PackageInterfaceExportError::Cancelled,
-                &product,
-                &target,
-            )
-            .is_none()
+            package_interface_export_failure_diagnostic(&error, &product, &target).is_some()
         );
     }
 

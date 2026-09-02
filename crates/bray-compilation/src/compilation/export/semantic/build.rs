@@ -172,12 +172,12 @@ fn constant_callable_bodies(
                 &arguments,
                 &compilation.state.cancellation,
             )
-            .map_err(
-                |cause| PackageInterfaceExportError::ConstantCallableEvaluation {
-                    declaration: declaration.clone(),
+            .map_err(|cause| {
+                super::super::constant_callable_evaluation_export_error(
+                    declaration.clone(),
                     cause,
-                },
-            )?;
+                )
+            })?;
 
         if evaluated.diagnostics().has_errors() {
             continue;
@@ -319,7 +319,7 @@ fn fragment_batch_error(
             PackageInterfaceExportError::Cancelled
         }
         BatchCompletionError::Scheduler(error) => {
-            PackageInterfaceExportError::FragmentCoordination(error)
+            super::super::fragment_coordination_export_error(error)
         }
     }
 }
@@ -505,21 +505,23 @@ fn export_executable_template_family(
                     )
                 })
                 .transpose()
-                .map_err(|cause| PackageInterfaceExportError::ExecutableTemplateEvaluation {
-                    declaration: declaration.clone(),
-                    cause,
+                .map_err(|cause| {
+                    super::super::executable_template_evaluation_export_error(
+                        declaration.clone(),
+                        cause,
+                    )
                 })?
                 .flatten()
         } else {
             None
         };
 
-        let lowered = compilation
-            .lowered_unit(key)
-            .map_err(|cause| PackageInterfaceExportError::ExecutableTemplateEvaluation {
-                declaration: declaration.clone(),
+        let lowered = compilation.lowered_unit(key).map_err(|cause| {
+            super::super::executable_template_evaluation_export_error(
+                declaration.clone(),
                 cause,
-            })?;
+            )
+        })?;
 
         if lowered.diagnostics().has_errors() {
             return Err(PackageInterfaceExportError::InvalidCompilation);
@@ -585,9 +587,8 @@ fn executable_template_family(
 ) -> Result<Vec<BoundUnitKey>, PackageInterfaceExportError> {
     compilation
         .bound_unit_family_with_cancellation(root, &compilation.state.cancellation)
-        .map_err(|cause| PackageInterfaceExportError::ExecutableTemplateEvaluation {
-            declaration: declaration.clone(),
-            cause,
+        .map_err(|cause| {
+            super::super::executable_template_evaluation_export_error(declaration.clone(), cause)
         })?
         .into_iter()
         .map(|bound| {
@@ -610,18 +611,22 @@ fn executable_template_unit(
     if let AnySymbolId::Static(static_declaration) = owner {
         return compilation
             .static_initializer_key(static_declaration)
-            .map_err(|cause| PackageInterfaceExportError::ExecutableTemplateEvaluation {
-                declaration: declaration.clone(),
-                cause,
+            .map_err(|cause| {
+                super::super::executable_template_evaluation_export_error(
+                    declaration.clone(),
+                    cause,
+                )
             });
     }
 
     if let Some(definition) = bray_symbols::CallableDefinitionId::try_new(owner) {
         return compilation
             .callable_body_key(definition)
-            .map_err(|cause| PackageInterfaceExportError::ExecutableTemplateEvaluation {
-                declaration: declaration.clone(),
-                cause,
+            .map_err(|cause| {
+                super::super::executable_template_evaluation_export_error(
+                    declaration.clone(),
+                    cause,
+                )
             });
     }
 
@@ -635,9 +640,8 @@ fn executable_template_unit(
 
     compilation
         .declared_unit_keys()
-        .map_err(|cause| PackageInterfaceExportError::ExecutableTemplateEvaluation {
-            declaration: declaration.clone(),
-            cause,
+        .map_err(|cause| {
+            super::super::executable_template_evaluation_export_error(declaration.clone(), cause)
         })
         .map(|units| {
             units.into_iter().find(|unit| {

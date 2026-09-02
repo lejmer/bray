@@ -29,7 +29,7 @@ pub(super) fn diagnostic_evaluation_failure(
     match error {
         FactQueryError::Cancelled => unreachable!("cancelled queries do not produce diagnostics"),
         FactQueryError::Cycle(_) => DiagnosticEmissionEvaluationFailure::Cycle,
-        FactQueryError::InfrastructureFailure => {
+        FactQueryError::InfrastructureFailure | FactQueryError::Runtime(_) => {
             DiagnosticEmissionEvaluationFailure::Infrastructure
         }
         FactQueryError::SemanticValueStoreCreate(_) => {

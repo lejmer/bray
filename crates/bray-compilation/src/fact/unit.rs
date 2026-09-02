@@ -7,7 +7,8 @@ use bray_bound_tree::BoundUnitKey;
 use bray_diagnostics::DiagnosticResult;
 
 use super::{
-    CancellationToken, CompilationFactKey, FactCellMap, FactQueryError, FactRuntime, QueryPriority,
+    CancellationToken, CompilationFactKey, FactCellMap, FactQueryError, FactRuntime,
+    FactRuntimeFailure, QueryPriority,
 };
 
 #[cfg(test)]
@@ -104,7 +105,11 @@ where
         + Send,
     ) -> Result<Arc<PublishedUnitResult<T>>, FactQueryError> {
         if semantic_key.bound_unit_key() != Some(&unit_key) {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(FactRuntimeFailure::InvalidUnitQueryKey {
+                fact: semantic_key,
+                unit: unit_key,
+            }
+            .into());
         }
 
         let profile = runtime.profile().map(|profile| {
@@ -179,7 +184,9 @@ mod tests {
     use bray_diagnostics::DiagnosticResult;
 
     use super::UnitQueryCache;
-    use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, FactRuntime};
+    use crate::fact::{
+        CancellationToken, CompilationFactKey, FactQueryError, FactRuntime, FactRuntimeFailure,
+    };
     use crate::test_support::callable_body_key;
 
     #[test]
@@ -239,6 +246,34 @@ mod tests {
         );
 
         assert!(retried.is_ok());
+    }
+
+    #[test]
+    fn unit_queries_retain_both_mismatched_identities() {
+        let runtime = FactRuntime::default();
+        let cancellation = CancellationToken::new();
+        let cache = UnitQueryCache::new();
+        let unit = callable_body_key(2);
+
+        let result = cache.get_or_compute(
+            &runtime,
+            &cancellation,
+            CompilationFactKey::SyntaxTree,
+            unit.clone(),
+            || computation(5),
+        );
+
+        assert!(matches!(
+            result,
+            Err(FactQueryError::Runtime(error))
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::InvalidUnitQueryKey {
+                        fact: CompilationFactKey::SyntaxTree,
+                        unit: actual,
+                    } if actual == &unit
+                )
+        ));
     }
 
     fn published(

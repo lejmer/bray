@@ -19,7 +19,8 @@ use super::task::{
 };
 use super::{
     CompilationFactKey, CompilationInputKey, CompilationInputs, FactCycle, FactDependencyRecord,
-    FactQueryError, QueryPriority, QueryPriorityDemand, fact_fingerprint,
+    CapacityResource, FactQueryError, FactRuntimeFailure, PublicationIdentity, PublicationState,
+    QueryPriority, QueryPriorityDemand, SynchronizationComponent, fact_fingerprint,
 };
 
 #[derive(Debug)]
@@ -150,9 +151,9 @@ impl FactRuntime {
         &self,
         key: &CompilationFactKey,
     ) -> Result<(), FactQueryError> {
-        let bit = key
-            .frozen_bit()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let Some(bit) = key.frozen_bit() else {
+            return Err(FactRuntimeFailure::InvalidFrozenFact { fact: key.clone() }.into());
+        };
 
         record_frozen_fact(self.identity(), bit)
     }
@@ -241,7 +242,9 @@ impl FactRuntime {
         record_completed_request(self.identity(), key)
     }
 
-    pub(crate) fn current_task_context(&self) -> Result<FactTaskContext, FactQueryError> {
+    pub(crate) fn current_task_context(
+        &self,
+    ) -> Result<Option<FactTaskContext>, FactQueryError> {
         current_context(self.identity())
     }
 
@@ -256,7 +259,11 @@ impl FactRuntime {
                 current.checked_add(1)
             })
             .map(FactTaskIdentity)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(|_| FactRuntimeFailure::CapacityExhausted {
+                resource: CapacityResource::TaskIdentity,
+                fact: Some(key.clone()),
+                task: None,
+            })?;
 
         Ok(FactTaskContext::with_cycle_key(
             self.identity(),
@@ -274,14 +281,25 @@ impl FactRuntime {
         let key = context.key().clone();
         let task = context.identity();
 
-        let mut state = self.state()?;
+        let mut state = self.state_for(Some(&key), Some(task))?;
 
-        // The owner record and evaluation guard retain independent keys after this lock is released.
         match state.owners.entry(key.clone()) {
             Entry::Vacant(entry) => {
                 entry.insert(task);
             }
-            Entry::Occupied(_) => return Err(FactQueryError::InfrastructureFailure),
+            Entry::Occupied(entry) => {
+                return Err(FactRuntimeFailure::PublicationMismatch {
+                    requested: PublicationIdentity {
+                        task: Some(task),
+                        fact: key.clone(),
+                    },
+                    actual: PublicationState::Computing {
+                        task: *entry.get(),
+                        fact: key,
+                    },
+                }
+                .into());
+            }
         }
 
         let evaluation = EvaluationGuard {
@@ -341,8 +359,9 @@ impl FactRuntime {
         key: &CompilationFactKey,
         observed_owner: FactTaskIdentity,
     ) -> Result<Option<WaitingGuard<'_>>, FactQueryError> {
-        let requester = self.current_task_context().ok();
-        let mut state = self.state()?;
+        let requester = self.current_task_context()?;
+        let requester_identity = requester.as_ref().map(FactTaskContext::identity);
+        let mut state = self.state_for(Some(key), requester_identity)?;
 
         let Some(owner) = state.owners.get(key).copied() else {
             return Ok(None);
@@ -374,9 +393,12 @@ impl FactRuntime {
 
         *count = count
             .checked_add(1)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| FactRuntimeFailure::CapacityExhausted {
+                resource: CapacityResource::SchedulerWaitRegistrations,
+                fact: Some(key.clone()),
+                task: Some(requester_identity),
+            })?;
 
-        // Cycle reporting owns its root key after the runtime lock is released.
         let cycle = cross_task_cycle(
             &state,
             requester_identity,
@@ -407,10 +429,21 @@ impl FactRuntime {
         }))
     }
 
-    fn state(&self) -> Result<MutexGuard<'_, RuntimeState>, FactQueryError> {
+    fn state_for(
+        &self,
+        fact: Option<&CompilationFactKey>,
+        task: Option<FactTaskIdentity>,
+    ) -> Result<MutexGuard<'_, RuntimeState>, FactQueryError> {
         self.state
             .lock()
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+            .map_err(|_| {
+                FactRuntimeFailure::SynchronizationPoisoned {
+                    component: SynchronizationComponent::RuntimeDependencies,
+                    fact: fact.cloned(),
+                    task,
+                }
+                .into()
+            })
     }
 
     fn identity(&self) -> RuntimeIdentity {
@@ -426,10 +459,26 @@ impl FactRuntime {
     where
         T: Hash + ?Sized,
     {
-        let state = self.state()?;
+        let state = self.state_for(Some(key), Some(context.identity()))?;
 
         if state.owners.get(key).copied() != Some(context.identity()) {
-            return Err(FactQueryError::InfrastructureFailure);
+            let actual = state
+                .owners
+                .get(key)
+                .copied()
+                .map_or(PublicationState::Vacant, |task| PublicationState::Computing {
+                    task,
+                    fact: key.clone(),
+                });
+
+            return Err(FactRuntimeFailure::PublicationMismatch {
+                requested: PublicationIdentity {
+                    task: Some(context.identity()),
+                    fact: key.clone(),
+                },
+                actual,
+            }
+            .into());
         }
 
         let dependencies = context.finish()?;
@@ -441,10 +490,14 @@ impl FactRuntime {
                 continue;
             }
 
-            let fingerprint = self
-                .inputs
-                .get(input)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let Some(fingerprint) = self.inputs.get(input) else {
+                return Err(FactRuntimeFailure::MissingInputFingerprint {
+                    input: input.clone(),
+                    task: context.identity(),
+                    fact: key.clone(),
+                }
+                .into());
+            };
 
             input_dependencies.insert(input.clone(), fingerprint);
         }
@@ -465,7 +518,13 @@ impl FactRuntime {
                     .get(dependency)
                     .map(FactDependencyRecord::fingerprint)
                     .map(|fingerprint| (dependency.clone(), fingerprint))
-                    .ok_or(FactQueryError::InfrastructureFailure)
+                    .ok_or_else(|| {
+                        FactQueryError::from(FactRuntimeFailure::MissingDependencyRecord {
+                            task: context.identity(),
+                            fact: key.clone(),
+                            dependency: dependency.clone(),
+                        })
+                    })
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
 
@@ -482,6 +541,7 @@ impl FactRuntime {
     }
 
     fn abandon_evaluation(&self, context: &FactTaskContext, key: &CompilationFactKey) {
+        // Guard cleanup is best effort because Drop cannot return a poisoned runtime error.
         let Ok(mut state) = self.state.lock() else {
             return;
         };
@@ -490,6 +550,7 @@ impl FactRuntime {
     }
 
     fn finish_waiting(&self, task: FactTaskIdentity, edge: &WaitEdge) {
+        // Wait-guard cleanup is best effort because Drop cannot return a poisoned runtime error.
         let Ok(mut state) = self.state.lock() else {
             return;
         };
@@ -502,7 +563,7 @@ impl FactRuntime {
         &self,
         key: &CompilationFactKey,
     ) -> Result<Option<Box<[CompilationFactKey]>>, FactQueryError> {
-        let state = self.state()?;
+        let state = self.state_for(Some(key), None)?;
 
         Ok(state
             .records
@@ -515,7 +576,7 @@ impl FactRuntime {
         &self,
         key: &CompilationFactKey,
     ) -> Result<Option<Box<[CompilationInputKey]>>, FactQueryError> {
-        let state = self.state()?;
+        let state = self.state_for(Some(key), None)?;
 
         Ok(state
             .records
@@ -673,7 +734,13 @@ fn cross_task_cycle(
 
                 while cursor != owner {
                     let Some((previous, edge)) = predecessors.get(&cursor) else {
-                        return Err(FactQueryError::InfrastructureFailure);
+                        return Err(FactRuntimeFailure::InvalidWaitGraph {
+                            requester,
+                            owner,
+                            missing_predecessor: cursor,
+                            requested: requested_key.clone(),
+                        }
+                        .into());
                     };
 
                     path.push(edge.clone());
@@ -816,6 +883,7 @@ impl Drop for WaitingGuard<'_> {
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
+    use std::panic::{AssertUnwindSafe, catch_unwind};
     use std::sync::{Arc, Mutex};
 
     use bray_declarations::ModulePartId;
@@ -825,7 +893,8 @@ mod tests {
     use crate::WorkerBudget;
     use crate::fact::{
         CancellationToken, CompilationFactKey, CompilationInputKey, CompilationInputs, FactCell,
-        FactDependencyRecord, fact_fingerprint,
+        FactDependencyRecord, FactQueryError, FactRuntimeFailure, SynchronizationComponent,
+        fact_fingerprint,
     };
 
     #[test]
@@ -922,7 +991,7 @@ mod tests {
         runtime.set_inputs(inputs);
 
         runtime
-            .state()
+            .state_for(None, None)
             .unwrap_or_else(|error| panic!("runtime state must be available: {error:?}"))
             .records
             .insert(
@@ -960,7 +1029,7 @@ mod tests {
 
         {
             let mut state = runtime
-                .state()
+                .state_for(None, None)
                 .unwrap_or_else(|error| panic!("runtime state must be available: {error:?}"));
 
             let deep_input = previous_inputs
@@ -1049,6 +1118,98 @@ mod tests {
         assert!(!reusable.contains(&wide_root));
         assert!(!reusable.contains(&source_syntax_key(DEPTH - 1)));
         assert!(!reusable.contains(&declaration_chunk_key(WIDTH - 1)));
+    }
+
+    #[test]
+    fn non_frozen_facts_retain_the_rejected_fact_identity() {
+        let runtime = FactRuntime::default();
+
+        let error = match runtime.record_frozen_fact(&CompilationFactKey::DeclarationTable) {
+            Ok(()) => panic!("a non-frozen fact must not be recorded as frozen"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            FactQueryError::Runtime(error)
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::InvalidFrozenFact {
+                        fact: CompilationFactKey::DeclarationTable,
+                    }
+                )
+        ));
+    }
+
+    #[test]
+    fn poisoned_dependency_state_reports_the_runtime_component() {
+        let runtime = FactRuntime::default();
+
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let _state = runtime
+                .state
+                .lock()
+                .unwrap_or_else(|_| panic!("test runtime state should begin available"));
+
+            panic!("poison runtime dependency state");
+        }));
+
+        let error = match runtime.dependencies(&CompilationFactKey::SyntaxTree) {
+            Ok(_) => panic!("dependency lookup must report poisoned runtime state"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            FactQueryError::Runtime(error)
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::SynchronizationPoisoned {
+                        component: SynchronizationComponent::RuntimeDependencies,
+                        fact: Some(CompilationFactKey::SyntaxTree),
+                        task: None,
+                    }
+                )
+        ));
+    }
+
+    #[test]
+    fn poisoned_evaluation_state_retains_fact_and_task_identity() {
+        let runtime = FactRuntime::default();
+        let fact = CompilationFactKey::CheckDiagnostics;
+
+        let context = runtime
+            .task_with_cycle_key(fact.clone(), fact.clone())
+            .unwrap_or_else(|error| panic!("test task must be available: {error:?}"));
+
+        let task = context.identity();
+
+        let _ = catch_unwind(AssertUnwindSafe(|| {
+            let _state = runtime
+                .state
+                .lock()
+                .unwrap_or_else(|_| panic!("test runtime state should begin available"));
+
+            panic!("poison runtime evaluation state");
+        }));
+
+        let error = match runtime.begin(context) {
+            Ok(_) => panic!("evaluation must report poisoned runtime state"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            FactQueryError::Runtime(error)
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::SynchronizationPoisoned {
+                        component: SynchronizationComponent::RuntimeDependencies,
+                        fact: Some(actual_fact),
+                        task: Some(actual_task),
+                    } if actual_fact == &fact && *actual_task == task
+                )
+        ));
     }
 
     fn source_syntax_key(index: u32) -> CompilationFactKey {

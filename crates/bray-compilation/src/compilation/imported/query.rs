@@ -166,6 +166,9 @@ impl super::super::Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("dependency-interface query infrastructure failed")
             }
+            Err(FactQueryError::Runtime(error)) => {
+                panic!("dependency-interface fact runtime failed: {error:?}")
+            }
             Err(
                 error @ (FactQueryError::SemanticValueStoreCreate(_)
                 | FactQueryError::SemanticValueStore(_)),

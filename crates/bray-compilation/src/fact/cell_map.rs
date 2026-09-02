@@ -1,7 +1,10 @@
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
 
-use super::{CompilationFactKey, FactCell, FactQueryError};
+use super::{
+    CapacityResource, CompilationFactKey, FactCell, FactQueryError, FactRuntimeFailure,
+    SynchronizationComponent,
+};
 
 const MAX_RETAINED_FACTS_PER_KIND: usize = 4_096;
 
@@ -47,14 +50,22 @@ where
         let mut state = self
             .state
             .lock()
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
+                component: SynchronizationComponent::CellMap,
+                fact: None,
+                task: None,
+            })?;
 
         let access = state.next_access;
 
         state.next_access = state
             .next_access
             .checked_add(1)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or(FactRuntimeFailure::CapacityExhausted {
+                resource: CapacityResource::CellMapAccessIdentity,
+                fact: None,
+                task: None,
+            })?;
 
         if let Some(entry) = state.cells.get_mut(&key) {
             entry.last_access = access;
@@ -93,6 +104,8 @@ where
     where
         K: Clone,
     {
+        // Snapshot reuse has no fallible boundary. Poison here is a violated compiler invariant,
+        // while ordinary query access reports the exact synchronization component.
         let state = self
             .state
             .lock()
@@ -211,7 +224,10 @@ fn reclaim_entries<K, V>(
 #[cfg(test)]
 mod tests {
     use super::FactCellMap;
-    use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, FactRuntime};
+    use crate::fact::{
+        CancellationToken, CapacityResource, CompilationFactKey, FactQueryError, FactRuntime,
+        FactRuntimeFailure,
+    };
 
     #[test]
     fn completed_entries_are_reclaimed_by_recent_use() {
@@ -283,6 +299,35 @@ mod tests {
         }
 
         assert_eq!(cache.keys().len(), 2);
+    }
+
+    #[test]
+    fn exhausted_access_identity_reports_the_bounded_resource() {
+        let cache = FactCellMap::<u32, u32>::with_retention_limit(2);
+
+        cache
+            .state
+            .lock()
+            .unwrap_or_else(|_| panic!("test cell map should begin available"))
+            .next_access = u64::MAX;
+
+        let error = match cache.cell(1) {
+            Ok(_) => panic!("an exhausted access identity must reject another cell access"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            FactQueryError::Runtime(error)
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::CapacityExhausted {
+                        resource: CapacityResource::CellMapAccessIdentity,
+                        fact: None,
+                        task: None,
+                    }
+                )
+        ));
     }
 
     fn publish(

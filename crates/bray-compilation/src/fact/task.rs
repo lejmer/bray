@@ -3,7 +3,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
-use super::{CompilationFactKey, CompilationInputKey, FactCycle, FactFingerprint, FactQueryError};
+use super::{
+    CompilationFactKey, CompilationInputKey, FactCycle, FactFingerprint, FactQueryError,
+    FactRuntimeFailure, FactTaskPhase, LocalStateFailure, TaskContextIdentity, TaskLocalOperation,
+    TaskOperation,
+};
 
 thread_local! {
     static LOCAL_EVALUATIONS: RefCell<Vec<FactTaskContext>> = const { RefCell::new(Vec::new()) };
@@ -27,7 +31,7 @@ struct FactTaskData {
 
 #[derive(Debug)]
 struct FactTaskState {
-    accepting_dependencies: bool,
+    phase: FactTaskPhase,
     dependencies: BTreeSet<CompilationFactKey>,
     inputs: BTreeMap<CompilationInputKey, FactFingerprint>,
 }
@@ -55,7 +59,7 @@ impl FactTaskContext {
                 fixed_inputs: AtomicU32::new(0),
                 frozen_facts: AtomicU8::new(0),
                 state: Mutex::new(FactTaskState {
-                    accepting_dependencies: true,
+                    phase: FactTaskPhase::Recording,
                     dependencies: BTreeSet::new(),
                     inputs: BTreeMap::new(),
                 }),
@@ -74,11 +78,11 @@ impl FactTaskContext {
     pub(crate) fn finish(&self) -> Result<RecordedDependencies, FactQueryError> {
         let mut state = self.state()?;
 
-        if !state.accepting_dependencies {
-            return Err(FactQueryError::InfrastructureFailure);
+        if state.phase != FactTaskPhase::Recording {
+            return Err(self.invalid_state(TaskOperation::Finish, state.phase));
         }
 
-        state.accepting_dependencies = false;
+        state.phase = FactTaskPhase::Finished;
 
         Ok(RecordedDependencies {
             facts: std::mem::take(&mut state.dependencies),
@@ -89,11 +93,13 @@ impl FactTaskContext {
     }
 
     pub(crate) fn discard(&self) {
+        // Cleanup cannot report failure from Drop paths. A poisoned task is already unavailable
+        // to every fallible operation through `state`.
         let Ok(mut state) = self.data.state.lock() else {
             return;
         };
 
-        state.accepting_dependencies = false;
+        state.phase = FactTaskPhase::Discarded;
         state.dependencies.clear();
         state.inputs.clear();
     }
@@ -102,7 +108,7 @@ impl FactTaskContext {
         &self,
         operation: impl FnOnce() -> Result<T, FactQueryError>,
     ) -> Result<T, FactQueryError> {
-        local_evaluations(|active| {
+        local_evaluations(TaskLocalOperation::Enter, |active| {
             // Worker-local stacks share the task state while retaining independent stack storage.
             active.push(self.clone());
 
@@ -117,8 +123,8 @@ impl FactTaskContext {
     fn record(&self, key: &CompilationFactKey) -> Result<(), FactQueryError> {
         let mut state = self.state()?;
 
-        if !state.accepting_dependencies {
-            return Err(FactQueryError::InfrastructureFailure);
+        if state.phase != FactTaskPhase::Recording {
+            return Err(self.invalid_state(TaskOperation::RecordFact, state.phase));
         }
 
         // The dependency graph must own its keys after the accessor returns.
@@ -134,33 +140,88 @@ impl FactTaskContext {
     ) -> Result<(), FactQueryError> {
         let mut state = self.state()?;
 
-        if !state.accepting_dependencies {
-            return Err(FactQueryError::InfrastructureFailure);
+        if state.phase != FactTaskPhase::Recording {
+            return Err(self.invalid_state(TaskOperation::RecordInput, state.phase));
         }
 
         match state.inputs.insert(key.clone(), fingerprint) {
-            Some(previous) if previous != fingerprint => Err(FactQueryError::InfrastructureFailure),
+            Some(previous) if previous != fingerprint => {
+                // The task error owns stable input and fact identities after releasing its lock.
+                Err(FactRuntimeFailure::InputFingerprintMismatch {
+                    input: key.clone(),
+                    expected: previous,
+                    actual: fingerprint,
+                    task: self.identity(),
+                    fact: self.key().clone(),
+                }
+                .into())
+            }
             _ => Ok(()),
         }
     }
 
-    fn record_fixed_input(&self, bit: u32) {
+    fn record_fixed_input(&self, bit: u32) -> Result<(), FactQueryError> {
+        let state = self.state()?;
+
+        if state.phase != FactTaskPhase::Recording {
+            return Err(self.invalid_state(TaskOperation::RecordFixedInput, state.phase));
+        }
+
         self.data.fixed_inputs.fetch_or(bit, Ordering::AcqRel);
+
+        Ok(())
     }
 
-    fn record_frozen_fact(&self, bit: u8) {
+    fn record_frozen_fact(&self, bit: u8) -> Result<(), FactQueryError> {
+        let state = self.state()?;
+
+        if state.phase != FactTaskPhase::Recording {
+            return Err(self.invalid_state(TaskOperation::RecordFrozenFact, state.phase));
+        }
+
         self.data.frozen_facts.fetch_or(bit, Ordering::AcqRel);
+
+        Ok(())
     }
 
     fn state(&self) -> Result<std::sync::MutexGuard<'_, FactTaskState>, FactQueryError> {
         self.data
             .state
             .lock()
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+            .map_err(|_| {
+                FactRuntimeFailure::SynchronizationPoisoned {
+                    component: super::SynchronizationComponent::TaskDependencies,
+                    fact: Some(self.key().clone()),
+                    task: Some(self.identity()),
+                }
+                .into()
+            })
+    }
+
+    fn invalid_state(&self, operation: TaskOperation, actual: FactTaskPhase) -> FactQueryError {
+        // The failure outlives the task-state lock and therefore owns the stable fact key.
+        FactRuntimeFailure::InvalidTaskState {
+            operation,
+            expected: FactTaskPhase::Recording,
+            actual,
+            task: self.identity(),
+            fact: self.key().clone(),
+        }
+        .into()
+    }
+
+    fn missing_input_fingerprint(&self, key: &CompilationInputKey) -> FactQueryError {
+        // The failure can cross worker and query boundaries after this task-local borrow ends.
+        FactRuntimeFailure::MissingInputFingerprint {
+            input: key.clone(),
+            task: self.identity(),
+            fact: self.key().clone(),
+        }
+        .into()
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) struct RuntimeIdentity(pub(crate) usize);
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -170,7 +231,7 @@ pub(crate) fn check_request_cycle(
     runtime: RuntimeIdentity,
     cycle_key: &CompilationFactKey,
 ) -> Result<(), FactQueryError> {
-    local_evaluations(|active| {
+    local_evaluations(TaskLocalOperation::Cycle, |active| {
         let Some(context) = active.last() else {
             return Ok(());
         };
@@ -191,7 +252,7 @@ pub(crate) fn record_completed_request(
     runtime: RuntimeIdentity,
     key: &CompilationFactKey,
 ) -> Result<(), FactQueryError> {
-    local_evaluations(|active| {
+    local_evaluations(TaskLocalOperation::Current, |active| {
         let Some(context) = active.last() else {
             return Ok(());
         };
@@ -209,7 +270,7 @@ pub(crate) fn record_input(
     key: &CompilationInputKey,
     fingerprint: Option<FactFingerprint>,
 ) -> Result<(), FactQueryError> {
-    local_evaluations(|active| {
+    local_evaluations(TaskLocalOperation::Current, |active| {
         let Some(context) = active.last() else {
             return Ok(());
         };
@@ -219,50 +280,59 @@ pub(crate) fn record_input(
         }
 
         if let Some(bit) = key.fixed_bit() {
-            context.record_fixed_input(bit);
-
-            return Ok(());
+            return context.record_fixed_input(bit);
         }
 
-        context.record_input(
-            key,
-            fingerprint.ok_or(FactQueryError::InfrastructureFailure)?,
-        )
+        let Some(fingerprint) = fingerprint else {
+            return Err(context.missing_input_fingerprint(key));
+        };
+
+        context.record_input(key, fingerprint)
     })
 }
 
 pub(crate) fn record_frozen_fact(runtime: RuntimeIdentity, bit: u8) -> Result<(), FactQueryError> {
-    local_evaluations(|active| {
+    local_evaluations(TaskLocalOperation::Current, |active| {
         let Some(context) = active.last() else {
             return Ok(());
         };
 
         if context.data.runtime == runtime {
-            context.record_frozen_fact(bit);
+            context.record_frozen_fact(bit)?;
         }
 
         Ok(())
     })
 }
 
-pub(crate) fn current_context(runtime: RuntimeIdentity) -> Result<FactTaskContext, FactQueryError> {
-    local_evaluations(|active| {
+pub(crate) fn current_context(
+    runtime: RuntimeIdentity,
+) -> Result<Option<FactTaskContext>, FactQueryError> {
+    local_evaluations(TaskLocalOperation::Current, |active| {
         let Some(context) = active.last() else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Ok(None);
         };
 
         if context.data.runtime != runtime {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(FactRuntimeFailure::InvalidTaskContext {
+                expected_runtime: runtime,
+                actual: TaskContextIdentity {
+                    runtime: context.data.runtime,
+                    task: context.identity(),
+                    fact: context.key().clone(),
+                },
+            }
+            .into());
         }
 
         // Scoped workers share dependency state without sharing their local context stacks.
-        Ok(context.clone())
+        Ok(Some(context.clone()))
     })
 }
 
 pub(crate) fn capture_evaluations() -> Result<Vec<FactTaskContext>, FactQueryError> {
     // Scheduled jobs need independent stack storage while sharing each task's Arc-backed state.
-    local_evaluations(|active| Ok(active.clone()))
+    local_evaluations(TaskLocalOperation::Capture, |active| Ok(active.clone()))
 }
 
 pub(crate) fn run_with_evaluations<T>(
@@ -270,7 +340,9 @@ pub(crate) fn run_with_evaluations<T>(
     operation: impl FnOnce() -> Result<T, FactQueryError>,
 ) -> Result<T, FactQueryError> {
     // Each worker owns its local stack while retaining the caller's Arc-backed task contexts.
-    let previous = local_evaluations(|active| Ok(std::mem::replace(active, evaluations.to_vec())))?;
+    let previous = local_evaluations(TaskLocalOperation::Replace, |active| {
+        Ok(std::mem::replace(active, evaluations.to_vec()))
+    })?;
 
     let _guard = LocalEvaluationStackGuard {
         previous: Some(previous),
@@ -283,23 +355,45 @@ pub(crate) fn current_cycle(
     runtime: RuntimeIdentity,
     key: &CompilationFactKey,
 ) -> Result<FactCycle, FactQueryError> {
-    local_evaluations(|active| {
-        task_cycle(active, runtime, key).ok_or(FactQueryError::InfrastructureFailure)
+    local_evaluations(TaskLocalOperation::Cycle, |active| {
+        task_cycle(active, runtime, key).ok_or_else(|| {
+            FactRuntimeFailure::MissingCycle {
+                runtime,
+                fact: key.clone(),
+                active: active
+                    .iter()
+                    .filter(|context| context.data.runtime == runtime)
+                    .map(|context| context.data.cycle_key.clone())
+                    .collect(),
+            }
+            .into()
+        })
     })
 }
 
 fn local_evaluations<T>(
+    operation_kind: TaskLocalOperation,
     operation: impl FnOnce(&mut Vec<FactTaskContext>) -> Result<T, FactQueryError>,
 ) -> Result<T, FactQueryError> {
     LOCAL_EVALUATIONS
         .try_with(|active| {
             let mut active = active
                 .try_borrow_mut()
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(|_| {
+                    FactRuntimeFailure::TaskLocalStateUnavailable {
+                        operation: operation_kind,
+                        cause: LocalStateFailure::BorrowConflict,
+                    }
+                })?;
 
             operation(&mut active)
         })
-        .map_err(|_| FactQueryError::InfrastructureFailure)?
+        .map_err(|_| {
+            FactRuntimeFailure::TaskLocalStateUnavailable {
+                operation: operation_kind,
+                cause: LocalStateFailure::Unavailable,
+            }
+        })?
 }
 
 fn task_cycle(
@@ -328,7 +422,8 @@ struct LocalTaskGuard<'a> {
 
 impl Drop for LocalTaskGuard<'_> {
     fn drop(&mut self) {
-        let _ = local_evaluations(|active| {
+        // Guard cleanup cannot return a task-local failure while unwinding the operation.
+        let _ = local_evaluations(TaskLocalOperation::Enter, |active| {
             if active
                 .last()
                 .is_some_and(|context| Arc::ptr_eq(&context.data, &self.context.data))
@@ -351,10 +446,172 @@ impl Drop for LocalEvaluationStackGuard {
             return;
         };
 
-        let _ = local_evaluations(|active| {
+        // Guard cleanup cannot return a task-local failure while restoring the previous worker.
+        let _ = local_evaluations(TaskLocalOperation::Replace, |active| {
             *active = previous;
 
             Ok(())
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_source::SourceId;
+
+    use super::{
+        FactTaskContext, FactTaskIdentity, RuntimeIdentity, current_context, record_input,
+    };
+    use crate::fact::{
+        CompilationFactKey, CompilationInputKey, FactQueryError, FactRuntimeFailure, FactTaskPhase,
+        TaskOperation,
+    };
+
+    #[test]
+    fn finished_tasks_report_the_exact_phase_and_operation() {
+        let fact = CompilationFactKey::DeclarationTable;
+
+        let context = FactTaskContext::with_cycle_key(
+            RuntimeIdentity(1),
+            FactTaskIdentity(2),
+            fact.clone(),
+            fact.clone(),
+        );
+
+        context
+            .finish()
+            .unwrap_or_else(|error| panic!("task should finish once: {error:?}"));
+
+        let error = match context.finish() {
+            Ok(_) => panic!("a finished task must reject another finish"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            FactQueryError::Runtime(error)
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::InvalidTaskState {
+                        operation: TaskOperation::Finish,
+                        expected: FactTaskPhase::Recording,
+                        actual: FactTaskPhase::Finished,
+                        task: FactTaskIdentity(2),
+                        fact: CompilationFactKey::DeclarationTable,
+                    }
+                )
+        ));
+    }
+
+    #[test]
+    fn finished_tasks_reject_fixed_and_frozen_dependency_recording() {
+        let fact = CompilationFactKey::DeclarationTable;
+
+        let context = FactTaskContext::with_cycle_key(
+            RuntimeIdentity(9),
+            FactTaskIdentity(10),
+            fact.clone(),
+            fact,
+        );
+
+        context
+            .finish()
+            .unwrap_or_else(|error| panic!("task should finish once: {error:?}"));
+
+        let fixed = context
+            .record_fixed_input(1)
+            .expect_err("a finished task must reject fixed-input recording");
+
+        let frozen = context
+            .record_frozen_fact(1)
+            .expect_err("a finished task must reject frozen-fact recording");
+
+        assert!(matches!(
+            fixed,
+            FactQueryError::Runtime(error)
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::InvalidTaskState {
+                        operation: TaskOperation::RecordFixedInput,
+                        actual: FactTaskPhase::Finished,
+                        ..
+                    }
+                )
+        ));
+
+        assert!(matches!(
+            frozen,
+            FactQueryError::Runtime(error)
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::InvalidTaskState {
+                        operation: TaskOperation::RecordFrozenFact,
+                        actual: FactTaskPhase::Finished,
+                        ..
+                    }
+                )
+        ));
+    }
+
+    #[test]
+    fn foreign_current_context_retains_both_runtime_identities() {
+        let fact = CompilationFactKey::SyntaxTree;
+
+        let context = FactTaskContext::with_cycle_key(
+            RuntimeIdentity(3),
+            FactTaskIdentity(4),
+            fact.clone(),
+            fact,
+        );
+
+        let error = match context.run(|| current_context(RuntimeIdentity(5)).map(|_| ())) {
+            Ok(()) => panic!("a foreign runtime must not capture this task"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            FactQueryError::Runtime(error)
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::InvalidTaskContext {
+                        expected_runtime: RuntimeIdentity(5),
+                        actual,
+                    } if actual.runtime == RuntimeIdentity(3)
+                        && actual.task == FactTaskIdentity(4)
+                        && actual.fact == CompilationFactKey::SyntaxTree
+                )
+        ));
+    }
+
+    #[test]
+    fn missing_input_fingerprints_retain_task_and_input_identity() {
+        let fact = CompilationFactKey::CheckDiagnostics;
+        let input = CompilationInputKey::Source(SourceId::new(7));
+
+        let context = FactTaskContext::with_cycle_key(
+            RuntimeIdentity(6),
+            FactTaskIdentity(8),
+            fact.clone(),
+            fact,
+        );
+
+        let error = match context.run(|| record_input(RuntimeIdentity(6), &input, None)) {
+            Ok(()) => panic!("a dynamic input requires a fingerprint"),
+            Err(error) => error,
+        };
+
+        assert!(matches!(
+            error,
+            FactQueryError::Runtime(error)
+                if matches!(
+                    error.cause(),
+                    FactRuntimeFailure::MissingInputFingerprint {
+                        input: CompilationInputKey::Source(source),
+                        task: FactTaskIdentity(8),
+                        fact: CompilationFactKey::CheckDiagnostics,
+                    } if *source == SourceId::new(7)
+                )
+        ));
     }
 }

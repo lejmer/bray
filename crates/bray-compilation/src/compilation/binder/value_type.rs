@@ -11,7 +11,7 @@ use bray_symbols::{AnyLocalSymbolId, AnySymbolId, TypeData, TypeExpressionTempla
 use bray_syntax::TypeExpressionSyntax;
 
 use super::CompilationBindingContext;
-use super::symbol::type_binder;
+use super::symbol::{binder_error, type_binder};
 
 pub(in crate::compilation) fn bind_declared_value_type_templates(
     context: &CompilationBindingContext<'_>,
@@ -63,12 +63,11 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
     fn bind_bound_tree(&mut self) -> BindingQueryResult<()> {
         let root = AnyBoundNodeId::from(self.unit.root());
 
-        let mut cancelled = false;
         let mut failure = None;
 
         let outcome = walk_bound_unit_view(self.unit.view(), root, |event| {
-            if self.context.is_cancelled() {
-                cancelled = true;
+            if let Err(error) = self.context.cancellation.check() {
+                failure = Some(binder_error(error));
 
                 return BoundWalkControl::Stop;
             }
@@ -83,10 +82,6 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
 
             BoundWalkControl::Continue
         });
-
-        if cancelled {
-            return Err(BindingQueryError::Cancelled);
-        }
 
         if let Some(error) = failure {
             return Err(error);
@@ -259,11 +254,10 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
     }
 
     pub(super) fn check_cancellation(&self) -> BindingQueryResult<()> {
-        if self.context.is_cancelled() {
-            Err(BindingQueryError::Cancelled)
-        } else {
-            Ok(())
-        }
+        self.context
+            .cancellation
+            .check()
+            .map_err(binder_error)
     }
 
     fn finish(self) -> DiagnosticResult<DeclaredValueTypeTemplates> {

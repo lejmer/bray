@@ -62,16 +62,12 @@ impl FactRuntime {
         let mut plan = BatchPlan::new(roots);
 
         while let Some(wave) = plan.take_wave() {
-            if cancellation.is_cancelled() {
-                return Err(BatchCompletionError::Cancelled);
-            }
+            check_batch_cancellation(cancellation)?;
 
             let outcomes = match self.map_indexed(wave.len(), |index| {
-                if cancellation.is_cancelled() {
-                    None
-                } else {
-                    Some(evaluator(&wave[index]))
-                }
+                cancellation.check()?;
+
+                Ok::<_, FactQueryError>(evaluator(&wave[index]))
             }) {
                 Ok(outcomes) => outcomes,
                 Err(FactQueryError::Cancelled) => {
@@ -83,8 +79,12 @@ impl FactRuntime {
             let mut completed = Vec::with_capacity(wave.len());
 
             for (key, outcome) in wave.into_iter().zip(outcomes) {
-                let Some(outcome) = outcome else {
-                    return Err(BatchCompletionError::Cancelled);
+                let outcome = match outcome {
+                    Ok(outcome) => outcome,
+                    Err(FactQueryError::Cancelled) => {
+                        return Err(BatchCompletionError::Cancelled);
+                    }
+                    Err(error) => return Err(BatchCompletionError::Scheduler(error)),
                 };
 
                 let work = match outcome {
@@ -95,14 +95,22 @@ impl FactRuntime {
                 completed.push((key, work));
             }
 
-            if cancellation.is_cancelled() {
-                return Err(BatchCompletionError::Cancelled);
-            }
+            check_batch_cancellation(cancellation)?;
 
             plan.complete_wave(completed);
         }
 
         Ok(plan.finish())
+    }
+}
+
+fn check_batch_cancellation<K, E>(
+    cancellation: &CancellationToken,
+) -> Result<(), BatchCompletionError<K, E>> {
+    match cancellation.check() {
+        Ok(()) => Ok(()),
+        Err(FactQueryError::Cancelled) => Err(BatchCompletionError::Cancelled),
+        Err(error) => Err(BatchCompletionError::Scheduler(error)),
     }
 }
 
@@ -231,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn evaluator_panics_remain_invariant_failures() {
+    fn evaluator_panics_remain_compiler_domain_panics() {
         let runtime = FactRuntime::new(WorkerBudget::serial());
         let cancellation = CancellationToken::new();
 
