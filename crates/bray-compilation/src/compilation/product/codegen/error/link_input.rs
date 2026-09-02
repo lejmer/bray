@@ -8,13 +8,13 @@ pub(super) fn diagnostic_native_link_input_failure(
     match error {
         NativeLinkInputPlanningError::UnsupportedStandardLibraryArtifact { path, kind } => {
             DiagnosticFailure::UnsupportedStandardLibraryArtifact {
-                path: path.to_string_lossy().into_owned(),
+                path: path.clone(),
                 artifact_kind: standard_library_artifact_kind(*kind),
             }
         }
         NativeLinkInputPlanningError::InvalidStandardLibraryArtifact { path, kind, cause } => {
             DiagnosticFailure::InvalidStandardLibraryArtifact {
-                path: path.to_string_lossy().into_owned(),
+                path: path.clone(),
                 input_kind: link_input_kind(*kind),
                 cause: link_input_failure(*cause),
             }

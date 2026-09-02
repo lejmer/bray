@@ -3,8 +3,9 @@ use serde::Serialize;
 
 use super::emission::{
     DiagnosticEmissionFieldJson, diagnostic_failure_context, fact_runtime_failure_context,
-    foreign_query_failure_context, native_link_input_failure_context,
-    product_query_failure_context, semantic_value_failure_context, text_field,
+    foreign_query_failure_context, lowering_failure_context, lowering_input_failure_context,
+    native_link_input_failure_context, product_query_failure_context,
+    semantic_value_failure_context, text_field,
 };
 use super::{
     DiagnosticArtifactDigestJson, DiagnosticCallableOverloadProblemJson,
@@ -404,18 +405,8 @@ impl DiagnosticNativeProductFailureJson {
                 Some(failure) => semantic_value_failure_context(failure),
                 None => diagnostic_failure_context(failure.context()),
             },
-            Kind::EvaluationLoweringInput(failure) => match failure.kind() {
-                bray_diagnostics::DiagnosticLoweringInputFailureKind::SemanticValue(failure) => {
-                    semantic_value_failure_context(failure)
-                }
-                _ => Vec::new(),
-            },
-            Kind::EvaluationLowering(failure) => match failure.kind() {
-                bray_diagnostics::DiagnosticLoweringFailureKind::SemanticValue(failure) => {
-                    semantic_value_failure_context(failure)
-                }
-                _ => Vec::new(),
-            },
+            Kind::EvaluationLoweringInput(failure) => lowering_input_failure_context(*failure),
+            Kind::EvaluationLowering(failure) => lowering_failure_context(*failure),
             Kind::EvaluationProduct(failure) => product_query_failure_context(failure),
             Kind::EvaluationForeign(failure) => foreign_query_failure_context(failure),
             Kind::InvalidNativeLinkInput(failure) => native_link_input_failure_context(failure),
@@ -425,6 +416,13 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::RuntimeSelectionUnreadableArchive(detail)
             | Kind::RuntimeSelectionInvalidArchive(detail)
             | Kind::RuntimeSelectionArchiveDigestMismatch(detail)
+            | Kind::PartitionMissingCompatibility(detail)
+            | Kind::PartitionInvalidUnit(detail)
+            | Kind::GeneratedHostMirInvalid(detail)
+            | Kind::ExecutableHostDuplicateRole(detail)
+            | Kind::ExecutableHostRuntimeOwnedBinding(detail)
+            | Kind::ExecutableHostIncompatibleRuntime(detail)
+            | Kind::ExecutableHostMissingRole(detail)
             | Kind::CodegenBackendUnsupportedArtifact(detail)
             | Kind::CodegenBackendLibraryFailure(detail)
             | Kind::CodegenBackendToolFailure(detail)

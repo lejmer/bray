@@ -11,7 +11,8 @@ pub(super) fn format_english_native_link_input_failure(
             path,
             artifact_kind,
         } => format!(
-            "standard-library artifact '{path}' has unsupported native link category '{}'",
+            "standard-library artifact '{}' has unsupported native link category '{}'",
+            path.display(),
             english_standard_library_artifact_kind(artifact_kind),
         ),
         Failure::InvalidStandardLibraryArtifact {
@@ -19,7 +20,8 @@ pub(super) fn format_english_native_link_input_failure(
             input_kind,
             cause,
         } => format!(
-            "standard-library artifact '{path}' could not form {} link input because {}",
+            "standard-library artifact '{}' could not form {} link input because {}",
+            path.display(),
             english_link_input_kind(input_kind),
             english_link_input_cause(cause),
         ),
@@ -198,7 +200,7 @@ mod tests {
     fn native_link_input_failures_translate_machine_keys() {
         let artifact = format_english_native_link_input_failure(
             &DiagnosticNativeLinkInputFailure::InvalidStandardLibraryArtifact {
-                path: "lib.a".to_owned(),
+                path: "lib.a".into(),
                 input_kind: "relocatable_object",
                 cause: "empty_file_path",
             },

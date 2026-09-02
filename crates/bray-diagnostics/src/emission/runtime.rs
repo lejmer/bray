@@ -38,6 +38,7 @@ pub enum DiagnosticFailureValue {
     InterfaceValidationFailure(crate::DiagnosticInterfaceValidationFailure),
     IoErrorKind(crate::DiagnosticIoErrorKind),
     Natural(String),
+    Path(std::path::PathBuf),
     Signed(i64),
     Text(String),
     TextList(Box<[String]>),

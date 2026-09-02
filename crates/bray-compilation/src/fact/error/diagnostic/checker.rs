@@ -474,37 +474,5 @@ const fn diagnostic_bound_node(
 }
 
 const fn diagnostic_symbol_query_kind(kind: bray_symbols::SymbolQueryKind) -> &'static str {
-    use bray_symbols::SymbolQueryKind as Kind;
-
-    match kind {
-        Kind::Members => "members",
-        Kind::Imports => "imports",
-        Kind::Directives => "directives",
-        Kind::GenericParameters => "generic_parameters",
-        Kind::GenericDeclarationTemplate => "generic_declaration_template",
-        Kind::GenericConstraints => "generic_constraints",
-        Kind::CallableSignature => "callable_signature",
-        Kind::CallableContracts => "callable_contracts",
-        Kind::CallableContractTemplate => "callable_contract_template",
-        Kind::PredicateSignatureTemplate => "predicate_signature_template",
-        Kind::CallableContractType => "callable_contract_type",
-        Kind::ConstantDeclaredType => "constant_declared_type",
-        Kind::ConstantDefinition => "constant_definition",
-        Kind::StaticInstanceTemplate => "static_instance_template",
-        Kind::CallableParameterDefault => "callable_parameter_default",
-        Kind::UnevaluatedDefaultTemplate => "unevaluated_default_template",
-        Kind::StructFieldType => "struct_field_type",
-        Kind::TypeMemberValue => "type_member_value",
-        Kind::StructFieldDefault => "struct_field_default",
-        Kind::UnionPayloadFieldType => "union_payload_field_type",
-        Kind::UnionPayloadFieldDefault => "union_payload_field_default",
-        Kind::PredicateDefinition => "predicate_definition",
-        Kind::UnionVariantPayload => "union_variant_payload",
-        Kind::ImplementationSubject => "implementation_subject",
-        Kind::ImplementedTraitApplication => "implemented_trait_application",
-        Kind::ImplementationHeadTemplate => "implementation_head_template",
-        Kind::ImplementationCoherence => "implementation_coherence",
-        Kind::OverloadArms => "overload_arms",
-        Kind::OverloadSignatureTemplate => "overload_signature_template",
-    }
+    kind.as_str()
 }

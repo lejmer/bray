@@ -160,12 +160,10 @@ impl SymbolQueryKey {
         Self { symbol, kind }
     }
 
-    #[cfg(test)]
     pub(crate) const fn symbol(self) -> AnySymbolId {
         self.symbol
     }
 
-    #[cfg(test)]
     pub(crate) const fn kind(self) -> SymbolQueryKind {
         self.kind
     }

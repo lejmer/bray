@@ -2,7 +2,7 @@ use bray_diagnostics::{
     DiagnosticFailureField, DiagnosticFailureValue, DiagnosticNativeProductFailureKind,
 };
 
-use super::context::{failure_detail, text_failure_field};
+use super::context::{failure_detail, path_failure_field, text_failure_field};
 
 pub(super) fn codegen_backend_failure_kind(
     error: &bray_codegen::CodegenFailure,
@@ -31,7 +31,7 @@ pub(super) fn codegen_backend_failure_kind(
             Kind::CodegenBackendToolFailure(failure_detail(
                 "codegen_backend_tool_failure",
                 [
-                    text_failure_field("program", program.to_string_lossy()),
+                    path_failure_field("program", program.clone()),
                     DiagnosticFailureField::new(
                         "exit",
                         // The diagnostic owns the captured process result after this borrowed

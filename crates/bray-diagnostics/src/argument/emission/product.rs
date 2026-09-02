@@ -94,14 +94,14 @@ pub enum DiagnosticNativeLinkInputFailure {
     /// An imported standard-library artifact has no supported static link representation.
     UnsupportedStandardLibraryArtifact {
         /// Exact imported artifact path.
-        path: String,
+        path: std::path::PathBuf,
         /// Stable rejected standard-library artifact category.
         artifact_kind: &'static str,
     },
     /// An imported standard-library artifact could not form a link-input specification.
     InvalidStandardLibraryArtifact {
         /// Exact imported artifact path.
-        path: String,
+        path: std::path::PathBuf,
         /// Stable selected linker-input category.
         input_kind: &'static str,
         /// Stable exact link-input contract failure.
@@ -198,16 +198,16 @@ pub enum DiagnosticNativeProductFailureKind {
     UnitTargetMismatch,
     UnitWorkBoundExceeded,
     UnitRecipeMismatch,
-    PartitionMissingCompatibility,
-    PartitionInvalidUnit,
-    GeneratedHostMirInvalid,
-    ExecutableHostDuplicateRole,
+    PartitionMissingCompatibility(DiagnosticNativeProductFailureDetail),
+    PartitionInvalidUnit(DiagnosticNativeProductFailureDetail),
+    GeneratedHostMirInvalid(DiagnosticNativeProductFailureDetail),
+    ExecutableHostDuplicateRole(DiagnosticNativeProductFailureDetail),
     ExecutableHostMissingRuntime,
-    ExecutableHostRuntimeOwnedBinding,
-    ExecutableHostIncompatibleRuntime,
+    ExecutableHostRuntimeOwnedBinding(DiagnosticNativeProductFailureDetail),
+    ExecutableHostIncompatibleRuntime(DiagnosticNativeProductFailureDetail),
     ExecutableHostMissingMainThreadLane,
     ExecutableHostMissingProtectedFrameAbi,
-    ExecutableHostMissingRole,
+    ExecutableHostMissingRole(DiagnosticNativeProductFailureDetail),
     RuntimeSelectionIncompatible(DiagnosticNativeProductFailureDetail),
     RuntimeSelectionMissingRoleOwner(DiagnosticNativeProductFailureDetail),
     RuntimeSelectionMissingCapabilityOwner(DiagnosticNativeProductFailureDetail),
@@ -317,18 +317,18 @@ impl DiagnosticNativeProductFailureKind {
             Self::UnitTargetMismatch => "unit_target_mismatch",
             Self::UnitWorkBoundExceeded => "unit_work_bound_exceeded",
             Self::UnitRecipeMismatch => "unit_recipe_mismatch",
-            Self::PartitionMissingCompatibility => "partition_missing_compatibility",
-            Self::PartitionInvalidUnit => "partition_invalid_unit",
-            Self::GeneratedHostMirInvalid => "generated_host_mir_invalid",
-            Self::ExecutableHostDuplicateRole => "executable_host_duplicate_role",
+            Self::PartitionMissingCompatibility(detail)
+            | Self::PartitionInvalidUnit(detail)
+            | Self::GeneratedHostMirInvalid(detail)
+            | Self::ExecutableHostDuplicateRole(detail)
+            | Self::ExecutableHostRuntimeOwnedBinding(detail)
+            | Self::ExecutableHostIncompatibleRuntime(detail)
+            | Self::ExecutableHostMissingRole(detail) => detail.reason(),
             Self::ExecutableHostMissingRuntime => "executable_host_missing_runtime",
-            Self::ExecutableHostRuntimeOwnedBinding => "executable_host_runtime_owned_binding",
-            Self::ExecutableHostIncompatibleRuntime => "executable_host_incompatible_runtime",
             Self::ExecutableHostMissingMainThreadLane => "executable_host_missing_main_thread_lane",
             Self::ExecutableHostMissingProtectedFrameAbi => {
                 "executable_host_missing_protected_frame_abi"
             }
-            Self::ExecutableHostMissingRole => "executable_host_missing_role",
             Self::RuntimeSelectionIncompatible(detail)
             | Self::RuntimeSelectionMissingRoleOwner(detail)
             | Self::RuntimeSelectionMissingCapabilityOwner(detail)

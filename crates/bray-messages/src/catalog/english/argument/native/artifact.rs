@@ -224,21 +224,21 @@ fn format_english_native_product_failure_detail(
         Kind::UnitRecipeMismatch => {
             "a reconstructed native-code work item differs from its original request"
         }
-        Kind::PartitionMissingCompatibility => {
+        Kind::PartitionMissingCompatibility(_) => {
             "a compiled program item lacks native-code grouping compatibility"
         }
-        Kind::PartitionInvalidUnit => "native-code grouping produced an invalid work item",
-        Kind::GeneratedHostMirInvalid => "the generated executable host is invalid",
-        Kind::ExecutableHostDuplicateRole => {
+        Kind::PartitionInvalidUnit(_) => "native-code grouping produced an invalid work item",
+        Kind::GeneratedHostMirInvalid(_) => "the generated executable host is invalid",
+        Kind::ExecutableHostDuplicateRole(_) => {
             "the executable host binds one runtime role more than once"
         }
         Kind::ExecutableHostMissingRuntime => {
             "the executable host requires a runtime that was not selected"
         }
-        Kind::ExecutableHostRuntimeOwnedBinding => {
+        Kind::ExecutableHostRuntimeOwnedBinding(_) => {
             "the executable host attempts to own a runtime-owned binding"
         }
-        Kind::ExecutableHostIncompatibleRuntime => {
+        Kind::ExecutableHostIncompatibleRuntime(_) => {
             "the selected runtime is incompatible with the executable host"
         }
         Kind::ExecutableHostMissingMainThreadLane => {
@@ -250,7 +250,7 @@ fn format_english_native_product_failure_detail(
         Kind::ExecutableHostMissingProtectedFrameAbi => {
             "the executable host lacks the required protected-frame ABI"
         }
-        Kind::ExecutableHostMissingRole => "the executable host lacks a required runtime role",
+        Kind::ExecutableHostMissingRole(_) => "the executable host lacks a required runtime role",
         Kind::RuntimeSelectionIncompatible(_) => {
             "the selected runtime is incompatible with the product"
         }
@@ -268,36 +268,34 @@ fn format_english_native_product_failure_detail(
         Kind::StandardLibraryUnavailable => {
             "the configured standard library cannot supply a required native artifact"
         }
-        Kind::EmissionBackendDuplicateUnit => {
-            "the native-code generator contains a duplicate work item"
-        }
+        Kind::EmissionBackendDuplicateUnit => "native-code work contains a duplicate work item",
         Kind::LinkTargetEmptyTriple => "the native link target has an empty target triple",
         Kind::CodegenBackendUnsupportedTarget => {
-            "the native-code generator does not support the selected target"
+            "native code generation is unavailable for the selected target"
         }
         Kind::CodegenBackendUnsupportedArtifact(_) => {
-            "the native-code generator does not support a requested artifact"
+            "native code generation cannot produce a requested artifact"
         }
         Kind::CodegenBackendInvalidConfiguration => {
-            "the native-code generator configuration is internally inconsistent"
+            "native-code configuration is internally inconsistent"
         }
         Kind::CodegenBackendResourceExhausted => {
             "native code generation exceeded an available resource budget"
         }
         Kind::CodegenBackendLibraryFailure(_) => {
-            "the native-code generator library failed while processing a valid request"
+            "backend-library processing failed for valid native-code input"
         }
         Kind::CodegenBackendToolFailure(_) => {
-            "a native-code generator support program completed unsuccessfully"
+            "native code generation received an unsuccessful support-program result"
         }
         Kind::CodegenBackendGeneratedModuleInvariant => {
             "generated native-code input violated an internal module contract"
         }
         Kind::CodegenBackendRejectedModule(_) => {
-            "the native-code generator rejected internally generated input"
+            "internally generated input did not satisfy backend validation"
         }
         Kind::CodegenBackendArtifactConstruction(_) => {
-            "the native-code generator could not construct a requested artifact"
+            "a requested native artifact could not be constructed"
         }
         Kind::CodegenBackendUnavailable => "no native-code generator is available",
         Kind::CodegenInvalidRequest(_) => "the code generation request is internally inconsistent",
@@ -490,9 +488,9 @@ const fn format_source_construct(
 fn format_english_mir_unit_failure(
     failure: bray_diagnostics::DiagnosticMirUnitBuildFailure,
 ) -> String {
-    use bray_diagnostics::DiagnosticMirUnitBuildFailure as Failure;
+    use bray_diagnostics::DiagnosticMirUnitBuildFailureKind as Failure;
 
-    let prevented_operation = match failure {
+    let prevented_operation = match failure.kind() {
         Failure::SourceOriginMismatch => {
             "generating executable code associated with the highlighted source declaration"
         }
@@ -818,7 +816,12 @@ mod tests {
                 ),
             ),
             bray_diagnostics::DiagnosticNativeProductFailureKind::CheckingInfrastructureFailure,
-            bray_diagnostics::DiagnosticNativeProductFailureKind::GeneratedHostMirInvalid,
+            bray_diagnostics::DiagnosticNativeProductFailureKind::GeneratedHostMirInvalid(
+                bray_diagnostics::DiagnosticNativeProductFailureDetail::new(
+                    "generated_host_mir_invalid",
+                    [],
+                ),
+            ),
             bray_diagnostics::DiagnosticNativeProductFailureKind::InstanceTemplateMismatch,
             bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenBackendGeneratedModuleInvariant,
         ];

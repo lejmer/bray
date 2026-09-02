@@ -12,9 +12,12 @@ use bray_runtime_interface::ExecutableHostContractBuildError;
 use bray_symbols::ProductIdentity;
 
 use super::backend::codegen_backend_failure_kind;
+use super::context::{failure_detail, identity_failure_detail, text_failure_field};
 use super::link_input::diagnostic_native_link_input_failure;
 use super::model::NativeProductPlanningError;
-use super::preparation::codegen_preparation_failure_kind;
+use super::preparation::{
+    codegen_preparation_failure_kind, codegen_unit_preparation_failure, mir_unit_failure_detail,
+};
 use super::query::fact_query_failure_kind;
 use super::runtime_selection::runtime_selection_failure_kind;
 
@@ -96,18 +99,36 @@ pub(super) fn native_product_failure_kind(
         },
         NativeProductPlanningError::InvalidCodegenUnit(error) => codegen_unit_failure_kind(*error),
         NativeProductPlanningError::InvalidCodegenPartition(error) => match error {
-            CodegenPartitionError::MissingCompatibility(_) => Kind::PartitionMissingCompatibility,
-            CodegenPartitionError::InvalidUnit(_) => Kind::PartitionInvalidUnit,
-        },
-        NativeProductPlanningError::InvalidHostMir(_) => Kind::GeneratedHostMirInvalid,
-        NativeProductPlanningError::InvalidExecutableHost(error) => match error {
-            ExecutableHostContractBuildError::DuplicateRole(_) => Kind::ExecutableHostDuplicateRole,
-            ExecutableHostContractBuildError::MissingRuntime => Kind::ExecutableHostMissingRuntime,
-            ExecutableHostContractBuildError::RuntimeOwnedHostBinding(_) => {
-                Kind::ExecutableHostRuntimeOwnedBinding
+            CodegenPartitionError::MissingCompatibility(instance) => {
+                Kind::PartitionMissingCompatibility(identity_failure_detail(
+                    "partition_missing_compatibility",
+                    "instance",
+                    instance,
+                ))
             }
-            ExecutableHostContractBuildError::IncompatibleRuntime(_) => {
-                Kind::ExecutableHostIncompatibleRuntime
+            CodegenPartitionError::InvalidUnit(cause) => Kind::PartitionInvalidUnit(
+                failure_detail(codegen_unit_preparation_failure(*cause), []),
+            ),
+        },
+        NativeProductPlanningError::InvalidHostMir(cause) => Kind::GeneratedHostMirInvalid(
+            mir_unit_failure_detail("generated_host_mir_invalid", *cause),
+        ),
+        NativeProductPlanningError::InvalidExecutableHost(error) => match error {
+            ExecutableHostContractBuildError::DuplicateRole(role) => {
+                Kind::ExecutableHostDuplicateRole(runtime_role_detail(
+                    "executable_host_duplicate_role",
+                    *role,
+                ))
+            }
+            ExecutableHostContractBuildError::MissingRuntime => Kind::ExecutableHostMissingRuntime,
+            ExecutableHostContractBuildError::RuntimeOwnedHostBinding(role) => {
+                Kind::ExecutableHostRuntimeOwnedBinding(runtime_role_detail(
+                    "executable_host_runtime_owned_binding",
+                    *role,
+                ))
+            }
+            ExecutableHostContractBuildError::IncompatibleRuntime(cause) => {
+                Kind::ExecutableHostIncompatibleRuntime(runtime_compatibility_detail(*cause))
             }
             ExecutableHostContractBuildError::MissingMainThreadLaneCapability => {
                 Kind::ExecutableHostMissingMainThreadLane
@@ -115,7 +136,9 @@ pub(super) fn native_product_failure_kind(
             ExecutableHostContractBuildError::MissingProtectedFrameAbi => {
                 Kind::ExecutableHostMissingProtectedFrameAbi
             }
-            ExecutableHostContractBuildError::MissingRole(_) => Kind::ExecutableHostMissingRole,
+            ExecutableHostContractBuildError::MissingRole(role) => Kind::ExecutableHostMissingRole(
+                runtime_role_detail("executable_host_missing_role", *role),
+            ),
         },
         NativeProductPlanningError::InvalidRuntimeSelection(error) => {
             runtime_selection_failure_kind(error)
@@ -129,6 +152,60 @@ pub(super) fn native_product_failure_kind(
         NativeProductPlanningError::StandardLibrary(_) => Kind::StandardLibraryUnavailable,
         NativeProductPlanningError::Codegen(error) => codegen_preparation_failure_kind(error)?,
     })
+}
+
+fn runtime_role_detail(
+    reason: &'static str,
+    role: bray_runtime_interface::RuntimeAbiRole,
+) -> bray_diagnostics::DiagnosticNativeProductFailureDetail {
+    failure_detail(reason, [text_failure_field("runtime_role", role.as_str())])
+}
+
+fn runtime_compatibility_detail(
+    cause: bray_runtime_interface::RuntimeCompatibilityError,
+) -> bray_diagnostics::DiagnosticNativeProductFailureDetail {
+    use bray_runtime_interface::RuntimeCompatibilityError as Error;
+
+    let (reason, context) = match cause {
+        Error::RuntimeIdentity => ("executable_host_runtime_identity_mismatch", Vec::new()),
+        Error::RuntimeAbi => ("executable_host_runtime_abi_mismatch", Vec::new()),
+        Error::Target => ("executable_host_runtime_target_mismatch", Vec::new()),
+        Error::PanicAbi => ("executable_host_runtime_panic_abi_mismatch", Vec::new()),
+        Error::FrameAbi(operation) => (
+            "executable_host_runtime_frame_abi_mismatch",
+            vec![text_failure_field(
+                "frame_operation",
+                protected_frame_abi_operation(operation),
+            )],
+        ),
+        Error::MissingCapability(capability) => (
+            "executable_host_runtime_missing_capability",
+            vec![text_failure_field(
+                "runtime_capability",
+                capability.as_str(),
+            )],
+        ),
+        Error::MissingRole(role) => (
+            "executable_host_runtime_missing_role",
+            vec![text_failure_field("runtime_role", role.as_str())],
+        ),
+    };
+
+    failure_detail(reason, context)
+}
+
+const fn protected_frame_abi_operation(
+    operation: bray_runtime_interface::ProtectedFrameAbiOperation,
+) -> &'static str {
+    use bray_runtime_interface::ProtectedFrameAbiOperation as Operation;
+
+    match operation {
+        Operation::Resume => "resume",
+        Operation::TaskBroadcast => "task_broadcast",
+        Operation::LifecycleResolution => "lifecycle_resolution",
+        Operation::CompletionMove => "completion_move",
+        Operation::Destruction => "destruction",
+    }
 }
 
 const fn codegen_unit_failure_kind(

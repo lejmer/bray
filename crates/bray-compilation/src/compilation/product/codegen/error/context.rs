@@ -16,6 +16,13 @@ pub(super) fn text_failure_field(
     DiagnosticFailureField::new(name, DiagnosticFailureValue::Text(value.into()))
 }
 
+pub(super) fn path_failure_field(
+    name: &'static str,
+    value: impl Into<std::path::PathBuf>,
+) -> DiagnosticFailureField {
+    DiagnosticFailureField::new(name, DiagnosticFailureValue::Path(value.into()))
+}
+
 pub(super) fn identity_failure_detail(
     reason: &'static str,
     name: &'static str,

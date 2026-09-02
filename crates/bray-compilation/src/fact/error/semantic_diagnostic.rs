@@ -4,9 +4,10 @@ use super::diagnostic_context::{
     constant_value_kind, count_field, identity_field, natural_field, push_source_span, push_symbol,
     text_field,
 };
+use super::semantic_context::semantic_query_context;
 use crate::compilation::{
-    SemanticDataKind, SemanticQueryContext, SemanticQueryError, SemanticQueryFailure,
-    SemanticQueryViolation, SemanticSymbolCategory,
+    SemanticDataKind, SemanticQueryError, SemanticQueryFailure, SemanticQueryViolation,
+    SemanticSymbolCategory,
 };
 
 pub(crate) fn diagnostic_semantic_query_failure(
@@ -198,46 +199,6 @@ pub(crate) fn diagnostic_semantic_query_failure(
     }
 
     DiagnosticSemanticQueryFailure::new(category, reason, context)
-}
-
-fn semantic_query_context(context: &SemanticQueryContext) -> Vec<DiagnosticFailureField> {
-    use SemanticQueryContext as Context;
-
-    let mut fields = vec![identity_field("context_identity", context)];
-
-    let kind = match context {
-        Context::Fact(_) => "fact",
-        Context::SymbolQuery(_) => "symbol_query",
-        Context::Symbol(symbol) => {
-            push_symbol(&mut fields, "symbol_kind", "symbol", *symbol);
-
-            "symbol"
-        }
-        Context::SymbolKey(_) => "symbol_key",
-        Context::Unit(_) => "unit",
-        Context::Expression { .. } => "expression",
-        Context::BoundExpression { .. } => "bound_expression",
-        Context::CompilerKnownDeclaration(_) => "compiler_known_declaration",
-        Context::CompilerKnownDeclarationName(name) => {
-            fields.push(text_field("declaration_name", *name));
-
-            "compiler_known_declaration_name"
-        }
-        Context::CompilerKnownRepresentation(_) => "compiler_known_representation",
-        Context::Declaration(_) => "declaration",
-        Context::LocalReference { .. } => "local_reference",
-        Context::Source(source) => {
-            fields.push(count_field("source", u64::from(source.raw())));
-
-            "source"
-        }
-        Context::Type(_) => "type",
-        Context::ImplementationDomain(_) => "implementation_domain",
-    };
-
-    fields.insert(0, text_field("context_kind", kind));
-
-    fields
 }
 
 fn push_contract_violation(
@@ -815,6 +776,32 @@ mod tests {
                 .context()
                 .iter()
                 .any(|field| field.name() == "cause")
+        );
+    }
+
+    #[test]
+    fn semantic_context_preserves_compiler_known_representation_role() {
+        let error = SemanticQueryFailure::contract(
+            SemanticQueryContext::CompilerKnownRepresentation(
+                bray_compiler_known::RepresentationRole::RawPointer,
+            ),
+            SemanticQueryViolation::Missing(SemanticDataKind::Type),
+        )
+        .into();
+
+        let diagnostic = diagnostic_semantic_query_failure(&error);
+
+        let names = diagnostic
+            .context()
+            .iter()
+            .map(|field| field.name())
+            .collect::<Vec<_>>();
+
+        assert_eq!(names, ["context_kind", "representation_role", "data"]);
+
+        assert_eq!(
+            diagnostic.context()[1].value(),
+            &DiagnosticFailureValue::Text("RawPointer".to_owned())
         );
     }
 

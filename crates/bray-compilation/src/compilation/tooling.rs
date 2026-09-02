@@ -1149,12 +1149,12 @@ mod tests {
         assert_eq!(failure.reason(), "semantic_query_missing_data");
 
         assert_eq!(
-            failure.context()[2].value(),
+            failure.context()[1].value(),
             &DiagnosticFailureValue::Count(99)
         );
 
         assert_eq!(
-            failure.context()[3].value(),
+            failure.context()[2].value(),
             &DiagnosticFailureValue::Text("source_snapshot".to_owned())
         );
     }

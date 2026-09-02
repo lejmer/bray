@@ -4,7 +4,7 @@ use bray_diagnostics::{
 };
 use bray_runtime_interface::RuntimeArtifactSelectionError;
 
-use super::context::{failure_detail, text_failure_field};
+use super::context::{failure_detail, path_failure_field, text_failure_field};
 
 pub(super) fn runtime_selection_failure_kind(
     error: &RuntimeArtifactSelectionError,
@@ -60,7 +60,7 @@ pub(super) fn runtime_selection_failure_kind(
             "runtime_selection_unreadable_archive",
             [
                 text_failure_field("component", component.as_str()),
-                text_failure_field("path", path.to_string_lossy()),
+                path_failure_field("path", path.clone()),
                 DiagnosticFailureField::new(
                     "io_error",
                     DiagnosticFailureValue::IoErrorKind(DiagnosticIoErrorKind::from(*kind)),
@@ -72,7 +72,7 @@ pub(super) fn runtime_selection_failure_kind(
                 "runtime_selection_invalid_archive",
                 [
                     text_failure_field("component", component.as_str()),
-                    text_failure_field("path", path.to_string_lossy()),
+                    path_failure_field("path", path.clone()),
                 ],
             ))
         }
@@ -85,7 +85,7 @@ pub(super) fn runtime_selection_failure_kind(
             "runtime_selection_archive_digest_mismatch",
             [
                 text_failure_field("component", component.as_str()),
-                text_failure_field("path", path.to_string_lossy()),
+                path_failure_field("path", path.clone()),
                 DiagnosticFailureField::new(
                     "expected_digest",
                     DiagnosticFailureValue::ArtifactDigest(DiagnosticArtifactDigest::new(

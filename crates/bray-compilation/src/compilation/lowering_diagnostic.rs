@@ -2,7 +2,8 @@ use bray_bound_tree::AnyBoundNodeId;
 use bray_diagnostics::{
     DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
     DiagnosticLoweringInputFailureKind, DiagnosticMirUnitBuildFailure,
-    DiagnosticSourceConstructKind,
+    DiagnosticMirUnitBuildFailureContext, DiagnosticMirUnitBuildFailureKind,
+    DiagnosticMirUnitLocalIdentity, DiagnosticSourceConstructKind,
 };
 use bray_ir::MirUnitBuildError;
 use bray_lowering::{LoweringError, LoweringInputError};
@@ -100,111 +101,205 @@ const fn source_construct(node: AnyBoundNodeId) -> DiagnosticSourceConstructKind
 }
 
 pub(crate) const fn mir_unit_failure(error: &MirUnitBuildError) -> DiagnosticMirUnitBuildFailure {
+    use DiagnosticMirUnitBuildFailureContext as Context;
+    use DiagnosticMirUnitBuildFailureKind as Kind;
+
     match error {
-        MirUnitBuildError::SourceOriginMismatch => {
-            DiagnosticMirUnitBuildFailure::SourceOriginMismatch
+        MirUnitBuildError::SourceOriginMismatch => mir_failure(Kind::SourceOriginMismatch),
+        MirUnitBuildError::IdentityCapacityExceeded => mir_failure(Kind::IdentityCapacityExceeded),
+        MirUnitBuildError::ForeignBlock { expected, actual } => DiagnosticMirUnitBuildFailure::new(
+            Kind::ForeignBlock,
+            Context::UnitMismatch {
+                expected: expected.raw(),
+                actual: actual.raw(),
+            },
+        ),
+        MirUnitBuildError::ForeignOperation(identity) => {
+            mir_operation_failure(Kind::ForeignOperation, *identity)
         }
-        MirUnitBuildError::IdentityCapacityExceeded => {
-            DiagnosticMirUnitBuildFailure::IdentityCapacityExceeded
+        MirUnitBuildError::ForeignStorage(identity) => {
+            mir_storage_failure(Kind::ForeignStorage, *identity)
         }
-        MirUnitBuildError::ForeignBlock { .. } => DiagnosticMirUnitBuildFailure::ForeignBlock,
-        MirUnitBuildError::ForeignOperation(_) => DiagnosticMirUnitBuildFailure::ForeignOperation,
-        MirUnitBuildError::ForeignStorage(_) => DiagnosticMirUnitBuildFailure::ForeignStorage,
-        MirUnitBuildError::ForeignValue(_) => DiagnosticMirUnitBuildFailure::ForeignValue,
-        MirUnitBuildError::MissingBlock(_) => DiagnosticMirUnitBuildFailure::MissingBlock,
-        MirUnitBuildError::MissingOperation(_) => DiagnosticMirUnitBuildFailure::MissingOperation,
-        MirUnitBuildError::MissingOperationResult(_) => {
-            DiagnosticMirUnitBuildFailure::MissingOperationResult
+        MirUnitBuildError::ForeignValue(identity) => {
+            mir_value_failure(Kind::ForeignValue, *identity)
         }
-        MirUnitBuildError::UnexpectedOperationResult(_) => {
-            DiagnosticMirUnitBuildFailure::UnexpectedOperationResult
+        MirUnitBuildError::MissingBlock(identity) => {
+            mir_block_failure(Kind::MissingBlock, *identity)
         }
-        MirUnitBuildError::OperationResultTypeMismatch(_) => {
-            DiagnosticMirUnitBuildFailure::OperationResultTypeMismatch
+        MirUnitBuildError::MissingOperation(identity) => {
+            mir_operation_failure(Kind::MissingOperation, *identity)
         }
-        MirUnitBuildError::InvalidAggregateOperation(_) => {
-            DiagnosticMirUnitBuildFailure::InvalidAggregateOperation
+        MirUnitBuildError::MissingOperationResult(identity) => {
+            mir_operation_failure(Kind::MissingOperationResult, *identity)
         }
-        MirUnitBuildError::InvalidMemoryOperation(_) => {
-            DiagnosticMirUnitBuildFailure::InvalidMemoryOperation
+        MirUnitBuildError::UnexpectedOperationResult(identity) => {
+            mir_operation_failure(Kind::UnexpectedOperationResult, *identity)
         }
-        MirUnitBuildError::InvalidAnonymousCallable(_) => {
-            DiagnosticMirUnitBuildFailure::InvalidAnonymousCallable
+        MirUnitBuildError::OperationResultTypeMismatch(identity) => {
+            mir_operation_failure(Kind::OperationResultTypeMismatch, *identity)
         }
-        MirUnitBuildError::InvalidConstructionInput(_) => {
-            DiagnosticMirUnitBuildFailure::InvalidConstructionInput
+        MirUnitBuildError::InvalidAggregateOperation(identity) => {
+            mir_operation_failure(Kind::InvalidAggregateOperation, *identity)
         }
-        MirUnitBuildError::InvalidCall(_) => DiagnosticMirUnitBuildFailure::InvalidCall,
-        MirUnitBuildError::InvalidHostOperation(_) => {
-            DiagnosticMirUnitBuildFailure::InvalidHostOperation
+        MirUnitBuildError::InvalidMemoryOperation(identity) => {
+            mir_operation_failure(Kind::InvalidMemoryOperation, *identity)
         }
-        MirUnitBuildError::InvalidHostSequence => {
-            DiagnosticMirUnitBuildFailure::InvalidHostSequence
+        MirUnitBuildError::InvalidAnonymousCallable(identity) => {
+            mir_operation_failure(Kind::InvalidAnonymousCallable, *identity)
         }
-        MirUnitBuildError::MissingStorage(_) => DiagnosticMirUnitBuildFailure::MissingStorage,
-        MirUnitBuildError::MissingValue(_) => DiagnosticMirUnitBuildFailure::MissingValue,
-        MirUnitBuildError::DuplicateTerminator(_) => {
-            DiagnosticMirUnitBuildFailure::DuplicateTerminator
+        MirUnitBuildError::InvalidConstructionInput(identity) => {
+            mir_operation_failure(Kind::InvalidConstructionInput, *identity)
         }
-        MirUnitBuildError::MissingTerminator(_) => DiagnosticMirUnitBuildFailure::MissingTerminator,
-        MirUnitBuildError::InvalidInlineAssemblyTerminator(_) => {
-            DiagnosticMirUnitBuildFailure::InvalidInlineAssemblyTerminator
+        MirUnitBuildError::InvalidCall(identity) => {
+            mir_operation_failure(Kind::InvalidCall, *identity)
         }
-        MirUnitBuildError::InvalidSuspensionPayload(_) => {
-            DiagnosticMirUnitBuildFailure::InvalidSuspensionPayload
+        MirUnitBuildError::InvalidHostOperation(identity) => {
+            mir_operation_failure(Kind::InvalidHostOperation, *identity)
         }
-        MirUnitBuildError::InvalidCallPanicCheck(_) => {
-            DiagnosticMirUnitBuildFailure::InvalidCallPanicCheck
+        MirUnitBuildError::InvalidHostSequence => mir_failure(Kind::InvalidHostSequence),
+        MirUnitBuildError::MissingStorage(identity) => {
+            mir_storage_failure(Kind::MissingStorage, *identity)
         }
-        MirUnitBuildError::EdgeArgumentCountMismatch(_) => {
-            DiagnosticMirUnitBuildFailure::EdgeArgumentCountMismatch
+        MirUnitBuildError::MissingValue(identity) => {
+            mir_value_failure(Kind::MissingValue, *identity)
         }
-        MirUnitBuildError::EdgeArgumentTypeMismatch(_) => {
-            DiagnosticMirUnitBuildFailure::EdgeArgumentTypeMismatch
+        MirUnitBuildError::DuplicateTerminator(identity) => {
+            mir_block_failure(Kind::DuplicateTerminator, *identity)
         }
-        MirUnitBuildError::DuplicateSwitchCase(_) => {
-            DiagnosticMirUnitBuildFailure::DuplicateSwitchCase
+        MirUnitBuildError::MissingTerminator(identity) => {
+            mir_block_failure(Kind::MissingTerminator, *identity)
         }
-        MirUnitBuildError::CleanupTargetMismatch { .. } => {
-            DiagnosticMirUnitBuildFailure::CleanupTargetMismatch
+        MirUnitBuildError::InvalidInlineAssemblyTerminator(identity) => {
+            mir_block_failure(Kind::InvalidInlineAssemblyTerminator, *identity)
         }
-        MirUnitBuildError::CleanupPhaseOrderViolation(_) => {
-            DiagnosticMirUnitBuildFailure::CleanupPhaseOrderViolation
+        MirUnitBuildError::InvalidSuspensionPayload(identity) => {
+            mir_block_failure(Kind::InvalidSuspensionPayload, *identity)
         }
-        MirUnitBuildError::RuntimeRoleMismatch { .. } => {
-            DiagnosticMirUnitBuildFailure::RuntimeRoleMismatch
+        MirUnitBuildError::InvalidCallPanicCheck(identity) => {
+            mir_block_failure(Kind::InvalidCallPanicCheck, *identity)
+        }
+        MirUnitBuildError::EdgeArgumentCountMismatch(identity) => {
+            mir_block_failure(Kind::EdgeArgumentCountMismatch, *identity)
+        }
+        MirUnitBuildError::EdgeArgumentTypeMismatch(identity) => {
+            mir_block_failure(Kind::EdgeArgumentTypeMismatch, *identity)
+        }
+        MirUnitBuildError::DuplicateSwitchCase(identity) => {
+            mir_block_failure(Kind::DuplicateSwitchCase, *identity)
+        }
+        MirUnitBuildError::CleanupTargetMismatch { phase, target } => {
+            DiagnosticMirUnitBuildFailure::new(
+                Kind::CleanupTargetMismatch,
+                Context::CleanupTarget {
+                    phase: cleanup_phase(*phase),
+                    target: mir_local_identity(target.unit(), target.slot()),
+                },
+            )
+        }
+        MirUnitBuildError::CleanupPhaseOrderViolation(identity) => {
+            mir_block_failure(Kind::CleanupPhaseOrderViolation, *identity)
+        }
+        MirUnitBuildError::RuntimeRoleMismatch { expected, actual } => {
+            DiagnosticMirUnitBuildFailure::new(
+                Kind::RuntimeRoleMismatch,
+                Context::RuntimeRoleMismatch {
+                    expected: expected.as_str(),
+                    actual: actual.as_str(),
+                },
+            )
         }
         MirUnitBuildError::RuntimeAbiVersionMismatch => {
-            DiagnosticMirUnitBuildFailure::RuntimeAbiVersionMismatch
+            mir_failure(Kind::RuntimeAbiVersionMismatch)
         }
-        MirUnitBuildError::InvalidOperationBlock(_) => {
-            DiagnosticMirUnitBuildFailure::InvalidOperationBlock
+        MirUnitBuildError::InvalidOperationBlock(identity) => {
+            mir_operation_failure(Kind::InvalidOperationBlock, *identity)
         }
-        MirUnitBuildError::StorageKindMismatch(_) => {
-            DiagnosticMirUnitBuildFailure::StorageKindMismatch
+        MirUnitBuildError::StorageKindMismatch(identity) => {
+            mir_storage_failure(Kind::StorageKindMismatch, *identity)
         }
-        MirUnitBuildError::StorageTypeMismatch(_) => {
-            DiagnosticMirUnitBuildFailure::StorageTypeMismatch
+        MirUnitBuildError::StorageTypeMismatch(identity) => {
+            mir_storage_failure(Kind::StorageTypeMismatch, *identity)
         }
-        MirUnitBuildError::ValueDoesNotDominateUse(_) => {
-            DiagnosticMirUnitBuildFailure::ValueDoesNotDominateUse
+        MirUnitBuildError::ValueDoesNotDominateUse(identity) => {
+            mir_value_failure(Kind::ValueDoesNotDominateUse, *identity)
         }
-        MirUnitBuildError::ProtectedFrameMismatch => {
-            DiagnosticMirUnitBuildFailure::ProtectedFrameMismatch
-        }
-        MirUnitBuildError::MissingFrameDescriptor => {
-            DiagnosticMirUnitBuildFailure::MissingFrameDescriptor
-        }
-        MirUnitBuildError::DuplicateFrameDescriptor => {
-            DiagnosticMirUnitBuildFailure::DuplicateFrameDescriptor
-        }
+        MirUnitBuildError::ProtectedFrameMismatch => mir_failure(Kind::ProtectedFrameMismatch),
+        MirUnitBuildError::MissingFrameDescriptor => mir_failure(Kind::MissingFrameDescriptor),
+        MirUnitBuildError::DuplicateFrameDescriptor => mir_failure(Kind::DuplicateFrameDescriptor),
         MirUnitBuildError::UnexpectedFrameDescriptor => {
-            DiagnosticMirUnitBuildFailure::UnexpectedFrameDescriptor
+            mir_failure(Kind::UnexpectedFrameDescriptor)
         }
-        MirUnitBuildError::InvalidFrameStateEntry(_) => {
-            DiagnosticMirUnitBuildFailure::InvalidFrameStateEntry
+        MirUnitBuildError::InvalidFrameStateEntry(identity) => {
+            mir_block_failure(Kind::InvalidFrameStateEntry, *identity)
         }
-        MirUnitBuildError::MissingFrameState => DiagnosticMirUnitBuildFailure::MissingFrameState,
+        MirUnitBuildError::MissingFrameState => mir_failure(Kind::MissingFrameState),
+    }
+}
+
+const fn mir_failure(kind: DiagnosticMirUnitBuildFailureKind) -> DiagnosticMirUnitBuildFailure {
+    DiagnosticMirUnitBuildFailure::new(kind, DiagnosticMirUnitBuildFailureContext::None)
+}
+
+const fn mir_block_failure(
+    kind: DiagnosticMirUnitBuildFailureKind,
+    identity: bray_ir::MirBlockId,
+) -> DiagnosticMirUnitBuildFailure {
+    DiagnosticMirUnitBuildFailure::new(
+        kind,
+        DiagnosticMirUnitBuildFailureContext::Block(mir_local_identity(
+            identity.unit(),
+            identity.slot(),
+        )),
+    )
+}
+
+const fn mir_operation_failure(
+    kind: DiagnosticMirUnitBuildFailureKind,
+    identity: bray_ir::MirOperationId,
+) -> DiagnosticMirUnitBuildFailure {
+    DiagnosticMirUnitBuildFailure::new(
+        kind,
+        DiagnosticMirUnitBuildFailureContext::Operation(mir_local_identity(
+            identity.unit(),
+            identity.slot(),
+        )),
+    )
+}
+
+const fn mir_storage_failure(
+    kind: DiagnosticMirUnitBuildFailureKind,
+    identity: bray_ir::MirStorageId,
+) -> DiagnosticMirUnitBuildFailure {
+    DiagnosticMirUnitBuildFailure::new(
+        kind,
+        DiagnosticMirUnitBuildFailureContext::Storage(mir_local_identity(
+            identity.unit(),
+            identity.slot(),
+        )),
+    )
+}
+
+const fn mir_value_failure(
+    kind: DiagnosticMirUnitBuildFailureKind,
+    identity: bray_ir::MirValueId,
+) -> DiagnosticMirUnitBuildFailure {
+    DiagnosticMirUnitBuildFailure::new(
+        kind,
+        DiagnosticMirUnitBuildFailureContext::Value(mir_local_identity(
+            identity.unit(),
+            identity.slot(),
+        )),
+    )
+}
+
+const fn mir_local_identity(unit: bray_ir::MirUnitId, slot: u32) -> DiagnosticMirUnitLocalIdentity {
+    DiagnosticMirUnitLocalIdentity::new(unit.raw(), slot)
+}
+
+const fn cleanup_phase(phase: bray_ir::MirCleanupPhase) -> &'static str {
+    match phase {
+        bray_ir::MirCleanupPhase::TaskCancellation => "task_cancellation",
+        bray_ir::MirCleanupPhase::LifecycleResolution => "lifecycle_resolution",
     }
 }
 
@@ -213,6 +308,7 @@ mod tests {
     use bray_diagnostics::{
         DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
         DiagnosticLoweringInputFailureKind, DiagnosticMirUnitBuildFailure,
+        DiagnosticMirUnitBuildFailureContext, DiagnosticMirUnitBuildFailureKind,
     };
     use bray_ir::MirUnitBuildError;
     use bray_lowering::{LoweringError, LoweringInputError};
@@ -244,11 +340,37 @@ mod tests {
                 source,
             )),
             DiagnosticLoweringFailure::new(
-                DiagnosticLoweringFailureKind::Mir(
-                    DiagnosticMirUnitBuildFailure::InvalidHostSequence,
-                ),
+                DiagnosticLoweringFailureKind::Mir(DiagnosticMirUnitBuildFailure::new(
+                    DiagnosticMirUnitBuildFailureKind::InvalidHostSequence,
+                    DiagnosticMirUnitBuildFailureContext::None,
+                ),),
                 source,
             )
+        );
+    }
+
+    #[test]
+    fn mir_failures_retain_unit_local_identity_payloads() {
+        let source = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(10), TextSize::new(20)),
+        );
+
+        let operation = bray_ir::MirOperationId::from_slot(bray_ir::MirUnitId::new(7), 11);
+
+        let failure = super::lowering_failure(&LocatedLoweringFailure::new(
+            LoweringError::Mir(MirUnitBuildError::ForeignOperation(operation)),
+            source,
+        ));
+
+        assert_eq!(
+            failure.kind(),
+            DiagnosticLoweringFailureKind::Mir(DiagnosticMirUnitBuildFailure::new(
+                DiagnosticMirUnitBuildFailureKind::ForeignOperation,
+                DiagnosticMirUnitBuildFailureContext::Operation(
+                    bray_diagnostics::DiagnosticMirUnitLocalIdentity::new(7, 11),
+                ),
+            ))
         );
     }
 }

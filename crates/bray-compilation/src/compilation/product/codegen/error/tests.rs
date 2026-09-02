@@ -56,7 +56,7 @@ fn runtime_selection_failures_preserve_component_path_io_and_digests() {
 
     assert!(matches!(
         detail.context()[1].value(),
-        DiagnosticFailureValue::Text(path) if path == "runtime/product.lib"
+        DiagnosticFailureValue::Path(path) if path == std::path::Path::new("runtime/product.lib")
     ));
 
     assert!(matches!(

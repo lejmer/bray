@@ -2,6 +2,7 @@ mod diagnostic;
 pub(crate) mod diagnostic_context;
 mod model;
 mod runtime_diagnostic;
+mod semantic_context;
 mod semantic_diagnostic;
 mod target_diagnostic;
 

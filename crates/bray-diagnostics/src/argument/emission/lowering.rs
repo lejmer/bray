@@ -197,7 +197,81 @@ impl DiagnosticSourceConstructKind {
 
 /// Exact executable-code construction failure retained through lowering diagnostics.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticMirUnitBuildFailure {
+pub struct DiagnosticMirUnitBuildFailure {
+    kind: DiagnosticMirUnitBuildFailureKind,
+    context: DiagnosticMirUnitBuildFailureContext,
+}
+
+impl DiagnosticMirUnitBuildFailure {
+    /// Creates one MIR construction failure from its leaf category and exact typed context.
+    pub const fn new(
+        kind: DiagnosticMirUnitBuildFailureKind,
+        context: DiagnosticMirUnitBuildFailureContext,
+    ) -> Self {
+        Self { kind, context }
+    }
+
+    /// Returns the exact failure category.
+    pub const fn kind(self) -> DiagnosticMirUnitBuildFailureKind {
+        self.kind
+    }
+
+    /// Returns the exact identities or contract values retained by the failure.
+    pub const fn context(self) -> DiagnosticMirUnitBuildFailureContext {
+        self.context
+    }
+
+    pub const fn as_str(self) -> &'static str {
+        self.kind.as_str()
+    }
+}
+
+/// Stable MIR identity local to one compilation unit.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiagnosticMirUnitLocalIdentity {
+    unit: u32,
+    slot: u32,
+}
+
+impl DiagnosticMirUnitLocalIdentity {
+    pub const fn new(unit: u32, slot: u32) -> Self {
+        Self { unit, slot }
+    }
+
+    pub const fn unit(self) -> u32 {
+        self.unit
+    }
+
+    pub const fn slot(self) -> u32 {
+        self.slot
+    }
+}
+
+/// Exact payload retained by one MIR construction failure.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticMirUnitBuildFailureContext {
+    None,
+    UnitMismatch {
+        expected: u32,
+        actual: u32,
+    },
+    Block(DiagnosticMirUnitLocalIdentity),
+    Operation(DiagnosticMirUnitLocalIdentity),
+    Storage(DiagnosticMirUnitLocalIdentity),
+    Value(DiagnosticMirUnitLocalIdentity),
+    CleanupTarget {
+        phase: &'static str,
+        target: DiagnosticMirUnitLocalIdentity,
+    },
+    RuntimeRoleMismatch {
+        expected: &'static str,
+        actual: &'static str,
+    },
+}
+
+/// Stable leaf category for one MIR construction failure.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticMirUnitBuildFailureKind {
     SourceOriginMismatch,
     IdentityCapacityExceeded,
     ForeignBlock,
@@ -242,7 +316,7 @@ pub enum DiagnosticMirUnitBuildFailure {
     MissingFrameState,
 }
 
-impl DiagnosticMirUnitBuildFailure {
+impl DiagnosticMirUnitBuildFailureKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::SourceOriginMismatch => "executable_code_source_declaration_mismatch",

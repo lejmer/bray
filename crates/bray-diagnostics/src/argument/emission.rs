@@ -11,7 +11,8 @@ pub use backend::{
 pub use lowering::{
     DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
     DiagnosticLoweringInputFailureKind, DiagnosticMirUnitBuildFailure,
-    DiagnosticSourceConstructKind,
+    DiagnosticMirUnitBuildFailureContext, DiagnosticMirUnitBuildFailureKind,
+    DiagnosticMirUnitLocalIdentity, DiagnosticSourceConstructKind,
 };
 pub use product::{
     DiagnosticNativeLinkInputFailure, DiagnosticNativeProductFailureDetail,

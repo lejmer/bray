@@ -2,6 +2,7 @@ use bray_diagnostics::{
     DiagnosticFailureField, DiagnosticFailureValue, DiagnosticProductQueryFailure,
 };
 
+use super::context::product_query_context;
 use super::mir::{push_mir_call_target, push_mir_helper};
 use crate::compilation::product::ProductSynchronizationComponent;
 use crate::compilation::{
@@ -481,47 +482,6 @@ fn backend_selection_failure(
     }
 }
 
-fn product_query_context(context: &ProductQueryContext) -> Vec<DiagnosticFailureField> {
-    use ProductQueryContext as Context;
-
-    let kind = match context {
-        Context::Product(_) => "product",
-        Context::Function(_) => "function",
-        Context::Symbol(_) => "symbol",
-        Context::Declaration(_) => "declaration",
-        Context::Container(_) => "container",
-        Context::ModulePath { .. } => "module_path",
-        Context::SymbolKey(_) => "symbol_key",
-        Context::Source(_) => "source",
-        Context::Target(_) => "target",
-        Context::Instance(_) => "instance",
-        Context::CallSite(_) => "call_site",
-        Context::CodegenUnit(_) => "codegen_unit",
-        Context::CodegenStatic(_) => "codegen_static",
-        Context::CallableData(_) => "callable_data",
-        Context::Implementation(_) => "implementation",
-        Context::StaticReference(_) => "static_reference",
-        Context::Substitution(_) => "substitution",
-        Context::GenericOwner(_) => "generic_owner",
-        Context::Type(_) => "type",
-        Context::ImplementationRequirement(_) => "implementation_requirement",
-        Context::MirUnit(_) => "mir_unit",
-        Context::MirHelper(_) => "mir_helper",
-        Context::UnaryRepresentation { .. } => "unary_representation",
-        Context::Operation { .. } => "operation",
-        Context::MirOperation { .. } => "mir_operation",
-        Context::CallableDefinition(_) => "callable_definition",
-        Context::SourceLocation { .. } => "source_location",
-        Context::CompilerKnownRepresentation(_) => "compiler_known_representation",
-        Context::CompilerKnownDeclaration(_) => "compiler_known_declaration",
-    };
-
-    vec![
-        text_field("product_context_kind", kind),
-        identity_field("product_context_identity", context),
-    ]
-}
-
 fn context_with_data(
     context: &ProductQueryContext,
     data: ProductDataKind,
@@ -761,7 +721,10 @@ mod tests {
     use bray_diagnostics::DiagnosticFailureValue;
     use bray_symbols::{AnySymbolId, FunctionSymbolId, SymbolId, SymbolKind};
 
-    use super::{diagnostic_product_query_failure, push_mir_call_target, push_mir_helper};
+    use super::{
+        diagnostic_product_query_failure, product_query_context, push_mir_call_target,
+        push_mir_helper,
+    };
     use crate::compilation::{
         ProductQueryError, ProductQueryFailure, ProductSynchronizationComponent,
     };
@@ -820,6 +783,23 @@ mod tests {
             names,
             ["substitution_cause", "parameter_count", "argument_count",]
         );
+    }
+
+    #[test]
+    fn source_location_context_preserves_source_and_byte_offset() {
+        let fields =
+            product_query_context(&crate::compilation::ProductQueryContext::SourceLocation {
+                source: bray_source::SourceId::new(23),
+                offset: bray_source::TextSize::new(47),
+            });
+
+        assert_eq!(
+            fields.iter().map(|field| field.name()).collect::<Vec<_>>(),
+            ["product_context_kind", "source", "source_offset"]
+        );
+
+        assert_eq!(fields[1].value(), &DiagnosticFailureValue::Count(23));
+        assert_eq!(fields[2].value(), &DiagnosticFailureValue::Count(47));
     }
 
     #[test]

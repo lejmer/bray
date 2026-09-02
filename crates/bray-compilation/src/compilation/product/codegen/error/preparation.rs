@@ -128,7 +128,7 @@ const fn codegen_instance_failure(error: CodegenInstanceBuildError) -> &'static 
     }
 }
 
-const fn codegen_unit_preparation_failure(error: CodegenUnitBuildError) -> &'static str {
+pub(super) const fn codegen_unit_preparation_failure(error: CodegenUnitBuildError) -> &'static str {
     match error {
         CodegenUnitBuildError::Empty => "codegen_unit_empty",
         CodegenUnitBuildError::DuplicateInstance => "codegen_unit_duplicate_instance",
@@ -242,79 +242,42 @@ fn runtime_role_signature_failure_detail(
     )
 }
 
-fn mir_unit_failure_detail(
+pub(super) fn mir_unit_failure_detail(
     reason: &'static str,
     error: bray_ir::MirUnitBuildError,
 ) -> DiagnosticNativeProductFailureDetail {
-    use bray_ir::MirUnitBuildError as Error;
+    use bray_diagnostics::DiagnosticMirUnitBuildFailureContext as Context;
 
-    let mut context = vec![text_failure_field(
-        "cause",
-        crate::compilation::lowering_diagnostic::mir_unit_failure(&error).as_str(),
-    )];
+    let failure = crate::compilation::lowering_diagnostic::mir_unit_failure(&error);
+    let mut context = vec![text_failure_field("cause", failure.as_str())];
 
-    match error {
-        Error::ForeignBlock { expected, actual } => {
-            context.push(count_failure_field("expected_unit", expected.raw()));
-            context.push(count_failure_field("actual_unit", actual.raw()));
+    match failure.context() {
+        Context::None => {}
+        Context::UnitMismatch { expected, actual } => {
+            context.push(count_failure_field("expected_unit", expected));
+            context.push(count_failure_field("actual_unit", actual));
         }
-        Error::ForeignOperation(id)
-        | Error::MissingOperation(id)
-        | Error::MissingOperationResult(id)
-        | Error::UnexpectedOperationResult(id)
-        | Error::OperationResultTypeMismatch(id)
-        | Error::InvalidAggregateOperation(id)
-        | Error::InvalidMemoryOperation(id)
-        | Error::InvalidAnonymousCallable(id)
-        | Error::InvalidConstructionInput(id)
-        | Error::InvalidCall(id)
-        | Error::InvalidHostOperation(id)
-        | Error::InvalidOperationBlock(id) => {
-            push_mir_local_identity(&mut context, "operation", id.unit(), id.slot())
+        Context::Operation(identity) => {
+            push_mir_local_identity(&mut context, "operation", identity)
         }
-        Error::ForeignStorage(id)
-        | Error::MissingStorage(id)
-        | Error::StorageKindMismatch(id)
-        | Error::StorageTypeMismatch(id) => {
-            push_mir_local_identity(&mut context, "storage", id.unit(), id.slot());
+        Context::Storage(identity) => {
+            push_mir_local_identity(&mut context, "storage", identity);
         }
-        Error::ForeignValue(id) | Error::MissingValue(id) | Error::ValueDoesNotDominateUse(id) => {
-            push_mir_local_identity(&mut context, "value", id.unit(), id.slot());
+        Context::Value(identity) => {
+            push_mir_local_identity(&mut context, "value", identity);
         }
-        Error::MissingBlock(id)
-        | Error::DuplicateTerminator(id)
-        | Error::MissingTerminator(id)
-        | Error::InvalidInlineAssemblyTerminator(id)
-        | Error::InvalidSuspensionPayload(id)
-        | Error::InvalidCallPanicCheck(id)
-        | Error::EdgeArgumentCountMismatch(id)
-        | Error::EdgeArgumentTypeMismatch(id)
-        | Error::DuplicateSwitchCase(id)
-        | Error::CleanupPhaseOrderViolation(id)
-        | Error::InvalidFrameStateEntry(id) => {
-            push_mir_local_identity(&mut context, "block", id.unit(), id.slot());
+        Context::Block(identity) => {
+            push_mir_local_identity(&mut context, "block", identity);
         }
-        Error::CleanupTargetMismatch { phase, target } => {
-            context.push(text_failure_field(
-                "cleanup_phase",
-                mir_cleanup_phase(phase),
-            ));
+        Context::CleanupTarget { phase, target } => {
+            context.push(text_failure_field("cleanup_phase", phase));
 
-            push_mir_local_identity(&mut context, "target_block", target.unit(), target.slot());
+            push_mir_local_identity(&mut context, "target_block", target);
         }
-        Error::RuntimeRoleMismatch { expected, actual } => {
-            context.push(text_failure_field("expected_role", expected.as_str()));
-            context.push(text_failure_field("actual_role", actual.as_str()));
+        Context::RuntimeRoleMismatch { expected, actual } => {
+            context.push(text_failure_field("expected_role", expected));
+            context.push(text_failure_field("actual_role", actual));
         }
-        Error::SourceOriginMismatch
-        | Error::IdentityCapacityExceeded
-        | Error::InvalidHostSequence
-        | Error::RuntimeAbiVersionMismatch
-        | Error::ProtectedFrameMismatch
-        | Error::MissingFrameDescriptor
-        | Error::DuplicateFrameDescriptor
-        | Error::UnexpectedFrameDescriptor
-        | Error::MissingFrameState => {}
     }
 
     failure_detail(reason, context)
@@ -323,8 +286,7 @@ fn mir_unit_failure_detail(
 fn push_mir_local_identity(
     context: &mut Vec<DiagnosticFailureField>,
     prefix: &'static str,
-    unit: bray_ir::MirUnitId,
-    slot: u32,
+    identity: bray_diagnostics::DiagnosticMirUnitLocalIdentity,
 ) {
     let unit_name = match prefix {
         "operation" => "operation_unit",
@@ -344,15 +306,8 @@ fn push_mir_local_identity(
         _ => "mir_slot",
     };
 
-    context.push(count_failure_field(unit_name, unit.raw()));
-    context.push(count_failure_field(slot_name, slot));
-}
-
-const fn mir_cleanup_phase(phase: bray_ir::MirCleanupPhase) -> &'static str {
-    match phase {
-        bray_ir::MirCleanupPhase::TaskCancellation => "task_cancellation",
-        bray_ir::MirCleanupPhase::LifecycleResolution => "lifecycle_resolution",
-    }
+    context.push(count_failure_field(unit_name, identity.unit()));
+    context.push(count_failure_field(slot_name, identity.slot()));
 }
 
 const fn mir_helper_kind(helper: &bray_ir::MirHelperReference) -> &'static str {

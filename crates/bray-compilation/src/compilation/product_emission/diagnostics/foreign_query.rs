@@ -4,7 +4,8 @@ use crate::compilation::{
     ForeignDataKind, ForeignQueryContext, ForeignQueryError, ForeignQueryFailure,
 };
 use crate::fact::diagnostic_context::{
-    identity_field, natural_field, semantic_type_kind, text_field,
+    boolean_field, count_field, identity_field, natural_field, push_symbol, semantic_type_kind,
+    text_field,
 };
 
 pub(super) fn diagnostic_foreign_query_failure(
@@ -180,21 +181,66 @@ const fn type_template_kind(template: &bray_symbols::TypeExpressionTemplate) -> 
 fn foreign_query_context(context: &ForeignQueryContext) -> Vec<DiagnosticFailureField> {
     use ForeignQueryContext as Context;
 
+    let mut fields = Vec::new();
+
     let kind = match context {
-        Context::Symbol(_) => "symbol",
-        Context::Function(_) => "function",
-        Context::Static(_) => "static",
-        Context::Directive(_) => "directive",
-        Context::Source(_) => "source",
-        Context::Substitution(_) => "substitution",
-        Context::CompilerKnownRepresentation { .. } => "compiler_known_representation",
-        Context::PlatformService(_) => "platform_service",
+        Context::Symbol(symbol) => {
+            push_symbol(&mut fields, "symbol_kind", "symbol", *symbol);
+
+            "symbol"
+        }
+        Context::Function(function) => {
+            push_symbol(&mut fields, "symbol_kind", "symbol", (*function).into());
+
+            "function"
+        }
+        Context::Static(value) => {
+            push_symbol(&mut fields, "symbol_kind", "symbol", (*value).into());
+
+            "static"
+        }
+        Context::Directive(anchor) => {
+            fields.extend([
+                count_field("source", u64::from(anchor.source_id().raw())),
+                count_field(
+                    "source_start",
+                    u64::from(anchor.full_range().start().bytes()),
+                ),
+                count_field("source_end", u64::from(anchor.full_range().end().bytes())),
+                boolean_field("source_recovered", anchor.is_recovered()),
+            ]);
+
+            "directive"
+        }
+        Context::Source(source) => {
+            fields.push(count_field("source", u64::from(source.raw())));
+
+            "source"
+        }
+        Context::Substitution(substitution) => {
+            fields.push(identity_field("substitution", substitution));
+
+            "substitution"
+        }
+        Context::CompilerKnownRepresentation { role, ty } => {
+            fields.push(text_field("representation_role", role.as_str()));
+
+            if let Some(ty) = ty {
+                fields.push(identity_field("semantic_type", ty));
+            }
+
+            "compiler_known_representation"
+        }
+        Context::PlatformService(role) => {
+            fields.push(text_field("platform_service_role", role.as_str()));
+
+            "platform_service"
+        }
     };
 
-    vec![
-        text_field("foreign_context_kind", kind),
-        identity_field("foreign_context_identity", context),
-    ]
+    fields.insert(0, text_field("foreign_context_kind", kind));
+
+    fields
 }
 
 fn context_with_data(
@@ -229,8 +275,8 @@ const fn foreign_data_kind(kind: ForeignDataKind) -> &'static str {
 mod tests {
     use bray_symbols::{CallableSignatureTemplateError, FunctionSymbolId, SymbolId};
 
-    use super::diagnostic_foreign_query_failure;
-    use crate::compilation::{ForeignQueryError, ForeignQueryFailure};
+    use super::{diagnostic_foreign_query_failure, foreign_query_context};
+    use crate::compilation::{ForeignQueryContext, ForeignQueryError, ForeignQueryFailure};
 
     #[test]
     fn foreign_query_conversion_uses_typed_function_and_cause_fields() {
@@ -277,6 +323,35 @@ mod tests {
                 "expected_store",
                 "actual_store",
             ]
+        );
+    }
+
+    #[test]
+    fn foreign_context_preserves_compiler_known_and_platform_roles() {
+        let representation =
+            foreign_query_context(&ForeignQueryContext::CompilerKnownRepresentation {
+                role: bray_compiler_known::RepresentationRole::ScalarBool,
+                ty: None,
+            });
+
+        let platform = foreign_query_context(&ForeignQueryContext::PlatformService(
+            bray_runtime_interface::PlatformServiceRole::StandardOutputWrite,
+        ));
+
+        assert_eq!(representation[1].name(), "representation_role");
+
+        assert_eq!(
+            representation[1].value(),
+            &bray_diagnostics::DiagnosticFailureValue::Text("ScalarBool".to_owned())
+        );
+
+        assert_eq!(platform[1].name(), "platform_service_role");
+
+        assert_eq!(
+            platform[1].value(),
+            &bray_diagnostics::DiagnosticFailureValue::Text(
+                "platform.standard_output.write".to_owned(),
+            )
         );
     }
 }

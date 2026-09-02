@@ -26,9 +26,10 @@ pub use emission::{
     DiagnosticCodegenVerificationStage, DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
     DiagnosticEmissionArtifactOperation, DiagnosticLoweringFailure, DiagnosticLoweringFailureKind,
     DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind,
-    DiagnosticMirUnitBuildFailure, DiagnosticNativeLinkInputFailure,
-    DiagnosticNativeProductFailureDetail, DiagnosticNativeProductFailureKind,
-    DiagnosticProductKind, DiagnosticSourceConstructKind,
+    DiagnosticMirUnitBuildFailure, DiagnosticMirUnitBuildFailureContext,
+    DiagnosticMirUnitBuildFailureKind, DiagnosticMirUnitLocalIdentity,
+    DiagnosticNativeLinkInputFailure, DiagnosticNativeProductFailureDetail,
+    DiagnosticNativeProductFailureKind, DiagnosticProductKind, DiagnosticSourceConstructKind,
 };
 pub use external::{
     DiagnosticExternalToolFailureKind, DiagnosticExternalToolOperation, DiagnosticIoErrorKind,

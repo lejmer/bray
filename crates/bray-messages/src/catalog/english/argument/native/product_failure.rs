@@ -39,16 +39,16 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::UnitTargetMismatch
         | Kind::UnitWorkBoundExceeded
         | Kind::UnitRecipeMismatch
-        | Kind::PartitionMissingCompatibility
-        | Kind::PartitionInvalidUnit
-        | Kind::GeneratedHostMirInvalid
-        | Kind::ExecutableHostDuplicateRole
+        | Kind::PartitionMissingCompatibility(_)
+        | Kind::PartitionInvalidUnit(_)
+        | Kind::GeneratedHostMirInvalid(_)
+        | Kind::ExecutableHostDuplicateRole(_)
         | Kind::ExecutableHostMissingRuntime
-        | Kind::ExecutableHostRuntimeOwnedBinding
-        | Kind::ExecutableHostIncompatibleRuntime
+        | Kind::ExecutableHostRuntimeOwnedBinding(_)
+        | Kind::ExecutableHostIncompatibleRuntime(_)
         | Kind::ExecutableHostMissingMainThreadLane
         | Kind::ExecutableHostMissingProtectedFrameAbi
-        | Kind::ExecutableHostMissingRole
+        | Kind::ExecutableHostMissingRole(_)
         | Kind::EmissionBackendDuplicateUnit
         | Kind::CodegenBackendInvalidConfiguration
         | Kind::CodegenBackendResourceExhausted

@@ -3,7 +3,7 @@ use serde::Serialize;
 use super::super::DiagnosticInterfaceSymbolIdentityJson;
 use super::super::{
     DiagnosticArtifactDigestJson, DiagnosticExternalToolExitJson, DiagnosticOutputSinkJson,
-    DiagnosticProblemJson,
+    DiagnosticPathJson, DiagnosticProblemJson,
 };
 use super::context::{
     codegen_failure_context, evaluation_failure_context, link_plan_failure_context,
@@ -82,8 +82,8 @@ pub(super) enum DiagnosticEmissionFieldValueJson {
     LinkedArtifactKind(&'static str),
     LinkedProductKind(&'static str),
     Natural(String),
+    Path(DiagnosticPathJson),
     OutputSink(DiagnosticOutputSinkJson),
-    Path(String),
     Problem(DiagnosticProblemJson),
     ProductKind(&'static str),
     Signed(i64),

@@ -6,8 +6,6 @@ use super::failure::{
     DiagnosticEmissionFieldJson, DiagnosticEmissionFieldValueJson, artifact_field, count_field,
     count_u64_field, digest_field, field, text_field,
 };
-use crate::output::path_to_output_string;
-
 use super::foreign_query::foreign_query_failure_context;
 use super::product_query::product_query_failure_context;
 
@@ -236,18 +234,8 @@ pub(super) fn evaluation_failure_context(
             Some(failure) => semantic_value_failure_context(failure),
             None => diagnostic_failure_context(failure.context()),
         },
-        Failure::LoweringInput(failure) => match failure.kind() {
-            bray_diagnostics::DiagnosticLoweringInputFailureKind::SemanticValue(failure) => {
-                semantic_value_failure_context(failure)
-            }
-            _ => vec![text_field("cause", failure.as_str())],
-        },
-        Failure::Lowering(failure) => match failure.kind() {
-            bray_diagnostics::DiagnosticLoweringFailureKind::SemanticValue(failure) => {
-                semantic_value_failure_context(failure)
-            }
-            _ => vec![text_field("cause", failure.as_str())],
-        },
+        Failure::LoweringInput(failure) => lowering_input_failure_context(*failure),
+        Failure::Lowering(failure) => lowering_failure_context(*failure),
         Failure::Product(failure) => product_query_failure_context(failure),
         Failure::Foreign(failure) => foreign_query_failure_context(failure),
         _ => vec![text_field("cause", failure.as_str())],
@@ -324,6 +312,11 @@ pub(in crate::output::diagnostic::json) fn diagnostic_failure_context(
                 bray_diagnostics::DiagnosticFailureValue::Natural(value) => {
                     DiagnosticEmissionFieldValueJson::Natural(value.clone())
                 }
+                bray_diagnostics::DiagnosticFailureValue::Path(value) => {
+                    DiagnosticEmissionFieldValueJson::Path(
+                        super::super::DiagnosticPathJson::from_path(value),
+                    )
+                }
                 bray_diagnostics::DiagnosticFailureValue::Signed(value) => {
                     DiagnosticEmissionFieldValueJson::Signed(*value)
                 }
@@ -338,6 +331,88 @@ pub(in crate::output::diagnostic::json) fn diagnostic_failure_context(
             field(diagnostic_field.name(), value)
         })
         .collect()
+}
+
+pub(in crate::output::diagnostic::json) fn lowering_input_failure_context(
+    failure: bray_diagnostics::DiagnosticLoweringInputFailure,
+) -> Vec<DiagnosticEmissionFieldJson> {
+    use bray_diagnostics::DiagnosticLoweringInputFailureKind as Failure;
+
+    match failure.kind() {
+        Failure::SemanticValue(failure) => semantic_value_failure_context(failure),
+        Failure::StorageOperationCountMismatch { expected, actual } => vec![
+            text_field("cause", failure.as_str()),
+            count_u64_field("expected", expected),
+            count_u64_field("actual", actual),
+        ],
+        Failure::LiteralTargetWidthMismatch { expected, actual } => vec![
+            text_field("cause", failure.as_str()),
+            count_u64_field("expected", u64::from(expected)),
+            count_u64_field("actual", u64::from(actual)),
+        ],
+        _ => vec![text_field("cause", failure.as_str())],
+    }
+}
+
+pub(in crate::output::diagnostic::json) fn lowering_failure_context(
+    failure: bray_diagnostics::DiagnosticLoweringFailure,
+) -> Vec<DiagnosticEmissionFieldJson> {
+    match failure.kind() {
+        bray_diagnostics::DiagnosticLoweringFailureKind::SemanticValue(failure) => {
+            semantic_value_failure_context(failure)
+        }
+        bray_diagnostics::DiagnosticLoweringFailureKind::Mir(failure) => {
+            mir_unit_failure_context(failure)
+        }
+        _ => vec![text_field("cause", failure.as_str())],
+    }
+}
+
+fn mir_unit_failure_context(
+    failure: bray_diagnostics::DiagnosticMirUnitBuildFailure,
+) -> Vec<DiagnosticEmissionFieldJson> {
+    use bray_diagnostics::DiagnosticMirUnitBuildFailureContext as Context;
+
+    let mut context = vec![text_field("cause", failure.as_str())];
+
+    match failure.context() {
+        Context::None => {}
+        Context::UnitMismatch { expected, actual } => {
+            context.push(count_u64_field("expected_unit", u64::from(expected)));
+            context.push(count_u64_field("actual_unit", u64::from(actual)));
+        }
+        Context::Block(identity) => {
+            push_mir_identity(&mut context, "block", identity);
+        }
+        Context::Operation(identity) => {
+            push_mir_identity(&mut context, "operation", identity);
+        }
+        Context::Storage(identity) => {
+            push_mir_identity(&mut context, "storage", identity);
+        }
+        Context::Value(identity) => {
+            push_mir_identity(&mut context, "value", identity);
+        }
+        Context::CleanupTarget { phase, target } => {
+            context.push(text_field("cleanup_phase", phase));
+            push_mir_identity(&mut context, "target_block", target);
+        }
+        Context::RuntimeRoleMismatch { expected, actual } => {
+            context.push(text_field("expected_runtime_role", expected));
+            context.push(text_field("actual_runtime_role", actual));
+        }
+    }
+
+    context
+}
+
+fn push_mir_identity(
+    context: &mut Vec<DiagnosticEmissionFieldJson>,
+    name: &'static str,
+    identity: bray_diagnostics::DiagnosticMirUnitLocalIdentity,
+) {
+    context.push(count_u64_field("mir_unit", u64::from(identity.unit())));
+    context.push(count_u64_field(name, u64::from(identity.slot())));
 }
 
 pub(in crate::output::diagnostic::json) fn semantic_value_failure_context(
@@ -561,7 +636,9 @@ pub(super) fn link_plan_failure_context(
         ],
         Failure::InvalidOutputPath(path) => vec![field(
             "path",
-            DiagnosticEmissionFieldValueJson::Path(path_to_output_string(path)),
+            DiagnosticEmissionFieldValueJson::Path(super::super::DiagnosticPathJson::from_path(
+                path,
+            )),
         )],
         Failure::Incomplete
         | Failure::MissingLinkedProduct
@@ -604,8 +681,8 @@ mod tests {
     };
 
     use super::{
-        diagnostic_failure_context, package_interface_failure_context,
-        semantic_value_failure_context,
+        diagnostic_failure_context, lowering_input_failure_context,
+        package_interface_failure_context, semantic_value_failure_context,
     };
 
     fn package(name: &str) -> DiagnosticInterfaceSymbolIdentity {
@@ -665,6 +742,33 @@ mod tests {
             context[0]["value"]["value"]["context"][1]["value"]["value"],
             29
         );
+    }
+
+    #[test]
+    fn lowering_count_mismatches_serialize_expected_and_actual_values() {
+        let context = lowering_input_failure_context(
+            bray_diagnostics::DiagnosticLoweringInputFailure::new(
+            bray_diagnostics::DiagnosticLoweringInputFailureKind::StorageOperationCountMismatch {
+                expected: 5,
+                actual: 8,
+            },
+                bray_source::SourceSpan::new(
+                    bray_source::SourceId::new(2),
+                    bray_source::TextRange::new(
+                        bray_source::TextSize::new(3),
+                        bray_source::TextSize::new(4),
+                    ),
+                ),
+            ),
+        );
+
+        let context = serde_json::to_value(context)
+            .unwrap_or_else(|error| panic!("lowering context should serialize: {error:?}"));
+
+        assert_eq!(context[1]["name"], "expected");
+        assert_eq!(context[1]["value"]["value"], 5);
+        assert_eq!(context[2]["name"], "actual");
+        assert_eq!(context[2]["value"]["value"], 8);
     }
 
     #[test]
