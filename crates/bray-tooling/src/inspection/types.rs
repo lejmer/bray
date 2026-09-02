@@ -40,7 +40,7 @@ impl InspectionType {
         template: &TypeExpressionTemplate,
     ) -> Result<Self, TypeInspectionError> {
         let mut formatter = TypeFormatter::new(semantic_values, symbols);
-        let type_kind = template_kind(template);
+        let type_kind = template.kind_name();
         let text = formatter.template(template, 0)?;
 
         Ok(Self {
@@ -421,26 +421,6 @@ fn format_borrow(kind: BorrowKind, target: String) -> String {
     match kind {
         BorrowKind::Shared => format!("&{target}"),
         BorrowKind::Mutable => format!("&mut {target}"),
-    }
-}
-
-fn template_kind(template: &TypeExpressionTemplate) -> &'static str {
-    match template {
-        TypeExpressionTemplate::Resolved(_) => "resolved",
-        TypeExpressionTemplate::Named { .. } => "named",
-        TypeExpressionTemplate::CallableContract { .. } => "callable_contract",
-        TypeExpressionTemplate::TypeValuedMemberProjection { .. } => {
-            "type_valued_member_projection"
-        }
-        TypeExpressionTemplate::Tuple(_) => "tuple",
-        TypeExpressionTemplate::Array { .. } => "array",
-        TypeExpressionTemplate::FlexibleArray(_) => "flexible_array",
-        TypeExpressionTemplate::Slice(_) => "slice",
-        TypeExpressionTemplate::Nullable(_) => "nullable",
-        TypeExpressionTemplate::Borrow { .. } => "borrow",
-        TypeExpressionTemplate::TraitView(_) => "trait_view",
-        TypeExpressionTemplate::OwnedIndirection { .. } => "owned_indirection",
-        TypeExpressionTemplate::Callable(_) => "callable",
     }
 }
 

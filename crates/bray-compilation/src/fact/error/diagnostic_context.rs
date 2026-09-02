@@ -210,7 +210,7 @@ pub(crate) fn push_type_template_data(
     use bray_symbols::TypeExpressionTemplate as Template;
 
     context.extend([
-        text_field("actual_type_template_kind", type_template_kind(template)),
+        text_field("actual_type_template_kind", template.kind_name()),
         identity_field("actual_type_template", template),
     ]);
 
@@ -280,26 +280,6 @@ pub(crate) fn push_type_template_data(
             identity_field("actual_callable_result", callable.result()),
             identity_field("actual_callable_contract", callable),
         ]),
-    }
-}
-
-const fn type_template_kind(template: &bray_symbols::TypeExpressionTemplate) -> &'static str {
-    use bray_symbols::TypeExpressionTemplate as Template;
-
-    match template {
-        Template::Resolved(_) => "resolved",
-        Template::Named { .. } => "named",
-        Template::CallableContract { .. } => "callable_contract",
-        Template::TypeValuedMemberProjection { .. } => "type_valued_member_projection",
-        Template::Tuple(_) => "tuple",
-        Template::Array { .. } => "array",
-        Template::FlexibleArray(_) => "flexible_array",
-        Template::Slice(_) => "slice",
-        Template::Nullable(_) => "nullable",
-        Template::Borrow { .. } => "borrow",
-        Template::TraitView(_) => "trait_view",
-        Template::OwnedIndirection { .. } => "owned_indirection",
-        Template::Callable(_) => "callable",
     }
 }
 

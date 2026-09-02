@@ -10,6 +10,7 @@ pub use checker::{
     DiagnosticCheckerNode, DiagnosticCheckerSymbol, DiagnosticConstantEvaluationFailure,
     DiagnosticConstantInputFailure, DiagnosticGenericSubstitutionFailure,
     DiagnosticLiteralValueFailure, DiagnosticPatternInputFailure,
+    DiagnosticLivenessFailure, DiagnosticMemoryOperationsFailure,
     DiagnosticSemanticSelectionFailure, DiagnosticSemanticSnapshotFailure,
     DiagnosticStorageFlowFailure, DiagnosticStoragePlanFailure,
 };

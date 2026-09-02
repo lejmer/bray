@@ -23,6 +23,10 @@ pub enum DiagnosticCheckerFailure {
     AtomicRepresentationArgumentsUnavailable,
     AtomicInitializerArgumentUnavailable,
     AtomicInitializerResultUnavailable,
+    InvalidAtomicOperationInput {
+        hook: &'static str,
+        argument_count: usize,
+    },
     UninitInitializerResultUnavailable,
     ImportedExecutableTemplateMismatch,
     CompilerKnownRepresentationUnavailable(&'static str),
@@ -47,14 +51,31 @@ pub enum DiagnosticCheckerFailure {
     ConstantOperation(DiagnosticCheckerConstantOperationFailure),
     SelectionInputCapacityExceeded { count: usize },
     SelectionInputOrdinalUnrepresentable { ordinal: u32 },
+    SelectionDiagnosticCapacityExceeded {
+        kind: &'static str,
+        count: usize,
+    },
+    CallbackParameterOrdinalUnrepresentable { ordinal: usize },
     ConstantArrayLengthCapacityExceeded { length: usize },
     InvalidSemanticSelectionInput,
+    InvalidMemoryOperationInput {
+        hook: &'static str,
+    },
+    InvalidMemoryGenericArgument {
+        ordinal: usize,
+        actual: &'static str,
+    },
+    InvalidCallbackSignatureInput {
+        actual: &'static str,
+    },
     /// Final semantic-selection table construction rejected one exact relationship.
     SemanticSelection(DiagnosticSemanticSelectionFailure),
     InvalidConstantEvaluationInput,
     InvalidStoragePlan,
     StoragePlan(DiagnosticStoragePlanFailure),
+    MemoryOperations(DiagnosticMemoryOperationsFailure),
     InvalidLiveness,
+    Liveness(DiagnosticLivenessFailure),
     InvalidRefinementInput,
     RefinementCapacityUnrepresentable,
     RefinementStorageUnavailable,
@@ -108,6 +129,20 @@ pub enum DiagnosticStoragePlanFailure {
     MissingBorrowCapability,
     DuplicateBinding,
     BindingIdentityMismatch,
+}
+
+/// Exact checked memory-operation table failure retained across compiler boundaries.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticMemoryOperationsFailure {
+    ForeignUnit,
+    DuplicateExpression,
+}
+
+/// Exact durable liveness failure retained across compiler boundaries.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticLivenessFailure {
+    ForeignUnit,
+    UnsupportedSubject,
 }
 
 /// Locale-neutral identity retained for a declaration involved in a checker failure.
@@ -330,6 +365,7 @@ impl DiagnosticCheckerFailure {
             }
             Self::AtomicInitializerArgumentUnavailable => "atomic_initializer_argument_unavailable",
             Self::AtomicInitializerResultUnavailable => "atomic_initializer_result_unavailable",
+            Self::InvalidAtomicOperationInput { .. } => "checker_invalid_atomic_operation_input",
             Self::UninitInitializerResultUnavailable => "uninit_initializer_result_unavailable",
             Self::ImportedExecutableTemplateMismatch => "imported_executable_template_mismatch",
             Self::CompilerKnownRepresentationUnavailable(_) => {
@@ -349,15 +385,32 @@ impl DiagnosticCheckerFailure {
             Self::SelectionInputOrdinalUnrepresentable { .. } => {
                 "checker_selection_input_ordinal_unrepresentable"
             }
+            Self::SelectionDiagnosticCapacityExceeded { .. } => {
+                "checker_selection_diagnostic_capacity_exceeded"
+            }
+            Self::CallbackParameterOrdinalUnrepresentable { .. } => {
+                "checker_callback_parameter_ordinal_unrepresentable"
+            }
             Self::ConstantArrayLengthCapacityExceeded { .. } => {
                 "checker_constant_array_length_capacity_exceeded"
             }
             Self::InvalidSemanticSelectionInput => "checker_invalid_semantic_selection_input",
+            Self::InvalidMemoryOperationInput { .. } => {
+                "checker_invalid_memory_operation_input"
+            }
+            Self::InvalidMemoryGenericArgument { .. } => {
+                "checker_invalid_memory_generic_argument"
+            }
+            Self::InvalidCallbackSignatureInput { .. } => {
+                "checker_invalid_callback_signature_input"
+            }
             Self::SemanticSelection(_) => "checker_semantic_selection_failure",
             Self::InvalidConstantEvaluationInput => "checker_invalid_constant_evaluation_input",
             Self::InvalidStoragePlan => "checker_invalid_storage_plan",
             Self::StoragePlan(_) => "checker_storage_plan_failure",
+            Self::MemoryOperations(_) => "checker_memory_operations_failure",
             Self::InvalidLiveness => "checker_invalid_liveness",
+            Self::Liveness(_) => "checker_liveness_failure",
             Self::InvalidRefinementInput => "checker_invalid_refinement_input",
             Self::RefinementCapacityUnrepresentable => {
                 "checker_refinement_capacity_unrepresentable"

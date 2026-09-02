@@ -174,8 +174,12 @@ where
         let diagnostic_candidates = match diagnostic_candidates {
             Ok(candidates) => candidates,
             Err(_) => {
+                // rust-style: allow(context-erasing-failure-conversion, reason = "summary build error has no payload and the exact candidate count is retained")
                 return CheckerOutcome::InfrastructureFailure(
-                    crate::CheckerInfrastructureError::SemanticValueUnavailable,
+                    crate::CheckerInfrastructureError::SelectionDiagnosticCapacityExceeded {
+                        kind: "candidates",
+                        count: candidates.len(),
+                    },
                 );
             }
         };
@@ -216,8 +220,12 @@ where
             match DiagnosticSelectionRejections::try_from_prefix(retained, rejections.len()) {
                 Ok(rejections) => rejections,
                 Err(_) => {
+                    // rust-style: allow(context-erasing-failure-conversion, reason = "summary build error has no payload and the exact rejection count is retained")
                     return CheckerOutcome::InfrastructureFailure(
-                        crate::CheckerInfrastructureError::SemanticValueUnavailable,
+                        crate::CheckerInfrastructureError::SelectionDiagnosticCapacityExceeded {
+                            kind: "rejections",
+                            count: rejections.len(),
+                        },
                     );
                 }
             };

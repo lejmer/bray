@@ -243,9 +243,9 @@ where
         false,
     ) {
         Ok(operations) => operations,
-        Err(_) => {
+        Err(error) => {
             return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                CheckerInfrastructureError::MemoryOperations(error),
             );
         }
     };
@@ -306,9 +306,11 @@ where
 
             (callable.abi(), callable.trust())
         }
-        _ => {
+        actual => {
             return Err(CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                CheckerInfrastructureError::InvalidCallbackSignatureInput {
+                    actual: actual.kind_name(),
+                },
             ));
         }
     };
@@ -386,8 +388,9 @@ where
 
     if ordinal != 0 {
         let actual_ordinal = u64::try_from(ordinal).map_err(|_| {
+            // rust-style: allow(context-erasing-failure-conversion, reason = "integer conversion error has no payload and the exact ordinal is retained")
             CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                CheckerInfrastructureError::CallbackParameterOrdinalUnrepresentable { ordinal },
             )
         })?;
 

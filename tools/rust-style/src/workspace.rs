@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use ra_ap_syntax::{Edition, SourceFile};
 
 use super::diagnostic::{Diagnostic, Severity};
-use super::{blank_line, exemption, source, structure};
+use super::{blank_line, exemption, failure, source, structure};
 
 /// Applies deterministic fixes and then validates every Rust source file under `root`.
 ///
@@ -53,11 +53,12 @@ fn fix_sources(paths: &[PathBuf]) -> Result<usize, String> {
 }
 
 fn validate_workspace(root: &Path, paths: &[PathBuf]) -> Result<(), String> {
+    let failure_policy = failure::Policy::from_paths(paths)?;
     let mut error_count = 0;
 
     for path in paths {
         let source = read_source(path)?;
-        let diagnostics = source_diagnostics(path, &source);
+        let diagnostics = source_diagnostics(path, &source, &failure_policy);
         let relative_path = path.strip_prefix(root).unwrap_or(path);
 
         for diagnostic in diagnostics {
@@ -81,11 +82,16 @@ fn validate_workspace(root: &Path, paths: &[PathBuf]) -> Result<(), String> {
     }
 }
 
-fn source_diagnostics(path: &Path, source: &str) -> Vec<Diagnostic> {
+fn source_diagnostics(
+    path: &Path,
+    source: &str,
+    failure_policy: &failure::Policy,
+) -> Vec<Diagnostic> {
     let file = SourceFile::parse(source, Edition::Edition2024).tree();
     let mut diagnostics = blank_line::check_source(source);
 
     diagnostics.extend(structure::check(path, source, &file));
+    diagnostics.extend(failure::check(path, source, &file, failure_policy));
 
     let mut diagnostics = exemption::apply(source, &file, diagnostics);
     diagnostics.sort_by_key(|diagnostic| (diagnostic.offset, diagnostic.rule));

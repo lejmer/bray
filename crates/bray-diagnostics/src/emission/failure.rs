@@ -46,6 +46,7 @@ pub enum DiagnosticEmissionFailure {
     InvalidContribution(DiagnosticEmissionArtifact),
     Publication(DiagnosticEmissionArtifact),
     Linking,
+    // rust-style: broad-failure
     IncompleteProduct,
 }
 
@@ -137,6 +138,7 @@ pub enum DiagnosticEmissionPlanningFailure {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticPackageInterfaceFailure {
     Unavailable,
+    // rust-style: broad-failure
     InvalidCompilation,
     InvalidCompilationCause {
         reason: &'static str,

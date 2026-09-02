@@ -88,6 +88,7 @@ pub use emission::{
     DiagnosticEmissionStagingFailure, DiagnosticEvaluationFailureDetail,
     DiagnosticFactRuntimeFailure, DiagnosticFailureField, DiagnosticFailureValue,
     DiagnosticForeignQueryFailure, DiagnosticGenericSubstitutionFailure,
+    DiagnosticLivenessFailure, DiagnosticMemoryOperationsFailure,
     DiagnosticHostEnvironmentVariable,
     DiagnosticLiteralValueFailure, DiagnosticLlvmToolRole, DiagnosticPackageInterfaceFailure,
     DiagnosticPatternInputFailure, DiagnosticProductQueryFailure, DiagnosticSemanticQueryFailure,

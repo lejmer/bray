@@ -330,6 +330,7 @@ impl Compilation {
 
         if diagnostics.has_errors() {
             return Err(ProductEmissionError::new(
+                // rust-style: allow(context-erasing-failure-conversion, reason = "the emission diagnostic bag retains the exact causes")
                 ProductEmissionErrorKind::InvalidCompilation,
                 diagnostics,
                 &product,

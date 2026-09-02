@@ -5,6 +5,7 @@
 mod blank_line;
 mod diagnostic;
 mod exemption;
+mod failure;
 mod source;
 mod structure;
 mod workspace;

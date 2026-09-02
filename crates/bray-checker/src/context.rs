@@ -4,9 +4,10 @@ use bray_base::Cancellation;
 use bray_bound_tree::{
     AnyBoundNodeId, AsyncAnalysisBuildError, BorrowCapabilityId, BoundBlockId,
     BoundDependencyContractId, BoundExpressionId, BoundPatternId, BoundSourceAnchor, BoundUnit,
-    BoundUnitId, BoundUnitKind, DependencyContractsBuildError, SemanticSelectionTableBuildError,
-    SemanticSnapshotBuildError, StorageAccessId, StorageFlowBuildError, StorageIdentityId,
-    StorageOperationStatus, StoragePlanBuildError,
+    BoundUnitId, BoundUnitKind, CheckedMemoryOperationsBuildError, DependencyContractsBuildError,
+    LivenessBuildError, SemanticSelectionTableBuildError, SemanticSnapshotBuildError,
+    StorageAccessId, StorageFlowBuildError, StorageIdentityId, StorageOperationStatus,
+    StoragePlanBuildError,
 };
 use bray_compiler_known::{ImplementationHook, RepresentationRole};
 use bray_diagnostics::DiagnosticResult;
@@ -14,7 +15,7 @@ use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 use bray_symbols::{
     AnyLocalSymbolId, AnySymbolId, AvailableCompilerKnownSymbols, ConstantTermId,
     DeclaredTypeRepresentation, GenericConstraintObligationKey, ImplementationRequirementKey,
-    GenericSubstitutionShapeError, ImplementationSelection, LocalBindingSymbolId,
+    GenericArgumentKind, GenericSubstitutionShapeError, ImplementationSelection, LocalBindingSymbolId,
     MemberLookupResult, NamedTypeSymbolId,
     ProofOutcome, SemanticValueStore, StructSymbol, StructSymbolId, SymbolGraph, SymbolKey,
     SymbolName, SymbolQueryContract, SymbolQueryKind, SymbolQueryRequest, TraitApplicationId,
@@ -68,6 +69,13 @@ pub enum CheckerInfrastructureError {
     AtomicInitializerArgumentUnavailable,
     /// The atomic initializer result cannot be retained as a compile-time value.
     AtomicInitializerResultUnavailable,
+    /// Atomic classification received a hook outside the atomic operation catalog.
+    InvalidAtomicOperationInput {
+        /// Unexpected compiler-known hook.
+        hook: ImplementationHook,
+        /// Number of parsed atomic generic arguments.
+        argument_count: usize,
+    },
     /// The uninitialized-storage initializer result cannot be retained as a compile-time value.
     UninitInitializerResultUnavailable,
     /// An imported native operation does not match its compiled definition.
@@ -117,6 +125,18 @@ pub enum CheckerInfrastructureError {
         /// Exact callable parameter ordinal.
         ordinal: u32,
     },
+    /// A diagnostic selection summary cannot represent the complete candidate count.
+    SelectionDiagnosticCapacityExceeded {
+        /// Diagnostic selection summary category.
+        kind: &'static str,
+        /// Exact candidate or rejection count.
+        count: usize,
+    },
+    /// A callback parameter position cannot be represented by the diagnostic protocol.
+    CallbackParameterOrdinalUnrepresentable {
+        /// Exact zero-based parameter position.
+        ordinal: usize,
+    },
     /// A constant array length cannot be represented by the semantic-value protocol.
     ConstantArrayLengthCapacityExceeded {
         /// Exact array length that exceeded the protocol.
@@ -124,6 +144,23 @@ pub enum CheckerInfrastructureError {
     },
     /// Semantic-selection inputs do not describe the requested bound unit or operation category.
     InvalidSemanticSelectionInput,
+    /// Memory-operation classification received a hook outside its operation catalog.
+    InvalidMemoryOperationInput {
+        /// Unexpected compiler-known hook.
+        hook: ImplementationHook,
+    },
+    /// A memory operation received a generic argument with the wrong category.
+    InvalidMemoryGenericArgument {
+        /// Stable zero-based generic argument position.
+        ordinal: usize,
+        /// Actual argument category.
+        actual: GenericArgumentKind,
+    },
+    /// Callback validation received a non-callable type-expression template.
+    InvalidCallbackSignatureInput {
+        /// Actual type-expression template category.
+        actual: &'static str,
+    },
     /// Construction of the final semantic-selection table rejected one exact relationship.
     SemanticSelection(SemanticSelectionTableBuildError),
     /// Constant-evaluation inputs do not describe the requested bound unit.
@@ -132,8 +169,12 @@ pub enum CheckerInfrastructureError {
     InvalidStoragePlan,
     /// The storage-plan builder rejected one exact relationship.
     StoragePlan(StoragePlanBuildError),
+    /// Final checked memory-operation table construction rejected one exact relationship.
+    MemoryOperations(CheckedMemoryOperationsBuildError),
     /// Liveness inputs or durable decisions violate the requested unit contract.
     InvalidLiveness,
+    /// Durable liveness construction rejected one exact relationship.
+    Liveness(LivenessBuildError),
     /// Refinement inputs do not describe the requested bound unit.
     InvalidRefinementInput,
     /// Refinement resource counts cannot be represented by the diagnostic protocol.

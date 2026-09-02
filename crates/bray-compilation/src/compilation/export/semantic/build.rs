@@ -346,6 +346,7 @@ fn native_boundaries(
                     .map_err(super::super::invalid_compilation_fact_error)?;
 
                 if contract.diagnostics().has_errors() {
+                    // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
                     return Err(PackageInterfaceExportError::InvalidCompilation);
                 }
 
@@ -365,6 +366,7 @@ fn native_boundaries(
                     .map_err(super::super::invalid_compilation_fact_error)?;
 
                 if contract.diagnostics().has_errors() {
+                    // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
                     return Err(PackageInterfaceExportError::InvalidCompilation);
                 }
 
@@ -548,6 +550,7 @@ fn export_executable_template_family(
         })?;
 
         if lowered.diagnostics().has_errors() {
+            // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
             return Err(PackageInterfaceExportError::InvalidCompilation);
         }
 
@@ -629,6 +632,7 @@ fn executable_template_family(
         .into_iter()
         .map(|bound| {
             if bound.diagnostics().has_errors() {
+                // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
                 return Err(PackageInterfaceExportError::InvalidCompilation);
             }
 

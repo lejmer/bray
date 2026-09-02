@@ -66,11 +66,28 @@ pub(in crate::output::diagnostic::json) fn checker_failure_context(
         Failure::ConstantOperation(failure) => {
             push_constant_operation_failure(&mut fields, failure);
         }
+        Failure::InvalidAtomicOperationInput {
+            hook,
+            argument_count,
+        } => fields.extend([
+            text_field("implementation_hook", hook),
+            text_field("generic_argument_count", argument_count.to_string()),
+        ]),
+        Failure::InvalidMemoryOperationInput { hook } => {
+            fields.push(text_field("implementation_hook", hook));
+        }
         Failure::SelectionInputCapacityExceeded { count } => {
             fields.push(text_field("selection_input_count", count.to_string()));
         }
         Failure::SelectionInputOrdinalUnrepresentable { ordinal } => {
             fields.push(text_field("selection_input_ordinal", ordinal.to_string()));
+        }
+        Failure::SelectionDiagnosticCapacityExceeded { kind, count } => fields.extend([
+            text_field("selection_diagnostic_kind", kind),
+            text_field("selection_diagnostic_count", count.to_string()),
+        ]),
+        Failure::CallbackParameterOrdinalUnrepresentable { ordinal } => {
+            fields.push(text_field("callback_parameter_ordinal", ordinal.to_string()));
         }
         Failure::ConstantArrayLengthCapacityExceeded { length } => {
             fields.push(text_field("array_length", length.to_string()));
@@ -78,10 +95,37 @@ pub(in crate::output::diagnostic::json) fn checker_failure_context(
         Failure::SemanticSelection(failure) => {
             push_semantic_selection_failure(&mut fields, failure);
         }
+        Failure::InvalidMemoryGenericArgument { ordinal, actual } => fields.extend([
+            text_field("generic_argument_ordinal", ordinal.to_string()),
+            text_field("actual_generic_argument_kind", actual),
+        ]),
+        Failure::InvalidCallbackSignatureInput { actual } => {
+            fields.push(text_field("actual_type_expression_kind", actual));
+        }
         Failure::StorageFlow(failure) => push_storage_flow_failure(&mut fields, failure),
         Failure::StoragePlan(failure) => {
             fields.push(text_field("storage_plan_problem", storage_plan_failure(failure)));
         }
+        Failure::MemoryOperations(failure) => fields.push(text_field(
+            "memory_operations_problem",
+            match failure {
+                bray_diagnostics::DiagnosticMemoryOperationsFailure::ForeignUnit => {
+                    "foreign_unit"
+                }
+                bray_diagnostics::DiagnosticMemoryOperationsFailure::DuplicateExpression => {
+                    "duplicate_expression"
+                }
+            },
+        )),
+        Failure::Liveness(failure) => fields.push(text_field(
+            "liveness_problem",
+            match failure {
+                bray_diagnostics::DiagnosticLivenessFailure::ForeignUnit => "foreign_unit",
+                bray_diagnostics::DiagnosticLivenessFailure::UnsupportedSubject => {
+                    "unsupported_subject"
+                }
+            },
+        )),
         Failure::InvalidStorageOperation {
             expression,
             access,

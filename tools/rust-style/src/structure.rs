@@ -17,7 +17,7 @@ pub(super) fn check(path: &Path, source: &str, file: &ast::SourceFile) -> Vec<Di
     let mut diagnostics = Vec::new();
     let test_ranges = test_only_ranges(file, source);
 
-    if !is_test_source(path) {
+    if !super::source::is_test_source(path) {
         check_module_size(source, &test_ranges, &mut diagnostics);
         check_function_sizes(source, file, &test_ranges, &mut diagnostics);
     }
@@ -28,13 +28,6 @@ pub(super) fn check(path: &Path, source: &str, file: &ast::SourceFile) -> Vec<Di
     check_wildcard_imports(file, &mut diagnostics);
 
     diagnostics
-}
-
-fn is_test_source(path: &Path) -> bool {
-    path.file_name().is_some_and(|name| name == "tests.rs")
-        || path
-            .components()
-            .any(|component| component.as_os_str() == "tests")
 }
 
 fn check_module_size(

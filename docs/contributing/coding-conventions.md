@@ -319,6 +319,11 @@ The following structural rules apply to Rust source:
 - A submodule filename that repeats its parent module name, such as `foo/foo_parser.rs`, produces a warning. Name it
   `foo/parser.rs`. The directory already supplies the parent context.
 - Wildcard imports and reexports are errors regardless of visibility.
+- A production conversion into a configured broad failure must retain the bound leaf cause and known context in a typed
+  payload. This covers inline closures, match arms, conversion helpers, `From` implementations, `map_err`, `ok_or`,
+  `ok_or_else`, and direct construction. Configure a broad category by placing `// rust-style: broad-failure`
+  immediately before its enum variant. The marker follows the failure type, so the check does not rely on a fixed crate,
+  type, or variant name.
 
 Where a rule is genuinely unreasonable for a specific source location, use a narrow source exemption with a nonempty
 reason:
@@ -330,8 +335,10 @@ reason:
 File-level exemptions must appear before the first item and apply only to `module-too-large`, `legacy-mod-rs`, or
 `repeated-module-prefix`. Item-level exemptions must appear immediately before the affected item and apply only to
 `function-too-large`, `non-thin-lib-root`, `non-thin-module-root`, or `wildcard-import`. Unknown rules, malformed
-directives, empty reasons, and invalid placement are errors. An exemption that does not suppress a diagnostic produces a
-warning.
+directives, empty reasons, and invalid placement are errors. A `context-erasing-failure-conversion` exemption must appear
+immediately before the affected expression and may be used only when no exact leaf cause or context can be represented.
+Broad-failure markers with extra syntax or invalid placement are errors. An exemption that does not suppress a diagnostic
+produces a warning.
 
 Do not use an exemption merely to avoid a reasonable cleanup. A wildcard exemption is appropriate only when naming the
 symbols explicitly is unreasonable to maintain, such as a machine-generated file or an API whose names are defined by
