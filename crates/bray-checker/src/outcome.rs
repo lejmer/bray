@@ -61,6 +61,7 @@ pub enum CheckerOutcome<T, Upstream = std::convert::Infallible> {
     /// Cancellation was observed before the operation could complete.
     Cancelled,
     /// Compiler infrastructure prevented the operation from completing.
+    // rust-style: broad-failure
     InfrastructureFailure(CheckerInfrastructureError),
     /// The coordinating query layer returned one of its own exact failures.
     UpstreamFailure(Upstream),

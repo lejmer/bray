@@ -70,6 +70,7 @@ impl Compilation {
             || source_graph.diagnostics().has_errors()
             || self.imported_diagnostics().has_errors()
         {
+            // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
             return Err(PackageInterfaceExportError::InvalidCompilation);
         }
 
@@ -78,6 +79,7 @@ impl Compilation {
             .map_err(super::invalid_compilation_fact_error)?;
 
         if product.diagnostics().has_errors() || product.value().is_recovered() {
+            // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
             return Err(PackageInterfaceExportError::InvalidCompilation);
         }
 
@@ -320,6 +322,7 @@ fn source_overload_relationships(
             .map_err(super::invalid_compilation_binding_error)?;
 
             if result.diagnostics().has_errors() {
+                // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
                 return Err(PackageInterfaceExportError::InvalidCompilation);
             }
 
@@ -762,6 +765,7 @@ impl Compilation {
                 .map_err(super::invalid_compilation_binding_error)?;
 
             if surface.diagnostics().has_errors() {
+                // rust-style: allow(context-erasing-failure-conversion, reason = "source and semantic diagnostics retain the exact causes")
                 return Err(PackageInterfaceExportError::InvalidCompilation);
             }
 
@@ -2571,7 +2575,11 @@ trusted internal func flush() -> PlatformStatus
 
             assert_eq!(
                 compilation.package_interface_export_bundle(),
-                Some(&Err(super::PackageInterfaceExportError::InvalidCompilation))
+                Some(&Err(super::PackageInterfaceExportError::InvalidCompilationCause(
+                    crate::PackageInterfaceInvalidCompilationCause::ExportContract(
+                        crate::PackageInterfaceExportContract::RequestMismatch,
+                    ),
+                )))
             );
         }
     }

@@ -86,6 +86,7 @@ pub enum ProductEmissionErrorKind {
     /// An async executable plan does not request its root protected-frame descriptor.
     MissingRootFrame(ProtectedAsyncFrameId),
     /// Compilation diagnostics prevent complete product publication.
+    // rust-style: broad-failure
     InvalidCompilation,
     /// Planned lazy code generation could not produce complete contributions.
     Codegen(EmissionCodegenError),

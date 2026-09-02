@@ -118,8 +118,8 @@ where
 
     match liveness {
         Ok(liveness) => CheckerOutcome::without_diagnostics(liveness),
-        Err(_) => {
-            CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::InvalidLiveness)
+        Err(error) => {
+            CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::Liveness(error))
         }
     }
 }

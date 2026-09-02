@@ -21,9 +21,11 @@ impl Severity {
 pub(super) enum Rule {
     BlankLineInList,
     CommentSeparation,
+    ContextErasingFailureConversion,
     DestructuringLetSeparation,
     FunctionTooLarge,
     InvalidExemption,
+    InvalidFailureCategory,
     LegacyModRs,
     LetElseSeparation,
     ModuleTooLarge,
@@ -40,6 +42,9 @@ pub(super) enum Rule {
 impl Rule {
     pub(super) fn from_identifier(identifier: &str) -> Option<Self> {
         match identifier {
+            "context-erasing-failure-conversion" => {
+                Some(Self::ContextErasingFailureConversion)
+            }
             "function-too-large" => Some(Self::FunctionTooLarge),
             "legacy-mod-rs" => Some(Self::LegacyModRs),
             "module-too-large" => Some(Self::ModuleTooLarge),
@@ -55,9 +60,11 @@ impl Rule {
         match self {
             Self::BlankLineInList => "blank-line-in-list",
             Self::CommentSeparation => "comment-separation",
+            Self::ContextErasingFailureConversion => "context-erasing-failure-conversion",
             Self::DestructuringLetSeparation => "destructuring-let-separation",
             Self::FunctionTooLarge => "function-too-large",
             Self::InvalidExemption => "invalid-exemption",
+            Self::InvalidFailureCategory => "invalid-failure-category",
             Self::LegacyModRs => "legacy-mod-rs",
             Self::LetElseSeparation => "let-else-separation",
             Self::ModuleTooLarge => "module-too-large",
@@ -85,11 +92,15 @@ impl Rule {
         match self {
             Self::BlankLineInList => "blank lines are not allowed inside this list",
             Self::CommentSeparation => "a block-level comment must have a blank line above it",
+            Self::ContextErasingFailureConversion => {
+                "a configured broad failure conversion discards exact cause or context"
+            }
             Self::DestructuringLetSeparation => {
                 "a destructuring let statement must be separated from adjacent statements"
             }
             Self::FunctionTooLarge => "function exceeds the production source-line limit",
             Self::InvalidExemption => "style exemption is invalid",
+            Self::InvalidFailureCategory => "broad failure category marker is invalid",
             Self::LegacyModRs => "legacy mod.rs module layout is not allowed",
             Self::LetElseSeparation => {
                 "a let-else guard must be separated from adjacent statements"
@@ -114,6 +125,7 @@ impl Rule {
 
     pub(super) fn exemption_scope(self) -> Option<ExemptionScope> {
         match self {
+            Self::ContextErasingFailureConversion => Some(ExemptionScope::Expression),
             Self::FunctionTooLarge
             | Self::NonThinLibRoot
             | Self::NonThinModuleRoot
@@ -128,6 +140,7 @@ impl Rule {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum ExemptionScope {
+    Expression,
     File,
     Item,
 }
@@ -136,6 +149,7 @@ pub(super) enum ExemptionScope {
 pub(super) enum Target {
     None,
     File,
+    Expression(TextRange),
     Item(TextRange),
 }
 
@@ -179,6 +193,12 @@ impl Diagnostic {
 
     pub(super) fn for_item(mut self, range: TextRange) -> Self {
         self.target = Target::Item(range);
+
+        self
+    }
+
+    pub(super) fn for_expression(mut self, range: TextRange) -> Self {
+        self.target = Target::Expression(range);
 
         self
     }

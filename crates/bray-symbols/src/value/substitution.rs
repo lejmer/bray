@@ -35,6 +35,16 @@ pub enum GenericArgumentKind {
     Constant,
 }
 
+impl GenericArgumentKind {
+    /// Returns this argument category's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Type => "type",
+            Self::Constant => "constant",
+        }
+    }
+}
+
 /// One ordered argument supplied to a generic owner.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum GenericArgument {

@@ -279,7 +279,10 @@ fn terminal_failure_diagnostics(
             DiagnosticEmissionFailure::Publication(diagnostic_artifact(artifact))
         }
         EmissionFailure::Linking => DiagnosticEmissionFailure::Linking,
-        EmissionFailure::IncompleteProduct => DiagnosticEmissionFailure::IncompleteProduct,
+        EmissionFailure::IncompleteProduct => {
+            // rust-style: allow(context-erasing-failure-conversion, reason = "the emission diagnostic bag retains the exact causes")
+            DiagnosticEmissionFailure::IncompleteProduct
+        }
     };
 
     let diagnostic = Diagnostic::new(

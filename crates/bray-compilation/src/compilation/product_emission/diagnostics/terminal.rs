@@ -221,6 +221,7 @@ fn package_interface_export_failure_diagnostic(
             target,
         ),
         PackageInterfaceExportError::InvalidCompilation => package_failure_diagnostic(
+            // rust-style: allow(context-erasing-failure-conversion, reason = "the package-interface diagnostic bag retains the exact causes")
             DiagnosticPackageInterfaceFailure::InvalidCompilation,
             product,
             target,

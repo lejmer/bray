@@ -110,6 +110,7 @@ pub enum PackageInterfaceExportError {
     /// Query-runtime coordination prevented a complete interface from being committed.
     Query(FactQueryError),
     /// Source or semantic errors make the product invalid.
+    // rust-style: broad-failure
     InvalidCompilation,
     /// An exact internal compilation contract prevented export.
     InvalidCompilationCause(PackageInterfaceInvalidCompilationCause),

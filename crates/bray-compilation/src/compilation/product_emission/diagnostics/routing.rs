@@ -106,6 +106,7 @@ pub(super) fn product_emission_failure_diagnostics(
             target,
         ),
         ProductEmissionErrorKind::InvalidCompilation => emission_failure_diagnostics(
+            // rust-style: allow(context-erasing-failure-conversion, reason = "the emission diagnostic bag retains the exact causes")
             DiagnosticEmissionFailure::IncompleteProduct,
             product,
             target,
@@ -134,6 +135,7 @@ pub(super) fn product_emission_failure_diagnostics(
         ProductEmissionErrorKind::Query(error) => query_failure_diagnostics(error, product, target),
         ProductEmissionErrorKind::Outcome(error) => {
             let outer = emission_failure_diagnostics(
+                // rust-style: allow(context-erasing-failure-conversion, reason = "the emission diagnostic bag retains the exact causes")
                 DiagnosticEmissionFailure::IncompleteProduct,
                 product,
                 target,

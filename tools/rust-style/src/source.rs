@@ -112,6 +112,13 @@ pub(super) fn io_error(action: &str, path: &Path, error: impl std::fmt::Display)
     format!("failed to {action} {}: {error}", path.display())
 }
 
+pub(super) fn is_test_source(path: &Path) -> bool {
+    path.file_name().is_some_and(|name| name == "tests.rs")
+        || path
+            .components()
+            .any(|component| component.as_os_str() == "tests")
+}
+
 pub(super) fn test_only_ranges(file: &ast::SourceFile, source: &str) -> Vec<TextRange> {
     let mut ranges = file
         .syntax()

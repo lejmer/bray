@@ -110,7 +110,7 @@ impl LiveAcrossSuspension {
 }
 
 /// A contract violation while constructing durable liveness analysis.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum LivenessBuildError {
     /// A decision references a subject or operation owned by another unit.
     ForeignUnit,

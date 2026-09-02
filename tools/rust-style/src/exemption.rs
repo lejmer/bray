@@ -51,7 +51,16 @@ struct Exemption {
 
 impl Exemption {
     fn matches(&self, diagnostic: &Diagnostic) -> bool {
-        self.rule == diagnostic.rule && self.target == diagnostic.target
+        if self.rule != diagnostic.rule {
+            return false;
+        }
+
+        match (self.target, diagnostic.target) {
+            (Target::Expression(exemption), Target::Expression(diagnostic)) => {
+                exemption.contains_range(diagnostic)
+            }
+            (exemption, diagnostic) => exemption == diagnostic,
+        }
     }
 
     fn unused_diagnostic(self) -> Option<Diagnostic> {
@@ -86,6 +95,10 @@ fn parse(source: &str, file: &ast::SourceFile) -> (Vec<Exemption>, Vec<Diagnosti
             continue;
         };
 
+        if directive.starts_with("broad-failure") {
+            continue;
+        }
+
         let offset = token.text_range().start();
 
         let rule = match parse_rule(directive) {
@@ -99,6 +112,22 @@ fn parse(source: &str, file: &ast::SourceFile) -> (Vec<Exemption>, Vec<Diagnosti
         };
 
         let target = match rule.exemption_scope() {
+            Some(ExemptionScope::Expression) => {
+                let Some(range) =
+                    adjacent_expression_range(source, syntax, token.text_range().end())
+                else {
+                    diagnostics.push(
+                        Diagnostic::new(Rule::InvalidExemption, offset).with_message(format!(
+                            "style/{} exemption must be immediately before the affected expression",
+                            rule.identifier()
+                        )),
+                    );
+
+                    continue;
+                };
+
+                Target::Expression(range)
+            }
             Some(ExemptionScope::File)
                 if first_item_start.is_none_or(|start| token.text_range().end() <= start) =>
             {
@@ -151,6 +180,30 @@ fn parse(source: &str, file: &ast::SourceFile) -> (Vec<Exemption>, Vec<Diagnosti
     }
 
     (exemptions, diagnostics)
+}
+
+fn adjacent_expression_range(
+    source: &str,
+    syntax: &SyntaxNode,
+    comment_end: TextSize,
+) -> Option<TextRange> {
+    syntax
+        .descendants()
+        .filter_map(ast::Expr::cast)
+        .map(|expression| expression.syntax().text_range())
+        .filter_map(|range| {
+            let node = syntax.covering_element(range).into_node()?;
+            let start = significant_start(&node)?;
+
+            (start >= comment_end).then_some((range, start))
+        })
+        .filter(|(_, start)| {
+            source_text(source, TextRange::new(comment_end, *start))
+                .chars()
+                .all(char::is_whitespace)
+        })
+        .min_by_key(|(range, start)| (*start, std::cmp::Reverse(range.end())))
+        .map(|(range, _)| range)
 }
 
 fn directive_text(comment: &str) -> Option<&str> {

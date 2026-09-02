@@ -251,9 +251,12 @@ where
 
             return Ok(None);
         }
-        _ => {
+        (hook, _) => {
             return Err(CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                CheckerInfrastructureError::InvalidAtomicOperationInput {
+                    hook,
+                    argument_count: parsed.len(),
+                },
             ));
         }
     };

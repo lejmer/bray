@@ -354,6 +354,25 @@ pub enum TypeExpressionTemplate {
 }
 
 impl TypeExpressionTemplate {
+    /// Returns this template category's stable machine-readable name.
+    pub const fn kind_name(&self) -> &'static str {
+        match self {
+            Self::Resolved(_) => "resolved",
+            Self::Named { .. } => "named",
+            Self::CallableContract { .. } => "callable_contract",
+            Self::TypeValuedMemberProjection { .. } => "type_valued_member_projection",
+            Self::Tuple(_) => "tuple",
+            Self::Array { .. } => "array",
+            Self::FlexibleArray(_) => "flexible_array",
+            Self::Slice(_) => "slice",
+            Self::Nullable(_) => "nullable",
+            Self::Borrow { .. } => "borrow",
+            Self::TraitView(_) => "trait_view",
+            Self::OwnedIndirection { .. } => "owned_indirection",
+            Self::Callable(_) => "callable",
+        }
+    }
+
     /// Returns the canonical type if this template already stores one.
     pub const fn resolved_type(&self) -> Option<TypeId> {
         match self {

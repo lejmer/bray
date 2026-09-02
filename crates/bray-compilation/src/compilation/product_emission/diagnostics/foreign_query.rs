@@ -149,10 +149,7 @@ const fn foreign_integer_width(width: crate::compilation::ForeignIntegerWidth) -
 }
 
 const fn generic_argument_kind(kind: bray_symbols::GenericArgumentKind) -> &'static str {
-    match kind {
-        bray_symbols::GenericArgumentKind::Type => "type",
-        bray_symbols::GenericArgumentKind::Constant => "constant",
-    }
+    kind.as_str()
 }
 
 const fn foreign_source_role(role: crate::compilation::ForeignSourceRole) -> &'static str {

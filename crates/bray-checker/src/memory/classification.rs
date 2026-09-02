@@ -53,10 +53,14 @@ fn memory_type_arguments<Upstream>(
 ) -> Result<Vec<TypeId>, CheckerOutcome<CheckedMemoryOperations, Upstream>> {
     arguments
         .iter()
-        .map(|argument| match argument {
+        .enumerate()
+        .map(|(ordinal, argument)| match argument {
             GenericArgument::Type(ty) => Ok(*ty),
             GenericArgument::Constant(_) => Err(CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                CheckerInfrastructureError::InvalidMemoryGenericArgument {
+                    ordinal,
+                    actual: argument.kind(),
+                },
             )),
         })
         .collect()
@@ -200,8 +204,8 @@ where
         | ImplementationHook::RangeMoveIterate
         | ImplementationHook::RangeNext
         | ImplementationHook::TestingFail => Ok(None),
-        _ => Err(CheckerOutcome::InfrastructureFailure(
-            CheckerInfrastructureError::InvalidSemanticSelectionInput,
+        hook => Err(CheckerOutcome::InfrastructureFailure(
+            CheckerInfrastructureError::InvalidMemoryOperationInput { hook },
         )),
     }
 }
@@ -681,9 +685,9 @@ fn classify_allocation_and_buffer_operation<Upstream>(
 
             CheckedMemoryOperationKind::ByteBufferRead
         }
-        _ => {
+        hook => {
             return Err(CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                CheckerInfrastructureError::InvalidMemoryOperationInput { hook },
             ));
         }
     };

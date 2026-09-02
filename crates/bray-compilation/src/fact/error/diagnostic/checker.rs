@@ -1,7 +1,7 @@
 use bray_checker::CheckerInfrastructureError;
 use bray_diagnostics::{
     DiagnosticCheckerConstantOperationFailure, DiagnosticCheckerFailure,
-    DiagnosticSemanticSelectionFailure,
+    DiagnosticLivenessFailure, DiagnosticMemoryOperationsFailure, DiagnosticSemanticSelectionFailure,
     DiagnosticSemanticSnapshotFailure, DiagnosticStoragePlanFailure,
 };
 use bray_source::SourceSpan;
@@ -53,6 +53,15 @@ pub(crate) fn diagnostic_checker_failure(
         }
         Error::AtomicInitializerResultUnavailable => {
             DiagnosticCheckerFailure::AtomicInitializerResultUnavailable
+        }
+        Error::InvalidAtomicOperationInput {
+            hook,
+            argument_count,
+        } => {
+            DiagnosticCheckerFailure::InvalidAtomicOperationInput {
+                hook: hook.as_str(),
+                argument_count,
+            }
         }
         Error::UninitInitializerResultUnavailable => {
             DiagnosticCheckerFailure::UninitInitializerResultUnavailable
@@ -108,11 +117,31 @@ pub(crate) fn diagnostic_checker_failure(
         Error::SelectionInputOrdinalUnrepresentable { ordinal } => {
             DiagnosticCheckerFailure::SelectionInputOrdinalUnrepresentable { ordinal }
         }
+        Error::SelectionDiagnosticCapacityExceeded { kind, count } => {
+            DiagnosticCheckerFailure::SelectionDiagnosticCapacityExceeded { kind, count }
+        }
+        Error::CallbackParameterOrdinalUnrepresentable { ordinal } => {
+            DiagnosticCheckerFailure::CallbackParameterOrdinalUnrepresentable { ordinal }
+        }
         Error::ConstantArrayLengthCapacityExceeded { length } => {
             DiagnosticCheckerFailure::ConstantArrayLengthCapacityExceeded { length }
         }
         Error::InvalidSemanticSelectionInput => {
             DiagnosticCheckerFailure::InvalidSemanticSelectionInput
+        }
+        Error::InvalidMemoryOperationInput { hook } => {
+            DiagnosticCheckerFailure::InvalidMemoryOperationInput {
+                hook: hook.as_str(),
+            }
+        }
+        Error::InvalidMemoryGenericArgument { ordinal, actual } => {
+            DiagnosticCheckerFailure::InvalidMemoryGenericArgument {
+                ordinal,
+                actual: actual.as_str(),
+            }
+        }
+        Error::InvalidCallbackSignatureInput { actual } => {
+            DiagnosticCheckerFailure::InvalidCallbackSignatureInput { actual }
         }
         Error::SemanticSelection(error) => DiagnosticCheckerFailure::SemanticSelection(
             diagnostic_semantic_selection_failure(error),
@@ -124,7 +153,23 @@ pub(crate) fn diagnostic_checker_failure(
         Error::StoragePlan(error) => {
             DiagnosticCheckerFailure::StoragePlan(diagnostic_storage_plan_failure(error))
         }
+        Error::MemoryOperations(error) => DiagnosticCheckerFailure::MemoryOperations(match error {
+            bray_bound_tree::CheckedMemoryOperationsBuildError::ForeignUnit => {
+                DiagnosticMemoryOperationsFailure::ForeignUnit
+            }
+            bray_bound_tree::CheckedMemoryOperationsBuildError::DuplicateExpression => {
+                DiagnosticMemoryOperationsFailure::DuplicateExpression
+            }
+        }),
         Error::InvalidLiveness => DiagnosticCheckerFailure::InvalidLiveness,
+        Error::Liveness(error) => DiagnosticCheckerFailure::Liveness(match error {
+            bray_bound_tree::LivenessBuildError::ForeignUnit => {
+                DiagnosticLivenessFailure::ForeignUnit
+            }
+            bray_bound_tree::LivenessBuildError::UnsupportedSubject => {
+                DiagnosticLivenessFailure::UnsupportedSubject
+            }
+        }),
         Error::InvalidRefinementInput => DiagnosticCheckerFailure::InvalidRefinementInput,
         Error::RefinementCapacityUnrepresentable => {
             DiagnosticCheckerFailure::RefinementCapacityUnrepresentable

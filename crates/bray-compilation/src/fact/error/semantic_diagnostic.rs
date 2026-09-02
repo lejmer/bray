@@ -689,10 +689,7 @@ const fn preparsed_syntax_reason(
 }
 
 const fn generic_argument_kind(kind: bray_symbols::GenericArgumentKind) -> &'static str {
-    match kind {
-        bray_symbols::GenericArgumentKind::Type => "type",
-        bray_symbols::GenericArgumentKind::Constant => "constant",
-    }
+    kind.as_str()
 }
 
 const fn semantic_symbol_category(category: SemanticSymbolCategory) -> &'static str {

@@ -3,6 +3,10 @@ pub(super) fn format_english_checker_failure(
 ) -> String {
     use bray_diagnostics::DiagnosticCheckerFailure as Failure;
 
+    if let Some(message) = format_contextual_checker_failure(failure) {
+        return message;
+    }
+
     let (is_internal, message) = match failure {
         Failure::MissingSource { source_id } => {
             let _ = source_id;
@@ -157,6 +161,14 @@ pub(super) fn format_english_checker_failure(
             return super::format_internal_compiler_error(format_storage_plan_failure(failure));
         }
         Failure::InvalidLiveness => (true, "value lifetimes could not be determined"),
+        Failure::InvalidAtomicOperationInput { .. }
+        | Failure::SelectionDiagnosticCapacityExceeded { .. }
+        | Failure::CallbackParameterOrdinalUnrepresentable { .. }
+        | Failure::InvalidMemoryOperationInput { .. }
+        | Failure::InvalidMemoryGenericArgument { .. }
+        | Failure::InvalidCallbackSignatureInput { .. }
+        | Failure::MemoryOperations(_)
+        | Failure::Liveness(_) => unreachable!("contextual checker failure was handled above"),
         Failure::InvalidRefinementInput => (
             true,
             "condition and pattern implications could not be tracked",
@@ -223,6 +235,55 @@ pub(super) fn format_english_checker_failure(
     } else {
         message.to_owned()
     }
+}
+
+fn format_contextual_checker_failure(
+    failure: bray_diagnostics::DiagnosticCheckerFailure,
+) -> Option<String> {
+    use bray_diagnostics::DiagnosticCheckerFailure as Failure;
+
+    let detail = match failure {
+        Failure::InvalidAtomicOperationInput {
+            hook,
+            argument_count,
+        } => format!(
+            "hook '{hook}' with {argument_count} generic arguments is outside the atomic operation catalog",
+        ),
+        Failure::SelectionDiagnosticCapacityExceeded { kind, count } => {
+            format!("could not represent {kind} for {count} selection candidates")
+        }
+        Failure::CallbackParameterOrdinalUnrepresentable { ordinal } => {
+            format!("could not represent callback parameter ordinal {ordinal}")
+        }
+        Failure::InvalidMemoryOperationInput { hook } => {
+            format!("hook '{hook}' is outside the memory operation catalog")
+        }
+        Failure::InvalidMemoryGenericArgument { ordinal, actual } => format!(
+            "memory operation generic argument {ordinal} was {actual} instead of type",
+        ),
+        Failure::InvalidCallbackSignatureInput { actual } => {
+            format!("callback signature had {actual} type syntax instead of a callable")
+        }
+        Failure::MemoryOperations(failure) => match failure {
+            bray_diagnostics::DiagnosticMemoryOperationsFailure::ForeignUnit => {
+                "a checked memory operation belongs to another bound unit".to_owned()
+            }
+            bray_diagnostics::DiagnosticMemoryOperationsFailure::DuplicateExpression => {
+                "more than one checked memory operation describes the same expression".to_owned()
+            }
+        },
+        Failure::Liveness(failure) => match failure {
+            bray_diagnostics::DiagnosticLivenessFailure::ForeignUnit => {
+                "a liveness decision belongs to another bound unit".to_owned()
+            }
+            bray_diagnostics::DiagnosticLivenessFailure::UnsupportedSubject => {
+                "a liveness decision retained an unsupported subject".to_owned()
+            }
+        },
+        _ => return None,
+    };
+
+    Some(super::format_internal_compiler_error(detail))
 }
 
 pub(super) fn format_generic_substitution_failure(
