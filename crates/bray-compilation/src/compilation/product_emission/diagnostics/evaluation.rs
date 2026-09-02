@@ -46,11 +46,11 @@ pub(crate) fn diagnostic_evaluation_failure(
         FactQueryError::PackageInterface(error) => {
             DiagnosticEmissionEvaluationFailure::Product(
                 bray_diagnostics::DiagnosticProductQueryFailure::new(
-                    interface_validation_reason(error),
+                    interface_validation_reason(error.as_ref()),
                     [bray_diagnostics::DiagnosticFailureField::new(
                         "interface_validation_cause",
                         bray_diagnostics::DiagnosticFailureValue::InterfaceValidationFailure(
-                            error.clone().into_diagnostic_failure(),
+                            error.as_ref().clone().into_diagnostic_failure(),
                         ),
                     )],
                 ),
@@ -229,9 +229,8 @@ fn diagnostic_imported_query_failure(
                 ),
             ],
         ),
-        Error::ExecutableTemplateMismatch(failure) => (
-            "imported_query_executable_template_mismatch",
-            vec![
+        Error::ExecutableTemplateMismatch(failure) => {
+            let mut fields = vec![
                 crate::fact::diagnostic_context::count_field(
                     "interface",
                     u64::from(failure.address().interface().raw()),
@@ -260,16 +259,22 @@ fn diagnostic_imported_query_failure(
                     "actual_key",
                     failure.actual_key(),
                 ),
-                crate::fact::diagnostic_context::identity_field(
-                    "expected_target",
-                    failure.expected_target(),
-                ),
-                crate::fact::diagnostic_context::identity_field(
-                    "actual_target",
-                    failure.actual_target(),
-                ),
-            ],
-        ),
+            ];
+
+            crate::fact::diagnostic_context::push_mir_target_contract(
+                &mut fields,
+                true,
+                failure.expected_target(),
+            );
+
+            crate::fact::diagnostic_context::push_mir_target_contract(
+                &mut fields,
+                false,
+                failure.actual_target(),
+            );
+
+            ("imported_query_executable_template_mismatch", fields)
+        }
         Error::InterfaceCapacityExceeded(index) => (
             "imported_query_interface_capacity_exceeded",
             vec![crate::fact::diagnostic_context::natural_field("index", index)],
@@ -395,11 +400,11 @@ mod tests {
 
     #[test]
     fn package_interface_conversion_preserves_the_typed_validation_failure() {
-        let failure = diagnostic_evaluation_failure(&FactQueryError::PackageInterface(
+        let failure = diagnostic_evaluation_failure(&FactQueryError::PackageInterface(Box::new(
             bray_package_interface::InterfaceValidationError::InvalidMagic {
                 actual: *b"not-bray",
             },
-        ));
+        )));
 
         let DiagnosticEmissionEvaluationFailure::Product(failure) = failure else {
             panic!("package-interface validation must remain a product query failure");

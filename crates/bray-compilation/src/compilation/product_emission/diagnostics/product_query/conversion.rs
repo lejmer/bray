@@ -10,6 +10,7 @@ use crate::fact::diagnostic_context::{
     constant_value_kind, count_field, identity, identity_field, natural_field, push_symbol,
     semantic_type_kind, text_field,
 };
+use super::mir::{push_mir_call_target, push_mir_helper};
 
 // rust-style: allow(function-too-large, reason = "product-query variants form one exhaustive flat conversion into typed diagnostic fields")
 pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_query_failure(
@@ -276,10 +277,8 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
         } => {
             let mut fields = product_query_context(context);
 
-            fields.extend([
-                identity_field("helper", helper),
-                text_field("operation", mir_operation_kind(operation)),
-            ]);
+            push_mir_helper(&mut fields, helper);
+            fields.push(text_field("operation", mir_operation_kind(operation)));
 
             ("product_query_invalid_helper_operation", fields)
         }
@@ -290,10 +289,8 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
         } => {
             let mut fields = product_query_context(context);
 
-            fields.extend([
-                identity_field("helper", helper),
-                identity_field("call_target", target),
-            ]);
+            push_mir_helper(&mut fields, helper);
+            push_mir_call_target(&mut fields, target);
 
             ("product_query_invalid_helper_call_target", fields)
         }
@@ -764,7 +761,7 @@ mod tests {
     use bray_diagnostics::DiagnosticFailureValue;
     use bray_symbols::{AnySymbolId, FunctionSymbolId, SymbolId, SymbolKind};
 
-    use super::diagnostic_product_query_failure;
+    use super::{diagnostic_product_query_failure, push_mir_call_target, push_mir_helper};
     use crate::compilation::{
         ProductQueryError, ProductQueryFailure, ProductSynchronizationComponent,
     };
@@ -827,5 +824,57 @@ mod tests {
                 "argument_count",
             ]
         );
+    }
+
+    #[test]
+    fn mir_helper_context_preserves_category_abi_and_runtime_role() {
+        let mut fields = Vec::new();
+
+        push_mir_helper(&mut fields, &bray_ir::MirHelperReference::BeginGenerator);
+
+        let names: Vec<_> = fields.iter().map(|field| field.name()).collect();
+
+        assert_eq!(
+            names,
+            ["helper_kind", "helper_abi", "helper_runtime_role"]
+        );
+
+        assert_eq!(
+            fields[2].value(),
+            &DiagnosticFailureValue::Text("generator_begin".to_owned())
+        );
+    }
+
+    #[test]
+    fn mir_call_target_context_preserves_runtime_contract() {
+        let mut fields = Vec::new();
+
+        let target = bray_ir::MirCallTarget::Runtime(bray_ir::MirRuntimeReference::new(
+            bray_runtime_interface::RuntimeAbiRole::TaskStart,
+            bray_runtime_interface::RuntimeAbiVersion::new(3, 7),
+        ));
+
+        push_mir_call_target(&mut fields, &target);
+
+        let names: Vec<_> = fields.iter().map(|field| field.name()).collect();
+
+        assert_eq!(
+            names,
+            [
+                "call_target_kind",
+                "call_target_abi",
+                "call_target_runtime_role",
+                "call_target_runtime_abi_major",
+                "call_target_runtime_abi_minor",
+            ]
+        );
+
+        assert_eq!(
+            fields[2].value(),
+            &DiagnosticFailureValue::Text("task_start".to_owned())
+        );
+
+        assert_eq!(fields[3].value(), &DiagnosticFailureValue::Count(3));
+        assert_eq!(fields[4].value(), &DiagnosticFailureValue::Count(7));
     }
 }

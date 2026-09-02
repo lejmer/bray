@@ -26,6 +26,21 @@ pub(crate) fn format_unit_failure(message: &str, unit: &DiagnosticArtifactDigest
 pub(crate) fn format_english_emission_evaluation_failure(
     failure: &bray_diagnostics::DiagnosticEmissionEvaluationFailure,
 ) -> String {
+    let message = format_english_emission_evaluation_failure_detail(failure);
+
+    if matches!(
+        failure,
+        bray_diagnostics::DiagnosticEmissionEvaluationFailure::Cancelled
+    ) {
+        message
+    } else {
+        super::format_internal_compiler_error(message)
+    }
+}
+
+fn format_english_emission_evaluation_failure_detail(
+    failure: &bray_diagnostics::DiagnosticEmissionEvaluationFailure,
+) -> String {
     use bray_diagnostics::DiagnosticEmissionEvaluationFailure as Failure;
 
     let message = match failure {
@@ -87,6 +102,23 @@ fn format_english_semantic_query_failure(
 }
 
 pub(crate) fn format_english_native_product_failure(
+    kind: &bray_diagnostics::DiagnosticNativeProductFailureKind,
+) -> String {
+    let message = format_english_native_product_failure_detail(kind);
+
+    if native_product_failure_is_evaluation(kind)
+        && !matches!(
+            kind,
+            bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationCancelled
+        )
+    {
+        super::format_internal_compiler_error(message)
+    } else {
+        message
+    }
+}
+
+fn format_english_native_product_failure_detail(
     kind: &bray_diagnostics::DiagnosticNativeProductFailureKind,
 ) -> String {
     use bray_diagnostics::DiagnosticNativeProductFailureKind as Kind;
@@ -272,6 +304,37 @@ pub(crate) fn format_english_native_product_failure(
     };
 
     message.to_owned()
+}
+
+const fn native_product_failure_is_evaluation(
+    kind: &bray_diagnostics::DiagnosticNativeProductFailureKind,
+) -> bool {
+    use bray_diagnostics::DiagnosticNativeProductFailureKind as Kind;
+
+    matches!(
+        kind,
+        Kind::EvaluationCancelled
+            | Kind::EvaluationCycle(_)
+            | Kind::EvaluationInfrastructure
+            | Kind::EvaluationRuntime(_)
+            | Kind::EvaluationSemanticValueStoreCreate
+            | Kind::EvaluationSemanticValue(_)
+            | Kind::EvaluationBinding(_)
+            | Kind::EvaluationLoweringInput(_)
+            | Kind::EvaluationLowering(_)
+            | Kind::EvaluationConstantCallableBodyUnavailable
+            | Kind::EvaluationConstantCallableRootUnavailable
+            | Kind::EvaluationAtomicRepresentationTypeUnavailable
+            | Kind::EvaluationAtomicRepresentationArgumentsUnavailable
+            | Kind::EvaluationAtomicInitializerArgumentUnavailable
+            | Kind::EvaluationAtomicInitializerResultUnavailable
+            | Kind::EvaluationUninitInitializerResultUnavailable
+            | Kind::EvaluationImportedExecutableTemplateMismatch
+            | Kind::EvaluationSemanticQuery(_)
+            | Kind::EvaluationProduct(_)
+            | Kind::EvaluationForeign(_)
+            | Kind::EvaluationChecker(_)
+    )
 }
 
 fn format_english_fact_runtime_failure(
@@ -693,7 +756,8 @@ mod tests {
 
     use super::{
         format_english_binding_failure, format_english_checker_failure,
-        format_english_fact_runtime_failure, format_english_product_query_failure,
+        format_english_emission_evaluation_failure, format_english_fact_runtime_failure,
+        format_english_native_product_failure, format_english_product_query_failure,
         format_english_semantic_query_failure,
     };
     use crate::catalog::english::INTERNAL_COMPILER_ERROR;
@@ -738,6 +802,37 @@ mod tests {
         assert!(!message.contains("SyntaxTree"));
         assert!(!message.contains("23"));
         assert!(!message.contains(';'));
+    }
+
+    #[test]
+    fn evaluation_failures_render_exactly_one_shared_internal_heading() {
+        let nested = DiagnosticProductQueryFailure::new("product_query_missing", []);
+
+        let failures = [
+            bray_diagnostics::DiagnosticEmissionEvaluationFailure::SemanticValueStoreCreate,
+            bray_diagnostics::DiagnosticEmissionEvaluationFailure::Product(nested.clone()),
+        ];
+
+        for failure in &failures {
+            let message = format_english_emission_evaluation_failure(failure);
+
+            assert!(message.starts_with(INTERNAL_COMPILER_ERROR));
+            assert_eq!(message.matches(INTERNAL_COMPILER_ERROR).count(), 1);
+            assert!(!message.contains(';'));
+        }
+
+        let failures = [
+            bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationInfrastructure,
+            bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationProduct(nested),
+        ];
+
+        for failure in &failures {
+            let message = format_english_native_product_failure(failure);
+
+            assert!(message.starts_with(INTERNAL_COMPILER_ERROR));
+            assert_eq!(message.matches(INTERNAL_COMPILER_ERROR).count(), 1);
+            assert!(!message.contains(';'));
+        }
     }
 
     #[test]

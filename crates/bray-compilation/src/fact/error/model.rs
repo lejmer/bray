@@ -213,11 +213,11 @@ mod tests {
         )
         .to_string();
 
-        let interface = FactQueryError::PackageInterface(
+        let interface = FactQueryError::PackageInterface(Box::new(
             bray_package_interface::InterfaceValidationError::InvalidMagic {
                 actual: *b"not-bray",
             },
-        )
+        ))
         .to_string();
 
         assert!(codegen.contains("EmptyTriple"));
@@ -230,6 +230,11 @@ mod tests {
         assert!(
             std::mem::size_of::<ImportedQueryFailure>() <= 4 * std::mem::size_of::<usize>()
         );
+    }
+
+    #[test]
+    fn fact_query_failures_keep_rare_payloads_out_of_query_stack_frames() {
+        assert!(std::mem::size_of::<FactQueryError>() <= 8 * std::mem::size_of::<usize>());
     }
 
     #[test]
@@ -427,7 +432,7 @@ pub enum FactQueryError {
     /// Selected native target construction violated an exact target contract.
     CodegenTarget(bray_codegen::CodegenTargetBuildError),
     /// Imported package implementation access violated its encoded interface contract.
-    PackageInterface(bray_package_interface::InterfaceValidationError),
+    PackageInterface(Box<bray_package_interface::InterfaceValidationError>),
     /// Imported-interface query state omitted an exact required relationship.
     ImportedQuery(ImportedQueryFailure),
     /// The compiler query runtime could not preserve its coordination contract.
@@ -517,6 +522,12 @@ impl From<crate::compilation::ForeignQueryFailure> for FactQueryError {
 impl From<ImportedQueryFailure> for FactQueryError {
     fn from(error: ImportedQueryFailure) -> Self {
         Self::ImportedQuery(error)
+    }
+}
+
+impl From<bray_package_interface::InterfaceValidationError> for FactQueryError {
+    fn from(error: bray_package_interface::InterfaceValidationError) -> Self {
+        Self::PackageInterface(Box::new(error))
     }
 }
 

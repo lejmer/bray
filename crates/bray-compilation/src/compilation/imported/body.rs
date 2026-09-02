@@ -127,15 +127,15 @@ impl super::super::Compilation {
 
         implementation
             .validate_interface(interface, surface)
-            .map_err(FactQueryError::PackageInterface)?;
+            .map_err(FactQueryError::from)?;
 
         implementation
             .validate_configuration(&configuration)
-            .map_err(FactQueryError::PackageInterface)?;
+            .map_err(FactQueryError::from)?;
 
         implementation
             .native_boundary(address.symbol())
-            .map_err(FactQueryError::PackageInterface)
+            .map_err(FactQueryError::from)
     }
 
     pub(in crate::compilation) fn imported_executable_template_with_cancellation(
