@@ -605,7 +605,7 @@ where
     let value = request
         .semantic_values()
         .constant_value_data(identity)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     Ok(match value.kind() {
         ConstantValueKind::String(text) => Some((identity, text.to_string())),
@@ -628,7 +628,7 @@ where
     let value = request
         .semantic_values()
         .constant_value_data(identity)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     Ok(match value.kind() {
         ConstantValueKind::Integer(integer) => integer.to_u64().map(|integer| (identity, integer)),
@@ -650,15 +650,18 @@ where
     let representation = crate::representation::type_representation(request, ty)?;
 
     Ok(match kind {
-        InlineAssemblyOperandKind::Immediate => {
-            constant.is_some_and(|constant| constant_integer(request, constant).is_some())
-                && representation.is_some_and(|role| role.integer_representation().is_some())
-        }
+        InlineAssemblyOperandKind::Immediate => match constant {
+            Some(constant) => {
+                constant_integer(request, constant)?.is_some()
+                    && representation.is_some_and(|role| role.integer_representation().is_some())
+            }
+            None => false,
+        },
         InlineAssemblyOperandKind::Symbol => matches!(
             request
                 .semantic_values()
                 .type_data(ty)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?
                 .as_ref(),
             TypeData::Callable(_)
         ),
@@ -757,7 +760,7 @@ where
     let data = request
         .semantic_values()
         .type_data(ty)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let TypeData::Callable(callable) = data.as_ref() else {
         return Ok(false);
@@ -779,7 +782,7 @@ where
     let data = request
         .semantic_values()
         .type_data(ty)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     Ok(match data.as_ref() {
         TypeData::Tuple(elements) => Some(elements.to_vec()),
@@ -806,20 +809,23 @@ where
     (tuple.kind() == BoundStructuredExpressionKind::Tuple).then(|| tuple.operands().to_vec())
 }
 
-fn constant_integer<C>(request: CheckerUnitView<'_, C>, identity: ConstantValueId) -> Option<u64>
+fn constant_integer<C>(
+    request: CheckerUnitView<'_, C>,
+    identity: ConstantValueId,
+) -> Result<Option<u64>, CheckerInfrastructureError>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let value = request
         .semantic_values()
         .constant_value_data(identity)
-        .ok()?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let ConstantValueKind::Integer(integer) = value.kind() else {
-        return None;
+        return Ok(None);
     };
 
-    integer.to_u64()
+    Ok(integer.to_u64())
 }
 
 fn literal_memory_order<C>(
@@ -835,7 +841,7 @@ where
         let value = request
             .semantic_values()
             .constant_value_data(identity)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         let ConstantValueKind::Union { variant, fields } = value.kind() else {
             return Ok(None);

@@ -213,14 +213,16 @@ impl<'a> SemanticExporter<'a> {
         let constants = self
             .compilation
             .checked_constant_terms(template)
-            .map_err(|_| incomplete(owner))?;
+            .map_err(|error| super::super::fact_query_export_error(error, incomplete(owner)))?;
 
         if constants.diagnostics().has_errors() {
             return Err(incomplete(owner));
         }
 
         resolve_type_expression_template(self.values, template, constants.value())
-            .map_err(|_| incomplete(owner))?
+            .map_err(|error| {
+                super::super::checker_infrastructure_export_error(error, incomplete(owner))
+            })?
             .ok_or_else(|| incomplete(owner))
     }
 
@@ -381,7 +383,10 @@ impl<'a> SemanticExporter<'a> {
             id,
             bray_package_interface::InterfaceSemanticTableKind::Type,
             {
-                let data = self.values.type_data(id).map_err(|_| incomplete_type())?;
+                let data = self
+                    .values
+                    .type_data(id)
+                    .map_err(super::super::semantic_value_export_error)?;
 
                 let ty = match data.as_ref() {
                     TypeData::Error => return Err(incomplete_type()),

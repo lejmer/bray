@@ -122,7 +122,7 @@ impl Compilation {
 
         let trait_application_data = values
             .trait_application_data(trait_application)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let trait_symbol = symbols
             .trait_symbol(trait_application_data.definition())
@@ -1106,7 +1106,7 @@ fn subject_lifecycle_fulfillments(
 > {
     let subject = values
         .type_data(subject)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let bray_symbols::TypeData::Named { definition, .. } = subject.as_ref() else {
         return Ok(BTreeMap::new());

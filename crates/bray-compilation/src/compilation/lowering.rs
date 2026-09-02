@@ -385,6 +385,7 @@ fn lowering_input_failure_source(error: &LoweringInputError, unit: &BoundUnit) -
         | LoweringInputError::InputKindMismatch { .. }
         | LoweringInputError::InvalidPatternInput
         | LoweringInputError::InvalidInputContents(_)
+        | LoweringInputError::SemanticValue(_)
         | LoweringInputError::StorageOperationCountMismatch { .. }
         | LoweringInputError::LiteralTargetWidthMismatch { .. }
         | LoweringInputError::ExecutableHostRequiresSyntheticInput
@@ -432,6 +433,7 @@ fn lowering_failure_source(
         LoweringError::MissingCallableResultType
         | LoweringError::MissingRepresentation(_)
         | LoweringError::SemanticValueUnavailable
+        | LoweringError::SemanticValue(_)
         | LoweringError::InvalidFrameDescriptor
         | LoweringError::Mir(_) => unit_source(unit),
     }

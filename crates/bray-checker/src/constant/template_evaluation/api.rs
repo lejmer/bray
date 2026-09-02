@@ -29,9 +29,9 @@ where
         .require_concrete_substitution(request.callable().substitution())
     {
         Ok(substitution) => substitution,
-        Err(_) => {
+        Err(error) => {
             return CheckerOutcome::InfrastructureFailure(
-                crate::CheckerInfrastructureError::SemanticValueUnavailable,
+                crate::CheckerInfrastructureError::SemanticValueStore(error),
             );
         }
     };

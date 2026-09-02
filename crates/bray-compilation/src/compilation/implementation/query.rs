@@ -172,7 +172,7 @@ impl super::super::Compilation {
         );
 
         let index = ImplementationHeaderIndex::try_new(headers, values)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         Ok(DiagnosticResult::new(Arc::new(index), diagnostics))
     }
@@ -187,12 +187,12 @@ impl super::super::Compilation {
 
         let trait_application = values
             .trait_application_data(key.trait_application())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let compatible = index
             .value()
             .compatible_headers(key.subject(), trait_application.definition(), values)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let diagnostics =
             DiagnosticBag::merged_all(compatible.iter().map(|header| header.diagnostics()));
@@ -214,9 +214,11 @@ impl super::super::Compilation {
             ) {
                 Ok(Some(substitution)) => substitution,
                 Ok(None) => continue,
-                Err(ImplementationMatchError::InvalidSubstitution)
-                | Err(ImplementationMatchError::SemanticValue) => {
+                Err(ImplementationMatchError::InvalidSubstitution) => {
                     return Err(FactQueryError::InfrastructureFailure);
+                }
+                Err(ImplementationMatchError::SemanticValue(error)) => {
+                    return Err(FactQueryError::SemanticValueStore(error));
                 }
             };
 

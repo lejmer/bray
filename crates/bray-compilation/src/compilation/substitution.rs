@@ -19,7 +19,7 @@ pub(super) fn empty_substitution(
 
     values
         .intern_generic_substitution(substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }
 
 pub(super) fn substitution_for_owner(
@@ -34,7 +34,7 @@ pub(super) fn substitution_for_owner(
     for substitution in substitutions {
         let substitution = values
             .generic_substitution_data(substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         for binding in substitution.bindings() {
             parameters.push(binding.parameter());
@@ -47,7 +47,7 @@ pub(super) fn substitution_for_owner(
 
     values
         .intern_generic_substitution(substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }
 
 pub(super) fn generic_parameter_argument(
@@ -56,7 +56,7 @@ pub(super) fn generic_parameter_argument(
 ) -> Result<GenericArgument, FactQueryError> {
     values
         .intern_generic_parameter_argument(parameter)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }
 
 pub(super) fn identity_substitution(
@@ -76,7 +76,7 @@ pub(super) fn identity_substitution(
 
     values
         .intern_generic_substitution(substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }
 
 pub(super) fn contextual_self_type(
@@ -89,7 +89,7 @@ pub(super) fn contextual_self_type(
     binding_context
         .semantic_values()
         .intern_open_named_type(binding_context.symbols(), definition)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
         .and_then(|ty| ty.ok_or(FactQueryError::InfrastructureFailure))
 }
 
@@ -104,5 +104,5 @@ pub(super) fn named_type(
             definition,
             substitution,
         })
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }

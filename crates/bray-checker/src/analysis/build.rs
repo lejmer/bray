@@ -6,7 +6,7 @@ use bray_bound_tree::{
 use bray_compiler_known::ImplementationHook;
 use bray_declarations::SyntaxAnchor;
 
-use crate::{CheckerRequestContext, CheckerUnitRoot, CheckerUnitView};
+use crate::{CheckerInfrastructureError, CheckerRequestContext, CheckerUnitRoot, CheckerUnitView};
 
 use super::assembly::ControlFlowGraphAssembler;
 use super::id::AnalysisBlockId;
@@ -18,6 +18,7 @@ use super::model::{
 pub(crate) enum ControlFlowGraphBuildOutcome {
     Complete(ControlFlowGraph),
     Cancelled,
+    InfrastructureFailure(CheckerInfrastructureError),
 }
 
 pub(crate) fn build_control_flow_graph<C>(
@@ -58,6 +59,10 @@ where
         CheckerUnitRoot::ExpressionSequence(root) => builder.build_block(root, entry),
     };
 
+    if let Some(error) = builder.infrastructure_failure {
+        return ControlFlowGraphBuildOutcome::InfrastructureFailure(error);
+    }
+
     let Some(completion) = completion else {
         return ControlFlowGraphBuildOutcome::Cancelled;
     };
@@ -89,6 +94,7 @@ where
     scopes: Vec<BoundBlockId>,
     checked_storage: Option<&'view StoragePlan>,
     selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
+    infrastructure_failure: Option<CheckerInfrastructureError>,
 }
 
 #[derive(Clone, Copy)]
@@ -132,6 +138,7 @@ where
             scopes: Vec::new(),
             checked_storage,
             selections,
+            infrastructure_failure: None,
         }
     }
 
@@ -673,6 +680,12 @@ where
         self.selections
     }
 
+    pub(super) fn record_infrastructure_failure(&mut self, error: CheckerInfrastructureError) {
+        if self.infrastructure_failure.is_none() {
+            self.infrastructure_failure = Some(error);
+        }
+    }
+
     fn cancelled(&self) -> bool {
         self.request.is_cancelled()
     }
@@ -701,13 +714,14 @@ mod tests {
     use bray_symbols::{
         CallableDefinitionId, CallableInstanceData, GenericArgument, GenericOwnerId,
         GenericParameterSymbolId, GenericSubstitutionData, NamedTypeSymbolId,
-        TypeCallableMemberSymbolId, TypeData, TypeId, UnionSymbolId,
+        SemanticValueStore, SemanticValueStoreError, TypeCallableMemberSymbolId, TypeData, TypeId,
+        UnionSymbolId,
     };
 
     use super::{
         ControlFlowGraphBuildOutcome, build_control_flow_graph, build_storage_control_flow_graph,
     };
-    use crate::CheckerUnitView;
+    use crate::{CheckerInfrastructureError, CheckerOutcome, CheckerUnitView};
     use crate::analysis::model::ControlFlowGraph;
     use crate::analysis::model::{
         AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisScopeExitPhase,
@@ -1233,6 +1247,67 @@ mod tests {
                 | AnalysisEdgeKind::RunResultPanicked
                 | AnalysisEdgeKind::RunResultCancelled
         )));
+    }
+
+    #[test]
+    fn unselected_result_propagation_preserves_foreign_operand_type_failure() {
+        let key = callable_key();
+        let unit = BoundUnitId::new(25);
+        let origin = BoundNodeOrigin::source(key.source());
+
+        let foreign_values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("foreign semantic values must initialize: {error:?}"));
+
+        let foreign_type = foreign_values
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("foreign operand type must intern: {error:?}"));
+
+        let mut builder = BoundTreeBuilder::new(unit);
+        let operand = push_name_expression(&mut builder, origin, foreign_type);
+
+        let propagation = push_expression(
+            &mut builder,
+            BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::ResultPropagation,
+                [operand],
+                [],
+                [],
+                Some(error_type()),
+                false,
+            )),
+        );
+
+        let root = push_callable_root(&mut builder, origin, [propagation]);
+        let unit = callable_unit(&key, builder.finish(), root);
+        let entry = callable_entry(&key);
+
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("request semantic values must initialize: {error:?}"));
+
+        let expected = SemanticValueStoreError::ForeignId {
+            expected: values.id(),
+            actual: foreign_values.id(),
+        };
+
+        let context = TestCheckerContext::new(false).with_semantic_values(values);
+
+        let request = CheckerUnitView::new(&unit, &entry, &context)
+            .unwrap_or_else(|error| panic!("matching test roots must produce a view: {error:?}"));
+
+        assert!(matches!(
+            build_control_flow_graph(request),
+            ControlFlowGraphBuildOutcome::InfrastructureFailure(
+                CheckerInfrastructureError::SemanticValueStore(error)
+            ) if error == expected
+        ));
+
+        assert!(matches!(
+            crate::analysis::check::check_control_flow(request),
+            CheckerOutcome::InfrastructureFailure(
+                CheckerInfrastructureError::SemanticValueStore(error)
+            ) if error == expected
+        ));
     }
 
     #[test]

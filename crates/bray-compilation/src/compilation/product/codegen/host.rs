@@ -366,7 +366,7 @@ impl Compilation {
 
         let data = values
             .type_data(ty)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let bray_symbols::TypeData::Named { definition, .. } = data.as_ref() else {
             return Err(NativeProductPlanningError::InvalidEntryResult);
@@ -389,7 +389,7 @@ impl Compilation {
 
                 let substitution = values
                     .generic_substitution_data(*substitution)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 let [success, error] = substitution.bindings() else {
                     return Err(NativeProductPlanningError::InvalidEntryResult);
@@ -401,7 +401,7 @@ impl Compilation {
 
                 let success = values
                     .type_data(success)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 let bray_symbols::TypeData::Named { definition, .. } = success.as_ref() else {
                     return Err(NativeProductPlanningError::InvalidEntryResult);

@@ -14,11 +14,11 @@ impl Compilation {
 
         values
             .require_concrete_substitution(substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let substitution = values
             .generic_substitution_data(substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         if substitution.bindings().is_empty() {
             return Ok(CodegenSpecialization::NonGeneric);

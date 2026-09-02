@@ -74,7 +74,7 @@ pub(super) fn unsatisfied_dependency_subjects(
     expression: BoundExpressionId,
     state: &StorageSuspensionState,
     contract: &BoundDependencyContract,
-) -> Vec<UnsatisfiedDependency> {
+) -> Result<Vec<UnsatisfiedDependency>, bray_symbols::SemanticValueStoreError> {
     let mut unsatisfied = Vec::new();
 
     for requirement in contract.requirements() {
@@ -86,13 +86,13 @@ pub(super) fn unsatisfied_dependency_subjects(
             state,
             requirement,
             &mut unsatisfied,
-        );
+        )?;
     }
 
     unsatisfied.sort_unstable();
     unsatisfied.dedup();
 
-    unsatisfied
+    Ok(unsatisfied)
 }
 
 fn collect_unsatisfied_dependency_subjects(
@@ -103,10 +103,10 @@ fn collect_unsatisfied_dependency_subjects(
     state: &StorageSuspensionState,
     requirement: &BoundDependencyRequirement,
     unsatisfied: &mut Vec<UnsatisfiedDependency>,
-) {
+) -> Result<(), bray_symbols::SemanticValueStoreError> {
     match requirement {
         BoundDependencyRequirement::Direct { subject, kind } => {
-            if !dependency_subject_is_satisfied(values, storage, state, *subject, *kind) {
+            if !dependency_subject_is_satisfied(values, storage, state, *subject, *kind)? {
                 unsatisfied.push(UnsatisfiedDependency {
                     subject: *subject,
                     requirement: *kind,
@@ -120,7 +120,7 @@ fn collect_unsatisfied_dependency_subjects(
                 state,
                 guarded.guard(),
             ) {
-                return;
+                return Ok(());
             }
 
             for requirement in guarded.requirements() {
@@ -132,10 +132,12 @@ fn collect_unsatisfied_dependency_subjects(
                     state,
                     requirement,
                     unsatisfied,
-                );
+                )?;
             }
         }
     }
+
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -150,8 +152,8 @@ fn dependency_subject_is_satisfied(
     state: &StorageSuspensionState,
     subject: BoundDependencySubject,
     kind: BoundDependencyRequirementKind,
-) -> bool {
-    match kind {
+) -> Result<bool, bray_symbols::SemanticValueStoreError> {
+    let satisfied = match kind {
         BoundDependencyRequirementKind::StorageAlive => match subject {
             BoundDependencySubject::Storage(identity) => state.live().contains(&identity),
             BoundDependencySubject::StorageAccess(access) => storage
@@ -167,11 +169,11 @@ fn dependency_subject_is_satisfied(
             | BoundDependencySubject::ExactThreadStatic(_) => true,
         },
         BoundDependencyRequirementKind::StorageInitialized => {
-            dependency_subject_is_initialized(values, storage, state, subject)
+            return dependency_subject_is_initialized(values, storage, state, subject);
         }
         BoundDependencyRequirementKind::BorrowCapabilityActive(expected) => {
             let BoundDependencySubject::BorrowCapability(capability) = subject else {
-                return false;
+                return Ok(false);
             };
 
             state.active_borrows().contains(&capability)
@@ -180,11 +182,13 @@ fn dependency_subject_is_satisfied(
                     .is_some_and(|capability| capability.kind() == expected)
         }
         BoundDependencyRequirementKind::ExclusiveMutationAuthority => {
-            dependency_subject_has_exclusive_access(values, storage, state, subject)
+            return dependency_subject_has_exclusive_access(values, storage, state, subject);
         }
         BoundDependencyRequirementKind::ScopedCapabilityLive => false,
         BoundDependencyRequirementKind::LifecycleObligationAttached(_) => false,
-    }
+    };
+
+    Ok(satisfied)
 }
 
 fn dependency_subject_is_initialized(
@@ -192,35 +196,43 @@ fn dependency_subject_is_initialized(
     storage: &StoragePlan,
     state: &StorageSuspensionState,
     subject: BoundDependencySubject,
-) -> bool {
+) -> Result<bool, bray_symbols::SemanticValueStoreError> {
     match subject {
         BoundDependencySubject::Storage(identity) => {
-            state.initialized().contains(&identity)
+            Ok(state.initialized().contains(&identity)
                 && !state
                     .moved()
                     .iter()
-                    .any(|moved| storage.root_identity(*moved) == Some(identity))
+                    .any(|moved| storage.root_identity(*moved) == Some(identity)))
         }
         BoundDependencySubject::StorageAccess(access) => {
             let Some(root) = storage.root_identity(access) else {
-                return false;
+                return Ok(false);
             };
 
-            state.initialized().contains(&root)
-                && !state.moved().iter().any(|moved| {
-                    !access_is_borrow_value(values, storage, *moved)
-                        && storage.relationship(*moved, access) != StorageRelationship::Disjoint
-                })
+            if !state.initialized().contains(&root) {
+                return Ok(false);
+            }
+
+            for moved in state.moved() {
+                if !access_is_borrow_value(values, storage, *moved)?
+                    && storage.relationship(*moved, access) != StorageRelationship::Disjoint
+                {
+                    return Ok(false);
+                }
+            }
+
+            Ok(true)
         }
         BoundDependencySubject::BorrowCapability(capability) => {
-            state.active_borrows().contains(&capability)
+            Ok(state.active_borrows().contains(&capability))
         }
         BoundDependencySubject::ProductStatic(_) | BoundDependencySubject::ExactThreadStatic(_) => {
-            true
+            Ok(true)
         }
         BoundDependencySubject::ScopedCapability(_)
         | BoundDependencySubject::ImplementationWitness(_)
-        | BoundDependencySubject::LifecycleObligation(_) => false,
+        | BoundDependencySubject::LifecycleObligation(_) => Ok(false),
     }
 }
 
@@ -229,7 +241,7 @@ fn dependency_subject_has_exclusive_access(
     storage: &StoragePlan,
     state: &StorageSuspensionState,
     subject: BoundDependencySubject,
-) -> bool {
+) -> Result<bool, bray_symbols::SemanticValueStoreError> {
     let (access, authorizing_borrow) = match subject {
         BoundDependencySubject::StorageAccess(access) => {
             let authorizing_borrow = storage.access(access).and_then(|access| {
@@ -244,13 +256,13 @@ fn dependency_subject_has_exclusive_access(
         }
         BoundDependencySubject::BorrowCapability(capability) => {
             let Some(capability_data) = storage.borrow_capability(capability) else {
-                return false;
+                return Ok(false);
             };
 
             if capability_data.kind() != BorrowKind::Mutable
                 || !state.active_borrows().contains(&capability)
             {
-                return false;
+                return Ok(false);
             }
 
             (capability_data.access(), Some(capability))
@@ -260,24 +272,24 @@ fn dependency_subject_has_exclusive_access(
         | BoundDependencySubject::ImplementationWitness(_)
         | BoundDependencySubject::ProductStatic(_)
         | BoundDependencySubject::ExactThreadStatic(_)
-        | BoundDependencySubject::LifecycleObligation(_) => return false,
+        | BoundDependencySubject::LifecycleObligation(_) => return Ok(false),
     };
 
     let authorizing_borrows = authorizing_borrow
         .map(|capability| borrow_chain(storage, capability))
         .unwrap_or_default();
 
-    dependency_subject_is_initialized(
+    Ok(dependency_subject_is_initialized(
         values,
         storage,
         state,
         BoundDependencySubject::StorageAccess(access),
-    ) && state.active_borrows().iter().copied().all(|active| {
+    )? && state.active_borrows().iter().copied().all(|active| {
         authorizing_borrows.contains(&active)
             || storage.borrow_capability(active).is_some_and(|capability| {
                 storage.relationship(capability.access(), access) == StorageRelationship::Disjoint
             })
-    })
+    }))
 }
 
 fn borrow_chain(
@@ -302,14 +314,14 @@ fn access_is_borrow_value(
     values: &SemanticValueStore,
     storage: &StoragePlan,
     access: StorageAccessId,
-) -> bool {
+) -> Result<bool, bray_symbols::SemanticValueStoreError> {
     let Some(access) = storage.access(access) else {
-        return false;
+        return Ok(false);
     };
 
-    values
-        .type_data(access.reached_type())
-        .is_ok_and(|data| matches!(data.as_ref(), TypeData::Borrow { .. }))
+    let data = values.type_data(access.reached_type())?;
+
+    Ok(matches!(data.as_ref(), TypeData::Borrow { .. }))
 }
 
 fn dependency_guard_may_apply(
@@ -540,27 +552,31 @@ mod tests {
             &storage,
             &mutable_state,
             BoundDependencySubject::BorrowCapability(mutable)
-        ));
+        )
+        .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}")));
 
         assert!(!dependency_subject_has_exclusive_access(
             semantic_values(),
             &storage,
             &shared_state,
             BoundDependencySubject::BorrowCapability(shared)
-        ));
+        )
+        .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}")));
 
         assert!(dependency_subject_has_exclusive_access(
             semantic_values(),
             &storage,
             &moved_borrow_state,
             BoundDependencySubject::BorrowCapability(mutable)
-        ));
+        )
+        .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}")));
 
         assert!(dependency_subject_has_exclusive_access(
             semantic_values(),
             &storage,
             &reborrow_state,
             BoundDependencySubject::BorrowCapability(reborrow)
-        ));
+        )
+        .unwrap_or_else(|error| panic!("test semantic values must be available: {error:?}")));
     }
 }

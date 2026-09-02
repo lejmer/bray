@@ -167,9 +167,9 @@ where
             .intern_constant_value(ConstantValueData::new(result.ty(), kind))
         {
             Ok(value) => value,
-            Err(_) => {
+            Err(error) => {
                 return CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::SemanticValueStore(error),
                 );
             }
         };
@@ -189,14 +189,64 @@ where
         entries,
     ) {
         Ok(values) => values,
-        Err(_) => {
-            return CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::InvalidLiteralValueInput,
-            );
+        Err(error) => {
+            return CheckerOutcome::InfrastructureFailure(literal_value_table_error(error));
         }
     };
 
     CheckerOutcome::complete(values, DiagnosticBag::from(diagnostics))
+}
+
+fn literal_value_table_error(
+    error: bray_bound_tree::CheckedLiteralValueTableBuildError,
+) -> CheckerInfrastructureError {
+    match error {
+        bray_bound_tree::CheckedLiteralValueTableBuildError::SemanticValue { error, .. } => {
+            CheckerInfrastructureError::SemanticValueStore(error)
+        }
+        bray_bound_tree::CheckedLiteralValueTableBuildError::ForeignExpressionTypes
+        | bray_bound_tree::CheckedLiteralValueTableBuildError::InvalidLiteral(_)
+        | bray_bound_tree::CheckedLiteralValueTableBuildError::MissingExpressionType(_)
+        | bray_bound_tree::CheckedLiteralValueTableBuildError::MissingLiteralValue(_)
+        | bray_bound_tree::CheckedLiteralValueTableBuildError::ValueTypeMismatch(_)
+        | bray_bound_tree::CheckedLiteralValueTableBuildError::DuplicateExpression(_) => {
+            CheckerInfrastructureError::InvalidLiteralValueInput
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_bound_tree::{BoundLiteralKind, BoundUnitId, CheckedLiteralValueTableBuildError};
+    use bray_symbols::{SemanticValueKind, SemanticValueStoreError};
+
+    use super::literal_value_table_error;
+    use crate::test_support::{expression_unit, literal_expression};
+    use crate::CheckerInfrastructureError;
+
+    #[test]
+    fn literal_table_failures_preserve_semantic_value_causes() {
+        let cause = SemanticValueStoreError::UnknownId {
+            kind: SemanticValueKind::ConstantValue,
+        };
+
+        let (_, expressions) = expression_unit(BoundUnitId::new(1), |tree, origin| {
+            vec![bray_bound_tree::testing::push_expression(
+                tree,
+                literal_expression(origin, BoundLiteralKind::Boolean, None),
+            )]
+        });
+
+        let error = CheckedLiteralValueTableBuildError::SemanticValue {
+            expression: expressions[0],
+            error: cause,
+        };
+
+        assert_eq!(
+            literal_value_table_error(error),
+            CheckerInfrastructureError::SemanticValueStore(cause)
+        );
+    }
 }
 
 fn check_literal<C>(

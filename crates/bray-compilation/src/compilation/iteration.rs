@@ -337,7 +337,7 @@ fn iteration_exact_count(
 ) -> Result<Option<bray_symbols::ConstantTermId>, FactQueryError> {
     let source = values
         .type_data(source_type)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     match source.as_ref() {
         TypeData::Array { length, .. } => Ok(Some(*length)),
@@ -389,7 +389,7 @@ fn range_literal_count(
             value: IntegerConstant::new(IntegerSign::NonNegative, count.to_be_bytes()),
         })
         .map(Some)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }
 
 fn range_literal_integer(
@@ -401,7 +401,7 @@ fn range_literal_integer(
     if let Some(value) = literals.expression(expression) {
         let value = values
             .constant_value_data(value)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         return Ok(match value.kind() {
             ConstantValueKind::Integer(integer) => Some(integer.clone()),
@@ -488,7 +488,7 @@ fn iteration_subject_type(
             kind,
             target: source_type,
         })
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }
 
 fn iteration_source(
@@ -516,22 +516,22 @@ fn iteration_candidate(
             iterable.candidate.implementation(),
             iterable.candidate.substitution(),
         ))
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let iterator_witness = values
         .intern_implementation_instance(ImplementationInstanceData::new(
             iterator.candidate.implementation(),
             iterator.candidate.substitution(),
         ))
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let iterable_application = values
         .trait_application_data(iterable.requirement.trait_application())
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let iterator_application = values
         .trait_application_data(iterator.requirement.trait_application())
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let iterate_member = callable_instance(
         values,
@@ -799,6 +799,7 @@ mod tests {
                 RepresentationRole::Range,
                 range_type,
             )
+            .unwrap_or_else(|error| panic!("range element must read: {error:?}"))
             .unwrap_or_else(|| panic!("range type must retain its element"));
 
         assert_eq!(

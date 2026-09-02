@@ -55,7 +55,7 @@ impl Compilation {
 
             let substitution = values
                 .generic_substitution_data(substitution)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let [binding] = substitution.bindings() else {
                 return Err(CodegenPreparationError::UnresolvedType(ty));
@@ -130,6 +130,7 @@ impl Compilation {
                 let element = self
                     .available_compiler_known_symbols()
                     .unary_representation_argument(values, role, ty)
+                    .map_err(FactQueryError::SemanticValueStore)?
                     .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
 
                 self.codegen_type(element, target, cancellation, mappings, pending)?;
@@ -155,6 +156,7 @@ impl Compilation {
                 let element = self
                     .available_compiler_known_symbols()
                     .unary_representation_argument(self.semantic_value_store()?, role, ty)
+                    .map_err(FactQueryError::SemanticValueStore)?
                     .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
 
                 self.codegen_aggregate_type(
@@ -262,7 +264,7 @@ impl Compilation {
         let substitution = self
             .semantic_value_store()?
             .generic_substitution_data(substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let [binding] = substitution.bindings() else {
             return Err(CodegenPreparationError::UnresolvedType(ty));

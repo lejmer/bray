@@ -337,9 +337,9 @@ where
             .semantic_values()
             .type_data(ty)
             .map(|ty| matches!(ty.as_ref(), bray_symbols::TypeData::Nullable(_)))
-            .map_err(|_| {
+            .map_err(|error| {
                 EvaluationFailure::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::SemanticValueStore(error),
                 )
             })
     }

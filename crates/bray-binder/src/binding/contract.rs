@@ -57,7 +57,7 @@ where
     let result = binding_context
         .semantic_values()
         .type_data(result_type)
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+        .map_err(BindingQueryError::SemanticValue)?;
 
     let roles = binding_context
         .symbols()

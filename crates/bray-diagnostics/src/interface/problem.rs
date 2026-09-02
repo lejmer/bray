@@ -330,7 +330,9 @@ pub enum DiagnosticSemanticContentProblem {
         value_kind: DiagnosticSemanticValueKind,
     },
     GenericOwnerMismatch {
+        expected_kind: DiagnosticInterfaceSymbolKind,
         expected: u32,
+        actual_kind: DiagnosticInterfaceSymbolKind,
         actual: u32,
     },
     OpenSubstitution,

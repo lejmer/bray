@@ -630,6 +630,9 @@ where
             Err(BindingQueryError::CheckerInfrastructure(error)) => {
                 return Err(BindingQueryError::CheckerInfrastructure(error));
             }
+            Err(BindingQueryError::SemanticValue(error)) => {
+                return Err(BindingQueryError::SemanticValue(error));
+            }
             Err(BindingQueryError::Upstream(error)) => {
                 return Err(BindingQueryError::Upstream(error));
             }

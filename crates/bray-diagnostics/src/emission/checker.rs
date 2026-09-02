@@ -17,6 +17,7 @@ pub enum DiagnosticCheckerFailure {
         query: &'static str,
     },
     SemanticValueUnavailable,
+    SemanticValue(crate::DiagnosticSemanticValueFailure),
     AtomicRepresentationTypeUnavailable,
     AtomicRepresentationArgumentsUnavailable,
     AtomicInitializerArgumentUnavailable,
@@ -109,6 +110,7 @@ impl DiagnosticCheckerFailure {
             Self::InvalidSourceRange { .. } => "checker_invalid_source_range",
             Self::SemanticQueryUnavailable { .. } => "checker_semantic_query_unavailable",
             Self::SemanticValueUnavailable => "checker_semantic_value_unavailable",
+            Self::SemanticValue(failure) => failure.as_str(),
             Self::AtomicRepresentationTypeUnavailable => "atomic_representation_type_unavailable",
             Self::AtomicRepresentationArgumentsUnavailable => {
                 "atomic_representation_arguments_unavailable"

@@ -98,7 +98,7 @@ where
             .context
             .semantic_values()
             .substitute_type(node.ty(), self.substitution.substitution())
-            .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
+            .map_err(TemplateEvaluationFailure::semantic_value)?;
 
         let value = self.evaluate_operation(node.operation(), ty)?;
 
@@ -135,7 +135,7 @@ where
                     .context
                     .semantic_values()
                     .substitute_constant_term(*term, self.substitution.substitution())
-                    .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
+                    .map_err(TemplateEvaluationFailure::semantic_value)?;
 
                 self.evaluate_term(term, ty)
             }
@@ -174,7 +174,7 @@ where
                     .context
                     .semantic_values()
                     .substitute_type(*target, self.substitution.substitution())
-                    .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
+                    .map_err(TemplateEvaluationFailure::semantic_value)?;
 
                 self.evaluate_conversion(value, target)
             }
@@ -270,7 +270,7 @@ where
             .context
             .semantic_values()
             .substitute_generic_substitution(*substitution, self.substitution.substitution())
-            .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
+            .map_err(TemplateEvaluationFailure::semantic_value)?;
 
         let selection = self
             .resolver
@@ -313,7 +313,7 @@ where
                     .context
                     .semantic_values()
                     .generic_substitution_data(self.substitution.substitution())
-                    .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
+                    .map_err(TemplateEvaluationFailure::semantic_value)?;
 
                 let Some(GenericArgument::Constant(term)) =
                     substitution.argument_for(GenericParameterSymbolId::Const(parameter))
@@ -325,7 +325,7 @@ where
                     .context
                     .semantic_values()
                     .substitute_type(input.ty(), self.substitution.substitution())
-                    .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
+                    .map_err(TemplateEvaluationFailure::semantic_value)?;
 
                 self.evaluate_term(term, ty)
             }
@@ -476,7 +476,7 @@ where
         let substitution = values
             .substitute_generic_substitution(substitution, self.substitution.substitution())
             .and_then(|substitution| values.require_concrete_substitution(substitution))
-            .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
+            .map_err(TemplateEvaluationFailure::semantic_value)?;
 
         let implementation = implementation
             .map(|(declaration, substitution)| {
@@ -493,7 +493,7 @@ where
                         *substitution,
                         self.substitution.substitution(),
                     )
-                    .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
+                    .map_err(TemplateEvaluationFailure::semantic_value)?;
 
                 values
                     .intern_implementation_instance(ImplementationInstanceData::new(
@@ -501,7 +501,7 @@ where
                         substitution,
                     ))
                     .map(Some)
-                    .map_err(|_| TemplateEvaluationFailure::semantic_value())
+                    .map_err(TemplateEvaluationFailure::semantic_value)
             })
             .transpose()?
             .flatten();
@@ -662,7 +662,7 @@ where
         self.context
             .semantic_values()
             .constant_value_data(value)
-            .map_err(|_| TemplateEvaluationFailure::semantic_value())
+            .map_err(TemplateEvaluationFailure::semantic_value)
     }
 
     pub(super) fn intern_value(
@@ -673,7 +673,7 @@ where
         self.context
             .semantic_values()
             .intern_constant_value(ConstantValueData::new(ty, kind))
-            .map_err(|_| TemplateEvaluationFailure::semantic_value())
+            .map_err(TemplateEvaluationFailure::semantic_value)
     }
 
     pub(super) fn observe_cancellation(&self) -> Result<(), TemplateEvaluationFailure> {

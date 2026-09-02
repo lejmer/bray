@@ -153,3 +153,41 @@ fn call_shape_may_overlap(
 
     Ok(true)
 }
+
+#[cfg(test)]
+mod tests {
+    use bray_symbols::{
+        CallableSignatureTemplate, SemanticValueStore, SemanticValueStoreError, TypeData,
+        TypeExpressionTemplate,
+    };
+
+    use super::callable_selection_surfaces_overlap;
+
+    #[test]
+    fn callable_overlap_preserves_foreign_semantic_value_identity() {
+        let source = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("source semantic store should build: {error:?}"));
+
+        let target = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("target semantic store should build: {error:?}"));
+
+        let foreign = source
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("source type should intern: {error:?}"));
+
+        let signature = CallableSignatureTemplate::new(
+            TypeExpressionTemplate::Resolved(foreign),
+            None,
+            [],
+            TypeExpressionTemplate::Resolved(foreign),
+        );
+
+        assert_eq!(
+            callable_selection_surfaces_overlap(&signature, &[], &signature, &[], &target),
+            Err(SemanticValueStoreError::ForeignId {
+                expected: target.id(),
+                actual: source.id(),
+            })
+        );
+    }
+}

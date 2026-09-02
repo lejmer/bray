@@ -1,3 +1,4 @@
+use super::super::super::format_internal_compiler_error;
 use super::super::native::{
     format_artifact_failure, format_english_emission_evaluation_failure, format_unit_failure,
 };
@@ -215,22 +216,24 @@ fn format_english_package_interface_failure(
         Failure::InvalidCompilation => {
             "source or semantic errors prevent package-interface export".to_owned()
         }
+        Failure::SemanticValueStoreCreate => format_english_package_interface_store_create(),
+        Failure::SemanticValue(failure) => format_english_package_interface_semantic_value(*failure),
         Failure::RecoveredPublicSymbol(kind) => {
             format!("a recovered public {kind} declaration has no stable external identity")
         }
         Failure::ConstantCallableEvaluation { declaration, cause } => format!(
-            "the compiler could not prepare the constant body for {} because {}",
+            "constant body preparation failed for {} because {}",
             format_english_interface_symbol_identity(declaration),
             format_english_emission_evaluation_failure(*cause)
         ),
         Failure::ExecutableTemplateEvaluation { declaration, cause } => format!(
-            "the compiler could not compile {} because {}",
+            "executable-template preparation failed for {} because {}",
             format_english_interface_symbol_identity(declaration),
             format_english_emission_evaluation_failure(*cause)
         ),
-        Failure::IncompletePublicDeclaration(kind) => format!(
-            "the compiler could not prepare complete data for a reachable public {kind} declaration"
-        ),
+        Failure::IncompletePublicDeclaration(kind) => format_internal_compiler_error(format!(
+            "complete data was unavailable for a reachable public {kind} declaration"
+        )),
         Failure::DuplicateSymbol(kind) => {
             format!("the export surface contains a duplicate stable {kind} identity")
         }
@@ -332,22 +335,22 @@ fn format_english_package_interface_failure(
         Failure::DuplicateExportName { owner, name } => {
             format!("export owner record {owner} projects name {name} more than once")
         }
-        Failure::MissingDeclarationData(declaration) => format!(
-            "the compiler could not prepare complete declaration data for exported {}",
+        Failure::MissingDeclarationData(declaration) => format_internal_compiler_error(format!(
+            "complete declaration data was unavailable for exported {}",
             format_english_interface_symbol_identity(declaration)
-        ),
+        )),
         Failure::LostDeclarationReference {
             declaration,
             table,
             reference,
         } => match declaration {
-            Some(declaration) => format!(
-                "the compiler lost {table} entry {reference} while preparing exported {}",
+            Some(declaration) => format_internal_compiler_error(format!(
+                "{table} entry {reference} was unavailable while preparing exported {}",
                 format_english_interface_symbol_identity(declaration)
-            ),
-            None => format!(
-                "the compiler lost {table} entry {reference} while preparing an exported declaration"
-            ),
+            )),
+            None => format_internal_compiler_error(format!(
+                "{table} entry {reference} was unavailable while preparing an exported declaration"
+            )),
         },
         Failure::DuplicateDeclarationIdentity {
             first,
@@ -364,39 +367,43 @@ fn format_english_package_interface_failure(
             table,
             reference,
         } => match declaration {
-            Some(declaration) => format!(
-                "the compiler created a recursive {table} entry {reference} while preparing exported {}",
+            Some(declaration) => format_internal_compiler_error(format!(
+                "recursive {table} entry {reference} exists while preparing exported {}",
                 format_english_interface_symbol_identity(declaration)
-            ),
-            None => format!(
-                "the compiler created a recursive {table} entry {reference} while preparing the package interface"
-            ),
+            )),
+            None => format_internal_compiler_error(format!(
+                "recursive {table} entry {reference} exists while preparing the package interface"
+            )),
         },
         Failure::DeclarationDiscoveryFailure { cause, cycle } => {
             if cycle.is_empty() {
                 format!(
-                    "the compiler could not finish package-interface export because {}",
+                    "package-interface export failed because {}",
                     format_english_emission_evaluation_failure(*cause)
                 )
             } else {
-                format!(
-                    "the compiler could not finish package-interface export because internal requests depend on one another: {}",
+                format_internal_compiler_error(format!(
+                    "package-interface export has mutually dependent internal requests: {}",
                     cycle.join(" -> ")
-                )
+                ))
             }
         }
-        Failure::MissingPackageReference { table, reference } => format!(
-            "the compiler could not associate {table} entry {reference} with the package interface"
-        ),
-        Failure::MisassignedPackageRecord(table) => format!(
-            "the compiler assigned package-level {table} data to one exported declaration"
-        ),
-        Failure::ConflictingDeclarationRecord { kind, owner } => format!(
-            "the compiler produced conflicting {kind} data for {}",
+        Failure::MissingPackageReference { table, reference } => {
+            format_internal_compiler_error(format!(
+                "{table} entry {reference} has no associated package interface"
+            ))
+        }
+        Failure::MisassignedPackageRecord(table) => format_internal_compiler_error(format!(
+            "package-level {table} data belongs to one exported declaration"
+        )),
+        Failure::ConflictingDeclarationRecord { kind, owner } => format_internal_compiler_error(format!(
+            "conflicting {kind} data exists for {}",
             format_english_interface_symbol_reference(owner)
-        ),
+        )),
         Failure::RecursiveDeclarationReference(table) => {
-            format!("the compiler produced a recursive reference in the {table} data table")
+            format_internal_compiler_error(format!(
+                "the {table} data table contains a recursive reference"
+            ))
         }
         Failure::SemanticTableOverflow { table, maximum } => format!(
             "package-interface export requires more than {maximum} {table} records, which the file format cannot represent"
@@ -446,6 +453,21 @@ fn format_english_package_interface_failure(
     }
 }
 
+fn format_english_package_interface_store_create() -> String {
+    format_internal_compiler_error(
+        "semantic-value store identity capacity was exhausted while preparing the package interface",
+    )
+}
+
+fn format_english_package_interface_semantic_value(
+    failure: bray_diagnostics::DiagnosticSemanticValueFailure,
+) -> String {
+    format_internal_compiler_error(format!(
+        "package-interface preparation failed because {}",
+        super::super::native::format_english_semantic_value_failure_detail(failure),
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
@@ -482,10 +504,9 @@ mod tests {
             },
         );
 
-        assert_eq!(
-            recursive,
-            "the compiler created a recursive type entry 19 while preparing exported 'example.value'"
-        );
+        assert!(recursive.starts_with(crate::catalog::english::INTERNAL_COMPILER_ERROR));
+        assert!(recursive.contains("type entry 19"));
+        assert!(recursive.contains("example.value"));
 
         let cycle = format_english_package_interface_failure(
             &DiagnosticPackageInterfaceFailure::DeclarationDiscoveryFailure {
@@ -494,10 +515,8 @@ mod tests {
             },
         );
 
-        assert_eq!(
-            cycle,
-            "the compiler could not finish package-interface export because internal requests depend on one another: declaration_table -> symbol_graph"
-        );
+        assert!(cycle.starts_with(crate::catalog::english::INTERNAL_COMPILER_ERROR));
+        assert!(cycle.contains("declaration_table -> symbol_graph"));
 
         let infrastructure = format_english_package_interface_failure(
             &DiagnosticPackageInterfaceFailure::DeclarationDiscoveryFailure {
@@ -506,10 +525,8 @@ mod tests {
             },
         );
 
-        assert_eq!(
-            infrastructure,
-            "the compiler could not finish package-interface export because the compiler evaluation state became inconsistent"
-        );
+        assert!(infrastructure.contains("package-interface export failed"));
+        assert!(infrastructure.contains("compiler evaluation state is inconsistent"));
 
         let executable = format_english_package_interface_failure(
             &DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {
@@ -518,10 +535,8 @@ mod tests {
             },
         );
 
-        assert_eq!(
-            executable,
-            "the compiler could not compile 'example.run' because the selected constant callable has no available body"
-        );
+        assert!(executable.contains("example.run"));
+        assert!(executable.contains("selected constant callable has no available body"));
 
         let overflow = format_english_package_interface_failure(
             &DiagnosticPackageInterfaceFailure::SemanticTableOverflow {

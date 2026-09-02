@@ -707,7 +707,7 @@ impl Compilation {
         while let Some((value, representation)) = pending.pop() {
             let data = values
                 .constant_value_data(value)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let representation = representation.unwrap_or_else(|| data.ty());
             let key = (value, representation);
@@ -759,7 +759,7 @@ impl Compilation {
 
                 let data = values
                     .constant_term_data(term)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 let ConstantTermData::Value(value) = data.as_ref() else {
                     return Err(CodegenPreparationError::OpenConstantTerm(term));

@@ -101,7 +101,7 @@ impl Lowerer<'_> {
         self.input
             .semantic_values()
             .intern_non_generic_named_type(NamedTypeSymbolId::Struct(symbol))
-            .map_err(|_| LoweringError::SemanticValueUnavailable)
+            .map_err(LoweringError::from)
     }
 
     fn sequence_length_zero(&self, ty: bray_symbols::TypeId) -> Result<MirOperand, LoweringError> {
@@ -111,8 +111,7 @@ impl Lowerer<'_> {
             .intern_constant_value(ConstantValueData::new(
                 ty,
                 ConstantValueKind::Integer(IntegerConstant::from_u64(0)),
-            ))
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            ))?;
 
         Ok(MirOperand::Constant { value, ty })
     }

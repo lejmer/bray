@@ -209,6 +209,18 @@ fn package_interface_export_failure_diagnostic(
             product,
             target,
         ),
+        PackageInterfaceExportError::SemanticValueStoreCreate(_) => package_failure_diagnostic(
+            DiagnosticPackageInterfaceFailure::SemanticValueStoreCreate,
+            product,
+            target,
+        ),
+        PackageInterfaceExportError::SemanticValueStore(error) => package_failure_diagnostic(
+            DiagnosticPackageInterfaceFailure::SemanticValue(
+                crate::fact::diagnostic_semantic_value_failure(*error),
+            ),
+            product,
+            target,
+        ),
         PackageInterfaceExportError::RecoveredPublicSymbol(kind) => package_failure_diagnostic(
             DiagnosticPackageInterfaceFailure::RecoveredPublicSymbol(kind.as_str().to_owned()),
             product,

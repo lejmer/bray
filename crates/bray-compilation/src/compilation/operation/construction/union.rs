@@ -145,7 +145,7 @@ impl Compilation {
         let data = binding_context
             .semantic_values()
             .type_data(result_type)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let TypeData::Named {
             definition: NamedTypeSymbolId::Union(union),
@@ -197,7 +197,7 @@ impl Compilation {
         let data = binding_context
             .semantic_values()
             .type_data(result_type)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let TypeData::Named {
             definition: NamedTypeSymbolId::Union(union),

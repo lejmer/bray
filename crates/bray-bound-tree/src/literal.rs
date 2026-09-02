@@ -140,8 +140,13 @@ pub enum CheckedLiteralValueTableBuildError {
     MissingExpressionType(BoundExpressionId),
     /// A literal expression has no adapted value.
     MissingLiteralValue(BoundExpressionId),
-    /// A constant value does not belong to the supplied semantic value store.
-    InvalidValue(BoundExpressionId),
+    /// The semantic value store rejected the literal's constant value identity.
+    SemanticValue {
+        /// The literal expression whose value could not be read.
+        expression: BoundExpressionId,
+        /// The exact semantic value store failure.
+        error: bray_symbols::SemanticValueStoreError,
+    },
     /// The adapted value and expression have different semantic types.
     ValueTypeMismatch(BoundExpressionId),
     /// More than one value was supplied for the same expression occurrence.
@@ -173,7 +178,10 @@ fn validate_entry(
 
     let value = values
         .constant_value_data(entry.value())
-        .map_err(|_| CheckedLiteralValueTableBuildError::InvalidValue(expression))?;
+        .map_err(|error| CheckedLiteralValueTableBuildError::SemanticValue {
+            expression,
+            error,
+        })?;
 
     if !checked_type.is_recovered() && value.ty() != checked_type.ty() {
         return Err(CheckedLiteralValueTableBuildError::ValueTypeMismatch(
@@ -186,7 +194,9 @@ fn validate_entry(
 
 #[cfg(test)]
 mod tests {
-    use bray_symbols::{ConstantValueData, ConstantValueKind, TypeData};
+    use bray_symbols::{
+        ConstantValueData, ConstantValueKind, SemanticValueStore, SemanticValueStoreError, TypeData,
+    };
 
     use super::{
         CheckedLiteralValueEntry, CheckedLiteralValueTableBuildError, CheckedLiteralValues,
@@ -281,5 +291,64 @@ mod tests {
 
         assert_send_sync::<CheckedLiteralValueEntry>();
         assert_send_sync::<CheckedLiteralValues>();
+    }
+
+    #[test]
+    fn literal_value_tables_preserve_foreign_store_identity() {
+        let values = semantic_values();
+
+        let ty = values
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("test type must intern: {error:?}"));
+
+        let (unit, expressions) = expression_unit(BoundUnitId::new(81), |tree, origin| {
+            vec![push_expression(
+                tree,
+                BoundExpression::Literal(BoundLiteralExpression::new(
+                    origin,
+                    origin.source_anchor().syntax().full_range(),
+                    BoundLiteralKind::Boolean,
+                    Some(ty),
+                    false,
+                )),
+            )]
+        });
+
+        let expression = expressions[0];
+        let result = ExpressionTypeResult::new(ty, ExpressionTypeStatus::Valid);
+        let types = checked_expression_types(&unit, expressions, result);
+
+        let foreign = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("foreign store must initialize: {error:?}"));
+
+        let foreign_type = foreign
+            .intern_type(TypeData::Error)
+            .unwrap_or_else(|error| panic!("foreign type must intern: {error:?}"));
+
+        let foreign_value = foreign
+            .intern_constant_value(ConstantValueData::new(
+                foreign_type,
+                ConstantValueKind::Error,
+            ))
+            .unwrap_or_else(|error| panic!("foreign value must intern: {error:?}"));
+
+        let width = std::num::NonZeroU16::new(64).unwrap_or(std::num::NonZeroU16::MIN);
+
+        assert_eq!(
+            CheckedLiteralValues::try_new(
+                &unit,
+                &types,
+                &values,
+                width,
+                [CheckedLiteralValueEntry::new(expression, foreign_value)],
+            ),
+            Err(CheckedLiteralValueTableBuildError::SemanticValue {
+                expression,
+                error: SemanticValueStoreError::ForeignId {
+                    expected: values.id(),
+                    actual: foreign.id(),
+                },
+            })
+        );
     }
 }

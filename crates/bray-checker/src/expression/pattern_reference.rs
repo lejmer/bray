@@ -77,7 +77,7 @@ where
     let error_type = request
         .semantic_values()
         .intern_type(TypeData::Error)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let mut evidence = Vec::with_capacity(expressions.len());
     let mut selections = Vec::with_capacity(expressions.len());

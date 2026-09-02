@@ -369,7 +369,7 @@ where
             .request
             .semantic_values()
             .type_data(destination_type.ty())
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         match data.as_ref() {
             TypeData::Borrow {
@@ -683,7 +683,7 @@ where
                     .request
                     .semantic_values()
                     .type_data(receiver.ty())
-                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
                 Ok(match (structured.kind(), data.as_ref()) {
                     (

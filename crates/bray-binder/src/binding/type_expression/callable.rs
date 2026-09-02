@@ -322,7 +322,7 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     ) -> BindingQueryResult<bray_symbols::DependencyContractTemplateId, Upstream> {
         self.semantic_values
             .empty_dependency_contract_template()
-            .map_err(|_| BindingQueryError::DependencyUnavailable)
+            .map_err(BindingQueryError::SemanticValue)
     }
 }
 
@@ -335,7 +335,7 @@ fn callable_template_abi<Upstream>(
         TypeExpressionTemplate::Resolved(ty) => {
             let data = values
                 .type_data(*ty)
-                .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+                .map_err(BindingQueryError::SemanticValue)?;
 
             let TypeData::Callable(callable) = data.as_ref() else {
                 return Err(BindingQueryError::DependencyUnavailable);

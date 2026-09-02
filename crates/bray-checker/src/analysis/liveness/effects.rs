@@ -606,7 +606,7 @@ where
         .semantic_values()
         .type_data(ty)
         .map(|data| matches!(data.as_ref(), TypeData::Borrow { .. }))
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+        .map_err(CheckerInfrastructureError::SemanticValueStore)
 }
 
 fn dependency_subjects(

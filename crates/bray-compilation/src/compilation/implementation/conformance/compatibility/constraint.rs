@@ -123,17 +123,17 @@ pub(super) fn substitute_requirement_trait_application(
 ) -> Result<TraitApplicationId, FactQueryError> {
     let trait_substitution = values
         .trait_application_data(containing_trait)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?
+        .map_err(FactQueryError::SemanticValueStore)?
         .substitution();
 
     let requirement = values
         .substitute_trait_application(requirement, trait_substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     match generic_substitution {
         Some(substitution) => values
             .substitute_trait_application(requirement, substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure),
+            .map_err(FactQueryError::SemanticValueStore),
         None => Ok(requirement),
     }
 }

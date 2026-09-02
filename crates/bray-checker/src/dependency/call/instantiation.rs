@@ -162,7 +162,7 @@ where
                         self.request
                             .semantic_values()
                             .type_data(conversion.target_type())
-                            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?
+                            .map_err(CheckerInfrastructureError::SemanticValueStore)?
                             .as_ref(),
                         TypeData::Borrow { .. }
                     ),

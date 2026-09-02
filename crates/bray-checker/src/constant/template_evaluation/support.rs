@@ -21,8 +21,8 @@ impl TemplateEvaluationFailure {
         Self::Infrastructure(CheckerInfrastructureError::InvalidConstantEvaluationInput)
     }
 
-    pub(super) const fn semantic_value() -> Self {
-        Self::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+    pub(super) const fn semantic_value(error: bray_symbols::SemanticValueStoreError) -> Self {
+        Self::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
     }
 }
 
@@ -99,7 +99,7 @@ pub(super) fn recovery_value(
 ) -> Result<ConstantValueId, CheckerInfrastructureError> {
     values
         .intern_error_constant_value(ty)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+        .map_err(CheckerInfrastructureError::SemanticValueStore)
 }
 
 pub(super) fn integer_index(value: &ConstantValueKind) -> Option<usize> {

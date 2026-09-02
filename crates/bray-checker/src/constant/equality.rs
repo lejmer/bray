@@ -11,11 +11,11 @@ pub(crate) fn constant_values_equal(
 ) -> Result<bool, CheckerInfrastructureError> {
     let left = values
         .constant_value_data(left)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let right = values
         .constant_value_data(right)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     if left.ty() != right.ty() {
         return Ok(false);

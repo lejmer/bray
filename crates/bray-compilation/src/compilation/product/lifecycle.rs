@@ -154,7 +154,7 @@ impl Compilation {
 
         let data = values
             .type_data(ty)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let needs = match data.as_ref() {
             TypeData::Named {
@@ -432,7 +432,7 @@ impl Compilation {
         let substitution = self
             .semantic_value_store()?
             .generic_substitution_data(substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let [binding] = substitution.bindings() else {
             return Err(FactQueryError::InfrastructureFailure.into());

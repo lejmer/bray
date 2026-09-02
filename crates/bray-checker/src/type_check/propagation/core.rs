@@ -174,31 +174,38 @@ where
         return Ok(());
     };
 
-    if let Some(future) = inference.evidence(operand_variable)
-        && let Some(completion) = request
+    if let Some(future) = inference.evidence(operand_variable) {
+        let completion = request
             .available_compiler_known_symbols()
             .unary_representation_argument(
                 request.semantic_values(),
                 RepresentationRole::Future,
                 future,
             )
-    {
-        inference.add_evidence(variable, completion, expression);
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+        if let Some(completion) = completion {
+            inference.add_evidence(variable, completion, expression);
+        }
     }
 
     let completion = inference
         .evidence(variable)
         .or(inference.unique_expectation(variable));
 
-    let Some(future) = completion.and_then(|completion| {
-        request
+    let Some(completion) = completion else {
+        return Ok(());
+    };
+
+    let Some(future) = request
             .available_compiler_known_symbols()
             .unary_representation_type(
                 request.semantic_values(),
                 RepresentationRole::Future,
                 completion,
             )
-    }) else {
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?
+    else {
         return Ok(());
     };
 
@@ -225,7 +232,7 @@ where
             .semantic_values()
             .type_data(ty)
             .map(|data| matches!(data.as_ref(), TypeData::Nullable(_)))
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)
     })?;
 
     if let Some(expected) = expected {
@@ -270,7 +277,7 @@ where
     let data = request
         .semantic_values()
         .type_data(operand_type)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let TypeData::Named { substitution, .. } = data.as_ref() else {
         return Ok(());
@@ -286,7 +293,7 @@ where
     let substitution = request
         .semantic_values()
         .generic_substitution_data(*substitution)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let Some(GenericArgument::Type(success)) = substitution
         .bindings()
@@ -334,14 +341,14 @@ where
             .semantic_values()
             .type_data(ty)
             .map(|data| matches!(data.as_ref(), TypeData::Borrow { kind: expected, .. } if *expected == kind))
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)
     })?;
 
     if let Some(expected) = expected {
         let data = request
             .semantic_values()
             .type_data(expected)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         let TypeData::Borrow {
             target: expected_target,
@@ -356,7 +363,7 @@ where
                 let data = request
                     .semantic_values()
                     .type_data(operand_type)
-                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
                 matches!(
                     data.as_ref(),
@@ -383,7 +390,7 @@ where
         let target_data = request
             .semantic_values()
             .type_data(target)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         if matches!(target_data.as_ref(), TypeData::Borrow { .. }) {
             return Ok(());
@@ -392,7 +399,7 @@ where
         let ty = request
             .semantic_values()
             .intern_type(TypeData::Borrow { kind, target })
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         inference.add_evidence(variable, ty, expression_id);
 
@@ -541,7 +548,7 @@ where
                 .semantic_values()
                 .type_data(expected)
                 .map(|data| matches!(data.as_ref(), TypeData::Nullable(_)).then_some(expected))
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+                .map_err(CheckerInfrastructureError::SemanticValueStore)
         })
         .transpose()?
         .flatten();
@@ -601,7 +608,7 @@ where
     let expected_data = request
         .semantic_values()
         .type_data(expected)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let expected = match expected_data.as_ref() {
         TypeData::Borrow {

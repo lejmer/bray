@@ -100,7 +100,7 @@ where
             let error_type = binding_context
                 .semantic_values()
                 .intern_type(bray_symbols::TypeData::Error)
-                .map_err(|_| BindingError::IdentityCapacityExceeded)?;
+                .map_err(BindingError::SemanticValue)?;
 
             let mut expression_binder = ExpressionBinder::new(path, error_type);
             let mut predicates = Vec::new();
@@ -108,7 +108,7 @@ where
             let dependency = binding_context
                 .semantic_values()
                 .empty_dependency_contract_template()
-                .map_err(|_| BindingError::IdentityCapacityExceeded)?;
+                .map_err(BindingError::SemanticValue)?;
 
             for expression in expressions {
                 expression_binder.bind_expression(binder, path.scope(), Some(&expression))?;
@@ -206,7 +206,7 @@ where
         && let Some(callable) = CallableSymbolId::try_from_any(owner)
     {
         crate::entry::push_callable_inputs_for(&mut binder, scope, callable)
-            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+            .map_err(bound_unit_error)?;
     }
 
     let path = match symbols.containing_module(owner) {
@@ -231,12 +231,35 @@ where
     Ok(DiagnosticResult::new(value, diagnostics))
 }
 
+fn bound_unit_error<Upstream>(
+    error: crate::BoundUnitBindingError<Upstream>,
+) -> BindingQueryError<Upstream> {
+    match error {
+        crate::BoundUnitBindingError::Cancelled => BindingQueryError::Cancelled,
+        crate::BoundUnitBindingError::CheckerInfrastructure(error) => {
+            BindingQueryError::CheckerInfrastructure(error)
+        }
+        crate::BoundUnitBindingError::SemanticValue(error) => {
+            BindingQueryError::SemanticValue(error)
+        }
+        crate::BoundUnitBindingError::Upstream(error) => BindingQueryError::Upstream(error),
+        crate::BoundUnitBindingError::InvalidUnitKey
+        | crate::BoundUnitBindingError::MissingSyntax
+        | crate::BoundUnitBindingError::MissingOwner
+        | crate::BoundUnitBindingError::MissingModule
+        | crate::BoundUnitBindingError::Construction
+        | crate::BoundUnitBindingError::Binding
+        | crate::BoundUnitBindingError::Assembly => BindingQueryError::DependencyUnavailable,
+    }
+}
+
 fn binding_error<Upstream>(error: BindingError<Upstream>) -> BindingQueryError<Upstream> {
     match error {
         BindingError::Cancelled => BindingQueryError::Cancelled,
         BindingError::CheckerInfrastructure(error) => {
             BindingQueryError::CheckerInfrastructure(error)
         }
+        BindingError::SemanticValue(error) => BindingQueryError::SemanticValue(error),
         BindingError::Upstream(error) => BindingQueryError::Upstream(error),
         BindingError::DependencyUnavailable
         | BindingError::Construction(_)

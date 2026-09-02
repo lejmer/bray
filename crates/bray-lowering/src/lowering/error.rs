@@ -4,6 +4,7 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::MirUnitBuildError;
+use bray_symbols::SemanticValueStoreError;
 
 /// A violated checked-HIR or MIR construction contract encountered during lowering.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -57,6 +58,8 @@ pub enum LoweringError {
     MissingRepresentation(RepresentationRole),
     /// A checked semantic value could not be read or interned.
     SemanticValueUnavailable,
+    /// The semantic value store rejected a required read or intern operation.
+    SemanticValue(SemanticValueStoreError),
     /// Checked async analysis could not form one coherent frame descriptor.
     InvalidFrameDescriptor,
     /// The MIR builder or validator rejected the lowered unit.
@@ -66,5 +69,11 @@ pub enum LoweringError {
 impl From<MirUnitBuildError> for LoweringError {
     fn from(error: MirUnitBuildError) -> Self {
         Self::Mir(error)
+    }
+}
+
+impl From<SemanticValueStoreError> for LoweringError {
+    fn from(error: SemanticValueStoreError) -> Self {
+        Self::SemanticValue(error)
     }
 }

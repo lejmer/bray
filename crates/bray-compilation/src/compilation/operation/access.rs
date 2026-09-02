@@ -117,7 +117,7 @@ impl Compilation {
         let data = binding_context
             .semantic_values()
             .type_data(receiver_type)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         if let (TypeData::Tuple(elements), Some(BoundMemberSelector::TupleElement(index))) =
             (data.as_ref(), selector)
@@ -357,7 +357,7 @@ impl Compilation {
             for header in index.value().headers() {
                 let application = values
                     .trait_application_data(header.trait_application())
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 let MemberLookupResult::Found(member) = binding_context
                     .lookup_member(application.definition().into(), name)
@@ -384,7 +384,7 @@ impl Compilation {
 
                 let application = values
                     .substitute_trait_application(header.trait_application(), substitution)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 let requirement =
                     bray_symbols::ImplementationRequirementKey::new(subject_type, application);
@@ -449,7 +449,7 @@ impl Compilation {
             let implementation = binding_context
                 .semantic_values()
                 .implementation_instance_data(witness)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let key = binding_context
                 .symbol_key(implementation.definition().into_any())
@@ -504,11 +504,11 @@ impl Compilation {
 
         let application_data = values
             .trait_application_data(application)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let implementation = values
             .implementation_instance_data(witness)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let fulfillments =
             implementation_fulfillments(binding_context, implementation.definition())?;
@@ -635,7 +635,7 @@ impl Compilation {
                 trait_definition,
                 substitution,
             ))
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         self.resolve_constrained_trait_member_operation(
             binding_context,
@@ -677,7 +677,7 @@ impl Compilation {
             let application_data = binding_context
                 .semantic_values()
                 .trait_application_data(application)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let MemberLookupResult::Found(member) = binding_context
                 .lookup_member(application_data.definition().into(), name)
@@ -729,7 +729,7 @@ impl Compilation {
         let application = binding_context
             .semantic_values()
             .trait_application_data(application)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let callable = self.resolve_callable_signature(
             binding_context,
@@ -819,7 +819,7 @@ impl Compilation {
             let data = binding_context
                 .semantic_values()
                 .type_data(ty)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             match data.as_ref() {
                 TypeData::Borrow { target, .. } => ty = *target,
@@ -907,7 +907,7 @@ impl Compilation {
         let application_data = binding_context
             .semantic_values()
             .trait_application_data(application)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let lookup = binding_context
             .lookup_member(application_data.definition().into(), name.as_str())
@@ -1235,7 +1235,7 @@ impl Compilation {
             .semantic_values()
             .substitute_type(ty, substitution)
             .map(Some)
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+            .map_err(FactQueryError::SemanticValueStore)
     }
 
     pub(super) fn resolve_index_operation(
@@ -1263,7 +1263,7 @@ impl Compilation {
         let data = binding_context
             .semantic_values()
             .type_data(receiver_type)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let built_in = match (index.kind(), data.as_ref()) {
             (BoundStructuredExpressionKind::ElementIndex, TypeData::Array { element, .. }) => {
@@ -1277,14 +1277,14 @@ impl Compilation {
                 binding_context
                     .semantic_values()
                     .intern_type(TypeData::Slice(*element))
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?,
+                    .map_err(FactQueryError::SemanticValueStore)?,
             )),
             (BoundStructuredExpressionKind::SliceIndex, TypeData::Slice(element)) => Some((
                 IndexTarget::Slice,
                 binding_context
                     .semantic_values()
                     .intern_type(TypeData::Slice(*element))
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?,
+                    .map_err(FactQueryError::SemanticValueStore)?,
             )),
             _ => None,
         };
@@ -1308,7 +1308,7 @@ impl Compilation {
                     definition: NamedTypeSymbolId::Struct(usize_type),
                     substitution,
                 })
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let expectations = index
                 .operands()
@@ -1385,7 +1385,7 @@ impl Compilation {
                 let nullable_bound = binding_context
                     .semantic_values()
                     .intern_type(TypeData::Nullable(bound))
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 (
                     match borrow_kind {

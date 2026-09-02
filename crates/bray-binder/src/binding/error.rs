@@ -4,6 +4,7 @@ use crate::{BindingQueryError, unit::BoundUnitConstructionError};
 pub(crate) enum BindingError<Upstream = std::convert::Infallible> {
     Cancelled,
     CheckerInfrastructure(bray_checker::CheckerInfrastructureError),
+    SemanticValue(bray_symbols::SemanticValueStoreError),
     Upstream(Upstream),
     DependencyUnavailable,
     IdentityCapacityExceeded,
@@ -19,9 +20,16 @@ impl<Upstream> From<BindingQueryError<Upstream>> for BindingError<Upstream> {
         match error {
             BindingQueryError::Cancelled => Self::Cancelled,
             BindingQueryError::CheckerInfrastructure(error) => Self::CheckerInfrastructure(error),
+            BindingQueryError::SemanticValue(error) => Self::SemanticValue(error),
             BindingQueryError::Upstream(error) => Self::Upstream(error),
             BindingQueryError::DependencyUnavailable => Self::DependencyUnavailable,
         }
+    }
+}
+
+impl<Upstream> From<bray_symbols::SemanticValueStoreError> for BindingError<Upstream> {
+    fn from(error: bray_symbols::SemanticValueStoreError) -> Self {
+        Self::SemanticValue(error)
     }
 }
 

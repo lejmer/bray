@@ -35,7 +35,7 @@ impl<'a> SemanticExporter<'a> {
                 let data = self
                     .values
                     .constant_term_data(id)
-                    .map_err(|_| incomplete_type())?;
+                    .map_err(super::super::semantic_value_export_error)?;
 
                 let term = match data.as_ref() {
                     ConstantTermData::Typed { term, ty } => InterfaceConstantTerm::Typed {
@@ -212,7 +212,7 @@ impl<'a> SemanticExporter<'a> {
         let term = self
             .values
             .intern_constant_term(ConstantTermData::Value(value))
-            .map_err(|_| incomplete_type())?;
+            .map_err(super::super::semantic_value_export_error)?;
 
         self.constant_term_id(term)
     }
@@ -227,7 +227,7 @@ impl<'a> SemanticExporter<'a> {
                 ty,
                 ConstantValueKind::NullableAbsent,
             ))
-            .map_err(|_| incomplete_type())?;
+            .map_err(super::super::semantic_value_export_error)?;
 
         self.constant_value_term_id(value)
     }
@@ -264,7 +264,7 @@ impl<'a> SemanticExporter<'a> {
         let data = self
             .values
             .implementation_instance_data(instance)
-            .map_err(|_| incomplete_type())?;
+            .map_err(super::super::semantic_value_export_error)?;
 
         Ok((
             bray_package_interface::InterfaceImplementationReference::Symbol(
@@ -291,7 +291,7 @@ impl<'a> SemanticExporter<'a> {
                 let data = self
                     .values
                     .constant_value_data(id)
-                    .map_err(|_| incomplete_type())?;
+                    .map_err(super::super::semantic_value_export_error)?;
 
                 let kind = match data.kind() {
                     ConstantValueKind::Error | ConstantValueKind::StaticAddress(_) => {

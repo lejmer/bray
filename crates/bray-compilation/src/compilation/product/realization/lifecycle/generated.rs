@@ -140,7 +140,7 @@ impl Compilation {
 
         let data = values
             .type_data(place.ty())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         match data.as_ref() {
             TypeData::Named {

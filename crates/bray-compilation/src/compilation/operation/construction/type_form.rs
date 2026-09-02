@@ -24,7 +24,7 @@ impl Compilation {
         let data = binding_context
             .semantic_values()
             .type_data(result_type)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let TypeData::OwnedIndirection { storage, target } = data.as_ref() else {
             return Ok(None);
@@ -51,7 +51,7 @@ impl Compilation {
         let callable_type = binding_context
             .semantic_values()
             .type_data(resolved_signature.callable_type())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let TypeData::Callable(callable_type) = callable_type.as_ref() else {
             return Err(FactQueryError::InfrastructureFailure);
@@ -105,7 +105,7 @@ impl Compilation {
         let implementation = binding_context
             .semantic_values()
             .implementation_instance_data(*witness)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let key = binding_context
             .symbol_key(implementation.definition().into_any())

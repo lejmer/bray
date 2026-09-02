@@ -288,9 +288,9 @@ where
     let (abi, trust) = match signature.value().callable_type() {
         TypeExpressionTemplate::Callable(callable) => (callable.abi(), callable.trust()),
         TypeExpressionTemplate::Resolved(ty) => {
-            let data = request.semantic_values().type_data(*ty).map_err(|_| {
+            let data = request.semantic_values().type_data(*ty).map_err(|error| {
                 CheckerOutcome::InfrastructureFailure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::SemanticValueStore(error),
                 )
             })?;
 
@@ -430,7 +430,7 @@ where
     let substitution = request
         .semantic_values()
         .generic_substitution_data(instance.substitution())
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     Ok(substitution
         .bindings()

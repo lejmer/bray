@@ -16,8 +16,7 @@ impl Lowerer<'_> {
         let data = self
             .input
             .semantic_values()
-            .constant_value_data(*value)
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .constant_value_data(*value)?;
 
         match data.kind() {
             ConstantValueKind::Boolean(value) => Ok(Some(*value)),

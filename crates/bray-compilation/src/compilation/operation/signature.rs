@@ -63,6 +63,6 @@ pub(super) fn substitute_callable_self(
     signature.try_map_types(|ty| {
         values
             .substitute_contextual_self(ty, context, replacement)
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+            .map_err(FactQueryError::SemanticValueStore)
     })
 }

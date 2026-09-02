@@ -203,8 +203,7 @@ impl Lowerer<'_> {
         let data = self
             .input
             .semantic_values()
-            .type_data(ty)
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .type_data(ty)?;
 
         let TypeData::Callable(callable) = data.as_ref() else {
             return Ok(None);
@@ -223,8 +222,7 @@ impl Lowerer<'_> {
                 let substitution = self
                     .input
                     .semantic_values()
-                    .intern_generic_substitution(substitution)
-                    .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+                    .intern_generic_substitution(substitution)?;
 
                 CallableInstanceData::new(definition, substitution)
             }
@@ -371,8 +369,7 @@ impl Lowerer<'_> {
                 .intern_type(TypeData::Borrow {
                     kind: BorrowKind::Shared,
                     target: self.expression_type(*left_id)?,
-                })
-                .map_err(|_| LoweringError::SemanticValueUnavailable)?,
+                })?,
         };
 
         let left = if self.later_evaluation_may_check_call_panic([*right_id])? {
@@ -728,8 +725,7 @@ impl Lowerer<'_> {
                     .intern_type(TypeData::Borrow {
                         kind: BorrowKind::Shared,
                         target: destination.ty(),
-                    })
-                    .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+                    })?;
 
                 self.push_typed_value_operation(
                     id,

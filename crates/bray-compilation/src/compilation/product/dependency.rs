@@ -141,7 +141,7 @@ fn selection_internal_dependency(
                 semantic_values,
                 symbols,
                 declarations,
-            );
+            )?;
         }
         SemanticSelection::StaticReference(instance) => {
             dependencies.push(instance.template().declaration().into());
@@ -151,7 +151,7 @@ fn selection_internal_dependency(
                 semantic_values,
                 symbols,
                 declarations,
-            );
+            )?;
         }
         SemanticSelection::Call(call) => {
             if let BoundCallableTarget::Declaration(target) = call.target() {
@@ -162,32 +162,32 @@ fn selection_internal_dependency(
                     semantic_values,
                     symbols,
                     declarations,
-                ) {
+                )? {
                     return Ok(Some(internal));
                 }
             } else if let BoundCallableTarget::Indirect(ty) = call.target() {
                 semantic_internal =
-                    resolved_type_internal_dependency(ty, semantic_values, symbols, declarations);
+                    resolved_type_internal_dependency(ty, semantic_values, symbols, declarations)?;
             }
 
             if let Some(receiver) = call.receiver() {
-                semantic_internal = semantic_internal
-                    .or_else(|| {
-                        resolved_type_internal_dependency(
-                            receiver.source_type(),
-                            semantic_values,
-                            symbols,
-                            declarations,
-                        )
-                    })
-                    .or_else(|| {
-                        resolved_type_internal_dependency(
-                            receiver.target_type(),
-                            semantic_values,
-                            symbols,
-                            declarations,
-                        )
-                    });
+                if semantic_internal.is_none() {
+                    semantic_internal = resolved_type_internal_dependency(
+                        receiver.source_type(),
+                        semantic_values,
+                        symbols,
+                        declarations,
+                    )?;
+                }
+
+                if semantic_internal.is_none() {
+                    semantic_internal = resolved_type_internal_dependency(
+                        receiver.target_type(),
+                        semantic_values,
+                        symbols,
+                        declarations,
+                    )?;
+                }
             }
 
             for argument in call.arguments() {
@@ -220,7 +220,7 @@ fn selection_internal_dependency(
                 semantic_values,
                 symbols,
                 declarations,
-            ) {
+            )? {
                 return Ok(Some(internal));
             }
         }
@@ -276,9 +276,10 @@ fn push_iteration_dependencies(
         iteration.cursor_type(),
         iteration.element_type(),
     ] {
-        internal = internal.or_else(|| {
-            resolved_type_internal_dependency(ty, semantic_values, symbols, declarations)
-        });
+        if internal.is_none() {
+            internal =
+                resolved_type_internal_dependency(ty, semantic_values, symbols, declarations)?;
+        }
     }
 
     for target in [
@@ -289,9 +290,14 @@ fn push_iteration_dependencies(
     ] {
         dependencies.push(target.definition().symbol());
 
-        internal = internal.or_else(|| {
-            callable_instance_internal_dependency(target, semantic_values, symbols, declarations)
-        });
+        if internal.is_none() {
+            internal = callable_instance_internal_dependency(
+                target,
+                semantic_values,
+                symbols,
+                declarations,
+            )?;
+        }
     }
 
     for witness in [
@@ -358,7 +364,7 @@ fn push_operation_dependencies(
                 semantic_values,
                 symbols,
                 declarations,
-            );
+            )?;
 
             for witness in target.witnesses() {
                 internal = internal.or(push_witness_dependencies(
@@ -402,7 +408,7 @@ fn push_operation_dependencies(
                 declarations,
                 construction,
                 dependencies,
-            );
+            )?;
         }
         SelectedOperation::Conversion(conversion) => {
             internal = push_conversion_dependencies(
@@ -444,17 +450,19 @@ fn push_trait_operation_dependencies(
     dependencies.push(member.definition().symbol());
     dependencies.push(fulfillment.definition().symbol());
 
-    let internal =
-        callable_instance_internal_dependency(member, semantic_values, symbols, declarations)
-            .or_else(|| {
-                callable_instance_internal_dependency(
-                    fulfillment,
-                    semantic_values,
-                    symbols,
-                    declarations,
-                )
-            })
-            .or(push_witness_dependencies(
+    let mut internal =
+        callable_instance_internal_dependency(member, semantic_values, symbols, declarations)?;
+
+    if internal.is_none() {
+        internal = callable_instance_internal_dependency(
+            fulfillment,
+            semantic_values,
+            symbols,
+            declarations,
+        )?;
+    }
+
+    internal = internal.or(push_witness_dependencies(
                 semantic_values,
                 symbols,
                 declarations,
@@ -471,13 +479,13 @@ fn push_construction_dependencies(
     declarations: &DeclarationTable,
     construction: &bray_bound_tree::SelectedConstruction,
     dependencies: &mut Vec<AnySymbolId>,
-) -> Option<AnySymbolId> {
+) -> Result<Option<AnySymbolId>, FactQueryError> {
     let mut internal = resolved_type_internal_dependency(
         construction.result_type(),
         semantic_values,
         symbols,
         declarations,
-    );
+    )?;
 
     match construction.target() {
         ConstructionTarget::Struct(target) => dependencies.push(target.into()),
@@ -485,14 +493,14 @@ fn push_construction_dependencies(
         ConstructionTarget::TypeForm { callable, .. } => {
             dependencies.push(callable.definition().symbol());
 
-            internal = internal.or_else(|| {
-                callable_instance_internal_dependency(
+            if internal.is_none() {
+                internal = callable_instance_internal_dependency(
                     callable,
                     semantic_values,
                     symbols,
                     declarations,
-                )
-            });
+                )?;
+            }
         }
     }
 
@@ -510,7 +518,7 @@ fn push_construction_dependencies(
         }
     }
 
-    internal
+    Ok(internal)
 }
 
 fn push_construction_input(input: ConstructionInputId, dependencies: &mut Vec<AnySymbolId>) {
@@ -541,23 +549,23 @@ fn push_conversion_dependencies(
     let mut internal = None;
 
     while let Some(conversion) = pending.pop() {
-        internal = internal.or_else(|| {
-            resolved_type_internal_dependency(
+        if internal.is_none() {
+            internal = resolved_type_internal_dependency(
                 conversion.source_type(),
                 semantic_values,
                 symbols,
                 declarations,
-            )
-        });
+            )?;
+        }
 
-        internal = internal.or_else(|| {
-            resolved_type_internal_dependency(
+        if internal.is_none() {
+            internal = resolved_type_internal_dependency(
                 conversion.target_type(),
                 semantic_values,
                 symbols,
                 declarations,
-            )
-        });
+            )?;
+        }
 
         match conversion.target() {
             ConversionTarget::Trait {
@@ -569,23 +577,23 @@ fn push_conversion_dependencies(
                 dependencies.push(member.definition().symbol());
                 dependencies.push(fulfillment.definition().symbol());
 
-                internal = internal.or_else(|| {
-                    callable_instance_internal_dependency(
+                if internal.is_none() {
+                    internal = callable_instance_internal_dependency(
                         *member,
                         semantic_values,
                         symbols,
                         declarations,
-                    )
-                });
+                    )?;
+                }
 
-                internal = internal.or_else(|| {
-                    callable_instance_internal_dependency(
+                if internal.is_none() {
+                    internal = callable_instance_internal_dependency(
                         *fulfillment,
                         semantic_values,
                         symbols,
                         declarations,
-                    )
-                });
+                    )?;
+                }
 
                 internal = internal.or(push_witness_dependencies(
                     semantic_values,
@@ -598,14 +606,14 @@ fn push_conversion_dependencies(
             ConversionTarget::TraitConstraint { member, .. } => {
                 dependencies.push(member.definition().symbol());
 
-                internal = internal.or_else(|| {
-                    callable_instance_internal_dependency(
+                if internal.is_none() {
+                    internal = callable_instance_internal_dependency(
                         *member,
                         semantic_values,
                         symbols,
                         declarations,
-                    )
-                });
+                    )?;
+                }
             }
             ConversionTarget::Composite(children) => pending.extend(children.iter()),
             ConversionTarget::Identity
@@ -627,31 +635,32 @@ fn push_witness_dependencies(
 ) -> Result<Option<AnySymbolId>, FactQueryError> {
     let application = semantic_values
         .trait_application_data(witness.requirement().trait_application())
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     dependencies.push(application.definition().into());
 
-    let application_internal = source_symbol_is_not_publicly_reachable(
+    let mut application_internal = source_symbol_is_not_publicly_reachable(
         application.definition().into(),
         declarations,
         symbols,
     )
-    .then_some(application.definition().into())
-    .or_else(|| {
-        substitution_internal_dependency(
+    .then_some(application.definition().into());
+
+    if application_internal.is_none() {
+        application_internal = substitution_internal_dependency(
             application.substitution(),
             semantic_values,
             symbols,
             declarations,
-        )
-    });
+        )?;
+    }
 
     let implementation_internal = implementation_instance_internal_dependency(
         witness.witness(),
         semantic_values,
         symbols,
         declarations,
-    );
+    )?;
 
     Ok(application_internal.or(implementation_internal))
 }

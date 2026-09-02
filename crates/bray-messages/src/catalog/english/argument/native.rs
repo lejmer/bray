@@ -7,6 +7,8 @@ mod linking;
 mod standard_library;
 mod toolchain;
 
+use super::super::format_internal_compiler_error;
+pub(crate) use artifact::format_english_semantic_value_failure_detail;
 pub(super) use artifact::{
     format_artifact_failure, format_english_emission_evaluation_failure,
     format_english_native_product_failure, format_english_runtime_artifact_problem,

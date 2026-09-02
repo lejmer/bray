@@ -166,6 +166,12 @@ impl super::super::Compilation {
             Err(FactQueryError::InfrastructureFailure) => {
                 panic!("dependency-interface query infrastructure failed")
             }
+            Err(
+                error @ (FactQueryError::SemanticValueStoreCreate(_)
+                | FactQueryError::SemanticValueStore(_)),
+            ) => {
+                panic!("dependency-interface semantic-value operation failed: {error}")
+            }
             Err(FactQueryError::BindingDependencyUnavailable) => {
                 panic!("dependency-interface query could not obtain a binding dependency")
             }
@@ -1075,7 +1081,9 @@ fn semantic_content_problem(error: SemanticValueStoreError) -> DiagnosticSemanti
         }
         SemanticValueStoreError::GenericOwnerMismatch { expected, actual } => {
             DiagnosticSemanticContentProblem::GenericOwnerMismatch {
+                expected_kind: diagnostic_symbol_kind(expected.symbol().kind()),
                 expected: expected.symbol().symbol_id().raw(),
+                actual_kind: diagnostic_symbol_kind(actual.symbol().kind()),
                 actual: actual.symbol().symbol_id().raw(),
             }
         }
@@ -1272,7 +1280,7 @@ mod tests {
     use bray_bound_tree::CheckedTemplateKind;
     use bray_diagnostics::{
         DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticInterfaceLimit,
-        DiagnosticKind,
+        DiagnosticInterfaceSymbolKind, DiagnosticKind, DiagnosticSemanticContentProblem,
     };
     use bray_package_interface::{
         DependencyInterfaceId, ImportedSemanticRecord, ImportedSymbolConstructionError,
@@ -1288,9 +1296,10 @@ mod tests {
         standard_library_target_artifact_directory, target_artifacts_for_test,
     };
     use bray_symbols::{
-        ExternalSymbolKey, ImportedInterfaceId, ImportedSymbolSkeletonBuildError,
-        InterfaceSupportEntityId, InterfaceSymbolId, PackageIdentity, SemanticValueKind,
-        SemanticValueStoreError, SymbolId, SymbolKey, SymbolKind,
+        ExternalSymbolKey, FunctionSymbolId, GenericOwnerId, ImportedInterfaceId,
+        ImportedSymbolSkeletonBuildError, InterfaceSupportEntityId, InterfaceSymbolId,
+        PackageIdentity, SemanticValueKind, SemanticValueStoreError, SymbolId, SymbolKey,
+        SymbolKind, TraitSymbolId,
     };
     use bray_target::TargetIdentity;
 
@@ -1299,6 +1308,32 @@ mod tests {
         CancellationToken, Compilation, CompilationRequest, DependencyInterfaceInput,
         FactQueryError, ImportedSemanticRecordKey,
     };
+
+    #[test]
+    fn semantic_content_owner_mismatch_retains_owner_kinds() {
+        let expected = GenericOwnerId::try_new(
+            FunctionSymbolId::from_symbol_id(SymbolId::new(5)).into(),
+        )
+        .unwrap_or_else(|| panic!("function must support generic substitutions"));
+
+        let actual = GenericOwnerId::try_new(
+            TraitSymbolId::from_symbol_id(SymbolId::new(5)).into(),
+        )
+        .unwrap_or_else(|| panic!("trait must support generic substitutions"));
+
+        assert_eq!(
+            super::semantic_content_problem(SemanticValueStoreError::GenericOwnerMismatch {
+                expected,
+                actual,
+            }),
+            DiagnosticSemanticContentProblem::GenericOwnerMismatch {
+                expected_kind: DiagnosticInterfaceSymbolKind::Function,
+                expected: 5,
+                actual_kind: DiagnosticInterfaceSymbolKind::Trait,
+                actual: 5,
+            }
+        );
+    }
 
     #[test]
     fn dependency_interface_validation_is_lazy_cached_and_diagnostic_backed() {

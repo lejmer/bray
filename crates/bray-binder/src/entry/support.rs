@@ -2,8 +2,8 @@ use bray_bound_tree::{BoundReferenceTarget, BoundUnitId, BoundUnitKey};
 use bray_declarations::SyntaxAnchor;
 use bray_symbols::{
     AnySymbolId, CallableExecution, CallableSignatureQuery, CallableSignatureTemplate,
-    CallableSymbolId, LocalScopeId, LocalSymbolRegionId, SelfTypeContext, SymbolName,
-    SymbolQueryRequest, TypeData,
+    CallableSignatureTemplateError, CallableSymbolId, LocalScopeId, LocalSymbolRegionId,
+    SelfTypeContext, SymbolName, SymbolQueryRequest, TypeData,
 };
 
 use super::BoundUnitBindingError;
@@ -101,7 +101,7 @@ where
     signature
         .value()
         .execution(binder.binding_context().semantic_values())
-        .map_err(|_| BoundUnitBindingError::Construction)
+        .map_err(|error| map_signature_error(error, BoundUnitBindingError::Construction))
 }
 
 pub(super) fn insert_callable_inputs<C>(
@@ -118,7 +118,10 @@ where
         let ty = receiver_type(binder, receiver.ty())?;
 
         insert_named_surface(binder, scope, parameter, "self")?;
-        binder.record_value_type(BoundReferenceTarget::Surface(parameter), ty);
+
+        binder
+            .record_value_type(BoundReferenceTarget::Surface(parameter), ty)
+            .map_err(BoundUnitBindingError::SemanticValue)?;
     }
 
     if parameter_count == 0 {
@@ -127,11 +130,11 @@ where
 
     let parameter_types = signature
         .parameter_type_templates(binder.binding_context().semantic_values())
-        .map_err(|_| BoundUnitBindingError::Binding)?;
+        .map_err(|error| map_signature_error(error, BoundUnitBindingError::Binding))?;
 
     let parameter_names = signature
         .parameter_names(binder.binding_context().semantic_values())
-        .map_err(|_| BoundUnitBindingError::Binding)?;
+        .map_err(|error| map_signature_error(error, BoundUnitBindingError::Binding))?;
 
     for ((parameter, name), ty) in signature
         .parameters()
@@ -145,7 +148,9 @@ where
         insert_named_surface(binder, scope, parameter, name.as_str())?;
 
         if let Some(ty) = ty.resolved_type() {
-            binder.record_value_type(BoundReferenceTarget::Surface(parameter), ty);
+            binder
+                .record_value_type(BoundReferenceTarget::Surface(parameter), ty)
+                .map_err(BoundUnitBindingError::SemanticValue)?;
         }
     }
 
@@ -256,6 +261,7 @@ pub(super) fn map_binding_error<Upstream>(
         BindingError::CheckerInfrastructure(error) => {
             BoundUnitBindingError::CheckerInfrastructure(error)
         }
+        BindingError::SemanticValue(error) => BoundUnitBindingError::SemanticValue(error),
         BindingError::Upstream(error) => BoundUnitBindingError::Upstream(error),
         BindingError::Construction(BoundUnitConstructionError::BoundTree(_))
         | BindingError::Construction(BoundUnitConstructionError::LocalSymbol(_))
@@ -276,6 +282,20 @@ pub(super) fn map_binding_error<Upstream>(
     }
 }
 
+fn map_signature_error<Upstream>(
+    error: CallableSignatureTemplateError,
+    structural: BoundUnitBindingError<Upstream>,
+) -> BoundUnitBindingError<Upstream> {
+    match error {
+        CallableSignatureTemplateError::SemanticValue(error) => {
+            BoundUnitBindingError::SemanticValue(error)
+        }
+        CallableSignatureTemplateError::InvalidCallableType
+        | CallableSignatureTemplateError::ParameterCountMismatch
+        | CallableSignatureTemplateError::ParameterIdentityMismatch => structural,
+    }
+}
+
 pub(super) fn map_assembly_error<Upstream>(
     error: BoundUnitAssemblyError,
 ) -> BoundUnitBindingError<Upstream> {
@@ -291,6 +311,9 @@ pub(super) fn map_query_error<Upstream>(
         crate::BindingQueryError::Cancelled => BoundUnitBindingError::Cancelled,
         crate::BindingQueryError::CheckerInfrastructure(error) => {
             BoundUnitBindingError::CheckerInfrastructure(error)
+        }
+        crate::BindingQueryError::SemanticValue(error) => {
+            BoundUnitBindingError::SemanticValue(error)
         }
         crate::BindingQueryError::Upstream(error) => BoundUnitBindingError::Upstream(error),
         crate::BindingQueryError::DependencyUnavailable => BoundUnitBindingError::Binding,

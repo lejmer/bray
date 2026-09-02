@@ -28,14 +28,18 @@ impl Compilation {
         let template = StaticInstanceTemplateId::new(declaration);
         let target = self.requested_target().profile().identity().clone();
 
-        let Ok(concrete_substitution) = binding_context
+        let concrete_substitution = match binding_context
             .semantic_values()
             .require_concrete_substitution(substitution)
-        else {
-            return Ok((
-                StaticReferenceSelection::open(template, substitution, [], target),
-                DiagnosticBag::new(),
-            ));
+        {
+            Ok(substitution) => substitution,
+            Err(bray_symbols::SemanticValueStoreError::OpenSubstitution) => {
+                return Ok((
+                    StaticReferenceSelection::open(template, substitution, [], target),
+                    DiagnosticBag::new(),
+                ));
+            }
+            Err(error) => return Err(FactQueryError::SemanticValueStore(error)),
         };
 
         let (witnesses, diagnostics) = self.static_instance_witnesses(
@@ -106,11 +110,11 @@ impl Compilation {
 
             let subject = values
                 .substitute_type(subject, substitution)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let application = values
                 .substitute_trait_application(application, substitution)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let selection = self.implementation_selection_result_with_cancellation(
                 ImplementationRequirementKey::new(subject, application),

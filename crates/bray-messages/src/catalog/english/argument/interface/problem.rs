@@ -232,8 +232,15 @@ fn format_english_semantic_content_problem(
             "the {} value table cannot represent another entry",
             format_english_semantic_value_kind(*value_kind)
         ),
-        Problem::GenericOwnerMismatch { expected, actual } => format!(
-            "generic substitution belongs to declaration {actual}, but declaration {expected} is required"
+        Problem::GenericOwnerMismatch {
+            expected_kind,
+            expected,
+            actual_kind,
+            actual,
+        } => format!(
+            "generic substitution belongs to {} declaration {actual}, but {} declaration {expected} is required",
+            format_english_interface_symbol_kind(*actual_kind),
+            format_english_interface_symbol_kind(*expected_kind),
         ),
         Problem::OpenSubstitution => {
             "an unresolved generic substitution was required to be concrete".to_owned()
@@ -436,5 +443,30 @@ pub(crate) const fn format_english_interface_symbol_kind(
         Kind::AnonymousCallable => "anonymous callable",
         Kind::AnonymousCallableParameter => "anonymous-callable parameter",
         Kind::PostconditionResult => "postcondition result",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{
+        DiagnosticInterfaceSemanticProblem, DiagnosticInterfaceSymbolKind,
+        DiagnosticSemanticContentProblem,
+    };
+
+    #[test]
+    fn semantic_owner_mismatch_message_retains_owner_kinds() {
+        let problem = DiagnosticInterfaceSemanticProblem::SemanticContent(
+            DiagnosticSemanticContentProblem::GenericOwnerMismatch {
+                expected_kind: DiagnosticInterfaceSymbolKind::Function,
+                expected: 5,
+                actual_kind: DiagnosticInterfaceSymbolKind::Trait,
+                actual: 5,
+            },
+        );
+
+        assert_eq!(
+            super::format_english_interface_semantic_problem(&problem),
+            "generic substitution belongs to trait declaration 5, but function declaration 5 is required"
+        );
     }
 }

@@ -34,8 +34,7 @@ impl Lowerer<'_> {
         let result_data = self
             .input
             .semantic_values()
-            .type_data(result_type)
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .type_data(result_type)?;
 
         let TypeData::Borrow {
             kind: result_kind,
@@ -80,8 +79,7 @@ impl Lowerer<'_> {
         let result_type = self
             .input
             .semantic_values()
-            .intern_type(TypeData::Borrow { kind, target })
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .intern_type(TypeData::Borrow { kind, target })?;
 
         let source = self.expression_source(receiver.expression())?;
 
@@ -123,22 +121,22 @@ impl Lowerer<'_> {
                 let mut projections = place.projections().to_vec();
                 let mut place_type = place.ty();
 
-                let parameter_borrow = lowerer
+                let parameter_type = lowerer
                     .input
                     .storage_plan()
                     .root_identity(decision.access())
-                    .and_then(|identity| lowerer.input.storage_plan().storage_type(identity))
-                    .and_then(|ty| {
-                        lowerer
-                            .input
-                            .semantic_values()
-                            .type_data(ty)
-                            .ok()
-                            .and_then(|data| match data.as_ref() {
-                                TypeData::Borrow { target, .. } => Some((ty, *target)),
-                                _ => None,
-                            })
-                    });
+                    .and_then(|identity| lowerer.input.storage_plan().storage_type(identity));
+
+                let parameter_borrow = if let Some(ty) = parameter_type {
+                    let data = lowerer.input.semantic_values().type_data(ty)?;
+
+                    match data.as_ref() {
+                        TypeData::Borrow { target, .. } => Some((ty, *target)),
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
 
                 let already_dereferenced = projections
                     .first()
@@ -202,8 +200,7 @@ impl Lowerer<'_> {
         let result_type = self
             .input
             .semantic_values()
-            .intern_type(TypeData::Borrow { kind, target })
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .intern_type(TypeData::Borrow { kind, target })?;
 
         let source = self.expression_source(operand)?;
 
@@ -231,14 +228,12 @@ impl Lowerer<'_> {
         let data = self
             .input
             .semantic_values()
-            .constant_value_data(value)
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .constant_value_data(value)?;
 
         let representation = self
             .input
             .semantic_values()
-            .type_data(result_type)
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .type_data(result_type)?;
 
         let TypeData::Borrow { target, .. } = representation.as_ref() else {
             return Ok(None);
@@ -636,8 +631,7 @@ impl Lowerer<'_> {
         let data = self
             .input
             .semantic_values()
-            .type_data(source_type)
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .type_data(source_type)?;
 
         let TypeData::Borrow { target, .. } = data.as_ref() else {
             return Ok(source_type);
@@ -665,8 +659,7 @@ impl Lowerer<'_> {
         let data = self
             .input
             .semantic_values()
-            .type_data(source_type)
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .type_data(source_type)?;
 
         let TypeData::Borrow { target, .. } = data.as_ref() else {
             return Ok(source_type);

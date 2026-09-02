@@ -82,7 +82,7 @@ pub fn resolve_type_expression_template(
 
             let substitution = values
                 .intern_generic_substitution(substitution)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
             TypeData::Named {
                 definition: *definition,
@@ -113,12 +113,12 @@ pub fn resolve_type_expression_template(
 
             let substitution = values
                 .intern_generic_substitution(substitution)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
             return values
                 .substitute_type(target, substitution)
                 .map(Some)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable);
+                .map_err(CheckerInfrastructureError::SemanticValueStore);
         }
         TypeExpressionTemplate::TypeValuedMemberProjection {
             subject,
@@ -161,7 +161,7 @@ pub fn resolve_type_expression_template(
 
             values
                 .constant_term_data(length)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
             TypeData::Array { element, length }
         }
@@ -262,7 +262,7 @@ pub fn resolve_type_expression_template(
     values
         .intern_type(data)
         .map(Some)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+        .map_err(CheckerInfrastructureError::SemanticValueStore)
 }
 
 /// Resolves and substitutes one callable signature template.
@@ -287,7 +287,16 @@ pub fn resolve_callable_signature_template(
 
     let parameter_templates = template
         .parameter_type_templates(values)
-        .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+        .map_err(|error| match error {
+            bray_symbols::CallableSignatureTemplateError::SemanticValue(error) => {
+                CheckerInfrastructureError::SemanticValueStore(error)
+            }
+            bray_symbols::CallableSignatureTemplateError::InvalidCallableType
+            | bray_symbols::CallableSignatureTemplateError::ParameterCountMismatch
+            | bray_symbols::CallableSignatureTemplateError::ParameterIdentityMismatch => {
+                CheckerInfrastructureError::InvalidSemanticSelectionInput
+            }
+        })?;
 
     let mut parameters = Vec::with_capacity(parameter_templates.len());
 
@@ -319,7 +328,7 @@ fn substitute_type(
 ) -> Result<TypeId, CheckerInfrastructureError> {
     values
         .substitute_type(ty, substitution)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+        .map_err(CheckerInfrastructureError::SemanticValueStore)
 }
 
 /// Resolves one trait-application template after checking its constant arguments.
@@ -342,7 +351,7 @@ pub fn resolve_trait_application_template(
 
     let substitution = values
         .intern_generic_substitution(substitution)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     values
         .intern_trait_application(TraitApplicationData::new(
@@ -350,7 +359,7 @@ pub fn resolve_trait_application_template(
             substitution,
         ))
         .map(Some)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+        .map_err(CheckerInfrastructureError::SemanticValueStore)
 }
 
 fn resolve_arguments(
@@ -378,7 +387,7 @@ fn resolve_arguments(
 
                 values
                     .constant_term_data(term)
-                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
                 GenericArgument::Constant(term)
             }

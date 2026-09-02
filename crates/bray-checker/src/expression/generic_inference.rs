@@ -27,7 +27,7 @@ where
     let callable = request
         .semantic_values()
         .type_data(candidate.callable_type())
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let TypeData::Callable(callable) = callable.as_ref() else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
@@ -274,7 +274,7 @@ where
             .request
             .semantic_values()
             .constant_term_data(expected)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         if let ConstantTermData::Parameter(parameter) = expected_data.as_ref() {
             let parameter = GenericParameterSymbolId::Const(*parameter);
@@ -305,7 +305,7 @@ where
         self.request
             .semantic_values()
             .type_data(ty)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)
     }
 
     fn substitution(
@@ -316,7 +316,7 @@ where
         self.request
             .semantic_values()
             .generic_substitution_data(substitution)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)
     }
 }
 

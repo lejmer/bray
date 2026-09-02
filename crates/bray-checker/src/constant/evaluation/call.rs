@@ -257,9 +257,9 @@ where
                 .request
                 .semantic_values()
                 .intern_callable_instance(callable)
-                .map_err(|_| {
+                .map_err(|error| {
                     EvaluationFailure::Infrastructure(
-                        CheckerInfrastructureError::SemanticValueUnavailable,
+                        CheckerInfrastructureError::SemanticValueStore(error),
                     )
                 })?;
 

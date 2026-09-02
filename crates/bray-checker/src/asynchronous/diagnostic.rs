@@ -67,7 +67,8 @@ where
         expression,
         suspension_state,
         contract,
-    );
+    )
+    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     Ok((!unsatisfied.is_empty()).then_some(AwaitDependencyFailure::Unsatisfied(unsatisfied)))
 }

@@ -86,7 +86,7 @@ where
     let existing = request
         .semantic_values()
         .dependency_contract_template_data(contracts.invocation())
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let source = || DependencySubject::root(DependencySubjectRoot::Parameter(parameter));
 
@@ -119,7 +119,7 @@ where
         .intern_dependency_contract_template(DependencyContractTemplateData::new(
             existing.requirements().iter().cloned().chain(dependencies),
         ))
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     Ok(match contracts.deferred_execution() {
         Some(deferred) => CallableDependencyContracts::asynchronous(invocation, deferred),
@@ -212,9 +212,9 @@ where
     let invocation = request
         .semantic_values()
         .dependency_contract_template_data(contracts.invocation())
-        .map_err(|_| {
+        .map_err(|error| {
             DependencyContractInstantiationError::Resolution(
-                CheckerInfrastructureError::SemanticValueUnavailable.into(),
+                CheckerInfrastructureError::SemanticValueStore(error).into(),
             )
         })?;
 
@@ -229,9 +229,9 @@ where
             let deferred = request
                 .semantic_values()
                 .dependency_contract_template_data(deferred)
-                .map_err(|_| {
+                .map_err(|error| {
                     DependencyContractInstantiationError::Resolution(
-                        CheckerInfrastructureError::SemanticValueUnavailable.into(),
+                        CheckerInfrastructureError::SemanticValueStore(error).into(),
                     )
                 })?;
 
@@ -266,7 +266,7 @@ where
             let invocation = request
                 .semantic_values()
                 .substitute_dependency_contract(dependencies.invocation(), instance.substitution())
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
             let deferred = dependencies
                 .deferred_execution()
@@ -276,7 +276,7 @@ where
                         .substitute_dependency_contract(contract, instance.substitution())
                 })
                 .transpose()
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
             Ok(match deferred {
                 Some(deferred) => CallableDependencyContracts::asynchronous(invocation, deferred),
@@ -287,7 +287,7 @@ where
             let data = request
                 .semantic_values()
                 .type_data(ty)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
             let TypeData::Callable(callable) = data.as_ref() else {
                 return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
@@ -299,7 +299,7 @@ where
             .semantic_values()
             .empty_dependency_contract_template()
             .map(CallableDependencyContracts::synchronous)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable.into()),
+            .map_err(|error| CheckerInfrastructureError::SemanticValueStore(error).into()),
     }
 }
 
@@ -316,7 +316,7 @@ where
             let data = request
                 .semantic_values()
                 .type_data(*ty)
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
             let TypeData::Callable(callable) = data.as_ref() else {
                 return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());

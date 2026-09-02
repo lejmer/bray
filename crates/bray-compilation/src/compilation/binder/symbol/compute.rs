@@ -91,7 +91,7 @@ impl CompilationSymbolQueryEvaluator<ConstantDeclaredTypeQuery> for CompilationS
             let ty = context
                 .compilation()
                 .target_property_type(property)
-                .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+                .map_err(super::binding::binder_error)?;
 
             return Ok(DiagnosticResult::without_diagnostics(
                 bray_symbols::TypeExpressionTemplate::Resolved(ty),

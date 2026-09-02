@@ -364,7 +364,7 @@ where
             .request
             .semantic_values()
             .substitute_type(ty, substitution)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         Ok(self.subject(ty, is_recovered))
     }

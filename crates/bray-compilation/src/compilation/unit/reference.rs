@@ -155,6 +155,6 @@ impl Compilation {
             .semantic_values()
             .intern_generic_substitution(substitution)
             .map(Some)
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+            .map_err(FactQueryError::SemanticValueStore)
     }
 }

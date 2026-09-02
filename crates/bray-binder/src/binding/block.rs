@@ -224,7 +224,7 @@ where
                 self.unit_mut().activate_local(scope, symbol)?;
 
                 if let Some(ty) = declared_type.ty() {
-                    self.record_value_type(BoundReferenceTarget::Local(symbol.into()), ty);
+                    self.record_value_type(BoundReferenceTarget::Local(symbol.into()), ty)?;
                 }
 
                 Some(symbol)

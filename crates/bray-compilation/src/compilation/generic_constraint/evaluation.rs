@@ -71,11 +71,11 @@ impl Compilation {
 
                     let subject = values
                         .substitute_type(subject, substitution)
-                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                        .map_err(FactQueryError::SemanticValueStore)?;
 
                     let application = values
                         .substitute_trait_application(application, substitution)
-                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                        .map_err(FactQueryError::SemanticValueStore)?;
 
                     self.evaluate_resolved_trait_satisfaction(
                         None,
@@ -91,11 +91,11 @@ impl Compilation {
 
                     let left = values
                         .substitute_type(left, substitution)
-                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                        .map_err(FactQueryError::SemanticValueStore)?;
 
                     let right = values
                         .substitute_type(right, substitution)
-                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                        .map_err(FactQueryError::SemanticValueStore)?;
 
                     let left = self.normalize_type_valued_member(left, cancellation)?;
                     let right = self.normalize_type_valued_member(right, cancellation)?;
@@ -190,7 +190,7 @@ impl Compilation {
 
         let data = values
             .type_data(ty)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let TypeData::TypeValuedMemberProjection {
             subject,
@@ -304,8 +304,12 @@ impl Compilation {
     ) -> Result<DiagnosticResult<ProofOutcome>, FactQueryError> {
         let values = self.semantic_value_store()?;
 
-        let Ok(substitution) = values.require_concrete_substitution(substitution) else {
-            return Ok(DiagnosticResult::without_diagnostics(ProofOutcome::Unknown));
+        let substitution = match values.require_concrete_substitution(substitution) {
+            Ok(substitution) => substitution,
+            Err(bray_symbols::SemanticValueStoreError::OpenSubstitution) => {
+                return Ok(DiagnosticResult::without_diagnostics(ProofOutcome::Unknown));
+            }
+            Err(error) => return Err(FactQueryError::SemanticValueStore(error)),
         };
 
         let binding_context = self.binding_context(cancellation)?;
@@ -481,7 +485,7 @@ impl Compilation {
 
         let application_data = values
             .trait_application_data(application)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let context = CompilationCheckerContext::new(self.binding_context(cancellation)?);
 
@@ -533,7 +537,7 @@ impl Compilation {
             Some(unit) => {
                 let owner = values
                     .generic_substitution_data(substitution)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?
+                    .map_err(FactQueryError::SemanticValueStore)?
                     .owner()
                     .symbol();
 
@@ -614,7 +618,7 @@ fn resolve_constraint_type(
 
     values
         .substitute_type(resolved, substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }
 
 fn resolve_constraint_trait_application(
@@ -629,7 +633,7 @@ fn resolve_constraint_trait_application(
 
     values
         .substitute_trait_application(resolved, substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }
 
 fn checker_dependency_error(error: CheckerQueryError<FactQueryError>) -> FactQueryError {
@@ -646,7 +650,7 @@ fn constant_predicate_outcome(
 ) -> Result<ProofOutcome, FactQueryError> {
     let value = values
         .constant_value_data(value)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     match value.kind() {
         ConstantValueKind::Boolean(true) => Ok(ProofOutcome::Proven),

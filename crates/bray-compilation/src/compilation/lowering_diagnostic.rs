@@ -21,6 +21,9 @@ pub(super) fn lowering_input_failure(
         LoweringInputError::MissingExpressionType(_) => Kind::MissingExpressionType,
         LoweringInputError::InvalidPatternInput => Kind::InvalidPatternInput,
         LoweringInputError::InvalidInputContents(_) => Kind::InvalidInputContents,
+        LoweringInputError::SemanticValue(error) => {
+            Kind::SemanticValue(crate::fact::diagnostic_semantic_value_failure(*error))
+        }
         LoweringInputError::InvalidStorageOperation(_) => Kind::InvalidStorageOperation,
         LoweringInputError::StorageOperationCountMismatch { expected, actual } => {
             Kind::StorageOperationCountMismatch {
@@ -77,6 +80,9 @@ pub(super) fn lowering_failure(
         LoweringError::MissingOperationResult(_) => Kind::MissingOperationResult,
         LoweringError::MissingRepresentation(_) => Kind::MissingRepresentation,
         LoweringError::SemanticValueUnavailable => Kind::SemanticValueUnavailable,
+        LoweringError::SemanticValue(error) => {
+            Kind::SemanticValue(crate::fact::diagnostic_semantic_value_failure(*error))
+        }
         LoweringError::InvalidFrameDescriptor => Kind::InvalidFrameDescriptor,
         LoweringError::Mir(error) => Kind::Mir(mir_unit_failure(error)),
     };

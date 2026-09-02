@@ -25,7 +25,7 @@ where
         state: &StorageFlowState,
         plan: StorageAccessPlan,
         purpose: StorageAccessPurpose,
-    ) -> Option<BorrowConflict> {
+    ) -> Result<Option<BorrowConflict>, crate::CheckerInfrastructureError> {
         let requested = match purpose {
             StorageAccessPurpose::Borrow(kind) => Some(kind),
             StorageAccessPurpose::Write
@@ -42,14 +42,14 @@ where
         };
 
         let Some(requested) = requested else {
-            return None;
+            return Ok(None);
         };
 
         let access = self.operation_access(plan, purpose);
 
-        if let Some(kind) = self.projected_storage_borrow_kind(access) {
+        if let Some(kind) = self.projected_storage_borrow_kind(access)? {
             if requested != BorrowKind::Mutable || kind != BorrowKind::Shared {
-                return None;
+                return Ok(None);
             }
 
             let origin = self
@@ -57,9 +57,9 @@ where
                 .access(access)
                 .and_then(|access| access.root().borrow_capability());
 
-            return Some(origin.map_or(BorrowConflict::Unlocated, |borrow| {
+            return Ok(Some(origin.map_or(BorrowConflict::Unlocated, |borrow| {
                 BorrowConflict::Borrows(vec![borrow])
-            }));
+            })));
         }
 
         let authority = match purpose {
@@ -68,7 +68,7 @@ where
         };
 
         let Some(authorizing_borrows) = self.borrow_chain(authority) else {
-            return Some(BorrowConflict::Unlocated);
+            return Ok(Some(BorrowConflict::Unlocated));
         };
 
         let created_borrow = self.input.borrow(plan);
@@ -82,7 +82,9 @@ where
             .collect::<Vec<_>>();
 
         if !inactive_authorizing_borrows.is_empty() {
-            return Some(BorrowConflict::Borrows(inactive_authorizing_borrows));
+            return Ok(Some(BorrowConflict::Borrows(
+                inactive_authorizing_borrows,
+            )));
         }
 
         let mut conflicts = Vec::new();
@@ -93,7 +95,7 @@ where
             }
 
             let Some(capability) = self.storage.borrow_capability(active) else {
-                return Some(BorrowConflict::Unlocated);
+                return Ok(Some(BorrowConflict::Unlocated));
             };
 
             if requested == BorrowKind::Shared && capability.kind() == BorrowKind::Shared {
@@ -107,33 +109,36 @@ where
             }
         }
 
-        (!conflicts.is_empty()).then_some(BorrowConflict::Borrows(conflicts))
+        Ok((!conflicts.is_empty()).then_some(BorrowConflict::Borrows(conflicts)))
     }
 
-    pub(super) fn has_mutation_authority(&self, access: StorageAccessId) -> bool {
+    pub(super) fn has_mutation_authority(
+        &self,
+        access: StorageAccessId,
+    ) -> Result<bool, crate::CheckerInfrastructureError> {
         let Some(storage_access) = self.storage.access(access) else {
-            return false;
+            return Ok(false);
         };
 
         if storage_access.root().borrow_capability().is_some() {
-            return self.borrow_chain(access).is_some_and(|borrows| {
+            return Ok(self.borrow_chain(access).is_some_and(|borrows| {
                 !borrows.is_empty()
                     && borrows.iter().all(|borrow| {
                         self.storage
                             .borrow_capability(*borrow)
                             .is_some_and(|borrow| borrow.kind() == BorrowKind::Mutable)
                     })
-            });
+            }));
         }
 
         match storage_access.root() {
-            StorageAccessRoot::Recovery(_) => false,
+            StorageAccessRoot::Recovery(_) => Ok(false),
             StorageAccessRoot::Storage(storage)
             | StorageAccessRoot::OwnedIndirection { storage, .. } => {
-                self.projected_storage_borrow_kind(access) == Some(BorrowKind::Mutable)
-                    || self.owned_storage_is_mutable(storage)
+                Ok(self.projected_storage_borrow_kind(access)? == Some(BorrowKind::Mutable)
+                    || self.owned_storage_is_mutable(storage))
             }
-            StorageAccessRoot::Borrow(_) | StorageAccessRoot::BorrowedStorage { .. } => false,
+            StorageAccessRoot::Borrow(_) | StorageAccessRoot::BorrowedStorage { .. } => Ok(false),
         }
     }
 
@@ -192,41 +197,64 @@ where
         }
     }
 
-    pub(super) fn access_uses_borrow(&self, access: StorageAccessId) -> bool {
-        self.storage.access(access).is_some_and(|record| {
-            record.root().borrow_capability().is_some()
-                || self.projected_storage_borrow_kind(access).is_some()
+    pub(super) fn access_uses_borrow(
+        &self,
+        access: StorageAccessId,
+    ) -> Result<bool, crate::CheckerInfrastructureError> {
+        let Some(record) = self.storage.access(access) else {
+            return Ok(false);
+        };
+
+        Ok(record.root().borrow_capability().is_some()
+            || self.projected_storage_borrow_kind(access)?.is_some())
+    }
+
+    fn projected_storage_borrow_kind(
+        &self,
+        access: StorageAccessId,
+    ) -> Result<Option<BorrowKind>, crate::CheckerInfrastructureError> {
+        let Some(access) = self.storage.access(access) else {
+            return Ok(None);
+        };
+
+        let StorageAccessRoot::Storage(storage) = access.root() else {
+            return Ok(None);
+        };
+
+        let Some(root_type) = self.storage.storage_type(storage) else {
+            return Ok(None);
+        };
+
+        if access.projections().is_empty() && access.reached_type() == root_type {
+            return Ok(None);
+        }
+
+        let data = self
+            .request
+            .semantic_values()
+            .type_data(root_type)
+            .map_err(crate::CheckerInfrastructureError::SemanticValueStore)?;
+
+        Ok(match data.as_ref() {
+            bray_symbols::TypeData::Borrow { kind, .. } => Some(*kind),
+            _ => None,
         })
     }
 
-    fn projected_storage_borrow_kind(&self, access: StorageAccessId) -> Option<BorrowKind> {
-        let access = self.storage.access(access)?;
-
-        let StorageAccessRoot::Storage(storage) = access.root() else {
-            return None;
-        };
-
-        let root_type = self.storage.storage_type(storage)?;
-
-        if access.projections().is_empty() && access.reached_type() == root_type {
-            return None;
-        }
-
-        self.request
-            .semantic_values()
-            .type_data(root_type)
-            .ok()
-            .and_then(|data| match data.as_ref() {
-                bray_symbols::TypeData::Borrow { kind, .. } => Some(*kind),
-                _ => None,
-            })
-    }
-
-    pub(super) fn type_is_borrow(&self, ty: bray_symbols::TypeId) -> bool {
-        self.request
+    pub(super) fn type_is_borrow(
+        &self,
+        ty: bray_symbols::TypeId,
+    ) -> Result<bool, crate::CheckerInfrastructureError> {
+        let data = self
+            .request
             .semantic_values()
             .type_data(ty)
-            .is_ok_and(|data| matches!(data.as_ref(), bray_symbols::TypeData::Borrow { .. }))
+            .map_err(crate::CheckerInfrastructureError::SemanticValueStore)?;
+
+        Ok(matches!(
+            data.as_ref(),
+            bray_symbols::TypeData::Borrow { .. }
+        ))
     }
 
     pub(super) fn refinements_allow_access(

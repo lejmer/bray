@@ -75,7 +75,7 @@ pub(in crate::compilation::constant) fn call_parameter_values(
     for ((parameter, expected), value) in parameters.into_iter().zip(arguments.iter().copied()) {
         let actual = values
             .constant_value_data(value)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         if actual.ty() != expected {
             return Err(FactQueryError::InfrastructureFailure);
@@ -237,7 +237,7 @@ pub(in crate::compilation::constant) fn substitute_expression_types(
 
             let ty = values
                 .substitute_type(result.ty(), substitution)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             Ok(ExpressionTypeEntry::new(
                 entry.expression(),
@@ -283,7 +283,7 @@ pub(in crate::compilation) fn empty_concrete_substitution(
 
     values
         .require_concrete_substitution(substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }
 
 pub(super) const fn selected_implementation_for_reference(

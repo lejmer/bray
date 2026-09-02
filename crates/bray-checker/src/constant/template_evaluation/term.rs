@@ -35,7 +35,7 @@ where
         .context
         .semantic_values()
         .constant_term_data(term)
-        .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
+        .map_err(TemplateEvaluationFailure::semantic_value)?;
 
     match data.as_ref() {
         ConstantTermData::Typed { term, ty } => {
@@ -43,7 +43,7 @@ where
                 .context
                 .semantic_values()
                 .substitute_type(*ty, evaluator.substitution.substitution())
-                .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
+                .map_err(TemplateEvaluationFailure::semantic_value)?;
 
             evaluator.evaluate_term(*term, ty)
         }
@@ -82,7 +82,7 @@ where
                 .context
                 .semantic_values()
                 .substitute_type(*target, evaluator.substitution.substitution())
-                .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
+                .map_err(TemplateEvaluationFailure::semantic_value)?;
 
             evaluator.evaluate_conversion(operand, target)
         }
@@ -177,7 +177,7 @@ where
                 .context
                 .semantic_values()
                 .callable_instance_data(*callable)
-                .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
+                .map_err(TemplateEvaluationFailure::semantic_value)?;
 
             let arguments = arguments
                 .iter()
@@ -297,7 +297,7 @@ where
         .context
         .semantic_values()
         .require_concrete_substitution(substitution)
-        .map_err(|_| TemplateEvaluationFailure::semantic_value())?;
+        .map_err(TemplateEvaluationFailure::semantic_value)?;
 
     let result = evaluator
         .resolver

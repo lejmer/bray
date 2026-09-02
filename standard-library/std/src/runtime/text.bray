@@ -285,12 +285,16 @@ trusted internal func decode_scalar(
         }
         case 4
         {
-            return (first & 0x07) << 18 | (trusted byte(data, length = length, index = offset + 1) as u32 & 0x3f) << 12 |
-                (trusted byte(data, length = length, index = offset + 2) as u32 & 0x3f) << 6 | (trusted byte(
-                data,
-                length = length,
-                index = offset + 3
-            ) as u32 & 0x3f);
+            return (first & 0x07) << 18 |
+                (trusted byte(data, length = length, index = offset + 1) as u32 & 0x3f) << 12 |
+                (trusted byte(data, length = length, index = offset + 2) as u32 & 0x3f) << 6 |
+                (
+                    trusted byte(
+                       data,
+                       length = length,
+                       index = offset + 3,
+                    ) as u32 & 0x3f
+                );
         }
         case _ { assert(false, "UTF-8 scalar width must be between one and four bytes"); }
     }

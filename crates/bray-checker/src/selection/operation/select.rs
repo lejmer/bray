@@ -465,7 +465,7 @@ where
         request
             .semantic_values()
             .type_data(result_type)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
     }
 
     match operation {

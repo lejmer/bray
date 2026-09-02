@@ -236,7 +236,7 @@ impl Compilation {
         let instance = binding_context
             .semantic_values()
             .implementation_instance_data(*witness)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let fulfillments = implementation_fulfillments(binding_context, instance.definition())?;
 
@@ -264,7 +264,7 @@ impl Compilation {
         let trait_application = binding_context
             .semantic_values()
             .trait_application_data(requirement.trait_application())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let member_instance = callable_instance(
             binding_context.semantic_values(),
@@ -383,7 +383,7 @@ impl Compilation {
         let application = binding_context
             .semantic_values()
             .trait_application_data(requirement.trait_application())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let member_instance = callable_instance(
             binding_context.semantic_values(),
@@ -495,7 +495,7 @@ impl Compilation {
                     application,
                     member,
                 })
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             return super::constraint::normalize_type_equalities(
                 binding_context.semantic_values(),
@@ -616,7 +616,7 @@ impl Compilation {
                 kind,
                 target: result,
             })
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+            .map_err(FactQueryError::SemanticValueStore)
     }
 
     #[expect(
@@ -711,7 +711,7 @@ fn operation_callable_type(
         TypeExpressionTemplate::Resolved(ty) => {
             let data = values
                 .type_data(*ty)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let TypeData::Callable(callable) = data.as_ref() else {
                 return Err(FactQueryError::InfrastructureFailure);
@@ -755,5 +755,5 @@ fn operation_callable_type(
 
     values
         .intern_type(TypeData::Callable(callable))
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }

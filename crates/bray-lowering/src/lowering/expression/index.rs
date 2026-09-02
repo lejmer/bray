@@ -151,8 +151,7 @@ impl Lowerer<'_> {
                 let nullable_type = self
                     .input
                     .semantic_values()
-                    .intern_type(TypeData::Nullable(bound_type))
-                    .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+                    .intern_type(TypeData::Nullable(bound_type))?;
 
                 for bound in [bounds.lower(), bounds.upper()] {
                     let Some(bound) = bound else {
@@ -200,8 +199,7 @@ impl Lowerer<'_> {
             .intern_type(TypeData::Borrow {
                 kind: borrow_kind,
                 target: self.expression_type(id)?,
-            })
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            })?;
 
         let mut call = MirCall::protocol(
             MirCallTarget::Direct(MirCallableReference::new(callable, CallableAbi::Bray)),
@@ -227,12 +225,10 @@ impl Lowerer<'_> {
         let values = self.input.semantic_values();
 
         let application = values
-            .trait_application_data(requirement.trait_application())
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .trait_application_data(requirement.trait_application())?;
 
         let substitution = values
-            .generic_substitution_data(application.substitution())
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .generic_substitution_data(application.substitution())?;
 
         let [binding] = substitution.bindings() else {
             return Err(LoweringError::SemanticValueUnavailable);

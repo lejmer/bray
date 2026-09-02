@@ -75,8 +75,8 @@ where
             return Ok(CleanupShape::BOTH);
         }
 
-        let data = self.request.semantic_values().type_data(ty).map_err(|_| {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+        let data = self.request.semantic_values().type_data(ty).map_err(|error| {
+            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
         })?;
 
         let shape = match data.as_ref() {
@@ -150,9 +150,9 @@ where
                     .request
                     .semantic_values()
                     .generic_substitution_data(substitution)
-                    .map_err(|_| {
+                    .map_err(|error| {
                         CheckerQueryError::Infrastructure(
-                            CheckerInfrastructureError::SemanticValueUnavailable,
+                            CheckerInfrastructureError::SemanticValueStore(error),
                         )
                     })?;
 

@@ -54,6 +54,7 @@ impl Compilation {
                 RepresentationRole::RawPointer,
                 element,
             )
+            .map_err(FactQueryError::SemanticValueStore)?
             .ok_or(FactQueryError::InfrastructureFailure)
     }
 }
@@ -133,7 +134,7 @@ pub(super) fn atomic_representation_for_type(
 
     let data = values
         .type_data(ty)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let TypeData::Named { definition, .. } = data.as_ref() else {
         return Ok(None);
@@ -245,14 +246,14 @@ pub(in crate::compilation::product) fn closed_array_length(
 ) -> Result<u64, CodegenPreparationError> {
     let term = values
         .constant_term_data(term_id)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     match term.as_ref() {
         ConstantTermData::Typed { term, .. } => closed_array_length(values, *term),
         ConstantTermData::Value(value) => {
             let data = values
                 .constant_value_data(*value)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let ConstantValueKind::Integer(value) = data.kind() else {
                 return Err(CodegenPreparationError::InvalidArrayLength(term_id));
@@ -409,6 +410,7 @@ pub(super) fn callable_type_signature(
                 RepresentationRole::Future,
                 callable.result(),
             )
+            .map_err(FactQueryError::SemanticValueStore)?
             .ok_or(FactQueryError::InfrastructureFailure)?
     } else {
         callable.result()
@@ -496,7 +498,7 @@ pub(super) fn receiver_codegen_type(
     match data {
         Some(data) => values
             .intern_type(data)
-            .map_err(|_| FactQueryError::InfrastructureFailure),
+            .map_err(FactQueryError::SemanticValueStore),
         None => Ok(ty),
     }
 }
@@ -597,7 +599,7 @@ pub(super) fn is_void_result(
 
     let data = values
         .type_data(ty)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let TypeData::Named { definition, .. } = data.as_ref() else {
         return Ok(false);
@@ -1634,6 +1636,7 @@ mod tests {
             compilation
                 .available_compiler_known_symbols()
                 .unary_representation_type(values, role, element)
+                .unwrap_or_else(|error| panic!("{role:?} pointer type must intern: {error:?}"))
                 .unwrap_or_else(|| panic!("{role:?} pointer type must resolve"))
         };
 

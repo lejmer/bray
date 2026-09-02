@@ -52,8 +52,10 @@ pub enum CheckerInfrastructureError {
         /// The unavailable query category.
         kind: SymbolQueryKind,
     },
-    /// Canonical semantic value construction or lookup failed.
+    /// Canonical semantic value construction or lookup failed without an available store cause.
     SemanticValueUnavailable,
+    /// The canonical semantic value store rejected a construction or lookup operation.
+    SemanticValueStore(bray_symbols::SemanticValueStoreError),
     /// The representation type for an atomic value is unavailable.
     AtomicRepresentationTypeUnavailable,
     /// The representation arguments for an atomic value are unavailable.

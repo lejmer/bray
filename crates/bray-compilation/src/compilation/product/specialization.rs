@@ -320,7 +320,7 @@ impl Compilation {
                 let substitution = match owner.substitution() {
                     Some(owner) => values
                         .substitute_generic_substitution(*substitution, owner)
-                        .map_err(|_| FactQueryError::InfrastructureFailure)?,
+                        .map_err(FactQueryError::SemanticValueStore)?,
                     None => *substitution,
                 };
 
@@ -340,12 +340,12 @@ impl Compilation {
                     .map(|witness| {
                         let data = values
                             .implementation_instance_data(*witness)
-                            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                            .map_err(FactQueryError::SemanticValueStore)?;
 
                         let nested = match owner_substitution {
                             Some(owner) => values
                                 .substitute_generic_substitution(data.substitution(), owner)
-                                .map_err(|_| FactQueryError::InfrastructureFailure)?,
+                                .map_err(FactQueryError::SemanticValueStore)?,
                             None => data.substitution(),
                         };
 
@@ -356,7 +356,7 @@ impl Compilation {
                                 data.definition(),
                                 nested,
                             ))
-                            .map_err(|_| FactQueryError::InfrastructureFailure.into())
+                            .map_err(|error| FactQueryError::SemanticValueStore(error).into())
                     })
                     .collect::<Result<Vec<_>, CodegenPreparationError>>()?;
 
@@ -374,7 +374,7 @@ impl Compilation {
 
         let concrete_substitution = values
             .require_concrete_substitution(substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let instance = StaticInstanceKey::new(
             template,
@@ -566,7 +566,7 @@ impl Compilation {
             Some(owner_substitution) => {
                 let substitution = values
                     .substitute_generic_substitution(callable.substitution(), owner_substitution)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 let witnesses = self.concrete_codegen_demand_witnesses(
                     demand.witnesses(),
@@ -585,7 +585,7 @@ impl Compilation {
         if owner.substitution().is_none() {
             values
                 .require_concrete_substitution(substitution)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
         }
 
         let callable = CallableInstanceData::new(callable.definition(), substitution);
@@ -630,18 +630,18 @@ impl Compilation {
         if let Some(requirement) = dispatch.trait_default_requirement() {
             let subject = values
                 .substitute_type(requirement.subject(), owner_substitution)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let application = values
                 .substitute_trait_application(requirement.trait_application(), owner_substitution)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let requirement = ImplementationRequirementKey::new(subject, application);
 
             let contextual_requirement = matches!(
                 values
                     .type_data(subject)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?
+                    .map_err(FactQueryError::SemanticValueStore)?
                     .as_ref(),
                 TypeData::ContextualSelf(_)
             );
@@ -677,14 +677,14 @@ impl Compilation {
 
             let implementation = values
                 .implementation_instance_data(witness)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let fulfillments =
                 implementation_fulfillments(&binding_context, implementation.definition())?;
 
             let application_data = values
                 .trait_application_data(application)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let callable = implementation_callable_instance(
                 &binding_context,
@@ -743,11 +743,11 @@ impl Compilation {
 
         let subject = values
             .substitute_type(subject, owner_substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let application = values
             .substitute_trait_application(application, owner_substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let subject = substitute_contextual_self(&values, subject, contextual_self)?;
 
@@ -788,7 +788,7 @@ impl Compilation {
                 bray_ir::MirCallIntrinsic::Conversion(target) => {
                     let target = values
                         .substitute_type(target, owner_substitution)
-                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                        .map_err(FactQueryError::SemanticValueStore)?;
 
                     let target = substitute_contextual_self(&values, target, contextual_self)?;
 
@@ -807,14 +807,14 @@ impl Compilation {
 
         let implementation = values
             .implementation_instance_data(witness)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let fulfillments =
             implementation_fulfillments(&binding_context, implementation.definition())?;
 
         let application = values
             .trait_application_data(application)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let callable = implementation_callable_instance(
             &binding_context,
@@ -933,7 +933,7 @@ impl Compilation {
 
         let instance = values
             .implementation_instance_data(implementation)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let owner = GenericOwnerId::try_new(instance.definition().into_any())
             .ok_or(FactQueryError::InfrastructureFailure)?;
@@ -1018,15 +1018,15 @@ impl Compilation {
 
             let subject = values
                 .substitute_type(subject, substitution)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let application = values
                 .substitute_trait_application(application, substitution)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let application_data = values
                 .trait_application_data(application)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             if bray_checker::built_in_trait_constraint_outcome(&context, subject, application)
                 .map_err(FactQueryError::from)?
@@ -1055,11 +1055,11 @@ impl Compilation {
             .map(|witness| -> Result<_, CodegenPreparationError> {
                 let data = values
                     .implementation_instance_data(*witness)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 let substitution = values
                     .substitute_generic_substitution(data.substitution(), owner_substitution)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 let substitution = substitute_contextual_self_in_substitution(
                     &values,
@@ -1074,7 +1074,7 @@ impl Compilation {
                         data.definition(),
                         substitution,
                     ))
-                    .map_err(|_| FactQueryError::InfrastructureFailure.into())
+                    .map_err(|error| FactQueryError::SemanticValueStore(error).into())
             })
             .collect()
     }
@@ -1093,7 +1093,7 @@ impl Compilation {
         let substitution = match owner.substitution() {
             Some(owner_substitution) => values
                 .substitute_generic_substitution(callable.substitution(), owner_substitution)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?,
+                .map_err(FactQueryError::SemanticValueStore)?,
             None => callable.substitution(),
         };
 
@@ -1120,7 +1120,7 @@ impl Compilation {
 
         let data = values
             .generic_substitution_data(substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let arguments = data
             .bindings()
@@ -1142,11 +1142,11 @@ impl Compilation {
 
         let realized = values
             .intern_generic_substitution(realized)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         values
             .require_concrete_substitution(realized)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         Ok(realized)
     }
@@ -1159,7 +1159,7 @@ impl Compilation {
 
         let data = values
             .constant_term_data(term)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let ConstantTermData::IntegerLiteral { ty, value } = data.as_ref() else {
             return Ok(term);
@@ -1182,11 +1182,11 @@ impl Compilation {
                 ty,
                 ConstantValueKind::Integer(value.clone()),
             ))
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         values
             .intern_constant_term(ConstantTermData::Value(value))
-            .map_err(|_| FactQueryError::InfrastructureFailure.into())
+            .map_err(|error| FactQueryError::SemanticValueStore(error).into())
     }
 
     pub(super) fn concrete_codegen_witnesses(
@@ -1204,11 +1204,11 @@ impl Compilation {
         for witness in witnesses {
             let data = values
                 .implementation_instance_data(witness)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             values
                 .require_concrete_substitution(data.substitution())
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let definition =
                 self.portable_codegen_symbol_key(&binding_context, data.definition().into_any())?;

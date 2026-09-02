@@ -40,11 +40,11 @@ pub(in crate::compilation) fn implementation_requirement(
 
     let substitution = values
         .intern_generic_substitution(substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let application = values
         .intern_trait_application(TraitApplicationData::new(definition, substitution))
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     Ok(bray_symbols::ImplementationRequirementKey::new(
         subject,
@@ -60,7 +60,7 @@ pub(in crate::compilation) fn implementation_instance_requirement(
 
     let instance = values
         .implementation_instance_data(instance)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let coherence = binding_context
         .resolve_symbol_query(SymbolQueryRequest::<ImplementationCoherenceQuery>::new(
@@ -75,11 +75,11 @@ pub(in crate::compilation) fn implementation_instance_requirement(
 
     let subject = values
         .substitute_type(coherence.value().subject(), instance.substitution())
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let application = values
         .substitute_trait_application(application, instance.substitution())
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     Ok(ImplementationRequirementKey::new(subject, application))
 }
@@ -139,7 +139,7 @@ pub(in crate::compilation) fn selected_type_valued_member(
         .semantic_values()
         .substitute_type(ty, substitution)
         .map(TypeValuedMemberResolution::Resolved)
-        .map_err(|_| FactQueryError::InfrastructureFailure)
+        .map_err(FactQueryError::SemanticValueStore)
 }
 
 pub(in crate::compilation) fn implementation_fulfillments<'binding_context>(

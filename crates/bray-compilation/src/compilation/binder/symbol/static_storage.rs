@@ -195,7 +195,7 @@ fn static_initializer_behavior(
         let dependency_contract = context
             .semantic_values()
             .empty_dependency_contract_template()
-            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+            .map_err(crate::compilation::binder::semantic_value_binding_error)?;
 
         return Ok((
             source_duration,
@@ -216,7 +216,7 @@ fn static_initializer_behavior(
         let dependency_contract = context
             .semantic_values()
             .empty_dependency_contract_template()
-            .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+            .map_err(crate::compilation::binder::semantic_value_binding_error)?;
 
         return Ok((
             duration,
@@ -230,7 +230,7 @@ fn static_initializer_behavior(
     if let Some(key) = context
         .compilation()
         .static_initializer_key(declaration)
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?
+        .map_err(super::binding::binder_error)?
     {
         let checked = checked_source_expression(context, key.clone())?;
 
@@ -353,7 +353,7 @@ fn validate_static_dependency_duration(
     let contract = context
         .semantic_values()
         .dependency_contract_template_data(contract)
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
 
     if !contract
         .requirements()
@@ -414,7 +414,7 @@ fn static_dependencies_from_contract(
     let contract = context
         .semantic_values()
         .dependency_contract_template_data(contract)
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
 
     let mut dependencies = Vec::new();
 
@@ -435,7 +435,7 @@ fn witness_requirements_from_contract(
     let contract = context
         .semantic_values()
         .dependency_contract_template_data(contract)
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
 
     let mut requirements = Vec::new();
 
@@ -487,7 +487,7 @@ fn collect_witness_subject_requirement(
     let instance = context
         .semantic_values()
         .implementation_instance_data(witness)
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
 
     let key = context
         .symbols()
@@ -551,7 +551,7 @@ fn static_type_lifecycle_dependencies(
     let data = context
         .semantic_values()
         .type_data(ty)
-        .map_err(|_| BindingQueryError::DependencyUnavailable)?;
+        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
 
     let TypeData::Named { definition, .. } = data.as_ref() else {
         return Ok(Vec::new());

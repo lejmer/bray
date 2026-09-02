@@ -47,6 +47,9 @@ where
         ControlFlowGraphBuildOutcome::Cancelled => {
             return CheckerOutcome::Cancelled;
         }
+        ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
+            return CheckerOutcome::InfrastructureFailure(error);
+        }
     };
 
     analyze_storage_liveness_with_graph(request, selections, storage, memory, &graph)

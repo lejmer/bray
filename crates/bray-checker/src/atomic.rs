@@ -346,9 +346,9 @@ where
                 let value = request
                     .semantic_values()
                     .constant_term_integer(*term)
-                    .map_err(|_| {
+                    .map_err(|error| {
                         CheckerOutcome::InfrastructureFailure(
-                            CheckerInfrastructureError::SemanticValueUnavailable,
+                            CheckerInfrastructureError::SemanticValueStore(error),
                         )
                     })?;
 
@@ -424,8 +424,8 @@ where
         }));
     }
 
-    let data = request.semantic_values().type_data(value).map_err(|_| {
-        CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::SemanticValueUnavailable)
+    let data = request.semantic_values().type_data(value).map_err(|error| {
+        CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::SemanticValueStore(error))
     })?;
 
     if matches!(data.as_ref(), TypeData::TypeParameter(_)) {
@@ -526,9 +526,9 @@ where
     let member_type = request
         .semantic_values()
         .substitute_type(member_type, substitution)
-        .map_err(|_| {
+        .map_err(|error| {
             CheckerOutcome::InfrastructureFailure(
-                CheckerInfrastructureError::SemanticValueUnavailable,
+                CheckerInfrastructureError::SemanticValueStore(error),
             )
         })?;
 

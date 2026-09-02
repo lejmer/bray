@@ -36,7 +36,7 @@ where
     let data = request
         .semantic_values()
         .type_data(ty)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let complete = match data.as_ref() {
         TypeData::Named { definition, .. } => match type_representation(request, ty)? {
@@ -48,6 +48,7 @@ where
                         RepresentationRole::Uninit,
                         ty,
                     )
+                    .map_err(CheckerInfrastructureError::SemanticValueStore)?
                     .ok_or(CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
 
                 type_supports_complete_fixed_layout_inner(request, element, pending)?
@@ -96,7 +97,7 @@ where
     let data = request
         .semantic_values()
         .type_data(ty)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let TypeData::Named { definition, .. } = data.as_ref() else {
         return Ok(matches!(
@@ -149,7 +150,7 @@ pub(crate) fn type_representation_for_values(
 ) -> Result<Option<RepresentationRole>, CheckerInfrastructureError> {
     let data = values
         .type_data(ty)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let TypeData::Named { definition, .. } = data.as_ref() else {
         return Ok(None);
@@ -235,7 +236,7 @@ where
     let substitution = request
         .semantic_values()
         .intern_generic_substitution(substitution)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     request
         .semantic_values()
@@ -243,7 +244,7 @@ where
             definition: NamedTypeSymbolId::Union(definition),
             substitution,
         })
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+        .map_err(CheckerInfrastructureError::SemanticValueStore)
 }
 
 pub(crate) fn named_type<C>(
@@ -262,5 +263,5 @@ pub(crate) fn intern_named_type(
 ) -> Result<TypeId, CheckerInfrastructureError> {
     values
         .intern_non_generic_named_type(definition)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)
+        .map_err(CheckerInfrastructureError::SemanticValueStore)
 }

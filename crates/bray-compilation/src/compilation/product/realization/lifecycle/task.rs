@@ -23,10 +23,12 @@ impl Compilation {
 
         let completion = symbols
             .unary_representation_argument(values, RepresentationRole::Task, task.ty())
+            .map_err(FactQueryError::SemanticValueStore)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let result = symbols
             .unary_representation_type(values, RepresentationRole::RunResult, completion)
+            .map_err(FactQueryError::SemanticValueStore)?
             .ok_or(FactQueryError::InfrastructureFailure)?;
 
         let representation = symbols

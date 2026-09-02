@@ -118,7 +118,7 @@ where
     request
         .semantic_values()
         .intern_callable_instance(callable)
-        .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     Ok(())
 }
@@ -190,7 +190,7 @@ where
         request
             .semantic_values()
             .implementation_instance_data(required.witness())
-            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
     }
 
     Ok(true)
@@ -392,7 +392,7 @@ where
                     kind: *borrow_kind,
                     target: *result_type,
                 })
-                .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
             required.push(RequiredTraitOperation::Callable {
                 role,
@@ -483,7 +483,7 @@ where
     let application = request
         .semantic_values()
         .trait_application_data(required.requirement().trait_application())
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let callable_symbol = evidence.callable().definition().symbol();
 
@@ -558,12 +558,12 @@ where
     let application = request
         .semantic_values()
         .trait_application_data(requirement.trait_application())
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let substitution = request
         .semantic_values()
         .generic_substitution_data(application.substitution())
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let [binding] = substitution.bindings() else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
@@ -576,7 +576,7 @@ where
     let nullable = request
         .semantic_values()
         .intern_type(TypeData::Nullable(bound))
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     Ok(vec![nullable, nullable])
 }

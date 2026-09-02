@@ -202,7 +202,7 @@ impl Compilation {
             let data = self
                 .semantic_value_store()?
                 .constant_value_data(value)
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             constants
                 .values
@@ -218,7 +218,7 @@ impl Compilation {
     ) -> Result<ConstantTermId, FactQueryError> {
         self.semantic_value_store()?
             .intern_constant_term(ConstantTermData::Value(value))
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+            .map_err(FactQueryError::SemanticValueStore)
     }
 
     fn evaluate_closed_expression(
@@ -245,7 +245,7 @@ impl Compilation {
                     let term = self
                         .semantic_value_store()?
                         .intern_constant_term(ConstantTermData::Parameter(parameter))
-                        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                        .map_err(FactQueryError::SemanticValueStore)?;
 
                     return Ok(ConstantReferenceResolution::Term(term));
                 }
@@ -297,7 +297,7 @@ impl Compilation {
         let data = self
             .semantic_value_store()?
             .constant_value_data(value)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         Ok((!matches!(data.kind(), ConstantValueKind::Error)).then_some(value))
     }

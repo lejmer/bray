@@ -16,14 +16,28 @@ where
         BindingQueryError::CheckerInfrastructure(error) => {
             FactQueryError::CheckerInfrastructure(error)
         }
+        BindingQueryError::SemanticValue(error) => FactQueryError::SemanticValueStore(error),
         BindingQueryError::DependencyUnavailable => FactQueryError::BindingDependencyUnavailable,
         BindingQueryError::Upstream(error) => error.into(),
     }
 }
 
+pub(in crate::compilation) fn semantic_value_binding_error(
+    error: bray_symbols::SemanticValueStoreError,
+) -> BindingQueryError<FactQueryError> {
+    BindingQueryError::SemanticValue(error)
+}
+
+pub(in crate::compilation) fn callable_signature_binding_error(
+    error: bray_symbols::CallableSignatureTemplateError,
+) -> BindingQueryError<FactQueryError> {
+    BindingQueryError::Upstream(error.into())
+}
+
 #[cfg(test)]
 mod tests {
     use bray_checker::CheckerInfrastructureError;
+    use bray_symbols::{SemanticValueKind, SemanticValueStoreError};
 
     use super::binding_query_error;
     use crate::compilation::binder::symbol::binder_error;
@@ -44,5 +58,19 @@ mod tests {
 
             assert_eq!(binding_query_error(binder_error(error.clone())), error);
         }
+    }
+
+    #[test]
+    fn semantic_value_causes_survive_binding_query_boundaries() {
+        let cause = SemanticValueStoreError::UnknownId {
+            kind: SemanticValueKind::Type,
+        };
+
+        assert_eq!(
+            binding_query_error(bray_binder::BindingQueryError::<FactQueryError>::SemanticValue(
+                cause,
+            )),
+            FactQueryError::SemanticValueStore(cause)
+        );
     }
 }

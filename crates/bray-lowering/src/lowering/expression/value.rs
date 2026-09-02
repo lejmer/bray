@@ -29,8 +29,7 @@ impl Lowerer<'_> {
         let data = self
             .input
             .semantic_values()
-            .type_data(nullable)
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .type_data(nullable)?;
 
         Ok(matches!(data.as_ref(), TypeData::Nullable(element) if *element == contained))
     }

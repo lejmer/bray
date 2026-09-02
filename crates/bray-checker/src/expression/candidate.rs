@@ -338,7 +338,7 @@ where
     let substitution = request
         .semantic_values()
         .generic_substitution_data(substitution_id)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let obligation = GenericConstraintObligationKey::new(substitution.owner(), substitution_id);
 
@@ -403,18 +403,18 @@ where
         let subject = request
             .semantic_values()
             .substitute_type(subject, obligation.substitution())
-            .map_err(|_| {
+            .map_err(|error| {
                 CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::SemanticValueStore(error),
                 )
             })?;
 
         let application = request
             .semantic_values()
             .substitute_trait_application(application, obligation.substitution())
-            .map_err(|_| {
+            .map_err(|error| {
                 CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::SemanticValueStore(error),
                 )
             })?;
 
@@ -717,7 +717,7 @@ where
         let callable = request
             .semantic_values()
             .type_data(candidate.callable_type())
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         let TypeData::Callable(callable) = callable.as_ref() else {
             return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
@@ -949,7 +949,7 @@ where
     let data = request
         .semantic_values()
         .type_data(callee_type.ty())
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let TypeData::Callable(callable) = data.as_ref() else {
         return Ok(Some(MaterializedCallCandidates {
@@ -1165,7 +1165,7 @@ where
     let callable = request
         .semantic_values()
         .type_data(candidate.callable_type())
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let TypeData::Callable(callable) = callable.as_ref() else {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
@@ -1371,8 +1371,8 @@ where
             .expression(expression)
             .ok_or_else(invalid_selection_input)?;
 
-        let data = request.semantic_values().type_data(ty.ty()).map_err(|_| {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueUnavailable)
+        let data = request.semantic_values().type_data(ty.ty()).map_err(|error| {
+            CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
         })?;
 
         if let TypeData::Borrow { kind, .. } = data.as_ref() {
@@ -1432,7 +1432,7 @@ where
     let substitution_data = request
         .semantic_values()
         .generic_substitution_data(substitution)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     let constraints = request.resolve_symbol_query(
         SymbolQueryRequest::<GenericConstraintsQuery>::new(substitution_data.owner()),
@@ -1460,12 +1460,12 @@ where
         let subject = request
             .semantic_values()
             .substitute_type(subject, substitution)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         let application = request
             .semantic_values()
             .substitute_trait_application(application, substitution)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         if crate::built_in_trait_constraint_outcome(request.context(), subject, application)?
             == Some(ProofOutcome::Proven)
@@ -1565,9 +1565,9 @@ where
                     .get(index)
                     .map(bray_symbols::CallableParameterTypeTemplate::mode),
                 TypeExpressionTemplate::Resolved(ty) => {
-                    let data = request.semantic_values().type_data(*ty).map_err(|_| {
+                    let data = request.semantic_values().type_data(*ty).map_err(|error| {
                         CheckerQueryError::Infrastructure(
-                            CheckerInfrastructureError::SemanticValueUnavailable,
+                            CheckerInfrastructureError::SemanticValueStore(error),
                         )
                     })?;
 

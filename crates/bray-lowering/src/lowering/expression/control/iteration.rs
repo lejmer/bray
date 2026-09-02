@@ -595,6 +595,7 @@ impl Lowerer<'_> {
                 RepresentationRole::Range,
                 cursor_type,
             )
+            .map_err(LoweringError::SemanticValue)?
             .ok_or(LoweringError::MissingSemanticSelection(id))?;
 
         let result_type = self.expression_type(id)?;
@@ -666,8 +667,7 @@ impl Lowerer<'_> {
         let data = self
             .input
             .semantic_values()
-            .type_data(ty)
-            .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+            .type_data(ty)?;
 
         let bray_symbols::TypeData::Named { definition, .. } = data.as_ref() else {
             return Ok(false);

@@ -193,15 +193,21 @@ where
             continue;
         }
 
-        let Some(element) = request
+        let element = match request
             .available_compiler_known_symbols()
             .unary_representation_argument(
                 request.semantic_values(),
                 RepresentationRole::Range,
                 result.ty(),
             )
-        else {
-            continue;
+        {
+            Ok(Some(element)) => element,
+            Ok(None) => continue,
+            Err(error) => {
+                return CheckerOutcome::InfrastructureFailure(
+                    CheckerInfrastructureError::SemanticValueStore(error),
+                );
+            }
         };
 
         let role = match type_representation(request, element) {

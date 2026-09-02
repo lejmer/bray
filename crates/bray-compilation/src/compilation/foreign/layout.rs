@@ -23,7 +23,7 @@ pub(super) fn aggregate_alignment(
             definition,
             substitution,
         })
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     alignment_of_type(compilation, ty, cancellation, &mut BTreeSet::new())
 }
@@ -44,7 +44,7 @@ fn alignment_of_type(
 
     let data = values
         .type_data(ty)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let alignment = match data.as_ref() {
         TypeData::Named {
@@ -106,11 +106,12 @@ fn named_alignment(
                     definition,
                     substitution,
                 })
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             let element = compilation
                 .available_compiler_known_symbols()
                 .unary_representation_argument(values, role, wrapper)
+                .map_err(FactQueryError::SemanticValueStore)?
                 .ok_or(FactQueryError::InfrastructureFailure)?;
 
             return alignment_of_type(compilation, element, cancellation, pending);
@@ -225,7 +226,7 @@ fn atomic_alignment(
 
     let substitution = values
         .generic_substitution_data(substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     let [binding] = substitution.bindings() else {
         return Err(FactQueryError::InfrastructureFailure);
@@ -275,7 +276,7 @@ fn resolve_member_alignment(
     let ty = compilation
         .semantic_value_store()?
         .substitute_type(ty, substitution)
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::SemanticValueStore)?;
 
     alignment_of_type(compilation, ty, cancellation, pending)
 }

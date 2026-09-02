@@ -194,7 +194,7 @@ where
             .request
             .semantic_values()
             .intern_constant_value(ConstantValueData::new(input_type, value))
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         Ok(Some(PatternLiteralPredicate::new(literal, value)))
     }

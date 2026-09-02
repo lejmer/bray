@@ -45,6 +45,7 @@ pub(crate) struct TestCheckerContext {
     target_observations: AtomicUsize,
     source: Option<SourceSnapshot>,
     target: Option<TargetProfile>,
+    semantic_values: Option<SemanticValueStore>,
 }
 
 impl TestCheckerContext {
@@ -56,6 +57,7 @@ impl TestCheckerContext {
             target_observations: AtomicUsize::new(0),
             source: None,
             target: None,
+            semantic_values: None,
         }
     }
 
@@ -67,6 +69,7 @@ impl TestCheckerContext {
             target_observations: AtomicUsize::new(0),
             source: None,
             target: None,
+            semantic_values: None,
         }
     }
 
@@ -78,11 +81,18 @@ impl TestCheckerContext {
             target_observations: AtomicUsize::new(0),
             source: Some(source),
             target: None,
+            semantic_values: None,
         }
     }
 
     pub(crate) fn with_selected_target(mut self, target: TargetProfile) -> Self {
         self.target = Some(target);
+
+        self
+    }
+
+    pub(crate) fn with_semantic_values(mut self, semantic_values: SemanticValueStore) -> Self {
+        self.semantic_values = Some(semantic_values);
 
         self
     }
@@ -117,7 +127,7 @@ impl CheckerRequestContext for TestCheckerContext {
     }
 
     fn semantic_values(&self) -> &SemanticValueStore {
-        semantic_values()
+        self.semantic_values.as_ref().unwrap_or_else(|| semantic_values())
     }
 
     fn symbols(&self) -> &SymbolGraph {

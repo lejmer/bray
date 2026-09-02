@@ -47,7 +47,8 @@ const CODEGEN_RESOURCE_EXHAUSTED: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
 ];
 const CODEGEN_BACKEND_LIBRARY_FAILED: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("an internal compiler error prevented Bray from producing native code for target "),
+    MessageTemplatePart::Text(super::INTERNAL_COMPILER_ERROR),
+    MessageTemplatePart::Text(": native-code generation failed for target "),
     MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
     MessageTemplatePart::Text(": native-code generator "),
     MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
@@ -71,7 +72,8 @@ const CODEGEN_GENERATED_MODULE_INVALID: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
 ];
 const CODEGEN_BACKEND_REJECTED_MODULE: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text("an internal compiler error prevented Bray from producing native code for target "),
+    MessageTemplatePart::Text(super::INTERNAL_COMPILER_ERROR),
+    MessageTemplatePart::Text(": native-code generation failed for target "),
     MessageTemplatePart::Arg(DiagnosticArgName::TargetTriple),
     MessageTemplatePart::Text(": native-code generator "),
     MessageTemplatePart::Arg(DiagnosticArgName::CodegenBackendIdentity),
@@ -121,12 +123,8 @@ const EMISSION_TARGET_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" but the compilation selected "),
     MessageTemplatePart::Arg(DiagnosticArgName::ExpectedTargetTriple),
 ];
-const CHECKING_COMPILER_DEFECT: &[MessageTemplatePart] = &[
-    MessageTemplatePart::Text(
-        "an internal compiler error prevented Bray from checking the highlighted source: ",
-    ),
-    MessageTemplatePart::Arg(DiagnosticArgName::EmissionFailure),
-];
+const CHECKING_COMPILER_DEFECT: &[MessageTemplatePart] =
+    &[MessageTemplatePart::Arg(DiagnosticArgName::EmissionFailure)];
 const EMISSION_PRODUCT_MISMATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("cannot emit requested product "),
     MessageTemplatePart::Arg(DiagnosticArgName::ActualProductIdentity),
@@ -2329,9 +2327,7 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingIncompatibleExpressionType => {
             MessageTemplate::new(CHECKING_INCOMPATIBLE_EXPRESSION_TYPE)
         }
-        DiagnosticKind::CheckingCompilerDefect => {
-            MessageTemplate::new(CHECKING_COMPILER_DEFECT)
-        }
+        DiagnosticKind::CheckingCompilerDefect => MessageTemplate::new(CHECKING_COMPILER_DEFECT),
         DiagnosticKind::CheckingIncompatiblePattern => {
             MessageTemplate::new(CHECKING_INCOMPATIBLE_PATTERN)
         }

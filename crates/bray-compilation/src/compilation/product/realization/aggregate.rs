@@ -193,7 +193,7 @@ impl Compilation {
 
         let pointee_data = values
             .type_data(pointee)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let fields = match pointee_data.as_ref() {
             TypeData::Named { definition, .. }
@@ -376,7 +376,7 @@ impl Compilation {
     ) -> Result<TypeId, FactQueryError> {
         self.semantic_value_store()?
             .intern_type(TypeData::Borrow { kind, target })
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+            .map_err(FactQueryError::SemanticValueStore)
     }
 
     #[expect(
@@ -519,7 +519,7 @@ impl Compilation {
 
         self.semantic_value_store()?
             .substitute_type(ty, substitution)
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+            .map_err(FactQueryError::SemanticValueStore)
     }
 
     pub(in crate::compilation) fn plain_storage_atomic_representation(

@@ -385,7 +385,7 @@ where
     let data = request
         .semantic_values()
         .type_data(ty)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
     Ok(match data.as_ref() {
         TypeData::Borrow { target, .. } => *target,

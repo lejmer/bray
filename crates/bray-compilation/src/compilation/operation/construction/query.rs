@@ -205,7 +205,7 @@ impl Compilation {
             let data = binding_context
                 .semantic_values()
                 .type_data(result.ty())
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             if matches!(
                 data.as_ref(),
@@ -224,7 +224,7 @@ impl Compilation {
             let data = binding_context
                 .semantic_values()
                 .type_data(result.ty())
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             if matches!(
                 data.as_ref(),

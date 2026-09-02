@@ -94,7 +94,7 @@ impl Compilation {
 
             let application = values
                 .trait_application_data(header.trait_application())
-                .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                .map_err(FactQueryError::SemanticValueStore)?;
 
             by_trait
                 .entry(application.definition())
@@ -139,7 +139,7 @@ impl Compilation {
                     }
 
                     if implementation_headers_overlap(left, right, values)
-                        .map_err(|_| FactQueryError::InfrastructureFailure)?
+                        .map_err(FactQueryError::SemanticValueStore)?
                     {
                         let left_context = self.implementation_diagnostic_context(
                             left,
@@ -181,7 +181,7 @@ impl Compilation {
                     }
 
                     if implementation_subjects_overlap(left, right, values)
-                        .map_err(|_| FactQueryError::InfrastructureFailure)?
+                        .map_err(FactQueryError::SemanticValueStore)?
                     {
                         requires_family.push((*left, *right));
                     }
@@ -244,7 +244,7 @@ impl Compilation {
         let application = self
             .semantic_value_store()?
             .trait_application_data(header.trait_application())
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::SemanticValueStore)?;
 
         let trait_definition =
             symbol_diagnostic_identity(symbols, imported, application.definition().into())?;
@@ -359,7 +359,7 @@ impl Compilation {
 
                 let actual = header
                     .family_key(values)
-                    .map_err(|_| FactQueryError::InfrastructureFailure)?;
+                    .map_err(FactQueryError::SemanticValueStore)?;
 
                 let Some(actual) = actual else {
                     resolved.diagnostics.add(implementation_overload_diagnostic(

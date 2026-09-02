@@ -125,7 +125,7 @@ impl Lowerer<'_> {
                     return Err(LoweringError::MissingSemanticSelection(id));
                 };
 
-                self.inline_assembly_runtime_input_type(*expression, contract)?
+                self.inline_assembly_runtime_input_type(contract)?
             } else {
                 conversion.target_type()
             };
@@ -368,7 +368,7 @@ impl Lowerer<'_> {
             operands.push(value);
         }
 
-        let tuple_type = self.inline_assembly_runtime_input_type(expression, contract)?;
+        let tuple_type = self.inline_assembly_runtime_input_type(contract)?;
         let source = self.expression_source(expression)?;
 
         let value = self.push_typed_value_operation(
@@ -434,8 +434,7 @@ impl Lowerer<'_> {
             let data = self
                 .input
                 .semantic_values()
-                .type_data(label.ty)
-                .map_err(|_| LoweringError::MissingExpressionType(expression))?;
+                .type_data(label.ty)?;
 
             let TypeData::Callable(callable) = data.as_ref() else {
                 return Err(LoweringError::MissingSemanticSelection(expression));
@@ -481,7 +480,6 @@ impl Lowerer<'_> {
 
     fn inline_assembly_runtime_input_type(
         &self,
-        expression: BoundExpressionId,
         contract: InlineAssemblyContract,
     ) -> Result<TypeId, LoweringError> {
         let mut runtime = contract
@@ -498,7 +496,7 @@ impl Lowerer<'_> {
         self.input
             .semantic_values()
             .intern_type(TypeData::tuple(runtime.into_iter().map(|(_, ty)| ty)))
-            .map_err(|_| LoweringError::MissingExpressionType(expression))
+            .map_err(LoweringError::from)
     }
 }
 
