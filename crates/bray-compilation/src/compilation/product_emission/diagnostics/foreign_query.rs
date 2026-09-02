@@ -3,7 +3,9 @@ use bray_diagnostics::{DiagnosticFailureField, DiagnosticForeignQueryFailure};
 use crate::compilation::{
     ForeignDataKind, ForeignQueryContext, ForeignQueryError, ForeignQueryFailure,
 };
-use crate::fact::diagnostic_context::{identity_field, natural_field, text_field};
+use crate::fact::diagnostic_context::{
+    identity_field, natural_field, semantic_type_kind, text_field,
+};
 
 pub(super) fn diagnostic_foreign_query_failure(
     error: &ForeignQueryError,
@@ -38,8 +40,8 @@ pub(super) fn diagnostic_foreign_query_failure(
             "foreign_query_unexpected_semantic_type",
             vec![
                 identity_field("semantic_type", ty),
-                identity_field("expected_type_kind", expected),
-                identity_field("actual_semantic_type", actual),
+                text_field("expected_type_kind", foreign_type_kind(*expected)),
+                text_field("actual_semantic_type_kind", semantic_type_kind(actual)),
             ],
         ),
         Failure::UnexpectedTypeTemplate {
@@ -50,8 +52,8 @@ pub(super) fn diagnostic_foreign_query_failure(
             let mut fields = foreign_query_context(context);
 
             fields.extend([
-                identity_field("expected_type_kind", expected),
-                identity_field("actual_type_template", actual),
+                text_field("expected_type_kind", foreign_type_kind(*expected)),
+                text_field("actual_type_template_kind", type_template_kind(actual)),
             ]);
 
             ("foreign_query_unexpected_type_template", fields)
@@ -64,8 +66,8 @@ pub(super) fn diagnostic_foreign_query_failure(
             "foreign_query_unexpected_generic_argument",
             vec![
                 identity_field("substitution", substitution),
-                identity_field("expected_argument_kind", expected),
-                identity_field("actual_argument_kind", actual),
+                text_field("expected_argument_kind", generic_argument_kind(*expected)),
+                text_field("actual_argument_kind", generic_argument_kind(*actual)),
             ],
         ),
         Failure::NumericOverflow {
@@ -77,7 +79,7 @@ pub(super) fn diagnostic_foreign_query_failure(
 
             fields.extend([
                 natural_field("value", *value),
-                identity_field("integer_width", target),
+                text_field("integer_width", foreign_integer_width(*target)),
             ]);
 
             ("foreign_query_numeric_overflow", fields)
@@ -124,13 +126,59 @@ pub(super) fn diagnostic_foreign_query_failure(
             "foreign_query_duplicate_source_role",
             vec![
                 identity_field("function", function),
-                identity_field("first_role", first),
-                identity_field("duplicate_role", duplicate),
+                text_field("first_role", foreign_source_role(*first)),
+                text_field("duplicate_role", foreign_source_role(*duplicate)),
             ],
         ),
     };
 
     DiagnosticForeignQueryFailure::new(reason, context)
+}
+
+const fn foreign_type_kind(kind: crate::compilation::ForeignTypeKind) -> &'static str {
+    match kind {
+        crate::compilation::ForeignTypeKind::Callable => "callable",
+    }
+}
+
+const fn foreign_integer_width(width: crate::compilation::ForeignIntegerWidth) -> &'static str {
+    match width {
+        crate::compilation::ForeignIntegerWidth::U64 => "u64",
+    }
+}
+
+const fn generic_argument_kind(kind: bray_symbols::GenericArgumentKind) -> &'static str {
+    match kind {
+        bray_symbols::GenericArgumentKind::Type => "type",
+        bray_symbols::GenericArgumentKind::Constant => "constant",
+    }
+}
+
+const fn foreign_source_role(role: crate::compilation::ForeignSourceRole) -> &'static str {
+    match role {
+        crate::compilation::ForeignSourceRole::Runtime(role) => role.as_str(),
+        crate::compilation::ForeignSourceRole::Platform(role) => role.as_str(),
+    }
+}
+
+const fn type_template_kind(template: &bray_symbols::TypeExpressionTemplate) -> &'static str {
+    use bray_symbols::TypeExpressionTemplate as Type;
+
+    match template {
+        Type::Resolved(_) => "resolved",
+        Type::Named { .. } => "named",
+        Type::CallableContract { .. } => "callable_contract",
+        Type::TypeValuedMemberProjection { .. } => "type_valued_member_projection",
+        Type::Tuple(_) => "tuple",
+        Type::Array { .. } => "array",
+        Type::FlexibleArray(_) => "flexible_array",
+        Type::Slice(_) => "slice",
+        Type::Nullable(_) => "nullable",
+        Type::Borrow { .. } => "borrow",
+        Type::TraitView(_) => "trait_view",
+        Type::OwnedIndirection { .. } => "owned_indirection",
+        Type::Callable(_) => "callable",
+    }
 }
 
 fn foreign_query_context(context: &ForeignQueryContext) -> Vec<DiagnosticFailureField> {

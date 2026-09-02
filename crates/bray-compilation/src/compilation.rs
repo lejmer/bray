@@ -48,7 +48,8 @@ pub use configuration::BuildConfiguration;
 pub use emission::{EmissionCodegenError, EmissionCodegenErrorKind};
 pub use export::PackageInterfaceExportError;
 pub(crate) use foreign::{
-    ForeignDataKind, ForeignIntegerWidth, ForeignQueryContext, ForeignQueryFailure, ForeignTypeKind,
+    ForeignDataKind, ForeignIntegerWidth, ForeignQueryContext, ForeignQueryFailure,
+    ForeignSourceRole, ForeignTypeKind,
 };
 pub use foreign::{ForeignQueryError, ForeignQueryErrorKind};
 pub use linking::LinkedProductEmissionError;

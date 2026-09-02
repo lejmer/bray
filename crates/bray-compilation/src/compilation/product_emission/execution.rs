@@ -14,6 +14,7 @@ use bray_target::TargetOutputDescription;
 use super::{ProductEmissionError, ProductEmissionErrorKind};
 use crate::compilation::{
     Compilation, EmissionCodegenError, EmissionCodegenErrorKind, NativeProductPlan,
+    ProductDataKind, ProductQueryContext, ProductQueryFailure,
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -454,7 +455,11 @@ impl Compilation {
 
         let diagnostics = diagnostics
             .unwrap_or(Err(ProductEmissionErrorKind::Query(
-                FactQueryError::InfrastructureFailure,
+                ProductQueryFailure::missing(
+                    ProductQueryContext::Product(request.product_kind()),
+                    ProductDataKind::CompilationDiagnostics,
+                )
+                .into(),
             )))
             .map_err(|kind| {
                 ProductEmissionError::new(
@@ -467,7 +472,11 @@ impl Compilation {
 
         let package_interface = package_interface
             .unwrap_or(Err(ProductEmissionErrorKind::Query(
-                FactQueryError::InfrastructureFailure,
+                ProductQueryFailure::missing(
+                    ProductQueryContext::Product(request.product_kind()),
+                    ProductDataKind::PackageInterfaceContribution,
+                )
+                .into(),
             )))
             .map_err(|kind| {
                 ProductEmissionError::new(
@@ -695,7 +704,11 @@ fn package_implementation_contribution(
         .published_artifacts()
         .find(|artifact| artifact.id().kind() == ArtifactKind::PackageImplementation)
         .ok_or(ProductEmissionErrorKind::Query(
-            FactQueryError::InfrastructureFailure,
+            ProductQueryFailure::missing(
+                ProductQueryContext::Product(plan.request().product_kind()),
+                ProductDataKind::PackageImplementationArtifact,
+            )
+            .into(),
         ))?;
 
     let content = ArtifactContent::try_memory(artifact.shared_bytes())

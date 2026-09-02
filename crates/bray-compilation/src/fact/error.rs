@@ -14,5 +14,7 @@ pub(crate) use semantic_diagnostic::{
     callable_signature_reason, diagnostic_semantic_query_failure, generic_substitution_reason,
     push_generic_substitution_failure, push_semantic_value_failure,
 };
-pub use model::ImportedQueryFailure;
-pub use model::{FactCycle, FactQueryError, LocatedLoweringFailure};
+pub use model::{
+    FactCycle, FactQueryError, ImportedExecutableTemplateMismatch, ImportedQueryFailure,
+    LocatedLoweringFailure,
+};

@@ -5,8 +5,10 @@ use bray_diagnostics::{
 use crate::compilation::{
     ProductDataKind, ProductQueryContext, ProductQueryError, ProductQueryFailure, ProductValueKind,
 };
+use crate::compilation::product::ProductSynchronizationComponent;
 use crate::fact::diagnostic_context::{
-    count_field, identity_field, natural_field, push_symbol, text_field,
+    constant_value_kind, count_field, identity, identity_field, natural_field, push_symbol,
+    semantic_type_kind, text_field,
 };
 
 // rust-style: allow(function-too-large, reason = "product-query variants form one exhaustive flat conversion into typed diagnostic fields")
@@ -57,7 +59,7 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
             "product_query_unsupported_constant_value",
             vec![
                 identity_field("constant_value", value),
-                identity_field("constant_value_kind", kind),
+                text_field("constant_value_kind", constant_value_kind(kind)),
             ],
         ),
         Failure::GenericSubstitution {
@@ -111,12 +113,15 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
             vec![
                 identity_field("semantic_type", ty),
                 text_field("expected_value_kind", product_value_kind(*expected)),
-                identity_field("actual_semantic_type", actual),
+                text_field("actual_semantic_type_kind", semantic_type_kind(actual)),
             ],
         ),
         Failure::SynchronizationPoisoned { component } => (
             "product_query_synchronization_poisoned",
-            vec![identity_field("synchronization_component", component)],
+            vec![text_field(
+                "synchronization_component",
+                product_synchronization_component(*component),
+            )],
         ),
         Failure::StaticDependencyOverflow { static_instance } => (
             "product_query_static_dependency_overflow",
@@ -210,7 +215,10 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
         ),
         Failure::UnexpectedEntryResult { actual } => (
             "product_query_unexpected_entry_result",
-            vec![identity_field("actual_entry_result", actual)],
+            vec![text_field(
+                "actual_entry_result",
+                executable_entry_result(actual),
+            )],
         ),
         Failure::CompilerKnownRepresentationMismatch {
             ty,
@@ -232,7 +240,7 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
             "product_query_native_boundary_kind_mismatch",
             vec![
                 identity_field("static_reference", reference),
-                identity_field("actual_boundary_kind", actual),
+                text_field("actual_boundary_kind", native_boundary_kind(actual)),
             ],
         ),
         Failure::UnexpectedSymbolKind {
@@ -270,7 +278,7 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
 
             fields.extend([
                 identity_field("helper", helper),
-                identity_field("operation", operation),
+                text_field("operation", mir_operation_kind(operation)),
             ]);
 
             ("product_query_invalid_helper_operation", fields)
@@ -294,9 +302,17 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
             expected,
             actual,
         } => {
-            let mut fields = vec![identity_field("instance", instance)];
-            push_optional_identity(&mut fields, "expected_lifecycle_role", expected.as_ref());
-            push_optional_identity(&mut fields, "actual_lifecycle_role", actual.as_ref());
+            let fields = vec![
+                identity_field("instance", instance),
+                text_field(
+                    "expected_lifecycle_role",
+                    expected.map_or("none", mir_lifecycle_role),
+                ),
+                text_field(
+                    "actual_lifecycle_role",
+                    actual.map_or("none", mir_lifecycle_role),
+                ),
+            ];
 
             ("product_query_lifecycle_role_mismatch", fields)
         }
@@ -304,21 +320,22 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
             requirement,
             actual,
         } => {
-            let mut fields = vec![identity_field("requirement", requirement)];
-            push_optional_identity(&mut fields, "actual_proof", actual.as_ref());
+            let fields = vec![
+                identity_field("requirement", requirement),
+                text_field("actual_proof", actual.map_or("none", proof_outcome)),
+            ];
 
             ("product_query_built_in_proof_mismatch", fields)
         }
         Failure::ImplementationSelectionMismatch {
             requirement,
             actual,
-        } => (
-            "product_query_implementation_selection_mismatch",
-            vec![
-                identity_field("requirement", requirement),
-                identity_field("actual_selection", actual),
-            ],
-        ),
+        } => {
+            let mut fields = vec![identity_field("requirement", requirement)];
+            push_implementation_selection(&mut fields, actual);
+
+            ("product_query_implementation_selection_mismatch", fields)
+        }
         Failure::UnsupportedRuntimeDefaultSubject { provider, subject } => {
             let mut fields = Vec::new();
             push_symbol(&mut fields, "provider_kind", "provider", *provider);
@@ -335,7 +352,7 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
         }
         Failure::UnsupportedLifecycleRole { role } => (
             "product_query_unsupported_lifecycle_role",
-            vec![identity_field("lifecycle_role", role)],
+            vec![text_field("lifecycle_role", mir_lifecycle_role(*role))],
         ),
         Failure::SourceSnapshotMismatch {
             source,
@@ -362,7 +379,7 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
             vec![
                 text_field("requested_product", requested.to_string()),
                 text_field("compilation_package", compilation_package.as_str()),
-                identity_field("compilation_product_kind", compilation_kind),
+                text_field("compilation_product_kind", product_kind(*compilation_kind)),
             ],
         ),
         Failure::TestCatalog {
@@ -528,6 +545,140 @@ fn push_optional_identity<T: std::hash::Hash>(
     }
 }
 
+fn push_implementation_selection(
+    fields: &mut Vec<DiagnosticFailureField>,
+    selection: &bray_symbols::ImplementationSelection,
+) {
+    use bray_symbols::ImplementationSelection as Selection;
+
+    let kind = match selection {
+        Selection::Selected(implementation) => {
+            fields.push(identity_field("selected_implementation", implementation));
+
+            "selected"
+        }
+        Selection::Deferred => "deferred",
+        Selection::Unavailable => "unavailable",
+        Selection::Ambiguous(ambiguity) => {
+            fields.extend([
+                DiagnosticFailureField::new(
+                    "ambiguous_candidate_keys",
+                    DiagnosticFailureValue::IdentityList(
+                        ambiguity
+                            .candidates()
+                            .iter()
+                            .map(|candidate| identity(candidate.key()))
+                            .collect::<Vec<_>>()
+                            .into_boxed_slice(),
+                    ),
+                ),
+                DiagnosticFailureField::new(
+                    "ambiguous_candidate_implementations",
+                    DiagnosticFailureValue::IdentityList(
+                        ambiguity
+                            .candidates()
+                            .iter()
+                            .map(|candidate| identity(&candidate.instance()))
+                            .collect::<Vec<_>>()
+                            .into_boxed_slice(),
+                    ),
+                ),
+            ]);
+
+            "ambiguous"
+        }
+    };
+
+    fields.push(text_field("actual_selection_kind", kind));
+}
+
+const fn proof_outcome(outcome: bray_symbols::ProofOutcome) -> &'static str {
+    match outcome {
+        bray_symbols::ProofOutcome::Proven => "proven",
+        bray_symbols::ProofOutcome::Disproven => "disproven",
+        bray_symbols::ProofOutcome::Unknown => "unknown",
+        bray_symbols::ProofOutcome::Recovered => "recovered",
+    }
+}
+
+const fn product_synchronization_component(
+    component: ProductSynchronizationComponent,
+) -> &'static str {
+    match component {
+        ProductSynchronizationComponent::LifecycleNeeds => "lifecycle_needs",
+    }
+}
+
+const fn executable_entry_result(
+    result: &bray_runtime_interface::ExecutableEntryResult,
+) -> &'static str {
+    match result {
+        bray_runtime_interface::ExecutableEntryResult::Unit => "unit",
+        bray_runtime_interface::ExecutableEntryResult::I32 => "i32",
+        bray_runtime_interface::ExecutableEntryResult::Fallible { .. } => "fallible",
+    }
+}
+
+const fn native_boundary_kind(
+    kind: &bray_package_interface::InterfaceNativeBoundaryKind,
+) -> &'static str {
+    match kind {
+        bray_package_interface::InterfaceNativeBoundaryKind::Callable => "callable",
+        bray_package_interface::InterfaceNativeBoundaryKind::Static { .. } => "static",
+    }
+}
+
+const fn mir_operation_kind(operation: &bray_ir::MirOperationKind) -> &'static str {
+    use bray_ir::MirOperationKind as Operation;
+
+    match operation {
+        Operation::AnonymousCallable(_) => "anonymous_callable",
+        Operation::DeclaredCallable(_) => "declared_callable",
+        Operation::Store { .. } => "store",
+        Operation::Borrow { .. } => "borrow",
+        Operation::Unary { .. } => "unary",
+        Operation::Binary { .. } => "binary",
+        Operation::Aggregate(_) => "aggregate",
+        Operation::Construct(_) => "construct",
+        Operation::Convert { .. } => "convert",
+        Operation::NumericConversion { .. } => "numeric_conversion",
+        Operation::NullableQuery(_) => "nullable_query",
+        Operation::PatternProjection { .. } => "pattern_projection",
+        Operation::Generator(_) => "generator",
+        Operation::Call(_) => "call",
+        Operation::Memory(_) => "memory",
+        Operation::Text(_) => "text",
+        Operation::PanicReport(_) => "panic_report",
+        Operation::Finalize(_) => "finalize",
+        Operation::Destroy(_) => "destroy",
+        Operation::Cleanup { .. } => "cleanup",
+        Operation::Async(_) => "async",
+        Operation::Host(_) => "host",
+    }
+}
+
+const fn mir_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &'static str {
+    match role {
+        bray_ir::MirGeneratedLifecycleRole::Finalize => "finalize",
+        bray_ir::MirGeneratedLifecycleRole::StaticFinalize => "static_finalize",
+        bray_ir::MirGeneratedLifecycleRole::Destroy => "destroy",
+        bray_ir::MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::TaskCancellation) => {
+            "cleanup_task_cancellation"
+        }
+        bray_ir::MirGeneratedLifecycleRole::Cleanup(
+            bray_ir::MirCleanupPhase::LifecycleResolution,
+        ) => "cleanup_lifecycle_resolution",
+    }
+}
+
+const fn product_kind(kind: bray_symbols::ProductKind) -> &'static str {
+    match kind {
+        bray_symbols::ProductKind::Executable => "executable",
+        bray_symbols::ProductKind::Library => "library",
+        bray_symbols::ProductKind::Test => "test",
+    }
+}
+
 const fn product_value_kind(kind: ProductValueKind) -> &'static str {
     match kind {
         ProductValueKind::TypeArgument => "type_argument",
@@ -602,15 +753,37 @@ const fn product_data_kind(kind: ProductDataKind) -> &'static str {
         ProductDataKind::StaticSubstitution => "static_substitution",
         ProductDataKind::ImportedSemanticAddress => "imported_semantic_address",
         ProductDataKind::ResolvedType => "resolved_type",
+        ProductDataKind::CompilationDiagnostics => "compilation_diagnostics",
+        ProductDataKind::PackageInterfaceContribution => "package_interface_contribution",
+        ProductDataKind::PackageImplementationArtifact => "package_implementation_artifact",
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use bray_diagnostics::DiagnosticFailureValue;
     use bray_symbols::{AnySymbolId, FunctionSymbolId, SymbolId, SymbolKind};
 
     use super::diagnostic_product_query_failure;
-    use crate::compilation::{ProductQueryError, ProductQueryFailure};
+    use crate::compilation::{
+        ProductQueryError, ProductQueryFailure, ProductSynchronizationComponent,
+    };
+
+    #[test]
+    fn product_query_conversion_retains_categorical_values_as_text() {
+        let error = ProductQueryError::from(ProductQueryFailure::SynchronizationPoisoned {
+            component: ProductSynchronizationComponent::LifecycleNeeds,
+        });
+
+        let failure = diagnostic_product_query_failure(&error);
+
+        assert_eq!(failure.as_str(), "product_query_synchronization_poisoned");
+
+        assert_eq!(
+            failure.context()[0].value(),
+            &DiagnosticFailureValue::Text("lifecycle_needs".to_owned())
+        );
+    }
 
     #[test]
     fn product_query_conversion_uses_typed_symbol_fields() {

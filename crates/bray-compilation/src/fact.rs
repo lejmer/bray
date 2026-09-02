@@ -26,7 +26,7 @@ pub(crate) use error::{
     diagnostic_symbol_graph_failure, callable_signature_reason, generic_substitution_reason,
     push_generic_substitution_failure, push_semantic_value_failure,
 };
-pub use error::ImportedQueryFailure;
+pub use error::{ImportedExecutableTemplateMismatch, ImportedQueryFailure};
 pub(crate) use error::diagnostic_context;
 pub use key::ImportedSemanticRecordKey;
 pub use priority::QueryPriority;

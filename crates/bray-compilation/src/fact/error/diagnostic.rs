@@ -10,7 +10,11 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 
 use super::diagnostic_context::{
-    identity, identity_field, natural_field, push_symbol, text_field,
+    count_field, identity, identity_field, natural_field, push_symbol, text_field,
+};
+use super::semantic_diagnostic::{
+    callable_signature_reason, generic_substitution_reason, push_generic_substitution_failure,
+    push_semantic_value_failure,
 };
 
 pub(crate) fn diagnostic_cycle_failure(
@@ -51,11 +55,8 @@ pub(crate) fn diagnostic_symbol_graph_failure(
 ) -> DiagnosticSemanticQueryFailure {
     use bray_symbols::SymbolGraphBuildError as Error;
 
-    let (reason, mut context) = match error {
-        Error::CompilerKnown(cause) => (
-            "symbol_graph_compiler_known",
-            vec![identity_field("compiler_known_cause", &cause)],
-        ),
+    let (reason, context) = match error {
+        Error::CompilerKnown(cause) => diagnostic_compiler_known_symbol_failure(cause),
         Error::SymbolCapacityExceeded { index } => (
             "symbol_graph_capacity_exceeded",
             vec![natural_field("index", index)],
@@ -136,9 +137,104 @@ pub(crate) fn diagnostic_symbol_graph_failure(
         ),
     };
 
-    context.insert(0, identity_field("symbol_graph_cause", &error));
-
     DiagnosticSemanticQueryFailure::new("symbol_graph", reason, context)
+}
+
+fn diagnostic_compiler_known_symbol_failure(
+    error: bray_symbols::CompilerKnownSymbolBuildError,
+) -> (&'static str, Vec<DiagnosticFailureField>) {
+    use bray_symbols::CompilerKnownSymbolBuildError as Error;
+
+    match error {
+        Error::NonCanonicalScopeId { expected, actual } => (
+            "symbol_graph_compiler_known_non_canonical_scope_id",
+            vec![
+                count_field("expected_scope", u64::from(expected.raw())),
+                count_field("actual_scope", u64::from(actual.raw())),
+            ],
+        ),
+        Error::NonCanonicalDeclarationId { expected, actual } => (
+            "symbol_graph_compiler_known_non_canonical_declaration_id",
+            vec![
+                count_field("expected_declaration", u64::from(expected.raw())),
+                count_field("actual_declaration", u64::from(actual.raw())),
+            ],
+        ),
+        Error::SymbolCapacityExceeded { index } => (
+            "symbol_graph_compiler_known_symbol_capacity_exceeded",
+            vec![natural_field("index", index)],
+        ),
+        Error::DuplicateAmbientScope { duplicate } => (
+            "symbol_graph_compiler_known_duplicate_ambient_scope",
+            vec![count_field("duplicate_scope", u64::from(duplicate.raw()))],
+        ),
+        Error::MissingAmbientScope => (
+            "symbol_graph_compiler_known_missing_ambient_scope",
+            Vec::new(),
+        ),
+        Error::InvalidModulePath { scope } => (
+            "symbol_graph_compiler_known_invalid_module_path",
+            vec![count_field("scope", u64::from(scope.raw()))],
+        ),
+        Error::InvalidModuleHierarchy => (
+            "symbol_graph_compiler_known_invalid_module_hierarchy",
+            Vec::new(),
+        ),
+        Error::MissingScopeOwner { declaration, scope } => (
+            "symbol_graph_compiler_known_missing_scope_owner",
+            vec![
+                count_field("declaration", u64::from(declaration.raw())),
+                count_field("scope", u64::from(scope.raw())),
+            ],
+        ),
+        Error::MissingDeclarationOwner { declaration, owner } => (
+            "symbol_graph_compiler_known_missing_declaration_owner",
+            vec![
+                count_field("declaration", u64::from(declaration.raw())),
+                count_field("owner", u64::from(owner.raw())),
+            ],
+        ),
+        Error::MissingRoleDeclarationSymbol { declaration } => (
+            "symbol_graph_compiler_known_missing_role_declaration_symbol",
+            vec![count_field("declaration", u64::from(declaration.raw()))],
+        ),
+        Error::InvalidOperationRoleSymbol { declaration } => (
+            "symbol_graph_compiler_known_invalid_operation_role_symbol",
+            vec![count_field("declaration", u64::from(declaration.raw()))],
+        ),
+        Error::InvalidIterationRoleSymbol { declaration } => (
+            "symbol_graph_compiler_known_invalid_iteration_role_symbol",
+            vec![count_field("declaration", u64::from(declaration.raw()))],
+        ),
+        Error::MissingIterationRole { role } => (
+            "symbol_graph_compiler_known_missing_iteration_role",
+            vec![text_field("role", role.as_str())],
+        ),
+        Error::MissingTargetProperty { property } => (
+            "symbol_graph_compiler_known_missing_target_property",
+            vec![text_field("property", property.as_str())],
+        ),
+        Error::DeclarationOwnerCycle { declaration } => (
+            "symbol_graph_compiler_known_declaration_owner_cycle",
+            vec![count_field("declaration", u64::from(declaration.raw()))],
+        ),
+        Error::InvalidDeclarationKind {
+            declaration,
+            catalog_kind,
+            owner_kind,
+        } => (
+            "symbol_graph_compiler_known_invalid_declaration_kind",
+            vec![
+                count_field("declaration", u64::from(declaration.raw())),
+                text_field("catalog_kind", compiler_known_declaration_kind(catalog_kind)),
+                text_field("owner_kind", owner_kind.as_str()),
+            ],
+        ),
+        Error::InvalidDeclarationSurface { declaration } => (
+            "symbol_graph_compiler_known_invalid_declaration_surface",
+            vec![count_field("declaration", u64::from(declaration.raw()))],
+        ),
+    }
 }
 
 pub(crate) fn diagnostic_semantic_context_failure(
@@ -272,35 +368,124 @@ fn diagnostic_bound_unit_construction_failure(
 ) -> (&'static str, Vec<DiagnosticFailureField>) {
     use bray_binder::BoundUnitConstructionError as Error;
 
-    let reason = match error {
-        Error::BoundTree(_) => "binding_construction_bound_tree",
-        Error::LocalSymbol(_) => "binding_construction_local_symbol",
-        Error::LocalAlreadyActivated(_) => "binding_construction_local_already_activated",
-        Error::UnknownSurfaceSymbol(_) => "binding_construction_unknown_surface_symbol",
-        Error::AnonymousCallableBoundaryMismatch => {
-            "binding_construction_anonymous_callable_boundary_mismatch"
-        }
-        Error::AnonymousCallableAlreadyAssigned { .. } => {
-            "binding_construction_anonymous_callable_already_assigned"
-        }
-        Error::AnonymousCallableParameterAlreadyAssigned { .. } => {
-            "binding_construction_anonymous_callable_parameter_already_assigned"
-        }
-        Error::AnonymousCallableSourceMismatch { .. } => {
-            "binding_construction_anonymous_callable_source_mismatch"
-        }
-        Error::AnonymousCallableSourceVersionMismatch { .. } => {
-            "binding_construction_anonymous_callable_source_version_mismatch"
-        }
-    };
+    match error {
+        Error::BoundTree(error) => diagnostic_bound_tree_build_failure(*error),
+        Error::LocalSymbol(error) => (
+            local_symbol_build_reason(*error),
+            vec![text_field("local_symbol_cause", local_symbol_build_cause(*error))],
+        ),
+        Error::LocalAlreadyActivated(symbol) => {
+            let mut context = vec![identity_field("local_symbol", symbol)];
+            context.push(text_field("local_symbol_kind", symbol.kind().as_str()));
 
-    (reason, vec![identity_field("construction_cause", error)])
+            ("binding_construction_local_already_activated", context)
+        }
+        Error::UnknownSurfaceSymbol(symbol) => {
+            let mut context = Vec::new();
+            push_symbol(&mut context, "symbol_kind", "symbol", *symbol);
+
+            ("binding_construction_unknown_surface_symbol", context)
+        }
+        Error::AnonymousCallableBoundaryMismatch => (
+            "binding_construction_anonymous_callable_boundary_mismatch",
+            Vec::new(),
+        ),
+        Error::AnonymousCallableAlreadyAssigned {
+            introduction_scope,
+            ordinal,
+        } => {
+            let mut context = vec![identity_field("introduction_scope", introduction_scope)];
+
+            if let Some(ordinal) = ordinal {
+                context.push(count_field("ordinal", u64::from(ordinal.raw())));
+            }
+
+            (
+                "binding_construction_anonymous_callable_already_assigned",
+                context,
+            )
+        }
+        Error::AnonymousCallableParameterAlreadyAssigned { callable, ordinal } => (
+            "binding_construction_anonymous_callable_parameter_already_assigned",
+            vec![
+                identity_field("callable", callable),
+                count_field("ordinal", u64::from(ordinal.raw())),
+            ],
+        ),
+        Error::AnonymousCallableSourceMismatch { expected, actual } => (
+            "binding_construction_anonymous_callable_source_mismatch",
+            vec![
+                count_field("expected_source", u64::from(expected.raw())),
+                count_field("actual_source", u64::from(actual.raw())),
+            ],
+        ),
+        Error::AnonymousCallableSourceVersionMismatch { expected, actual } => (
+            "binding_construction_anonymous_callable_source_version_mismatch",
+            vec![
+                count_field("expected_source_version", expected.raw()),
+                count_field("actual_source_version", actual.raw()),
+            ],
+        ),
+    }
+}
+
+fn diagnostic_bound_tree_build_failure(
+    error: bray_bound_tree::BoundTreeBuildError,
+) -> (&'static str, Vec<DiagnosticFailureField>) {
+    use bray_bound_tree::BoundTreeBuildError as Error;
+
+    match error {
+        Error::ArenaCapacityExceeded(kind) => (
+            "binding_construction_bound_tree_capacity_exceeded",
+            vec![text_field("node_kind", kind.as_str())],
+        ),
+        Error::ForeignNode {
+            expected,
+            actual,
+            kind,
+        } => (
+            "binding_construction_bound_tree_foreign_node",
+            vec![
+                count_field("expected_unit", u64::from(expected.raw())),
+                count_field("actual_unit", u64::from(actual.raw())),
+                text_field("node_kind", kind.as_str()),
+            ],
+        ),
+        Error::MissingNode { kind, slot } => (
+            "binding_construction_bound_tree_missing_node",
+            vec![
+                text_field("node_kind", kind.as_str()),
+                count_field("node_slot", u64::from(slot)),
+            ],
+        ),
+    }
 }
 
 fn diagnostic_nested_binding_failure(
     error: &bray_binder::BindingError,
 ) -> (&'static str, Vec<DiagnosticFailureField>) {
     use bray_binder::BindingError as Error;
+
+    match error {
+        Error::Construction(error) => return diagnostic_bound_unit_construction_failure(error),
+        Error::Assembly(error) => return diagnostic_bound_unit_assembly_failure(error),
+        Error::CallableSignature(cause) => {
+            let mut context = Vec::new();
+
+            if let bray_symbols::CallableSignatureTemplateError::SemanticValue(cause) = cause {
+                push_semantic_value_failure(&mut context, *cause);
+            }
+
+            return (callable_signature_reason(cause), context);
+        }
+        Error::GenericSubstitution(cause) => {
+            let mut context = Vec::new();
+            push_generic_substitution_failure(&mut context, cause);
+
+            return (generic_substitution_reason(cause), context);
+        }
+        _ => {}
+    }
 
     let reason = match error {
         Error::Cancelled
@@ -347,13 +532,13 @@ fn diagnostic_nested_binding_failure(
         Error::ImportedPackageUnavailable(_) => "binding_imported_package_unavailable",
         Error::ImportedPathUnavailable { .. } => "binding_imported_path_unavailable",
         Error::BoundWalkStopped(_) => "binding_bound_walk_stopped",
-        Error::Construction(_) => "binding_construction",
-        Error::Assembly(_) => "binding_assembly",
-        Error::CallableSignature(_) => "binding_callable_signature",
-        Error::GenericSubstitution(_) => "binding_generic_substitution",
+        Error::Construction(_)
+        | Error::Assembly(_)
+        | Error::CallableSignature(_)
+        | Error::GenericSubstitution(_) => unreachable!("nested causes return above"),
     };
 
-    let mut context = vec![identity_field("binding_cause", error)];
+    let mut context = Vec::new();
     push_nested_binding_context(&mut context, error);
 
     (reason, context)
@@ -387,28 +572,169 @@ fn push_nested_binding_context(
             context.extend(diagnostic_bound_source("source", *source));
             push_symbol(context, "symbol_kind", "symbol", *symbol);
         }
+        Error::SyntaxContract(source)
+        | Error::UnresolvedTraitApplication(source)
+        | Error::ContextualSelfUnavailable(source)
+        | Error::CallableTypeTemplateExpected(source) => {
+            push_syntax_anchor(context, "source", *source);
+        }
+        Error::GenericOwnerUnavailable(symbol) | Error::SymbolRecordUnavailable(symbol) => {
+            push_symbol(context, "symbol_kind", "symbol", *symbol);
+        }
+        Error::CompilerKnownRepresentationUnavailable(role) => {
+            context.push(text_field("representation_role", role.as_str()));
+        }
+        Error::ModulePartRecordUnavailable(part) => {
+            context.push(identity_field("module_part", part));
+        }
+        Error::DeclarationRecordUnavailable(declaration) => {
+            context.push(identity_field("declaration", declaration));
+        }
+        Error::InvalidUnitKey { source, owner } => {
+            context.extend(diagnostic_bound_source("source", *source));
+            push_symbol(context, "owner_kind", "owner", *owner);
+        }
         Error::CallableParameterCountMismatch {
+            source,
+            callable,
             syntax_count,
             symbol_count,
-            ..
         } => {
+            push_syntax_anchor(context, "source", *source);
+            push_symbol(context, "callable_kind", "callable", (*callable).into_any());
             context.push(natural_field("syntax_count", *syntax_count));
             context.push(natural_field("symbol_count", *symbol_count));
         }
+        Error::CallableParameterOwnerMismatch {
+            source,
+            callable,
+            parameter,
+        } => {
+            push_syntax_anchor(context, "source", *source);
+            push_symbol(context, "callable_kind", "callable", (*callable).into_any());
+            push_symbol(context, "parameter_kind", "parameter", (*parameter).into());
+        }
+        Error::ReceiverParameterOwnerMismatch {
+            source,
+            callable,
+            receiver,
+        } => {
+            push_syntax_anchor(context, "source", *source);
+            push_symbol(context, "callable_kind", "callable", (*callable).into_any());
+            push_symbol(context, "receiver_kind", "receiver", (*receiver).into());
+        }
+        Error::ReceiverContextMismatch {
+            source,
+            callable,
+            receiver_present,
+            mode_present,
+            self_type_present,
+        } => {
+            push_syntax_anchor(context, "source", *source);
+            push_symbol(context, "callable_kind", "callable", (*callable).into_any());
+            context.push(text_field("receiver_present", receiver_present.to_string()));
+            context.push(text_field("mode_present", mode_present.to_string()));
+            context.push(text_field("self_type_present", self_type_present.to_string()));
+        }
+        Error::CallableTypeExpected { source, ty } => {
+            push_syntax_anchor(context, "source", *source);
+            context.push(identity_field("semantic_type", ty));
+        }
+        Error::ImportedPackageUnavailable(package) => {
+            context.push(text_field("package", package.as_str()));
+        }
         Error::ImportedPathUnavailable {
-            component_count, ..
-        } => context.push(natural_field("component_count", *component_count)),
-        _ => {}
+            package,
+            component_count,
+        } => {
+            push_symbol(context, "package_kind", "package", (*package).into());
+            context.push(natural_field("component_count", *component_count));
+        }
+        Error::BoundWalkStopped(root) => context.push(identity_field("root", root)),
+        Error::Cancelled
+        | Error::CheckerInfrastructure(_)
+        | Error::SemanticValue(_)
+        | Error::Upstream(_)
+        | Error::DependencyUnavailable
+        | Error::IdentityCapacityExceeded
+        | Error::RollbackFailed
+        | Error::TransactionContextMismatch
+        | Error::ControlTargetMismatch
+        | Error::UnsupportedSyntax
+        | Error::UnresolvedTypeTemplate
+        | Error::CompilerKnownHeapStoragePolicyUnavailable
+        | Error::Construction(_)
+        | Error::Assembly(_)
+        | Error::CallableSignature(_)
+        | Error::GenericSubstitution(_) => {}
     }
+}
+
+fn push_syntax_anchor(
+    context: &mut Vec<DiagnosticFailureField>,
+    name: &'static str,
+    source: bray_declarations::SyntaxAnchor,
+) {
+    context.push(identity_field(name, &source));
+    context.push(count_field("source_id", u64::from(source.source_id().raw())));
+
+    context.push(count_field(
+        "source_start",
+        u64::from(source.full_range().start().bytes()),
+    ));
+
+    context.push(count_field(
+        "source_end",
+        u64::from(source.full_range().end().bytes()),
+    ));
 }
 
 fn diagnostic_bound_unit_assembly_failure(
     error: &bray_binder::BoundUnitAssemblyError,
 ) -> (&'static str, Vec<DiagnosticFailureField>) {
-    (
-        "binding_assembly_invalid_bound_unit",
-        vec![identity_field("assembly_cause", error)],
-    )
+    let bray_binder::BoundUnitAssemblyError::InvalidBoundUnit(error) = error;
+
+    diagnostic_bound_unit_build_failure(*error)
+}
+
+fn diagnostic_bound_unit_build_failure(
+    error: bray_bound_tree::BoundUnitBuildError,
+) -> (&'static str, Vec<DiagnosticFailureField>) {
+    use bray_bound_tree::BoundUnitBuildError as Error;
+
+    match error {
+        Error::RootKindMismatch => ("binding_assembly_root_kind_mismatch", Vec::new()),
+        Error::MissingRoot { unit, kind } => (
+            "binding_assembly_missing_root",
+            vec![
+                count_field("unit", u64::from(unit.raw())),
+                text_field("root_kind", kind.as_str()),
+            ],
+        ),
+        Error::LocalSymbolRegionMismatch => (
+            "binding_assembly_local_symbol_region_mismatch",
+            Vec::new(),
+        ),
+        Error::AnonymousCallableRegionMismatch { expected, actual } => (
+            "binding_assembly_anonymous_callable_region_mismatch",
+            vec![
+                count_field("expected_region", u64::from(expected.raw())),
+                count_field("actual_region", u64::from(actual.raw())),
+            ],
+        ),
+        Error::MissingAnonymousCallable { callable } => (
+            "binding_assembly_missing_anonymous_callable",
+            vec![identity_field("callable", &callable)],
+        ),
+        Error::InvalidNestedUnit { index } => (
+            "binding_assembly_invalid_nested_unit",
+            vec![natural_field("index", index)],
+        ),
+        Error::NonCanonicalNestedUnits { index } => (
+            "binding_assembly_non_canonical_nested_units",
+            vec![natural_field("index", index)],
+        ),
+    }
 }
 
 pub(crate) const fn diagnostic_semantic_value_failure(
@@ -960,10 +1286,99 @@ const fn diagnostic_symbol_query_kind(kind: bray_symbols::SymbolQueryKind) -> &'
     }
 }
 
+const fn local_symbol_build_reason(error: bray_symbols::LocalSymbolBuildError) -> &'static str {
+    match error {
+        bray_symbols::LocalSymbolBuildError::ForeignRegion => "binding_construction_local_symbol_foreign_region",
+        bray_symbols::LocalSymbolBuildError::UnknownScope => "binding_construction_local_symbol_unknown_scope",
+        bray_symbols::LocalSymbolBuildError::UnknownAnonymousCallable => "binding_construction_local_symbol_unknown_anonymous_callable",
+        bray_symbols::LocalSymbolBuildError::UnknownLocalSymbol => "binding_construction_local_symbol_unknown_local_symbol",
+        bray_symbols::LocalSymbolBuildError::MissingParentScope => "binding_construction_local_symbol_missing_parent_scope",
+        bray_symbols::LocalSymbolBuildError::RootHasParentScope => "binding_construction_local_symbol_root_has_parent_scope",
+        bray_symbols::LocalSymbolBuildError::DuplicateRootScope => "binding_construction_local_symbol_duplicate_root_scope",
+        bray_symbols::LocalSymbolBuildError::MissingRootScope => "binding_construction_local_symbol_missing_root_scope",
+        bray_symbols::LocalSymbolBuildError::SymbolOutsideScope => "binding_construction_local_symbol_outside_scope",
+        bray_symbols::LocalSymbolBuildError::DuplicatePostconditionResult => "binding_construction_local_symbol_duplicate_postcondition_result",
+        bray_symbols::LocalSymbolBuildError::InvalidScopeBoundary => "binding_construction_local_symbol_invalid_scope_boundary",
+        bray_symbols::LocalSymbolBuildError::InvalidAnonymousCallableScope => "binding_construction_local_symbol_invalid_anonymous_callable_scope",
+        bray_symbols::LocalSymbolBuildError::AnonymousCallableScopeAlreadyAssigned => "binding_construction_local_symbol_anonymous_callable_scope_already_assigned",
+        bray_symbols::LocalSymbolBuildError::AnonymousCallableParameterScopeMismatch => "binding_construction_local_symbol_anonymous_callable_parameter_scope_mismatch",
+        bray_symbols::LocalSymbolBuildError::SymbolHasNoOrdinaryName => "binding_construction_local_symbol_has_no_ordinary_name",
+        bray_symbols::LocalSymbolBuildError::CapacityExceeded => "binding_construction_local_symbol_capacity_exceeded",
+        bray_symbols::LocalSymbolBuildError::MissingSyntaxAnchor => "binding_construction_local_symbol_missing_syntax_anchor",
+    }
+}
+
+const fn local_symbol_build_cause(error: bray_symbols::LocalSymbolBuildError) -> &'static str {
+    match error {
+        bray_symbols::LocalSymbolBuildError::ForeignRegion => "foreign_region",
+        bray_symbols::LocalSymbolBuildError::UnknownScope => "unknown_scope",
+        bray_symbols::LocalSymbolBuildError::UnknownAnonymousCallable => "unknown_anonymous_callable",
+        bray_symbols::LocalSymbolBuildError::UnknownLocalSymbol => "unknown_local_symbol",
+        bray_symbols::LocalSymbolBuildError::MissingParentScope => "missing_parent_scope",
+        bray_symbols::LocalSymbolBuildError::RootHasParentScope => "root_has_parent_scope",
+        bray_symbols::LocalSymbolBuildError::DuplicateRootScope => "duplicate_root_scope",
+        bray_symbols::LocalSymbolBuildError::MissingRootScope => "missing_root_scope",
+        bray_symbols::LocalSymbolBuildError::SymbolOutsideScope => "symbol_outside_scope",
+        bray_symbols::LocalSymbolBuildError::DuplicatePostconditionResult => "duplicate_postcondition_result",
+        bray_symbols::LocalSymbolBuildError::InvalidScopeBoundary => "invalid_scope_boundary",
+        bray_symbols::LocalSymbolBuildError::InvalidAnonymousCallableScope => "invalid_anonymous_callable_scope",
+        bray_symbols::LocalSymbolBuildError::AnonymousCallableScopeAlreadyAssigned => "anonymous_callable_scope_already_assigned",
+        bray_symbols::LocalSymbolBuildError::AnonymousCallableParameterScopeMismatch => "anonymous_callable_parameter_scope_mismatch",
+        bray_symbols::LocalSymbolBuildError::SymbolHasNoOrdinaryName => "symbol_has_no_ordinary_name",
+        bray_symbols::LocalSymbolBuildError::CapacityExceeded => "capacity_exceeded",
+        bray_symbols::LocalSymbolBuildError::MissingSyntaxAnchor => "missing_syntax_anchor",
+    }
+}
+
+const fn compiler_known_declaration_kind(
+    kind: bray_compiler_known::CatalogDeclarationKind,
+) -> &'static str {
+    use bray_compiler_known::CatalogDeclarationKind as Kind;
+
+    match kind {
+        Kind::TrustedCapability => "trusted_capability",
+        Kind::Constant => "constant",
+        Kind::Function => "function",
+        Kind::Predicate => "predicate",
+        Kind::CallableContract => "callable_contract",
+        Kind::CallableOverload => "callable_overload",
+        Kind::ImplementationOverload => "implementation_overload",
+        Kind::Struct => "struct",
+        Kind::Union => "union",
+        Kind::Trait => "trait",
+        Kind::InherentImplementation => "inherent_implementation",
+        Kind::UnnamedTraitImplementation => "unnamed_trait_implementation",
+        Kind::NamedTraitImplementation => "named_trait_implementation",
+        Kind::StructField => "struct_field",
+        Kind::UnionVariant => "union_variant",
+        Kind::UnionPayloadField => "union_payload_field",
+        Kind::TypeConstructorMember => "type_constructor_member",
+        Kind::TypeCallableMember => "type_callable_member",
+        Kind::FinalizerMember => "finalizer_member",
+        Kind::DestructorMember => "destructor_member",
+        Kind::ScopeEnterMember => "scope_enter_member",
+        Kind::ScopeExitMember => "scope_exit_member",
+        Kind::TraitConstantMember => "trait_constant_member",
+        Kind::TraitTypeMember => "trait_type_member",
+        Kind::TraitPredicateMember => "trait_predicate_member",
+        Kind::TraitCallableMember => "trait_callable_member",
+        Kind::TraitFinalizerRequirement => "trait_finalizer_requirement",
+        Kind::TraitDestructorRequirement => "trait_destructor_requirement",
+        Kind::TraitScopeEnterRequirement => "trait_scope_enter_requirement",
+        Kind::TraitScopeExitRequirement => "trait_scope_exit_requirement",
+        Kind::ImplementationTypeMemberBinding => "implementation_type_member_binding",
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bray_binder::{BoundUnitBindingError, BoundUnitConstructionError};
-    use bray_symbols::{AnySymbolId, FunctionSymbolId, SymbolId, SymbolGraphBuildError};
+    use bray_compiler_known::CompilerKnownScopeId;
+    use bray_diagnostics::DiagnosticFailureValue;
+    use bray_symbols::{
+        AnySymbolId, CompilerKnownSymbolBuildError, FunctionSymbolId, SymbolGraphBuildError,
+        SymbolId,
+    };
 
     use super::{diagnostic_binding_failure, diagnostic_symbol_graph_failure};
 
@@ -980,7 +1395,44 @@ mod tests {
             "binding_construction_unknown_surface_symbol"
         );
 
-        assert_eq!(failure.context()[0].name(), "construction_cause");
+        assert_eq!(failure.context()[0].name(), "symbol_kind");
+
+        assert_eq!(
+            failure.context()[0].value(),
+            &DiagnosticFailureValue::Text("function".to_owned())
+        );
+
+        assert_eq!(failure.context()[1].name(), "symbol");
+
+        assert_eq!(
+            failure.context()[1].value(),
+            &DiagnosticFailureValue::Count(19)
+        );
+    }
+
+    #[test]
+    fn compiler_known_symbol_failures_retain_expected_and_actual_ids() {
+        let failure = diagnostic_symbol_graph_failure(SymbolGraphBuildError::CompilerKnown(
+            CompilerKnownSymbolBuildError::NonCanonicalScopeId {
+                expected: CompilerKnownScopeId::new(3),
+                actual: CompilerKnownScopeId::new(8),
+            },
+        ));
+
+        assert_eq!(
+            failure.reason(),
+            "symbol_graph_compiler_known_non_canonical_scope_id"
+        );
+
+        assert_eq!(
+            failure.context()[0].value(),
+            &DiagnosticFailureValue::Count(3)
+        );
+
+        assert_eq!(
+            failure.context()[1].value(),
+            &DiagnosticFailureValue::Count(8)
+        );
     }
 
     #[test]
@@ -991,6 +1443,11 @@ mod tests {
 
         assert_eq!(failure.category(), "symbol_graph");
         assert_eq!(failure.reason(), "symbol_graph_capacity_exceeded");
-        assert_eq!(failure.context()[1].name(), "index");
+        assert_eq!(failure.context()[0].name(), "index");
+
+        assert_eq!(
+            failure.context()[0].value(),
+            &DiagnosticFailureValue::Natural("47".to_owned())
+        );
     }
 }

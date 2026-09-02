@@ -1,7 +1,8 @@
 use bray_diagnostics::{DiagnosticFailureField, DiagnosticSemanticQueryFailure};
 
 use super::diagnostic_context::{
-    count_field, identity_field, natural_field, push_source_span, push_symbol, text_field,
+    constant_value_kind, count_field, identity_field, natural_field, push_source_span, push_symbol,
+    text_field,
 };
 use crate::compilation::{
     SemanticDataKind, SemanticQueryContext, SemanticQueryError, SemanticQueryFailure,
@@ -21,7 +22,6 @@ pub(crate) fn diagnostic_semantic_query_failure(
         SemanticQueryFailure::CallableSignature { callable, cause } => {
             let mut context = Vec::new();
             push_optional_symbol(&mut context, "callable_kind", "callable", *callable);
-            context.push(identity_field("cause_identity", cause));
 
             if let bray_symbols::CallableSignatureTemplateError::SemanticValue(cause) = cause {
                 push_semantic_value_failure(&mut context, *cause);
@@ -49,10 +49,7 @@ pub(crate) fn diagnostic_semantic_query_failure(
             )
         }
         SemanticQueryFailure::BoundUnit { unit, cause } => {
-            let mut context = vec![
-                identity_field("unit", unit),
-                identity_field("cause_identity", cause),
-            ];
+            let mut context = vec![identity_field("unit", unit)];
 
             push_bound_unit_failure(&mut context, cause);
 
@@ -75,8 +72,6 @@ pub(crate) fn diagnostic_semantic_query_failure(
                 implementation.map(bray_symbols::ImplementationSymbolId::into_any),
             );
 
-            context.push(identity_field("cause_identity", cause));
-
             match cause {
                 crate::compilation::ImplementationMatchError::InvalidSubstitution(cause) => {
                     push_generic_substitution_failure(&mut context, cause);
@@ -97,7 +92,6 @@ pub(crate) fn diagnostic_semantic_query_failure(
             implementation_ambiguity_reason(cause),
             vec![
                 identity_field("requirement", requirement),
-                identity_field("cause_identity", cause),
             ],
         ),
         SemanticQueryFailure::ImplementationCandidateSet { requirement, cause } => (
@@ -105,7 +99,6 @@ pub(crate) fn diagnostic_semantic_query_failure(
             implementation_candidate_set_reason(cause),
             vec![
                 identity_field("requirement", requirement),
-                identity_field("cause_identity", cause),
             ],
         ),
         SemanticQueryFailure::ImplementationCoherenceEvidence { requirement, cause } => (
@@ -113,7 +106,6 @@ pub(crate) fn diagnostic_semantic_query_failure(
             implementation_coherence_reason(cause),
             vec![
                 identity_field("requirement", requirement),
-                identity_field("cause_identity", cause),
             ],
         ),
         SemanticQueryFailure::ImplementationCandidate {
@@ -121,10 +113,7 @@ pub(crate) fn diagnostic_semantic_query_failure(
             implementation,
             cause,
         } => {
-            let mut context = vec![
-                identity_field("requirement", requirement),
-                identity_field("cause_identity", cause),
-            ];
+            let mut context = vec![identity_field("requirement", requirement)];
 
             push_symbol(
                 &mut context,
@@ -144,11 +133,11 @@ pub(crate) fn diagnostic_semantic_query_failure(
             implementation_participation_reason(cause),
             vec![
                 identity_field("domain", domain),
-                identity_field("cause_identity", cause),
             ],
         ),
         SemanticQueryFailure::CheckedConstantTerms { unit, cause } => {
-            let mut context = vec![identity_field("cause_identity", cause)];
+            let bray_checker::CheckedConstantTermsBuildError::DuplicateOccurrence(occurrence) = cause;
+            let mut context = vec![identity_field("occurrence", occurrence)];
 
             if let Some(unit) = unit {
                 context.push(identity_field("unit", unit));
@@ -161,7 +150,7 @@ pub(crate) fn diagnostic_semantic_query_failure(
             )
         }
         SemanticQueryFailure::TypeAssociatedSurface { subject, cause } => {
-            let mut context = vec![identity_field("cause_identity", cause)];
+            let mut context = Vec::new();
 
             push_symbol(
                 &mut context,
@@ -169,6 +158,22 @@ pub(crate) fn diagnostic_semantic_query_failure(
                 "subject",
                 subject.into_any(),
             );
+
+            match cause {
+                bray_symbols::TypeAssociatedSurfaceBuildError::DuplicateMember(member) => {
+                    push_symbol(&mut context, "duplicate_kind", "duplicate", *member);
+                }
+                bray_symbols::TypeAssociatedSurfaceBuildError::DuplicateImplementation(
+                    implementation,
+                ) => {
+                    push_symbol(
+                        &mut context,
+                        "duplicate_kind",
+                        "duplicate",
+                        (*implementation).into(),
+                    );
+                }
+            }
 
             (
                 "semantic_query_type_surface",
@@ -181,7 +186,7 @@ pub(crate) fn diagnostic_semantic_query_failure(
             source: _,
             cause,
         } => {
-            let mut context = vec![identity_field("cause_identity", cause)];
+            let mut context = Vec::new();
             push_symbol(&mut context, "symbol_kind", "symbol", *symbol);
             push_preparsed_syntax_failure(&mut context, cause);
 
@@ -269,18 +274,18 @@ fn push_contract_violation(
             "semantic_query_unexpected_symbol_kind"
         }
         Violation::UnexpectedConstantValueKind(actual) => {
-            context.push(identity_field("actual", actual));
+            context.push(text_field("actual", constant_value_kind(actual)));
 
             "semantic_query_unexpected_constant_value_kind"
         }
         Violation::UnexpectedSymbolOrigin(actual) => {
-            context.push(identity_field("actual", actual));
+            context.push(text_field("actual", actual.as_str()));
 
             "semantic_query_unexpected_symbol_origin"
         }
         Violation::GenericParameterKindMismatch { expected, actual } => {
-            context.push(identity_field("expected", expected));
-            context.push(identity_field("actual", actual));
+            context.push(text_field("expected", generic_parameter_kind(*expected)));
+            context.push(text_field("actual", generic_parameter_kind(*actual)));
 
             "semantic_query_generic_parameter_kind_mismatch"
         }
@@ -312,7 +317,18 @@ fn push_contract_violation(
             "semantic_query_unexpected_bound_unit_root"
         }
         Violation::UnexpectedWalkOutcome(actual) => {
-            context.push(identity_field("actual", actual));
+            match actual {
+                bray_bound_tree::BoundWalkOutcome::Completed => {
+                    context.push(text_field("actual", "completed"));
+                }
+                bray_bound_tree::BoundWalkOutcome::Stopped => {
+                    context.push(text_field("actual", "stopped"));
+                }
+                bray_bound_tree::BoundWalkOutcome::MissingNode(node) => {
+                    context.push(text_field("actual", "missing_node"));
+                    context.push(identity_field("missing_node", node));
+                }
+            }
 
             "semantic_query_unexpected_walk_outcome"
         }
@@ -358,8 +374,8 @@ fn push_contract_violation(
             "semantic_query_stack_mismatch"
         }
         Violation::PackageMismatch { expected, actual } => {
-            context.push(identity_field("expected", expected));
-            context.push(identity_field("actual", actual));
+            context.push(text_field("expected", expected.as_str()));
+            context.push(text_field("actual", actual.as_str()));
 
             "semantic_query_package_mismatch"
         }
@@ -375,14 +391,14 @@ fn push_contract_violation(
             "semantic_query_compiler_known_operation_unavailable"
         }
         Violation::ConstantExpectationMismatch { expected, actual } => {
-            context.push(identity_field("expected", expected));
-            context.push(identity_field("actual", actual));
+            push_constant_expectation(context, "expected", *expected);
+            push_constant_expectation(context, "actual", *actual);
 
             "semantic_query_constant_expectation_mismatch"
         }
         Violation::ImportedRecordKindMismatch { expected, actual } => {
-            context.push(identity_field("expected", expected));
-            context.push(identity_field("actual", actual));
+            context.push(text_field("expected", expected.as_str()));
+            context.push(text_field("actual", actual.as_str()));
 
             "semantic_query_imported_record_kind_mismatch"
         }
@@ -477,12 +493,12 @@ fn push_bound_unit_failure(
 
     match cause {
         Error::MissingRoot { unit, kind } => {
-            context.push(identity_field("missing_unit", unit));
+            context.push(count_field("missing_unit", u64::from(unit.raw())));
             context.push(text_field("root_kind", kind.as_str()));
         }
         Error::AnonymousCallableRegionMismatch { expected, actual } => {
-            context.push(identity_field("expected", expected));
-            context.push(identity_field("actual", actual));
+            context.push(count_field("expected", u64::from(expected.raw())));
+            context.push(count_field("actual", u64::from(actual.raw())));
         }
         Error::MissingAnonymousCallable { callable } => {
             context.push(identity_field("callable", callable));
@@ -514,6 +530,38 @@ fn push_preparsed_syntax_failure(
         | Error::MissingRoot
         | Error::TextTooLarge
         | Error::GeneratedSourceIdOutOfRange => {}
+    }
+}
+
+const fn generic_parameter_kind(
+    kind: bray_compiler_known::CatalogGenericParameterKind,
+) -> &'static str {
+    match kind {
+        bray_compiler_known::CatalogGenericParameterKind::Type => "type",
+        bray_compiler_known::CatalogGenericParameterKind::Const => "const",
+    }
+}
+
+fn push_constant_expectation(
+    context: &mut Vec<DiagnosticFailureField>,
+    name: &'static str,
+    expectation: bray_symbols::ConstantExpressionExpectedType,
+) {
+    let (kind_name, symbol_kind_name) = match name {
+        "expected" => ("expected_kind", "expected_symbol_kind"),
+        "actual" => ("actual_kind", "actual_symbol_kind"),
+        _ => unreachable!("constant expectation field name must be closed"),
+    };
+
+    match expectation {
+        bray_symbols::ConstantExpressionExpectedType::Resolved(ty) => {
+            context.push(text_field(kind_name, "resolved"));
+            context.push(identity_field(name, &ty));
+        }
+        bray_symbols::ConstantExpressionExpectedType::GenericParameter(parameter) => {
+            context.push(text_field(kind_name, "generic_parameter"));
+            push_symbol(context, symbol_kind_name, name, parameter.into());
+        }
     }
 }
 

@@ -39,10 +39,7 @@ pub(crate) fn diagnostic_evaluation_failure(
             DiagnosticEmissionEvaluationFailure::Product(
                 bray_diagnostics::DiagnosticProductQueryFailure::new(
                     codegen_target_reason(*error),
-                    [crate::fact::diagnostic_context::identity_field(
-                        "codegen_target_cause",
-                        error,
-                    )],
+                    [],
                 ),
             )
         }
@@ -50,16 +47,18 @@ pub(crate) fn diagnostic_evaluation_failure(
             DiagnosticEmissionEvaluationFailure::Product(
                 bray_diagnostics::DiagnosticProductQueryFailure::new(
                     interface_validation_reason(error),
-                    [crate::fact::diagnostic_context::identity_field(
+                    [bray_diagnostics::DiagnosticFailureField::new(
                         "interface_validation_cause",
-                        error,
+                        bray_diagnostics::DiagnosticFailureValue::InterfaceValidationFailure(
+                            error.clone().into_diagnostic_failure(),
+                        ),
                     )],
                 ),
             )
         }
         FactQueryError::ImportedQuery(error) => {
             DiagnosticEmissionEvaluationFailure::SemanticQuery(diagnostic_imported_query_failure(
-                *error,
+                error.clone(),
             ))
         }
         FactQueryError::Runtime(error) => DiagnosticEmissionEvaluationFailure::Runtime(
@@ -168,6 +167,27 @@ fn diagnostic_imported_query_failure(
                 u64::from(interface.raw()),
             )],
         ),
+        Error::MissingLoadedImplementation(interface) => (
+            "imported_query_missing_loaded_implementation",
+            vec![crate::fact::diagnostic_context::count_field(
+                "interface",
+                u64::from(interface.raw()),
+            )],
+        ),
+        Error::MissingLoadedSurface(interface) => (
+            "imported_query_missing_loaded_surface",
+            vec![crate::fact::diagnostic_context::count_field(
+                "interface",
+                u64::from(interface.raw()),
+            )],
+        ),
+        Error::MissingLoadedSemanticGraph(interface) => (
+            "imported_query_missing_loaded_semantic_graph",
+            vec![crate::fact::diagnostic_context::count_field(
+                "interface",
+                u64::from(interface.raw()),
+            )],
+        ),
         Error::MissingSemanticGraph(key)
         | Error::MissingInterfaceSurface(key)
         | Error::MissingInterfaceSymbol(key)
@@ -195,6 +215,60 @@ fn diagnostic_imported_query_failure(
                 "interface",
                 u64::from(interface.raw()),
             )],
+        ),
+        Error::MissingResolvedSymbol(address) => (
+            "imported_query_missing_resolved_symbol",
+            vec![
+                crate::fact::diagnostic_context::count_field(
+                    "interface",
+                    u64::from(address.interface().raw()),
+                ),
+                crate::fact::diagnostic_context::count_field(
+                    "symbol",
+                    u64::from(address.symbol().raw()),
+                ),
+            ],
+        ),
+        Error::ExecutableTemplateMismatch(failure) => (
+            "imported_query_executable_template_mismatch",
+            vec![
+                crate::fact::diagnostic_context::count_field(
+                    "interface",
+                    u64::from(failure.address().interface().raw()),
+                ),
+                crate::fact::diagnostic_context::count_field(
+                    "symbol",
+                    u64::from(failure.address().symbol().raw()),
+                ),
+                crate::fact::diagnostic_context::count_field(
+                    "template",
+                    u64::from(failure.template().raw()),
+                ),
+                crate::fact::diagnostic_context::count_field(
+                    "expected_unit",
+                    u64::from(failure.expected_unit().raw()),
+                ),
+                crate::fact::diagnostic_context::count_field(
+                    "actual_unit",
+                    u64::from(failure.actual_unit().raw()),
+                ),
+                crate::fact::diagnostic_context::identity_field(
+                    "expected_key",
+                    failure.expected_key(),
+                ),
+                crate::fact::diagnostic_context::identity_field(
+                    "actual_key",
+                    failure.actual_key(),
+                ),
+                crate::fact::diagnostic_context::identity_field(
+                    "expected_target",
+                    failure.expected_target(),
+                ),
+                crate::fact::diagnostic_context::identity_field(
+                    "actual_target",
+                    failure.actual_target(),
+                ),
+            ],
         ),
         Error::InterfaceCapacityExceeded(index) => (
             "imported_query_interface_capacity_exceeded",
@@ -273,11 +347,15 @@ pub(super) const fn interface_validation_reason(
 
 #[cfg(test)]
 mod tests {
+    use bray_diagnostics::{
+        DiagnosticEmissionEvaluationFailure, DiagnosticFailureValue,
+        DiagnosticInterfaceValidationFailure,
+    };
     use bray_package_interface::InterfaceSemanticRecordKind;
     use bray_symbols::{ImportedInterfaceId, InterfaceSymbolId};
 
-    use super::diagnostic_imported_query_failure;
-    use crate::fact::{ImportedQueryFailure, ImportedSemanticRecordKey};
+    use super::{diagnostic_evaluation_failure, diagnostic_imported_query_failure};
+    use crate::fact::{FactQueryError, ImportedQueryFailure, ImportedSemanticRecordKey};
 
     #[test]
     fn imported_query_conversion_preserves_interface_owner_and_record_kind() {
@@ -296,5 +374,47 @@ mod tests {
         assert_eq!(failure.category(), "imported_query");
         assert_eq!(failure.reason(), "imported_query_missing_interface_symbol");
         assert_eq!(names, ["interface", "owner", "record_kind"]);
+    }
+
+    #[test]
+    fn imported_query_conversion_preserves_missing_loaded_interface_identity() {
+        let failure = diagnostic_imported_query_failure(
+            ImportedQueryFailure::MissingLoadedImplementation(ImportedInterfaceId::new(23)),
+        );
+
+        assert_eq!(
+            failure.reason(),
+            "imported_query_missing_loaded_implementation"
+        );
+
+        assert_eq!(
+            failure.context()[0].value(),
+            &DiagnosticFailureValue::Count(23)
+        );
+    }
+
+    #[test]
+    fn package_interface_conversion_preserves_the_typed_validation_failure() {
+        let failure = diagnostic_evaluation_failure(&FactQueryError::PackageInterface(
+            bray_package_interface::InterfaceValidationError::InvalidMagic {
+                actual: *b"not-bray",
+            },
+        ));
+
+        let DiagnosticEmissionEvaluationFailure::Product(failure) = failure else {
+            panic!("package-interface validation must remain a product query failure");
+        };
+
+        assert_eq!(failure.as_str(), "interface_invalid_magic");
+        assert_eq!(failure.context()[0].name(), "interface_validation_cause");
+
+        assert_eq!(
+            failure.context()[0].value(),
+            &DiagnosticFailureValue::InterfaceValidationFailure(
+                DiagnosticInterfaceValidationFailure::InvalidMagic {
+                    actual: *b"not-bray",
+                }
+            )
+        );
     }
 }

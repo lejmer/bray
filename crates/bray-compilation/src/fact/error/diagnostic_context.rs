@@ -32,6 +32,52 @@ pub(crate) fn count_field(name: &'static str, value: u64) -> DiagnosticFailureFi
     DiagnosticFailureField::new(name, DiagnosticFailureValue::Count(value))
 }
 
+pub(crate) const fn constant_value_kind(
+    kind: &bray_symbols::ConstantValueKind,
+) -> &'static str {
+    use bray_symbols::ConstantValueKind as Kind;
+
+    match kind {
+        Kind::Error => "error",
+        Kind::Boolean(_) => "boolean",
+        Kind::Character(_) => "character",
+        Kind::Integer(_) => "integer",
+        Kind::Real(_) => "real",
+        Kind::Complex { .. } => "complex",
+        Kind::String(_) => "string",
+        Kind::StaticAddress(_) => "static_address",
+        Kind::Unit => "unit",
+        Kind::NullableAbsent => "nullable_absent",
+        Kind::NullablePresent(_) => "nullable_present",
+        Kind::Tuple(_) => "tuple",
+        Kind::Array(_) => "array",
+        Kind::Product(_) => "product",
+        Kind::Union { .. } => "union",
+    }
+}
+
+pub(crate) const fn semantic_type_kind(ty: &bray_symbols::TypeData) -> &'static str {
+    use bray_symbols::TypeData as Type;
+
+    match ty {
+        Type::Error => "error",
+        Type::Named { .. } => "named",
+        Type::TypeParameter(_) => "type_parameter",
+        Type::ContextualSelf(_) => "contextual_self",
+        Type::TypeValuedMemberProjection { .. } => "type_valued_member_projection",
+        Type::Tuple(_) => "tuple",
+        Type::Array { .. } => "array",
+        Type::FlexibleArray(_) => "flexible_array",
+        Type::Slice(_) => "slice",
+        Type::Generator(_) => "generator",
+        Type::Nullable(_) => "nullable",
+        Type::Borrow { .. } => "borrow",
+        Type::TraitView(_) => "trait_view",
+        Type::OwnedIndirection { .. } => "owned_indirection",
+        Type::Callable(_) => "callable",
+    }
+}
+
 pub(super) fn signed_field(name: &'static str, value: i64) -> DiagnosticFailureField {
     DiagnosticFailureField::new(name, DiagnosticFailureValue::Signed(value))
 }

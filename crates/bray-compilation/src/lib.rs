@@ -28,7 +28,8 @@ pub use compiler_known::{
 };
 pub use fact::{
     CancellationToken, FactCycle, FactQueryError, FactRuntimeError, FactRuntimeErrorKind,
-    ImportedSemanticRecordKey, LocatedLoweringFailure, QueryPriority, SymbolCompletionError,
+    ImportedExecutableTemplateMismatch, ImportedQueryFailure, ImportedSemanticRecordKey,
+    LocatedLoweringFailure, QueryPriority, SymbolCompletionError,
 };
 pub use profile::{
     CompilationProfileAggregation, CompilationProfileCategory, CompilationProfileConfiguration,
