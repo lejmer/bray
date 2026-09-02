@@ -82,6 +82,22 @@ impl NativeProductQueryKey {
     pub(crate) const fn product(&self) -> &ProductIdentity {
         &self.product
     }
+
+    pub(crate) const fn configuration(&self) -> crate::BuildConfiguration {
+        self.configuration
+    }
+
+    pub(crate) fn runtime(&self) -> Option<&[RuntimeComponentQueryIdentity]> {
+        self.runtime.as_deref()
+    }
+
+    pub(crate) fn required_capabilities(&self) -> &[RuntimeCapability] {
+        &self.required_capabilities
+    }
+
+    pub(crate) fn linker_drivers(&self) -> &[LinkerDriverIdentity] {
+        &self.linker_drivers
+    }
 }
 
 /// Complete immutable identity of one runtime catalog component used by a native product query.
@@ -106,6 +122,22 @@ impl RuntimeComponentQueryIdentity {
             digest,
             archive,
         }
+    }
+
+    pub(crate) const fn component(&self) -> &RuntimeArtifactId {
+        &self.component
+    }
+
+    pub(crate) const fn purpose(&self) -> RuntimeArtifactPurpose {
+        self.purpose
+    }
+
+    pub(crate) const fn digest(&self) -> RuntimeArtifactDigest {
+        self.digest
+    }
+
+    pub(crate) fn archive(&self) -> &std::path::Path {
+        self.archive.as_path()
     }
 }
 
@@ -160,12 +192,10 @@ impl SymbolQueryKey {
         Self { symbol, kind }
     }
 
-    #[cfg(test)]
     pub(crate) const fn symbol(self) -> AnySymbolId {
         self.symbol
     }
 
-    #[cfg(test)]
     pub(crate) const fn kind(self) -> SymbolQueryKind {
         self.kind
     }
@@ -257,6 +287,34 @@ impl CodegenArtifactQueryKey {
     pub(crate) const fn unit(&self) -> &CodegenUnitKey {
         &self.unit
     }
+
+    pub(crate) const fn mappings(&self) -> &CodegenMappings {
+        &self.mappings
+    }
+
+    pub(crate) const fn target(&self) -> &CodegenTarget {
+        &self.target
+    }
+
+    pub(crate) const fn backend(&self) -> &BackendIdentity {
+        &self.backend
+    }
+
+    pub(crate) const fn capability_revision(&self) -> BackendCapabilityRevision {
+        self.capability_revision
+    }
+
+    pub(crate) const fn product(&self) -> bray_symbols::ProductKind {
+        self.product
+    }
+
+    pub(crate) const fn options(&self) -> CodegenOptions {
+        self.options
+    }
+
+    pub(crate) const fn artifacts(&self) -> &BackendArtifactRequest {
+        &self.artifacts
+    }
 }
 
 impl OperationSelectionQueryKey {
@@ -318,6 +376,10 @@ impl ConstantCallQueryKey {
         self.result_type
     }
 
+    pub(crate) const fn target(&self) -> &TargetProfile {
+        &self.target
+    }
+
     pub(crate) const fn limits(&self) -> bray_checker::ConstantEvaluationLimits {
         self.limits
     }
@@ -345,6 +407,40 @@ impl ConstantInstanceQueryKey {
             target,
             limits,
         }
+    }
+
+    pub(crate) const fn instance(&self) -> ConstantInstanceKey {
+        self.instance
+    }
+
+    pub(crate) const fn target(&self) -> &TargetProfile {
+        &self.target
+    }
+
+    pub(crate) const fn limits(&self) -> bray_checker::ConstantEvaluationLimits {
+        self.limits
+    }
+}
+
+impl ConstantCallDependencyKey {
+    pub(crate) const fn callable(&self) -> CallableInstanceId {
+        self.callable
+    }
+
+    pub(crate) const fn selected_implementation(&self) -> Option<ImplementationInstanceId> {
+        self.selected_implementation
+    }
+
+    pub(crate) fn arguments(&self) -> &[ConstantValueId] {
+        &self.arguments
+    }
+
+    pub(crate) const fn result_type(&self) -> TypeId {
+        self.result_type
+    }
+
+    pub(crate) const fn target(&self) -> &TargetProfile {
+        &self.target
     }
 }
 

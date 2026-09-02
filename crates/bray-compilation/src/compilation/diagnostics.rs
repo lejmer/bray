@@ -38,6 +38,10 @@ use bray_syntax::{
 use super::binder::has_visible_generic_parameters;
 use super::constant::{constant_definition_id, empty_concrete_substitution};
 use super::state::Compilation;
+use super::{
+    ProductQueryFailure, ProductValueKind, SemanticDataKind, SemanticQueryContext,
+    SemanticQueryFailure, SemanticQueryViolation,
+};
 use crate::fact::{
     BatchWork, CancellationToken, CompilationFactKey, DiagnosticPublicationOrder, FactQueryError,
     OrderedDiagnosticCollection, PublishedUnitResult, publish_diagnostics,
@@ -120,7 +124,7 @@ fn semantic_query_failure_diagnostics(
 
     let failure =
         DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::SemanticQuery(
-            crate::fact::diagnostic_semantic_query_failure(error.kind()),
+            crate::fact::diagnostic_semantic_query_failure(error),
         ));
 
     let diagnostic = Diagnostic::new(
@@ -272,7 +276,12 @@ pub(super) fn symbol_diagnostic_identity(
     let key = symbols
         .symbol_key(symbol)
         .or_else(|| imported.and_then(|imported| imported.symbol_key(symbol)))
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .ok_or_else(|| {
+            FactQueryError::from(SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(symbol),
+                SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
+            ))
+        })?;
 
     if let Some(name) = symbols.member_name(symbol)
         && let Some(owner) = symbols.containing_symbol(symbol)
@@ -314,64 +323,10 @@ pub(super) fn diagnostic_interface_symbol_reference(
 impl Compilation {
     /// Returns diagnostics produced by binding and semantic analysis of this package.
     pub fn semantic_diagnostics(&self) -> &DiagnosticBag {
-        match self.semantic_diagnostics_with_cancellation(&self.state.cancellation) {
-            Ok(diagnostics) => diagnostics,
-            Err(FactQueryError::Cancelled) => {
-                panic!("uncancellable semantic diagnostics were unexpectedly cancelled")
-            }
-            Err(FactQueryError::Cycle(cycle)) => {
-                panic!("semantic diagnostic dependencies formed a cycle: {cycle:?}")
-            }
-            Err(FactQueryError::InfrastructureFailure) => {
-                panic!("semantic diagnostic infrastructure failed")
-            }
-            Err(FactQueryError::Runtime(error)) => {
-                panic!("semantic diagnostic fact runtime failed: {error:?}")
-            }
-            Err(
-                error @ (FactQueryError::SemanticValueStoreCreate(_)
-                | FactQueryError::SemanticValueStore(_)),
-            ) => {
-                panic!("semantic diagnostic semantic-value operation failed: {error}")
-            }
-            Err(FactQueryError::BindingDependencyUnavailable) => {
-                panic!("semantic diagnostics could not obtain a binding dependency")
-            }
-            Err(FactQueryError::Binding(error)) => {
-                panic!("semantic diagnostics encountered a binding failure: {error:?}")
-            }
-            Err(
-                error @ (FactQueryError::AtomicInitializerArgumentUnavailable
-                | FactQueryError::AtomicInitializerResultUnavailable
-                | FactQueryError::UninitInitializerResultUnavailable
-                | FactQueryError::ConstantCallableBodyUnavailable
-                | FactQueryError::ConstantCallableRootUnavailable
-                | FactQueryError::ImportedExecutableTemplateMismatch),
-            ) => {
-                panic!("semantic diagnostics failed: {error}")
-            }
-            Err(FactQueryError::SemanticUnitContext(error)) => {
-                panic!("semantic unit context failed: {error:?}")
-            }
-            Err(FactQueryError::SemanticQuery(error)) => {
-                panic!("semantic query failed: {error}")
-            }
-            Err(FactQueryError::Product(error)) => {
-                panic!("semantic diagnostic product query failed: {error:?}")
-            }
-            Err(FactQueryError::Foreign(error)) => {
-                panic!("semantic diagnostic foreign query failed: {error:?}")
-            }
-            Err(FactQueryError::CheckerInfrastructure(error)) => {
-                panic!("semantic checker infrastructure failed: {error:?}")
-            }
-            Err(FactQueryError::LoweringInput(error)) => {
-                panic!("lowering input validation failed: {error:?}")
-            }
-            Err(FactQueryError::Lowering(error)) => {
-                panic!("MIR lowering failed: {error:?}")
-            }
-        }
+        super::boundary::expect_uncancelled_query(
+            "semantic_diagnostics",
+            self.semantic_diagnostics_with_cancellation(&self.state.cancellation),
+        )
     }
 
     pub(super) fn semantic_diagnostics_with_cancellation(
@@ -388,64 +343,10 @@ impl Compilation {
 
     /// Returns diagnostics for the current whole-package check request.
     pub fn check_diagnostics(&self) -> &DiagnosticBag {
-        match self.check_diagnostics_with_cancellation(&self.state.cancellation) {
-            Ok(diagnostics) => diagnostics,
-            Err(FactQueryError::Cancelled) => {
-                panic!("uncancellable check diagnostics were unexpectedly cancelled")
-            }
-            Err(FactQueryError::Cycle(cycle)) => {
-                panic!("check diagnostic dependencies formed a cycle: {cycle:?}")
-            }
-            Err(FactQueryError::InfrastructureFailure) => {
-                panic!("check diagnostic infrastructure failed")
-            }
-            Err(FactQueryError::Runtime(error)) => {
-                panic!("check diagnostic fact runtime failed: {error:?}")
-            }
-            Err(
-                error @ (FactQueryError::SemanticValueStoreCreate(_)
-                | FactQueryError::SemanticValueStore(_)),
-            ) => {
-                panic!("check diagnostic semantic-value operation failed: {error}")
-            }
-            Err(FactQueryError::BindingDependencyUnavailable) => {
-                panic!("check diagnostics could not obtain a binding dependency")
-            }
-            Err(FactQueryError::Binding(error)) => {
-                panic!("check diagnostics encountered a binding failure: {error:?}")
-            }
-            Err(
-                error @ (FactQueryError::AtomicInitializerArgumentUnavailable
-                | FactQueryError::AtomicInitializerResultUnavailable
-                | FactQueryError::UninitInitializerResultUnavailable
-                | FactQueryError::ConstantCallableBodyUnavailable
-                | FactQueryError::ConstantCallableRootUnavailable
-                | FactQueryError::ImportedExecutableTemplateMismatch),
-            ) => {
-                panic!("check diagnostics failed: {error}")
-            }
-            Err(FactQueryError::SemanticUnitContext(error)) => {
-                panic!("check diagnostic semantic unit context failed: {error:?}")
-            }
-            Err(FactQueryError::SemanticQuery(error)) => {
-                panic!("check diagnostic semantic query failed: {error}")
-            }
-            Err(FactQueryError::Product(error)) => {
-                panic!("check diagnostic product query failed: {error:?}")
-            }
-            Err(FactQueryError::Foreign(error)) => {
-                panic!("check diagnostic foreign query failed: {error:?}")
-            }
-            Err(FactQueryError::CheckerInfrastructure(error)) => {
-                panic!("check diagnostic checker infrastructure failed: {error:?}")
-            }
-            Err(FactQueryError::LoweringInput(error)) => {
-                panic!("check diagnostic lowering input validation failed: {error:?}")
-            }
-            Err(FactQueryError::Lowering(error)) => {
-                panic!("check diagnostic MIR lowering failed: {error:?}")
-            }
-        }
+        super::boundary::expect_uncancelled_query(
+            "check_diagnostics",
+            self.check_diagnostics_with_cancellation(&self.state.cancellation),
+        )
     }
 
     pub(super) fn check_diagnostics_with_cancellation(
@@ -756,7 +657,12 @@ impl Compilation {
 
             let owner = symbols
                 .symbol_for_key(key.declared_owner())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    FactQueryError::from(SemanticQueryFailure::contract(
+                        SemanticQueryContext::SymbolKey(key.declared_owner().clone()),
+                        SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                    ))
+                })?;
 
             if let AnySymbolId::Static(declaration) = owner {
                 sources.push(SemanticDiagnosticSource::StaticTemplate(
@@ -766,8 +672,12 @@ impl Compilation {
                 return Ok((bound, sources));
             }
 
-            let definition =
-                constant_definition_id(owner).ok_or(FactQueryError::InfrastructureFailure)?;
+            let definition = constant_definition_id(owner).ok_or_else(|| {
+                FactQueryError::from(SemanticQueryFailure::contract(
+                    SemanticQueryContext::Symbol(owner),
+                    SemanticQueryViolation::Missing(SemanticDataKind::ConstantDefinition),
+                ))
+            })?;
 
             let template = self.constant_definition(definition)?;
 
@@ -805,10 +715,12 @@ impl Compilation {
             };
 
             // Stable symbol keys are Arc-backed and retained by each bound-unit key.
-            let owner = symbols
-                .symbol_key(symbol)
-                .cloned()
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let owner = symbols.symbol_key(symbol).cloned().ok_or_else(|| {
+                FactQueryError::from(SemanticQueryFailure::contract(
+                    SemanticQueryContext::Symbol(symbol),
+                    SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
+                ))
+            })?;
 
             self.push_primary_unit_key(&mut keys, declaration, owner.clone(), &syntax_index)?;
 
@@ -842,9 +754,12 @@ impl Compilation {
         let anchor = declaration.syntax_anchor();
 
         if callable_body_kind(declaration.kind()) && syntax.has_callable_body(anchor) {
+            let context = SemanticQueryContext::SymbolKey(owner.clone());
+
             push_key(
                 keys,
                 BoundUnitKey::callable_body(owner, self.bound_source(anchor)?),
+                context,
             )?;
 
             return Ok(());
@@ -864,7 +779,13 @@ impl Compilation {
             return Ok(());
         };
 
-        push_key(keys, constructor(owner, self.bound_source(expression)?))
+        let context = SemanticQueryContext::SymbolKey(owner.clone());
+
+        push_key(
+            keys,
+            constructor(owner, self.bound_source(expression)?),
+            context,
+        )
     }
 
     fn push_surface_unit_keys(
@@ -878,18 +799,24 @@ impl Compilation {
     ) -> Result<(), FactQueryError> {
         for anchor in declaration.surface().constraints() {
             if syntax.has_bound_constraint_expression(*anchor) {
+                let context = SemanticQueryContext::SymbolKey(owner.clone());
+
                 push_key(
                     keys,
                     BoundUnitKey::constraint(owner.clone(), self.bound_source(*anchor)?),
+                    context,
                 )?;
             }
         }
 
         for anchor in declaration.surface().contract_clauses() {
             if syntax.has_bound_constraint_expression(*anchor) {
+                let context = SemanticQueryContext::SymbolKey(owner.clone());
+
                 push_key(
                     keys,
                     BoundUnitKey::contract_clause(owner.clone(), self.bound_source(*anchor)?),
+                    context,
                 )?;
             }
         }
@@ -902,19 +829,27 @@ impl Compilation {
             return Ok(());
         };
 
-        let provider = symbols
-            .runtime_default_provider(symbol)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let provider = symbols.runtime_default_provider(symbol).ok_or_else(|| {
+            FactQueryError::from(SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(symbol),
+                SemanticQueryViolation::Missing(SemanticDataKind::RuntimeDefault),
+            ))
+        })?;
 
         // Synthesized provider keys are Arc-backed and retained by the runtime-default unit key.
-        let provider = symbols
-            .symbol_key(provider)
-            .cloned()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let provider = symbols.symbol_key(provider).cloned().ok_or_else(|| {
+            FactQueryError::from(SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(provider),
+                SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
+            ))
+        })?;
+
+        let context = SemanticQueryContext::SymbolKey(provider.clone());
 
         push_key(
             keys,
             BoundUnitKey::runtime_default(provider, self.bound_source(expression)?),
+            context,
         )
     }
 
@@ -958,10 +893,15 @@ impl Compilation {
                 continue;
             };
 
-            let expression = unit
-                .view()
-                .expression(entry.expression())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let expression = unit.view().expression(entry.expression()).ok_or_else(|| {
+                FactQueryError::from(SemanticQueryFailure::contract(
+                    SemanticQueryContext::BoundExpression {
+                        unit: unit.unit(),
+                        expression: entry.expression(),
+                    },
+                    SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression),
+                ))
+            })?;
 
             let request = TargetValidityRequest::new(
                 expression.origin().source_anchor(),
@@ -987,19 +927,37 @@ impl Compilation {
             let Some(BoundExpression::Call(expression)) =
                 unit.view().expression(entry.expression())
             else {
-                return Err(FactQueryError::InfrastructureFailure);
+                return Err(SemanticQueryFailure::contract(
+                    SemanticQueryContext::BoundExpression {
+                        unit: unit.unit(),
+                        expression: entry.expression(),
+                    },
+                    SemanticQueryViolation::Unsupported(SemanticDataKind::BoundExpression),
+                )
+                .into());
             };
 
-            let callee = types
-                .expression(expression.callee())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let callee = types.expression(expression.callee()).ok_or_else(|| {
+                FactQueryError::from(SemanticQueryFailure::contract(
+                    SemanticQueryContext::BoundExpression {
+                        unit: unit.unit(),
+                        expression: expression.callee(),
+                    },
+                    SemanticQueryViolation::Missing(SemanticDataKind::Type),
+                ))
+            })?;
 
             let data = values
                 .type_data(callee.ty())
                 .map_err(FactQueryError::SemanticValueStore)?;
 
             let bray_symbols::TypeData::Callable(callable) = data.as_ref() else {
-                return Err(FactQueryError::InfrastructureFailure);
+                return Err(ProductQueryFailure::UnexpectedSemanticType {
+                    ty: callee.ty(),
+                    expected: ProductValueKind::CallableType,
+                    actual: data.as_ref().clone(),
+                }
+                .into());
             };
 
             let mut parameters = callable
@@ -1262,8 +1220,17 @@ fn callable_body_kind(kind: DeclarationKind) -> bool {
     )
 }
 
-fn push_key(keys: &mut Vec<BoundUnitKey>, key: Option<BoundUnitKey>) -> Result<(), FactQueryError> {
-    let key = key.ok_or(FactQueryError::InfrastructureFailure)?;
+fn push_key(
+    keys: &mut Vec<BoundUnitKey>,
+    key: Option<BoundUnitKey>,
+    context: SemanticQueryContext,
+) -> Result<(), FactQueryError> {
+    let key = key.ok_or_else(|| {
+        FactQueryError::from(SemanticQueryFailure::contract(
+            context,
+            SemanticQueryViolation::Missing(SemanticDataKind::BoundUnit),
+        ))
+    })?;
 
     keys.push(key);
 

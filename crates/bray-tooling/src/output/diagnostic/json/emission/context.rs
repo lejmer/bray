@@ -6,8 +6,7 @@ use super::failure::{
     DiagnosticEmissionFieldJson, DiagnosticEmissionFieldValueJson, artifact_field, count_field,
     count_u64_field, digest_field, field, text_field,
 };
-use crate::output::path_to_output_string;
-
+use super::{checker_failure_context, lowering_failure_context, lowering_input_failure_context};
 use super::foreign_query::foreign_query_failure_context;
 use super::product_query::product_query_failure_context;
 
@@ -215,27 +214,136 @@ pub(super) fn evaluation_failure_context(
     use bray_diagnostics::DiagnosticEmissionEvaluationFailure as Failure;
 
     match failure {
-        Failure::SemanticValue(failure)
-        | Failure::Binding(bray_diagnostics::DiagnosticBindingFailure::SemanticValue(failure))
-        | Failure::Checker(bray_diagnostics::DiagnosticCheckerFailure::SemanticValue(failure)) => {
+        Failure::Cycle(failure) | Failure::SemanticContext(failure) => {
+            let mut context = vec![text_field("cause", failure.reason())];
+            context.extend(diagnostic_failure_context(failure.context()));
+
+            context
+        }
+        Failure::Runtime(failure) => fact_runtime_failure_context(failure),
+        Failure::SemanticQuery(failure) => {
+            let mut context = vec![text_field("category", failure.category())];
+            context.extend(diagnostic_failure_context(failure.context()));
+
+            context
+        }
+        Failure::SemanticValue(failure) => {
             semantic_value_failure_context(*failure)
         }
-        Failure::LoweringInput(failure) => match failure.kind() {
-            bray_diagnostics::DiagnosticLoweringInputFailureKind::SemanticValue(failure) => {
-                semantic_value_failure_context(failure)
-            }
-            _ => vec![text_field("cause", failure.as_str())],
+        Failure::Checker(failure) => checker_failure_context(*failure),
+        Failure::Binding(failure) => match failure.semantic_value_failure() {
+            Some(failure) => semantic_value_failure_context(failure),
+            None => diagnostic_failure_context(failure.context()),
         },
-        Failure::Lowering(failure) => match failure.kind() {
-            bray_diagnostics::DiagnosticLoweringFailureKind::SemanticValue(failure) => {
-                semantic_value_failure_context(failure)
-            }
-            _ => vec![text_field("cause", failure.as_str())],
-        },
+        Failure::LoweringInput(failure) => lowering_input_failure_context(*failure),
+        Failure::Lowering(failure) => lowering_failure_context(*failure),
         Failure::Product(failure) => product_query_failure_context(failure),
         Failure::Foreign(failure) => foreign_query_failure_context(failure),
-        _ => vec![text_field("cause", failure.as_str())],
+        Failure::Cancelled
+        | Failure::Infrastructure
+        | Failure::SemanticValueStoreCreate
+        | Failure::ConstantCallableBodyUnavailable
+        | Failure::ConstantCallableRootUnavailable
+        | Failure::AtomicRepresentationTypeUnavailable
+        | Failure::AtomicRepresentationArgumentsUnavailable
+        | Failure::AtomicInitializerArgumentUnavailable
+        | Failure::AtomicInitializerResultUnavailable
+        | Failure::UninitInitializerResultUnavailable
+        | Failure::ImportedExecutableTemplateMismatch => {
+            vec![text_field("cause", failure.as_str())]
+        }
     }
+}
+
+pub(in crate::output::diagnostic::json) fn fact_runtime_failure_context(
+    failure: &bray_diagnostics::DiagnosticFactRuntimeFailure,
+) -> Vec<DiagnosticEmissionFieldJson> {
+    diagnostic_failure_context(failure.context())
+}
+
+pub(in crate::output::diagnostic::json) fn diagnostic_failure_context(
+    context: &[bray_diagnostics::DiagnosticFailureField],
+) -> Vec<DiagnosticEmissionFieldJson> {
+    context
+        .iter()
+        .map(|diagnostic_field| {
+            let value = match diagnostic_field.value() {
+                bray_diagnostics::DiagnosticFailureValue::ArtifactDigest(value) => {
+                    DiagnosticEmissionFieldValueJson::ArtifactDigest(
+                        super::super::DiagnosticArtifactDigestJson::from_digest(value),
+                    )
+                }
+                bray_diagnostics::DiagnosticFailureValue::Boolean(value) => {
+                    DiagnosticEmissionFieldValueJson::Boolean(*value)
+                }
+                bray_diagnostics::DiagnosticFailureValue::Count(value) => {
+                    DiagnosticEmissionFieldValueJson::Count(*value)
+                }
+                bray_diagnostics::DiagnosticFailureValue::Identity(value) => {
+                    DiagnosticEmissionFieldValueJson::Identity(bray_base::lowercase_hex(value))
+                }
+                bray_diagnostics::DiagnosticFailureValue::IdentityList(values) => {
+                    DiagnosticEmissionFieldValueJson::IdentityList(
+                        values
+                            .iter()
+                            .map(|value| bray_base::lowercase_hex(value))
+                            .collect(),
+                    )
+                }
+                bray_diagnostics::DiagnosticFailureValue::Evaluation(value) => {
+                    DiagnosticEmissionFieldValueJson::Evaluation(Box::new(
+                        super::failure::DiagnosticEmissionFailureJson::from_failure(
+                            &bray_diagnostics::DiagnosticEmissionFailure::Evaluation(
+                                (**value).clone(),
+                            ),
+                        ),
+                    ))
+                }
+                bray_diagnostics::DiagnosticFailureValue::ExternalToolExit(value) => {
+                    DiagnosticEmissionFieldValueJson::ExternalToolExit(
+                        super::super::DiagnosticExternalToolExitJson::from_exit(value),
+                    )
+                }
+                bray_diagnostics::DiagnosticFailureValue::InterfaceSymbolIdentity(value) => {
+                    DiagnosticEmissionFieldValueJson::InterfaceSymbolIdentity(
+                        DiagnosticInterfaceSymbolIdentityJson::from_identity(value),
+                    )
+                }
+                bray_diagnostics::DiagnosticFailureValue::InterfaceSymbolGraphProblem(value) => {
+                    DiagnosticEmissionFieldValueJson::InterfaceSymbolGraphProblem(
+                        super::super::interface_symbol_graph_problem_json(value),
+                    )
+                }
+                bray_diagnostics::DiagnosticFailureValue::InterfaceValidationFailure(value) => {
+                    DiagnosticEmissionFieldValueJson::InterfaceValidationFailure(
+                        super::super::interface_validation_failure_json(value),
+                    )
+                }
+                bray_diagnostics::DiagnosticFailureValue::IoErrorKind(value) => {
+                    DiagnosticEmissionFieldValueJson::IoErrorKind(value.as_str())
+                }
+                bray_diagnostics::DiagnosticFailureValue::Natural(value) => {
+                    DiagnosticEmissionFieldValueJson::Natural(value.clone())
+                }
+                bray_diagnostics::DiagnosticFailureValue::Path(value) => {
+                    DiagnosticEmissionFieldValueJson::Path(
+                        super::super::DiagnosticPathJson::from_path(value),
+                    )
+                }
+                bray_diagnostics::DiagnosticFailureValue::Signed(value) => {
+                    DiagnosticEmissionFieldValueJson::Signed(*value)
+                }
+                bray_diagnostics::DiagnosticFailureValue::Text(value) => {
+                    DiagnosticEmissionFieldValueJson::Text(value.clone())
+                }
+                bray_diagnostics::DiagnosticFailureValue::TextList(values) => {
+                    DiagnosticEmissionFieldValueJson::TextList(values.to_vec())
+                }
+            };
+
+            field(diagnostic_field.name(), value)
+        })
+        .collect()
 }
 
 pub(in crate::output::diagnostic::json) fn semantic_value_failure_context(
@@ -459,7 +567,9 @@ pub(super) fn link_plan_failure_context(
         ],
         Failure::InvalidOutputPath(path) => vec![field(
             "path",
-            DiagnosticEmissionFieldValueJson::Path(path_to_output_string(path)),
+            DiagnosticEmissionFieldValueJson::Path(super::super::DiagnosticPathJson::from_path(
+                path,
+            )),
         )],
         Failure::Incomplete
         | Failure::MissingLinkedProduct
@@ -496,11 +606,16 @@ pub(super) fn link_plan_failure_context(
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        DiagnosticEmissionEvaluationFailure, DiagnosticInterfaceSymbolIdentity,
+        DiagnosticEmissionEvaluationFailure, DiagnosticEvaluationFailureDetail,
+        DiagnosticFailureField, DiagnosticFailureValue, DiagnosticInterfaceSymbolIdentity,
         DiagnosticPackageInterfaceFailure, DiagnosticSemanticValueFailure,
     };
 
-    use super::{package_interface_failure_context, semantic_value_failure_context};
+    use super::{
+        diagnostic_failure_context, package_interface_failure_context,
+        semantic_value_failure_context,
+    };
+    use super::super::lowering_input_failure_context;
 
     fn package(name: &str) -> DiagnosticInterfaceSymbolIdentity {
         DiagnosticInterfaceSymbolIdentity::Package(name.to_owned())
@@ -528,11 +643,106 @@ mod tests {
     }
 
     #[test]
+    fn nested_evaluation_failures_serialize_their_exact_context() {
+        let context = diagnostic_failure_context(&[DiagnosticFailureField::new(
+            "evaluation_cause",
+            DiagnosticFailureValue::Evaluation(Box::new(
+                DiagnosticEmissionEvaluationFailure::SemanticContext(
+                    DiagnosticEvaluationFailureDetail::new(
+                        "missing_owner",
+                        [DiagnosticFailureField::new(
+                            "owner",
+                            DiagnosticFailureValue::Count(29),
+                        )],
+                    ),
+                ),
+            )),
+        )]);
+
+        let context = serde_json::to_value(context).unwrap_or_else(|error| {
+            panic!("nested evaluation context should serialize: {error:?}")
+        });
+
+        assert_eq!(context[0]["value"]["value"]["category"], "evaluation");
+        assert_eq!(context[0]["value"]["value"]["reason"], "missing_owner");
+
+        assert_eq!(context[0]["value"]["value"]["context"][0]["name"], "cause");
+
+        assert_eq!(context[0]["value"]["value"]["context"][1]["name"], "owner");
+
+        assert_eq!(
+            context[0]["value"]["value"]["context"][1]["value"]["value"],
+            29
+        );
+    }
+
+    #[test]
+    fn lowering_count_mismatches_serialize_expected_and_actual_values() {
+        let context = lowering_input_failure_context(
+            bray_diagnostics::DiagnosticLoweringInputFailure::new(
+            bray_diagnostics::DiagnosticLoweringInputFailureKind::StorageOperationCountMismatch {
+                expected: 5,
+                actual: 8,
+            },
+                bray_source::SourceSpan::new(
+                    bray_source::SourceId::new(2),
+                    bray_source::TextRange::new(
+                        bray_source::TextSize::new(3),
+                        bray_source::TextSize::new(4),
+                    ),
+                ),
+            ),
+        );
+
+        let context = serde_json::to_value(context)
+            .unwrap_or_else(|error| panic!("lowering context should serialize: {error:?}"));
+
+        assert_eq!(context[1]["name"], "expected");
+        assert_eq!(context[1]["value"]["value"], 5);
+        assert_eq!(context[2]["name"], "actual");
+        assert_eq!(context[2]["value"]["value"], 8);
+    }
+
+    #[test]
+    fn nested_interface_validation_failures_serialize_their_exact_payload() {
+        let context = diagnostic_failure_context(&[DiagnosticFailureField::new(
+            "interface_validation_cause",
+            DiagnosticFailureValue::InterfaceValidationFailure(
+                bray_diagnostics::DiagnosticInterfaceValidationFailure::Truncated {
+                    context: bray_diagnostics::DiagnosticInterfaceValidationContext::Header,
+                    field: bray_diagnostics::DiagnosticInterfaceValidationField::RecordCount,
+                    offset: 13,
+                    expected_length: 8,
+                    actual_length: 3,
+                },
+            ),
+        )]);
+
+        let context = serde_json::to_value(context).unwrap_or_else(|error| {
+            panic!("nested validation context should serialize: {error:?}")
+        });
+
+        assert_eq!(context[0]["value"]["value"]["reason"], "truncated");
+
+        assert_eq!(
+            context[0]["value"]["value"]["context"][0]["value"]["value"],
+            "header"
+        );
+
+        assert_eq!(
+            context[0]["value"]["value"]["context"][2]["value"]["value"],
+            13
+        );
+    }
+
+    #[test]
     fn executable_template_failures_preserve_declaration_and_cause() {
         let context = package_interface_failure_context(
             &DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {
                 declaration: package("example.template"),
-                cause: DiagnosticEmissionEvaluationFailure::Cycle,
+                cause: DiagnosticEmissionEvaluationFailure::Cycle(
+                    bray_diagnostics::DiagnosticEvaluationFailureDetail::new("cycle", []),
+                ),
             },
         );
 

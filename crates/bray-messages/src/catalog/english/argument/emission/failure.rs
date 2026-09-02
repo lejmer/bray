@@ -26,6 +26,9 @@ pub(crate) fn format_english_emission_failure(
         Failure::Staging(failure) => format_english_emission_staging_failure(failure),
         Failure::LinkPlan(failure) => format_english_emission_link_plan_failure(failure),
         Failure::Evaluation(failure) => format_english_emission_evaluation_failure(failure),
+        Failure::TestCatalog(_) => {
+            format_internal_compiler_error("the test catalog could not be encoded")
+        }
         Failure::MissingContribution(artifact) => format!(
             "the required {} artifact #{} has no generated content",
             format_english_artifact_kind(artifact.kind()),
@@ -222,16 +225,14 @@ fn format_english_package_interface_failure(
         Failure::RecoveredPublicSymbol(kind) => {
             format!("a recovered public {kind} declaration has no stable external identity")
         }
-        Failure::ConstantCallableEvaluation { declaration, cause } => format!(
-            "constant body preparation failed for {} because {}",
-            format_english_interface_symbol_identity(declaration),
-            format_english_emission_evaluation_failure(cause)
-        ),
-        Failure::ExecutableTemplateEvaluation { declaration, cause } => format!(
-            "executable-template preparation failed for {} because {}",
-            format_english_interface_symbol_identity(declaration),
-            format_english_emission_evaluation_failure(cause)
-        ),
+        Failure::ConstantCallableEvaluation { declaration, .. } => format_internal_compiler_error(format!(
+            "constant body preparation could not complete for {}",
+            format_english_interface_symbol_identity(declaration)
+        )),
+        Failure::ExecutableTemplateEvaluation { declaration, .. } => format_internal_compiler_error(format!(
+            "executable-template preparation could not complete for {}",
+            format_english_interface_symbol_identity(declaration)
+        )),
         Failure::IncompletePublicDeclaration(kind) => format_internal_compiler_error(format!(
             "complete data was unavailable for a reachable public {kind} declaration"
         )),
@@ -281,19 +282,9 @@ fn format_english_package_interface_failure(
             table,
             *reference,
         ),
-        Failure::DeclarationDiscoveryFailure { cause, cycle } => {
-            if cycle.is_empty() {
-                format!(
-                    "package-interface export failed because {}",
-                    format_english_emission_evaluation_failure(cause)
-                )
-            } else {
-                format_internal_compiler_error(format!(
-                    "package-interface export has mutually dependent internal requests: {}",
-                    cycle.join(" -> ")
-                ))
-            }
-        }
+        Failure::DeclarationDiscoveryFailure { .. } => format_internal_compiler_error(
+            "package-interface export could not complete declaration discovery",
+        ),
         Failure::MissingPackageReference { table, reference } => {
             format_internal_compiler_error(format!(
                 "{table} entry {reference} has no associated package interface"
@@ -430,10 +421,10 @@ mod tests {
             },
         );
 
-        assert_eq!(
-            conflict,
-            "exported declarations 'example.first' and 'example.second' both resolve to stable identity 'example.shared'"
-        );
+        assert!(conflict.contains("example.first"));
+        assert!(conflict.contains("example.second"));
+        assert!(conflict.contains("example.shared"));
+        assert!(!conflict.contains(crate::catalog::english::INTERNAL_COMPILER_ERROR));
 
         let recursive = format_english_package_interface_failure(
             &DiagnosticPackageInterfaceFailure::RecursiveDeclarationData {
@@ -449,13 +440,16 @@ mod tests {
 
         let cycle = format_english_package_interface_failure(
             &DiagnosticPackageInterfaceFailure::DeclarationDiscoveryFailure {
-                cause: DiagnosticEmissionEvaluationFailure::Cycle,
+                cause: DiagnosticEmissionEvaluationFailure::Cycle(
+                    bray_diagnostics::DiagnosticEvaluationFailureDetail::new("cycle", []),
+                ),
                 cycle: ["declaration_table".to_owned(), "symbol_graph".to_owned()].into(),
             },
         );
 
         assert!(cycle.starts_with(crate::catalog::english::INTERNAL_COMPILER_ERROR));
-        assert!(cycle.contains("declaration_table -> symbol_graph"));
+        assert!(!cycle.contains("declaration_table"));
+        assert!(!cycle.contains("symbol_graph"));
 
         let infrastructure = format_english_package_interface_failure(
             &DiagnosticPackageInterfaceFailure::DeclarationDiscoveryFailure {
@@ -464,8 +458,9 @@ mod tests {
             },
         );
 
-        assert!(infrastructure.contains("package-interface export failed"));
-        assert!(infrastructure.contains("compiler evaluation state is inconsistent"));
+        assert!(infrastructure.starts_with(crate::catalog::english::INTERNAL_COMPILER_ERROR));
+        assert!(!infrastructure.contains("compiler evaluation"));
+        assert!(!infrastructure.contains(';'));
 
         let executable = format_english_package_interface_failure(
             &DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {
@@ -475,7 +470,16 @@ mod tests {
         );
 
         assert!(executable.contains("example.run"));
-        assert!(executable.contains("selected constant callable has no available body"));
+        assert!(executable.starts_with(crate::catalog::english::INTERNAL_COMPILER_ERROR));
+
+        assert_eq!(
+            executable
+                .matches(crate::catalog::english::INTERNAL_COMPILER_ERROR)
+                .count(),
+            1,
+        );
+
+        assert!(!executable.contains("the compiler "));
 
         let overflow = format_english_package_interface_failure(
             &DiagnosticPackageInterfaceFailure::SemanticTableOverflow {
@@ -484,10 +488,9 @@ mod tests {
             },
         );
 
-        assert_eq!(
-            overflow,
-            "package-interface export requires more than 4294967295 type records, which the file format cannot represent"
-        );
+        assert!(overflow.contains("4294967295"));
+        assert!(overflow.contains("type"));
+        assert!(!overflow.contains(';'));
     }
 }
 

@@ -1,19 +1,21 @@
-use bray_codegen::{ArtifactContent, CodegenMappings, CodegenOptions, CodegenTarget, CodegenUnit};
+use bray_codegen::{CodegenMappings, CodegenOptions, CodegenTarget, CodegenUnit};
 use bray_diagnostics::DiagnosticBag;
 use bray_emitter::{
-    ArtifactContribution, ArtifactKind, ArtifactProducer, ArtifactPublisher,
-    BackendContributionSet, EmissionBackend, EmissionOutcome, EmissionPlan, EmissionPlanner,
-    EmissionRequest, EmissionStatus, LinkStaging, LinkStagingError, OutputSinkResolver,
-    ProductLinkInputs, construct_link_plan,
+    ArtifactContribution, ArtifactKind, ArtifactProducer, BackendContributionSet, EmissionBackend,
+    EmissionOutcome, EmissionPlan, EmissionPlanner, EmissionRequest, EmissionStatus, LinkStaging,
+    LinkStagingError, OutputSinkResolver, ProductLinkInputs, construct_link_plan,
 };
 use bray_linker::Linker;
 use bray_package_interface::encode_package_interface;
-use bray_runtime_interface::RootExecution;
 use bray_target::TargetOutputDescription;
 
+use super::publishing::{
+    package_implementation_contribution, publisher, validate_executable_units,
+};
 use super::{ProductEmissionError, ProductEmissionErrorKind};
 use crate::compilation::{
     Compilation, EmissionCodegenError, EmissionCodegenErrorKind, NativeProductPlan,
+    ProductDataKind, ProductQueryContext, ProductQueryFailure,
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -454,7 +456,11 @@ impl Compilation {
 
         let diagnostics = diagnostics
             .unwrap_or(Err(ProductEmissionErrorKind::Query(
-                FactQueryError::InfrastructureFailure,
+                ProductQueryFailure::missing(
+                    ProductQueryContext::Product(request.product_kind()),
+                    ProductDataKind::CompilationDiagnostics,
+                )
+                .into(),
             )))
             .map_err(|kind| {
                 ProductEmissionError::new(
@@ -467,7 +473,11 @@ impl Compilation {
 
         let package_interface = package_interface
             .unwrap_or(Err(ProductEmissionErrorKind::Query(
-                FactQueryError::InfrastructureFailure,
+                ProductQueryFailure::missing(
+                    ProductQueryContext::Product(request.product_kind()),
+                    ProductDataKind::PackageInterfaceContribution,
+                )
+                .into(),
             )))
             .map_err(|kind| {
                 ProductEmissionError::new(
@@ -685,87 +695,6 @@ enum ProductEmissionInput {
 struct ProductEmissionContributions {
     backend: Option<BackendContributionSet>,
     diagnostics: DiagnosticBag,
-}
-
-fn package_implementation_contribution(
-    plan: &EmissionPlan,
-    artifact: bray_package_interface::PackageImplementationArtifact,
-) -> Result<ArtifactContribution, ProductEmissionErrorKind> {
-    let planned = plan
-        .published_artifacts()
-        .find(|artifact| artifact.id().kind() == ArtifactKind::PackageImplementation)
-        .ok_or(ProductEmissionErrorKind::Query(
-            FactQueryError::InfrastructureFailure,
-        ))?;
-
-    let content = ArtifactContent::try_memory(artifact.shared_bytes())
-        .map_err(ProductEmissionErrorKind::PackageImplementationContent)?;
-
-    Ok(ArtifactContribution::new(
-        planned.id().clone(),
-        ArtifactProducer::PackageImplementation,
-        content,
-        None,
-    ))
-}
-
-fn validate_executable_units(
-    plan: &EmissionPlan,
-    units: &[CodegenUnit],
-) -> Result<(), ProductEmissionErrorKind> {
-    let Some(host) = plan.request().executable_host() else {
-        return Ok(());
-    };
-
-    let planned_units = units
-        .iter()
-        .filter(|unit| plan.backend_request(unit.key()).is_some())
-        .collect::<Vec<_>>();
-
-    let mut has_host = false;
-
-    for unit in &planned_units {
-        for mir in unit.mir_units() {
-            if matches!(
-                mir.kind(),
-                bray_ir::MirUnitKind::ExecutableHost(candidate) if candidate == host
-            ) {
-                has_host = true;
-            }
-        }
-    }
-
-    if !has_host {
-        return Err(ProductEmissionErrorKind::MissingExecutableHost);
-    }
-
-    for entry in host.entries() {
-        let RootExecution::Asynchronous { frame } = entry.root() else {
-            continue;
-        };
-
-        let has_root_frame = planned_units.iter().any(|unit| {
-            unit.instances()
-                .iter()
-                .any(|instance| instance.protected_frame_identity() == Some(frame))
-        });
-
-        if !has_root_frame {
-            return Err(ProductEmissionErrorKind::MissingRootFrame(frame));
-        }
-    }
-
-    Ok(())
-}
-
-fn publisher<'operation>(
-    cancellation: &'operation CancellationToken,
-    resolver: Option<&'operation dyn OutputSinkResolver>,
-) -> ArtifactPublisher<'operation> {
-    match resolver {
-        Some(resolver) => ArtifactPublisher::with_sink_resolver(cancellation, resolver),
-        None => ArtifactPublisher::new(cancellation),
-    }
 }
 
 fn product_staging_error(error: LinkStagingError) -> ProductEmissionErrorKind {

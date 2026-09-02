@@ -2,8 +2,10 @@ use bray_diagnostics::DiagnosticArgValue;
 use serde::Serialize;
 
 use super::emission::{
-    DiagnosticEmissionFieldJson, foreign_query_failure_context, native_link_input_failure_context,
-    product_query_failure_context, semantic_value_failure_context,
+    DiagnosticEmissionFieldJson, checker_failure_context, diagnostic_failure_context,
+    fact_runtime_failure_context, foreign_query_failure_context, lowering_failure_context,
+    lowering_input_failure_context, native_link_input_failure_context, product_query_failure_context,
+    semantic_value_failure_context, text_field,
 };
 use super::{
     DiagnosticArtifactDigestJson, DiagnosticCallableOverloadProblemJson,
@@ -385,29 +387,114 @@ impl DiagnosticNativeProductFailureJson {
         use bray_diagnostics::DiagnosticNativeProductFailureKind as Kind;
 
         let context = match kind {
-            Kind::EvaluationSemanticValue(failure)
-            | Kind::EvaluationBinding(bray_diagnostics::DiagnosticBindingFailure::SemanticValue(
-                failure,
-            ))
-            | Kind::EvaluationChecker(bray_diagnostics::DiagnosticCheckerFailure::SemanticValue(
-                failure,
-            )) => semantic_value_failure_context(*failure),
-            Kind::EvaluationLoweringInput(failure) => match failure.kind() {
-                bray_diagnostics::DiagnosticLoweringInputFailureKind::SemanticValue(failure) => {
-                    semantic_value_failure_context(failure)
-                }
-                _ => Vec::new(),
+            Kind::EvaluationCycle(failure) | Kind::SemanticContextFailure(failure) => {
+                diagnostic_failure_context(failure.context())
+            }
+            Kind::EvaluationRuntime(failure) => fact_runtime_failure_context(failure),
+            Kind::EvaluationSemanticQuery(failure) => {
+                let mut context = vec![text_field("category", failure.category())];
+                context.extend(diagnostic_failure_context(failure.context()));
+
+                context
+            }
+            Kind::EvaluationSemanticValue(failure) => semantic_value_failure_context(*failure),
+            Kind::EvaluationChecker(failure) => checker_failure_context(*failure),
+            Kind::EvaluationBinding(failure) => match failure.semantic_value_failure() {
+                Some(failure) => semantic_value_failure_context(failure),
+                None => diagnostic_failure_context(failure.context()),
             },
-            Kind::EvaluationLowering(failure) => match failure.kind() {
-                bray_diagnostics::DiagnosticLoweringFailureKind::SemanticValue(failure) => {
-                    semantic_value_failure_context(failure)
-                }
-                _ => Vec::new(),
-            },
+            Kind::EvaluationLoweringInput(failure) => lowering_input_failure_context(*failure),
+            Kind::EvaluationLowering(failure) => lowering_failure_context(*failure),
             Kind::EvaluationProduct(failure) => product_query_failure_context(failure),
             Kind::EvaluationForeign(failure) => foreign_query_failure_context(failure),
             Kind::InvalidNativeLinkInput(failure) => native_link_input_failure_context(failure),
-            _ => Vec::new(),
+            Kind::RuntimeSelectionIncompatible(detail)
+            | Kind::RuntimeSelectionMissingRoleOwner(detail)
+            | Kind::RuntimeSelectionMissingCapabilityOwner(detail)
+            | Kind::RuntimeSelectionUnreadableArchive(detail)
+            | Kind::RuntimeSelectionInvalidArchive(detail)
+            | Kind::RuntimeSelectionArchiveDigestMismatch(detail)
+            | Kind::PartitionMissingCompatibility(detail)
+            | Kind::PartitionInvalidUnit(detail)
+            | Kind::GeneratedHostMirInvalid(detail)
+            | Kind::ExecutableHostDuplicateRole(detail)
+            | Kind::ExecutableHostRuntimeOwnedBinding(detail)
+            | Kind::ExecutableHostIncompatibleRuntime(detail)
+            | Kind::ExecutableHostMissingRole(detail)
+            | Kind::CodegenBackendUnsupportedArtifact(detail)
+            | Kind::CodegenBackendLibraryFailure(detail)
+            | Kind::CodegenBackendToolFailure(detail)
+            | Kind::CodegenBackendRejectedModule(detail)
+            | Kind::CodegenBackendArtifactConstruction(detail)
+            | Kind::CodegenInvalidRequest(detail)
+            | Kind::CodegenMirUnavailable(detail)
+            | Kind::CodegenInvalidInstance(detail)
+            | Kind::CodegenInvalidUnit(detail)
+            | Kind::CodegenUnitMismatch(detail)
+            | Kind::CodegenInvalidHostMir(detail)
+            | Kind::CodegenInvalidLifecycleMir(detail)
+            | Kind::CodegenInvalidMappings(detail)
+            | Kind::CodegenMissingRuntimeRole(detail)
+            | Kind::CodegenOpenConstantTerm(detail)
+            | Kind::CodegenInvalidArrayLength(detail)
+            | Kind::CodegenRecursiveValueType(detail)
+            | Kind::CodegenUnresolvedType(detail)
+            | Kind::CodegenUnsizedTypeByValue(detail)
+            | Kind::CodegenUnsupportedType(detail)
+            | Kind::CodegenMissingHelperInstance(detail)
+            | Kind::CodegenLayoutOverflow(detail)
+            | Kind::CodegenInvalidAbiMapping(Some(detail)) => {
+                diagnostic_failure_context(detail.context())
+            }
+            Kind::CodegenBackendNotSelected
+            | Kind::MissingProductRoot
+            | Kind::InvalidEntryResult
+            | Kind::MissingRuntime
+            | Kind::LibraryCleanupRequiresMainThread
+            | Kind::InvalidSymbolName
+            | Kind::EvaluationCancelled
+            | Kind::EvaluationInfrastructure
+            | Kind::EvaluationSemanticValueStoreCreate
+            | Kind::EvaluationConstantCallableBodyUnavailable
+            | Kind::EvaluationConstantCallableRootUnavailable
+            | Kind::EvaluationAtomicRepresentationTypeUnavailable
+            | Kind::EvaluationAtomicRepresentationArgumentsUnavailable
+            | Kind::EvaluationAtomicInitializerArgumentUnavailable
+            | Kind::EvaluationAtomicInitializerResultUnavailable
+            | Kind::EvaluationUninitInitializerResultUnavailable
+            | Kind::EvaluationImportedExecutableTemplateMismatch
+            | Kind::CheckingInfrastructureFailure
+            | Kind::CodegenTargetUnsupportedProfile
+            | Kind::CodegenTargetEmptyTriple
+            | Kind::CodegenTargetEmptyCpu
+            | Kind::CodegenTargetEmptyFeature
+            | Kind::ReachabilityEmptyRoots
+            | Kind::ReachabilityDuplicateInstance
+            | Kind::ReachabilityUndemandedInstance
+            | Kind::ReachabilityIncomplete
+            | Kind::InstanceTemplateMismatch
+            | Kind::InstanceTargetMismatch
+            | Kind::InstanceDependencyTargetMismatch
+            | Kind::UnitEmpty
+            | Kind::UnitDuplicateInstance
+            | Kind::UnitMissingCompatibility
+            | Kind::UnitTargetMismatch
+            | Kind::UnitWorkBoundExceeded
+            | Kind::UnitRecipeMismatch
+            | Kind::ExecutableHostMissingRuntime
+            | Kind::ExecutableHostMissingMainThreadLane
+            | Kind::ExecutableHostMissingProtectedFrameAbi
+            | Kind::StandardLibraryUnavailable
+            | Kind::EmissionBackendDuplicateUnit
+            | Kind::LinkTargetEmptyTriple
+            | Kind::CodegenBackendUnsupportedTarget
+            | Kind::CodegenBackendInvalidConfiguration
+            | Kind::CodegenBackendResourceExhausted
+            | Kind::CodegenBackendGeneratedModuleInvariant
+            | Kind::CodegenBackendUnavailable
+            | Kind::CodegenMissingEntrypoint
+            | Kind::CodegenInvalidAbiMapping(None)
+            | Kind::CodegenInvalidSymbolName => Vec::new(),
         };
 
         Self {

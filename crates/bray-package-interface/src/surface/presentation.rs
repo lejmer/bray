@@ -9,8 +9,9 @@ use bray_symbols::{
 
 use super::{PackageInterfaceSurfaceBuildError, SymbolRelationship};
 
+/// Projects a surface-build failure into its exact locale-neutral diagnostic payload.
 pub fn diagnostic_surface_problem(
-    error: PackageInterfaceSurfaceBuildError,
+    error: &PackageInterfaceSurfaceBuildError,
 ) -> DiagnosticInterfaceSymbolGraphProblem {
     match error {
         PackageInterfaceSurfaceBuildError::NonLibraryProduct => {
@@ -32,22 +33,22 @@ pub fn diagnostic_surface_problem(
         }
         PackageInterfaceSurfaceBuildError::Identity(error) => {
             DiagnosticInterfaceSymbolGraphProblem::SurfaceIdentity(diagnostic_identity_problem(
-                error,
+                *error,
             ))
         }
         PackageInterfaceSurfaceBuildError::RelationshipSymbolOutOfBounds(relationship) => {
             DiagnosticInterfaceSymbolGraphProblem::SurfaceRelationshipSymbolOutOfBounds(
-                diagnostic_relationship(relationship),
+                diagnostic_relationship(*relationship),
             )
         }
         PackageInterfaceSurfaceBuildError::InvalidRelationship(relationship) => {
             DiagnosticInterfaceSymbolGraphProblem::SurfaceInvalidRelationship(
-                diagnostic_relationship(relationship),
+                diagnostic_relationship(*relationship),
             )
         }
         PackageInterfaceSurfaceBuildError::DuplicateRelationshipPosition(relationship) => {
             DiagnosticInterfaceSymbolGraphProblem::SurfaceDuplicateRelationshipPosition(
-                diagnostic_relationship(relationship),
+                diagnostic_relationship(*relationship),
             )
         }
         PackageInterfaceSurfaceBuildError::ExportOwnerOutOfBounds(owner) => {

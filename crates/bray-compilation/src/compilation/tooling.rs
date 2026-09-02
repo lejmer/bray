@@ -633,9 +633,14 @@ impl Compilation {
         cancellation: &CancellationToken,
         priority: QueryPriority,
     ) -> Result<SourceReferenceIndex, FactQueryError> {
-        let source = self
-            .source(source_id)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let source = self.source(source_id).ok_or_else(|| {
+            FactQueryError::from(crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::Source(source_id),
+                crate::compilation::SemanticQueryViolation::Missing(
+                    crate::compilation::SemanticDataKind::SourceSnapshot,
+                ),
+            ))
+        })?;
 
         let graph = self.symbol_graph()?;
         let declarations = self.product_source_graph()?.declarations();
@@ -907,7 +912,14 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<SemanticAvailability<BoundReferenceTarget>, FactQueryError> {
         let Some(node) = bound.view().expression(expression) else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::BoundExpression {
+                    unit: bound.unit(),
+                    expression,
+                },
+                crate::compilation::SemanticQueryViolation::MissingBoundNode(expression.into()),
+            )
+            .into());
         };
 
         let target = match node {
@@ -1088,7 +1100,9 @@ fn recovery_or_unavailable<T>(recovered: bool, value: Option<T>) -> SemanticAvai
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{BoundReferenceTarget, BoundSourceAnchor, BoundUnitKind};
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{
+        DiagnosticEmissionEvaluationFailure, DiagnosticFailureValue, DiagnosticKind,
+    };
     use bray_source::{SourceId, SourceVersion, TextSize};
 
     use super::SemanticAvailability;
@@ -1111,6 +1125,39 @@ mod tests {
         "    let answer: i32 = identity(1);\n",
         "}\n",
     );
+
+    #[test]
+    fn missing_tooling_source_retains_the_requested_source_identity() {
+        let compilation = compilation(SOURCE);
+        let missing = SourceId::new(99);
+
+        let error = compilation
+            .build_source_reference_index(
+                missing,
+                &CancellationToken::new(),
+                QueryPriority::Interactive,
+            )
+            .expect_err("a missing tooling source must fail");
+
+        let DiagnosticEmissionEvaluationFailure::SemanticQuery(failure) =
+            error.diagnostic_evaluation_failure()
+        else {
+            panic!("a missing tooling source must remain a semantic query failure");
+        };
+
+        assert_eq!(failure.category(), "semantic_query_contract_violation");
+        assert_eq!(failure.reason(), "semantic_query_missing_data");
+
+        assert_eq!(
+            failure.context()[1].value(),
+            &DiagnosticFailureValue::Count(99)
+        );
+
+        assert_eq!(
+            failure.context()[2].value(),
+            &DiagnosticFailureValue::Text("source_snapshot".to_owned())
+        );
+    }
 
     #[test]
     fn source_unit_query_does_not_bind_units_from_other_sources() {

@@ -25,8 +25,11 @@ pub use emission::{
     DiagnosticArtifactRequirement, DiagnosticAssemblySyntaxKind,
     DiagnosticCodegenVerificationStage, DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
     DiagnosticEmissionArtifactOperation, DiagnosticLoweringFailure, DiagnosticLoweringFailureKind,
-    DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind,
-    DiagnosticMirUnitBuildFailure, DiagnosticNativeLinkInputFailure,
+    DiagnosticLoweringIdentity, DiagnosticLoweringInputFailure,
+    DiagnosticLoweringInputFailureKind, DiagnosticLoweringRoot,
+    DiagnosticMirUnitBuildFailure, DiagnosticMirUnitBuildFailureContext,
+    DiagnosticMirUnitBuildFailureKind, DiagnosticMirUnitLocalIdentity,
+    DiagnosticNativeLinkInputFailure, DiagnosticNativeProductFailureDetail,
     DiagnosticNativeProductFailureKind, DiagnosticProductKind, DiagnosticSourceConstructKind,
 };
 pub use external::{

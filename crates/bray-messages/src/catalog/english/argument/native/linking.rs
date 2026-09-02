@@ -11,22 +11,97 @@ pub(super) fn format_english_native_link_input_failure(
             path,
             artifact_kind,
         } => format!(
-            "standard-library artifact '{path}' has unsupported native link category '{artifact_kind}'"
+            "standard-library artifact '{}' has unsupported native link category '{}'",
+            path.display(),
+            english_standard_library_artifact_kind(artifact_kind),
         ),
         Failure::InvalidStandardLibraryArtifact {
             path,
             input_kind,
             cause,
         } => format!(
-            "standard-library artifact '{path}' could not form {input_kind} link input: {cause}"
+            "standard-library artifact '{}' could not form {} link input because {}",
+            path.display(),
+            english_link_input_kind(input_kind),
+            english_link_input_cause(cause),
         ),
         Failure::InvalidRequirement {
             name,
             link_kind,
-            provenance,
-        } => format!(
-            "native link requirement '{name}' of category '{link_kind}' from '{provenance}' is invalid"
-        ),
+            provenance_kind,
+            provenance_identity,
+        } => {
+            let provider = provenance_identity.as_ref().map_or_else(
+                || english_link_provenance(provenance_kind).to_owned(),
+                |identity| format!("{} '{identity}'", english_link_provenance(provenance_kind)),
+            );
+
+            format!(
+                "native link requirement '{name}' for {} from {provider} is invalid",
+                english_link_kind(link_kind),
+            )
+        }
+    }
+}
+
+fn english_standard_library_artifact_kind(kind: &str) -> &'static str {
+    match kind {
+        "package_interface" => "package interface",
+        "package_implementation" => "package implementation",
+        "dependency_metadata" => "dependency metadata",
+        "relocatable_object" => "relocatable object",
+        "static_library" => "static library",
+        "platform_service_library" => "platform service library",
+        "optimization_archive" => "optimization archive",
+        "shared_library" => "shared library",
+        "runtime_artifact" => "runtime artifact",
+        _ => "unknown artifact",
+    }
+}
+
+fn english_link_input_kind(kind: &str) -> &'static str {
+    match kind {
+        "relocatable_object" => "a relocatable-object",
+        "bitcode" => "an LLVM bitcode",
+        "archive" => "an archive",
+        "startup_object" => "a startup-object",
+        "termination_object" => "a termination-object",
+        "runtime_component" => "a runtime-component",
+        "native_library" => "a native-library",
+        "framework" => "a platform-framework",
+        _ => "an unknown",
+    }
+}
+
+fn english_link_input_cause(cause: &str) -> &'static str {
+    match cause {
+        "empty_file_path" => "its file path is empty",
+        "source_kind_mismatch" => "its source does not match the required input category",
+        "whole_archive_requires_archive" => "whole-archive treatment requires an archive",
+        _ => "its input contract is invalid",
+    }
+}
+
+fn english_link_provenance(provenance: &str) -> &'static str {
+    match provenance {
+        "product" => "the product",
+        "package" => "package",
+        "platform_provider" => "platform provider",
+        "target_profile" => "the target profile",
+        "runtime" => "runtime",
+        "runtime_dependency" => "runtime dependency",
+        "host_configuration" => "the host configuration",
+        _ => "an unknown provider",
+    }
+}
+
+fn english_link_kind(kind: &str) -> &'static str {
+    match kind {
+        "dynamic" => "dynamic linking",
+        "static" => "static linking",
+        "system" => "system-library linking",
+        "framework" => "platform-framework linking",
+        _ => "an unknown link category",
     }
 }
 
@@ -112,5 +187,39 @@ pub(crate) fn format_english_link_requirement(requirement: &DiagnosticLinkRequir
         Requirement::StartupPlatformCompilerDriver => "platform compiler-driver startup".to_owned(),
         Requirement::RuntimeExplicitInput => "explicit runtime input".to_owned(),
         Requirement::OptimizationThinLto => "LLVM ThinLTO".to_owned(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::DiagnosticNativeLinkInputFailure;
+
+    use super::format_english_native_link_input_failure;
+
+    #[test]
+    fn native_link_input_failures_translate_machine_keys() {
+        let artifact = format_english_native_link_input_failure(
+            &DiagnosticNativeLinkInputFailure::InvalidStandardLibraryArtifact {
+                path: "lib.a".into(),
+                input_kind: "relocatable_object",
+                cause: "empty_file_path",
+            },
+        );
+
+        let requirement = format_english_native_link_input_failure(
+            &DiagnosticNativeLinkInputFailure::InvalidRequirement {
+                name: "ssl".to_owned(),
+                link_kind: "dynamic".to_owned(),
+                provenance_kind: "platform_provider",
+                provenance_identity: Some("system".to_owned()),
+            },
+        );
+
+        assert!(artifact.contains("lib.a"));
+        assert!(!artifact.contains("relocatable_object"));
+        assert!(!artifact.contains("empty_file_path"));
+        assert!(requirement.contains("ssl"));
+        assert!(requirement.contains("system"));
+        assert!(!requirement.contains("platform_provider"));
     }
 }

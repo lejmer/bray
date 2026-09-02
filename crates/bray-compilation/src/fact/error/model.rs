@@ -12,6 +12,110 @@ pub struct FactCycle {
     facts: Box<[CompilationFactKey]>,
 }
 
+/// Exact retained values for one imported executable template mismatch.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct ImportedExecutableTemplateMismatch {
+    interface: bray_symbols::ImportedInterfaceId,
+    symbol: bray_symbols::InterfaceSymbolId,
+    template: bray_ir::MirExecutableTemplateId,
+    expected_unit: bray_ir::MirUnitId,
+    actual_unit: bray_ir::MirUnitId,
+    expected_key: bray_ir::MirUnitKey,
+    actual_key: bray_ir::MirUnitKey,
+    expected_target: bray_ir::MirTargetContract,
+    actual_target: bray_ir::MirTargetContract,
+}
+
+/// One exact missing relationship in imported-interface query state.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum ImportedQueryFailure {
+    MissingDependencyInput(bray_symbols::ImportedInterfaceId),
+    MissingLoadedInterface(bray_symbols::ImportedInterfaceId),
+    MissingLoadedImplementation(bray_symbols::ImportedInterfaceId),
+    MissingLoadedSurface(bray_symbols::ImportedInterfaceId),
+    MissingLoadedSemanticGraph(bray_symbols::ImportedInterfaceId),
+    MissingSemanticGraph(crate::fact::ImportedSemanticRecordKey),
+    MissingInterfaceSurface(crate::fact::ImportedSemanticRecordKey),
+    MissingInterfaceSymbol(crate::fact::ImportedSemanticRecordKey),
+    MissingImportedSymbol(crate::fact::ImportedSemanticRecordKey),
+    MissingLoadedInterfaceViews(bray_symbols::ImportedInterfaceId),
+    MissingCurrentInterface(bray_symbols::ImportedInterfaceId),
+    MissingResolvedSymbol(bray_symbols::ImportedSemanticAddress),
+    ExecutableTemplateMismatch(Box<ImportedExecutableTemplateMismatch>),
+    InterfaceCapacityExceeded(usize),
+}
+
+impl ImportedExecutableTemplateMismatch {
+    pub(crate) fn new(
+        interface: bray_symbols::ImportedInterfaceId,
+        symbol: bray_symbols::InterfaceSymbolId,
+        template: bray_ir::MirExecutableTemplateId,
+        expected_unit: bray_ir::MirUnitId,
+        actual_unit: bray_ir::MirUnitId,
+        expected_key: bray_ir::MirUnitKey,
+        actual_key: bray_ir::MirUnitKey,
+        expected_target: bray_ir::MirTargetContract,
+        actual_target: bray_ir::MirTargetContract,
+    ) -> Self {
+        Self {
+            interface,
+            symbol,
+            template,
+            expected_unit,
+            actual_unit,
+            expected_key,
+            actual_key,
+            expected_target,
+            actual_target,
+        }
+    }
+
+    /// Returns the loaded interface containing the imported declaration.
+    pub const fn interface(&self) -> bray_symbols::ImportedInterfaceId {
+        self.interface
+    }
+
+    /// Returns the interface-local declaration whose executable template was inspected.
+    pub const fn symbol(&self) -> bray_symbols::InterfaceSymbolId {
+        self.symbol
+    }
+
+    /// Returns the executable template whose retained contract was inconsistent.
+    pub const fn template(&self) -> bray_ir::MirExecutableTemplateId {
+        self.template
+    }
+
+    /// Returns the MIR unit required by the imported executable address.
+    pub const fn expected_unit(&self) -> bray_ir::MirUnitId {
+        self.expected_unit
+    }
+
+    /// Returns the MIR unit retained by the executable template.
+    pub const fn actual_unit(&self) -> bray_ir::MirUnitId {
+        self.actual_unit
+    }
+
+    /// Returns the MIR unit key required by the imported executable address.
+    pub const fn expected_key(&self) -> &bray_ir::MirUnitKey {
+        &self.expected_key
+    }
+
+    /// Returns the MIR unit key retained by the executable template.
+    pub const fn actual_key(&self) -> &bray_ir::MirUnitKey {
+        &self.actual_key
+    }
+
+    /// Returns the MIR target contract required by the imported executable address.
+    pub const fn expected_target(&self) -> &bray_ir::MirTargetContract {
+        &self.expected_target
+    }
+
+    /// Returns the MIR target contract retained by the executable template.
+    pub const fn actual_target(&self) -> &bray_ir::MirTargetContract {
+        &self.actual_target
+    }
+}
+
 impl FactCycle {
     pub(crate) fn new(facts: impl Into<Box<[CompilationFactKey]>>) -> Self {
         Self {
@@ -67,14 +171,14 @@ fn canonical_cycle(facts: Box<[CompilationFactKey]>) -> Box<[CompilationFactKey]
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::DiagnosticSemanticValueFailure;
+    use bray_diagnostics::{DiagnosticFailureValue, DiagnosticSemanticValueFailure};
     use bray_source::{SourceId, SourceVersion};
     use bray_symbols::{
         FunctionSymbolId, GenericOwnerId, GenericSubstitutionShapeError, SemanticValueKind,
         SemanticValueStore, SemanticValueStoreCreateError, SemanticValueStoreError, SymbolId,
     };
 
-    use super::{CompilationFactKey, FactCycle, FactQueryError};
+    use super::{CompilationFactKey, FactCycle, FactQueryError, ImportedQueryFailure};
     use crate::compilation::{
         ProductDataKind, ProductQueryContext, ProductQueryError, ProductQueryErrorKind,
         ProductQueryFailure, ProductSynchronizationComponent,
@@ -90,6 +194,52 @@ mod tests {
         let cycle = FactCycle::new([prefix, syntax.clone(), declaration.clone(), syntax.clone()]);
 
         assert_eq!(cycle.facts(), &[declaration.clone(), syntax, declaration]);
+
+        let diagnostic = crate::fact::diagnostic_cycle_failure(&cycle);
+
+        assert_eq!(diagnostic.reason(), "cycle");
+
+        assert_eq!(
+            diagnostic.context()[0].value(),
+            &DiagnosticFailureValue::TextList(
+                ["declaration_table", "syntax_tree", "declaration_table"]
+                    .map(str::to_owned)
+                    .into(),
+            )
+        );
+
+        assert!(matches!(
+            diagnostic.context()[1].value(),
+            DiagnosticFailureValue::IdentityList(values) if values.len() == 3
+        ));
+    }
+
+    #[test]
+    fn public_fact_errors_render_exact_lower_layer_causes() {
+        let codegen =
+            FactQueryError::CodegenTarget(bray_codegen::CodegenTargetBuildError::EmptyTriple)
+                .to_string();
+
+        let interface = FactQueryError::PackageInterface(Box::new(
+            bray_package_interface::InterfaceValidationError::InvalidMagic {
+                actual: *b"not-bray",
+            },
+        ))
+        .to_string();
+
+        assert!(codegen.contains("EmptyTriple"));
+        assert!(interface.contains("InvalidMagic"));
+        assert!(interface.contains("110, 111, 116, 45, 98, 114, 97, 121"));
+    }
+
+    #[test]
+    fn imported_query_failures_keep_rare_payloads_out_of_query_stack_frames() {
+        assert!(std::mem::size_of::<ImportedQueryFailure>() <= 4 * std::mem::size_of::<usize>());
+    }
+
+    #[test]
+    fn fact_query_failures_keep_rare_payloads_out_of_query_stack_frames() {
+        assert!(std::mem::size_of::<FactQueryError>() <= 8 * std::mem::size_of::<usize>());
     }
 
     #[test]
@@ -282,6 +432,14 @@ pub enum FactQueryError {
     Cycle(FactCycle),
     /// The fact request encountered a compiler-domain infrastructure or invariant failure.
     InfrastructureFailure,
+    /// Immutable symbol-graph construction violated an exact structural contract.
+    SymbolGraph(bray_symbols::SymbolGraphBuildError),
+    /// Selected native target construction violated an exact target contract.
+    CodegenTarget(bray_codegen::CodegenTargetBuildError),
+    /// Imported package implementation access violated its encoded interface contract.
+    PackageInterface(Box<bray_package_interface::InterfaceValidationError>),
+    /// Imported-interface query state omitted an exact required relationship.
+    ImportedQuery(ImportedQueryFailure),
     /// The compiler query runtime could not preserve its coordination contract.
     Runtime(FactRuntimeError),
     /// The compilation could not allocate its canonical semantic-value store identity.
@@ -302,8 +460,6 @@ pub enum FactQueryError {
     AtomicInitializerResultUnavailable,
     /// The uninitialized-storage initializer result cannot be retained as a compile-time value.
     UninitInitializerResultUnavailable,
-    /// An imported native operation does not match its compiled definition.
-    ImportedExecutableTemplateMismatch,
     /// Semantic-context construction found an inconsistent bound unit.
     SemanticUnitContext(SemanticUnitContextError),
     /// Semantic checking could not complete because a typed dependency was unavailable.
@@ -318,6 +474,16 @@ pub enum FactQueryError {
     LoweringInput(LocatedLoweringFailure<LoweringInputError>),
     /// MIR lowering violated a checked semantic or MIR construction contract.
     Lowering(LocatedLoweringFailure<LoweringError>),
+}
+
+impl FactQueryError {
+    /// Converts this query failure into its exact locale-neutral diagnostic payload.
+    ///
+    pub fn diagnostic_evaluation_failure(
+        &self,
+    ) -> bray_diagnostics::DiagnosticEmissionEvaluationFailure {
+        crate::compilation::diagnostic_evaluation_failure(self)
+    }
 }
 
 impl From<std::convert::Infallible> for FactQueryError {
@@ -353,6 +519,18 @@ impl From<crate::compilation::ProductQueryFailure> for FactQueryError {
 impl From<crate::compilation::ForeignQueryFailure> for FactQueryError {
     fn from(error: crate::compilation::ForeignQueryFailure) -> Self {
         Self::Foreign(error.into())
+    }
+}
+
+impl From<ImportedQueryFailure> for FactQueryError {
+    fn from(error: ImportedQueryFailure) -> Self {
+        Self::ImportedQuery(error)
+    }
+}
+
+impl From<bray_package_interface::InterfaceValidationError> for FactQueryError {
+    fn from(error: bray_package_interface::InterfaceValidationError) -> Self {
+        Self::PackageInterface(Box::new(error))
     }
 }
 
@@ -414,6 +592,18 @@ impl std::fmt::Display for FactQueryError {
             Self::InfrastructureFailure => {
                 formatter.write_str("fact evaluation encountered an infrastructure failure")
             }
+            Self::SymbolGraph(error) => {
+                write!(formatter, "symbol graph construction failed: {error}")
+            }
+            Self::CodegenTarget(error) => {
+                write!(formatter, "native target construction failed: {error:?}")
+            }
+            Self::PackageInterface(error) => {
+                write!(formatter, "package interface validation failed: {error:?}")
+            }
+            Self::ImportedQuery(error) => {
+                write!(formatter, "imported interface query failed: {error:?}")
+            }
             Self::Runtime(error) => write!(formatter, "{error}"),
             Self::SemanticValueStoreCreate(error) => {
                 write!(formatter, "semantic value store creation failed: {error:?}")
@@ -442,9 +632,6 @@ impl std::fmt::Display for FactQueryError {
             }
             Self::UninitInitializerResultUnavailable => formatter
                 .write_str("the uninitialized-storage initializer result cannot be retained"),
-            Self::ImportedExecutableTemplateMismatch => {
-                formatter.write_str("an imported native operation has a mismatched template")
-            }
             Self::SemanticUnitContext(error) => {
                 write!(formatter, "semantic unit context failed: {error:?}")
             }

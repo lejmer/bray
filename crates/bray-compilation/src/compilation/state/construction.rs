@@ -389,64 +389,10 @@ impl Compilation {
     where
         T: Send,
     {
-        match self.state.fact_runtime.map_indexed(len, operation) {
-            Ok(values) => values,
-            Err(FactQueryError::Cancelled) => {
-                panic!("uncancellable scheduled queries were unexpectedly cancelled")
-            }
-            Err(FactQueryError::Cycle(cycle)) => {
-                panic!("scheduled query dependencies formed a cycle: {cycle:?}")
-            }
-            Err(FactQueryError::InfrastructureFailure) => {
-                panic!("scheduled query infrastructure failed")
-            }
-            Err(FactQueryError::Runtime(error)) => {
-                panic!("scheduled query fact runtime failed: {error:?}")
-            }
-            Err(
-                error @ (FactQueryError::SemanticValueStoreCreate(_)
-                | FactQueryError::SemanticValueStore(_)),
-            ) => {
-                panic!("scheduled semantic-value operation failed: {error}")
-            }
-            Err(FactQueryError::BindingDependencyUnavailable) => {
-                panic!("scheduled query could not obtain a binding dependency")
-            }
-            Err(FactQueryError::Binding(error)) => {
-                panic!("scheduled query encountered a binding failure: {error:?}")
-            }
-            Err(
-                error @ (FactQueryError::AtomicInitializerArgumentUnavailable
-                | FactQueryError::AtomicInitializerResultUnavailable
-                | FactQueryError::UninitInitializerResultUnavailable
-                | FactQueryError::ConstantCallableBodyUnavailable
-                | FactQueryError::ConstantCallableRootUnavailable
-                | FactQueryError::ImportedExecutableTemplateMismatch),
-            ) => {
-                panic!("scheduled query failed: {error}")
-            }
-            Err(FactQueryError::SemanticUnitContext(error)) => {
-                panic!("scheduled semantic unit context failed: {error:?}")
-            }
-            Err(FactQueryError::SemanticQuery(error)) => {
-                panic!("scheduled semantic query failed: {error}")
-            }
-            Err(FactQueryError::Product(error)) => {
-                panic!("scheduled product query failed: {error:?}")
-            }
-            Err(FactQueryError::Foreign(error)) => {
-                panic!("scheduled foreign query failed: {error:?}")
-            }
-            Err(FactQueryError::CheckerInfrastructure(error)) => {
-                panic!("scheduled checker infrastructure failed: {error:?}")
-            }
-            Err(FactQueryError::LoweringInput(error)) => {
-                panic!("scheduled lowering input validation failed: {error:?}")
-            }
-            Err(FactQueryError::Lowering(error)) => {
-                panic!("scheduled MIR lowering failed: {error:?}")
-            }
-        }
+        crate::compilation::boundary::expect_uncancelled_query(
+            "map_queries",
+            self.state.fact_runtime.map_indexed(len, operation),
+        )
     }
 
     /// Returns the merged declaration table for this compilation.
@@ -474,7 +420,7 @@ impl Compilation {
                     self.syntax_tree(),
                     provider,
                 )
-                .map_err(|_| FactQueryError::InfrastructureFailure)
+                .map_err(FactQueryError::SymbolGraph)
             },
         )
         .as_ref()
@@ -496,7 +442,7 @@ impl Compilation {
                     self.syntax_tree(),
                     provider,
                 )
-                .map_err(|_| FactQueryError::InfrastructureFailure)
+                .map_err(FactQueryError::SymbolGraph)
             },
         )
         .as_ref()
@@ -535,69 +481,15 @@ impl Compilation {
     where
         T: std::hash::Hash + Send,
     {
-        match cache.get_or_compute(
-            &self.state.fact_runtime,
-            key,
-            &self.state.cancellation,
-            || Ok(compute()),
-        ) {
-            Ok(value) => value,
-            Err(FactQueryError::Cancelled) => {
-                panic!("uncancellable compilation query was unexpectedly cancelled")
-            }
-            Err(FactQueryError::Cycle(cycle)) => {
-                panic!("acyclic compilation query dependency formed a cycle: {cycle:?}")
-            }
-            Err(FactQueryError::InfrastructureFailure) => {
-                panic!("compilation query infrastructure failed")
-            }
-            Err(FactQueryError::Runtime(error)) => {
-                panic!("compilation query fact runtime failed: {error:?}")
-            }
-            Err(
-                error @ (FactQueryError::SemanticValueStoreCreate(_)
-                | FactQueryError::SemanticValueStore(_)),
-            ) => {
-                panic!("compilation semantic-value operation failed: {error}")
-            }
-            Err(FactQueryError::BindingDependencyUnavailable) => {
-                panic!("compilation query could not obtain a binding dependency")
-            }
-            Err(FactQueryError::Binding(error)) => {
-                panic!("compilation query encountered a binding failure: {error:?}")
-            }
-            Err(
-                error @ (FactQueryError::AtomicInitializerArgumentUnavailable
-                | FactQueryError::AtomicInitializerResultUnavailable
-                | FactQueryError::UninitInitializerResultUnavailable
-                | FactQueryError::ConstantCallableBodyUnavailable
-                | FactQueryError::ConstantCallableRootUnavailable
-                | FactQueryError::ImportedExecutableTemplateMismatch),
-            ) => {
-                panic!("compilation query failed: {error}")
-            }
-            Err(FactQueryError::SemanticUnitContext(error)) => {
-                panic!("semantic unit context failed: {error:?}")
-            }
-            Err(FactQueryError::SemanticQuery(error)) => {
-                panic!("compilation semantic query failed: {error}")
-            }
-            Err(FactQueryError::Product(error)) => {
-                panic!("compilation product query failed: {error:?}")
-            }
-            Err(FactQueryError::Foreign(error)) => {
-                panic!("compilation foreign query failed: {error:?}")
-            }
-            Err(FactQueryError::CheckerInfrastructure(error)) => {
-                panic!("semantic checker infrastructure failed: {error:?}")
-            }
-            Err(FactQueryError::LoweringInput(error)) => {
-                panic!("lowering input validation failed: {error:?}")
-            }
-            Err(FactQueryError::Lowering(error)) => {
-                panic!("MIR lowering failed: {error:?}")
-            }
-        }
+        crate::compilation::boundary::expect_uncancelled_query(
+            "evaluate_query",
+            cache.get_or_compute(
+                &self.state.fact_runtime,
+                key,
+                &self.state.cancellation,
+                || Ok(compute()),
+            ),
+        )
     }
 
     pub(in crate::compilation) fn evaluate_frozen_query<'a, T>(

@@ -2,6 +2,7 @@ use super::super::source::{format_english_artifact_digest, format_english_artifa
 use super::checker::format_english_checker_failure;
 use super::foreign_query::format_english_foreign_query_failure;
 use super::linking::format_english_native_link_input_failure;
+use super::product_failure::native_product_failure_is_internal;
 use super::product_query::format_english_product_query_failure;
 use bray_diagnostics::DiagnosticArtifactDigest;
 
@@ -26,18 +27,35 @@ pub(crate) fn format_unit_failure(message: &str, unit: &DiagnosticArtifactDigest
 pub(crate) fn format_english_emission_evaluation_failure(
     failure: &bray_diagnostics::DiagnosticEmissionEvaluationFailure,
 ) -> String {
+    let message = format_english_emission_evaluation_failure_detail(failure);
+
+    if matches!(
+        failure,
+        bray_diagnostics::DiagnosticEmissionEvaluationFailure::Cancelled
+    ) {
+        message
+    } else {
+        super::format_internal_compiler_error(message)
+    }
+}
+
+fn format_english_emission_evaluation_failure_detail(
+    failure: &bray_diagnostics::DiagnosticEmissionEvaluationFailure,
+) -> String {
     use bray_diagnostics::DiagnosticEmissionEvaluationFailure as Failure;
 
     let message = match failure {
-        Failure::Cycle => "a dependency cycle occurred during compiler evaluation",
-        Failure::Infrastructure => "compiler evaluation state is inconsistent",
+        Failure::Cancelled => "evaluation was cancelled",
+        Failure::Cycle(_) => "evaluation encountered a dependency cycle",
+        Failure::Infrastructure => "evaluation state is inconsistent",
+        Failure::Runtime(failure) => return format_english_fact_runtime_failure(failure),
         Failure::SemanticValueStoreCreate => {
-            "process-local semantic-value store identity capacity was exhausted during compiler evaluation"
+            "process-local semantic-value store identity capacity was exhausted during evaluation"
         }
         Failure::SemanticValue(failure) => {
             return format_english_semantic_value_failure(*failure);
         }
-        Failure::Binding(failure) => return format_english_binding_failure(*failure),
+        Failure::Binding(failure) => return format_english_binding_failure(failure),
         Failure::LoweringInput(failure) => return format_english_lowering_input_failure(*failure),
         Failure::Lowering(failure) => return format_english_lowering_failure(*failure),
         Failure::ConstantCallableBodyUnavailable => {
@@ -64,11 +82,11 @@ pub(crate) fn format_english_emission_evaluation_failure(
         Failure::ImportedExecutableTemplateMismatch => {
             "an imported native operation does not match its compiled definition"
         }
-        Failure::SemanticContext => {
+        Failure::SemanticContext(_) => {
             "the selected program element has inconsistent checking context"
         }
         Failure::SemanticQuery(failure) => {
-            return format_english_semantic_query_failure(*failure);
+            return format_english_semantic_query_failure(failure);
         }
         Failure::Product(failure) => return format_english_product_query_failure(failure),
         Failure::Foreign(failure) => return format_english_foreign_query_failure(failure),
@@ -79,25 +97,24 @@ pub(crate) fn format_english_emission_evaluation_failure(
 }
 
 fn format_english_semantic_query_failure(
-    failure: bray_diagnostics::DiagnosticSemanticQueryFailure,
+    _failure: &bray_diagnostics::DiagnosticSemanticQueryFailure,
 ) -> String {
-    use bray_diagnostics::DiagnosticSemanticQueryFailure as Failure;
-
-    let detail = match failure {
-        Failure::ContractViolation => "found inconsistent declaration information",
-        Failure::CallableSignature => "found an inconsistent callable signature",
-        Failure::GenericSubstitution => "found inconsistent generic arguments",
-        Failure::BoundUnit => "found an inconsistent bound source unit",
-        Failure::Implementation => "found inconsistent implementation evidence",
-        Failure::CheckedConstantTerms => "found inconsistent checked constant terms",
-        Failure::TypeSurface => "found inconsistent type-member information",
-        Failure::PreparsedSyntax => "found inconsistent generated syntax",
-    };
-
-    super::format_internal_compiler_error(detail)
+    super::format_internal_compiler_error("semantic analysis violated an internal contract")
 }
 
 pub(crate) fn format_english_native_product_failure(
+    kind: &bray_diagnostics::DiagnosticNativeProductFailureKind,
+) -> String {
+    let message = format_english_native_product_failure_detail(kind);
+
+    if native_product_failure_is_internal(kind) {
+        super::format_internal_compiler_error(message)
+    } else {
+        message
+    }
+}
+
+fn format_english_native_product_failure_detail(
     kind: &bray_diagnostics::DiagnosticNativeProductFailureKind,
 ) -> String {
     use bray_diagnostics::DiagnosticNativeProductFailureKind as Kind;
@@ -113,10 +130,12 @@ pub(crate) fn format_english_native_product_failure(
         Kind::InvalidNativeLinkInput(failure) => {
             return format_english_native_link_input_failure(failure);
         }
-        Kind::EvaluationCycle => "a dependency cycle occurred during compiler evaluation",
+        Kind::EvaluationCancelled => "product construction was cancelled",
+        Kind::EvaluationCycle(_) => "evaluation encountered a dependency cycle",
         Kind::EvaluationInfrastructure => {
-            "product construction failed because compiler evaluation state is inconsistent"
+            "product construction failed because evaluation state is inconsistent"
         }
+        Kind::EvaluationRuntime(failure) => return format_english_fact_runtime_failure(failure),
         Kind::EvaluationSemanticValueStoreCreate => {
             "process-local semantic-value store identity capacity was exhausted during product construction"
         }
@@ -124,7 +143,7 @@ pub(crate) fn format_english_native_product_failure(
             return format_english_semantic_value_failure(*failure);
         }
         Kind::EvaluationBinding(failure) => {
-            return format_english_binding_failure(*failure);
+            return format_english_binding_failure(failure);
         }
         Kind::EvaluationLoweringInput(failure) => {
             return format_english_lowering_input_failure(*failure);
@@ -154,7 +173,10 @@ pub(crate) fn format_english_native_product_failure(
         Kind::EvaluationImportedExecutableTemplateMismatch => {
             "an imported native operation does not match its compiled definition"
         }
-        Kind::SemanticContextFailure => "a program element has inconsistent checking context",
+        Kind::SemanticContextFailure(_) => "a program element has inconsistent checking context",
+        Kind::EvaluationSemanticQuery(failure) => {
+            return format_english_semantic_query_failure(failure);
+        }
         Kind::EvaluationProduct(failure) => return format_english_product_query_failure(failure),
         Kind::EvaluationForeign(failure) => return format_english_foreign_query_failure(failure),
         Kind::CheckingInfrastructureFailure => "semantic checking could not complete",
@@ -202,21 +224,21 @@ pub(crate) fn format_english_native_product_failure(
         Kind::UnitRecipeMismatch => {
             "a reconstructed native-code work item differs from its original request"
         }
-        Kind::PartitionMissingCompatibility => {
+        Kind::PartitionMissingCompatibility(_) => {
             "a compiled program item lacks native-code grouping compatibility"
         }
-        Kind::PartitionInvalidUnit => "native-code grouping produced an invalid work item",
-        Kind::GeneratedHostMirInvalid => "the generated executable host is invalid",
-        Kind::ExecutableHostDuplicateRole => {
+        Kind::PartitionInvalidUnit(_) => "native-code grouping produced an invalid work item",
+        Kind::GeneratedHostMirInvalid(_) => "the generated executable host is invalid",
+        Kind::ExecutableHostDuplicateRole(_) => {
             "the executable host binds one runtime role more than once"
         }
         Kind::ExecutableHostMissingRuntime => {
             "the executable host requires a runtime that was not selected"
         }
-        Kind::ExecutableHostRuntimeOwnedBinding => {
+        Kind::ExecutableHostRuntimeOwnedBinding(_) => {
             "the executable host attempts to own a runtime-owned binding"
         }
-        Kind::ExecutableHostIncompatibleRuntime => {
+        Kind::ExecutableHostIncompatibleRuntime(_) => {
             "the selected runtime is incompatible with the executable host"
         }
         Kind::ExecutableHostMissingMainThreadLane => {
@@ -228,56 +250,89 @@ pub(crate) fn format_english_native_product_failure(
         Kind::ExecutableHostMissingProtectedFrameAbi => {
             "the executable host lacks the required protected-frame ABI"
         }
-        Kind::ExecutableHostMissingRole => "the executable host lacks a required runtime role",
-        Kind::RuntimeSelectionIncompatible => {
+        Kind::ExecutableHostMissingRole(_) => "the executable host lacks a required runtime role",
+        Kind::RuntimeSelectionIncompatible(_) => {
             "the selected runtime is incompatible with the product"
         }
-        Kind::RuntimeSelectionMissingRoleOwner => {
+        Kind::RuntimeSelectionMissingRoleOwner(_) => {
             "the selected runtime has no owner for a required ABI role"
         }
-        Kind::RuntimeSelectionMissingCapabilityOwner => {
+        Kind::RuntimeSelectionMissingCapabilityOwner(_) => {
             "the selected runtime has no owner for a required capability"
         }
-        Kind::RuntimeSelectionUnreadableArchive => "a selected runtime archive cannot be read",
-        Kind::RuntimeSelectionInvalidArchive => "a selected runtime archive is invalid",
-        Kind::RuntimeSelectionArchiveDigestMismatch => {
+        Kind::RuntimeSelectionUnreadableArchive(_) => "a selected runtime archive cannot be read",
+        Kind::RuntimeSelectionInvalidArchive(_) => "a selected runtime archive is invalid",
+        Kind::RuntimeSelectionArchiveDigestMismatch(_) => {
             "a selected runtime archive does not match its declared digest"
         }
         Kind::StandardLibraryUnavailable => {
             "the configured standard library cannot supply a required native artifact"
         }
-        Kind::EmissionBackendDuplicateUnit => {
-            "the native-code generator contains a duplicate work item"
-        }
+        Kind::EmissionBackendDuplicateUnit => "native-code work contains a duplicate work item",
         Kind::LinkTargetEmptyTriple => "the native link target has an empty target triple",
+        Kind::CodegenBackendUnsupportedTarget => {
+            "native code generation is unavailable for the selected target"
+        }
+        Kind::CodegenBackendUnsupportedArtifact(_) => {
+            "native code generation cannot produce a requested artifact"
+        }
+        Kind::CodegenBackendInvalidConfiguration => {
+            "native-code configuration is internally inconsistent"
+        }
+        Kind::CodegenBackendResourceExhausted => {
+            "native code generation exceeded an available resource budget"
+        }
+        Kind::CodegenBackendLibraryFailure(_) => {
+            "backend-library processing failed for valid native-code input"
+        }
+        Kind::CodegenBackendToolFailure(_) => {
+            "native code generation received an unsuccessful support-program result"
+        }
+        Kind::CodegenBackendGeneratedModuleInvariant => {
+            "generated native-code input violated an internal module contract"
+        }
+        Kind::CodegenBackendRejectedModule(_) => {
+            "internally generated input did not satisfy backend validation"
+        }
+        Kind::CodegenBackendArtifactConstruction(_) => {
+            "a requested native artifact could not be constructed"
+        }
         Kind::CodegenBackendUnavailable => "no native-code generator is available",
-        Kind::CodegenInvalidRequest => "the code generation request is internally inconsistent",
-        Kind::CodegenMirUnavailable => "the program is not ready for native code generation",
+        Kind::CodegenInvalidRequest(_) => "the code generation request is internally inconsistent",
+        Kind::CodegenMirUnavailable(_) => "the program is not ready for native code generation",
         Kind::CodegenMissingEntrypoint => "the product has no selected entrypoint",
-        Kind::CodegenInvalidInstance => "a compiled program item is invalid",
-        Kind::CodegenInvalidUnit => "a native-code work item is invalid",
-        Kind::CodegenUnitMismatch => "a native-code work item differs from its original request",
-        Kind::CodegenInvalidHostMir => "generated executable startup code is invalid",
-        Kind::CodegenInvalidLifecycleMir => "generated lifecycle code is invalid",
-        Kind::CodegenInvalidMappings => {
+        Kind::CodegenInvalidInstance(_) => "a compiled program item is invalid",
+        Kind::CodegenInvalidUnit(_) => "a native-code work item is invalid",
+        Kind::CodegenUnitMismatch(_) => "a native-code work item differs from its original request",
+        Kind::CodegenInvalidHostMir(_) => "generated executable startup code is invalid",
+        Kind::CodegenInvalidLifecycleMir(_) => "generated lifecycle code is invalid",
+        Kind::CodegenInvalidMappings(_) => {
             "required native-code metadata is incomplete or inconsistent"
         }
-        Kind::CodegenMissingRuntimeRole => "a required runtime ABI role has no selected binding",
-        Kind::CodegenOpenConstantTerm => "a compiled constant still contains unresolved parameters",
-        Kind::CodegenInvalidArrayLength => "a checked array length has no integer value",
-        Kind::CodegenRecursiveValueType => "a value type contains itself without indirection",
-        Kind::CodegenUnresolvedType => "a required type is still unresolved",
-        Kind::CodegenUnsizedTypeByValue => "an unsized type is used by value",
-        Kind::CodegenInvalidAbiMapping => "a callable ABI mapping is invalid",
-        Kind::CodegenUnsupportedType => {
+        Kind::CodegenMissingRuntimeRole(_) => "a required runtime ABI role has no selected binding",
+        Kind::CodegenOpenConstantTerm(_) => {
+            "a compiled constant still contains unresolved parameters"
+        }
+        Kind::CodegenInvalidArrayLength(_) => "a checked array length has no integer value",
+        Kind::CodegenRecursiveValueType(_) => "a value type contains itself without indirection",
+        Kind::CodegenUnresolvedType(_) => "a required type is still unresolved",
+        Kind::CodegenUnsizedTypeByValue(_) => "an unsized type is used by value",
+        Kind::CodegenInvalidAbiMapping(_) => "a callable ABI mapping is invalid",
+        Kind::CodegenUnsupportedType(_) => {
             "the native-code generator cannot represent a required type"
         }
-        Kind::CodegenMissingHelperInstance => "a required generated helper is missing",
-        Kind::CodegenLayoutOverflow => "a required type layout exceeds the selected target",
+        Kind::CodegenMissingHelperInstance(_) => "a required generated helper is missing",
+        Kind::CodegenLayoutOverflow(_) => "a required type layout exceeds the selected target",
         Kind::CodegenInvalidSymbolName => "a generated binary symbol name is not representable",
     };
 
     message.to_owned()
+}
+
+fn format_english_fact_runtime_failure(
+    _failure: &bray_diagnostics::DiagnosticFactRuntimeFailure,
+) -> String {
+    super::format_internal_compiler_error("evaluation state violated an internal contract")
 }
 
 fn format_english_lowering_input_failure(
@@ -292,31 +347,31 @@ fn format_english_lowering_input_failure(
         Failure::LiteralTargetWidthMismatch { expected, actual } => format!(
             "generating target-correct code for the highlighted integer because it was interpreted as {actual} bits instead of the target's {expected} bits"
         ),
-        Failure::ForeignInput => {
+        Failure::ForeignInput { .. } => {
             "generating executable code for the highlighted declaration because required analysis belongs to another declaration".to_owned()
         }
-        Failure::InputKindMismatch => {
+        Failure::InputKindMismatch { .. } => {
             "generating executable code for the highlighted declaration because required analysis describes a different kind of declaration".to_owned()
         }
-        Failure::MissingSemanticSelection => {
+        Failure::MissingSemanticSelection(_) => {
             "generating executable code for the highlighted expression because its selected callable or built-in behavior is unavailable".to_owned()
         }
-        Failure::MissingExpressionType => {
+        Failure::MissingExpressionType(_) => {
             "generating executable code for the highlighted expression because the type established for it is unavailable".to_owned()
         }
         Failure::InvalidPatternInput => {
             "generating executable code for the highlighted pattern".to_owned()
         }
-        Failure::InvalidInputContents => {
+        Failure::InvalidInputContents(_) => {
             "generating executable code for the highlighted declaration because required analysis refers to another declaration".to_owned()
         }
         Failure::SemanticValue(failure) => {
             return format_english_semantic_value_failure(failure);
         }
-        Failure::InvalidStorageOperation => {
+        Failure::InvalidStorageOperation(_) => {
             "generating ownership-safe code for the highlighted expression because its read, borrow, move, or write behavior is unavailable".to_owned()
         }
-        Failure::InvalidStorageExit => {
+        Failure::InvalidStorageExit(_) => {
             "generating cleanup code for the highlighted scope because the values it must release are unavailable".to_owned()
         }
         Failure::ExecutableHostRequiresSyntheticInput => {
@@ -334,72 +389,72 @@ fn format_english_lowering_failure(failure: bray_diagnostics::DiagnosticLowering
     use bray_diagnostics::DiagnosticLoweringFailureKind as Failure;
 
     let prevented_operation = match failure.kind() {
-        Failure::UnsupportedRoot => {
+        Failure::UnsupportedRoot(_) => {
             "generating executable code for the highlighted declaration because it has no executable body"
         }
-        Failure::MissingSourceNode(kind) => {
+        Failure::MissingSourceNode { kind, .. } => {
             return super::format_internal_compiler_error(format!(
                 "could not generate executable code for the highlighted {}",
                 format_source_construct(kind),
             ));
         }
-        Failure::RecoveredSourceNode(kind) => {
+        Failure::RecoveredSourceNode { kind, .. } => {
             return super::format_internal_compiler_error(format!(
                 "could not generate executable code for the highlighted {} after an earlier error",
                 format_source_construct(kind),
             ));
         }
-        Failure::MissingExpressionType => {
+        Failure::MissingExpressionType(_) => {
             "generating executable code for the highlighted expression because the type established for it is unavailable"
         }
-        Failure::AwaitOutsideProtectedFrame => {
+        Failure::AwaitOutsideProtectedFrame(_) => {
             "generating resumable code for the highlighted `await` expression"
         }
-        Failure::MissingSuspensionPoint => {
+        Failure::MissingSuspensionPoint(_) => {
             "generating a valid resume path for the highlighted `await` expression"
         }
-        Failure::InvalidTaskOperation => {
+        Failure::InvalidTaskOperation(_) => {
             "generating a type-correct call for the highlighted task operation"
         }
         Failure::MissingCallableResultType => {
             "generating executable code for the highlighted callable because its result type is unavailable"
         }
-        Failure::MissingLiteralValue => {
+        Failure::MissingLiteralValue(_) => {
             "generating executable code for the highlighted literal because its value is unavailable"
         }
-        Failure::MissingSemanticSelection => {
+        Failure::MissingSemanticSelection(_) => {
             "generating executable code for the highlighted expression because its selected callable or built-in behavior is unavailable"
         }
-        Failure::UnsupportedExpression => {
+        Failure::UnsupportedExpression(_) => {
             "generating executable code for the highlighted expression"
         }
-        Failure::UnsupportedPattern => "generating executable code for the highlighted pattern",
-        Failure::UnsupportedOperator => "generating executable code for the highlighted operator",
-        Failure::MissingStorageAccess => {
+        Failure::UnsupportedPattern(_) => "generating executable code for the highlighted pattern",
+        Failure::UnsupportedOperator { .. } => "generating executable code for the highlighted operator",
+        Failure::MissingStorageAccess(_) => {
             "generating ownership-safe code for the highlighted expression because its value-access behavior is unavailable"
         }
-        Failure::MissingStorageAccessRecord => {
+        Failure::MissingStorageAccessRecord(_) => {
             "generating ownership-safe code for the highlighted expression because its read, borrow, move, or write behavior is unavailable"
         }
-        Failure::MissingCleanupPlan => {
+        Failure::MissingCleanupPlan(_) => {
             "generating cleanup code for the highlighted scope because the values it must release are unavailable"
         }
-        Failure::MissingStorageIdentity => {
+        Failure::MissingStorageIdentity(_) => {
             "generating ownership-safe code for the highlighted expression because the value it accesses is unavailable"
         }
-        Failure::MissingStorageIdentityRecord => {
+        Failure::MissingStorageIdentityRecord(_) => {
             "generating ownership-safe code for the highlighted declaration because one of its associated values is unavailable"
         }
-        Failure::MissingIterationStorage => {
+        Failure::MissingIterationStorage(_) => {
             "generating executable code for the highlighted iteration because its cursor or current value is unavailable"
         }
-        Failure::UnsupportedStorageAccess => {
+        Failure::UnsupportedStorageAccess(_) => {
             "generating ownership-safe code for the highlighted value access"
         }
-        Failure::MissingOperationResult => {
+        Failure::MissingOperationResult(_) => {
             "generating the value required by the highlighted expression"
         }
-        Failure::MissingRepresentation => {
+        Failure::MissingRepresentation(_) => {
             "generating target-correct code for the highlighted declaration because its target representation is unavailable"
         }
         Failure::SemanticValueUnavailable => {
@@ -433,9 +488,9 @@ const fn format_source_construct(
 fn format_english_mir_unit_failure(
     failure: bray_diagnostics::DiagnosticMirUnitBuildFailure,
 ) -> String {
-    use bray_diagnostics::DiagnosticMirUnitBuildFailure as Failure;
+    use bray_diagnostics::DiagnosticMirUnitBuildFailureKind as Failure;
 
-    let prevented_operation = match failure {
+    let prevented_operation = match failure.kind() {
         Failure::SourceOriginMismatch => {
             "generating executable code associated with the highlighted source declaration"
         }
@@ -640,29 +695,14 @@ const fn format_english_runtime_artifact_purpose(
     }
 }
 
-fn format_english_binding_failure(failure: bray_diagnostics::DiagnosticBindingFailure) -> String {
-    use bray_diagnostics::DiagnosticBindingFailure as Failure;
+fn format_english_binding_failure(failure: &bray_diagnostics::DiagnosticBindingFailure) -> String {
+    if let Some(failure) = failure.semantic_value_failure() {
+        return format_english_semantic_value_failure(failure);
+    }
 
-    let detail = match failure {
-        Failure::DependencyUnavailable => "a name required by this product could not be resolved",
-        Failure::InvalidUnitKey => {
-            "the source declaration or body to compile could not be identified"
-        }
-        Failure::MissingSyntax => "source syntax required by this product was unavailable",
-        Failure::MissingOwner => "the declaration that owns a source body could not be identified",
-        Failure::MissingModule => "the module containing a declaration could not be identified",
-        Failure::InvalidSurfaceName => "found a declaration without a valid local lookup name",
-        Failure::SemanticValue(failure) => {
-            return format_english_semantic_value_failure(failure);
-        }
-        Failure::Construction => "a source declaration or body could not be analyzed",
-        Failure::Binding => {
-            "a source declaration or body could not be recovered after an earlier error"
-        }
-        Failure::Assembly => "a source declaration or body could not be validated",
-    };
-
-    super::format_internal_compiler_error(detail)
+    super::format_internal_compiler_error(
+        "a source declaration or body violated an internal analysis contract",
+    )
 }
 
 pub(super) fn format_english_semantic_value_failure(
@@ -698,46 +738,151 @@ pub(crate) const fn format_english_semantic_value_failure_detail(
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        DiagnosticCheckerNode, DiagnosticCheckerSymbol, DiagnosticProductDataKind,
-        DiagnosticProductQueryContext, DiagnosticProductQueryContextKind,
-        DiagnosticProductQueryFailure,
+        DiagnosticCheckerNode, DiagnosticCheckerSymbol, DiagnosticFactRuntimeFailure,
+        DiagnosticFailureField, DiagnosticFailureValue, DiagnosticProductQueryFailure,
+        DiagnosticSemanticQueryFailure,
     };
     use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 
     use super::{
         format_english_binding_failure, format_english_checker_failure,
-        format_english_product_query_failure,
+        format_english_emission_evaluation_failure, format_english_fact_runtime_failure,
+        format_english_native_product_failure, format_english_product_query_failure,
+        format_english_semantic_query_failure,
     };
     use crate::catalog::english::INTERNAL_COMPILER_ERROR;
 
     #[test]
-    fn product_query_failures_render_exact_context_and_cause() {
-        let message =
-            format_english_product_query_failure(&DiagnosticProductQueryFailure::Missing {
-                context: DiagnosticProductQueryContext::new(
-                    DiagnosticProductQueryContextKind::Instance,
-                    "function#7[type#3]",
-                ),
-                data: DiagnosticProductDataKind::CallableSignature,
-            });
+    fn product_query_failures_hide_internal_context() {
+        let message = format_english_product_query_failure(&DiagnosticProductQueryFailure::new(
+            "product_query_missing",
+            [DiagnosticFailureField::new(
+                "product_context_identity",
+                DiagnosticFailureValue::Identity([7; 32]),
+            )],
+        ));
 
-        assert!(message.contains("callable signature"));
-        assert!(message.contains("instance"));
-        assert!(message.contains("function#7[type#3]"));
+        assert!(message.starts_with(INTERNAL_COMPILER_ERROR));
+        assert!(!message.contains("product_query_missing"));
+        assert!(!message.contains("07"));
+        assert!(!message.contains(';'));
     }
 
     #[test]
-    fn binding_failures_render_distinct_user_facing_causes() {
+    fn runtime_failures_render_one_shared_heading_without_internal_context() {
+        let message = format_english_fact_runtime_failure(&DiagnosticFactRuntimeFailure::new(
+            "publication_mismatch",
+            [
+                DiagnosticFailureField::new(
+                    "requested_fact",
+                    DiagnosticFailureValue::Text("SyntaxTree".to_owned()),
+                ),
+                DiagnosticFailureField::new("actual_task", DiagnosticFailureValue::Count(23)),
+            ],
+        ));
+
+        assert!(message.starts_with(INTERNAL_COMPILER_ERROR));
+        assert_eq!(message.matches(INTERNAL_COMPILER_ERROR).count(), 1);
+        assert!(!message.contains("publication_mismatch"));
+        assert!(!message.contains("SyntaxTree"));
+        assert!(!message.contains("23"));
+        assert!(!message.contains(';'));
+    }
+
+    #[test]
+    fn compiler_defects_render_exactly_one_shared_internal_heading() {
+        let nested = DiagnosticProductQueryFailure::new("product_query_missing", []);
+
+        let failures = [
+            bray_diagnostics::DiagnosticEmissionEvaluationFailure::SemanticValueStoreCreate,
+            bray_diagnostics::DiagnosticEmissionEvaluationFailure::Product(nested.clone()),
+        ];
+
+        for failure in &failures {
+            let message = format_english_emission_evaluation_failure(failure);
+
+            assert!(message.starts_with(INTERNAL_COMPILER_ERROR));
+            assert_eq!(message.matches(INTERNAL_COMPILER_ERROR).count(), 1);
+            assert!(!message.contains(';'));
+        }
+
+        let failures = [
+            bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationInfrastructure,
+            bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationProduct(nested),
+            bray_diagnostics::DiagnosticNativeProductFailureKind::SemanticContextFailure(
+                bray_diagnostics::DiagnosticEvaluationFailureDetail::new(
+                    "semantic_context_failure",
+                    [],
+                ),
+            ),
+            bray_diagnostics::DiagnosticNativeProductFailureKind::CheckingInfrastructureFailure,
+            bray_diagnostics::DiagnosticNativeProductFailureKind::GeneratedHostMirInvalid(
+                bray_diagnostics::DiagnosticNativeProductFailureDetail::new(
+                    "generated_host_mir_invalid",
+                    [],
+                ),
+            ),
+            bray_diagnostics::DiagnosticNativeProductFailureKind::InstanceTemplateMismatch,
+            bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenBackendGeneratedModuleInvariant,
+        ];
+
+        for failure in &failures {
+            let message = format_english_native_product_failure(failure);
+
+            assert!(message.starts_with(INTERNAL_COMPILER_ERROR));
+            assert_eq!(message.matches(INTERNAL_COMPILER_ERROR).count(), 1);
+            assert!(!message.contains(';'));
+        }
+
+        for failure in [
+            bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationCancelled,
+            bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenTargetUnsupportedProfile,
+            bray_diagnostics::DiagnosticNativeProductFailureKind::StandardLibraryUnavailable,
+            bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenBackendUnsupportedTarget,
+        ] {
+            let message = format_english_native_product_failure(&failure);
+
+            assert!(!message.starts_with(INTERNAL_COMPILER_ERROR));
+            assert!(!message.contains(';'));
+        }
+    }
+
+    #[test]
+    fn semantic_query_failures_share_actor_free_user_facing_prose() {
+        let first = format_english_semantic_query_failure(&DiagnosticSemanticQueryFailure::new(
+            "semantic_query_bound_unit",
+            "bound_unit_missing_root",
+            [],
+        ));
+
+        let second = format_english_semantic_query_failure(&DiagnosticSemanticQueryFailure::new(
+            "semantic_query_implementation",
+            "implementation_match_semantic_value",
+            [],
+        ));
+
+        assert_eq!(first, second);
+        assert!(first.starts_with(INTERNAL_COMPILER_ERROR));
+        assert_eq!(first.matches(INTERNAL_COMPILER_ERROR).count(), 1);
+        assert!(!first.contains("compiler was"));
+        assert!(!first.contains("bound source unit"));
+        assert!(!first.contains("implementation evidence"));
+        assert!(!first.contains(';'));
+    }
+
+    #[test]
+    fn binding_failures_share_actor_free_user_facing_prose() {
         use bray_diagnostics::DiagnosticBindingFailure as Failure;
 
-        let syntax = format_english_binding_failure(Failure::MissingSyntax);
-        let owner = format_english_binding_failure(Failure::MissingOwner);
+        let syntax = format_english_binding_failure(&Failure::new("binding_missing_syntax", []));
 
-        assert_ne!(syntax, owner);
-        assert!(syntax.contains("source syntax"));
-        assert!(owner.contains("declaration"));
+        let owner = format_english_binding_failure(&Failure::new("binding_missing_owner", []));
+
+        assert_eq!(syntax, owner);
         assert!(syntax.starts_with(INTERNAL_COMPILER_ERROR));
         assert!(owner.starts_with(INTERNAL_COMPILER_ERROR));
+        assert!(!syntax.contains("binding_missing"));
+        assert!(!syntax.contains(';'));
     }
 
     #[test]

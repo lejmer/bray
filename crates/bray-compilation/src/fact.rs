@@ -18,10 +18,16 @@ mod unit_identity;
 
 pub use cancellation::CancellationToken;
 pub use completion::SymbolCompletionError;
+pub(crate) use error::diagnostic_context;
 pub use error::{FactCycle, FactQueryError, LocatedLoweringFailure};
+pub use error::{ImportedExecutableTemplateMismatch, ImportedQueryFailure};
 pub(crate) use error::{
-    diagnostic_binding_failure, diagnostic_checker_failure, diagnostic_semantic_query_failure,
-    diagnostic_semantic_value_failure,
+    TargetContractSide, callable_signature_reason, diagnostic_binding_failure,
+    diagnostic_checker_failure, diagnostic_cycle_failure, diagnostic_fact_runtime_failure,
+    diagnostic_semantic_context_failure, diagnostic_semantic_query_failure,
+    diagnostic_semantic_value_failure, diagnostic_symbol_graph_failure,
+    generic_substitution_reason, push_generic_substitution_failure, push_mir_target_contract,
+    push_selected_target_properties, push_semantic_value_failure,
 };
 pub use key::ImportedSemanticRecordKey;
 pub use priority::QueryPriority;

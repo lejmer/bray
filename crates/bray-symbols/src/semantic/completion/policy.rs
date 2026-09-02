@@ -111,6 +111,41 @@ pub(super) const SYMBOL_QUERY_KINDS: [SymbolQueryKind; 29] = [
 ];
 
 impl SymbolQueryKind {
+    /// Returns this query category's stable machine-readable name.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Members => "members",
+            Self::Imports => "imports",
+            Self::Directives => "directives",
+            Self::GenericParameters => "generic_parameters",
+            Self::GenericDeclarationTemplate => "generic_declaration_template",
+            Self::GenericConstraints => "generic_constraints",
+            Self::CallableSignature => "callable_signature",
+            Self::CallableContracts => "callable_contracts",
+            Self::CallableContractTemplate => "callable_contract_template",
+            Self::PredicateSignatureTemplate => "predicate_signature_template",
+            Self::CallableContractType => "callable_contract_type",
+            Self::ConstantDeclaredType => "constant_declared_type",
+            Self::ConstantDefinition => "constant_definition",
+            Self::StaticInstanceTemplate => "static_instance_template",
+            Self::CallableParameterDefault => "callable_parameter_default",
+            Self::UnevaluatedDefaultTemplate => "unevaluated_default_template",
+            Self::StructFieldType => "struct_field_type",
+            Self::TypeMemberValue => "type_member_value",
+            Self::StructFieldDefault => "struct_field_default",
+            Self::UnionPayloadFieldType => "union_payload_field_type",
+            Self::UnionPayloadFieldDefault => "union_payload_field_default",
+            Self::PredicateDefinition => "predicate_definition",
+            Self::UnionVariantPayload => "union_variant_payload",
+            Self::ImplementationSubject => "implementation_subject",
+            Self::ImplementedTraitApplication => "implemented_trait_application",
+            Self::ImplementationHeadTemplate => "implementation_head_template",
+            Self::ImplementationCoherence => "implementation_coherence",
+            Self::OverloadArms => "overload_arms",
+            Self::OverloadSignatureTemplate => "overload_signature_template",
+        }
+    }
+
     /// Returns whether this query participates in the requested completion boundary when applicable.
     pub const fn is_required_for(self, level: SymbolCompletionLevel) -> bool {
         match level {

@@ -6,7 +6,7 @@ use crate::{CompilerKnownSymbolBuildError, SymbolKind, allocator::SymbolIdCapaci
 ///
 /// Malformed source remains representable in the graph. These failures describe violated phase
 /// contracts or exhausted compact identity space rather than ordinary source diagnostics.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum SymbolGraphBuildError {
     /// The generated compiler-known catalog violated its trusted symbol contract.
     CompilerKnown(CompilerKnownSymbolBuildError),

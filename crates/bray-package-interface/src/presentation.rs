@@ -22,7 +22,7 @@ pub(crate) fn validation_diagnostic(
     id: DiagnosticId,
 ) -> Diagnostic {
     let kind = diagnostic_kind(&error);
-    let failure = diagnostic_failure(error);
+    let failure = diagnostic_failure(&error);
 
     Diagnostic::new(id, kind, SeverityKind::Error)
         .with_arg(DiagnosticArg::interface_validation_failure(failure))
@@ -72,10 +72,12 @@ const fn diagnostic_kind(error: &InterfaceValidationError) -> DiagnosticKind {
     }
 }
 
-fn diagnostic_failure(error: InterfaceValidationError) -> DiagnosticInterfaceValidationFailure {
+pub(crate) fn diagnostic_failure(
+    error: &InterfaceValidationError,
+) -> DiagnosticInterfaceValidationFailure {
     match error {
         InterfaceValidationError::InvalidMagic { actual } => {
-            DiagnosticInterfaceValidationFailure::InvalidMagic { actual }
+            DiagnosticInterfaceValidationFailure::InvalidMagic { actual: *actual }
         }
         InterfaceValidationError::UnsupportedFormatRevision { actual } => {
             DiagnosticInterfaceValidationFailure::UnsupportedFormatRevision {
@@ -90,7 +92,10 @@ fn diagnostic_failure(error: InterfaceValidationError) -> DiagnosticInterfaceVal
             }
         }
         InterfaceValidationError::UnsupportedByteOrder { expected, actual } => {
-            DiagnosticInterfaceValidationFailure::UnsupportedByteOrder { expected, actual }
+            DiagnosticInterfaceValidationFailure::UnsupportedByteOrder {
+                expected: *expected,
+                actual: *actual,
+            }
         }
         InterfaceValidationError::UnsupportedRequiredFlags { actual } => {
             DiagnosticInterfaceValidationFailure::UnsupportedRequiredFlags {
@@ -104,25 +109,25 @@ fn diagnostic_failure(error: InterfaceValidationError) -> DiagnosticInterfaceVal
             expected_length,
             actual_length,
         } => DiagnosticInterfaceValidationFailure::Truncated {
-            context: diagnostic_context(context),
-            field: diagnostic_field(field),
-            offset,
-            expected_length,
-            actual_length,
+            context: diagnostic_context(*context),
+            field: diagnostic_field(*field),
+            offset: *offset,
+            expected_length: *expected_length,
+            actual_length: *actual_length,
         },
         InterfaceValidationError::TrailingBytes {
             context,
             offset,
             count,
         } => DiagnosticInterfaceValidationFailure::TrailingBytes {
-            context: diagnostic_context(context),
-            offset,
-            count,
+            context: diagnostic_context(*context),
+            offset: *offset,
+            count: *count,
         },
         InterfaceValidationError::Malformed { context, cause } => {
             DiagnosticInterfaceValidationFailure::Malformed {
-                context: diagnostic_context(context),
-                cause: diagnostic_malformed_cause(cause),
+                context: diagnostic_context(*context),
+                cause: diagnostic_malformed_cause(*cause),
             }
         }
         InterfaceValidationError::InvalidUtf8 {
@@ -132,22 +137,22 @@ fn diagnostic_failure(error: InterfaceValidationError) -> DiagnosticInterfaceVal
             length,
             cause,
         } => DiagnosticInterfaceValidationFailure::InvalidUtf8 {
-            context: diagnostic_context(context),
-            field: diagnostic_field(field),
-            offset,
-            length,
-            cause: diagnostic_utf8_failure(cause),
+            context: diagnostic_context(*context),
+            field: diagnostic_field(*field),
+            offset: *offset,
+            length: *length,
+            cause: diagnostic_utf8_failure(*cause),
         },
         InterfaceValidationError::Compression { context, cause } => {
             DiagnosticInterfaceValidationFailure::Compression {
-                context: diagnostic_context(context),
-                cause: diagnostic_compression_failure(cause),
+                context: diagnostic_context(*context),
+                cause: diagnostic_compression_failure(*cause),
             }
         }
         InterfaceValidationError::DigestUnavailable { context, field } => {
             DiagnosticInterfaceValidationFailure::DigestUnavailable {
-                context: diagnostic_context(context),
-                field: diagnostic_field(field),
+                context: diagnostic_context(*context),
+                field: diagnostic_field(*field),
             }
         }
         InterfaceValidationError::AllocationUnavailable {
@@ -155,13 +160,13 @@ fn diagnostic_failure(error: InterfaceValidationError) -> DiagnosticInterfaceVal
             field,
             requested,
         } => DiagnosticInterfaceValidationFailure::AllocationUnavailable {
-            context: diagnostic_context(context),
-            field: diagnostic_field(field),
-            requested,
+            context: diagnostic_context(*context),
+            field: diagnostic_field(*field),
+            requested: *requested,
         },
         InterfaceValidationError::SurfaceBuild { cause } => {
             DiagnosticInterfaceValidationFailure::SurfaceBuild {
-                cause: Box::new(crate::surface::diagnostic_surface_problem(*cause)),
+                cause: Box::new(crate::surface::diagnostic_surface_problem(cause)),
             }
         }
         InterfaceValidationError::ArtifactHashMismatch { expected, actual } => {
@@ -181,7 +186,7 @@ fn diagnostic_failure(error: InterfaceValidationError) -> DiagnosticInterfaceVal
             expected,
             actual,
         } => DiagnosticInterfaceValidationFailure::SectionChecksumMismatch {
-            section: diagnostic_section(section),
+            section: diagnostic_section(*section),
             expected: diagnostic_digest(*expected.as_bytes()),
             actual: diagnostic_digest(*actual.as_bytes()),
         },
@@ -190,7 +195,7 @@ fn diagnostic_failure(error: InterfaceValidationError) -> DiagnosticInterfaceVal
             expected,
             actual,
         } => DiagnosticInterfaceValidationFailure::UnknownSectionChecksumMismatch {
-            raw_tag,
+            raw_tag: *raw_tag,
             expected: diagnostic_digest(*expected.as_bytes()),
             actual: diagnostic_digest(*actual.as_bytes()),
         },
@@ -199,35 +204,38 @@ fn diagnostic_failure(error: InterfaceValidationError) -> DiagnosticInterfaceVal
             expected,
             actual,
         } => DiagnosticInterfaceValidationFailure::SectionContentHashMismatch {
-            section: diagnostic_section(section),
-            expected: diagnostic_digest(expected),
-            actual: diagnostic_digest(actual),
+            section: diagnostic_section(*section),
+            expected: diagnostic_digest(*expected),
+            actual: diagnostic_digest(*actual),
         },
         InterfaceValidationError::PayloadChecksumMismatch {
             context,
             expected,
             actual,
         } => DiagnosticInterfaceValidationFailure::PayloadChecksumMismatch {
-            context: diagnostic_context(context),
-            expected: diagnostic_digest(expected),
-            actual: diagnostic_digest(actual),
+            context: diagnostic_context(*context),
+            expected: diagnostic_digest(*expected),
+            actual: diagnostic_digest(*actual),
         },
         InterfaceValidationError::PayloadContentHashMismatch {
             context,
             expected,
             actual,
         } => DiagnosticInterfaceValidationFailure::PayloadContentHashMismatch {
-            context: diagnostic_context(context),
-            expected: diagnostic_digest(expected),
-            actual: diagnostic_digest(actual),
+            context: diagnostic_context(*context),
+            expected: diagnostic_digest(*expected),
+            actual: diagnostic_digest(*actual),
         },
         InterfaceValidationError::SpecializationKeyMismatch { expected, actual } => {
-            DiagnosticInterfaceValidationFailure::SpecializationKeyMismatch { expected, actual }
+            DiagnosticInterfaceValidationFailure::SpecializationKeyMismatch {
+                expected: *expected,
+                actual: *actual,
+            }
         }
         InterfaceValidationError::ImplementationConfigurationMismatch { expected, actual } => {
             DiagnosticInterfaceValidationFailure::ImplementationConfigurationMismatch {
-                expected,
-                actual,
+                expected: *expected,
+                actual: *actual,
             }
         }
         InterfaceValidationError::ImplementationInterfaceIdentityMismatch { expected, actual } => {
@@ -241,7 +249,7 @@ fn diagnostic_failure(error: InterfaceValidationError) -> DiagnosticInterfaceVal
             expected,
             actual,
         } => DiagnosticInterfaceValidationFailure::ImplementationDependencyMismatch {
-            index,
+            index: *index,
             expected: expected.as_deref().map(diagnostic_dependency).map(Box::new),
             actual: actual.as_deref().map(diagnostic_dependency).map(Box::new),
         },
@@ -250,9 +258,9 @@ fn diagnostic_failure(error: InterfaceValidationError) -> DiagnosticInterfaceVal
             actual,
             maximum,
         } => DiagnosticInterfaceValidationFailure::ResourceLimitExceeded {
-            limit: diagnostic_limit(limit),
-            actual,
-            maximum,
+            limit: diagnostic_limit(*limit),
+            actual: *actual,
+            maximum: *maximum,
         },
     }
 }

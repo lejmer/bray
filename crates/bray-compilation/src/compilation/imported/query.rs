@@ -153,66 +153,10 @@ impl super::super::Compilation {
         &self,
         interface: ImportedInterfaceId,
     ) -> Option<&LoadedDependencyInterface> {
-        match self
-            .loaded_dependency_interface_with_cancellation(interface, &self.state.cancellation)
-        {
-            Ok(loaded) => loaded,
-            Err(FactQueryError::Cancelled) => {
-                panic!("uncancellable dependency-interface query was cancelled")
-            }
-            Err(FactQueryError::Cycle(cycle)) => {
-                panic!("dependency-interface query formed a cycle: {cycle:?}")
-            }
-            Err(FactQueryError::InfrastructureFailure) => {
-                panic!("dependency-interface query infrastructure failed")
-            }
-            Err(FactQueryError::Runtime(error)) => {
-                panic!("dependency-interface fact runtime failed: {error:?}")
-            }
-            Err(
-                error @ (FactQueryError::SemanticValueStoreCreate(_)
-                | FactQueryError::SemanticValueStore(_)),
-            ) => {
-                panic!("dependency-interface semantic-value operation failed: {error}")
-            }
-            Err(FactQueryError::BindingDependencyUnavailable) => {
-                panic!("dependency-interface query could not obtain a binding dependency")
-            }
-            Err(FactQueryError::Binding(error)) => {
-                panic!("dependency-interface query encountered a binding failure: {error:?}")
-            }
-            Err(
-                error @ (FactQueryError::AtomicInitializerArgumentUnavailable
-                | FactQueryError::AtomicInitializerResultUnavailable
-                | FactQueryError::UninitInitializerResultUnavailable
-                | FactQueryError::ConstantCallableBodyUnavailable
-                | FactQueryError::ConstantCallableRootUnavailable
-                | FactQueryError::ImportedExecutableTemplateMismatch),
-            ) => {
-                panic!("dependency-interface query failed: {error}")
-            }
-            Err(FactQueryError::SemanticUnitContext(error)) => {
-                panic!("semantic unit context failed: {error:?}")
-            }
-            Err(FactQueryError::SemanticQuery(error)) => {
-                panic!("dependency-interface semantic query failed: {error}")
-            }
-            Err(FactQueryError::Product(error)) => {
-                panic!("dependency-interface product query failed: {error:?}")
-            }
-            Err(FactQueryError::Foreign(error)) => {
-                panic!("dependency-interface foreign query failed: {error:?}")
-            }
-            Err(FactQueryError::CheckerInfrastructure(error)) => {
-                panic!("semantic checker infrastructure failed: {error:?}")
-            }
-            Err(FactQueryError::LoweringInput(error)) => {
-                panic!("lowering input validation failed: {error:?}")
-            }
-            Err(FactQueryError::Lowering(error)) => {
-                panic!("MIR lowering failed: {error:?}")
-            }
-        }
+        super::super::boundary::expect_uncancelled_query(
+            "loaded_dependency_interface",
+            self.loaded_dependency_interface_with_cancellation(interface, &self.state.cancellation),
+        )
     }
 
     pub(super) fn loaded_dependency_interface_with_cancellation(
@@ -237,9 +181,9 @@ impl super::super::Compilation {
             cache,
             cancellation,
             |cancellation| {
-                let input = self
-                    .dependency_interface(interface)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let input = self.dependency_interface(interface).ok_or(
+                    crate::fact::ImportedQueryFailure::MissingDependencyInput(interface),
+                )?;
 
                 load_dependency_interface(input, cancellation)
             },
@@ -280,7 +224,9 @@ impl super::super::Compilation {
             let Some(interface_result) =
                 self.loaded_dependency_interface_with_cancellation(interface, cancellation)?
             else {
-                return Err(FactQueryError::InfrastructureFailure);
+                return Err(
+                    crate::fact::ImportedQueryFailure::MissingLoadedInterface(interface).into(),
+                );
             };
 
             diagnostics.push(interface_result.result().diagnostics());
@@ -349,11 +295,15 @@ impl super::super::Compilation {
         let Some(loaded) =
             self.loaded_dependency_interface_with_cancellation(interface, cancellation)?
         else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(
+                crate::fact::ImportedQueryFailure::MissingLoadedInterface(interface).into(),
+            );
         };
 
         let Some(input) = self.dependency_interface_input(interface) else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(
+                crate::fact::ImportedQueryFailure::MissingDependencyInput(interface).into(),
+            );
         };
 
         let (Some(validated), Some(surface)) = (loaded.validated(), loaded.surface()) else {
@@ -392,7 +342,7 @@ impl super::super::Compilation {
 
         let graph = self
             .imported_semantic_graph_result_with_cancellation(key.interface(), cancellation)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or(crate::fact::ImportedQueryFailure::MissingSemanticGraph(key))?;
 
         self.imported_semantics_from_graph(key, graph, cancellation)
     }
@@ -413,16 +363,20 @@ impl super::super::Compilation {
 
         let loaded = self
             .loaded_dependency_interface_with_cancellation(key.interface(), cancellation)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or(crate::fact::ImportedQueryFailure::MissingLoadedInterface(
+                key.interface(),
+            ))?;
 
-        let surface = loaded
-            .surface()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let surface =
+            loaded
+                .surface()
+                .ok_or(crate::fact::ImportedQueryFailure::MissingInterfaceSurface(
+                    key,
+                ))?;
 
-        let identity = surface
-            .symbols()
-            .symbol(key.owner())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let identity = surface.symbols().symbol(key.owner()).ok_or(
+            crate::fact::ImportedQueryFailure::MissingInterfaceSymbol(key),
+        )?;
 
         let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
 
@@ -430,7 +384,9 @@ impl super::super::Compilation {
             .value()
             .as_ref()
             .and_then(|skeleton| skeleton.symbol_by_external_key(identity.key()))
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or(crate::fact::ImportedQueryFailure::MissingImportedSymbol(
+                key,
+            ))?;
 
         cancellation.check()?;
 
@@ -446,11 +402,13 @@ impl super::super::Compilation {
     ) -> Result<Option<DiagnosticResult<Option<Arc<ImportedSemantics>>>>, FactQueryError> {
         let loaded = self
             .loaded_dependency_interface_with_cancellation(key.interface(), cancellation)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or(crate::fact::ImportedQueryFailure::MissingLoadedInterface(
+                key.interface(),
+            ))?;
 
-        let input = self
-            .dependency_interface_input(key.interface())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let input = self.dependency_interface_input(key.interface()).ok_or(
+            crate::fact::ImportedQueryFailure::MissingDependencyInput(key.interface()),
+        )?;
 
         let (Some(validated), Some(surface)) = (loaded.validated(), loaded.surface()) else {
             return Ok(Some(DiagnosticResult::without_diagnostics(None)));
@@ -492,25 +450,34 @@ impl super::super::Compilation {
 
         let interfaces = self
             .loaded_interface_views(cancellation)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or(crate::fact::ImportedQueryFailure::MissingLoadedInterfaceViews(interface))?;
 
         let Some(current) = interfaces
             .iter()
             .copied()
             .find(|loaded| loaded.interface() == interface)
         else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(
+                crate::fact::ImportedQueryFailure::MissingCurrentInterface(interface).into(),
+            );
         };
 
         let symbols = self.symbol_graph()?;
 
-        let resolver = ImportedInterfaceSymbolResolver::try_new(
+        let resolver = match ImportedInterfaceSymbolResolver::try_new(
             current,
             interfaces,
             skeleton,
             symbols.compiler_known_provider().symbol_keys(),
-        )
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        ) {
+            Ok(resolver) => resolver,
+            Err(error) => {
+                return Ok(DiagnosticResult::new(
+                    None,
+                    dependency_graph_diagnostics(self, error),
+                ));
+            }
+        };
 
         let semantic_values = self.semantic_value_store()?;
 
@@ -538,11 +505,13 @@ impl super::super::Compilation {
             cancellation.check()?;
 
             let interface = ImportedInterfaceId::try_from_index(index)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or(crate::fact::ImportedQueryFailure::InterfaceCapacityExceeded(index))?;
 
             let loaded = self
                 .loaded_dependency_interface_with_cancellation(interface, cancellation)?
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or(crate::fact::ImportedQueryFailure::MissingLoadedInterface(
+                    interface,
+                ))?;
 
             let (Some(validated), Some(surface)) = (loaded.validated(), loaded.surface()) else {
                 return Ok(None);
@@ -697,7 +666,7 @@ fn stable_count(count: usize) -> u64 {
     u64::try_from(count).unwrap_or(u64::MAX)
 }
 
-fn dependency_graph_diagnostics(
+pub(super) fn dependency_graph_diagnostics(
     compilation: &super::super::Compilation,
     error: ImportedSymbolConstructionError,
 ) -> DiagnosticBag {

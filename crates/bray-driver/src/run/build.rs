@@ -1,10 +1,14 @@
-use std::io::{self, Write};
+use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use bray_base::{FileReplacementMode, StagedFile};
 use bray_compilation::ProductEmissionInputs;
-use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticEmissionFailure, DiagnosticId,
+    DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticTestCatalogFailure,
+    SeverityKind,
+};
 use bray_emitter::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ReplacementPolicy,
     RequestedArtifact, RequestedArtifactDestination,
@@ -179,11 +183,18 @@ pub(crate) fn run_build_command(
 
             if exit_code == ExitCode::SUCCESS
                 && let Some(destination) = configuration.test_catalog()
-                && let Err(diagnostic) = publish_test_catalog(&compilation, &product, destination)
+                && let Err(error) = publish_test_catalog(&compilation, &product, destination)
             {
+                let diagnostics = match error {
+                    TestCatalogPublicationError::Cancelled => DiagnosticBag::new(),
+                    TestCatalogPublicationError::Diagnostic(diagnostic) => {
+                        DiagnosticBag::single(diagnostic)
+                    }
+                };
+
                 return driver_result_from_compilation(
                     compilation,
-                    DiagnosticBag::single(diagnostic),
+                    diagnostics,
                     output_format,
                     ExitCode::FAILURE,
                 );
@@ -205,37 +216,102 @@ fn publish_test_catalog(
     compilation: &bray_compilation::Compilation,
     product: &ProductIdentity,
     destination: &std::path::Path,
-) -> Result<(), Diagnostic> {
-    let discovery = compilation.test_discovery(product.clone()).map_err(|_| {
-        artifact_write_failure(
-            DiagnosticId::new(0),
-            destination,
-            io::ErrorKind::InvalidData,
-        )
-    })?;
+) -> Result<(), TestCatalogPublicationError> {
+    let discovery = compilation
+        .test_discovery(product.clone())
+        .map_err(|error| match error {
+            bray_compilation::FactQueryError::Cancelled => TestCatalogPublicationError::Cancelled,
+            error => TestCatalogPublicationError::Diagnostic(test_discovery_failure(error, product)),
+        })?;
 
-    let (bytes, _) =
-        bray_test_protocol::encode_test_catalog(discovery.value().catalog()).map_err(|_| {
-            artifact_write_failure(
-                DiagnosticId::new(0),
-                destination,
-                io::ErrorKind::InvalidData,
-            )
+    let (bytes, _) = bray_test_protocol::encode_test_catalog(discovery.value().catalog())
+        .map_err(|error| {
+            TestCatalogPublicationError::Diagnostic(test_catalog_failure(error, product))
         })?;
 
     let mut staging = StagedFile::create(destination, FileReplacementMode::ReplaceExisting, None)
         .map_err(|error| {
-        artifact_write_failure(DiagnosticId::new(0), destination, error.kind())
+        TestCatalogPublicationError::Diagnostic(artifact_write_failure(
+            DiagnosticId::new(0),
+            destination,
+            error.kind(),
+        ))
     })?;
 
     staging
         .write_all(&bytes)
-        .map_err(|error| artifact_write_failure(DiagnosticId::new(0), destination, error.kind()))?;
+        .map_err(|error| {
+            TestCatalogPublicationError::Diagnostic(artifact_write_failure(
+                DiagnosticId::new(0),
+                destination,
+                error.kind(),
+            ))
+        })?;
 
     staging
         .finish()
         .and_then(|staged| staged.promote(destination))
-        .map_err(|error| artifact_write_failure(DiagnosticId::new(0), destination, error.kind()))
+        .map_err(|error| {
+            TestCatalogPublicationError::Diagnostic(artifact_write_failure(
+                DiagnosticId::new(0),
+                destination,
+                error.kind(),
+            ))
+        })
+}
+
+enum TestCatalogPublicationError {
+    Cancelled,
+    Diagnostic(Diagnostic),
+}
+
+fn test_discovery_failure(
+    error: bray_compilation::FactQueryError,
+    product: &ProductIdentity,
+) -> Diagnostic {
+    Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::CheckingCompilerDefect,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::actual_product_identity(product.to_string()))
+    .with_arg(DiagnosticArg::emission_failure(
+        DiagnosticEmissionFailure::Evaluation(error.diagnostic_evaluation_failure()),
+    ))
+    .with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::ReportCompilerDefect,
+    ))
+}
+
+fn test_catalog_failure(
+    error: bray_test_protocol::TestProtocolError,
+    product: &ProductIdentity,
+) -> Diagnostic {
+    let failure = match error {
+        bray_test_protocol::TestProtocolError::Io => DiagnosticTestCatalogFailure::Io,
+        bray_test_protocol::TestProtocolError::Malformed => {
+            DiagnosticTestCatalogFailure::Malformed
+        }
+        bray_test_protocol::TestProtocolError::UnsupportedVersion(version) => {
+            DiagnosticTestCatalogFailure::UnsupportedVersion(version)
+        }
+        bray_test_protocol::TestProtocolError::ResourceLimit => {
+            DiagnosticTestCatalogFailure::ResourceLimit
+        }
+    };
+
+    Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::CheckingCompilerDefect,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::actual_product_identity(product.to_string()))
+    .with_arg(DiagnosticArg::emission_failure(
+        DiagnosticEmissionFailure::TestCatalog(failure),
+    ))
+    .with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::ReportCompilerDefect,
+    ))
 }
 
 fn required_artifacts(
@@ -395,14 +471,45 @@ mod tests {
     use std::ffi::OsString;
     use std::process::ExitCode;
 
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{
+        DiagnosticArgValue, DiagnosticEmissionFailure, DiagnosticKind,
+        DiagnosticTestCatalogFailure,
+    };
     use bray_emitter::{ArtifactKind, ArtifactRequirement};
     use bray_symbols::ProductKind;
 
-    use super::{emission_request, required_artifacts};
+    use super::{emission_request, required_artifacts, test_catalog_failure};
     use crate::command::{DriverBackend, DriverInspectionArtifact, DriverProductConfiguration};
     use crate::run::run_result;
     use crate::test_support::TemporaryFile;
+
+    #[test]
+    fn test_catalog_protocol_failures_keep_their_exact_category() {
+        let package = bray_symbols::PackageIdentity::try_new("example")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let product = bray_symbols::ProductIdentity::try_new(package, "test")
+            .unwrap_or_else(|| panic!("test product identity must be valid"));
+
+        let diagnostic = test_catalog_failure(
+            bray_test_protocol::TestProtocolError::ResourceLimit,
+            &product,
+        );
+
+        let failure = diagnostic
+            .args()
+            .iter()
+            .find_map(|argument| match argument.value() {
+                DiagnosticArgValue::EmissionFailure(failure) => Some(failure),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("test-catalog failure must retain emission context"));
+
+        assert_eq!(
+            failure,
+            &DiagnosticEmissionFailure::TestCatalog(DiagnosticTestCatalogFailure::ResourceLimit)
+        );
+    }
 
     #[test]
     fn emission_request_keeps_required_product_and_optional_inspections_typed() {

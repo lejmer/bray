@@ -9,10 +9,13 @@ pub use backend::{
     DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
 };
 pub use lowering::{
-    DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
-    DiagnosticLoweringInputFailureKind, DiagnosticMirUnitBuildFailure,
-    DiagnosticSourceConstructKind,
+    DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringIdentity,
+    DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind, DiagnosticLoweringRoot,
+    DiagnosticMirUnitBuildFailure,
+    DiagnosticMirUnitBuildFailureContext, DiagnosticMirUnitBuildFailureKind,
+    DiagnosticMirUnitLocalIdentity, DiagnosticSourceConstructKind,
 };
 pub use product::{
-    DiagnosticNativeLinkInputFailure, DiagnosticNativeProductFailureKind, DiagnosticProductKind,
+    DiagnosticNativeLinkInputFailure, DiagnosticNativeProductFailureDetail,
+    DiagnosticNativeProductFailureKind, DiagnosticProductKind,
 };

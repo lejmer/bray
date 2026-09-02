@@ -8,17 +8,17 @@ use bray_diagnostics::{
     DiagnosticCallableOverloadArm, DiagnosticCallableOverloadProblem,
     DiagnosticCallbackStateProblem, DiagnosticCheckerFailure, DiagnosticConstructionInputRejection,
     DiagnosticDependencySubjectKind, DiagnosticEmissionEvaluationFailure,
-    DiagnosticEmissionFailure, DiagnosticGenericParameterCategory, DiagnosticId,
+    DiagnosticEmissionFailure, DiagnosticFactRuntimeFailure, DiagnosticFailureField,
+    DiagnosticFailureValue, DiagnosticGenericParameterCategory, DiagnosticId,
     DiagnosticInterfaceDeclarationIdentity, DiagnosticInterfaceLimit, DiagnosticInterfaceSection,
     DiagnosticInterfaceSemanticProblem, DiagnosticInterfaceSymbolIdentity,
     DiagnosticInterfaceSymbolKind, DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind,
     DiagnosticLayoutOption, DiagnosticLayoutProblem, DiagnosticLoweringFailure,
     DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
     DiagnosticLoweringInputFailureKind, DiagnosticMemoryOperation, DiagnosticModuleTrust,
-    DiagnosticNameKind, DiagnosticNamedType, DiagnosticNativeProductFailureKind, DiagnosticNote,
-    DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticPatternCoverage,
-    DiagnosticPatternMissingCase, DiagnosticProductDataKind, DiagnosticProductQueryContext,
-    DiagnosticProductQueryContextKind, DiagnosticProductQueryFailure,
+    DiagnosticNameKind, DiagnosticNamedType, DiagnosticNativeProductFailureDetail,
+    DiagnosticNativeProductFailureKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink,
+    DiagnosticPatternCoverage, DiagnosticPatternMissingCase, DiagnosticProductQueryFailure,
     DiagnosticProjectManifestField, DiagnosticPropagationProblem, DiagnosticRefinementCapacity,
     DiagnosticRefinementCapacitySurface, DiagnosticRejectedSelectionCandidate,
     DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticRuntimeAbiVersion,
@@ -26,11 +26,12 @@ use bray_diagnostics::{
     DiagnosticSelectionCandidateIdentity, DiagnosticSelectionCandidateSignature,
     DiagnosticSelectionCandidates, DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
     DiagnosticSelectionRejections, DiagnosticSemanticContentProblem,
-    DiagnosticSemanticValueFailure, DiagnosticSourceEdit, DiagnosticStorageAccess,
-    DiagnosticStorageAccessPurpose, DiagnosticStorageProjection, DiagnosticStorageRoot,
-    DiagnosticSuggestion, DiagnosticSuggestionApplicability, DiagnosticSuggestionKind,
-    DiagnosticTargetPredicateValueKind, DiagnosticTraitFulfillmentMismatch, DiagnosticType,
-    DiagnosticTypeArgument, DiagnosticVisibility, DiagnosticYieldCardinality, SeverityKind,
+    DiagnosticSemanticQueryFailure, DiagnosticSemanticValueFailure, DiagnosticSourceEdit,
+    DiagnosticStorageAccess, DiagnosticStorageAccessPurpose, DiagnosticStorageProjection,
+    DiagnosticStorageRoot, DiagnosticSuggestion, DiagnosticSuggestionApplicability,
+    DiagnosticSuggestionKind, DiagnosticTargetPredicateValueKind,
+    DiagnosticTraitFulfillmentMismatch, DiagnosticType, DiagnosticTypeArgument,
+    DiagnosticVisibility, DiagnosticYieldCardinality, SeverityKind,
 };
 use bray_source::{SourceSpan, TextRange, TextSize};
 use bray_syntax::SyntaxKind;
@@ -51,9 +52,11 @@ const JSON_SOURCE_INVENTORY: &[&str] = &[
     "output/diagnostic/json/checking/selection.rs",
     "output/diagnostic/json/checking/trait_mismatch.rs",
     "output/diagnostic/json/emission.rs",
+    "output/diagnostic/json/emission/checker.rs",
     "output/diagnostic/json/emission/context.rs",
     "output/diagnostic/json/emission/failure.rs",
     "output/diagnostic/json/emission/foreign_query.rs",
+    "output/diagnostic/json/emission/lowering.rs",
     "output/diagnostic/json/emission/native_link.rs",
     "output/diagnostic/json/emission/product_query.rs",
     "output/diagnostic/json/foreign.rs",
@@ -62,6 +65,7 @@ const JSON_SOURCE_INVENTORY: &[&str] = &[
     "output/diagnostic/json/interface/validation.rs",
     "output/diagnostic/json/interface/validation/failure.rs",
     "output/diagnostic/json/interface/validation/problem.rs",
+    "output/diagnostic/json/path.rs",
     "output/diagnostic/json/project.rs",
     "output/diagnostic/json/project/command.rs",
     "output/diagnostic/json/project/execution.rs",
@@ -222,7 +226,9 @@ fn emission_evaluation_failures_use_domain_named_json_categories() {
         SeverityKind::Error,
     )
     .with_arg(DiagnosticArg::emission_failure(
-        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Cycle),
+        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Cycle(
+            bray_diagnostics::DiagnosticEvaluationFailureDetail::new("cycle", []),
+        )),
     ));
 
     let mut output = Vec::new();
@@ -241,13 +247,23 @@ fn emission_evaluation_failures_use_domain_named_json_categories() {
 
 #[test]
 fn product_query_failures_preserve_exact_context_in_emission_and_native_json() {
-    let failure = DiagnosticProductQueryFailure::Missing {
-        context: DiagnosticProductQueryContext::new(
-            DiagnosticProductQueryContextKind::Instance,
-            "function#7[type#3]",
-        ),
-        data: DiagnosticProductDataKind::CallableSignature,
-    };
+    let failure = DiagnosticProductQueryFailure::new(
+        "product_query_missing",
+        [
+            DiagnosticFailureField::new(
+                "product_context_kind",
+                DiagnosticFailureValue::Text("instance".to_owned()),
+            ),
+            DiagnosticFailureField::new(
+                "product_context_identity",
+                DiagnosticFailureValue::Identity([7; 32]),
+            ),
+            DiagnosticFailureField::new(
+                "data_kind",
+                DiagnosticFailureValue::Text("callable_signature".to_owned()),
+            ),
+        ],
+    );
 
     let diagnostic = Diagnostic::new(
         DiagnosticId::new(0),
@@ -280,7 +296,7 @@ fn product_query_failures_preserve_exact_context_in_emission_and_native_json() {
 
     assert_eq!(
         emission["context"][2]["value"]["value"],
-        "function#7[type#3]"
+        "0707070707070707070707070707070707070707070707070707070707070707"
     );
 
     assert_eq!(
@@ -289,6 +305,154 @@ fn product_query_failures_preserve_exact_context_in_emission_and_native_json() {
     );
 
     assert_eq!(native["reason"], "product_query_missing");
+    assert_eq!(native["context"], emission["context"]);
+}
+
+#[test]
+fn runtime_failures_preserve_exact_context_in_emission_and_native_json() {
+    let failure = DiagnosticFactRuntimeFailure::new(
+        "publication_mismatch",
+        [
+            DiagnosticFailureField::new(
+                "requested_fact",
+                DiagnosticFailureValue::Text("SyntaxTree".to_owned()),
+            ),
+            DiagnosticFailureField::new("actual_task", DiagnosticFailureValue::Count(23)),
+            DiagnosticFailureField::new("target_supported", DiagnosticFailureValue::Boolean(true)),
+        ],
+    );
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::EmissionFailed,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::emission_failure(
+        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Runtime(
+            failure.clone(),
+        )),
+    ))
+    .with_arg(DiagnosticArg::native_product_failure_kind(
+        DiagnosticNativeProductFailureKind::EvaluationRuntime(failure),
+    ));
+
+    let mut output = Vec::new();
+
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+        .unwrap_or_else(|error| panic!("JSON diagnostics should write: {error:?}"));
+
+    let output: serde_json::Value = serde_json::from_slice(&output)
+        .unwrap_or_else(|error| panic!("JSON diagnostics should parse: {error:?}"));
+
+    let emission = &output["diagnostics"][0]["args"][0]["value"]["value"];
+    let native = &output["diagnostics"][0]["args"][1]["value"]["value"];
+
+    assert_eq!(emission["reason"], "publication_mismatch");
+    assert_eq!(emission["context"][0]["name"], "requested_fact");
+    assert_eq!(emission["context"][0]["value"]["value"], "SyntaxTree");
+    assert_eq!(emission["context"][1]["value"]["value"], 23);
+    assert_eq!(emission["context"][2]["value"]["kind"], "boolean");
+    assert_eq!(emission["context"][2]["value"]["value"], true);
+    assert_eq!(native["reason"], emission["reason"]);
+    assert_eq!(native["context"], emission["context"]);
+}
+
+#[test]
+fn imported_template_mismatches_preserve_exact_context_in_emission_and_native_json() {
+    let failure = DiagnosticSemanticQueryFailure::new(
+        "imported_query",
+        "imported_query_executable_template_mismatch",
+        [
+            DiagnosticFailureField::new(
+                "interface",
+                DiagnosticFailureValue::Count(7),
+            ),
+            DiagnosticFailureField::new("symbol", DiagnosticFailureValue::Count(11)),
+            DiagnosticFailureField::new("template", DiagnosticFailureValue::Count(0)),
+            DiagnosticFailureField::new("expected_unit", DiagnosticFailureValue::Count(17)),
+            DiagnosticFailureField::new("actual_unit", DiagnosticFailureValue::Count(29)),
+            DiagnosticFailureField::new(
+                "expected_key",
+                DiagnosticFailureValue::Identity([5; 32]),
+            ),
+            DiagnosticFailureField::new(
+                "actual_key",
+                DiagnosticFailureValue::Identity([7; 32]),
+            ),
+            DiagnosticFailureField::new(
+                "expected_target_identity",
+                DiagnosticFailureValue::Text("x86_64-unknown-linux-gnu".to_owned()),
+            ),
+            DiagnosticFailureField::new(
+                "actual_target_identity",
+                DiagnosticFailureValue::Text("x86_64-pc-windows-msvc".to_owned()),
+            ),
+        ],
+    );
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::EmissionFailed,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::emission_failure(
+        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::SemanticQuery(
+            failure.clone(),
+        )),
+    ))
+    .with_arg(DiagnosticArg::native_product_failure_kind(
+        DiagnosticNativeProductFailureKind::EvaluationSemanticQuery(failure),
+    ));
+
+    let mut output = Vec::new();
+
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+        .unwrap_or_else(|error| panic!("JSON diagnostics should write: {error:?}"));
+
+    let output: serde_json::Value = serde_json::from_slice(&output)
+        .unwrap_or_else(|error| panic!("JSON diagnostics should parse: {error:?}"));
+
+    let emission = &output["diagnostics"][0]["args"][0]["value"]["value"];
+    let native = &output["diagnostics"][0]["args"][1]["value"]["value"];
+
+    assert_eq!(
+        emission["reason"],
+        "imported_query_executable_template_mismatch"
+    );
+
+    assert_eq!(emission["context"][0]["name"], "category");
+    assert_eq!(emission["context"][0]["value"]["value"], "imported_query");
+    assert_eq!(emission["context"][1]["name"], "interface");
+    assert_eq!(emission["context"][2]["name"], "symbol");
+    assert_eq!(emission["context"][3]["name"], "template");
+    assert_eq!(emission["context"][4]["name"], "expected_unit");
+    assert_eq!(emission["context"][5]["name"], "actual_unit");
+    assert_eq!(emission["context"][6]["name"], "expected_key");
+    assert_eq!(emission["context"][7]["name"], "actual_key");
+    assert_eq!(emission["context"][8]["name"], "expected_target_identity");
+    assert_eq!(emission["context"][9]["name"], "actual_target_identity");
+
+    assert_eq!(
+        emission["context"][6]["value"]["value"],
+        "0505050505050505050505050505050505050505050505050505050505050505"
+    );
+
+    assert_eq!(
+        emission["context"][7]["value"]["value"],
+        "0707070707070707070707070707070707070707070707070707070707070707"
+    );
+
+    assert_eq!(
+        emission["context"][8]["value"]["value"],
+        "x86_64-unknown-linux-gnu"
+    );
+
+    assert_eq!(
+        emission["context"][9]["value"]["value"],
+        "x86_64-pc-windows-msvc"
+    );
+
+    assert_eq!(native["reason"], emission["reason"]);
     assert_eq!(native["context"], emission["context"]);
 }
 
@@ -321,7 +485,7 @@ fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
     ))
     .with_arg(DiagnosticArg::emission_failure(
         DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Binding(
-            DiagnosticBindingFailure::SemanticValue(DiagnosticSemanticValueFailure::UnknownId {
+            DiagnosticBindingFailure::semantic_value(DiagnosticSemanticValueFailure::UnknownId {
                 kind: "type",
             }),
         )),
@@ -340,7 +504,7 @@ fn semantic_value_payloads_reach_evaluation_and_native_product_json() {
     ))
     .with_arg(DiagnosticArg::native_product_failure_kind(
         DiagnosticNativeProductFailureKind::EvaluationBinding(
-            DiagnosticBindingFailure::SemanticValue(
+            DiagnosticBindingFailure::semantic_value(
                 DiagnosticSemanticValueFailure::OpenSubstitution,
             ),
         ),
@@ -1198,6 +1362,72 @@ fn json_output_preserves_memory_operation_and_callback_causes() {
     assert_eq!(callback["value"]["reason"], "context_parameter_not_first");
     assert_eq!(callback["value"]["context"][0]["name"], "actual_ordinal");
     assert_eq!(callback["value"]["context"][0]["value"]["value"], 2);
+}
+
+#[test]
+fn native_product_json_preserves_typed_runtime_selection_payload() {
+    let failure = DiagnosticNativeProductFailureKind::RuntimeSelectionArchiveDigestMismatch(
+        DiagnosticNativeProductFailureDetail::new(
+            "runtime_selection_archive_digest_mismatch",
+            [
+                DiagnosticFailureField::new(
+                    "component",
+                    DiagnosticFailureValue::Text("runtime.product.execution".to_owned()),
+                ),
+                DiagnosticFailureField::new(
+                    "path",
+                    DiagnosticFailureValue::Text("runtime/product.lib".to_owned()),
+                ),
+                DiagnosticFailureField::new(
+                    "expected_digest",
+                    DiagnosticFailureValue::ArtifactDigest(DiagnosticArtifactDigest::new(
+                        DiagnosticArtifactDigestAlgorithm::Sha256,
+                        [3; 32],
+                    )),
+                ),
+                DiagnosticFailureField::new(
+                    "actual_digest",
+                    DiagnosticFailureValue::ArtifactDigest(DiagnosticArtifactDigest::new(
+                        DiagnosticArtifactDigestAlgorithm::Sha256,
+                        [5; 32],
+                    )),
+                ),
+            ],
+        ),
+    );
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::NativeProductPreparationFailed,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::native_product_failure_kind(failure));
+
+    let mut output = Vec::new();
+
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+        .unwrap_or_else(|error| panic!("native-product JSON should write: {error:?}"));
+
+    let output: serde_json::Value = serde_json::from_slice(&output)
+        .unwrap_or_else(|error| panic!("native-product JSON should parse: {error:?}"));
+
+    let value = &output["diagnostics"][0]["args"][0]["value"]["value"];
+
+    assert_eq!(value["reason"], "runtime_selection_archive_digest_mismatch");
+    assert_eq!(value["context"][0]["value"]["kind"], "text");
+    assert_eq!(value["context"][1]["value"]["kind"], "text");
+    assert_eq!(value["context"][2]["value"]["kind"], "artifact_digest");
+    assert_eq!(value["context"][2]["value"]["value"]["algorithm"], "sha256");
+
+    assert_eq!(
+        value["context"][2]["value"]["value"]["bytes"]
+            .as_array()
+            .map(Vec::len),
+        Some(32)
+    );
+
+    assert_eq!(value["context"][2]["value"]["value"]["bytes"][0], 3);
+    assert_eq!(value["context"][3]["value"]["kind"], "artifact_digest");
 }
 
 #[test]

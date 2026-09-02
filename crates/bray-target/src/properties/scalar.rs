@@ -78,7 +78,8 @@ impl TargetScalarKind {
         Self::C256,
     ];
 
-    pub(crate) const fn as_str(self) -> &'static str {
+    /// Returns the stable language spelling for this scalar kind.
+    pub const fn as_str(self) -> &'static str {
         match self {
             Self::Bool => "bool",
             Self::Char => "char",

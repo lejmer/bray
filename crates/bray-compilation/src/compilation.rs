@@ -1,5 +1,6 @@
 mod behavior;
 mod binder;
+mod boundary;
 mod checker;
 mod codegen;
 mod configuration;
@@ -47,18 +48,23 @@ pub use configuration::BuildConfiguration;
 pub use emission::{EmissionCodegenError, EmissionCodegenErrorKind};
 pub use export::PackageInterfaceExportError;
 pub(crate) use foreign::{
-    ForeignDataKind, ForeignIntegerWidth, ForeignQueryContext, ForeignQueryFailure, ForeignTypeKind,
+    ForeignDataKind, ForeignIntegerWidth, ForeignQueryContext, ForeignQueryFailure,
+    ForeignSourceRole, ForeignTypeKind,
 };
 pub use foreign::{ForeignQueryError, ForeignQueryErrorKind};
+pub(crate) use implementation::ImplementationMatchError;
 pub use linking::LinkedProductEmissionError;
 pub use load::CompilationLoadError;
+#[cfg(test)]
+pub(crate) use product::ProductSynchronizationComponent;
 pub use product::{
     NativeProductPlan, NativeProductPlanningError, ProductQueryError, ProductQueryErrorKind,
 };
 pub(crate) use product::{
-    ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductSynchronizationComponent,
-    ProductTestCatalogFailureKind, ProductValueKind,
+    ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductTestCatalogFailureKind,
+    ProductValueKind,
 };
+pub(crate) use product_emission::diagnostics::diagnostic_evaluation_failure;
 pub use product_emission::{ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs};
 pub use semantic_error::{SemanticQueryError, SemanticQueryErrorKind};
 pub use source_graph::ProductSourceGraph;

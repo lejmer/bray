@@ -12,6 +12,7 @@ use super::diagnostic::{
 };
 use crate::fact::{
     CancellationToken, CompilationFactKey, FactQueryError, ImportedExecutableTemplateAddress,
+    ImportedQueryFailure,
 };
 
 impl super::super::Compilation {
@@ -46,7 +47,7 @@ impl super::super::Compilation {
 
                 let input = self
                     .dependency_interface(interface)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                    .ok_or(ImportedQueryFailure::MissingDependencyInput(interface))?;
 
                 if let Some(artifact) = input.implementation_artifact() {
                     return Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(
@@ -102,7 +103,9 @@ impl super::super::Compilation {
 
         let loaded = self
             .loaded_dependency_interface_with_cancellation(address.interface(), cancellation)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or(ImportedQueryFailure::MissingLoadedInterface(
+                address.interface(),
+            ))?;
 
         let (Some(interface), Some(surface)) = (loaded.validated(), loaded.surface()) else {
             return Ok(None);
@@ -110,7 +113,9 @@ impl super::super::Compilation {
 
         let implementation = self
             .loaded_dependency_implementation_with_cancellation(address.interface(), cancellation)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or(ImportedQueryFailure::MissingLoadedImplementation(
+                address.interface(),
+            ))?;
 
         let Some(implementation) = implementation.value() else {
             return Ok(None);
@@ -118,21 +123,19 @@ impl super::super::Compilation {
 
         let configuration = self
             .package_implementation_configuration(None)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::CodegenTarget)?;
 
-        if implementation
+        implementation
             .validate_interface(interface, surface)
-            .is_err()
-            || implementation
-                .validate_configuration(&configuration)
-                .is_err()
-        {
-            return Err(FactQueryError::InfrastructureFailure);
-        }
+            .map_err(FactQueryError::from)?;
+
+        implementation
+            .validate_configuration(&configuration)
+            .map_err(FactQueryError::from)?;
 
         implementation
             .native_boundary(address.symbol())
-            .map_err(|_| FactQueryError::InfrastructureFailure)
+            .map_err(FactQueryError::from)
     }
 
     pub(in crate::compilation) fn imported_executable_template_with_cancellation(
@@ -164,14 +167,18 @@ impl super::super::Compilation {
 
         let input = self
             .dependency_interface_input(symbol_address.interface())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or(ImportedQueryFailure::MissingDependencyInput(
+                symbol_address.interface(),
+            ))?;
 
         let loaded = self
             .loaded_dependency_interface_with_cancellation(
                 symbol_address.interface(),
                 cancellation,
             )?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or(ImportedQueryFailure::MissingLoadedInterface(
+                symbol_address.interface(),
+            ))?;
 
         let Some(validated) = loaded.validated() else {
             return Ok(DiagnosticResult::without_diagnostics(None));
@@ -182,7 +189,9 @@ impl super::super::Compilation {
                 symbol_address.interface(),
                 cancellation,
             )?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or(ImportedQueryFailure::MissingLoadedImplementation(
+                symbol_address.interface(),
+            ))?;
 
         let Some(artifact) = artifact.value() else {
             return Ok(DiagnosticResult::new(
@@ -195,29 +204,42 @@ impl super::super::Compilation {
         };
 
         let Some(surface) = loaded.surface() else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(
+                ImportedQueryFailure::MissingLoadedSurface(symbol_address.interface()).into(),
+            );
         };
 
         let configuration = self
             .package_implementation_configuration(None)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::CodegenTarget)?;
 
-        if artifact.validate_interface(validated, surface).is_err()
-            || artifact.validate_configuration(&configuration).is_err()
-        {
+        if let Err(error) = artifact.validate_interface(validated, surface) {
             return Ok(DiagnosticResult::new(
                 None,
-                executable_template_diagnostics(input),
+                implementation_validation_diagnostics(error, input),
+            ));
+        }
+
+        if let Err(error) = artifact.validate_configuration(&configuration) {
+            return Ok(DiagnosticResult::new(
+                None,
+                implementation_validation_diagnostics(error, input),
             ));
         }
 
         let template =
             match artifact.executable_template(symbol_address.symbol(), address.template()) {
                 Ok(Some(template)) => template,
-                Ok(None) | Err(_) => {
+                Ok(None) => {
                     return Ok(DiagnosticResult::new(
                         None,
                         executable_template_diagnostics(input),
+                    ));
+                }
+                Err(error) => {
+                    return Ok(DiagnosticResult::new(
+                        None,
+                        implementation_validation_diagnostics(error, input),
                     ));
                 }
             };
@@ -233,37 +255,48 @@ impl super::super::Compilation {
                 symbol_address.interface(),
                 cancellation,
             )?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or(ImportedQueryFailure::MissingLoadedSemanticGraph(
+                symbol_address.interface(),
+            ))?;
 
         let Some(graph) = graph.value() else {
             return Ok(DiagnosticResult::new(None, graph.diagnostics().clone()));
         };
 
-        let interfaces = self
-            .loaded_interface_views(cancellation)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let interfaces = self.loaded_interface_views(cancellation)?.ok_or(
+            ImportedQueryFailure::MissingLoadedInterfaceViews(symbol_address.interface()),
+        )?;
 
         let current = interfaces
             .iter()
             .copied()
             .find(|loaded| loaded.interface() == symbol_address.interface())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or(ImportedQueryFailure::MissingCurrentInterface(
+                symbol_address.interface(),
+            ))?;
 
         let symbols = self.symbol_graph()?;
 
-        let resolver = ImportedInterfaceSymbolResolver::try_new(
+        let resolver = match ImportedInterfaceSymbolResolver::try_new(
             current,
             interfaces,
             skeleton,
             symbols.compiler_known_provider().symbol_keys(),
-        )
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        ) {
+            Ok(resolver) => resolver,
+            Err(error) => {
+                return Ok(DiagnosticResult::new(
+                    None,
+                    super::query::dependency_graph_diagnostics(self, error),
+                ));
+            }
+        };
 
         let owner = resolver
             .resolve(&bray_package_interface::InterfaceSymbolReference::Local(
                 symbol_address.symbol(),
             ))
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or(ImportedQueryFailure::MissingResolvedSymbol(symbol_address))?;
 
         let selected_target = self.selected_target().target();
 
@@ -325,7 +358,20 @@ impl super::super::Compilation {
             || template.key() != &bray_ir::MirUnitKey::ImportedExecutable(key)
             || template.target() != &target
         {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(ImportedQueryFailure::ExecutableTemplateMismatch(Box::new(
+                crate::ImportedExecutableTemplateMismatch::new(
+                    address.symbol().interface(),
+                    address.symbol().symbol(),
+                    address.template(),
+                    unit,
+                    template.unit(),
+                    bray_ir::MirUnitKey::ImportedExecutable(key),
+                    template.key().clone(),
+                    target,
+                    template.target().clone(),
+                ),
+            ))
+            .into());
         }
 
         Ok(Some((**template).clone()))
@@ -356,13 +402,15 @@ impl super::super::Compilation {
         address: ImportedSemanticAddress,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Option<Arc<CheckedTemplate>>>, FactQueryError> {
-        let input = self
-            .dependency_interface_input(address.interface())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let input = self.dependency_interface_input(address.interface()).ok_or(
+            ImportedQueryFailure::MissingDependencyInput(address.interface()),
+        )?;
 
         let loaded = self
             .loaded_dependency_interface_with_cancellation(address.interface(), cancellation)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or(ImportedQueryFailure::MissingLoadedInterface(
+                address.interface(),
+            ))?;
 
         let (Some(validated), Some(surface)) = (loaded.validated(), loaded.surface()) else {
             return Ok(DiagnosticResult::without_diagnostics(None));
@@ -370,7 +418,9 @@ impl super::super::Compilation {
 
         let artifact = self
             .loaded_dependency_implementation_with_cancellation(address.interface(), cancellation)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or(ImportedQueryFailure::MissingLoadedImplementation(
+                address.interface(),
+            ))?;
 
         let Some(artifact) = artifact.value() else {
             return Ok(DiagnosticResult::new(
@@ -384,20 +434,27 @@ impl super::super::Compilation {
 
         let configuration = self
             .package_implementation_configuration(None)
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(FactQueryError::CodegenTarget)?;
 
-        if artifact.validate_interface(validated, surface).is_err()
-            || artifact.validate_configuration(&configuration).is_err()
-        {
+        if let Err(error) = artifact.validate_interface(validated, surface) {
             return Ok(DiagnosticResult::new(
                 None,
-                implementation_body_diagnostics(input),
+                implementation_validation_diagnostics(error, input),
+            ));
+        }
+
+        if let Err(error) = artifact.validate_configuration(&configuration) {
+            return Ok(DiagnosticResult::new(
+                None,
+                implementation_validation_diagnostics(error, input),
             ));
         }
 
         let graph_result = self
             .imported_semantic_graph_result_with_cancellation(address.interface(), cancellation)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or(ImportedQueryFailure::MissingLoadedSemanticGraph(
+                address.interface(),
+            ))?;
 
         let Some(graph) = graph_result.value() else {
             return Ok(DiagnosticResult::new(
@@ -408,10 +465,16 @@ impl super::super::Compilation {
 
         let body = match artifact.constant_callable_body(address.symbol(), surface) {
             Ok(Some(body)) => body,
-            Ok(None) | Err(_) => {
+            Ok(None) => {
                 return Ok(DiagnosticResult::new(
                     None,
                     implementation_body_diagnostics(input),
+                ));
+            }
+            Err(error) => {
+                return Ok(DiagnosticResult::new(
+                    None,
+                    implementation_validation_diagnostics(error, input),
                 ));
             }
         };
@@ -424,27 +487,34 @@ impl super::super::Compilation {
 
         cancellation.check()?;
 
-        let interfaces = self
-            .loaded_interface_views(cancellation)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let interfaces = self.loaded_interface_views(cancellation)?.ok_or(
+            ImportedQueryFailure::MissingLoadedInterfaceViews(address.interface()),
+        )?;
 
         let Some(current) = interfaces
             .iter()
             .copied()
             .find(|loaded| loaded.interface() == address.interface())
         else {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(ImportedQueryFailure::MissingCurrentInterface(address.interface()).into());
         };
 
         let symbols = self.symbol_graph()?;
 
-        let resolver = ImportedInterfaceSymbolResolver::try_new(
+        let resolver = match ImportedInterfaceSymbolResolver::try_new(
             current,
             interfaces,
             skeleton,
             symbols.compiler_known_provider().symbol_keys(),
-        )
-        .map_err(|_| FactQueryError::InfrastructureFailure)?;
+        ) {
+            Ok(resolver) => resolver,
+            Err(error) => {
+                return Ok(DiagnosticResult::new(
+                    None,
+                    super::query::dependency_graph_diagnostics(self, error),
+                ));
+            }
+        };
 
         let template = match graph.intern_checked_template(body.template(), &resolver) {
             Ok(template) => template,

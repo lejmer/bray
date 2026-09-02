@@ -571,8 +571,37 @@ impl Compilation {
         )?;
 
         if let Some(template) = template.value() {
+            let expected_key = MirUnitKey::ImportedExecutable(
+                bray_ir::MirImportedExecutableKey::new(
+                    definition.callable_symbol().into_any(),
+                    bray_ir::MirExecutableTemplateId::ROOT,
+                ),
+            );
+
+            if template.key() != &expected_key {
+                // The retained failure owns both sides after the imported-template borrow ends.
+                let target = template.target().clone();
+
+                return Err(FactQueryError::from(
+                    crate::ImportedQueryFailure::ExecutableTemplateMismatch(Box::new(
+                        crate::ImportedExecutableTemplateMismatch::new(
+                            address.interface(),
+                            address.symbol(),
+                            bray_ir::MirExecutableTemplateId::ROOT,
+                            template.unit(),
+                            template.unit(),
+                            expected_key,
+                            template.key().clone(),
+                            target.clone(),
+                            target,
+                        ),
+                    )),
+                )
+                .into());
+            }
+
             let MirUnitKey::ImportedExecutable(key) = template.key() else {
-                return Err(FactQueryError::ImportedExecutableTemplateMismatch.into());
+                unreachable!("validated imported executable key must retain its variant");
             };
 
             return Ok(MirUnitKey::ImportedExecutable(*key));

@@ -4,9 +4,9 @@ use super::checker::DiagnosticCheckerFailure;
 use crate::{
     DiagnosticArtifactDigest, DiagnosticArtifactKind, DiagnosticArtifactRequirement,
     DiagnosticAssemblySyntaxKind, DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
-    DiagnosticIoErrorKind, DiagnosticLinkInputKind, DiagnosticLinkedArtifactKind,
-    DiagnosticLinkedProductKind, DiagnosticOutputSink, DiagnosticProductKind,
-    DiagnosticProductQueryFailure,
+    DiagnosticFactRuntimeFailure, DiagnosticIoErrorKind, DiagnosticLinkInputKind,
+    DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind, DiagnosticOutputSink,
+    DiagnosticProductKind, DiagnosticProductQueryFailure,
 };
 
 /// Locale-neutral identity of one artifact in an emission operation.
@@ -40,11 +40,38 @@ pub enum DiagnosticEmissionFailure {
     Staging(DiagnosticEmissionStagingFailure),
     LinkPlan(DiagnosticEmissionLinkPlanFailure),
     Evaluation(DiagnosticEmissionEvaluationFailure),
+    /// Test-catalog encoding failed before the output could be published.
+    TestCatalog(DiagnosticTestCatalogFailure),
     MissingContribution(DiagnosticEmissionArtifact),
     InvalidContribution(DiagnosticEmissionArtifact),
     Publication(DiagnosticEmissionArtifact),
     Linking,
     IncompleteProduct,
+}
+
+/// Exact test-catalog protocol failure observed before publication.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticTestCatalogFailure {
+    /// The protocol encoder encountered an unexpected I/O path.
+    Io,
+    /// The discovered catalog violated the protocol's canonical shape.
+    Malformed,
+    /// The catalog requested a protocol version this build cannot encode.
+    UnsupportedVersion(u32),
+    /// The catalog exceeded a bounded protocol resource.
+    ResourceLimit,
+}
+
+impl DiagnosticTestCatalogFailure {
+    /// Returns the stable machine key for this failure.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Io => "test_catalog_io",
+            Self::Malformed => "test_catalog_malformed",
+            Self::UnsupportedVersion(_) => "test_catalog_unsupported_version",
+            Self::ResourceLimit => "test_catalog_resource_limit",
+        }
+    }
 }
 
 /// Exact planning contract that rejected an emission request.
@@ -289,8 +316,10 @@ pub enum DiagnosticEmissionLinkPlanFailure {
 /// Exact compiler-evaluation failure observed during emission.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticEmissionEvaluationFailure {
-    Cycle,
+    Cancelled,
+    Cycle(DiagnosticEvaluationFailureDetail),
     Infrastructure,
+    Runtime(DiagnosticFactRuntimeFailure),
     SemanticValueStoreCreate,
     SemanticValue(DiagnosticSemanticValueFailure),
     Binding(DiagnosticBindingFailure),
@@ -304,7 +333,7 @@ pub enum DiagnosticEmissionEvaluationFailure {
     AtomicInitializerResultUnavailable,
     UninitInitializerResultUnavailable,
     ImportedExecutableTemplateMismatch,
-    SemanticContext,
+    SemanticContext(DiagnosticEvaluationFailureDetail),
     /// A semantic query failed with an exact compiler-owned category.
     SemanticQuery(DiagnosticSemanticQueryFailure),
     /// Product specialization or realization violated an exact retained contract.
@@ -314,40 +343,118 @@ pub enum DiagnosticEmissionEvaluationFailure {
     Checker(DiagnosticCheckerFailure),
 }
 
-/// Stable semantic-query failure category retained for product diagnostics.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticSemanticQueryFailure {
-    /// A retained semantic relationship violated its compiler contract.
-    ContractViolation,
-    /// A callable signature violated its structural contract.
-    CallableSignature,
-    /// A generic substitution violated its declared parameter shape.
-    GenericSubstitution,
-    /// A bound unit violated its key, tree, or root contract.
-    BoundUnit,
-    /// Implementation selection or durable evidence was malformed.
-    Implementation,
-    /// Checked constant-term publication rejected its occurrence input.
-    CheckedConstantTerms,
-    /// A type-associated surface rejected its member input.
-    TypeSurface,
-    /// Generated preparsed syntax violated its event contract.
-    PreparsedSyntax,
+/// Exact machine-readable detail retained for an evaluation-owned failure.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiagnosticEvaluationFailureDetail {
+    reason: &'static str,
+    context: Box<[crate::DiagnosticFailureField]>,
+}
+
+impl DiagnosticEvaluationFailureDetail {
+    /// Creates one exact evaluation failure and its typed machine context.
+    pub fn new(
+        reason: &'static str,
+        context: impl Into<Box<[crate::DiagnosticFailureField]>>,
+    ) -> Self {
+        Self {
+            reason,
+            context: context.into(),
+        }
+    }
+
+    /// Returns the stable machine key for the exact failure.
+    pub const fn reason(&self) -> &'static str {
+        self.reason
+    }
+
+    /// Returns the typed context retained from the leaf failure.
+    pub const fn context(&self) -> &[crate::DiagnosticFailureField] {
+        &self.context
+    }
+}
+
+/// Exact semantic-query failure retained for product diagnostics.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiagnosticSemanticQueryFailure {
+    category: &'static str,
+    reason: &'static str,
+    context: Box<[crate::DiagnosticFailureField]>,
+}
+
+impl DiagnosticSemanticQueryFailure {
+    /// Creates one semantic-query failure with stable category, reason, and typed leaf context.
+    pub fn new(
+        category: &'static str,
+        reason: &'static str,
+        context: impl Into<Box<[crate::DiagnosticFailureField]>>,
+    ) -> Self {
+        Self {
+            category,
+            reason,
+            context: context.into(),
+        }
+    }
+
+    /// Returns the stable semantic-query domain category.
+    pub const fn category(&self) -> &'static str {
+        self.category
+    }
+
+    /// Returns the stable machine-readable leaf reason.
+    pub const fn reason(&self) -> &'static str {
+        self.reason
+    }
+
+    /// Returns the ordered locale-neutral fields retained from the leaf failure.
+    pub const fn context(&self) -> &[crate::DiagnosticFailureField] {
+        &self.context
+    }
+
+    /// Returns this failure's stable machine-readable name.
+    pub const fn as_str(&self) -> &'static str {
+        self.reason
+    }
 }
 
 /// Exact compiler-owned failure observed while binding one source-level program element.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticBindingFailure {
-    DependencyUnavailable,
-    InvalidUnitKey,
-    MissingSyntax,
-    MissingOwner,
-    MissingModule,
-    InvalidSurfaceName,
-    SemanticValue(DiagnosticSemanticValueFailure),
-    Construction,
-    Binding,
-    Assembly,
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiagnosticBindingFailure {
+    reason: &'static str,
+    context: Box<[crate::DiagnosticFailureField]>,
+    semantic_value: Option<DiagnosticSemanticValueFailure>,
+}
+
+impl DiagnosticBindingFailure {
+    /// Creates one binding failure with its stable reason and typed leaf context.
+    pub fn new(
+        reason: &'static str,
+        context: impl Into<Box<[crate::DiagnosticFailureField]>>,
+    ) -> Self {
+        Self {
+            reason,
+            context: context.into(),
+            semantic_value: None,
+        }
+    }
+
+    /// Creates a binding failure backed by an exact canonical semantic-value failure.
+    pub fn semantic_value(failure: DiagnosticSemanticValueFailure) -> Self {
+        Self {
+            reason: failure.as_str(),
+            context: Box::new([]),
+            semantic_value: Some(failure),
+        }
+    }
+
+    /// Returns the ordered locale-neutral fields retained from the binding failure.
+    pub const fn context(&self) -> &[crate::DiagnosticFailureField] {
+        &self.context
+    }
+
+    /// Returns the canonical semantic-value cause when it owns this binding failure.
+    pub const fn semantic_value_failure(&self) -> Option<DiagnosticSemanticValueFailure> {
+        self.semantic_value
+    }
 }
 
 /// Exact canonical-value failure that prevented semantic binding.
@@ -382,6 +489,7 @@ impl DiagnosticEmissionFailure {
             Self::Staging(_) => "staging",
             Self::LinkPlan(_) => "link_plan",
             Self::Evaluation(_) => "evaluation",
+            Self::TestCatalog(_) => "test_catalog",
             Self::MissingContribution(_) => "missing_contribution",
             Self::InvalidContribution(_) => "invalid_contribution",
             Self::Publication(_) => "publication",
@@ -399,6 +507,7 @@ impl DiagnosticEmissionFailure {
             Self::Staging(failure) => failure.as_str(),
             Self::LinkPlan(failure) => failure.as_str(),
             Self::Evaluation(failure) => failure.as_str(),
+            Self::TestCatalog(failure) => failure.as_str(),
             Self::MissingContribution(_) => "missing_contribution",
             Self::InvalidContribution(_) => "invalid_contribution",
             Self::Publication(_) => "publication",
@@ -623,8 +732,10 @@ impl DiagnosticEmissionLinkPlanFailure {
 impl DiagnosticEmissionEvaluationFailure {
     pub const fn as_str(&self) -> &'static str {
         match self {
-            Self::Cycle => "cycle",
+            Self::Cancelled => "cancelled",
+            Self::Cycle(failure) => failure.reason(),
             Self::Infrastructure => "infrastructure",
+            Self::Runtime(failure) => failure.reason(),
             Self::SemanticValueStoreCreate => "semantic_value_store_create",
             Self::SemanticValue(failure) => failure.as_str(),
             Self::Binding(failure) => failure.as_str(),
@@ -640,7 +751,7 @@ impl DiagnosticEmissionEvaluationFailure {
             Self::AtomicInitializerResultUnavailable => "atomic_initializer_result_unavailable",
             Self::UninitInitializerResultUnavailable => "uninit_initializer_result_unavailable",
             Self::ImportedExecutableTemplateMismatch => "imported_executable_template_mismatch",
-            Self::SemanticContext => "semantic_context",
+            Self::SemanticContext(failure) => failure.reason(),
             Self::SemanticQuery(failure) => failure.as_str(),
             Self::Product(failure) => failure.as_str(),
             Self::Foreign(failure) => failure.as_str(),
@@ -649,36 +760,9 @@ impl DiagnosticEmissionEvaluationFailure {
     }
 }
 
-impl DiagnosticSemanticQueryFailure {
-    /// Returns this failure category's stable machine-readable name.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::ContractViolation => "semantic_query_contract_violation",
-            Self::CallableSignature => "semantic_query_callable_signature",
-            Self::GenericSubstitution => "semantic_query_generic_substitution",
-            Self::BoundUnit => "semantic_query_bound_unit",
-            Self::Implementation => "semantic_query_implementation",
-            Self::CheckedConstantTerms => "semantic_query_checked_constant_terms",
-            Self::TypeSurface => "semantic_query_type_surface",
-            Self::PreparsedSyntax => "semantic_query_preparsed_syntax",
-        }
-    }
-}
-
 impl DiagnosticBindingFailure {
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::DependencyUnavailable => "binding_dependency_unavailable",
-            Self::InvalidUnitKey => "binding_invalid_unit_key",
-            Self::MissingSyntax => "binding_missing_syntax",
-            Self::MissingOwner => "binding_missing_owner",
-            Self::MissingModule => "binding_missing_module",
-            Self::InvalidSurfaceName => "binding_invalid_surface_name",
-            Self::SemanticValue(failure) => failure.as_str(),
-            Self::Construction => "binding_construction",
-            Self::Binding => "binding_recovery_root",
-            Self::Assembly => "binding_assembly",
-        }
+    pub const fn as_str(&self) -> &'static str {
+        self.reason
     }
 }
 
