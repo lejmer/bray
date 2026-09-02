@@ -162,7 +162,11 @@ where
         let state = self
             .state
             .lock()
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
+                component: SynchronizationComponent::CellMap,
+                fact: None,
+                task: None,
+            })?;
 
         Ok(state
             .cells
@@ -293,10 +297,10 @@ mod tests {
                 &runtime,
                 CompilationFactKey::SyntaxTree,
                 &cancellation,
-                || Err(FactQueryError::InfrastructureFailure),
+                || Err(FactQueryError::BindingDependencyUnavailable),
             );
 
-            assert_eq!(result, Err(FactQueryError::InfrastructureFailure));
+            assert_eq!(result, Err(FactQueryError::BindingDependencyUnavailable));
         }
 
         assert_eq!(cache.keys().len(), 2);

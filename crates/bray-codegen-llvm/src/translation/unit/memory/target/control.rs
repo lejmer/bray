@@ -31,7 +31,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .as_instruction_value()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?
             .set_volatile(true)
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         Ok(value)
     }
@@ -51,7 +51,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         store
             .set_volatile(true)
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
+            .map_err(CodegenFailure::backend_library)
     }
 
     pub(in crate::translation::unit::memory) fn translate_expose_address(
@@ -162,8 +162,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .address_space(role)
             .ok_or(CodegenFailure::UnsupportedTarget)?;
 
-        let expected = inkwell::AddressSpace::try_from(expected)
-            .map_err(|()| CodegenFailure::UnsupportedTarget)?;
+        let expected = crate::conversion::target_value(expected, "address_space")?;
 
         if pointer.get_type().get_address_space() != expected {
             return Err(CodegenFailure::GeneratedModuleInvariant);

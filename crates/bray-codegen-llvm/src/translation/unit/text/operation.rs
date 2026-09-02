@@ -351,24 +351,30 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let data = extract_value(
             &self.builder,
             value,
-            u32::try_from(self.aggregate_value_element(&fields, 0)?)
-                .map_err(|_| CodegenFailure::ResourceExhausted)?,
+            crate::conversion::resource_limit(
+                self.aggregate_value_element(&fields, 0)?,
+                "text_value_field_index",
+            )?,
         )?
         .into_pointer_value();
 
         let owner = extract_value(
             &self.builder,
             value,
-            u32::try_from(self.aggregate_value_element(&fields, 1)?)
-                .map_err(|_| CodegenFailure::ResourceExhausted)?,
+            crate::conversion::resource_limit(
+                self.aggregate_value_element(&fields, 1)?,
+                "text_value_field_index",
+            )?,
         )?
         .into_pointer_value();
 
         let length = extract_value(
             &self.builder,
             value,
-            u32::try_from(self.aggregate_value_element(&fields, 2)?)
-                .map_err(|_| CodegenFailure::ResourceExhausted)?,
+            crate::conversion::resource_limit(
+                self.aggregate_value_element(&fields, 2)?,
+                "text_value_field_index",
+            )?,
         )?
         .into_int_value();
 
@@ -385,16 +391,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let data = extract_value(
             &self.builder,
             value,
-            u32::try_from(self.aggregate_value_element(&fields, 0)?)
-                .map_err(|_| CodegenFailure::ResourceExhausted)?,
+            crate::conversion::resource_limit(
+                self.aggregate_value_element(&fields, 0)?,
+                "text_value_field_index",
+            )?,
         )?
         .into_pointer_value();
 
         let length = extract_value(
             &self.builder,
             value,
-            u32::try_from(self.aggregate_value_element(&fields, 1)?)
-                .map_err(|_| CodegenFailure::ResourceExhausted)?,
+            crate::conversion::resource_limit(
+                self.aggregate_value_element(&fields, 1)?,
+                "text_value_field_index",
+            )?,
         )?
         .into_int_value();
 

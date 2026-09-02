@@ -31,9 +31,6 @@ pub(crate) fn diagnostic_evaluation_failure(
         FactQueryError::Cycle(cycle) => {
             DiagnosticEmissionEvaluationFailure::Cycle(crate::fact::diagnostic_cycle_failure(cycle))
         }
-        FactQueryError::InfrastructureFailure => {
-            DiagnosticEmissionEvaluationFailure::Infrastructure
-        }
         FactQueryError::SymbolGraph(error) => DiagnosticEmissionEvaluationFailure::SemanticQuery(
             crate::fact::diagnostic_symbol_graph_failure(*error),
         ),

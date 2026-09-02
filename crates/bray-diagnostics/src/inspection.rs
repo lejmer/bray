@@ -1,14 +1,48 @@
+use crate::DiagnosticEmissionEvaluationFailure;
+
+/// Exact machine-readable detail retained for an inspection-report failure.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct DiagnosticInspectionFailureDetail {
+    reason: &'static str,
+    context: Box<[crate::DiagnosticFailureField]>,
+}
+
+impl DiagnosticInspectionFailureDetail {
+    /// Creates one exact inspection failure and its typed machine context.
+    pub fn new(
+        reason: &'static str,
+        context: impl Into<Box<[crate::DiagnosticFailureField]>>,
+    ) -> Self {
+        Self {
+            reason,
+            context: context.into(),
+        }
+    }
+
+    /// Returns the stable machine key for the exact failure.
+    pub const fn reason(&self) -> &'static str {
+        self.reason
+    }
+
+    /// Returns the typed context retained from the leaf failure.
+    pub const fn context(&self) -> &[crate::DiagnosticFailureField] {
+        &self.context
+    }
+}
+
 /// Exact source-report construction failure.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticSourceInspectionFailure {
     /// Source line indexing failed.
     SourceIndex,
     /// JSON report serialization failed.
     Json,
+    /// An exact payload-bearing report failure.
+    Detail(DiagnosticInspectionFailureDetail),
 }
 
 /// Exact token-report construction failure.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticTokenInspectionFailure {
     /// Source line indexing failed.
     SourceIndex,
@@ -18,10 +52,12 @@ pub enum DiagnosticTokenInspectionFailure {
     TriviaText,
     /// JSON report serialization failed.
     Json,
+    /// An exact payload-bearing report failure.
+    Detail(DiagnosticInspectionFailureDetail),
 }
 
 /// Exact syntax-report construction failure.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticSyntaxInspectionFailure {
     /// Source line indexing failed.
     SourceIndex,
@@ -35,10 +71,12 @@ pub enum DiagnosticSyntaxInspectionFailure {
     TreeStructure,
     /// JSON report serialization failed.
     Json,
+    /// An exact payload-bearing report failure.
+    Detail(DiagnosticInspectionFailureDetail),
 }
 
 /// Exact declaration-report construction failure.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticDeclarationInspectionFailure {
     /// A declaration container reference is invalid.
     Container,
@@ -52,15 +90,17 @@ pub enum DiagnosticDeclarationInspectionFailure {
     SourceIndex,
     /// JSON report serialization failed.
     Json,
+    /// An exact payload-bearing report failure.
+    Detail(DiagnosticInspectionFailureDetail),
 }
 
 /// Exact symbol-report construction failure.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticSymbolInspectionFailure {
     /// A declaration reference is invalid.
     Declaration,
-    /// The symbol graph could not be evaluated.
-    Graph,
+    /// Compiler evaluation failed while producing the report.
+    Evaluation(DiagnosticEmissionEvaluationFailure),
     /// JSON report serialization failed.
     Json,
     /// A symbol has no source correlation.
@@ -71,19 +111,19 @@ pub enum DiagnosticSymbolInspectionFailure {
     Symbol,
     /// Symbol identity traversal contains a cycle.
     SymbolCycle,
-    /// Required symbol semantic content is unavailable.
-    SymbolState,
     /// A semantic type cannot be represented in the report.
     Type,
     /// A relationship kind has no inspection representation.
     UnsupportedRelationship,
+    /// An exact payload-bearing report failure.
+    Detail(DiagnosticInspectionFailureDetail),
 }
 
 /// Exact bound-tree report construction failure.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticBoundInspectionFailure {
-    /// Required bound-tree semantic content is unavailable.
-    BoundState,
+    /// Compiler evaluation failed while producing the report.
+    Evaluation(DiagnosticEmissionEvaluationFailure),
     /// JSON report serialization failed.
     Json,
     /// A selected bound node is absent.
@@ -92,37 +132,29 @@ pub enum DiagnosticBoundInspectionFailure {
     Source,
     /// Source line indexing failed.
     SourceIndex,
-    /// Required storage-plan state is unavailable.
-    StorageState,
     /// A symbol reference is invalid.
     Symbol,
-    /// Required symbol semantic content is unavailable.
-    SymbolState,
     /// A semantic type cannot be represented in the report.
     Type,
-    /// Required expression-type state is unavailable.
-    TypeState,
-    /// Required semantic-selection state is unavailable.
-    SelectionState,
     /// A semantic selection cannot be represented in the report.
     Selection,
+    /// An exact payload-bearing report failure.
+    Detail(DiagnosticInspectionFailureDetail),
 }
 
 /// Exact lowered or MIR report construction failure.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticLoweredInspectionFailure {
+    /// Compiler evaluation failed while producing the report.
+    Evaluation(DiagnosticEmissionEvaluationFailure),
     /// JSON report serialization failed.
     Json,
-    /// Required lowering state is unavailable.
-    LoweringState,
     /// MIR model construction rejected the lowered unit.
     Model,
     /// A lowered node has no source correlation.
     Source,
-    /// Required symbol semantic content is unavailable.
-    SymbolState,
-    /// Required lowered-unit state is unavailable.
-    UnitState,
+    /// An exact payload-bearing report failure.
+    Detail(DiagnosticInspectionFailureDetail),
 }
 
 /// Selected rendering format for a compiler inspection report.
@@ -144,7 +176,7 @@ pub struct DiagnosticInspectionTarget {
 }
 
 /// Payload-owning inspection report failure at the public tooling boundary.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticInspectionFailure {
     /// Source snapshot report failure.
     Source {

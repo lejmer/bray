@@ -265,8 +265,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         fields: &[CodegenFieldLayout],
         semantic_index: usize,
     ) -> Result<usize, CodegenFailure> {
-        usize::try_from(self.aggregate_element(fields, semantic_index)?)
-            .map_err(|_| CodegenFailure::ResourceExhausted)
+        crate::conversion::resource_limit(
+            self.aggregate_element(fields, semantic_index)?,
+            "aggregate_element_index",
+        )
     }
 
     pub(super) fn pointer_field_index(
@@ -728,8 +730,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     let value = self
                         .function
                         .get_nth_param(
-                            u32::try_from(llvm_index)
-                                .map_err(|_| CodegenFailure::ResourceExhausted)?,
+                            crate::conversion::resource_limit(
+                                llvm_index,
+                                "aggregate_element_index",
+                            )?,
                         )
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
@@ -745,8 +749,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     let source = self
                         .function
                         .get_nth_param(
-                            u32::try_from(llvm_index)
-                                .map_err(|_| CodegenFailure::ResourceExhausted)?,
+                            crate::conversion::resource_limit(
+                                llvm_index,
+                                "aggregate_element_index",
+                            )?,
                         )
                         .and_then(pointer_value)
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;

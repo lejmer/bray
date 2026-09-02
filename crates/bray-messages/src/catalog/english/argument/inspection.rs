@@ -1,34 +1,34 @@
 pub(super) fn format_english_inspection_failure(
-    failure: bray_diagnostics::DiagnosticInspectionFailure,
+    failure: &bray_diagnostics::DiagnosticInspectionFailure,
 ) -> String {
     use bray_diagnostics::DiagnosticInspectionFailure as Failure;
 
     match failure {
         Failure::Source { format, cause } => format!(
             "{} source inspection {}",
-            inspection_format(format),
+            inspection_format(*format),
             source_inspection_cause(cause)
         ),
         Failure::Token { format, cause } => format!(
             "{} token inspection {}",
-            inspection_format(format),
+            inspection_format(*format),
             token_inspection_cause(cause)
         ),
         Failure::Syntax { format, cause } => format!(
             "{} syntax inspection {}",
-            inspection_format(format),
+            inspection_format(*format),
             syntax_inspection_cause(cause)
         ),
         Failure::Declaration { format, cause } => {
             format!(
                 "{} declaration inspection {}",
-                inspection_format(format),
+                inspection_format(*format),
                 declaration_inspection_cause(cause)
             )
         }
         Failure::Symbol { format, cause } => format!(
             "{} symbol inspection {}",
-            inspection_format(format),
+            inspection_format(*format),
             symbol_inspection_cause(cause)
         ),
         Failure::Bound {
@@ -37,8 +37,8 @@ pub(super) fn format_english_inspection_failure(
             cause,
         } => format!(
             "{} bound-tree inspection for {} {}",
-            inspection_format(format),
-            inspection_target(target),
+            inspection_format(*format),
+            inspection_target(*target),
             bound_inspection_cause(cause)
         ),
         Failure::Lowered {
@@ -48,8 +48,8 @@ pub(super) fn format_english_inspection_failure(
         } => {
             format!(
                 "{} lowered-tree inspection for {} {}",
-                inspection_format(format),
-                inspection_target(target),
+                inspection_format(*format),
+                inspection_target(*target),
                 lowered_inspection_cause(cause)
             )
         }
@@ -59,8 +59,8 @@ pub(super) fn format_english_inspection_failure(
             cause,
         } => format!(
             "{} MIR inspection for {} {}",
-            inspection_format(format),
-            inspection_target(target),
+            inspection_format(*format),
+            inspection_target(*target),
             lowered_inspection_cause(cause)
         ),
     }
@@ -85,18 +85,19 @@ fn inspection_target(target: bray_diagnostics::DiagnosticInspectionTarget) -> St
 }
 
 const fn source_inspection_cause(
-    cause: bray_diagnostics::DiagnosticSourceInspectionFailure,
+    cause: &bray_diagnostics::DiagnosticSourceInspectionFailure,
 ) -> &'static str {
     use bray_diagnostics::DiagnosticSourceInspectionFailure as Cause;
 
     match cause {
         Cause::SourceIndex => "could not index source lines",
         Cause::Json => "could not serialize JSON",
+        Cause::Detail(_) => inspection_detail_cause(),
     }
 }
 
 const fn token_inspection_cause(
-    cause: bray_diagnostics::DiagnosticTokenInspectionFailure,
+    cause: &bray_diagnostics::DiagnosticTokenInspectionFailure,
 ) -> &'static str {
     use bray_diagnostics::DiagnosticTokenInspectionFailure as Cause;
 
@@ -105,11 +106,12 @@ const fn token_inspection_cause(
         Cause::TokenText => "could not correlate token text with its source",
         Cause::TriviaText => "could not correlate trivia text with its source",
         Cause::Json => "could not serialize JSON",
+        Cause::Detail(_) => inspection_detail_cause(),
     }
 }
 
 const fn syntax_inspection_cause(
-    cause: bray_diagnostics::DiagnosticSyntaxInspectionFailure,
+    cause: &bray_diagnostics::DiagnosticSyntaxInspectionFailure,
 ) -> &'static str {
     use bray_diagnostics::DiagnosticSyntaxInspectionFailure as Cause;
 
@@ -120,11 +122,12 @@ const fn syntax_inspection_cause(
         Cause::TriviaText => "could not correlate trivia text with its source",
         Cause::TreeStructure => "found an invalid syntax-tree traversal",
         Cause::Json => "could not serialize JSON",
+        Cause::Detail(_) => inspection_detail_cause(),
     }
 }
 
 const fn declaration_inspection_cause(
-    cause: bray_diagnostics::DiagnosticDeclarationInspectionFailure,
+    cause: &bray_diagnostics::DiagnosticDeclarationInspectionFailure,
 ) -> &'static str {
     use bray_diagnostics::DiagnosticDeclarationInspectionFailure as Cause;
 
@@ -135,62 +138,72 @@ const fn declaration_inspection_cause(
         Cause::Source => "could not correlate a declaration with source",
         Cause::SourceIndex => "could not index source lines",
         Cause::Json => "could not serialize JSON",
+        Cause::Detail(_) => inspection_detail_cause(),
     }
 }
 
-const fn symbol_inspection_cause(
-    cause: bray_diagnostics::DiagnosticSymbolInspectionFailure,
-) -> &'static str {
+fn symbol_inspection_cause(
+    cause: &bray_diagnostics::DiagnosticSymbolInspectionFailure,
+) -> String {
     use bray_diagnostics::DiagnosticSymbolInspectionFailure as Cause;
 
     match cause {
+        Cause::Evaluation(failure) => {
+            return super::native::format_english_emission_evaluation_failure(failure);
+        }
         Cause::Declaration => "found an invalid declaration reference",
-        Cause::Graph => "could not evaluate the symbol graph",
         Cause::Json => "could not serialize JSON",
         Cause::Source => "could not correlate a symbol with source",
         Cause::SourceIndex => "could not index source lines",
         Cause::Symbol => "found an invalid symbol reference",
         Cause::SymbolCycle => "found a cycle in symbol identity traversal",
-        Cause::SymbolState => "could not obtain required symbol semantic content",
         Cause::Type => "could not represent a semantic type",
         Cause::UnsupportedRelationship => "found an unsupported relationship category",
+        Cause::Detail(_) => inspection_detail_cause(),
     }
+    .to_owned()
 }
 
-const fn bound_inspection_cause(
-    cause: bray_diagnostics::DiagnosticBoundInspectionFailure,
-) -> &'static str {
+fn bound_inspection_cause(
+    cause: &bray_diagnostics::DiagnosticBoundInspectionFailure,
+) -> String {
     use bray_diagnostics::DiagnosticBoundInspectionFailure as Cause;
 
     match cause {
-        Cause::BoundState => "could not obtain required bound-tree semantic content",
+        Cause::Evaluation(failure) => {
+            return super::native::format_english_emission_evaluation_failure(failure);
+        }
         Cause::Json => "could not serialize JSON",
         Cause::MissingNode => "could not find a selected bound node",
         Cause::Source => "could not correlate a bound node with source",
         Cause::SourceIndex => "could not index source lines",
-        Cause::StorageState => "could not obtain required storage-plan state",
         Cause::Symbol => "found an invalid symbol reference",
-        Cause::SymbolState => "could not obtain required symbol semantic content",
         Cause::Type => "could not represent a semantic type",
-        Cause::TypeState => "could not obtain required expression-type state",
-        Cause::SelectionState => "could not obtain required semantic-selection state",
         Cause::Selection => "could not represent a semantic selection",
+        Cause::Detail(_) => inspection_detail_cause(),
     }
+    .to_owned()
 }
 
-const fn lowered_inspection_cause(
-    cause: bray_diagnostics::DiagnosticLoweredInspectionFailure,
-) -> &'static str {
+fn lowered_inspection_cause(
+    cause: &bray_diagnostics::DiagnosticLoweredInspectionFailure,
+) -> String {
     use bray_diagnostics::DiagnosticLoweredInspectionFailure as Cause;
 
     match cause {
+        Cause::Evaluation(failure) => {
+            return super::native::format_english_emission_evaluation_failure(failure);
+        }
         Cause::Json => "could not serialize JSON",
-        Cause::LoweringState => "could not obtain required lowering state",
         Cause::Model => "could not construct the MIR report model",
         Cause::Source => "could not correlate a lowered node with source",
-        Cause::SymbolState => "could not obtain required symbol semantic content",
-        Cause::UnitState => "could not obtain required lowered-unit state",
+        Cause::Detail(_) => inspection_detail_cause(),
     }
+    .to_owned()
+}
+
+const fn inspection_detail_cause() -> &'static str {
+    "failed because an internal report operation could not complete"
 }
 
 pub(super) fn format_english_native_linker_build_failure(

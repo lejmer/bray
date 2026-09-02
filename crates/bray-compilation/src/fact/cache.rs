@@ -638,7 +638,11 @@ impl<T> FactCell<T> {
             .storage
             .observer
             .lock()
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
+                component: SynchronizationComponent::FactCell,
+                fact: None,
+                task: None,
+            })?;
 
         *current = Some(observer);
 
@@ -651,7 +655,11 @@ impl<T> FactCell<T> {
             .storage
             .observer
             .lock()
-            .map_err(|_| FactQueryError::InfrastructureFailure)?
+            .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
+                component: SynchronizationComponent::FactCell,
+                fact: None,
+                task: None,
+            })?
             .clone();
 
         if let Some(observer) = observer {
@@ -1438,13 +1446,17 @@ mod tests {
 
                     let parent_waiting = parent_waiting_receiver
                         .lock()
-                        .map_err(|_| FactQueryError::InfrastructureFailure)?
+                        .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
+                            component: SynchronizationComponent::FactCell,
+                            fact: Some(parent_key.clone()),
+                            task: None,
+                        })?
                         .recv_timeout(Duration::from_secs(1));
 
                     if parent_waiting.is_err() {
                         cancellation.cancel();
 
-                        return Err(FactQueryError::InfrastructureFailure);
+                        return Err(FactQueryError::BindingDependencyUnavailable);
                     }
 
                     let (result_sender, result_receiver) = mpsc::sync_channel(1);
@@ -1470,7 +1482,7 @@ mod tests {
                             Err(_) => {
                                 cancellation.cancel();
 
-                                Err(FactQueryError::InfrastructureFailure)
+                                Err(FactQueryError::BindingDependencyUnavailable)
                             }
                         }
                     })?;
@@ -1527,15 +1539,15 @@ mod tests {
                 first_context.run(|| {
                     let Some(waiting) = first_runtime.wait_for(&first_child_key, child_identity)?
                     else {
-                        return Err(FactQueryError::InfrastructureFailure);
+                        return Err(FactQueryError::BindingDependencyUnavailable);
                     };
 
                     if registered_sender.send(()).is_err() {
-                        return Err(FactQueryError::InfrastructureFailure);
+                        return Err(FactQueryError::BindingDependencyUnavailable);
                     }
 
                     if release_receiver.recv().is_err() {
-                        return Err(FactQueryError::InfrastructureFailure);
+                        return Err(FactQueryError::BindingDependencyUnavailable);
                     }
 
                     drop(waiting);
@@ -1557,7 +1569,7 @@ mod tests {
                     let Some(waiting) =
                         second_runtime.wait_for(&second_child_key, child_identity)?
                     else {
-                        return Err(FactQueryError::InfrastructureFailure);
+                        return Err(FactQueryError::BindingDependencyUnavailable);
                     };
 
                     drop(waiting);
@@ -1571,7 +1583,7 @@ mod tests {
             let cycle =
                 child_context.run(|| match runtime.wait_for(&parent_key, parent_identity) {
                     Err(FactQueryError::Cycle(cycle)) => Ok(cycle),
-                    Ok(_) | Err(_) => Err(FactQueryError::InfrastructureFailure),
+                    Ok(_) | Err(_) => Err(FactQueryError::BindingDependencyUnavailable),
                 });
 
             if release_sender.send(()).is_err() {
@@ -1645,10 +1657,10 @@ mod tests {
             abandoned_dependency
                 .get_or_compute(&runtime, abandoned_key, &cancellation, || Ok(1_u32))?;
 
-            Err(FactQueryError::InfrastructureFailure)
+            Err(FactQueryError::BindingDependencyUnavailable)
         });
 
-        assert_eq!(abandoned, Err(FactQueryError::InfrastructureFailure));
+        assert_eq!(abandoned, Err(FactQueryError::BindingDependencyUnavailable));
 
         let retried = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
             committed_dependency.get_or_compute(
@@ -1683,9 +1695,9 @@ mod tests {
         let result = parent.get_or_compute(&runtime, parent_key.clone(), &cancellation, || {
             assert_eq!(
                 dependency.get_or_compute(&runtime, dependency_key, &cancellation, || Err(
-                    FactQueryError::InfrastructureFailure
+                    FactQueryError::BindingDependencyUnavailable
                 ),),
-                Err(FactQueryError::InfrastructureFailure)
+                Err(FactQueryError::BindingDependencyUnavailable)
             );
 
             Ok(3_u32)

@@ -87,7 +87,7 @@ impl BackendBitcodeOptimizer for NativeBitcodeOptimizer {
             None,
             [],
         )
-        .map_err(|_| CodegenFailure::InvalidConfiguration)?;
+        .map_err(CodegenFailure::invalid_configuration)?;
 
         match self.host.run(&invocation, cancellation) {
             Ok(output) if output.success() => {}
@@ -115,8 +115,11 @@ impl BackendBitcodeOptimizer for NativeBitcodeOptimizer {
 
         let bytes = std::fs::read(output).map_err(CodegenFailure::backend_library)?;
 
-        let content = ArtifactContent::try_memory(bytes).map_err(|_| {
-            CodegenFailure::ArtifactConstruction(bray_codegen::BackendArtifactKind::BackendBitcode)
+        let content = ArtifactContent::try_memory(bytes).map_err(|cause| {
+            CodegenFailure::InvalidArtifactContent {
+                artifact: bray_codegen::BackendArtifactKind::BackendBitcode,
+                cause,
+            }
         })?;
 
         Ok(BackendBitcodeOptimizationOutcome::Complete(content))

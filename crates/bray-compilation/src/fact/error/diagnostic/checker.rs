@@ -1,10 +1,13 @@
 use bray_checker::CheckerInfrastructureError;
 use bray_diagnostics::{
-    DiagnosticCheckerFailure, DiagnosticSemanticSelectionFailure, DiagnosticSemanticSnapshotFailure,
+    DiagnosticCheckerConstantOperationFailure, DiagnosticCheckerFailure,
+    DiagnosticSemanticSelectionFailure,
+    DiagnosticSemanticSnapshotFailure, DiagnosticStoragePlanFailure,
 };
 use bray_source::SourceSpan;
 
 use super::diagnostic_semantic_value_failure;
+use crate::fact::diagnostic_generic_substitution_failure;
 
 pub(crate) fn diagnostic_checker_failure(
     error: CheckerInfrastructureError,
@@ -33,6 +36,9 @@ pub(crate) fn diagnostic_checker_failure(
             }
         }
         Error::SemanticValueUnavailable => DiagnosticCheckerFailure::SemanticValueUnavailable,
+        Error::GenericSubstitution(error) => DiagnosticCheckerFailure::GenericSubstitution(
+            diagnostic_generic_substitution_failure(error),
+        ),
         Error::SemanticValueStore(error) => {
             DiagnosticCheckerFailure::SemanticValue(diagnostic_semantic_value_failure(error))
         }
@@ -93,6 +99,18 @@ pub(crate) fn diagnostic_checker_failure(
         Error::ConstantEvaluation(error) => DiagnosticCheckerFailure::ConstantEvaluation(
             diagnostic_constant_evaluation_failure(error),
         ),
+        Error::ConstantOperation(error) => DiagnosticCheckerFailure::ConstantOperation(
+            diagnostic_constant_operation_failure(error),
+        ),
+        Error::SelectionInputCapacityExceeded { count } => {
+            DiagnosticCheckerFailure::SelectionInputCapacityExceeded { count }
+        }
+        Error::SelectionInputOrdinalUnrepresentable { ordinal } => {
+            DiagnosticCheckerFailure::SelectionInputOrdinalUnrepresentable { ordinal }
+        }
+        Error::ConstantArrayLengthCapacityExceeded { length } => {
+            DiagnosticCheckerFailure::ConstantArrayLengthCapacityExceeded { length }
+        }
         Error::InvalidSemanticSelectionInput => {
             DiagnosticCheckerFailure::InvalidSemanticSelectionInput
         }
@@ -103,6 +121,9 @@ pub(crate) fn diagnostic_checker_failure(
             DiagnosticCheckerFailure::InvalidConstantEvaluationInput
         }
         Error::InvalidStoragePlan => DiagnosticCheckerFailure::InvalidStoragePlan,
+        Error::StoragePlan(error) => {
+            DiagnosticCheckerFailure::StoragePlan(diagnostic_storage_plan_failure(error))
+        }
         Error::InvalidLiveness => DiagnosticCheckerFailure::InvalidLiveness,
         Error::InvalidRefinementInput => DiagnosticCheckerFailure::InvalidRefinementInput,
         Error::RefinementCapacityUnrepresentable => {
@@ -144,6 +165,43 @@ pub(crate) fn diagnostic_checker_failure(
                 "semantic_context_mismatch"
             }
         }),
+    }
+}
+
+const fn diagnostic_constant_operation_failure(
+    failure: bray_checker::CheckerConstantOperationFailure,
+) -> DiagnosticCheckerConstantOperationFailure {
+    use bray_checker::CheckerConstantOperationFailure as Failure;
+
+    match failure {
+        Failure::Invalid => DiagnosticCheckerConstantOperationFailure::Invalid,
+        Failure::DivisionByZero => DiagnosticCheckerConstantOperationFailure::DivisionByZero,
+        Failure::NotRepresentable => {
+            DiagnosticCheckerConstantOperationFailure::NotRepresentable
+        }
+        Failure::ResourceLimitExceeded { actual, maximum } => {
+            DiagnosticCheckerConstantOperationFailure::ResourceLimitExceeded { actual, maximum }
+        }
+    }
+}
+
+const fn diagnostic_storage_plan_failure(
+    failure: bray_bound_tree::StoragePlanBuildError,
+) -> DiagnosticStoragePlanFailure {
+    use bray_bound_tree::StoragePlanBuildError as Failure;
+
+    match failure {
+        Failure::ForeignUnit => DiagnosticStoragePlanFailure::ForeignUnit,
+        Failure::CapacityExceeded => DiagnosticStoragePlanFailure::CapacityExceeded,
+        Failure::MissingIdentity => DiagnosticStoragePlanFailure::MissingIdentity,
+        Failure::MissingAccess => DiagnosticStoragePlanFailure::MissingAccess,
+        Failure::MissingBorrowCapability => {
+            DiagnosticStoragePlanFailure::MissingBorrowCapability
+        }
+        Failure::DuplicateBinding => DiagnosticStoragePlanFailure::DuplicateBinding,
+        Failure::BindingIdentityMismatch => {
+            DiagnosticStoragePlanFailure::BindingIdentityMismatch
+        }
     }
 }
 

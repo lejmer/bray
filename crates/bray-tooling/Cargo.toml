@@ -8,6 +8,7 @@ rust-version.workspace = true
 [features]
 default = ["compiler"]
 analysis = [
+    "dep:bray-base",
     "dep:bray-bound-tree",
     "dep:bray-compilation",
     "dep:bray-declarations",
@@ -23,7 +24,6 @@ analysis = [
 ]
 compiler = [
     "analysis",
-    "dep:bray-base",
     "dep:bray-codegen",
     "dep:bray-codegen-llvm",
     "dep:bray-linker",

@@ -158,7 +158,7 @@ impl MirFrameDescriptor {
 }
 
 /// A contract violation that prevents protected-frame descriptor construction.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum MirFrameDescriptorBuildError {
     /// The descriptor has no resumable state.
     MissingState,

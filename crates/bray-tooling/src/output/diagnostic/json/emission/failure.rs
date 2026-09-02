@@ -50,6 +50,22 @@ impl DiagnosticEmissionFailureJson {
             context,
         }
     }
+
+    pub(in crate::output::diagnostic::json) fn from_evaluation(
+        failure: &bray_diagnostics::DiagnosticEmissionEvaluationFailure,
+    ) -> Self {
+        Self {
+            category: "evaluation",
+            reason: failure.as_str(),
+            context: evaluation_failure_context(failure),
+        }
+    }
+}
+
+pub fn diagnostic_evaluation_failure_json(
+    failure: &bray_diagnostics::DiagnosticEmissionEvaluationFailure,
+) -> Result<serde_json::Value, serde_json::Error> {
+    serde_json::to_value(DiagnosticEmissionFailureJson::from_evaluation(failure))
 }
 
 #[derive(Serialize)]

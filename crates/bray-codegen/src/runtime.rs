@@ -132,7 +132,7 @@ impl CodegenRuntimeMetadata {
 }
 
 /// A contract violation that prevents publication of codegen runtime metadata.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum CodegenRuntimeMetadataBuildError {
     /// More than one MIR unit claims the executable-host role.
     MultipleExecutableHosts,

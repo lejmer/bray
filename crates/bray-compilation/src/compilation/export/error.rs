@@ -11,6 +11,97 @@ use bray_symbols::{
 
 use crate::fact::FactQueryError;
 
+/// Exact internal compilation contract that prevented package-interface export.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub enum PackageInterfaceInvalidCompilationCause {
+    /// The selected target could not form its backend-neutral code generation contract.
+    CodegenTarget(bray_codegen::CodegenTargetBuildError),
+    /// One compact package-interface field cannot represent the requested value.
+    Capacity {
+        field: &'static str,
+        actual: String,
+    },
+    /// Runtime requirements selected by executable templates are mutually incompatible.
+    RuntimeRequirements(bray_runtime_interface::RuntimeRequirementsMergeError),
+    /// Checked-template export violated one exact internal semantic contract.
+    CheckedTemplate { reason: &'static str },
+    /// Executable-template export violated one exact internal MIR contract.
+    ExecutableTemplate { reason: &'static str },
+    /// Package-interface traversal violated one exact export contract.
+    ExportContract(PackageInterfaceExportContract),
+}
+
+/// Exact package-interface traversal contract that could not be satisfied.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum PackageInterfaceExportContract {
+    /// The export request does not describe the compilation's library product.
+    RequestMismatch,
+    /// Dependency loading completed without an interface-view collection.
+    MissingLoadedDependencies,
+    /// A resolved overload path did not identify an overload arm.
+    MissingOverloadArm,
+    /// The compilation symbol graph does not contain its package symbol.
+    MissingPackageSymbol,
+    /// A selected constant callable cannot identify a generic owner.
+    MissingGenericOwner,
+    /// A selected constant callable resolved to an imported interface symbol.
+    NonLocalConstantCallable,
+    /// A selected symbol does not have its exported declaration identity.
+    MissingExportedDeclaration,
+    /// A selected native boundary resolved to an imported interface symbol.
+    NonLocalNativeBoundary,
+    /// A selected executable template resolved to an imported interface symbol.
+    NonLocalExecutableTemplate,
+    /// The compiler-known catalog does not provide a required target property.
+    MissingCompilerKnownTargetProperty,
+    /// A nested executable-template key does not have an assigned identity.
+    MissingNestedExecutableTemplate,
+    /// A runtime-default owner does not have a stable symbol key.
+    MissingRuntimeDefaultOwnerKey,
+}
+
+impl PackageInterfaceExportContract {
+    /// Returns the stable machine-readable contract name.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::RequestMismatch => "request_mismatch",
+            Self::MissingLoadedDependencies => "missing_loaded_dependencies",
+            Self::MissingOverloadArm => "missing_overload_arm",
+            Self::MissingPackageSymbol => "missing_package_symbol",
+            Self::MissingGenericOwner => "missing_generic_owner",
+            Self::NonLocalConstantCallable => "non_local_constant_callable",
+            Self::MissingExportedDeclaration => "missing_exported_declaration",
+            Self::NonLocalNativeBoundary => "non_local_native_boundary",
+            Self::NonLocalExecutableTemplate => "non_local_executable_template",
+            Self::MissingCompilerKnownTargetProperty => {
+                "missing_compiler_known_target_property"
+            }
+            Self::MissingNestedExecutableTemplate => "missing_nested_executable_template",
+            Self::MissingRuntimeDefaultOwnerKey => "missing_runtime_default_owner_key",
+        }
+    }
+}
+
+pub(in crate::compilation::export) const fn export_contract_error(
+    contract: PackageInterfaceExportContract,
+) -> PackageInterfaceExportError {
+    PackageInterfaceExportError::InvalidCompilationCause(
+        PackageInterfaceInvalidCompilationCause::ExportContract(contract),
+    )
+}
+
+pub(in crate::compilation::export) fn capacity_export_error(
+    field: &'static str,
+    actual: impl ToString,
+) -> PackageInterfaceExportError {
+    PackageInterfaceExportError::InvalidCompilationCause(
+        PackageInterfaceInvalidCompilationCause::Capacity {
+            field,
+            actual: actual.to_string(),
+        },
+    )
+}
+
 /// Failure while producing the current library product's public interface.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum PackageInterfaceExportError {
@@ -20,6 +111,8 @@ pub enum PackageInterfaceExportError {
     Query(FactQueryError),
     /// Source or semantic errors make the product invalid.
     InvalidCompilation,
+    /// An exact internal compilation contract prevented export.
+    InvalidCompilationCause(PackageInterfaceInvalidCompilationCause),
     /// The semantic-value store identity space was exhausted while preparing the interface.
     SemanticValueStoreCreate(SemanticValueStoreCreateError),
     /// A semantic-value operation failed while preparing the interface.
@@ -44,6 +137,8 @@ pub enum PackageInterfaceExportError {
         table: InterfaceSemanticTableKind,
         reference: u32,
     },
+    /// A resolved fragment's stable symbol identity is absent from the compilation symbol graph.
+    MissingSemanticFragmentSymbol(ExternalSymbolKey),
     /// Two independently resolved fragments use one stable symbol identity.
     ConflictingSemanticFragment {
         first: DiagnosticInterfaceSymbolIdentity,
@@ -110,66 +205,38 @@ fn contextual_fact_query_export_error(
 
 pub(in crate::compilation::export) fn callable_signature_export_error(
     error: CallableSignatureTemplateError,
-    fallback: PackageInterfaceExportError,
 ) -> PackageInterfaceExportError {
-    match error {
-        CallableSignatureTemplateError::SemanticValue(error) => semantic_value_export_error(error),
-        CallableSignatureTemplateError::InvalidCallableType
-        | CallableSignatureTemplateError::ParameterCountMismatch
-        | CallableSignatureTemplateError::ParameterIdentityMismatch => fallback,
-    }
+    fact_query_export_error(error.into())
 }
 
 pub(in crate::compilation::export) fn checker_infrastructure_export_error(
     error: bray_checker::CheckerInfrastructureError,
-    fallback: PackageInterfaceExportError,
 ) -> PackageInterfaceExportError {
-    semantic_value_checker_error(error).map_or(fallback, semantic_value_export_error)
+    fact_query_export_error(error.into())
 }
 
 pub(in crate::compilation::export) fn fact_query_export_error(
     error: FactQueryError,
-    fallback: PackageInterfaceExportError,
 ) -> PackageInterfaceExportError {
     match error {
         FactQueryError::Cancelled => PackageInterfaceExportError::Cancelled,
-        error @ (FactQueryError::Cycle(_)
-        | FactQueryError::InfrastructureFailure
-        | FactQueryError::Runtime(_)) => PackageInterfaceExportError::Query(error),
-        FactQueryError::SemanticValueStoreCreate(error) => {
-            PackageInterfaceExportError::SemanticValueStoreCreate(error)
-        }
-        FactQueryError::SemanticValueStore(error) => semantic_value_export_error(error),
-        FactQueryError::CheckerInfrastructure(error) => {
-            checker_infrastructure_export_error(error, fallback)
-        }
-        FactQueryError::Binding(bray_binder::BoundUnitBindingError::SemanticValue(error)) => {
-            semantic_value_export_error(error)
-        }
-        FactQueryError::Binding(bray_binder::BoundUnitBindingError::CheckerInfrastructure(
-            error,
-        )) => checker_infrastructure_export_error(error, fallback),
-        _ => fallback,
+        error => PackageInterfaceExportError::Query(error),
     }
 }
 
 pub(in crate::compilation::export) fn binding_query_export_error<Upstream>(
     error: bray_binder::BindingQueryError<Upstream>,
-    fallback: PackageInterfaceExportError,
 ) -> PackageInterfaceExportError
 where
     Upstream: Into<FactQueryError>,
 {
-    fact_query_export_error(
-        crate::compilation::binder::binding_query_error(error),
-        fallback,
-    )
+    fact_query_export_error(crate::compilation::binder::binding_query_error(error))
 }
 
 pub(in crate::compilation::export) fn invalid_compilation_fact_error(
     error: FactQueryError,
 ) -> PackageInterfaceExportError {
-    fact_query_export_error(error, PackageInterfaceExportError::InvalidCompilation)
+    fact_query_export_error(error)
 }
 
 pub(in crate::compilation::export) fn invalid_compilation_binding_error<Upstream>(
@@ -178,16 +245,7 @@ pub(in crate::compilation::export) fn invalid_compilation_binding_error<Upstream
 where
     Upstream: Into<FactQueryError>,
 {
-    binding_query_export_error(error, PackageInterfaceExportError::InvalidCompilation)
-}
-
-const fn semantic_value_checker_error(
-    error: bray_checker::CheckerInfrastructureError,
-) -> Option<SemanticValueStoreError> {
-    match error {
-        bray_checker::CheckerInfrastructureError::SemanticValueStore(error) => Some(error),
-        _ => None,
-    }
+    binding_query_export_error(error)
 }
 
 #[cfg(test)]
@@ -209,66 +267,59 @@ mod tests {
             kind: SemanticValueKind::Type,
         };
 
-        let expected = PackageInterfaceExportError::SemanticValueStore(semantic);
-        let fallback = || PackageInterfaceExportError::InvalidCompilation;
+        let expected = |error| PackageInterfaceExportError::Query(error);
 
         assert_eq!(
-            fact_query_export_error(FactQueryError::SemanticValueStore(semantic), fallback()),
-            expected
+            fact_query_export_error(FactQueryError::SemanticValueStore(semantic)),
+            expected(FactQueryError::SemanticValueStore(semantic))
+        );
+
+        let checker = FactQueryError::CheckerInfrastructure(
+            CheckerInfrastructureError::SemanticValueStore(semantic),
         );
 
         assert_eq!(
-            fact_query_export_error(
-                FactQueryError::CheckerInfrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(semantic),
-                ),
-                fallback(),
+            fact_query_export_error(checker.clone()),
+            expected(checker)
+        );
+
+        let binding = FactQueryError::Binding(BoundUnitBindingError::SemanticValue(semantic));
+
+        assert_eq!(
+            fact_query_export_error(binding.clone()),
+            expected(binding)
+        );
+
+        let nested = FactQueryError::Binding(
+            BoundUnitBindingError::CheckerInfrastructure(
+                CheckerInfrastructureError::SemanticValueStore(semantic),
             ),
-            expected
         );
 
         assert_eq!(
-            fact_query_export_error(
-                FactQueryError::Binding(BoundUnitBindingError::SemanticValue(semantic)),
-                fallback(),
-            ),
-            expected
+            fact_query_export_error(nested.clone()),
+            expected(nested)
+        );
+
+        let create = FactQueryError::SemanticValueStoreCreate(
+            SemanticValueStoreCreateError::IdentitySpaceExhausted,
         );
 
         assert_eq!(
-            fact_query_export_error(
-                FactQueryError::Binding(BoundUnitBindingError::CheckerInfrastructure(
-                    CheckerInfrastructureError::SemanticValueStore(semantic),
-                )),
-                fallback(),
-            ),
-            expected
-        );
-
-        assert_eq!(
-            fact_query_export_error(
-                FactQueryError::SemanticValueStoreCreate(
-                    SemanticValueStoreCreateError::IdentitySpaceExhausted,
-                ),
-                fallback(),
-            ),
-            PackageInterfaceExportError::SemanticValueStoreCreate(
-                SemanticValueStoreCreateError::IdentitySpaceExhausted,
-            )
+            fact_query_export_error(create.clone()),
+            expected(create)
         );
     }
 
     #[test]
     fn fact_query_export_preserves_coordination_failures_and_cancellation() {
-        let fallback = || PackageInterfaceExportError::InvalidCompilation;
-
         let runtime = FactQueryError::from(FactRuntimeFailure::WorkerTerminated {
             worker: Some(2),
             item: None,
         });
 
         assert_eq!(
-            fact_query_export_error(runtime.clone(), fallback()),
+            fact_query_export_error(runtime.clone()),
             PackageInterfaceExportError::Query(runtime)
         );
 
@@ -279,19 +330,18 @@ mod tests {
         ]));
 
         assert_eq!(
-            fact_query_export_error(cycle.clone(), fallback()),
+            fact_query_export_error(cycle.clone()),
             PackageInterfaceExportError::Query(cycle)
         );
 
         assert_eq!(
-            fact_query_export_error(FactQueryError::Cancelled, fallback()),
+            fact_query_export_error(FactQueryError::Cancelled),
             PackageInterfaceExportError::Cancelled
         );
 
         assert_eq!(
             binding_query_export_error(
                 bray_binder::BindingQueryError::<std::convert::Infallible>::Cancelled,
-                fallback(),
             ),
             PackageInterfaceExportError::Cancelled
         );

@@ -22,7 +22,6 @@ use crate::compilation::checker::{CompilationCheckerContext, checker_result};
 use crate::compilation::unit::semantic_unit_context_for;
 
 use super::context::{CheckedConstantExpression, SemanticExporter};
-use super::implementation::incomplete_type;
 
 pub(super) struct ExecutableTemplateExporter<'export, 'compilation> {
     pub(super) semantic: &'export mut SemanticExporter<'compilation>,
@@ -103,12 +102,18 @@ impl bray_package_interface::ExecutableTemplateEncodeContext
         self.nested
             .get(key)
             .copied()
-            .ok_or(PackageInterfaceExportError::InvalidCompilation)
+            .ok_or_else(|| {
+                super::super::export_contract_error(
+                    super::super::PackageInterfaceExportContract::MissingNestedExecutableTemplate,
+                )
+            })
     }
 }
 
 pub(super) fn index(length: usize) -> Result<u32, PackageInterfaceExportError> {
-    u32::try_from(length).map_err(|_| incomplete_type())
+    u32::try_from(length).map_err(|_| {
+        super::super::capacity_export_error("semantic_template_node_count", length)
+    })
 }
 
 pub(super) fn checked_constraint_expression(
@@ -122,19 +127,19 @@ pub(super) fn checked_constraint_expression(
     let key = compilation
         .constraint_unit_key(expression.owner(), unit)
         .map_err(|error| {
-            super::super::fact_query_export_error(error, incomplete(expression.owner()))
+            super::super::fact_query_export_error(error)
         })?;
 
     let bound = compilation
         .bound_unit_with_cancellation(key.clone(), cancellation)
         .map_err(|error| {
-            super::super::fact_query_export_error(error, incomplete(expression.owner()))
+            super::super::fact_query_export_error(error)
         })?;
 
     let semantics = compilation
         .expression_semantics_with_cancellation(key.clone(), cancellation)
         .map_err(|error| {
-            super::super::fact_query_export_error(error, incomplete(expression.owner()))
+            super::super::fact_query_export_error(error)
         })?;
 
     let diagnostics = DiagnosticBag::merged_all([
@@ -153,7 +158,7 @@ pub(super) fn checked_constraint_expression(
     .ok_or_else(|| incomplete(expression.owner()))?;
 
     let values = compilation.semantic_value_store().map_err(|error| {
-        super::super::fact_query_export_error(error, incomplete(expression.owner()))
+        super::super::fact_query_export_error(error)
     })?;
 
     let substitution = crate::compilation::substitution::identity_substitution(
@@ -162,7 +167,7 @@ pub(super) fn checked_constraint_expression(
         generic.parameters(),
     )
     .map_err(|error| {
-        super::super::fact_query_export_error(error, incomplete(expression.owner()))
+        super::super::fact_query_export_error(error)
     })?;
 
     let (references, reference_diagnostics) = compilation
@@ -176,7 +181,7 @@ pub(super) fn checked_constraint_expression(
             cancellation,
         )
         .map_err(|error| {
-            super::super::fact_query_export_error(error, incomplete(expression.owner()))
+            super::super::fact_query_export_error(error)
         })?;
 
     if reference_diagnostics.has_errors() {
@@ -187,15 +192,19 @@ pub(super) fn checked_constraint_expression(
         compilation
             .binding_context_for(bound.result().value().key(), cancellation)
             .map_err(|error| {
-                super::super::fact_query_export_error(error, incomplete(expression.owner()))
+                super::super::fact_query_export_error(error)
             })?,
     );
 
     let semantic_context = semantic_unit_context_for(context.symbols(), bound.result().value())
-        .map_err(|_| incomplete(expression.owner()))?;
+        .map_err(super::super::fact_query_export_error)?;
 
     let request = CheckerUnitView::new(bound.result().value(), &semantic_context, &context)
-        .map_err(|_| incomplete(expression.owner()))?;
+        .map_err(|error| {
+            super::super::checker_infrastructure_export_error(
+                bray_checker::CheckerInfrastructureError::InvalidUnitView(error),
+            )
+        })?;
 
     let resolver = crate::compilation::constant::CompilationConstantCallResolver::new(
         compilation,
@@ -211,7 +220,7 @@ pub(super) fn checked_constraint_expression(
 
     let checked = checker_result(DefaultConstantChecker.check_constant_term(request, &input))
         .map_err(|error| {
-            super::super::fact_query_export_error(error, incomplete(expression.owner()))
+            super::super::fact_query_export_error(error)
         })?;
 
     if checked.diagnostics().has_errors() {

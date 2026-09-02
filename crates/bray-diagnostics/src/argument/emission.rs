@@ -9,9 +9,9 @@ pub use backend::{
     DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
 };
 pub use lowering::{
-    DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringIdentity,
-    DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind, DiagnosticLoweringRoot,
-    DiagnosticMirUnitBuildFailure,
+    DiagnosticFrameDescriptorFailure, DiagnosticLoweringFailure, DiagnosticLoweringFailureKind,
+    DiagnosticLoweringIdentity, DiagnosticLoweringInputFailure,
+    DiagnosticLoweringInputFailureKind, DiagnosticLoweringRoot, DiagnosticMirUnitBuildFailure,
     DiagnosticMirUnitBuildFailureContext, DiagnosticMirUnitBuildFailureKind,
     DiagnosticMirUnitLocalIdentity, DiagnosticSourceConstructKind,
 };

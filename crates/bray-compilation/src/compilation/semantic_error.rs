@@ -391,6 +391,8 @@ pub(crate) enum SemanticDataKind {
     ImplementationComparison,
     ImplementationUsing,
     ImportedTemplate,
+    IterationProtocol,
+    IterationSource,
     LiteralValue,
     MemberName,
     OperationSelection,

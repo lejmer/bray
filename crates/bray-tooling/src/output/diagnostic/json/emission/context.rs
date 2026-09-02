@@ -116,6 +116,9 @@ pub(super) fn package_interface_failure_context(
     use bray_diagnostics::DiagnosticPackageInterfaceFailure as Failure;
 
     match failure {
+        Failure::InvalidCompilationCause { context, .. } => {
+            diagnostic_failure_context(context)
+        }
         Failure::SemanticValueStoreCreate => Vec::new(),
         Failure::SemanticValue(failure) => semantic_value_failure_context(*failure),
         Failure::RecoveredPublicSymbol(kind)
@@ -240,7 +243,6 @@ pub(super) fn evaluation_failure_context(
         Failure::Product(failure) => product_query_failure_context(failure),
         Failure::Foreign(failure) => foreign_query_failure_context(failure),
         Failure::Cancelled
-        | Failure::Infrastructure
         | Failure::SemanticValueStoreCreate
         | Failure::ConstantCallableBodyUnavailable
         | Failure::ConstantCallableRootUnavailable

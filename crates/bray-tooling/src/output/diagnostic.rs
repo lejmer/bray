@@ -7,4 +7,6 @@ mod writer;
 
 #[cfg(feature = "analysis")]
 pub(crate) use json::{DiagnosticJson, diagnostic_jsons};
+#[cfg(feature = "analysis")]
+pub use json::diagnostic_evaluation_failure_json;
 pub use writer::{write_diagnostic_groups, write_diagnostics};

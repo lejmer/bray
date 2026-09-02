@@ -6,7 +6,7 @@ use bray_bound_tree::{
     BoundDependencyContractId, BoundExpressionId, BoundPatternId, BoundSourceAnchor, BoundUnit,
     BoundUnitId, BoundUnitKind, DependencyContractsBuildError, SemanticSelectionTableBuildError,
     SemanticSnapshotBuildError, StorageAccessId, StorageFlowBuildError, StorageIdentityId,
-    StorageOperationStatus,
+    StorageOperationStatus, StoragePlanBuildError,
 };
 use bray_compiler_known::{ImplementationHook, RepresentationRole};
 use bray_diagnostics::DiagnosticResult;
@@ -14,7 +14,8 @@ use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 use bray_symbols::{
     AnyLocalSymbolId, AnySymbolId, AvailableCompilerKnownSymbols, ConstantTermId,
     DeclaredTypeRepresentation, GenericConstraintObligationKey, ImplementationRequirementKey,
-    ImplementationSelection, LocalBindingSymbolId, MemberLookupResult, NamedTypeSymbolId,
+    GenericSubstitutionShapeError, ImplementationSelection, LocalBindingSymbolId,
+    MemberLookupResult, NamedTypeSymbolId,
     ProofOutcome, SemanticValueStore, StructSymbol, StructSymbolId, SymbolGraph, SymbolKey,
     SymbolName, SymbolQueryContract, SymbolQueryKind, SymbolQueryRequest, TraitApplicationId,
     TraitTypeMemberSymbolId, TypeId, UnionPayloadFieldSymbol, UnionPayloadFieldSymbolId,
@@ -55,6 +56,8 @@ pub enum CheckerInfrastructureError {
     },
     /// Canonical semantic value construction or lookup failed without an available store cause.
     SemanticValueUnavailable,
+    /// Generic substitution construction rejected an exact parameter-to-argument relationship.
+    GenericSubstitution(GenericSubstitutionShapeError),
     /// The canonical semantic value store rejected a construction or lookup operation.
     SemanticValueStore(bray_symbols::SemanticValueStoreError),
     /// The representation type for an atomic value is unavailable.
@@ -102,6 +105,23 @@ pub enum CheckerInfrastructureError {
     ConstantInput(CheckerConstantInputFailure),
     /// Constant evaluation encountered an invalid source-correlated input.
     ConstantEvaluation(CheckerConstantEvaluationFailure),
+    /// Constant comparison rejected one exact scalar operation.
+    ConstantOperation(CheckerConstantOperationFailure),
+    /// A semantic-selection input ordinal cannot be represented by the public protocol.
+    SelectionInputCapacityExceeded {
+        /// Exact zero-based input count that exceeded the protocol.
+        count: usize,
+    },
+    /// A callable parameter ordinal cannot address the selected host representation.
+    SelectionInputOrdinalUnrepresentable {
+        /// Exact callable parameter ordinal.
+        ordinal: u32,
+    },
+    /// A constant array length cannot be represented by the semantic-value protocol.
+    ConstantArrayLengthCapacityExceeded {
+        /// Exact array length that exceeded the protocol.
+        length: usize,
+    },
     /// Semantic-selection inputs do not describe the requested bound unit or operation category.
     InvalidSemanticSelectionInput,
     /// Construction of the final semantic-selection table rejected one exact relationship.
@@ -110,6 +130,8 @@ pub enum CheckerInfrastructureError {
     InvalidConstantEvaluationInput,
     /// Storage-planning inputs or constructed records violate the requested unit contract.
     InvalidStoragePlan,
+    /// The storage-plan builder rejected one exact relationship.
+    StoragePlan(StoragePlanBuildError),
     /// Liveness inputs or durable decisions violate the requested unit contract.
     InvalidLiveness,
     /// Refinement inputs do not describe the requested bound unit.
@@ -142,6 +164,24 @@ pub enum CheckerInfrastructureError {
     ExpressionTypeCapacityExceeded,
     /// A checker unit view did not match its canonical bound unit.
     InvalidUnitView(CheckerUnitViewError),
+}
+
+/// Exact scalar-operation failure retained when checking constant equality.
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum CheckerConstantOperationFailure {
+    /// The operand or operation category is invalid for constant folding.
+    Invalid,
+    /// Constant evaluation attempted division by zero.
+    DivisionByZero,
+    /// The exact constant result cannot be represented by the requested type.
+    NotRepresentable,
+    /// The operation exceeded its configured resource limit.
+    ResourceLimitExceeded {
+        /// Observed resource demand.
+        actual: u64,
+        /// Maximum permitted demand.
+        maximum: u64,
+    },
 }
 
 /// Identifies one correlated semantic input supplied to a checker service.

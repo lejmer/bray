@@ -10,14 +10,17 @@ use inkwell::values::{
     AsValueRef, BasicMetadataValueEnum, BasicValueEnum, InstructionOpcode, PointerValue,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum CallBrError {
     ContextMismatch,
     DestinationOutsideFunction,
     InvalidArguments,
-    InvalidName,
+    InvalidName { name: String, nul_position: usize },
     MissingInstruction,
-    ResourceExhausted,
+    ResourceLimit {
+        resource: &'static str,
+        actual: usize,
+    },
     UnexpectedInstruction,
     UnexpectedResultType,
     UnsetPosition,
@@ -53,7 +56,10 @@ pub(crate) fn build_callbr<'context>(
         ""
     };
 
-    let name = CString::new(name).map_err(|_| CallBrError::InvalidName)?;
+    let name = CString::new(name).map_err(|error| CallBrError::InvalidName {
+        name: name.to_owned(),
+        nul_position: error.nul_position(),
+    })?;
 
     let mut destinations = indirect_destinations
         .iter()
@@ -174,11 +180,19 @@ fn validate_callbr<'context>(
         return Err(CallBrError::InvalidArguments);
     }
 
-    let destination_count =
-        u32::try_from(indirect_destinations.len()).map_err(|_| CallBrError::ResourceExhausted)?;
+    let destination_count = u32::try_from(indirect_destinations.len()).map_err(|_| {
+        CallBrError::ResourceLimit {
+            resource: "callbr_indirect_destination_count",
+            actual: indirect_destinations.len(),
+        }
+    })?;
 
-    let argument_count =
-        u32::try_from(arguments.len()).map_err(|_| CallBrError::ResourceExhausted)?;
+    let argument_count = u32::try_from(arguments.len()).map_err(|_| {
+        CallBrError::ResourceLimit {
+            resource: "callbr_argument_count",
+            actual: arguments.len(),
+        }
+    })?;
 
     Ok((insertion_block, destination_count, argument_count))
 }

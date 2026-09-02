@@ -56,7 +56,9 @@ impl Compilation {
             || request.identity().kind() != InterfaceProductKind::Library
             || request.identity().package() != self.package_identity()
         {
-            return Err(PackageInterfaceExportError::InvalidCompilation);
+            return Err(super::export_contract_error(
+                super::PackageInterfaceExportContract::RequestMismatch,
+            ));
         }
 
         let source_graph = self
@@ -88,7 +90,11 @@ impl Compilation {
         let dependencies = self
             .loaded_interface_views(&self.state.cancellation)
             .map_err(super::invalid_compilation_fact_error)?
-            .ok_or(PackageInterfaceExportError::InvalidCompilation)?
+            .ok_or_else(|| {
+                super::export_contract_error(
+                    super::PackageInterfaceExportContract::MissingLoadedDependencies,
+                )
+            })?
             .into_iter()
             .map(|dependency| {
                 let identity = dependency.surface().identity();
@@ -124,7 +130,11 @@ impl Compilation {
 
         let implementation_configuration = self
             .package_implementation_configuration(None)
-            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+            .map_err(|cause| {
+                PackageInterfaceExportError::InvalidCompilationCause(
+                    super::PackageInterfaceInvalidCompilationCause::CodegenTarget(cause),
+                )
+            })?;
 
         PackageInterfaceExportBundle::try_new(
             surface,
@@ -314,7 +324,9 @@ fn source_overload_relationships(
             }
 
             let MemberLookupResult::Found(member) = result.value() else {
-                return Err(PackageInterfaceExportError::InvalidCompilation);
+                return Err(super::export_contract_error(
+                    super::PackageInterfaceExportContract::MissingOverloadArm,
+                ));
             };
 
             if !selected.contains(member) {
@@ -331,7 +343,14 @@ fn source_overload_relationships(
 
             let ordinal = u32::try_from(ordinal)
                 .map(SymbolOrdinal::new)
-                .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+                .map_err(|_| {
+                    PackageInterfaceExportError::InvalidCompilationCause(
+                        super::PackageInterfaceInvalidCompilationCause::Capacity {
+                            field: "overload_arm_ordinal",
+                            actual: ordinal.to_string(),
+                        },
+                    )
+                })?;
 
             // Each serialized overload-arm relationship owns its stable owner identity.
             relationships.push(ExportRelationshipInput::new(
@@ -355,7 +374,11 @@ fn package_symbol(
         .iter()
         .find(|package| package.identity() == package_identity)
         .map(|package| AnySymbolId::from(package.id()))
-        .ok_or(PackageInterfaceExportError::InvalidCompilation)
+        .ok_or_else(|| {
+            super::export_contract_error(
+                super::PackageInterfaceExportContract::MissingPackageSymbol,
+            )
+        })
 }
 
 fn select_required_children(

@@ -215,11 +215,15 @@ fn native_product_evaluation_failures_preserve_specific_reasons() {
         ),
         (
             FactQueryError::Lowering(LocatedLoweringFailure::new(
-                LoweringError::InvalidFrameDescriptor,
+                LoweringError::InvalidFrameDescriptor(
+                    bray_ir::MirFrameDescriptorBuildError::MissingState,
+                ),
                 source,
             )),
             Kind::EvaluationLowering(DiagnosticLoweringFailure::new(
-                DiagnosticLoweringFailureKind::InvalidFrameDescriptor,
+                DiagnosticLoweringFailureKind::InvalidFrameDescriptor(
+                    bray_diagnostics::DiagnosticFrameDescriptorFailure::MissingState,
+                ),
                 source,
             )),
         ),

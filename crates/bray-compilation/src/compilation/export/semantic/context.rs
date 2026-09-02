@@ -213,16 +213,14 @@ impl<'a> SemanticExporter<'a> {
         let constants = self
             .compilation
             .checked_constant_terms(template)
-            .map_err(|error| super::super::fact_query_export_error(error, incomplete(owner)))?;
+            .map_err(super::super::fact_query_export_error)?;
 
         if constants.diagnostics().has_errors() {
             return Err(incomplete(owner));
         }
 
         resolve_type_expression_template(self.values, template, constants.value())
-            .map_err(|error| {
-                super::super::checker_infrastructure_export_error(error, incomplete(owner))
-            })?
+            .map_err(super::super::checker_infrastructure_export_error)?
             .ok_or_else(|| incomplete(owner))
     }
 

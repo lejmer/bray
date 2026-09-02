@@ -24,8 +24,9 @@ pub use document::DiagnosticDocumentParseKind;
 pub use emission::{
     DiagnosticArtifactRequirement, DiagnosticAssemblySyntaxKind,
     DiagnosticCodegenVerificationStage, DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
-    DiagnosticEmissionArtifactOperation, DiagnosticLoweringFailure, DiagnosticLoweringFailureKind,
-    DiagnosticLoweringIdentity, DiagnosticLoweringInputFailure,
+    DiagnosticEmissionArtifactOperation, DiagnosticFrameDescriptorFailure,
+    DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringIdentity,
+    DiagnosticLoweringInputFailure,
     DiagnosticLoweringInputFailureKind, DiagnosticLoweringRoot,
     DiagnosticMirUnitBuildFailure, DiagnosticMirUnitBuildFailureContext,
     DiagnosticMirUnitBuildFailureKind, DiagnosticMirUnitLocalIdentity,

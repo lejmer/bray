@@ -32,22 +32,22 @@ pub(super) fn export_checked_source_template(
 
     let bound = compilation
         .bound_unit_with_cancellation(key.clone(), cancellation)
-        .map_err(|error| super::fact_query_export_error(error, incomplete()))?;
+        .map_err(super::fact_query_export_error)?;
 
     let semantics = compilation
         .expression_semantics_with_cancellation(key.clone(), cancellation)
-        .map_err(|error| super::fact_query_export_error(error, incomplete()))?;
+        .map_err(super::fact_query_export_error)?;
 
     let body = compilation
         .body_behavior_with_cancellation(key, cancellation)
-        .map_err(|error| super::fact_query_export_error(error, incomplete()))?;
+        .map_err(super::fact_query_export_error)?;
 
     if bound.result().diagnostics().has_errors()
         || semantics.result().diagnostics().has_errors()
         || body.result().diagnostics().has_errors()
         || body.result().value().is_recovered()
     {
-        return Err(incomplete());
+        return Err(incomplete("invalid_checked_body"));
     }
 
     let behavior = body.result().value();
@@ -141,7 +141,8 @@ pub(super) fn export_source_template(
     export: &mut SemanticExporter,
     request: SourceTemplateRequest,
 ) -> Result<InterfaceCheckedTemplate, PackageInterfaceExportError> {
-    let root = source_expression_root(request.unit, request.expression).ok_or_else(incomplete)?;
+    let root = source_expression_root(request.unit, request.expression)
+        .ok_or_else(|| incomplete("missing_source_expression_root"))?;
 
     let mut builder = SourceTemplateBuilder::new(export, &request)?;
 
@@ -210,7 +211,7 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
 
             if let Some(target) = input.target {
                 if input_ids.insert(target, id).is_some() {
-                    return Err(incomplete());
+                    return Err(incomplete("duplicate_template_input_target"));
                 }
             }
 
@@ -245,10 +246,10 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             .unit
             .view()
             .expression(expression_id)
-            .ok_or_else(incomplete)?;
+            .ok_or_else(|| incomplete("missing_bound_expression"))?;
 
         if expression.is_recovered() {
-            return Err(incomplete());
+            return Err(incomplete("recovered_bound_expression"));
         }
 
         let ty = self
@@ -256,7 +257,7 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             .expression(expression_id)
             .filter(|result| !result.is_recovered())
             .map(|result| result.ty())
-            .ok_or_else(incomplete)?;
+            .ok_or_else(|| incomplete("missing_expression_type"))?;
 
         let operation = self.operation(expression_id, expression, ty)?;
         let node = CheckedTemplateNodeId::new(index(self.nodes.len())?);
@@ -264,9 +265,11 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
         let interface_ty = match &operation {
             InterfaceCheckedTemplateOperation::Input(input) => self
                 .inputs
-                .get(usize::try_from(input.raw()).map_err(|_| incomplete())?)
+                .get(usize::try_from(input.raw()).map_err(|_| {
+                    super::capacity_export_error("template_input_reference", input.raw())
+                })?)
                 .map(InterfaceCheckedTemplateInput::ty)
-                .ok_or_else(incomplete)?,
+                .ok_or_else(|| incomplete("missing_template_input"))?,
             _ => self.export.type_id(ty)?,
         };
 
@@ -296,7 +299,7 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
                 let Some(SemanticSelection::Reference(target)) =
                     self.selections.expression(expression_id)
                 else {
-                    return Err(incomplete());
+                    return Err(incomplete("missing_pattern_reference_selection"));
                 };
 
                 self.reference(expression_id, *target, ty)
@@ -311,7 +314,11 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
                     value,
                     target: self
                         .export
-                        .type_id(conversion.target_type().ok_or_else(incomplete)?)?,
+                        .type_id(
+                            conversion
+                                .target_type()
+                                .ok_or_else(|| incomplete("missing_conversion_target_type"))?,
+                        )?,
                 })
             }
             BoundExpression::Structured(expression) => match expression.kind() {
@@ -333,32 +340,37 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
                 }
                 BoundStructuredExpressionKind::Borrow => {
                     let [operand] = expression.operands() else {
-                        return Err(incomplete());
+                        return Err(incomplete("invalid_borrow_operand_count"));
                     };
 
                     Ok(InterfaceCheckedTemplateOperation::Borrow {
-                        kind: expression.borrow_kind().ok_or_else(incomplete)?,
+                        kind: expression
+                            .borrow_kind()
+                            .ok_or_else(|| incomplete("missing_borrow_kind"))?,
                         operand: self.expression(*operand)?,
                     })
                 }
                 BoundStructuredExpressionKind::TrustBoundary => {
                     let [operand] = expression.operands() else {
-                        return Err(incomplete());
+                        return Err(incomplete("invalid_trust_boundary_operand_count"));
                     };
 
                     let node = self.expression(*operand)?;
-                    let index = usize::try_from(node.raw()).map_err(|_| incomplete())?;
+
+                    let index = usize::try_from(node.raw()).map_err(|_| {
+                        super::capacity_export_error("template_node_reference", node.raw())
+                    })?;
 
                     let operation = self
                         .nodes
                         .get(index)
                         .map(InterfaceCheckedTemplateNode::operation)
                         .cloned()
-                        .ok_or_else(incomplete)?;
+                        .ok_or_else(|| incomplete("missing_trust_boundary_operation"))?;
 
                     Ok(operation)
                 }
-                _ => Err(incomplete()),
+                _ => Err(incomplete("unsupported_structured_expression")),
             },
             BoundExpression::MemberAccess(member) => {
                 match self.selections.expression(expression_id) {
@@ -373,10 +385,10 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
                     Some(SemanticSelection::Operation(SelectedOperation::Construction(
                         construction,
                     ))) => self.payloadless_variant_construction(construction),
-                    _ => Err(incomplete()),
+                    _ => Err(incomplete("invalid_member_access_selection")),
                 }
             }
-            _ => Err(incomplete()),
+            _ => Err(incomplete("unsupported_template_expression")),
         }
     }
 
@@ -387,7 +399,7 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
         let value = self
             .literals
             .expression(expression)
-            .ok_or_else(incomplete)?;
+            .ok_or_else(|| incomplete("missing_literal_value"))?;
 
         Ok(InterfaceCheckedTemplateOperation::Constant {
             term: self.export.constant_value_term_id(value)?,
@@ -402,7 +414,7 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
         let Some(SemanticSelection::Operation(SelectedOperation::Construction(construction))) =
             self.selections.expression(expression)
         else {
-            return Err(incomplete());
+            return Err(incomplete("invalid_payloadless_variant_selection"));
         };
 
         self.payloadless_variant_construction(construction)
@@ -413,11 +425,11 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
         construction: &SelectedConstruction,
     ) -> Result<InterfaceCheckedTemplateOperation, PackageInterfaceExportError> {
         let ConstructionTarget::UnionVariant(variant) = construction.target() else {
-            return Err(incomplete());
+            return Err(incomplete("invalid_payloadless_variant_target"));
         };
 
         if !construction.inputs().is_empty() {
-            return Err(incomplete());
+            return Err(incomplete("payloadless_variant_has_inputs"));
         }
 
         Ok(InterfaceCheckedTemplateOperation::Declaration {
@@ -442,7 +454,7 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
             let BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::PostconditionResult(_)) =
                 target
             else {
-                return Err(incomplete());
+                return Err(incomplete("invalid_reference_selection"));
             };
 
             let input = CheckedTemplateInputId::new(index(self.inputs.len())?);
@@ -476,11 +488,12 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
         operands: &[BoundExpressionId],
     ) -> Result<InterfaceCheckedTemplateOperation, PackageInterfaceExportError> {
         let [operand] = operands else {
-            return Err(incomplete());
+            return Err(incomplete("invalid_unary_operand_count"));
         };
 
         Ok(InterfaceCheckedTemplateOperation::Unary {
-            operation: unary_operator(operator).ok_or_else(incomplete)?,
+            operation: unary_operator(operator)
+                .ok_or_else(|| incomplete("unsupported_unary_operator"))?,
             operand: self.expression(*operand)?,
         })
     }
@@ -491,7 +504,7 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
         operands: &[BoundExpressionId],
     ) -> Result<InterfaceCheckedTemplateOperation, PackageInterfaceExportError> {
         let [left, right] = operands else {
-            return Err(incomplete());
+            return Err(incomplete("invalid_binary_operand_count"));
         };
 
         let left = self.expression(*left)?;
@@ -509,7 +522,8 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
                 right,
             }),
             _ => Ok(InterfaceCheckedTemplateOperation::Binary {
-                operation: binary_operator(operator).ok_or_else(incomplete)?,
+                operation: binary_operator(operator)
+                    .ok_or_else(|| incomplete("unsupported_binary_operator"))?,
                 left,
                 right,
             }),
@@ -523,7 +537,7 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
         match self.selections.expression(expression) {
             Some(SemanticSelection::Call(call)) => self.callable_call(call),
             Some(SemanticSelection::Predicate(predicate)) => self.predicate_call(predicate),
-            _ => Err(incomplete()),
+            _ => Err(incomplete("invalid_call_selection")),
         }
     }
 
@@ -539,7 +553,7 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
                 (predicate.definition().into_any(), predicate.substitution())
             }
             BoundCallableTarget::Anonymous(_) | BoundCallableTarget::Indirect(_) => {
-                return Err(incomplete());
+                return Err(incomplete("unsupported_callable_target"));
             }
         };
 
@@ -555,7 +569,7 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
 
         for argument in call.arguments() {
             let SelectedArgument::Explicit { expression, .. } = argument else {
-                return Err(incomplete());
+                return Err(incomplete("non_explicit_template_argument"));
             };
 
             arguments.push(self.expression(*expression)?);
@@ -567,7 +581,7 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
                 self.export
                     .implementation_template_reference(witness.witness())?,
             ),
-            _ => return Err(incomplete()),
+            _ => return Err(incomplete("invalid_predicate_dispatch")),
         };
 
         Ok(InterfaceCheckedTemplateOperation::call(
@@ -651,9 +665,12 @@ fn binary_operator(operator: BoundOperator) -> Option<ConstantBinaryOperation> {
 }
 
 fn index(length: usize) -> Result<u32, PackageInterfaceExportError> {
-    u32::try_from(length).map_err(|_| incomplete())
+    u32::try_from(length)
+        .map_err(|_| super::capacity_export_error("checked_template_node_count", length))
 }
 
-const fn incomplete() -> PackageInterfaceExportError {
-    PackageInterfaceExportError::InvalidCompilation
+const fn incomplete(reason: &'static str) -> PackageInterfaceExportError {
+    PackageInterfaceExportError::InvalidCompilationCause(
+        super::PackageInterfaceInvalidCompilationCause::CheckedTemplate { reason },
+    )
 }

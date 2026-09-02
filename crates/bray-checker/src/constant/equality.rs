@@ -72,7 +72,9 @@ fn constant_kinds_equal(
         ) => false,
         _ => {
             let result = fold_binary(BoundOperator::Equal, left, right, u32::MAX)
-                .map_err(|_| CheckerInfrastructureError::InvalidConstantEvaluationInput)?;
+                .map_err(|error| {
+                    CheckerInfrastructureError::ConstantOperation(error.into())
+                })?;
 
             let ConstantValueKind::Boolean(equal) = result else {
                 return Err(CheckerInfrastructureError::InvalidConstantEvaluationInput);

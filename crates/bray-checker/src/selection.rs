@@ -5,6 +5,7 @@
 //! exact chosen target or classifies why no unique candidate could be chosen.
 
 mod call;
+mod capacity;
 mod check;
 mod iteration;
 mod model;

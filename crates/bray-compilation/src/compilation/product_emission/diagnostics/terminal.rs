@@ -2,7 +2,8 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticBag, DiagnosticEmissionCodegenFailure,
     DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure, DiagnosticIoErrorKind,
     DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind,
-    DiagnosticPackageInterfaceFailure, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
+    DiagnosticFailureField, DiagnosticFailureValue, DiagnosticPackageInterfaceFailure,
+    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
 };
 use bray_emitter::BackendContributionMergeErrorKind;
 use bray_package_interface::{
@@ -224,6 +225,13 @@ fn package_interface_export_failure_diagnostic(
             product,
             target,
         ),
+        PackageInterfaceExportError::InvalidCompilationCause(cause) => {
+            package_compiler_defect_diagnostic(
+                package_interface_invalid_compilation_cause(cause),
+                product,
+                target,
+            )
+        }
         PackageInterfaceExportError::SemanticValueStoreCreate(_) => package_failure_diagnostic(
             DiagnosticPackageInterfaceFailure::SemanticValueStoreCreate,
             product,
@@ -288,6 +296,15 @@ fn package_interface_export_failure_diagnostic(
                     table: table.as_str().to_owned(),
                     reference: *reference,
                 },
+                product,
+                target,
+            )
+        }
+        PackageInterfaceExportError::MissingSemanticFragmentSymbol(identity) => {
+            package_compiler_defect_diagnostic(
+                DiagnosticPackageInterfaceFailure::MissingDeclarationData(
+                    diagnostic_external_symbol_identity(identity),
+                ),
                 product,
                 target,
             )
@@ -363,6 +380,101 @@ fn package_interface_export_failure_diagnostic(
     };
 
     Some(diagnostic)
+}
+
+fn package_interface_invalid_compilation_cause(
+    cause: &crate::compilation::PackageInterfaceInvalidCompilationCause,
+) -> DiagnosticPackageInterfaceFailure {
+    use crate::compilation::PackageInterfaceInvalidCompilationCause as Cause;
+
+    let (reason, context): (&'static str, Box<[DiagnosticFailureField]>) = match cause {
+        Cause::CodegenTarget(cause) => (
+            match cause {
+                bray_codegen::CodegenTargetBuildError::UnsupportedProfile => {
+                    "invalid_compilation_codegen_target_unsupported_profile"
+                }
+                bray_codegen::CodegenTargetBuildError::EmptyTriple => {
+                    "invalid_compilation_codegen_target_empty_triple"
+                }
+                bray_codegen::CodegenTargetBuildError::EmptyCpu => {
+                    "invalid_compilation_codegen_target_empty_cpu"
+                }
+                bray_codegen::CodegenTargetBuildError::EmptyFeature => {
+                    "invalid_compilation_codegen_target_empty_feature"
+                }
+            },
+            Vec::new().into_boxed_slice(),
+        ),
+        Cause::Capacity { field, actual } => (
+            "invalid_compilation_capacity",
+            vec![
+                DiagnosticFailureField::new(
+                    "field",
+                    DiagnosticFailureValue::Text((*field).to_owned()),
+                ),
+                DiagnosticFailureField::new(
+                    "actual",
+                    DiagnosticFailureValue::Text(actual.clone()),
+                ),
+            ]
+            .into_boxed_slice(),
+        ),
+        Cause::RuntimeRequirements(cause) => (
+            match cause {
+                bray_runtime_interface::RuntimeRequirementsMergeError::RuntimeIdentityMismatch => {
+                    "invalid_compilation_runtime_identity_mismatch"
+                }
+                bray_runtime_interface::RuntimeRequirementsMergeError::RuntimeAbiMismatch => {
+                    "invalid_compilation_runtime_abi_mismatch"
+                }
+                bray_runtime_interface::RuntimeRequirementsMergeError::FrameAbiMismatch(_) => {
+                    "invalid_compilation_runtime_frame_abi_mismatch"
+                }
+                bray_runtime_interface::RuntimeRequirementsMergeError::TargetMismatch => {
+                    "invalid_compilation_runtime_target_mismatch"
+                }
+                bray_runtime_interface::RuntimeRequirementsMergeError::PanicAbiMismatch => {
+                    "invalid_compilation_runtime_panic_abi_mismatch"
+                }
+            },
+            match cause {
+                bray_runtime_interface::RuntimeRequirementsMergeError::FrameAbiMismatch(
+                    operation,
+                ) => vec![DiagnosticFailureField::new(
+                    "operation",
+                    DiagnosticFailureValue::Text(format!("{operation:?}")),
+                )]
+                .into_boxed_slice(),
+                _ => Vec::new().into_boxed_slice(),
+            },
+        ),
+        Cause::CheckedTemplate { reason } => (
+            "invalid_compilation_checked_template",
+            vec![DiagnosticFailureField::new(
+                "cause",
+                DiagnosticFailureValue::Text((*reason).to_owned()),
+            )]
+            .into_boxed_slice(),
+        ),
+        Cause::ExecutableTemplate { reason } => (
+            "invalid_compilation_executable_template",
+            vec![DiagnosticFailureField::new(
+                "cause",
+                DiagnosticFailureValue::Text((*reason).to_owned()),
+            )]
+            .into_boxed_slice(),
+        ),
+        Cause::ExportContract(contract) => (
+            "invalid_compilation_export_contract",
+            vec![DiagnosticFailureField::new(
+                "contract",
+                DiagnosticFailureValue::Text(contract.name().to_owned()),
+            )]
+            .into_boxed_slice(),
+        ),
+    };
+
+    DiagnosticPackageInterfaceFailure::InvalidCompilationCause { reason, context }
 }
 
 fn package_compiler_defect_diagnostic(
@@ -674,11 +786,15 @@ mod tests {
 
         assert_eq!(
             diagnostic_evaluation_failure(&FactQueryError::Lowering(LocatedLoweringFailure::new(
-                LoweringError::InvalidFrameDescriptor,
+                LoweringError::InvalidFrameDescriptor(
+                    bray_ir::MirFrameDescriptorBuildError::MissingState,
+                ),
                 source
             ),)),
             DiagnosticEmissionEvaluationFailure::Lowering(DiagnosticLoweringFailure::new(
-                DiagnosticLoweringFailureKind::InvalidFrameDescriptor,
+                DiagnosticLoweringFailureKind::InvalidFrameDescriptor(
+                    bray_diagnostics::DiagnosticFrameDescriptorFailure::MissingState,
+                ),
                 source,
             ),)
         );
@@ -695,7 +811,9 @@ mod tests {
 
         let lowering_failure = || {
             FactQueryError::Lowering(LocatedLoweringFailure::new(
-                LoweringError::InvalidFrameDescriptor,
+                LoweringError::InvalidFrameDescriptor(
+                    bray_ir::MirFrameDescriptorBuildError::MissingState,
+                ),
                 source,
             ))
         };
@@ -717,7 +835,9 @@ mod tests {
 
         let expected_cause =
             DiagnosticEmissionEvaluationFailure::Lowering(DiagnosticLoweringFailure::new(
-                DiagnosticLoweringFailureKind::InvalidFrameDescriptor,
+                DiagnosticLoweringFailureKind::InvalidFrameDescriptor(
+                    bray_diagnostics::DiagnosticFrameDescriptorFailure::MissingState,
+                ),
                 source,
             ));
 

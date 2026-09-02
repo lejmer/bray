@@ -430,8 +430,6 @@ pub enum FactQueryError {
     Cancelled,
     /// Evaluation encountered a same-worker or cross-worker dependency cycle.
     Cycle(FactCycle),
-    /// The fact request encountered a compiler-domain infrastructure or invariant failure.
-    InfrastructureFailure,
     /// Immutable symbol-graph construction violated an exact structural contract.
     SymbolGraph(bray_symbols::SymbolGraphBuildError),
     /// Selected native target construction violated an exact target contract.
@@ -589,9 +587,6 @@ impl std::fmt::Display for FactQueryError {
                 "fact evaluation encountered a dependency cycle: {:?}",
                 cycle.facts()
             ),
-            Self::InfrastructureFailure => {
-                formatter.write_str("fact evaluation encountered an infrastructure failure")
-            }
             Self::SymbolGraph(error) => {
                 write!(formatter, "symbol graph construction failed: {error}")
             }

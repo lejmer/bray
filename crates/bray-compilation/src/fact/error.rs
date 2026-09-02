@@ -9,16 +9,17 @@ mod target_diagnostic;
 
 pub(crate) use diagnostic::{
     diagnostic_binding_failure, diagnostic_checker_failure, diagnostic_cycle_failure,
-    diagnostic_semantic_context_failure, diagnostic_semantic_value_failure,
-    diagnostic_symbol_graph_failure,
+    diagnostic_semantic_context_failure, diagnostic_symbol_graph_failure,
 };
+pub use diagnostic::diagnostic_semantic_value_failure;
 pub use model::{
     FactCycle, FactQueryError, ImportedExecutableTemplateMismatch, ImportedQueryFailure,
     LocatedLoweringFailure,
 };
 pub(crate) use runtime_diagnostic::diagnostic_fact_runtime_failure;
 pub(crate) use semantic_diagnostic::{
-    callable_signature_reason, diagnostic_semantic_query_failure, generic_substitution_reason,
+    callable_signature_reason, diagnostic_generic_substitution_failure,
+    diagnostic_semantic_query_failure, generic_substitution_reason,
     push_generic_substitution_failure, push_semantic_value_failure,
 };
 pub(crate) use target_diagnostic::{

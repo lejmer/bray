@@ -31,6 +31,8 @@ pub use model::{InspectionTarget, OutputFormat};
 #[cfg(feature = "compiler")]
 pub use optimization::load_llvm_compilation;
 pub use output::{clap_styles, render_styled_text, write_diagnostic_groups, write_diagnostics};
+#[cfg(feature = "analysis")]
+pub use output::diagnostic_evaluation_failure_json;
 #[cfg(feature = "compiler")]
 pub use product::{
     LlvmCompilationLoadError, NativeLinkerBuildError, native_linker, thin_lto_cache_root,

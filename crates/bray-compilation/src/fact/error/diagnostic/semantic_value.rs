@@ -1,6 +1,6 @@
 use bray_diagnostics::DiagnosticSemanticValueFailure;
 
-pub(crate) const fn diagnostic_semantic_value_failure(
+pub const fn diagnostic_semantic_value_failure(
     error: bray_symbols::SemanticValueStoreError,
 ) -> DiagnosticSemanticValueFailure {
     use bray_symbols::SemanticValueStoreError as Error;

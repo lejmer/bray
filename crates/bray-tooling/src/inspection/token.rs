@@ -1,7 +1,7 @@
 use bray_compilation::Compilation;
 use bray_diagnostics::DiagnosticBag;
 use bray_parser::lex_source_unit;
-use bray_source::{LineIndex, SourceSnapshot, SourceStore};
+use bray_source::{LineIndex, SourceSnapshot, SourceStore, TextSizeOverflow};
 use bray_syntax::SyntaxToken;
 use serde::Serialize;
 
@@ -15,12 +15,13 @@ use crate::output::{
     DiagnosticJson, SourceLocationOutput, SourceOriginOutput, TextRangeOutput, diagnostic_jsons,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum TokenInspectionRenderError {
     SourceIndex,
+    SourceIndexOverflow(TextSizeOverflow),
     TokenText,
     TriviaText,
-    Json,
+    Json(String),
 }
 
 pub(crate) fn render_token_inspection(
@@ -32,7 +33,8 @@ pub(crate) fn render_token_inspection(
     let stdout = match output_format {
         OutputFormat::Text => render_text_report(&report),
         OutputFormat::Json => {
-            render_pretty_json(&report).map_err(|_| TokenInspectionRenderError::Json)?
+            render_pretty_json(&report)
+                .map_err(|error| TokenInspectionRenderError::Json(error.to_string()))?
         }
     };
 
@@ -97,7 +99,8 @@ impl TokenInspectionSource {
         sources: &SourceStore,
     ) -> Result<(Self, DiagnosticBag), TokenInspectionRenderError> {
         let line_index =
-            LineIndex::new(snapshot.text()).map_err(|_| TokenInspectionRenderError::SourceIndex)?;
+            LineIndex::new(snapshot.text())
+                .map_err(TokenInspectionRenderError::SourceIndexOverflow)?;
 
         let lex_result = lex_source_unit(snapshot);
 

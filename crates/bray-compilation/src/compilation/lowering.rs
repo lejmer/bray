@@ -430,7 +430,11 @@ fn lowering_failure_source(
         | LoweringError::UnsupportedOperator { expression, .. }
         | LoweringError::MissingStorageAccess(expression)
         | LoweringError::MissingIterationStorage(expression)
-        | LoweringError::MissingOperationResult(expression) => expression_source(unit, *expression),
+        | LoweringError::MissingOperationResult(expression)
+        | LoweringError::MemoryArgumentOrdinalUnrepresentable { expression, .. }
+        | LoweringError::MatchArmOrdinalUnrepresentable { expression, .. } => {
+            expression_source(unit, *expression)
+        }
         LoweringError::UnsupportedPattern(pattern) => {
             node_source(unit, (*pattern).into()).unwrap_or_else(|| unit_source(unit))
         }
@@ -448,8 +452,9 @@ fn lowering_failure_source(
         LoweringError::MissingCallableResultType
         | LoweringError::MissingRepresentation(_)
         | LoweringError::SemanticValueUnavailable
+        | LoweringError::GenericSubstitution(_)
         | LoweringError::SemanticValue(_)
-        | LoweringError::InvalidFrameDescriptor
+        | LoweringError::InvalidFrameDescriptor(_)
         | LoweringError::Mir(_) => unit_source(unit),
     }
 }

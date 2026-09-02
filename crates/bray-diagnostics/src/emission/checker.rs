@@ -17,6 +17,7 @@ pub enum DiagnosticCheckerFailure {
         query: &'static str,
     },
     SemanticValueUnavailable,
+    GenericSubstitution(DiagnosticGenericSubstitutionFailure),
     SemanticValue(crate::DiagnosticSemanticValueFailure),
     AtomicRepresentationTypeUnavailable,
     AtomicRepresentationArgumentsUnavailable,
@@ -43,11 +44,16 @@ pub enum DiagnosticCheckerFailure {
     PatternInput(DiagnosticPatternInputFailure),
     ConstantInput(DiagnosticConstantInputFailure),
     ConstantEvaluation(DiagnosticConstantEvaluationFailure),
+    ConstantOperation(DiagnosticCheckerConstantOperationFailure),
+    SelectionInputCapacityExceeded { count: usize },
+    SelectionInputOrdinalUnrepresentable { ordinal: u32 },
+    ConstantArrayLengthCapacityExceeded { length: usize },
     InvalidSemanticSelectionInput,
     /// Final semantic-selection table construction rejected one exact relationship.
     SemanticSelection(DiagnosticSemanticSelectionFailure),
     InvalidConstantEvaluationInput,
     InvalidStoragePlan,
+    StoragePlan(DiagnosticStoragePlanFailure),
     InvalidLiveness,
     InvalidRefinementInput,
     RefinementCapacityUnrepresentable,
@@ -66,6 +72,42 @@ pub enum DiagnosticCheckerFailure {
     },
     ExpressionTypeCapacityExceeded,
     InvalidUnitView(&'static str),
+}
+
+/// Exact generic-substitution shape failure retained across compiler boundaries.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticGenericSubstitutionFailure {
+    ArgumentCountMismatch {
+        parameter_count: usize,
+        argument_count: usize,
+    },
+    ArgumentKindMismatch {
+        ordinal: u32,
+        expected: &'static str,
+        actual: &'static str,
+    },
+    OrdinalOverflow,
+}
+
+/// Exact constant-operation failure retained across compiler boundaries.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticCheckerConstantOperationFailure {
+    Invalid,
+    DivisionByZero,
+    NotRepresentable,
+    ResourceLimitExceeded { actual: u64, maximum: u64 },
+}
+
+/// Exact storage-plan construction failure retained across compiler boundaries.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticStoragePlanFailure {
+    ForeignUnit,
+    CapacityExceeded,
+    MissingIdentity,
+    MissingAccess,
+    MissingBorrowCapability,
+    DuplicateBinding,
+    BindingIdentityMismatch,
 }
 
 /// Locale-neutral identity retained for a declaration involved in a checker failure.
@@ -280,6 +322,7 @@ impl DiagnosticCheckerFailure {
             Self::InvalidSourceRange { .. } => "checker_invalid_source_range",
             Self::SemanticQueryUnavailable { .. } => "checker_semantic_query_unavailable",
             Self::SemanticValueUnavailable => "checker_semantic_value_unavailable",
+            Self::GenericSubstitution(_) => "checker_generic_substitution_failure",
             Self::SemanticValue(failure) => failure.as_str(),
             Self::AtomicRepresentationTypeUnavailable => "atomic_representation_type_unavailable",
             Self::AtomicRepresentationArgumentsUnavailable => {
@@ -299,10 +342,21 @@ impl DiagnosticCheckerFailure {
             Self::PatternInput(_) => "checker_pattern_input_failure",
             Self::ConstantInput(_) => "checker_constant_input_failure",
             Self::ConstantEvaluation(_) => "checker_constant_evaluation_failure",
+            Self::ConstantOperation(_) => "checker_constant_operation_failure",
+            Self::SelectionInputCapacityExceeded { .. } => {
+                "checker_selection_input_capacity_exceeded"
+            }
+            Self::SelectionInputOrdinalUnrepresentable { .. } => {
+                "checker_selection_input_ordinal_unrepresentable"
+            }
+            Self::ConstantArrayLengthCapacityExceeded { .. } => {
+                "checker_constant_array_length_capacity_exceeded"
+            }
             Self::InvalidSemanticSelectionInput => "checker_invalid_semantic_selection_input",
             Self::SemanticSelection(_) => "checker_semantic_selection_failure",
             Self::InvalidConstantEvaluationInput => "checker_invalid_constant_evaluation_input",
             Self::InvalidStoragePlan => "checker_invalid_storage_plan",
+            Self::StoragePlan(_) => "checker_storage_plan_failure",
             Self::InvalidLiveness => "checker_invalid_liveness",
             Self::InvalidRefinementInput => "checker_invalid_refinement_input",
             Self::RefinementCapacityUnrepresentable => {

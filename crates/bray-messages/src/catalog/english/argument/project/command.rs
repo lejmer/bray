@@ -295,7 +295,7 @@ pub(crate) fn format_english_project_command_failure(
         ),
         Failure::Inspection(failure) => format!(
             "could not construct the compiler inspection report because {}",
-            format_english_inspection_failure(*failure)
+            format_english_inspection_failure(failure)
         ),
         Failure::Invariant(operation) => format!(
             "could not {} because validated command state became inconsistent",

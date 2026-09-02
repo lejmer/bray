@@ -57,7 +57,7 @@ pub(super) fn insert_value<'context>(
     value: BasicValueEnum<'context>,
     index: usize,
 ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-    let index = u32::try_from(index).map_err(|_| CodegenFailure::ResourceExhausted)?;
+    let index = crate::conversion::resource_limit(index, "aggregate_field_index")?;
 
     let value = match aggregate {
         BasicValueEnum::ArrayValue(aggregate) => {

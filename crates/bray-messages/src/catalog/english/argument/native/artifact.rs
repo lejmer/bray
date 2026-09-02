@@ -47,7 +47,6 @@ fn format_english_emission_evaluation_failure_detail(
     let message = match failure {
         Failure::Cancelled => "evaluation was cancelled",
         Failure::Cycle(_) => "evaluation encountered a dependency cycle",
-        Failure::Infrastructure => "evaluation state is inconsistent",
         Failure::Runtime(failure) => return format_english_fact_runtime_failure(failure),
         Failure::SemanticValueStoreCreate => {
             "process-local semantic-value store identity capacity was exhausted during evaluation"
@@ -132,9 +131,6 @@ fn format_english_native_product_failure_detail(
         }
         Kind::EvaluationCancelled => "product construction was cancelled",
         Kind::EvaluationCycle(_) => "evaluation encountered a dependency cycle",
-        Kind::EvaluationInfrastructure => {
-            "product construction failed because evaluation state is inconsistent"
-        }
         Kind::EvaluationRuntime(failure) => return format_english_fact_runtime_failure(failure),
         Kind::EvaluationSemanticValueStoreCreate => {
             "process-local semantic-value store identity capacity was exhausted during product construction"
@@ -273,13 +269,20 @@ fn format_english_native_product_failure_detail(
         Kind::CodegenBackendUnsupportedTarget => {
             "native code generation is unavailable for the selected target"
         }
+        Kind::CodegenBackendUnsupportedTargetDetail(_) => {
+            "native code generation is unavailable for the selected target"
+        }
         Kind::CodegenBackendUnsupportedArtifact(_) => {
             "native code generation cannot produce a requested artifact"
         }
-        Kind::CodegenBackendInvalidConfiguration => {
+        Kind::CodegenBackendInvalidConfiguration
+        | Kind::CodegenBackendInvalidConfigurationDetail(_) => {
             "native-code configuration is internally inconsistent"
         }
         Kind::CodegenBackendResourceExhausted => {
+            "native code generation exceeded an available resource budget"
+        }
+        Kind::CodegenBackendResourceLimit(_) => {
             "native code generation exceeded an available resource budget"
         }
         Kind::CodegenBackendLibraryFailure(_) => {
@@ -288,8 +291,15 @@ fn format_english_native_product_failure_detail(
         Kind::CodegenBackendToolFailure(_) => {
             "native code generation received an unsuccessful support-program result"
         }
-        Kind::CodegenBackendGeneratedModuleInvariant => {
+        Kind::CodegenBackendGeneratedModuleInvariant
+        | Kind::CodegenBackendGeneratedModuleInvariantDetail(_) => {
             "generated native-code input violated an internal module contract"
+        }
+        Kind::CodegenBackendInvalidRuntimeMetadata(_) => {
+            "generated runtime metadata violated an internal publication contract"
+        }
+        Kind::CodegenBackendInvalidOutcome(_) => {
+            "a completed native-code result violated an internal publication contract"
         }
         Kind::CodegenBackendRejectedModule(_) => {
             "internally generated input did not satisfy backend validation"
@@ -460,16 +470,45 @@ fn format_english_lowering_failure(failure: bray_diagnostics::DiagnosticLowering
         Failure::SemanticValueUnavailable => {
             "generating executable code for the highlighted declaration because a required type or constant value is unavailable"
         }
+        Failure::GenericSubstitution(failure) => {
+            return super::format_internal_compiler_error(super::checker::format_generic_substitution_failure(failure));
+        }
         Failure::SemanticValue(failure) => {
             return format_english_semantic_value_failure(failure);
         }
-        Failure::InvalidFrameDescriptor => {
-            "generating resumable code for the highlighted callable because its state-preservation requirements conflict"
+        Failure::InvalidFrameDescriptor(problem) => {
+            return super::format_internal_compiler_error(format!(
+                "could not retain resumable state for the highlighted callable because {}",
+                format_frame_descriptor_failure(problem),
+            ));
+        }
+        Failure::MemoryArgumentOrdinalUnrepresentable { ordinal, .. } => {
+            return super::format_internal_compiler_error(format!(
+                "could not represent memory-operation argument position {ordinal}",
+            ));
+        }
+        Failure::MatchArmOrdinalUnrepresentable { ordinal, .. } => {
+            return super::format_internal_compiler_error(format!(
+                "could not represent match-arm position {ordinal}",
+            ));
         }
         Failure::Mir(failure) => return format_english_mir_unit_failure(failure),
     };
 
     super::format_internal_compiler_error(format!("could not complete {prevented_operation}"))
+}
+
+const fn format_frame_descriptor_failure(
+    failure: bray_diagnostics::DiagnosticFrameDescriptorFailure,
+) -> &'static str {
+    use bray_diagnostics::DiagnosticFrameDescriptorFailure as Failure;
+
+    match failure {
+        Failure::MissingState => "no resumable state was available",
+        Failure::NonContiguousState => "resumable-state positions were not contiguous",
+        Failure::DuplicateStateOrEntry => "a resumable state or entry point was duplicated",
+        Failure::IdentityCapacityExceeded => "the resumable-state identity limit was exceeded",
+    }
 }
 
 const fn format_source_construct(
@@ -807,7 +846,6 @@ mod tests {
         }
 
         let failures = [
-            bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationInfrastructure,
             bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationProduct(nested),
             bray_diagnostics::DiagnosticNativeProductFailureKind::SemanticContextFailure(
                 bray_diagnostics::DiagnosticEvaluationFailureDetail::new(

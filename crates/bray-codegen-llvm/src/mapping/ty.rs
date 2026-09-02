@@ -7,7 +7,6 @@ use bray_codegen::{
     CodegenTypeMapping, TargetScalarKind,
 };
 use bray_symbols::TypeId;
-use inkwell::AddressSpace;
 use inkwell::context::Context;
 use inkwell::targets::TargetData;
 use inkwell::types::{BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType};
@@ -173,8 +172,7 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
             CodegenTypeKind::Opaque => Ok(self.context.struct_type(&[], false).into()),
             CodegenTypeKind::Aggregate(fields) => self.map_aggregate(mapping, fields),
             CodegenTypeKind::Array { element, length } => {
-                let length =
-                    u32::try_from(*length).map_err(|_| CodegenFailure::UnsupportedTarget)?;
+                let length = crate::conversion::target_value(*length, "array_length")?;
 
                 Ok(self.map(*element)?.array_type(length).into())
             }
@@ -213,7 +211,7 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
                 self.context
                     .custom_width_int_type(width)
                     .map(Into::into)
-                    .map_err(|_| CodegenFailure::UnsupportedTarget)
+                    .map_err(CodegenFailure::unsupported_target_report)
             }
             TargetScalarKind::Float(width) => match width.get() {
                 16 => Ok(self.context.f16_type().into()),
@@ -235,8 +233,7 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
             .address_space(kind)
             .ok_or(CodegenFailure::UnsupportedTarget)?;
 
-        let address_space =
-            AddressSpace::try_from(number).map_err(|()| CodegenFailure::UnsupportedTarget)?;
+        let address_space = crate::conversion::target_value(number, "address_space")?;
 
         Ok(self.context.ptr_type(address_space).into())
     }
@@ -271,7 +268,7 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
             let field_type = self.map(field.ty())?;
 
             let element =
-                u32::try_from(elements.len()).map_err(|_| CodegenFailure::UnsupportedTarget)?;
+                crate::conversion::target_value(elements.len(), "aggregate_field_count")?;
 
             elements.push(field_type);
             field_elements.push((element, field.offset_bytes()));
@@ -350,7 +347,7 @@ fn push_padding<'context>(
         return Ok(());
     }
 
-    let size = u32::try_from(size).map_err(|_| CodegenFailure::UnsupportedTarget)?;
+    let size = crate::conversion::target_value(size, "padding_size")?;
 
     elements.push(context.i8_type().array_type(size).into());
 
@@ -374,7 +371,7 @@ fn push_alignment_carrier<'context>(
 
     let carrier = context
         .custom_width_int_type(alignment_bits)
-        .map_err(|_| CodegenFailure::UnsupportedTarget)?;
+        .map_err(CodegenFailure::unsupported_target_report)?;
 
     elements.push(carrier.array_type(0).into());
 

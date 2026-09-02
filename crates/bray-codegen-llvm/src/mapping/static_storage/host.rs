@@ -171,7 +171,7 @@ pub(super) fn declare_static_host_entry<'context>(
         usize
             .const_int(
                 u64::try_from(host_mapping.dependencies().len())
-                    .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?,
+                    .map_err(CodegenFailure::backend_library)?,
                 false,
             )
             .into(),
@@ -235,11 +235,11 @@ fn declare_static_dependency_lookup<'context>(
 
         builder
             .build_return(Some(&static_identity_value(context, identity)))
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         cases.push((
             usize.const_int(
-                u64::try_from(index).map_err(|_| CodegenFailure::GeneratedModuleInvariant)?,
+                u64::try_from(index).map_err(CodegenFailure::backend_library)?,
                 false,
             ),
             block,
@@ -250,7 +250,7 @@ fn declare_static_dependency_lookup<'context>(
 
     builder
         .build_return(Some(&static_identity_type(context).const_zero()))
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder.position_at_end(entry);
 
@@ -261,7 +261,7 @@ fn declare_static_dependency_lookup<'context>(
 
     builder
         .build_switch(index, invalid, &cases)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     Ok(dependency)
 }
@@ -313,7 +313,7 @@ pub(super) fn declare_product_host<'context>(
         usize
             .const_int(
                 u64::try_from(product_host.statics().len())
-                    .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?,
+                    .map_err(CodegenFailure::backend_library)?,
                 false,
             )
             .into(),
@@ -369,14 +369,14 @@ pub(super) fn declare_product_host<'context>(
             &[descriptor.as_pointer_value().into(), operation.into()],
             "product.host.observation",
         )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+        .map_err(CodegenFailure::backend_library)?
         .try_as_basic_value()
         .basic()
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     builder
         .build_return(Some(&observation))
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     retain_globals(
         module,
@@ -432,15 +432,15 @@ fn declare_static_host_lookup<'context>(
                 host_entry.as_pointer_value(),
                 "static.host.entry",
             )
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         builder
             .build_return(Some(&value))
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         cases.push((
             usize.const_int(
-                u64::try_from(index).map_err(|_| CodegenFailure::GeneratedModuleInvariant)?,
+                u64::try_from(index).map_err(CodegenFailure::backend_library)?,
                 false,
             ),
             block,
@@ -451,7 +451,7 @@ fn declare_static_host_lookup<'context>(
 
     builder
         .build_return(Some(&entry_type.const_zero()))
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder.position_at_end(entry);
 
@@ -462,7 +462,7 @@ fn declare_static_host_lookup<'context>(
 
     builder
         .build_switch(index, invalid, &cases)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     Ok(lookup)
 }
@@ -641,5 +641,5 @@ fn usize_type<'context>(
     types
         .context()
         .custom_width_int_type(width)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
+        .map_err(CodegenFailure::backend_library)
 }

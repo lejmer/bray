@@ -1,16 +1,17 @@
 use std::sync::Arc;
 
 use bray_bound_tree::BoundUnit;
-use bray_compilation::{CancellationToken, Compilation, QueryPriority};
+use bray_compilation::{CancellationToken, Compilation, FactQueryError, QueryPriority};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_source::SourceId;
 
 use crate::InspectionTarget;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum UnitInspectionSelectionError {
-    BoundState,
+    Evaluation(FactQueryError),
     Source,
+    SourceOverflow(bray_source::TextSizeOverflow),
 }
 
 pub(crate) struct UnitInspectionSelection {
@@ -36,7 +37,7 @@ pub(crate) fn select_units(
         .ok_or(UnitInspectionSelectionError::Source)?;
 
     let source_length = bray_source::TextSize::try_from(source.text().len())
-        .map_err(|_| UnitInspectionSelectionError::Source)?;
+        .map_err(UnitInspectionSelectionError::SourceOverflow)?;
 
     if target
         .position()
@@ -49,7 +50,7 @@ pub(crate) fn select_units(
 
     let diagnostics = compilation
         .diagnostics_for_source(source_id, &cancellation, QueryPriority::Interactive)
-        .map_err(|_| UnitInspectionSelectionError::Source)?;
+        .map_err(UnitInspectionSelectionError::Evaluation)?;
 
     let units = match target.position() {
         Some(position) => compilation
@@ -60,10 +61,10 @@ pub(crate) fn select_units(
                 QueryPriority::Interactive,
             )
             .map(|unit| unit.into_iter().collect())
-            .map_err(|_| UnitInspectionSelectionError::BoundState)?,
+            .map_err(UnitInspectionSelectionError::Evaluation)?,
         None => compilation
             .bound_units_for_source(source_id, &cancellation, QueryPriority::Interactive)
-            .map_err(|_| UnitInspectionSelectionError::BoundState)?,
+            .map_err(UnitInspectionSelectionError::Evaluation)?,
     };
 
     Ok(UnitInspectionSelection { diagnostics, units })

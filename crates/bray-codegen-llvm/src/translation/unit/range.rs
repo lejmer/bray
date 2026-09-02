@@ -61,7 +61,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             &self.builder,
             range,
             next,
-            usize::try_from(start_index).map_err(|_| CodegenFailure::ResourceExhausted)?,
+            crate::conversion::resource_limit(start_index, "range_start_index")?,
         )?;
 
         llvm(self.builder.build_store(pointer, range))?;

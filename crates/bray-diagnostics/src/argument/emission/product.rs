@@ -158,7 +158,6 @@ pub enum DiagnosticNativeProductFailureKind {
     InvalidNativeLinkInput(DiagnosticNativeLinkInputFailure),
     EvaluationCancelled,
     EvaluationCycle(crate::DiagnosticEvaluationFailureDetail),
-    EvaluationInfrastructure,
     EvaluationRuntime(crate::DiagnosticFactRuntimeFailure),
     EvaluationSemanticValueStoreCreate,
     EvaluationSemanticValue(crate::DiagnosticSemanticValueFailure),
@@ -219,12 +218,18 @@ pub enum DiagnosticNativeProductFailureKind {
     EmissionBackendDuplicateUnit,
     LinkTargetEmptyTriple,
     CodegenBackendUnsupportedTarget,
+    CodegenBackendUnsupportedTargetDetail(DiagnosticNativeProductFailureDetail),
     CodegenBackendUnsupportedArtifact(DiagnosticNativeProductFailureDetail),
     CodegenBackendInvalidConfiguration,
+    CodegenBackendInvalidConfigurationDetail(DiagnosticNativeProductFailureDetail),
     CodegenBackendResourceExhausted,
+    CodegenBackendResourceLimit(DiagnosticNativeProductFailureDetail),
     CodegenBackendLibraryFailure(DiagnosticNativeProductFailureDetail),
     CodegenBackendToolFailure(DiagnosticNativeProductFailureDetail),
     CodegenBackendGeneratedModuleInvariant,
+    CodegenBackendGeneratedModuleInvariantDetail(DiagnosticNativeProductFailureDetail),
+    CodegenBackendInvalidRuntimeMetadata(DiagnosticNativeProductFailureDetail),
+    CodegenBackendInvalidOutcome(DiagnosticNativeProductFailureDetail),
     CodegenBackendRejectedModule(DiagnosticNativeProductFailureDetail),
     CodegenBackendArtifactConstruction(DiagnosticNativeProductFailureDetail),
     CodegenBackendUnavailable,
@@ -263,7 +268,6 @@ impl DiagnosticNativeProductFailureKind {
             Self::InvalidNativeLinkInput(failure) => failure.as_str(),
             Self::EvaluationCancelled => "evaluation_cancelled",
             Self::EvaluationCycle(_) => "evaluation_cycle",
-            Self::EvaluationInfrastructure => "evaluation_infrastructure",
             Self::EvaluationRuntime(failure) => failure.reason(),
             Self::EvaluationSemanticValueStoreCreate => "evaluation_semantic_value_store_create",
             Self::EvaluationSemanticValue(failure) => failure.as_str(),
@@ -339,16 +343,22 @@ impl DiagnosticNativeProductFailureKind {
             Self::EmissionBackendDuplicateUnit => "emission_backend_duplicate_unit",
             Self::LinkTargetEmptyTriple => "link_target_empty_triple",
             Self::CodegenBackendUnsupportedTarget => "codegen_backend_unsupported_target",
-            Self::CodegenBackendUnsupportedArtifact(detail)
+            Self::CodegenBackendUnsupportedTargetDetail(detail)
+            | Self::CodegenBackendUnsupportedArtifact(detail)
+            | Self::CodegenBackendInvalidConfigurationDetail(detail)
             | Self::CodegenBackendLibraryFailure(detail)
             | Self::CodegenBackendToolFailure(detail)
+            | Self::CodegenBackendInvalidRuntimeMetadata(detail)
+            | Self::CodegenBackendInvalidOutcome(detail)
             | Self::CodegenBackendRejectedModule(detail)
             | Self::CodegenBackendArtifactConstruction(detail) => detail.reason(),
             Self::CodegenBackendInvalidConfiguration => "codegen_backend_invalid_configuration",
             Self::CodegenBackendResourceExhausted => "codegen_backend_resource_exhausted",
+            Self::CodegenBackendResourceLimit(detail) => detail.reason(),
             Self::CodegenBackendGeneratedModuleInvariant => {
                 "codegen_backend_generated_module_invariant"
             }
+            Self::CodegenBackendGeneratedModuleInvariantDetail(detail) => detail.reason(),
             Self::CodegenBackendUnavailable => "codegen_backend_unavailable",
             Self::CodegenInvalidRequest(detail)
             | Self::CodegenMirUnavailable(detail)
@@ -382,7 +392,6 @@ impl From<crate::DiagnosticEmissionEvaluationFailure> for DiagnosticNativeProduc
         match failure {
             Failure::Cancelled => Self::EvaluationCancelled,
             Failure::Cycle(failure) => Self::EvaluationCycle(failure),
-            Failure::Infrastructure => Self::EvaluationInfrastructure,
             Failure::Runtime(failure) => Self::EvaluationRuntime(failure),
             Failure::SemanticValueStoreCreate => Self::EvaluationSemanticValueStoreCreate,
             Failure::SemanticValue(failure) => Self::EvaluationSemanticValue(failure),

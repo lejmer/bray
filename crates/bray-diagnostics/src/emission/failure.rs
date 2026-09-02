@@ -138,6 +138,10 @@ pub enum DiagnosticEmissionPlanningFailure {
 pub enum DiagnosticPackageInterfaceFailure {
     Unavailable,
     InvalidCompilation,
+    InvalidCompilationCause {
+        reason: &'static str,
+        context: Box<[crate::DiagnosticFailureField]>,
+    },
     SemanticValueStoreCreate,
     SemanticValue(DiagnosticSemanticValueFailure),
     RecoveredPublicSymbol(String),
@@ -318,7 +322,6 @@ pub enum DiagnosticEmissionLinkPlanFailure {
 pub enum DiagnosticEmissionEvaluationFailure {
     Cancelled,
     Cycle(DiagnosticEvaluationFailureDetail),
-    Infrastructure,
     Runtime(DiagnosticFactRuntimeFailure),
     SemanticValueStoreCreate,
     SemanticValue(DiagnosticSemanticValueFailure),
@@ -580,6 +583,7 @@ impl DiagnosticPackageInterfaceFailure {
         match self {
             Self::Unavailable => "unavailable",
             Self::InvalidCompilation => "invalid_compilation",
+            Self::InvalidCompilationCause { reason, .. } => reason,
             Self::SemanticValueStoreCreate => "semantic_value_store_create",
             Self::SemanticValue(_) => "semantic_value",
             Self::RecoveredPublicSymbol(_) => "recovered_public_symbol",
@@ -734,7 +738,6 @@ impl DiagnosticEmissionEvaluationFailure {
         match self {
             Self::Cancelled => "cancelled",
             Self::Cycle(failure) => failure.reason(),
-            Self::Infrastructure => "infrastructure",
             Self::Runtime(failure) => failure.reason(),
             Self::SemanticValueStoreCreate => "semantic_value_store_create",
             Self::SemanticValue(failure) => failure.as_str(),

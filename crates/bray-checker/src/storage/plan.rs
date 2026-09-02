@@ -160,14 +160,14 @@ where
 
         let result_storage = builder
             .push_identity(StorageIdentity::Result(root))
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         builder
             .bind(
                 StorageBindingTarget::Result,
                 StorageBinding::Identity(result_storage),
             )
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         Ok(Planner {
             request,
@@ -280,14 +280,14 @@ where
             let storage = self
                 .builder_mut()?
                 .push_identity(StorageIdentity::PostconditionResult(result))
-                .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+                .map_err(CheckerInfrastructureError::StoragePlan)?;
 
             self.builder_mut()?
                 .bind(
                     StorageBindingTarget::PostconditionResult(result),
                     StorageBinding::Identity(storage),
                 )
-                .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+                .map_err(CheckerInfrastructureError::StoragePlan)?;
         }
 
         Ok(())
@@ -409,17 +409,17 @@ where
         let storage = self
             .builder_mut()?
             .push_identity(identity)
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         if let Some(ty) = ty {
             self.builder_mut()?
                 .set_identity_type(storage, ty)
-                .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+                .map_err(CheckerInfrastructureError::StoragePlan)?;
         }
 
         self.builder_mut()?
             .bind(target, StorageBinding::Identity(storage))
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         Ok(Some(storage))
     }
@@ -437,18 +437,18 @@ where
         let storage = self
             .builder_mut()?
             .push_identity(identity)
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         if let Some(entry) = entry {
             self.builder_mut()?
                 .set_identity_type(storage, entry.ty)
-                .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+                .map_err(CheckerInfrastructureError::StoragePlan)?;
         }
 
         let Some((kind, reached_type)) = entry.and_then(|entry| entry.borrow) else {
             self.builder_mut()?
                 .bind(target, StorageBinding::Identity(storage))
-                .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+                .map_err(CheckerInfrastructureError::StoragePlan)?;
 
             return Ok(());
         };
@@ -469,7 +469,7 @@ where
         let borrowed = self
             .builder_mut()?
             .push_access(borrowed)
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         let capability = PlannedBorrowCapability::new(
             BorrowCapabilityOrigin::Entry(target),
@@ -483,7 +483,7 @@ where
         let capability = self
             .builder_mut()?
             .push_borrow_capability(capability)
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         let access = StorageAccess::new(
             StorageAccessRoot::Borrow(capability),
@@ -496,11 +496,11 @@ where
         let access = self
             .builder_mut()?
             .push_access(access)
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         self.builder_mut()?
             .bind(target, StorageBinding::Access(access))
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan.into())
+            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
     }
 
     fn entry_storage(
@@ -664,7 +664,7 @@ where
 
         self.builder_mut()?
             .plan_access(expression, purpose, access)
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan.into())
+            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
     }
 
     pub(super) fn builder(&self) -> Result<&StoragePlanBuilder, PlanError<C::UpstreamError>> {

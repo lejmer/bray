@@ -54,7 +54,7 @@ pub(super) fn invoke_static_boundary<'context>(
 
         builder
             .build_store(storage, usize.const_zero())
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         arguments.push(storage.into());
 
@@ -65,7 +65,7 @@ pub(super) fn invoke_static_boundary<'context>(
 
     let call = builder
         .build_call(function, &arguments, name)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     call.set_call_convention(function.get_call_conventions());
     apply_signature_call_attributes(call, signature, types)?;
@@ -106,14 +106,14 @@ fn propagate_static_boundary_panic<'context>(
 
     let call = builder
         .build_call(runtime, &[report.into()], reference.role().as_str())
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     call.set_call_convention(runtime.get_call_conventions());
     apply_signature_call_attributes(call, symbol.signature(), types)?;
 
     builder
         .build_unreachable()
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder.position_at_end(continued);
 

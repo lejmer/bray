@@ -12,10 +12,10 @@ pub(crate) fn serialize_artifact(
     let bytes = match kind {
         BackendArtifactKind::RelocatableObject => machine
             .serialize(module, FileType::Object)
-            .map_err(|_| CodegenFailure::ArtifactConstruction(kind))?,
+            .map_err(|failure| artifact_serialization_failure(kind, failure))?,
         BackendArtifactKind::Assembly => machine
             .serialize(module, FileType::Assembly)
-            .map_err(|_| CodegenFailure::ArtifactConstruction(kind))?,
+            .map_err(|failure| artifact_serialization_failure(kind, failure))?,
         BackendArtifactKind::BackendIr => module.print_to_string().to_bytes().to_vec(),
         BackendArtifactKind::BackendBitcode => bitcode_bytes(module),
         BackendArtifactKind::ExecutableModule | BackendArtifactKind::DebugCompanion => {
@@ -23,7 +23,23 @@ pub(crate) fn serialize_artifact(
         }
     };
 
-    ArtifactContent::try_memory(bytes).map_err(|_| CodegenFailure::ArtifactConstruction(kind))
+    ArtifactContent::try_memory(bytes).map_err(|cause| CodegenFailure::InvalidArtifactContent {
+        artifact: kind,
+        cause,
+    })
+}
+
+fn artifact_serialization_failure(
+    artifact: BackendArtifactKind,
+    failure: CodegenFailure,
+) -> CodegenFailure {
+    match failure {
+        CodegenFailure::BackendLibrary { report } => CodegenFailure::ArtifactSerialization {
+            artifact,
+            report,
+        },
+        failure => failure,
+    }
 }
 
 fn bitcode_bytes(module: &Module<'_>) -> Vec<u8> {

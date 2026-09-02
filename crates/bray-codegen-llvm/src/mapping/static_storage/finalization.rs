@@ -123,7 +123,7 @@ fn declare_static_finalizer_start<'context>(
                 ExecutableEntryResult::Fallible { ty, .. },
             ) => builder
                 .build_alloca(types.map(ty)?, "static.finalize.result")
-                .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?,
+                .map_err(CodegenFailure::backend_library)?,
             (bray_symbols::CallableExecution::Synchronous, ExecutableEntryResult::Unit) => {
                 context.ptr_type(AddressSpace::default()).const_null()
             }
@@ -136,7 +136,7 @@ fn declare_static_finalizer_start<'context>(
                     context.ptr_type(AddressSpace::default()),
                     "static.finalize.frame",
                 )
-                .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?,
+                .map_err(CodegenFailure::backend_library)?,
         };
 
         let (arguments, name) = match symbol.signature().result() {
@@ -168,7 +168,7 @@ fn declare_static_finalizer_start<'context>(
 
             builder
                 .build_store(destination, result)
-                .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+                .map_err(CodegenFailure::backend_library)?;
         }
 
         if finalization.execution() == bray_symbols::CallableExecution::Synchronous
@@ -179,7 +179,7 @@ fn declare_static_finalizer_start<'context>(
         {
             let completion = builder
                 .build_ptr_to_int(destination, usize, "static.finalize.completion")
-                .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+                .map_err(CodegenFailure::backend_library)?;
 
             let status = builder
                 .build_call(
@@ -187,14 +187,14 @@ fn declare_static_finalizer_start<'context>(
                     &[completion.into(), supplied_destination.into()],
                     "static.finalize.status",
                 )
-                .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+                .map_err(CodegenFailure::backend_library)?
                 .try_as_basic_value()
                 .basic()
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
             builder
                 .build_return(Some(&status))
-                .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+                .map_err(CodegenFailure::backend_library)?;
 
             return Ok(callback);
         }
@@ -202,7 +202,7 @@ fn declare_static_finalizer_start<'context>(
 
     builder
         .build_return(Some(&context.i32_type().const_zero()))
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     Ok(callback)
 }
@@ -243,7 +243,7 @@ fn declare_static_finalizer_resolver<'context>(
     let Some(finalization) = mapping.finalization() else {
         builder
             .build_return(Some(&context.i32_type().const_zero()))
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         return Ok(callback);
     };
@@ -260,7 +260,7 @@ fn declare_static_finalizer_resolver<'context>(
 
         builder
             .build_return(Some(&context.i32_type().const_zero()))
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         return Ok(callback);
     };
@@ -281,7 +281,7 @@ fn declare_static_finalizer_resolver<'context>(
             context.ptr_type(AddressSpace::default()),
             "static.finalize.completion",
         )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     let result_mapping = mappings
         .instance_ty(mapping.owner(), ty)
@@ -301,7 +301,7 @@ fn declare_static_finalizer_resolver<'context>(
 
     let tag = builder
         .build_load(tag_type, result, "static.finalize.tag")
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+        .map_err(CodegenFailure::backend_library)?
         .into_int_value();
 
     let success = variants
@@ -314,20 +314,20 @@ fn declare_static_finalizer_resolver<'context>(
 
     let succeeded = builder
         .build_int_compare(IntPredicate::EQ, tag, success, "static.finalize.succeeded")
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     let success_block = context.append_basic_block(callback, "static.finalize.success");
     let failure_block = context.append_basic_block(callback, "static.finalize.failure");
 
     builder
         .build_conditional_branch(succeeded, success_block, failure_block)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder.position_at_end(success_block);
 
     builder
         .build_return(Some(&context.i32_type().const_zero()))
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder.position_at_end(failure_block);
 
@@ -353,7 +353,7 @@ fn declare_static_finalizer_resolver<'context>(
                 "static.finalize.error",
             )
         })
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     let error_layout = mappings
         .instance_ty(mapping.owner(), error)
@@ -394,10 +394,12 @@ fn declare_static_finalizer_resolver<'context>(
 
     let error_pointer = builder
         .build_int_to_ptr(error_address, pointer, "static.finalize.error.pointer")
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
-    let alignment = u32::try_from(error_layout.alignment().get())
-        .map_err(|_| CodegenFailure::UnsupportedTarget)?;
+    let alignment = crate::conversion::target_value(
+        error_layout.alignment().get(),
+        "static_finalization_error_alignment",
+    )?;
 
     builder
         .build_memcpy(
@@ -407,7 +409,7 @@ fn declare_static_finalizer_resolver<'context>(
             alignment,
             usize.const_int(error_layout.size(), false),
         )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     let report = declare_static_incident_reporter(module, mapping, error_layout.size(), types)?;
 
@@ -428,15 +430,15 @@ fn declare_static_finalizer_resolver<'context>(
             pointer,
             "static.finalize.incident.destination",
         )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder
         .build_store(incident_destination, incident)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder
         .build_return(Some(&context.i32_type().const_int(1, false)))
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     Ok(callback)
 }
@@ -494,14 +496,14 @@ fn declare_static_incident_reporter<'context>(
             &[payload.into(), usize.const_int(payload_size, false).into()],
             "static.finalize.incident.report.status",
         )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+        .map_err(CodegenFailure::backend_library)?
         .try_as_basic_value()
         .basic()
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     builder
         .build_return(Some(&status))
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     Ok(callback)
 }
@@ -547,7 +549,7 @@ fn declare_static_incident_destroyer<'context>(
 
     let payload_pointer = builder
         .build_int_to_ptr(payload, pointer, "static.finalize.incident.pointer")
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     let cleanup = mapping
         .finalization()
@@ -600,7 +602,7 @@ fn declare_static_incident_destroyer<'context>(
 
     builder
         .build_return(None)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     Ok(callback)
 }
@@ -637,21 +639,21 @@ fn static_incident_value<'context>(
             incident,
             builder
                 .build_ptr_to_int(payload, usize, "static.finalize.incident.address")
-                .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?,
+                .map_err(CodegenFailure::backend_library)?,
             0,
             "static.finalize.incident.payload",
         )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+        .map_err(CodegenFailure::backend_library)?
         .into_struct_value();
 
     let incident = builder
         .build_insert_value(incident, identity, 1, "static.finalize.incident.type")
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+        .map_err(CodegenFailure::backend_library)?
         .into_struct_value();
 
     let incident = builder
         .build_insert_value(incident, source, 2, "static.finalize.incident.source")
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+        .map_err(CodegenFailure::backend_library)?
         .into_struct_value();
 
     let incident = builder
@@ -661,7 +663,7 @@ fn static_incident_value<'context>(
             3,
             "static.finalize.incident.report",
         )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+        .map_err(CodegenFailure::backend_library)?
         .into_struct_value();
 
     builder
@@ -671,7 +673,7 @@ fn static_incident_value<'context>(
             4,
             "static.finalize.incident.destroy",
         )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
+        .map_err(CodegenFailure::backend_library)
         .map(inkwell::values::AggregateValueEnum::into_struct_value)
 }
 

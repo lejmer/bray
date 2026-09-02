@@ -138,10 +138,7 @@ fn constant_callable_bodies(
 
         if signature.diagnostics().has_errors()
             || signature.value().constness(values).map_err(|error| {
-                super::super::callable_signature_export_error(
-                    error,
-                    PackageInterfaceExportError::InvalidCompilation,
-                )
+                super::super::callable_signature_export_error(error)
             })? != CallableConstness::Constant
         {
             continue;
@@ -152,7 +149,11 @@ fn constant_callable_bodies(
         let parameters = generic_parameters(binder, symbol)?;
 
         let owner = GenericOwnerId::try_new(symbol)
-            .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
+            .ok_or_else(|| {
+                super::super::export_contract_error(
+                    super::super::PackageInterfaceExportContract::MissingGenericOwner,
+                )
+            })?;
 
         let substitution =
             crate::compilation::substitution::identity_substitution(values, owner, &parameters)
@@ -190,7 +191,9 @@ fn constant_callable_bodies(
         )?;
 
         let InterfaceSymbolReference::Local(owner) = export.symbol_reference(symbol)? else {
-            return Err(PackageInterfaceExportError::InvalidCompilation);
+            return Err(super::super::export_contract_error(
+                super::super::PackageInterfaceExportContract::NonLocalConstantCallable,
+            ));
         };
 
         bodies.push(InterfaceConstantCallableBody::new(owner, template));
@@ -218,7 +221,14 @@ fn callable_argument_ordinals(
         .map(|(index, parameter)| {
             let ordinal = u32::try_from(index)
                 .map(bray_symbols::SymbolOrdinal::new)
-                .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+                .map_err(|_| {
+                    PackageInterfaceExportError::InvalidCompilationCause(
+                        super::super::PackageInterfaceInvalidCompilationCause::Capacity {
+                            field: "callable_parameter_ordinal",
+                            actual: index.to_string(),
+                        },
+                    )
+                })?;
 
             Ok((parameter, ordinal))
         })
@@ -233,7 +243,11 @@ fn exported_declaration_identity(
         .keys
         .get(&symbol)
         .map(diagnostic_external_symbol_identity)
-        .ok_or(PackageInterfaceExportError::InvalidCompilation)
+        .ok_or_else(|| {
+            super::super::export_contract_error(
+                super::super::PackageInterfaceExportContract::MissingExportedDeclaration,
+            )
+        })
 }
 
 fn resolve_fragments(
@@ -375,7 +389,9 @@ fn native_boundaries(
         };
 
         let InterfaceSymbolReference::Local(owner) = export.symbol_reference(symbol)? else {
-            return Err(PackageInterfaceExportError::InvalidCompilation);
+            return Err(super::super::export_contract_error(
+                super::super::PackageInterfaceExportContract::NonLocalNativeBoundary,
+            ));
         };
 
         boundaries.push(InterfaceNativeBoundary::new(
@@ -412,7 +428,9 @@ fn executable_templates(
         };
 
         let InterfaceSymbolReference::Local(owner) = export.symbol_reference(symbol)? else {
-            return Err(PackageInterfaceExportError::InvalidCompilation);
+            return Err(super::super::export_contract_error(
+                super::super::PackageInterfaceExportContract::NonLocalExecutableTemplate,
+            ));
         };
 
         let (family_templates, family_requirement) = export_executable_template_family(
@@ -452,8 +470,14 @@ fn export_executable_template_family(
 > {
     let family = executable_template_family(compilation, root, declaration)?;
 
-    let family_size =
-        u32::try_from(family.len()).map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+    let family_size = u32::try_from(family.len()).map_err(|_| {
+        PackageInterfaceExportError::InvalidCompilationCause(
+            super::super::PackageInterfaceInvalidCompilationCause::Capacity {
+                field: "executable_template_family_size",
+                actual: family.len().to_string(),
+            },
+        )
+    })?;
 
     let identities = family
         .iter()
@@ -463,7 +487,14 @@ fn export_executable_template_family(
                 .map(bray_ir::MirExecutableTemplateId::new)
                 // The address map owns stable source keys independently of the traversal list.
                 .map(|identity| (key.clone(), identity))
-                .map_err(|_| PackageInterfaceExportError::InvalidCompilation)
+                .map_err(|_| {
+                    PackageInterfaceExportError::InvalidCompilationCause(
+                        super::super::PackageInterfaceInvalidCompilationCause::Capacity {
+                            field: "executable_template_identity",
+                            actual: index.to_string(),
+                        },
+                    )
+                })
         })
         .collect::<Result<BTreeMap<_, _>, _>>()?;
 
@@ -471,7 +502,11 @@ fn export_executable_template_family(
 
     let codegen_target = selected_target
         .codegen_target()
-        .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?;
+        .map_err(|cause| {
+            PackageInterfaceExportError::InvalidCompilationCause(
+                super::super::PackageInterfaceInvalidCompilationCause::CodegenTarget(cause),
+            )
+        })?;
 
     let mut templates = Vec::with_capacity(family.len());
     let mut family_requirements = Vec::new();
@@ -481,7 +516,7 @@ fn export_executable_template_family(
         let identity = identities
             .get(&key)
             .copied()
-            .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
+            .ok_or_else(|| invalid_executable_template("missing_family_identity"))?;
 
         let platform_service = if identity == bray_ir::MirExecutableTemplateId::ROOT {
             graph
@@ -520,7 +555,7 @@ fn export_executable_template_family(
             .value()
             .as_ref()
             .and_then(bray_lowering::LoweredUnit::mir)
-            .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
+            .ok_or_else(|| invalid_executable_template("missing_lowered_mir"))?;
 
         if let Some(frame) = mir.frame_descriptor() {
             let requirements = bray_runtime_interface::RuntimeRequirements::new(
@@ -544,20 +579,26 @@ fn export_executable_template_family(
             .map_err(|error| match error {
                 bray_package_interface::ExecutableTemplateEncodeError::Semantic(error) => error,
                 bray_package_interface::ExecutableTemplateEncodeError::InvalidUnitKind => {
-                    PackageInterfaceExportError::InvalidCompilation
+                    invalid_executable_template("invalid_mir_unit_kind")
                 }
             })?;
 
         let template = InterfaceExecutableTemplate::new(owner, identity, family_size, payload)
             .map(|template| template.with_platform_service(platform_service))
-            .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
+            .ok_or_else(|| invalid_executable_template("invalid_template_identity"))?;
 
         templates.push(template);
     }
 
     let runtime_requirement =
         bray_runtime_interface::RuntimeRequirements::try_merge(family_requirements)
-            .map_err(|_| PackageInterfaceExportError::InvalidCompilation)?
+            .map_err(|cause| {
+                PackageInterfaceExportError::InvalidCompilationCause(
+                    super::super::PackageInterfaceInvalidCompilationCause::RuntimeRequirements(
+                        cause,
+                    ),
+                )
+            })?
             .map(|requirements| {
                 InterfaceRuntimeRequirement::new(
                     InterfaceSymbolReference::Local(owner),
@@ -567,6 +608,12 @@ fn export_executable_template_family(
             });
 
     Ok((templates, runtime_requirement))
+}
+
+fn invalid_executable_template(reason: &'static str) -> PackageInterfaceExportError {
+    PackageInterfaceExportError::InvalidCompilationCause(
+        super::super::PackageInterfaceInvalidCompilationCause::ExecutableTemplate { reason },
+    )
 }
 
 fn executable_template_family(
@@ -620,7 +667,11 @@ fn executable_template_unit(
 
     let owner = graph
         .symbol_key(owner)
-        .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
+        .ok_or_else(|| {
+            super::super::export_contract_error(
+                super::super::PackageInterfaceExportContract::MissingRuntimeDefaultOwnerKey,
+            )
+        })?;
 
     compilation
         .declared_unit_keys()

@@ -16,6 +16,19 @@ pub(super) enum ConstantOperationError {
     ResourceLimitExceeded { actual: u64, maximum: u64 },
 }
 
+impl From<ConstantOperationError> for crate::CheckerConstantOperationFailure {
+    fn from(error: ConstantOperationError) -> Self {
+        match error {
+            ConstantOperationError::Invalid => Self::Invalid,
+            ConstantOperationError::DivisionByZero => Self::DivisionByZero,
+            ConstantOperationError::NotRepresentable => Self::NotRepresentable,
+            ConstantOperationError::ResourceLimitExceeded { actual, maximum } => {
+                Self::ResourceLimitExceeded { actual, maximum }
+            }
+        }
+    }
+}
+
 pub(super) fn fold_unary(
     operator: BoundOperator,
     operand: &ConstantValueKind,

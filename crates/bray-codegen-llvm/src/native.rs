@@ -101,7 +101,7 @@ pub(crate) fn invoke_function<'context>(
     let Some(result) = indirect_result_type(context, target, key) else {
         return builder
             .build_call(function, arguments, name)
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
+            .map_err(CodegenFailure::backend_library)
             .map(|call| call.try_as_basic_value().basic());
     };
 
@@ -118,7 +118,7 @@ pub(crate) fn invoke_function<'context>(
 
     let call = builder
         .build_call(function, &arguments, name)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     let kind = Attribute::get_named_enum_kind_id("sret");
 
@@ -134,7 +134,7 @@ pub(crate) fn invoke_function<'context>(
     builder
         .build_load(result, storage, name)
         .map(Some)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
+        .map_err(CodegenFailure::backend_library)
 }
 
 pub(crate) fn frame_parameter_index(
@@ -163,15 +163,15 @@ pub(crate) fn return_frame_result(
 
         builder
             .build_store(destination, result)
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         builder
             .build_return(None)
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
     } else {
         builder
             .build_return(Some(&result))
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
     }
 
     Ok(())
@@ -200,7 +200,7 @@ pub(crate) fn return_frame_state(
 
         builder
             .build_return(Some(&state))
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
     } else {
         let state = frame_state_type(context).const_named_struct(&[
             context.i32_type().const_int(affinity, false).into(),
@@ -212,7 +212,7 @@ pub(crate) fn return_frame_state(
 
         builder
             .build_return(Some(&state))
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
     }
 
     Ok(())

@@ -66,8 +66,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 let element = self.operand(element)?;
 
-                let length =
-                    usize::try_from(length).map_err(|_| CodegenFailure::ResourceExhausted)?;
+                let length = crate::conversion::resource_limit(length, "array_length")?;
 
                 for index in 0..length {
                     value = insert_value(&self.builder, value, element, index)?;
@@ -200,7 +199,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         (0..construction.inputs().len())
             .map(|ordinal| {
                 let ordinal =
-                    u32::try_from(ordinal).map_err(|_| CodegenFailure::ResourceExhausted)?;
+                    crate::conversion::resource_limit(ordinal, "construction_field_ordinal")?;
 
                 values
                     .get(&ordinal)
@@ -234,8 +233,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             let input_value = inputs
                 .get(
-                    usize::try_from(construction_input.ordinal())
-                        .map_err(|_| CodegenFailure::ResourceExhausted)?,
+                    crate::conversion::resource_limit::<usize, _>(
+                        construction_input.ordinal(),
+                        "construction_input_ordinal",
+                    )?,
                 )
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
@@ -257,8 +258,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 &self.builder,
                 value,
                 input_value,
-                usize::try_from(self.aggregate_element(&fields, index)?)
-                    .map_err(|_| CodegenFailure::ResourceExhausted)?,
+                crate::conversion::resource_limit::<usize, _>(
+                    self.aggregate_element(&fields, index)?,
+                    "aggregate_element_index",
+                )?,
             )?;
         }
 
@@ -299,8 +302,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             let input_value = inputs
                 .get(
-                    usize::try_from(construction_input.ordinal())
-                        .map_err(|_| CodegenFailure::ResourceExhausted)?,
+                    crate::conversion::resource_limit::<usize, _>(
+                        construction_input.ordinal(),
+                        "construction_input_ordinal",
+                    )?,
                 )
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 

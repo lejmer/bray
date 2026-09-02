@@ -324,7 +324,11 @@ impl FactRuntime {
         let mut current = self
             .observer
             .lock()
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
+                component: SynchronizationComponent::RuntimeDependencies,
+                fact: None,
+                task: None,
+            })?;
 
         *current = Some(observer);
 
@@ -336,7 +340,11 @@ impl FactRuntime {
         let observer = self
             .observer
             .lock()
-            .map_err(|_| FactQueryError::InfrastructureFailure)?
+            .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
+                component: SynchronizationComponent::RuntimeDependencies,
+                fact: Some(key.clone()),
+                task: None,
+            })?
             .clone();
 
         if let Some(observer) = observer {

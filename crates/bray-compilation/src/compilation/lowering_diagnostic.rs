@@ -150,14 +150,47 @@ pub(super) fn lowering_failure(
         }
         LoweringError::MissingRepresentation(role) => Kind::MissingRepresentation(role.as_str()),
         LoweringError::SemanticValueUnavailable => Kind::SemanticValueUnavailable,
+        LoweringError::GenericSubstitution(error) => Kind::GenericSubstitution(
+            crate::fact::diagnostic_generic_substitution_failure(*error),
+        ),
         LoweringError::SemanticValue(error) => {
             Kind::SemanticValue(crate::fact::diagnostic_semantic_value_failure(*error))
         }
-        LoweringError::InvalidFrameDescriptor => Kind::InvalidFrameDescriptor,
+        LoweringError::InvalidFrameDescriptor(error) => {
+            Kind::InvalidFrameDescriptor(frame_descriptor_failure(*error))
+        }
+        LoweringError::MemoryArgumentOrdinalUnrepresentable {
+            expression,
+            ordinal,
+        } => Kind::MemoryArgumentOrdinalUnrepresentable {
+            expression: bound_identity(expression.unit(), expression.ordinal()),
+            ordinal: u64::from(*ordinal),
+        },
+        LoweringError::MatchArmOrdinalUnrepresentable {
+            expression,
+            ordinal,
+        } => Kind::MatchArmOrdinalUnrepresentable {
+            expression: bound_identity(expression.unit(), expression.ordinal()),
+            ordinal: *ordinal,
+        },
         LoweringError::Mir(error) => Kind::Mir(mir_unit_failure(error)),
     };
 
     DiagnosticLoweringFailure::new(kind, failure.source())
+}
+
+const fn frame_descriptor_failure(
+    failure: bray_ir::MirFrameDescriptorBuildError,
+) -> bray_diagnostics::DiagnosticFrameDescriptorFailure {
+    use bray_diagnostics::DiagnosticFrameDescriptorFailure as Diagnostic;
+    use bray_ir::MirFrameDescriptorBuildError as Failure;
+
+    match failure {
+        Failure::MissingState => Diagnostic::MissingState,
+        Failure::NonContiguousState => Diagnostic::NonContiguousState,
+        Failure::DuplicateStateOrEntry => Diagnostic::DuplicateStateOrEntry,
+        Failure::IdentityCapacityExceeded => Diagnostic::IdentityCapacityExceeded,
+    }
 }
 
 const fn bound_identity(

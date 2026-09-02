@@ -245,7 +245,7 @@ impl LlvmCodeGenerator {
             runtime_metadata,
             DiagnosticBag::new(),
         )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
+        .map_err(CodegenFailure::InvalidOutcome)
     }
 
     fn serialize_artifact(
@@ -469,7 +469,7 @@ fn runtime_metadata(request: CodegenRequest<'_>) -> Result<CodegenRuntimeMetadat
     }
 
     CodegenRuntimeMetadata::try_new(request.unit(), frames, host)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
+        .map_err(CodegenFailure::InvalidRuntimeMetadata)
 }
 
 fn frame_symbol(

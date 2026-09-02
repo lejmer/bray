@@ -13,7 +13,7 @@ use bray_package_interface::{
 use bray_project::{ProjectGraph, ProjectProduct};
 use bray_source::{
     LineIndex, LspPosition, SourceEdit, SourceId, SourceIdentity, SourceInput, SourceOrigin,
-    SourceSnapshot, SourceVersion,
+    SourceSnapshot, SourceVersion, SourceEditError, SourceUriError, TextSizeOverflow,
 };
 use bray_symbols::ProductIdentity;
 use bray_target::TargetIdentity;
@@ -77,31 +77,174 @@ struct DocumentOwner {
     identity: SourceIdentity,
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub(crate) enum WorkspaceError {
-    Compilation,
+    SourceRead {
+        path: PathBuf,
+        cause: std::io::Error,
+    },
+    CompilationRequest(bray_diagnostics::DiagnosticBag),
+    CompilationLoad(bray_compilation::CompilationLoadError),
+    CompilationOrder {
+        pending: Vec<ProductIdentity>,
+    },
+    GenerationExhausted {
+        current: u64,
+    },
     DocumentNotFound,
-    InvalidDocumentUri,
+    InvalidDocumentUri { uri: String, cause: SourceUriError },
+    InvalidSourceOrigin { origin: SourceOrigin, cause: SourceUriError },
+    InvalidDocumentPath { path: PathBuf, cause: std::io::Error },
+    MissingDocumentUri,
     InvalidEdit,
-    InvalidVersion,
+    SourceEdit(SourceEditError),
+    InvalidVersion { actual: i64 },
+    NonIncreasingVersion { current: u64, actual: u64 },
+    VersionExhausted { current: u64 },
+    SourceIdentityExhausted { current: u32 },
     ProductNotFound,
-    SourceTooLarge,
+    SourceTooLarge(TextSizeOverflow),
     UnsupportedTarget,
-    DependencyUnavailable,
+    InvalidDependencyIdentity(ProductIdentity),
+    MissingDependencyPath(ProductIdentity),
+    DependencyNotLoaded(ProductIdentity),
+    DependencyExportUnavailable(ProductIdentity),
+    DependencyExport {
+        product: ProductIdentity,
+        cause: Box<bray_compilation::PackageInterfaceExportError>,
+    },
+    DependencyEncoding {
+        product: ProductIdentity,
+        cause: bray_package_interface::InterfaceValidationError,
+    },
 }
 
 impl WorkspaceError {
-    pub(crate) const fn message(self) -> LanguageServerMessage {
+    pub(crate) const fn message(&self) -> LanguageServerMessage {
         match self {
-            Self::Compilation => LanguageServerMessage::CompilationFailed,
+            Self::SourceRead { .. }
+            | Self::CompilationRequest(_)
+            | Self::CompilationLoad(_)
+            | Self::CompilationOrder { .. }
+            | Self::GenerationExhausted { .. } => LanguageServerMessage::CompilationFailed,
             Self::DocumentNotFound => LanguageServerMessage::DocumentNotFound,
-            Self::InvalidDocumentUri => LanguageServerMessage::InvalidDocumentUri,
-            Self::InvalidEdit => LanguageServerMessage::InvalidDocumentEdit,
-            Self::InvalidVersion => LanguageServerMessage::InvalidDocumentVersion,
+            Self::InvalidDocumentUri { .. }
+            | Self::InvalidSourceOrigin { .. }
+            | Self::InvalidDocumentPath { .. }
+            | Self::MissingDocumentUri => LanguageServerMessage::InvalidDocumentUri,
+            Self::InvalidEdit | Self::SourceEdit(_) => LanguageServerMessage::InvalidDocumentEdit,
+            Self::InvalidVersion { .. }
+            | Self::NonIncreasingVersion { .. }
+            | Self::VersionExhausted { .. } => LanguageServerMessage::InvalidDocumentVersion,
+            Self::SourceIdentityExhausted { .. } => LanguageServerMessage::CompilationFailed,
             Self::ProductNotFound => LanguageServerMessage::ProductNotFound,
-            Self::SourceTooLarge => LanguageServerMessage::SourceTooLarge,
+            Self::SourceTooLarge(_) => LanguageServerMessage::SourceTooLarge,
             Self::UnsupportedTarget => LanguageServerMessage::UnsupportedTarget,
-            Self::DependencyUnavailable => LanguageServerMessage::DependencyUnavailable,
+            Self::InvalidDependencyIdentity(_)
+            | Self::MissingDependencyPath(_)
+            | Self::DependencyNotLoaded(_)
+            | Self::DependencyExportUnavailable(_)
+            | Self::DependencyExport { .. }
+            | Self::DependencyEncoding { .. } => LanguageServerMessage::DependencyUnavailable,
+        }
+    }
+
+    pub(crate) fn data(&self) -> serde_json::Value {
+        use serde_json::json;
+
+        match self {
+            Self::SourceRead { path, cause } => json!({
+                "reason": "source_read",
+                "path": format!("{path:?}"),
+                "cause": cause.to_string(),
+            }),
+            Self::CompilationRequest(diagnostics) => json!({
+                "reason": "compilation_request",
+                "cause": format!("{diagnostics:?}"),
+            }),
+            Self::CompilationLoad(cause) => json!({
+                "reason": "compilation_load",
+                "cause": format!("{cause:?}"),
+            }),
+            Self::CompilationOrder { pending } => json!({
+                "reason": "compilation_order",
+                "pending": pending.iter().map(|value| format!("{value:?}")).collect::<Vec<_>>(),
+            }),
+            Self::GenerationExhausted { current } => json!({
+                "reason": "generation_exhausted",
+                "current": current,
+            }),
+            Self::DocumentNotFound => json!({ "reason": "document_not_found" }),
+            Self::InvalidDocumentUri { uri, cause } => json!({
+                "reason": "invalid_document_uri",
+                "uri": uri,
+                "cause": format!("{cause:?}"),
+            }),
+            Self::InvalidSourceOrigin { origin, cause } => json!({
+                "reason": "invalid_source_origin",
+                "origin": format!("{origin:?}"),
+                "cause": format!("{cause:?}"),
+            }),
+            Self::InvalidDocumentPath { path, cause } => json!({
+                "reason": "invalid_document_path",
+                "path": format!("{path:?}"),
+                "cause": cause.to_string(),
+            }),
+            Self::MissingDocumentUri => json!({ "reason": "missing_document_uri" }),
+            Self::InvalidEdit => json!({ "reason": "invalid_edit" }),
+            Self::SourceEdit(cause) => json!({
+                "reason": "source_edit",
+                "cause": format!("{cause:?}"),
+            }),
+            Self::InvalidVersion { actual } => json!({
+                "reason": "invalid_version",
+                "actual": actual,
+            }),
+            Self::NonIncreasingVersion { current, actual } => json!({
+                "reason": "non_increasing_version",
+                "current": current,
+                "actual": actual,
+            }),
+            Self::VersionExhausted { current } => json!({
+                "reason": "version_exhausted",
+                "current": current,
+            }),
+            Self::SourceIdentityExhausted { current } => json!({
+                "reason": "source_identity_exhausted",
+                "current": current,
+            }),
+            Self::ProductNotFound => json!({ "reason": "product_not_found" }),
+            Self::SourceTooLarge(cause) => json!({
+                "reason": "source_too_large",
+                "actual_bytes": cause.bytes(),
+            }),
+            Self::UnsupportedTarget => json!({ "reason": "unsupported_target" }),
+            Self::InvalidDependencyIdentity(product) => json!({
+                "reason": "invalid_dependency_identity",
+                "product": format!("{product:?}"),
+            }),
+            Self::MissingDependencyPath(product) => json!({
+                "reason": "missing_dependency_path",
+                "product": format!("{product:?}"),
+            }),
+            Self::DependencyNotLoaded(product) => json!({
+                "reason": "dependency_not_loaded",
+                "product": format!("{product:?}"),
+            }),
+            Self::DependencyExportUnavailable(product) => json!({
+                "reason": "dependency_export_unavailable",
+                "product": format!("{product:?}"),
+            }),
+            Self::DependencyExport { product, cause } => json!({
+                "reason": "dependency_export",
+                "product": format!("{product:?}"),
+                "cause": format!("{cause:?}"),
+            }),
+            Self::DependencyEncoding { product, cause } => json!({
+                "reason": "dependency_encoding",
+                "product": format!("{product:?}"),
+                "cause": format!("{cause:?}"),
+            }),
         }
     }
 }
@@ -143,8 +286,7 @@ impl Workspace {
 
         let source_index = match source_index_for_uri(&state.sources, &uri) {
             Some(index) => index,
-            None => append_open_source(&mut state.sources, &uri)
-                .ok_or(WorkspaceError::SourceTooLarge)?,
+            None => append_open_source(&mut state.sources, &uri)?,
         };
 
         let source = state
@@ -206,7 +348,10 @@ impl Workspace {
             .ok_or(WorkspaceError::DocumentNotFound)?;
 
         if version <= source.version {
-            return Err(WorkspaceError::InvalidVersion);
+            return Err(WorkspaceError::NonIncreasingVersion {
+                current: source.version.raw(),
+                actual: version.raw(),
+            });
         }
 
         apply_changes(source, version, changes)?;
@@ -248,12 +393,17 @@ impl Workspace {
             return Ok(self.documents_for_products(&affected));
         };
 
-        let text = std::fs::read_to_string(path).map_err(|_| WorkspaceError::Compilation)?;
+        let text = std::fs::read_to_string(path).map_err(|cause| WorkspaceError::SourceRead {
+            path: path.clone(),
+            cause,
+        })?;
 
         let version = source
             .version
             .checked_next()
-            .ok_or(WorkspaceError::InvalidVersion)?;
+            .ok_or(WorkspaceError::VersionExhausted {
+                current: source.version.raw(),
+            })?;
 
         source.text = text;
         source.version = version;
@@ -296,8 +446,12 @@ impl Workspace {
     }
 
     fn product_for_uri(&self, uri: &str) -> Result<&ProjectProduct, WorkspaceError> {
-        let document_path = SourceOrigin::path_from_document_uri(uri)
-            .map_err(|_| WorkspaceError::InvalidDocumentUri)?;
+        let document_path = SourceOrigin::path_from_document_uri(uri).map_err(|cause| {
+            WorkspaceError::InvalidDocumentUri {
+                uri: uri.to_owned(),
+                cause,
+            }
+        })?;
 
         if let Some(document_path) = document_path {
             let document_path = absolute_path(&document_path)?;
@@ -366,11 +520,11 @@ impl Workspace {
             files,
             options,
         )
-        .map_err(|_| WorkspaceError::Compilation)?;
+        .map_err(WorkspaceError::CompilationRequest)?;
 
         request = self.configure_request(request, &product)?;
 
-        let compilation = Compilation::load(request).map_err(|_| WorkspaceError::Compilation)?;
+        let compilation = Compilation::load(request).map_err(WorkspaceError::CompilationLoad)?;
 
         let sources = compilation
             .sources()
@@ -444,7 +598,9 @@ impl Workspace {
                         .all(|dependency| rebuilt.contains(dependency))
                 })
                 .cloned()
-                .ok_or(WorkspaceError::Compilation)?;
+                .ok_or_else(|| WorkspaceError::CompilationOrder {
+                    pending: pending.iter().cloned().collect(),
+                })?;
 
             let product = products
                 .get(&identity)
@@ -493,7 +649,7 @@ impl Workspace {
 
         let compilation = previous
             .updated(request)
-            .map_err(|_| WorkspaceError::Compilation)?;
+            .map_err(WorkspaceError::CompilationLoad)?;
 
         let generation = self.next_generation()?;
 
@@ -541,25 +697,33 @@ impl Workspace {
                 let identity = dependency.product();
 
                 let interface_product = InterfaceProductIdentity::try_new(identity.name())
-                    .ok_or(WorkspaceError::DependencyUnavailable)?;
+                    .ok_or_else(|| WorkspaceError::InvalidDependencyIdentity(identity.clone()))?;
 
                 let path = project_interface_path(&self.graph, &self.root, identity, &self.target)
-                    .ok_or(WorkspaceError::DependencyUnavailable)?;
+                    .ok_or_else(|| WorkspaceError::MissingDependencyPath(identity.clone()))?;
 
                 let dependency = self
                     .products
                     .get(identity)
-                    .ok_or(WorkspaceError::DependencyUnavailable)?;
+                    .ok_or_else(|| WorkspaceError::DependencyNotLoaded(identity.clone()))?;
 
                 let bundle = dependency
                     .compilation
                     .package_interface_export_bundle()
-                    .ok_or(WorkspaceError::DependencyUnavailable)?
+                    .ok_or_else(|| {
+                        WorkspaceError::DependencyExportUnavailable(identity.clone())
+                    })?
                     .as_ref()
-                    .map_err(|_| WorkspaceError::DependencyUnavailable)?;
+                    .map_err(|cause| WorkspaceError::DependencyExport {
+                        product: identity.clone(),
+                        cause: Box::new(cause.clone()),
+                    })?;
 
                 let bytes = encode_package_interface(bundle)
-                    .map_err(|_| WorkspaceError::DependencyUnavailable)?
+                    .map_err(|cause| WorkspaceError::DependencyEncoding {
+                        product: identity.clone(),
+                        cause,
+                    })?
                     .shared_bytes();
 
                 Ok(DependencyInterfaceInput::new(
@@ -608,7 +772,9 @@ impl Workspace {
         self.next_generation = self
             .next_generation
             .checked_add(1)
-            .ok_or(WorkspaceError::Compilation)?;
+            .ok_or(WorkspaceError::GenerationExhausted {
+                current: self.next_generation,
+            })?;
 
         Ok(self.next_generation)
     }
@@ -641,13 +807,19 @@ fn workspace_source(source: &SourceSnapshot) -> Result<WorkspaceSource, Workspac
     let uri = source
         .origin()
         .document_uri()
-        .map_err(|_| WorkspaceError::InvalidDocumentUri)?
-        .ok_or(WorkspaceError::InvalidDocumentUri)?;
+        .map_err(|cause| WorkspaceError::InvalidSourceOrigin {
+            origin: source.origin().clone(),
+            cause,
+        })?
+        .ok_or(WorkspaceError::MissingDocumentUri)?;
 
     let path = source
         .origin()
         .document_file_path()
-        .map_err(|_| WorkspaceError::InvalidDocumentUri)?;
+        .map_err(|cause| WorkspaceError::InvalidSourceOrigin {
+            origin: source.origin().clone(),
+            cause,
+        })?;
 
     Ok(WorkspaceSource {
         identity: source.identity(),
@@ -671,16 +843,22 @@ fn source_index_for_uri(sources: &[WorkspaceSource], uri: &str) -> Option<usize>
     })
 }
 
-fn append_open_source<'source>(sources: &mut Vec<WorkspaceSource>, uri: &str) -> Option<usize> {
+fn append_open_source(
+    sources: &mut Vec<WorkspaceSource>,
+    uri: &str,
+) -> Result<usize, WorkspaceError> {
     let next_identity = sources
         .iter()
         .map(|source| source.identity.raw())
         .max()
         .unwrap_or(0)
-        .checked_add(1)?;
+        .checked_add(1)
+        .ok_or(WorkspaceError::SourceIdentityExhausted { current: u32::MAX })?;
 
     if next_identity >= 1 << 31 {
-        return None;
+        return Err(WorkspaceError::SourceIdentityExhausted {
+            current: next_identity,
+        });
     }
 
     sources.push(WorkspaceSource {
@@ -692,7 +870,12 @@ fn append_open_source<'source>(sources: &mut Vec<WorkspaceSource>, uri: &str) ->
         is_open: true,
     });
 
-    sources.len().checked_sub(1)
+    sources
+        .len()
+        .checked_sub(1)
+        .ok_or(WorkspaceError::SourceIdentityExhausted {
+            current: next_identity,
+        })
 }
 
 fn apply_changes(
@@ -707,7 +890,7 @@ fn apply_changes(
             continue;
         };
 
-        let index = LineIndex::new(&source.text).map_err(|_| WorkspaceError::SourceTooLarge)?;
+        let index = LineIndex::new(&source.text).map_err(WorkspaceError::SourceTooLarge)?;
 
         let range = index
             .text_range_for_lsp_range(
@@ -723,13 +906,13 @@ fn apply_changes(
             source.version,
             source.text.as_str(),
         )
-        .map_err(|_| WorkspaceError::SourceTooLarge)?;
+        .map_err(WorkspaceError::SourceTooLarge)?;
 
         let edit = SourceEdit::new(range, change.text.as_str());
 
         source.text = snapshot
             .apply_edit(SourceId::new(0), version, &edit)
-            .map_err(|_| WorkspaceError::InvalidEdit)?
+            .map_err(WorkspaceError::SourceEdit)?
             .text()
             .to_owned();
     }
@@ -740,13 +923,17 @@ fn apply_changes(
 }
 
 fn source_version(version: i64) -> Result<SourceVersion, WorkspaceError> {
-    let version = u64::try_from(version).map_err(|_| WorkspaceError::InvalidVersion)?;
+    let version = u64::try_from(version)
+        .map_err(|_| WorkspaceError::InvalidVersion { actual: version })?;
 
     Ok(SourceVersion::new(version))
 }
 
 fn absolute_path(path: &Path) -> Result<PathBuf, WorkspaceError> {
-    std::path::absolute(path).map_err(|_| WorkspaceError::InvalidDocumentUri)
+    std::path::absolute(path).map_err(|cause| WorkspaceError::InvalidDocumentPath {
+        path: path.to_path_buf(),
+        cause,
+    })
 }
 
 impl WorkspaceSource {
@@ -779,7 +966,7 @@ pub(crate) fn offset_for_position(
     position: Position,
 ) -> Result<bray_source::TextSize, WorkspaceError> {
     LineIndex::new(source.text())
-        .map_err(|_| WorkspaceError::SourceTooLarge)?
+        .map_err(WorkspaceError::SourceTooLarge)?
         .offset_for_lsp_position(LspPosition::new(position.line, position.character))
         .ok_or(WorkspaceError::InvalidEdit)
 }

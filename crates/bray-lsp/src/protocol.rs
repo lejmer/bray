@@ -73,6 +73,30 @@ pub(crate) fn write_error(
     )
 }
 
+pub(crate) fn write_error_with_data(
+    output: &mut dyn Write,
+    id: Value,
+    code: i32,
+    message: LanguageServerMessage,
+    data: Value,
+    renderer: LanguageServerMessageRenderer,
+) -> io::Result<()> {
+    let message = renderer.render(message);
+
+    write_value(
+        output,
+        &json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "error": {
+                "code": code,
+                "message": message,
+                "data": data,
+            },
+        }),
+    )
+}
+
 pub(crate) fn write_notification(
     output: &mut dyn Write,
     method: &'static str,
@@ -131,12 +155,9 @@ fn read_message(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
 
     let mut content = Vec::new();
 
-    content.try_reserve_exact(content_length).map_err(|_| {
-        io::Error::new(
-            io::ErrorKind::OutOfMemory,
-            "language_server_message_allocation_failed",
-        )
-    })?;
+    content
+        .try_reserve_exact(content_length)
+        .map_err(|cause| io::Error::new(io::ErrorKind::OutOfMemory, cause))?;
 
     content.resize(content_length, 0);
 
@@ -144,7 +165,7 @@ fn read_message(reader: &mut impl BufRead) -> io::Result<Option<Value>> {
 
     serde_json::from_slice(&content)
         .map(Some)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "language_server_invalid_json"))
+        .map_err(|cause| io::Error::new(io::ErrorKind::InvalidData, cause))
 }
 
 fn write_value(output: &mut dyn Write, value: &Value) -> io::Result<()> {
@@ -188,7 +209,10 @@ mod tests {
 
     use bray_messages::{LanguageServerMessage, LanguageServerMessageRenderer};
 
-    use super::{INVALID_PARAMS, IncomingMessage, read_messages, write_error, write_result};
+    use super::{
+        INVALID_PARAMS, IncomingMessage, read_messages, write_error, write_error_with_data,
+        write_result,
+    };
 
     #[test]
     fn reads_consecutive_framed_messages() {
@@ -250,5 +274,29 @@ mod tests {
 
         assert!(output.contains(r#""message":"Invalid request parameters.""#));
         assert!(!output.contains("language_server_invalid_params"));
+    }
+
+    #[test]
+    fn protocol_errors_retain_exact_machine_data() {
+        let mut output = Vec::new();
+
+        write_error_with_data(
+            &mut output,
+            json!(7),
+            INVALID_PARAMS,
+            LanguageServerMessage::InvalidParams,
+            json!({
+                "reason": "invalid_params",
+                "cause": "missing field `textDocument`",
+            }),
+            LanguageServerMessageRenderer::english(),
+        )
+        .unwrap_or_else(|error| panic!("protocol error should write: {error}"));
+
+        let output = String::from_utf8(output)
+            .unwrap_or_else(|error| panic!("protocol output should be UTF-8: {error}"));
+
+        assert!(output.contains(r#""reason":"invalid_params""#));
+        assert!(output.contains(r#""cause":"missing field `textDocument`""#));
     }
 }

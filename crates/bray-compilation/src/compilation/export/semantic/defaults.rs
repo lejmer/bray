@@ -70,7 +70,11 @@ pub(super) fn target_dependencies(
             .available_compiler_known_symbols()
             .provider()
             .target_property_symbol(property)
-            .ok_or(PackageInterfaceExportError::InvalidCompilation)?;
+            .ok_or_else(|| {
+                super::super::export_contract_error(
+                    super::super::PackageInterfaceExportContract::MissingCompilerKnownTargetProperty,
+                )
+            })?;
 
         let value = compilation
             .target_property_value(property)
@@ -159,7 +163,7 @@ pub(super) fn runtime_default_input_type(
 
     let signature = compilation
         .callable_signature_template(owner.into_any())
-        .map_err(|error| super::super::fact_query_export_error(error, incomplete(symbol)))?
+        .map_err(super::super::fact_query_export_error)?
         .ok_or_else(|| incomplete(symbol))?;
 
     if signature.diagnostics().has_errors() {
@@ -172,7 +176,7 @@ pub(super) fn runtime_default_input_type(
                 .value()
                 .parameter_type_template(parameter, ordinal, export.values)
                 .map_err(|error| {
-                    super::super::callable_signature_export_error(error, incomplete(symbol))
+                    super::super::callable_signature_export_error(error)
                 })?;
 
             export.resolve_type_template(symbol, &ty)
@@ -188,7 +192,6 @@ pub(super) fn runtime_default_input_type(
 pub(super) fn callable_template_inputs(
     compilation: &Compilation,
     export: &mut SemanticExporter<'_>,
-    callable: AnySymbolId,
     signature: &bray_symbols::CallableSignatureTemplate,
     generic_parameters: Vec<GenericParameterSymbolId>,
 ) -> Result<Vec<SourceTemplateInput>, PackageInterfaceExportError> {
@@ -207,7 +210,7 @@ pub(super) fn callable_template_inputs(
     let parameter_types = signature
         .parameter_type_templates(export.values)
         .map_err(|error| {
-            super::super::callable_signature_export_error(error, incomplete(callable))
+            super::super::callable_signature_export_error(error)
         })?;
 
     for (index, (parameter, ty)) in signature
@@ -219,7 +222,9 @@ pub(super) fn callable_template_inputs(
     {
         inputs.push(SourceTemplateInput::new(
             InterfaceCheckedTemplateInputKind::Parameter(bray_symbols::SymbolOrdinal::new(
-                u32::try_from(index).map_err(|_| incomplete(parameter.into()))?,
+                u32::try_from(index).map_err(|_| {
+                    super::super::capacity_export_error("default_parameter_ordinal", index)
+                })?,
             )),
             Some(BoundReferenceTarget::Surface(
                 AnySymbolId::CallableParameter(parameter),
@@ -287,7 +292,7 @@ pub(super) fn symbol_type(
 
     let ty = compilation
         .symbol_type_template(symbol)
-        .map_err(|error| super::super::fact_query_export_error(error, incomplete(symbol)))?
+        .map_err(super::super::fact_query_export_error)?
         .ok_or_else(|| incomplete(symbol))?;
 
     if ty.diagnostics().has_errors() {
@@ -324,7 +329,7 @@ pub(super) fn callable_input_type(
 
     let signature = compilation
         .callable_signature_template(owner.into_any())
-        .map_err(|error| super::super::fact_query_export_error(error, incomplete(symbol)))?
+        .map_err(super::super::fact_query_export_error)?
         .ok_or_else(|| incomplete(symbol))?;
 
     if signature.diagnostics().has_errors() {
@@ -343,11 +348,13 @@ pub(super) fn callable_input_type(
         .value()
         .parameter_type_templates(export.values)
         .map_err(|error| {
-            super::super::callable_signature_export_error(error, incomplete(symbol))
+            super::super::callable_signature_export_error(error)
         })?;
 
     let template = parameter_types
-        .get(usize::try_from(ordinal).map_err(|_| incomplete(symbol))?)
+        .get(usize::try_from(ordinal).map_err(|_| {
+            super::super::capacity_export_error("default_parameter_reference", ordinal)
+        })?)
         .ok_or_else(|| incomplete(symbol))?
         .clone();
 
@@ -366,7 +373,7 @@ pub(super) fn generic_parameters(
         .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
             owner,
         ))
-        .map_err(|error| super::super::binding_query_export_error(error, incomplete(symbol)))?;
+        .map_err(super::super::binding_query_export_error)?;
 
     if generic.diagnostics().has_errors() {
         return Err(incomplete(symbol));
