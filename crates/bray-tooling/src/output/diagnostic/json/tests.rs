@@ -358,16 +358,28 @@ fn runtime_failures_preserve_exact_context_in_emission_and_native_json() {
 }
 
 #[test]
-fn semantic_query_failures_preserve_leaf_context_in_emission_and_native_json() {
+fn imported_template_mismatches_preserve_exact_context_in_emission_and_native_json() {
     let failure = DiagnosticSemanticQueryFailure::new(
-        "semantic_query_contract_violation",
-        "semantic_query_missing_data",
-        [DiagnosticFailureField::new(
-            "cause",
-            DiagnosticFailureValue::Text(
-                "Expression { unit: body#7, expression: 11 }: Missing(Type)".to_owned(),
+        "imported_query",
+        "imported_query_executable_template_mismatch",
+        [
+            DiagnosticFailureField::new(
+                "address",
+                DiagnosticFailureValue::Identity([3; 32]),
             ),
-        )],
+            DiagnosticFailureField::new(
+                "expected_key",
+                DiagnosticFailureValue::Identity([5; 32]),
+            ),
+            DiagnosticFailureField::new(
+                "actual_key",
+                DiagnosticFailureValue::Identity([7; 32]),
+            ),
+            DiagnosticFailureField::new(
+                "target_triple",
+                DiagnosticFailureValue::Text("x86_64-unknown-linux-gnu".to_owned()),
+            ),
+        ],
     );
 
     let diagnostic = Diagnostic::new(
@@ -395,20 +407,31 @@ fn semantic_query_failures_preserve_leaf_context_in_emission_and_native_json() {
     let emission = &output["diagnostics"][0]["args"][0]["value"]["value"];
     let native = &output["diagnostics"][0]["args"][1]["value"]["value"];
 
-    assert_eq!(emission["reason"], "semantic_query_missing_data");
-    assert_eq!(emission["context"][0]["name"], "category");
-
     assert_eq!(
-        emission["context"][0]["value"]["value"],
-        "semantic_query_contract_violation"
+        emission["reason"],
+        "imported_query_executable_template_mismatch"
     );
 
-    assert_eq!(emission["context"][1]["name"], "cause");
+    assert_eq!(emission["context"][0]["name"], "category");
+    assert_eq!(emission["context"][0]["value"]["value"], "imported_query");
+    assert_eq!(emission["context"][1]["name"], "address");
+    assert_eq!(emission["context"][2]["name"], "expected_key");
+    assert_eq!(emission["context"][3]["name"], "actual_key");
+    assert_eq!(emission["context"][4]["name"], "target_triple");
 
-    assert!(
-        emission["context"][1]["value"]["value"]
-            .as_str()
-            .is_some_and(|cause| cause.contains("Missing(Type)"))
+    assert_eq!(
+        emission["context"][2]["value"]["value"],
+        "0505050505050505050505050505050505050505050505050505050505050505"
+    );
+
+    assert_eq!(
+        emission["context"][3]["value"]["value"],
+        "0707070707070707070707070707070707070707070707070707070707070707"
+    );
+
+    assert_eq!(
+        emission["context"][4]["value"]["value"],
+        "x86_64-unknown-linux-gnu"
     );
 
     assert_eq!(native["reason"], emission["reason"]);

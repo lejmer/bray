@@ -1,7 +1,8 @@
 use bray_diagnostics::DiagnosticFailureField;
 
 use super::diagnostic_context::{
-    boolean_field, count_field, identity_field, push_symbol, text_field,
+    boolean_field, count_field, identity_field, identity_list_field, path_field, push_symbol,
+    text_field, text_list_field,
 };
 use crate::compilation::SemanticQueryContext;
 
@@ -167,17 +168,42 @@ fn push_fact_context(
         Fact::CallableBodyKeys => "callable_body_keys",
         Fact::PredicateDefinitionKeys => "predicate_definition_keys",
         Fact::ConstantInstance(key) => {
-            fields.push(identity_field("constant_instance_query", key));
+            let instance = key.instance();
+
+            fields.extend([
+                identity_field("constant_definition", &instance.definition()),
+                identity_field("constant_substitution", &instance.substitution()),
+                identity_field("constant_evaluation_limits", &key.limits()),
+            ]);
+
+            push_selected_implementation(fields, instance.selected_implementation());
+            super::target_diagnostic::push_target_profile(fields, key.target());
 
             "constant_instance"
         }
         Fact::ConstantCall(key) => {
-            fields.push(identity_field("constant_call_query", key));
+            push_constant_call_context(
+                fields,
+                key.callable(),
+                key.selected_implementation(),
+                key.arguments(),
+                key.result_type(),
+                key.target(),
+            );
+
+            fields.push(identity_field("constant_evaluation_limits", &key.limits()));
 
             "constant_call"
         }
         Fact::ConstantCallCycle(key) => {
-            fields.push(identity_field("constant_call_dependency", key));
+            push_constant_call_context(
+                fields,
+                key.callable(),
+                key.selected_implementation(),
+                key.arguments(),
+                key.result_type(),
+                key.target(),
+            );
 
             "constant_call_cycle"
         }
@@ -217,17 +243,51 @@ fn push_fact_context(
             "lowered_unit"
         }
         Fact::CodegenArtifact(key) => {
-            fields.extend([
-                identity_field("codegen_artifact_query", key),
-                identity_field("codegen_unit", key.unit()),
-            ]);
+            super::codegen_context::push_codegen_artifact_fact_context(fields, key);
 
             "codegen_artifact"
         }
         Fact::NativeProduct(key) => {
             fields.extend([
-                identity_field("native_product_query", key),
                 identity_field("product", key.product()),
+                text_field("product_package", key.product().package().as_str()),
+                text_field("product_name", key.product().name()),
+            ]);
+
+            push_build_configuration(fields, key.configuration());
+            push_runtime_components(fields, key.runtime());
+
+            fields.push(text_list_field(
+                "required_runtime_capabilities",
+                key.required_capabilities()
+                    .iter()
+                    .map(|capability| capability.as_str()),
+            ));
+
+            fields.extend([
+                identity_list_field("linker_drivers", key.linker_drivers()),
+                text_list_field(
+                    "linker_driver_kinds",
+                    key.linker_drivers()
+                        .iter()
+                        .map(|driver| linker_driver_kind(driver.kind())),
+                ),
+                text_list_field(
+                    "linker_driver_names",
+                    key.linker_drivers().iter().map(|driver| driver.name()),
+                ),
+                text_list_field(
+                    "linker_driver_capability_revisions",
+                    key.linker_drivers()
+                        .iter()
+                        .map(|driver| driver.capability_revision()),
+                ),
+                text_list_field(
+                    "linker_driver_toolchain_revisions",
+                    key.linker_drivers()
+                        .iter()
+                        .map(|driver| driver.toolchain_revision()),
+                ),
             ]);
 
             "native_product"
@@ -440,6 +500,110 @@ fn push_implementation_requirement(
     ]);
 }
 
+fn push_constant_call_context(
+    fields: &mut Vec<DiagnosticFailureField>,
+    callable: bray_symbols::CallableInstanceId,
+    selected_implementation: Option<bray_symbols::ImplementationInstanceId>,
+    arguments: &[bray_symbols::ConstantValueId],
+    result_type: bray_symbols::TypeId,
+    target: &bray_target::TargetProfile,
+) {
+    fields.extend([
+        identity_field("constant_callable", &callable),
+        identity_list_field("constant_arguments", arguments),
+        identity_field("constant_result_type", &result_type),
+    ]);
+
+    push_selected_implementation(fields, selected_implementation);
+    super::target_diagnostic::push_target_profile(fields, target);
+}
+
+fn push_selected_implementation(
+    fields: &mut Vec<DiagnosticFailureField>,
+    implementation: Option<bray_symbols::ImplementationInstanceId>,
+) {
+    fields.push(boolean_field(
+        "selected_implementation_present",
+        implementation.is_some(),
+    ));
+
+    if let Some(implementation) = implementation {
+        fields.push(identity_field("selected_implementation", &implementation));
+    }
+}
+
+fn push_build_configuration(
+    fields: &mut Vec<DiagnosticFailureField>,
+    configuration: crate::BuildConfiguration,
+) {
+    use crate::BuildConfiguration as Configuration;
+
+    let kind = match configuration {
+        Configuration::Development => "development",
+        Configuration::Release => "release",
+        Configuration::ObjectRelease => "object_release",
+        Configuration::ObservedRelease => "observed_release",
+        Configuration::TimedRelease { inner_iterations } => {
+            fields.push(count_field(
+                "build_inner_iterations",
+                inner_iterations.get(),
+            ));
+
+            "timed_release"
+        }
+    };
+
+    fields.push(text_field("build_configuration", kind));
+}
+
+fn push_runtime_components(
+    fields: &mut Vec<DiagnosticFailureField>,
+    runtime: Option<&[crate::fact::RuntimeComponentQueryIdentity]>,
+) {
+    fields.push(boolean_field("runtime_selected", runtime.is_some()));
+
+    let Some(runtime) = runtime else {
+        return;
+    };
+
+    fields.extend([
+        count_field(
+            "runtime_component_count",
+            u64::try_from(runtime.len()).unwrap_or(u64::MAX),
+        ),
+        text_list_field(
+            "runtime_component_identities",
+            runtime
+                .iter()
+                .map(|component| component.component().as_str()),
+        ),
+        text_list_field(
+            "runtime_component_purposes",
+            runtime
+                .iter()
+                .map(|component| component.purpose().as_str()),
+        ),
+        text_list_field(
+            "runtime_component_digests",
+            runtime.iter().map(|component| component.digest().to_hex()),
+        ),
+    ]);
+
+    for component in runtime {
+        fields.push(path_field("runtime_component_archive", component.archive()));
+    }
+}
+
+const fn linker_driver_kind(value: bray_linker::LinkerDriverKind) -> &'static str {
+    match value {
+        bray_linker::LinkerDriverKind::EmbeddedLld => "embedded_lld",
+        bray_linker::LinkerDriverKind::ExternalLld => "external_lld",
+        bray_linker::LinkerDriverKind::System => "system",
+        bray_linker::LinkerDriverKind::Archiver => "archiver",
+        bray_linker::LinkerDriverKind::TargetSpecific => "target_specific",
+    }
+}
+
 fn push_syntax_anchor(
     fields: &mut Vec<DiagnosticFailureField>,
     syntax: bray_declarations::SyntaxAnchor,
@@ -510,5 +674,67 @@ mod tests {
 
         assert_eq!(fields[2].name(), "source");
         assert_eq!(fields[2].value(), &DiagnosticFailureValue::Count(17));
+    }
+
+    #[test]
+    fn native_product_fact_context_decomposes_every_query_input_group() {
+        let package = bray_symbols::PackageIdentity::try_new("example")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let product = bray_symbols::ProductIdentity::try_new(package, "application")
+            .unwrap_or_else(|| panic!("test product identity must be valid"));
+
+        let runtime_component = crate::fact::RuntimeComponentQueryIdentity::new(
+            bray_runtime_interface::RuntimeArtifactId::try_new("runtime.product")
+                .unwrap_or_else(|| panic!("test runtime identity must be valid")),
+            bray_runtime_interface::RuntimeArtifactPurpose::Product,
+            bray_runtime_interface::RuntimeArtifactDigest::new([9; 32]),
+            std::path::PathBuf::from("runtime/product.lib"),
+        );
+
+        let linker = bray_linker::LinkerDriverIdentity::try_new(
+            bray_linker::LinkerDriverKind::System,
+            "system-linker",
+            "capabilities-1",
+            "toolchain-1",
+        )
+        .unwrap_or_else(|| panic!("test linker identity must be valid"));
+
+        let key = crate::fact::NativeProductQueryKey::new(
+            product,
+            crate::BuildConfiguration::TimedRelease {
+                inner_iterations: std::num::NonZeroU64::new(3)
+                    .unwrap_or_else(|| panic!("test iteration count must be nonzero")),
+            },
+            Some(vec![runtime_component].into()),
+            [bray_runtime_interface::RuntimeCapability::Reactor],
+            [linker],
+        );
+
+        let fields = super::semantic_query_context(&crate::compilation::SemanticQueryContext::Fact(
+            crate::fact::CompilationFactKey::NativeProduct(key),
+        ));
+
+        let names: Vec<_> = fields.iter().map(|field| field.name()).collect();
+
+        for expected in [
+            "product_package",
+            "product_name",
+            "build_configuration",
+            "build_inner_iterations",
+            "runtime_selected",
+            "runtime_component_identities",
+            "runtime_component_purposes",
+            "runtime_component_digests",
+            "runtime_component_archive",
+            "required_runtime_capabilities",
+            "linker_drivers",
+            "linker_driver_kinds",
+            "linker_driver_names",
+            "linker_driver_capability_revisions",
+            "linker_driver_toolchain_revisions",
+        ] {
+            assert!(names.contains(&expected), "missing native-product field {expected}");
+        }
     }
 }

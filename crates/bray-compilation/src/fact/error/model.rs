@@ -452,8 +452,6 @@ pub enum FactQueryError {
     AtomicInitializerResultUnavailable,
     /// The uninitialized-storage initializer result cannot be retained as a compile-time value.
     UninitInitializerResultUnavailable,
-    /// An imported native operation does not match its compiled definition.
-    ImportedExecutableTemplateMismatch,
     /// Semantic-context construction found an inconsistent bound unit.
     SemanticUnitContext(SemanticUnitContextError),
     /// Semantic checking could not complete because a typed dependency was unavailable.
@@ -626,9 +624,6 @@ impl std::fmt::Display for FactQueryError {
             }
             Self::UninitInitializerResultUnavailable => formatter
                 .write_str("the uninitialized-storage initializer result cannot be retained"),
-            Self::ImportedExecutableTemplateMismatch => {
-                formatter.write_str("an imported native operation has a mismatched template")
-            }
             Self::SemanticUnitContext(error) => {
                 write!(formatter, "semantic unit context failed: {error:?}")
             }

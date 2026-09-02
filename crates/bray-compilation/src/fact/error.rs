@@ -1,3 +1,4 @@
+mod codegen_context;
 mod diagnostic;
 pub(crate) mod diagnostic_context;
 mod model;

@@ -26,6 +26,19 @@ pub(in crate::compilation) fn native_product_preparation_diagnostic(
     product: &ProductIdentity,
     target: &str,
 ) -> Diagnostic {
+    let source = match &failure {
+        DiagnosticNativeProductFailureKind::EvaluationLoweringInput(failure) => {
+            Some(failure.source())
+        }
+        DiagnosticNativeProductFailureKind::EvaluationLowering(failure) => Some(failure.source()),
+        _ => None,
+    };
+
+    let add_recovery_note = matches!(
+        &failure,
+        DiagnosticNativeProductFailureKind::CodegenMirUnavailable(_)
+    );
+
     let diagnostic = Diagnostic::new(
         DiagnosticId::new(0),
         DiagnosticKind::NativeProductPreparationFailed,
@@ -33,25 +46,16 @@ pub(in crate::compilation) fn native_product_preparation_diagnostic(
     )
     .with_arg(DiagnosticArg::actual_product_identity(product.to_string()))
     .with_arg(DiagnosticArg::target_triple(target))
-    .with_arg(DiagnosticArg::native_product_failure_kind(failure.clone()));
+    .with_arg(DiagnosticArg::native_product_failure_kind(failure));
 
-    match failure {
-        DiagnosticNativeProductFailureKind::EvaluationLoweringInput(failure) => {
-            crate::compilation::diagnostics::with_compiler_defect_source(
-                diagnostic,
-                failure.source(),
-            )
-        }
-        DiagnosticNativeProductFailureKind::EvaluationLowering(failure) => {
-            crate::compilation::diagnostics::with_compiler_defect_source(
-                diagnostic,
-                failure.source(),
-            )
-        }
-        DiagnosticNativeProductFailureKind::CodegenMirUnavailable(_) => diagnostic.with_note(
+    if let Some(source) = source {
+        crate::compilation::diagnostics::with_compiler_defect_source(diagnostic, source)
+    } else if add_recovery_note {
+        diagnostic.with_note(
             DiagnosticNote::new(DiagnosticNoteKind::NativeProductPreparationRecovery),
-        ),
-        _ => diagnostic,
+        )
+    } else {
+        diagnostic
     }
 }
 

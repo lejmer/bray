@@ -101,6 +101,34 @@ pub(crate) fn push_selected_target_properties(
     );
 }
 
+pub(crate) fn push_target_profile(
+    context: &mut Vec<DiagnosticFailureField>,
+    target: &bray_target::TargetProfile,
+) {
+    let machine = target.machine();
+
+    context.extend([
+        text_field("target_identity", target.identity().as_str()),
+        text_field("target_architecture", machine.architecture().as_str()),
+        text_field("target_object_format", machine.object_format().as_str()),
+        text_field("target_endianness", target_endianness(machine.endianness())),
+        count_field(
+            "target_pointer_width_bits",
+            u64::from(machine.pointer_width_bits().get()),
+        ),
+        count_field(
+            "target_pointer_alignment_bytes",
+            u64::from(machine.pointer_alignment_bytes().get()),
+        ),
+        count_field(
+            "target_stack_alignment_bytes",
+            u64::from(machine.stack_alignment_bytes().get()),
+        ),
+    ]);
+
+    push_selected_target_properties(context, target.properties());
+}
+
 fn push_target_properties(
     context: &mut Vec<DiagnosticFailureField>,
     side: TargetContractSide,

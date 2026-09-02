@@ -1,12 +1,10 @@
-use std::hash::Hash;
-
 use bray_diagnostics::{
-    DiagnosticFactRuntimeFailure, DiagnosticFailureField, DiagnosticFailureValue,
-    DiagnosticIoErrorKind,
+    DiagnosticFactRuntimeFailure, DiagnosticFailureField, DiagnosticIoErrorKind,
 };
 
 use super::diagnostic_context::{
-    count_field, identity, identity_field, natural_field, signed_field, text_field,
+    count_field, identity_field, identity_list_field, natural_field, signed_field, text_field,
+    text_list_field,
 };
 
 use crate::fact::{CompilationFactKey, CompilationInputKey, FactRuntimeError, FactRuntimeFailure};
@@ -381,38 +379,6 @@ fn push_optional_fact(
     if let Some(fact) = fact {
         push_fact(context, kind_name, identity_name, fact);
     }
-}
-
-fn text_list_field(
-    name: &'static str,
-    values: impl IntoIterator<Item = &'static str>,
-) -> DiagnosticFailureField {
-    DiagnosticFailureField::new(
-        name,
-        DiagnosticFailureValue::TextList(
-            values
-                .into_iter()
-                .map(str::to_owned)
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
-        ),
-    )
-}
-
-fn identity_list_field<'a, T: Hash + 'a>(
-    name: &'static str,
-    values: impl IntoIterator<Item = &'a T>,
-) -> DiagnosticFailureField {
-    DiagnosticFailureField::new(
-        name,
-        DiagnosticFailureValue::IdentityList(
-            values
-                .into_iter()
-                .map(identity)
-                .collect::<Vec<_>>()
-                .into_boxed_slice(),
-        ),
-    )
 }
 
 fn task_field(name: &'static str, value: crate::fact::FactTaskIdentity) -> DiagnosticFailureField {

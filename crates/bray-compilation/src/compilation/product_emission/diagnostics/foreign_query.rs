@@ -4,8 +4,8 @@ use crate::compilation::{
     ForeignDataKind, ForeignQueryContext, ForeignQueryError, ForeignQueryFailure,
 };
 use crate::fact::diagnostic_context::{
-    boolean_field, count_field, identity_field, natural_field, push_symbol, semantic_type_kind,
-    text_field,
+    boolean_field, count_field, identity_field, natural_field, push_semantic_type_data,
+    push_symbol, push_type_template_data, text_field,
 };
 
 pub(super) fn diagnostic_foreign_query_failure(
@@ -36,14 +36,16 @@ pub(super) fn diagnostic_foreign_query_failure(
             ty,
             expected,
             actual,
-        } => (
-            "foreign_query_unexpected_semantic_type",
-            vec![
+        } => {
+            let mut fields = vec![
                 identity_field("semantic_type", ty),
                 text_field("expected_type_kind", foreign_type_kind(*expected)),
-                text_field("actual_semantic_type_kind", semantic_type_kind(actual)),
-            ],
-        ),
+            ];
+
+            push_semantic_type_data(&mut fields, actual);
+
+            ("foreign_query_unexpected_semantic_type", fields)
+        }
         Failure::UnexpectedTypeTemplate {
             context,
             expected,
@@ -51,10 +53,12 @@ pub(super) fn diagnostic_foreign_query_failure(
         } => {
             let mut fields = foreign_query_context(context);
 
-            fields.extend([
-                text_field("expected_type_kind", foreign_type_kind(*expected)),
-                text_field("actual_type_template_kind", type_template_kind(actual)),
-            ]);
+            fields.push(text_field(
+                "expected_type_kind",
+                foreign_type_kind(*expected),
+            ));
+
+            push_type_template_data(&mut fields, actual);
 
             ("foreign_query_unexpected_type_template", fields)
         }
@@ -155,26 +159,6 @@ const fn foreign_source_role(role: crate::compilation::ForeignSourceRole) -> &'s
     match role {
         crate::compilation::ForeignSourceRole::Runtime(role) => role.as_str(),
         crate::compilation::ForeignSourceRole::Platform(role) => role.as_str(),
-    }
-}
-
-const fn type_template_kind(template: &bray_symbols::TypeExpressionTemplate) -> &'static str {
-    use bray_symbols::TypeExpressionTemplate as Type;
-
-    match template {
-        Type::Resolved(_) => "resolved",
-        Type::Named { .. } => "named",
-        Type::CallableContract { .. } => "callable_contract",
-        Type::TypeValuedMemberProjection { .. } => "type_valued_member_projection",
-        Type::Tuple(_) => "tuple",
-        Type::Array { .. } => "array",
-        Type::FlexibleArray(_) => "flexible_array",
-        Type::Slice(_) => "slice",
-        Type::Nullable(_) => "nullable",
-        Type::Borrow { .. } => "borrow",
-        Type::TraitView(_) => "trait_view",
-        Type::OwnedIndirection { .. } => "owned_indirection",
-        Type::Callable(_) => "callable",
     }
 }
 

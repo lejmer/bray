@@ -2,15 +2,15 @@ use bray_diagnostics::{
     DiagnosticFailureField, DiagnosticFailureValue, DiagnosticProductQueryFailure,
 };
 
-use super::context::{product_kind, product_query_context};
+use super::context::product_query_context;
 use super::mir::{push_mir_call_target, push_mir_helper};
 use crate::compilation::product::ProductSynchronizationComponent;
 use crate::compilation::{
     ProductDataKind, ProductQueryContext, ProductQueryError, ProductQueryFailure, ProductValueKind,
 };
 use crate::fact::diagnostic_context::{
-    constant_value_kind, count_field, identity, identity_field, natural_field, push_symbol,
-    semantic_type_kind, text_field,
+    constant_value_kind, count_field, identity, identity_field, natural_field, product_kind,
+    push_semantic_type_data, push_symbol, text_field,
 };
 
 // rust-style: allow(function-too-large, reason = "product-query variants form one exhaustive flat conversion into typed diagnostic fields")
@@ -105,14 +105,16 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
             ty,
             expected,
             actual,
-        } => (
-            "product_query_unexpected_semantic_type",
-            vec![
+        } => {
+            let mut fields = vec![
                 identity_field("semantic_type", ty),
                 text_field("expected_value_kind", product_value_kind(*expected)),
-                text_field("actual_semantic_type_kind", semantic_type_kind(actual)),
-            ],
-        ),
+            ];
+
+            push_semantic_type_data(&mut fields, actual);
+
+            ("product_query_unexpected_semantic_type", fields)
+        }
         Failure::SynchronizationPoisoned { component } => (
             "product_query_synchronization_poisoned",
             vec![text_field(

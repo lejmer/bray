@@ -46,13 +46,13 @@ pub(crate) fn diagnostic_evaluation_failure(
                 [bray_diagnostics::DiagnosticFailureField::new(
                     "interface_validation_cause",
                     bray_diagnostics::DiagnosticFailureValue::InterfaceValidationFailure(
-                        error.as_ref().clone().into_diagnostic_failure(),
+                        error.diagnostic_failure(),
                     ),
                 )],
             ),
         ),
         FactQueryError::ImportedQuery(error) => DiagnosticEmissionEvaluationFailure::SemanticQuery(
-            diagnostic_imported_query_failure(error.clone()),
+            diagnostic_imported_query_failure(error),
         ),
         FactQueryError::Runtime(error) => DiagnosticEmissionEvaluationFailure::Runtime(
             crate::fact::diagnostic_fact_runtime_failure(error),
@@ -97,9 +97,6 @@ pub(crate) fn diagnostic_evaluation_failure(
         FactQueryError::UninitInitializerResultUnavailable => {
             DiagnosticEmissionEvaluationFailure::UninitInitializerResultUnavailable
         }
-        FactQueryError::ImportedExecutableTemplateMismatch => {
-            DiagnosticEmissionEvaluationFailure::ImportedExecutableTemplateMismatch
-        }
         FactQueryError::SemanticUnitContext(error) => {
             DiagnosticEmissionEvaluationFailure::SemanticContext(
                 crate::fact::diagnostic_semantic_context_failure(error),
@@ -141,7 +138,7 @@ pub(crate) fn diagnostic_evaluation_failure(
 }
 
 fn diagnostic_imported_query_failure(
-    error: crate::fact::ImportedQueryFailure,
+    error: &crate::fact::ImportedQueryFailure,
 ) -> bray_diagnostics::DiagnosticSemanticQueryFailure {
     use crate::fact::ImportedQueryFailure as Error;
 
@@ -193,7 +190,7 @@ fn diagnostic_imported_query_failure(
                 _ => unreachable!(),
             };
 
-            (reason, imported_record_context(key))
+            (reason, imported_record_context(*key))
         }
         Error::MissingLoadedInterfaceViews(interface) => (
             "imported_query_missing_loaded_interface_views",
@@ -268,7 +265,7 @@ fn diagnostic_imported_query_failure(
         Error::InterfaceCapacityExceeded(index) => (
             "imported_query_interface_capacity_exceeded",
             vec![crate::fact::diagnostic_context::natural_field(
-                "index", index,
+                "index", *index,
             )],
         ),
     };
@@ -360,7 +357,7 @@ mod tests {
         );
 
         let failure =
-            diagnostic_imported_query_failure(ImportedQueryFailure::MissingInterfaceSymbol(key));
+            diagnostic_imported_query_failure(&ImportedQueryFailure::MissingInterfaceSymbol(key));
 
         let names: Vec<_> = failure.context().iter().map(|field| field.name()).collect();
 
@@ -372,7 +369,7 @@ mod tests {
     #[test]
     fn imported_query_conversion_preserves_missing_loaded_interface_identity() {
         let failure = diagnostic_imported_query_failure(
-            ImportedQueryFailure::MissingLoadedImplementation(ImportedInterfaceId::new(23)),
+            &ImportedQueryFailure::MissingLoadedImplementation(ImportedInterfaceId::new(23)),
         );
 
         assert_eq!(

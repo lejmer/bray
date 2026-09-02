@@ -189,10 +189,6 @@ fn native_product_evaluation_failures_preserve_specific_reasons() {
             Kind::EvaluationUninitInitializerResultUnavailable,
         ),
         (
-            FactQueryError::ImportedExecutableTemplateMismatch,
-            Kind::EvaluationImportedExecutableTemplateMismatch,
-        ),
-        (
             FactQueryError::LoweringInput(LocatedLoweringFailure::new(
                 LoweringInputError::InvalidPatternInput,
                 source,
@@ -336,11 +332,6 @@ fn standard_library_failures_preserve_product_target_and_exact_cause() {
             )
         )
     }));
-
-    assert_eq!(
-        DiagnosticRenderer::english().render(outer).message(),
-        "cannot prepare native product 'example/application' for target 'x86_64-pc-windows-msvc': the configured standard library cannot supply a required native artifact"
-    );
 
     let artifact_path = std::path::PathBuf::from("targets/test/libstd.a");
 

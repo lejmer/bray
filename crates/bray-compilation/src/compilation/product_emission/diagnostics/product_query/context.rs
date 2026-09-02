@@ -1,9 +1,10 @@
-use bray_diagnostics::{DiagnosticFailureField, DiagnosticFailureValue};
+use bray_diagnostics::DiagnosticFailureField;
 
 use super::mir::push_mir_helper;
 use crate::compilation::ProductQueryContext;
 use crate::fact::diagnostic_context::{
-    count_field, identity_field, natural_field, push_symbol, text_field,
+    count_field, identity_field, natural_field, product_kind, push_symbol, text_field,
+    text_list_field,
 };
 
 pub(super) fn product_query_context(context: &ProductQueryContext) -> Vec<DiagnosticFailureField> {
@@ -45,15 +46,7 @@ pub(super) fn product_query_context(context: &ProductQueryContext) -> Vec<Diagno
                 owner.into_any(),
             );
 
-            fields.push(DiagnosticFailureField::new(
-                "module_path_segments",
-                DiagnosticFailureValue::TextList(
-                    path.segments()
-                        .map(str::to_owned)
-                        .collect::<Vec<_>>()
-                        .into_boxed_slice(),
-                ),
-            ));
+            fields.push(text_list_field("module_path_segments", path.segments()));
 
             if let Some(anchor) = path.recovery_anchor() {
                 fields.push(identity_field("module_path_recovery_anchor", &anchor));
@@ -306,16 +299,6 @@ fn push_codegen_target(
     crate::fact::push_selected_target_properties(fields, target.profile().properties());
 }
 
-fn text_list_field(
-    name: &'static str,
-    values: impl IntoIterator<Item = String>,
-) -> DiagnosticFailureField {
-    DiagnosticFailureField::new(
-        name,
-        DiagnosticFailureValue::TextList(values.into_iter().collect::<Vec<_>>().into_boxed_slice()),
-    )
-}
-
 fn target_scalar_kind(value: bray_codegen::TargetScalarKind) -> String {
     match value {
         bray_codegen::TargetScalarKind::Boolean => "boolean".to_owned(),
@@ -426,14 +409,6 @@ fn push_mir_operation_identity(
         count_field("mir_unit", u64::from(operation.unit().raw())),
         count_field("mir_operation", u64::from(operation.slot())),
     ]);
-}
-
-pub(super) const fn product_kind(kind: bray_symbols::ProductKind) -> &'static str {
-    match kind {
-        bray_symbols::ProductKind::Executable => "executable",
-        bray_symbols::ProductKind::Library => "library",
-        bray_symbols::ProductKind::Test => "test",
-    }
 }
 
 #[cfg(test)]

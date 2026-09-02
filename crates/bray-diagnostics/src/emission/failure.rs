@@ -382,6 +382,7 @@ pub struct DiagnosticSemanticQueryFailure {
 }
 
 impl DiagnosticSemanticQueryFailure {
+    /// Creates one semantic-query failure with stable category, reason, and typed leaf context.
     pub fn new(
         category: &'static str,
         reason: &'static str,
@@ -394,14 +395,17 @@ impl DiagnosticSemanticQueryFailure {
         }
     }
 
+    /// Returns the stable semantic-query domain category.
     pub const fn category(&self) -> &'static str {
         self.category
     }
 
+    /// Returns the stable machine-readable leaf reason.
     pub const fn reason(&self) -> &'static str {
         self.reason
     }
 
+    /// Returns the ordered locale-neutral fields retained from the leaf failure.
     pub const fn context(&self) -> &[crate::DiagnosticFailureField] {
         &self.context
     }
@@ -421,6 +425,7 @@ pub struct DiagnosticBindingFailure {
 }
 
 impl DiagnosticBindingFailure {
+    /// Creates one binding failure with its stable reason and typed leaf context.
     pub fn new(
         reason: &'static str,
         context: impl Into<Box<[crate::DiagnosticFailureField]>>,
@@ -432,6 +437,7 @@ impl DiagnosticBindingFailure {
         }
     }
 
+    /// Creates a binding failure backed by an exact canonical semantic-value failure.
     pub fn semantic_value(failure: DiagnosticSemanticValueFailure) -> Self {
         Self {
             reason: failure.as_str(),
@@ -440,10 +446,12 @@ impl DiagnosticBindingFailure {
         }
     }
 
+    /// Returns the ordered locale-neutral fields retained from the binding failure.
     pub const fn context(&self) -> &[crate::DiagnosticFailureField] {
         &self.context
     }
 
+    /// Returns the canonical semantic-value cause when it owns this binding failure.
     pub const fn semantic_value_failure(&self) -> Option<DiagnosticSemanticValueFailure> {
         self.semantic_value
     }

@@ -6,14 +6,17 @@ pub struct DiagnosticFailureField {
 }
 
 impl DiagnosticFailureField {
+    /// Creates one named locale-neutral field for a structured compiler failure.
     pub fn new(name: &'static str, value: DiagnosticFailureValue) -> Self {
         Self { name, value }
     }
 
+    /// Returns the stable machine-readable field name.
     pub const fn name(&self) -> &'static str {
         self.name
     }
 
+    /// Returns the typed field value retained from the leaf failure.
     pub const fn value(&self) -> &DiagnosticFailureValue {
         &self.value
     }
@@ -52,6 +55,7 @@ pub struct DiagnosticFactRuntimeFailure {
 }
 
 impl DiagnosticFactRuntimeFailure {
+    /// Creates one exact query-runtime failure with its stable reason and typed context.
     pub fn new(reason: &'static str, context: impl Into<Box<[DiagnosticFailureField]>>) -> Self {
         Self {
             reason,
@@ -59,10 +63,12 @@ impl DiagnosticFactRuntimeFailure {
         }
     }
 
+    /// Returns the stable machine-readable leaf reason.
     pub const fn reason(&self) -> &'static str {
         self.reason
     }
 
+    /// Returns the ordered locale-neutral fields retained from the runtime failure.
     pub const fn context(&self) -> &[DiagnosticFailureField] {
         &self.context
     }
