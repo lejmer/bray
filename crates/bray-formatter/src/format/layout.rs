@@ -27,6 +27,7 @@ pub(super) enum LayoutElement {
     BlockItemStart {
         item: usize,
         previous: Option<usize>,
+        category_boundary: bool,
     },
     BlockItemEnd(usize),
 }
@@ -39,6 +40,7 @@ struct ActiveBlockItem {
     separated: bool,
     has_previous: bool,
     previous_multiline: bool,
+    category_boundary: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -106,15 +108,24 @@ impl Renderer<'_> {
                 LayoutElement::GroupEnd => {
                     self.groups.pop();
                 }
-                LayoutElement::BlockItemStart { item, previous } => {
-                    self.begin_block_item(*item, *previous);
+                LayoutElement::BlockItemStart {
+                    item,
+                    previous,
+                    category_boundary,
+                } => {
+                    self.begin_block_item(*item, *previous, *category_boundary);
                 }
                 LayoutElement::BlockItemEnd(item) => self.end_block_item(*item),
             }
         }
     }
 
-    fn begin_block_item(&mut self, item: usize, previous: Option<usize>) {
+    fn begin_block_item(
+        &mut self,
+        item: usize,
+        previous: Option<usize>,
+        category_boundary: bool,
+    ) {
         let previous_multiline = previous.is_some_and(|previous| {
             self.multiline_block_items
                 .get(previous)
@@ -130,6 +141,7 @@ impl Renderer<'_> {
             separated: false,
             has_previous: previous.is_some(),
             previous_multiline,
+            category_boundary,
         });
     }
 
@@ -174,7 +186,8 @@ impl Renderer<'_> {
         let already_separated = trailing_line_breaks(&self.output[..insertion_offset]) >= 2;
 
         let separate = self.active_block_items[index].has_previous
-            && self.active_block_items[index].previous_multiline
+            && (self.active_block_items[index].previous_multiline
+                || self.active_block_items[index].category_boundary)
             && !already_separated;
 
         if separate {

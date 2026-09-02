@@ -1,4 +1,4 @@
-use bray_syntax::SyntaxKind;
+use bray_syntax::{BlockItemSyntax, SyntaxKind, SyntaxNodeView};
 
 pub(super) struct BlockParagraphs {
     enabled: bool,
@@ -9,7 +9,14 @@ pub(super) struct BlockParagraphs {
 struct BlockParagraph {
     depth: usize,
     previous_item: Option<usize>,
+    previous_category: Option<BlockItemCategory>,
     current_item: Option<usize>,
+}
+
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum BlockItemCategory {
+    Declaration,
+    Expression,
 }
 
 impl BlockParagraphs {
@@ -23,17 +30,20 @@ impl BlockParagraphs {
 
     pub(super) fn enter_node(
         &mut self,
-        kind: SyntaxKind,
+        node: SyntaxNodeView<'_>,
         depth: usize,
-    ) -> Option<(usize, Option<usize>)> {
+    ) -> Option<(usize, Option<usize>, bool)> {
         if !self.enabled {
             return None;
         }
+
+        let kind = node.kind();
 
         if is_block_expression(kind) {
             self.paragraphs.push(BlockParagraph {
                 depth,
                 previous_item: None,
+                previous_category: None,
                 current_item: None,
             });
 
@@ -47,11 +57,17 @@ impl BlockParagraphs {
         }
 
         let item = self.next_item;
+        let category = block_item_category(node);
+
+        let separate = paragraph
+            .previous_category
+            .is_some_and(|previous| previous != category);
 
         self.next_item = self.next_item.saturating_add(1);
         paragraph.current_item = Some(item);
+        paragraph.previous_category = Some(category);
 
-        Some((item, paragraph.previous_item))
+        Some((item, paragraph.previous_item, separate))
     }
 
     pub(super) fn leave_node(&mut self, kind: SyntaxKind, depth: usize) -> Option<usize> {
@@ -82,6 +98,18 @@ impl BlockParagraphs {
         paragraph.previous_item = Some(item);
 
         Some(item)
+    }
+}
+
+fn block_item_category(node: SyntaxNodeView<'_>) -> BlockItemCategory {
+    let item = node
+        .cast::<BlockItemSyntax>()
+        .unwrap_or_else(|| unreachable!("a block item view must cast to block item syntax"));
+
+    if item.local_binding_declaration().is_some() || item.constant_declaration().is_some() {
+        BlockItemCategory::Declaration
+    } else {
+        BlockItemCategory::Expression
     }
 }
 

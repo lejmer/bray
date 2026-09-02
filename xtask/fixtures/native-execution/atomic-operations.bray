@@ -40,8 +40,10 @@ func main() -> i32
     let flag = core.atomic.initialize<bool>(false);
 
     core.atomic.store<bool, 4>(&flag, true);
+
     let flag_previous = core.atomic.exchange<bool, 3>(&flag, false);
     let flag_exchange = core.atomic.compare_exchange<bool, 4, 1>(&flag, false, true);
+
     core.atomic.wait<bool, 1>(&flag, false);
 
     let sized = core.atomic.initialize<usize>(4);

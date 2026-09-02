@@ -31,6 +31,7 @@ trusted internal func windows_command_line(
     let mut storage: std.memory.RawBuffer<u8> = try trusted internal windows_buffer((units + 1) * 2);
     let destination: RawPointer<u8> = std.memory.pointer<u8>(&storage);
     let mut written: usize = trusted internal write_quoted_windows_argument(destination, executable, index = 0);
+
     index = 0;
 
     while index < count
@@ -105,6 +106,7 @@ trusted internal func write_quoted_windows_argument(
     let mut written: usize = index;
     let mut slashes: usize = 0;
     let mut source: usize = 0;
+
     trusted internal write_windows_unit(destination, index = written, value = 34);
     written += 1;
 

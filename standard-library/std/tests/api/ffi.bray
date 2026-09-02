@@ -83,6 +83,7 @@ trusted func callback_entries_recover_state() -> Result<unit, std.memory.MemoryL
         uses(raw_memory) = callback.entry();
 
     assert(trusted entry(callback.context(), 41));
+
     let _: &std.ffi.CallbackContext<i32> = callback.owner;
 
     return Ok(unit);

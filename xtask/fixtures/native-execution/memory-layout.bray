@@ -4,7 +4,7 @@ trusted module std.memory;
 struct Packet
 {
     length: u32;
-    payload: [u8;..];
+    payload: [u8; ..];
 }
 
 func main() -> i32

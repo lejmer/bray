@@ -91,6 +91,7 @@ trusted internal func windows_terminated_text(
     }
 
     let mut storage: std.memory.RawBuffer<u8> = try trusted internal windows_buffer(bytes + 2);
+
     trusted internal std.memory.byte_buffer_copy(text.address, std.memory.pointer<u8>(&storage), count = bytes);
     return Ok(storage);
 }
@@ -106,6 +107,7 @@ trusted internal func windows_buffer(pos size: usize) -> Result<std.memory.RawBu
     if size > 0
     {
         let destination: RawPointer<u8> = trusted std.memory.spare_pointer<u8>(&mut buffer);
+
         trusted internal std.memory.byte_buffer_fill(destination, value = 0, count = size);
         trusted std.memory.set_initialized_count<u8>(&mut buffer, count = size);
     }

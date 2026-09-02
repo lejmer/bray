@@ -116,6 +116,7 @@ trusted internal func argument_storage() -> std.memory.RawBuffer<u8>
     let mut buffer: std.memory.RawBuffer<u8> = trusted internal context_buffer(total);
     let destination: RawPointer<u8> = std.memory.pointer<u8>(&buffer);
     let mut offset: usize = 0;
+
     index = 0;
 
     while index < argument_count
@@ -190,6 +191,7 @@ trusted internal func environment_storage() -> std.memory.RawBuffer<u8>
     let mut buffer: std.memory.RawBuffer<u8> = trusted internal context_buffer(total);
     let destination: RawPointer<u8> = std.memory.pointer<u8>(&buffer);
     let mut destination_offset: usize = 0;
+
     source_index = 0;
 
     loop

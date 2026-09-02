@@ -165,6 +165,158 @@ fn separates_multiline_block_items_from_adjacent_items() {
 }
 
 #[test]
+fn separates_declaration_paragraphs_from_expression_statements() {
+    let source = concat!(
+        "module app;func main(){",
+        "before=pair;",
+        "let(first,second)=pair;",
+        "let total=first+second;",
+        "after=total;",
+        "}",
+    );
+
+    let output = formatted(source);
+
+    assert!(
+        output.text().contains(concat!(
+            "    before = pair;\n",
+            "\n",
+            "    let (first, second) = pair;\n",
+            "    let total = first + second;\n",
+            "\n",
+            "    after = total;\n",
+        )),
+        "{}",
+        output.text()
+    );
+
+    assert_valid_and_idempotent(&output);
+}
+
+#[test]
+fn spaces_flexible_array_ranges() {
+    let source = "module app;@layout(c) struct Packet{length:usize;bytes:[u8;..];}";
+
+    let output = formatted(source);
+
+    assert!(output.text().contains("bytes: [u8; ..];"), "{}", output.text());
+
+    assert_valid_and_idempotent(&output);
+}
+
+#[test]
+fn spaces_parenthesized_return_expressions() {
+    let source = concat!(
+        "module app;",
+        "func remove(pos value: &i32)->bool{",
+        "return (trusted self.take(value)).is_present();",
+        "}",
+    );
+
+    let output = formatted(source);
+
+    assert!(
+        output
+            .text()
+            .contains("return (trusted self.take(value)).is_present();"),
+        "{}",
+        output.text()
+    );
+
+    assert_valid_and_idempotent(&output);
+}
+
+#[test]
+fn separates_overloads_from_following_declarations_in_every_valid_scope() {
+    let source = concat!(
+        "module app;",
+        "overload module_choice={module_fast}func module_after(){}",
+        "overload (&mut Point)(Shape)={point_shape}struct Point{}",
+        "struct Canvas{overload draw={draw_fast}func type_after(){}}",
+        "union Shape{overload area={circle_area}func union_after(){}}",
+        "impl Canvas{overload paint={paint_basic}func implementation_after(){}}",
+    );
+
+    let output = formatted(source);
+
+    assert!(
+        output
+            .text()
+            .contains("    module_fast\n}\n\nfunc module_after() {}"),
+        "{}",
+        output.text()
+    );
+
+    assert!(
+        output.text().contains(concat!(
+            "overload (&mut Point)(Shape) =\n",
+            "{\n",
+            "    point_shape\n",
+            "}\n",
+            "\n",
+            "struct Point",
+        )),
+        "{}",
+        output.text()
+    );
+
+    assert!(
+        output.text().contains(concat!(
+            "        draw_fast\n",
+            "    }\n",
+            "\n",
+            "    func type_after() {}",
+        )),
+        "{}",
+        output.text()
+    );
+
+    assert!(
+        output.text().contains(concat!(
+            "        circle_area\n",
+            "    }\n",
+            "\n",
+            "    func union_after() {}",
+        )),
+        "{}",
+        output.text()
+    );
+
+    assert!(
+        output.text().contains(concat!(
+            "        paint_basic\n",
+            "    }\n",
+            "\n",
+            "    func implementation_after() {}",
+        )),
+        "{}",
+        output.text()
+    );
+
+    assert_valid_and_idempotent(&output);
+
+    let block_module = formatted(concat!(
+        "module app.nested{",
+        "overload nested_choice={nested_fast}",
+        "func nested_after(){}",
+        "}",
+    ));
+
+    assert!(
+        block_module.text().contains(concat!(
+            "        nested_fast\n",
+            "    }\n",
+            "\n",
+            "    func nested_after() {}",
+        )),
+        "{}",
+        block_module.text()
+    );
+
+    assert_valid_and_idempotent(&block_module);
+}
+
+#[test]
 fn formatting_is_idempotent_across_representative_grammar() {
     let sources = [
         "module app;",
@@ -814,4 +966,17 @@ fn formatted_with_width(source: &str, width: u16) -> FormattedSource {
         Ok(formatted) => formatted,
         Err(error) => panic!("test source should fit in formatter ranges: {error:?}"),
     }
+}
+
+fn assert_valid_and_idempotent(output: &FormattedSource) {
+    let snapshot = test_source_snapshot(output.text());
+    let parsed = parse_source_unit(&snapshot);
+
+    assert!(parsed.diagnostics().is_empty(), "{:#?}", parsed.diagnostics());
+    assert!(!parsed.source_unit().is_recovered());
+
+    let second = formatted(output.text());
+
+    assert_eq!(second.text(), output.text());
+    assert!(!second.changed());
 }

@@ -51,6 +51,7 @@ trusted internal func release_dynamic_library(pos library: &mut DynamicLibrary) 
     );
 
     library.is_owned_value = false;
+
     let status: std.platform.PlatformStatus = trusted platform_dynamic_library_close(handle);
 
     return internal std.ffi.checked_foreign_status(status);

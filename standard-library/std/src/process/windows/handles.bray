@@ -125,6 +125,7 @@ trusted internal func windows_child_handles(
                 let status: std.platform.PlatformStatus = trusted internal std.platform.windows_error_status();
                 let _: i32 = trusted std.os.windows.close_handle(read_pipe);
                 let _: i32 = trusted std.os.windows.close_handle(write_pipe);
+
                 return Error(status);
             }
 
@@ -195,6 +196,7 @@ trusted internal func close_windows_process(pos handle: u64) -> std.platform.Pla
 trusted internal func valid_windows_handle(pos handle: RawPointer<u8>) -> bool
 {
     let value: u64 = trusted internal std.platform.pointer_handle(handle);
+
     return value != 0 && value != 18_446_744_073_709_551_615;
 }
 

@@ -139,7 +139,7 @@ struct InotifyEvent
     mask: u32;
     cookie: u32;
     length: u32;
-    name: [u8;..];
+    name: [u8; ..];
 }
 
 // Native `struct iphdr` has size 20, alignment 4, and memory ABI classification.

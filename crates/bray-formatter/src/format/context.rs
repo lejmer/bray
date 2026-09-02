@@ -48,6 +48,10 @@ pub(super) fn token_spacing(
         });
     }
 
+    if previous == SyntaxKind::SemicolonToken && current == SyntaxKind::DotDotToken {
+        return Some(space(FormatterRule::RangeSpacing));
+    }
+
     if previous == SyntaxKind::DotDotToken || current == SyntaxKind::DotDotToken {
         return Some(no_space(FormatterRule::RangeSpacing));
     }
@@ -230,7 +234,7 @@ pub(super) fn separation_rule(
         return is_module_declaration(kind).then_some(FormatterRule::ModuleItemSpacing);
     }
 
-    is_callable_member(kind).then_some(FormatterRule::CallableMemberSpacing)
+    is_separated_member(kind).then_some(FormatterRule::CallableMemberSpacing)
 }
 
 pub(super) fn leading_separation_rule(
@@ -247,7 +251,7 @@ pub(super) fn leading_separation_rule(
         return Some(FormatterRule::ModuleItemSpacing);
     }
 
-    is_callable_member(kind)
+    is_separated_member(kind)
         .then_some(FormatterRule::CallableMemberSpacing)
         .filter(|_| previous == Some(SyntaxKind::SemicolonToken))
 }
@@ -268,6 +272,14 @@ fn punctuation_spacing(previous: SyntaxKind, current: SyntaxKind) -> Option<Toke
     }
 
     match current {
+        SyntaxKind::OpenParenToken
+            if matches!(
+                previous,
+                SyntaxKind::LetKeyword | SyntaxKind::OverloadKeyword | SyntaxKind::ReturnKeyword
+            ) =>
+        {
+            Some(space(FormatterRule::WordSpacing))
+        }
         SyntaxKind::OpenParenToken | SyntaxKind::CloseParenToken => {
             Some(no_space(FormatterRule::ParenthesizedListLayout))
         }
@@ -381,6 +393,7 @@ fn is_ordinary_module_declaration(kind: SyntaxKind) -> bool {
         )
 }
 
-fn is_callable_member(kind: SyntaxKind) -> bool {
-    is_callable_declaration(kind) && kind != SyntaxKind::FunctionDeclaration
+fn is_separated_member(kind: SyntaxKind) -> bool {
+    (is_callable_declaration(kind) && kind != SyntaxKind::FunctionDeclaration)
+        || kind == SyntaxKind::CallableOverloadDeclaration
 }

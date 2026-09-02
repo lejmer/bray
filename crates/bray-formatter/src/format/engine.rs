@@ -194,11 +194,10 @@ impl<'source, 'configuration> Formatter<'source, 'configuration> {
             self.writer.request_newlines(2);
         }
 
-        if let Some((item, previous)) = self
-            .block_paragraphs
-            .enter_node(node.kind(), self.nodes.len())
+        if let Some((item, previous, separate)) =
+            self.block_paragraphs.enter_node(node, self.nodes.len())
         {
-            self.writer.begin_block_item(item, previous);
+            self.writer.begin_block_item(item, previous, separate);
         }
 
         let compact_match_arm = (node.kind() == SyntaxKind::MatchArm)
