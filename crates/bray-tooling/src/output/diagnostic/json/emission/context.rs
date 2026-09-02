@@ -267,6 +267,9 @@ pub(in crate::output::diagnostic::json) fn diagnostic_failure_context(
         .iter()
         .map(|diagnostic_field| {
             let value = match diagnostic_field.value() {
+                bray_diagnostics::DiagnosticFailureValue::Boolean(value) => {
+                    DiagnosticEmissionFieldValueJson::Boolean(*value)
+                }
                 bray_diagnostics::DiagnosticFailureValue::Count(value) => {
                     DiagnosticEmissionFieldValueJson::Count(*value)
                 }

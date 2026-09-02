@@ -42,6 +42,18 @@ impl TargetAtomicRepresentation {
         }
     }
 
+    /// Returns the stable target-property spelling for this representation.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::U8 => "u8",
+            Self::U16 => "u16",
+            Self::U32 => "u32",
+            Self::U64 => "u64",
+            Self::U128 => "u128",
+            Self::Pointer => "pointer",
+        }
+    }
+
     const fn index(self) -> usize {
         match self {
             Self::U8 => 0,

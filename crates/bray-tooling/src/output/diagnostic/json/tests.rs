@@ -315,6 +315,10 @@ fn runtime_failures_preserve_exact_context_in_emission_and_native_json() {
                 DiagnosticFailureValue::Text("SyntaxTree".to_owned()),
             ),
             DiagnosticFailureField::new("actual_task", DiagnosticFailureValue::Count(23)),
+            DiagnosticFailureField::new(
+                "target_supported",
+                DiagnosticFailureValue::Boolean(true),
+            ),
         ],
     );
 
@@ -347,6 +351,8 @@ fn runtime_failures_preserve_exact_context_in_emission_and_native_json() {
     assert_eq!(emission["context"][0]["name"], "requested_fact");
     assert_eq!(emission["context"][0]["value"]["value"], "SyntaxTree");
     assert_eq!(emission["context"][1]["value"]["value"], 23);
+    assert_eq!(emission["context"][2]["value"]["kind"], "boolean");
+    assert_eq!(emission["context"][2]["value"]["value"], true);
     assert_eq!(native["reason"], emission["reason"]);
     assert_eq!(native["context"], emission["context"]);
 }

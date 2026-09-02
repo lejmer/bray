@@ -2,6 +2,7 @@ use super::super::source::{format_english_artifact_digest, format_english_artifa
 use super::checker::format_english_checker_failure;
 use super::foreign_query::format_english_foreign_query_failure;
 use super::linking::format_english_native_link_input_failure;
+use super::product_failure::native_product_failure_is_internal;
 use super::product_query::format_english_product_query_failure;
 use bray_diagnostics::DiagnosticArtifactDigest;
 
@@ -106,12 +107,7 @@ pub(crate) fn format_english_native_product_failure(
 ) -> String {
     let message = format_english_native_product_failure_detail(kind);
 
-    if native_product_failure_is_evaluation(kind)
-        && !matches!(
-            kind,
-            bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationCancelled
-        )
-    {
+    if native_product_failure_is_internal(kind) {
         super::format_internal_compiler_error(message)
     } else {
         message
@@ -304,38 +300,6 @@ fn format_english_native_product_failure_detail(
     };
 
     message.to_owned()
-}
-
-const fn native_product_failure_is_evaluation(
-    kind: &bray_diagnostics::DiagnosticNativeProductFailureKind,
-) -> bool {
-    use bray_diagnostics::DiagnosticNativeProductFailureKind as Kind;
-
-    matches!(
-        kind,
-        Kind::EvaluationCancelled
-            | Kind::EvaluationCycle(_)
-            | Kind::EvaluationInfrastructure
-            | Kind::EvaluationRuntime(_)
-            | Kind::EvaluationSemanticValueStoreCreate
-            | Kind::EvaluationSemanticValue(_)
-            | Kind::EvaluationBinding(_)
-            | Kind::EvaluationLoweringInput(_)
-            | Kind::EvaluationLowering(_)
-            | Kind::EvaluationConstantCallableBodyUnavailable
-            | Kind::EvaluationConstantCallableRootUnavailable
-            | Kind::EvaluationAtomicRepresentationTypeUnavailable
-            | Kind::EvaluationAtomicRepresentationArgumentsUnavailable
-            | Kind::EvaluationAtomicInitializerArgumentUnavailable
-            | Kind::EvaluationAtomicInitializerResultUnavailable
-            | Kind::EvaluationUninitInitializerResultUnavailable
-            | Kind::EvaluationImportedExecutableTemplateMismatch
-            | Kind::EvaluationSemanticQuery(_)
-            | Kind::EvaluationProduct(_)
-            | Kind::EvaluationForeign(_)
-            | Kind::EvaluationChecker(_)
-            | Kind::SemanticContextFailure(_)
-    )
 }
 
 fn format_english_fact_runtime_failure(
@@ -806,7 +770,7 @@ mod tests {
     }
 
     #[test]
-    fn evaluation_failures_render_exactly_one_shared_internal_heading() {
+    fn compiler_defects_render_exactly_one_shared_internal_heading() {
         let nested = DiagnosticProductQueryFailure::new("product_query_missing", []);
 
         let failures = [
@@ -831,6 +795,9 @@ mod tests {
                     [],
                 ),
             ),
+            bray_diagnostics::DiagnosticNativeProductFailureKind::CheckingInfrastructureFailure,
+            bray_diagnostics::DiagnosticNativeProductFailureKind::GeneratedHostMirInvalid,
+            bray_diagnostics::DiagnosticNativeProductFailureKind::InstanceTemplateMismatch,
         ];
 
         for failure in &failures {
@@ -838,6 +805,17 @@ mod tests {
 
             assert!(message.starts_with(INTERNAL_COMPILER_ERROR));
             assert_eq!(message.matches(INTERNAL_COMPILER_ERROR).count(), 1);
+            assert!(!message.contains(';'));
+        }
+
+        for failure in [
+            bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationCancelled,
+            bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenTargetUnsupportedProfile,
+            bray_diagnostics::DiagnosticNativeProductFailureKind::StandardLibraryUnavailable,
+        ] {
+            let message = format_english_native_product_failure(&failure);
+
+            assert!(!message.starts_with(INTERNAL_COMPILER_ERROR));
             assert!(!message.contains(';'));
         }
     }

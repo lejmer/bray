@@ -44,6 +44,52 @@ pub enum TargetCScalarKind {
 }
 
 impl TargetCScalarKind {
+    /// Every C scalar kind in stable target-property order.
+    pub const ALL: [Self; C_SCALAR_KIND_COUNT] = [
+        Self::Char,
+        Self::SignedChar,
+        Self::UnsignedChar,
+        Self::Short,
+        Self::UnsignedShort,
+        Self::Int,
+        Self::UnsignedInt,
+        Self::Long,
+        Self::UnsignedLong,
+        Self::LongLong,
+        Self::UnsignedLongLong,
+        Self::Size,
+        Self::PointerDifference,
+        Self::WideChar,
+        Self::Bool,
+        Self::Float,
+        Self::Double,
+        Self::LongDouble,
+    ];
+
+    /// Returns the stable target-property spelling for this C scalar kind.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Char => "char",
+            Self::SignedChar => "signed_char",
+            Self::UnsignedChar => "unsigned_char",
+            Self::Short => "short",
+            Self::UnsignedShort => "unsigned_short",
+            Self::Int => "int",
+            Self::UnsignedInt => "unsigned_int",
+            Self::Long => "long",
+            Self::UnsignedLong => "unsigned_long",
+            Self::LongLong => "long_long",
+            Self::UnsignedLongLong => "unsigned_long_long",
+            Self::Size => "size",
+            Self::PointerDifference => "pointer_difference",
+            Self::WideChar => "wide_char",
+            Self::Bool => "bool",
+            Self::Float => "float",
+            Self::Double => "double",
+            Self::LongDouble => "long_double",
+        }
+    }
+
     const fn index(self) -> usize {
         match self {
             Self::Char => 0,

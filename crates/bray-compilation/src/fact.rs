@@ -24,7 +24,8 @@ pub(crate) use error::{
     diagnostic_fact_runtime_failure, diagnostic_semantic_context_failure,
     diagnostic_semantic_query_failure, diagnostic_semantic_value_failure,
     diagnostic_symbol_graph_failure, callable_signature_reason, generic_substitution_reason,
-    push_generic_substitution_failure, push_semantic_value_failure,
+    push_generic_substitution_failure, push_mir_target_contract, push_semantic_value_failure,
+    TargetContractSide,
 };
 pub use error::{ImportedExecutableTemplateMismatch, ImportedQueryFailure};
 pub(crate) use error::diagnostic_context;

@@ -261,15 +261,15 @@ fn diagnostic_imported_query_failure(
                 ),
             ];
 
-            crate::fact::diagnostic_context::push_mir_target_contract(
+            crate::fact::push_mir_target_contract(
                 &mut fields,
-                true,
+                crate::fact::TargetContractSide::Expected,
                 failure.expected_target(),
             );
 
-            crate::fact::diagnostic_context::push_mir_target_contract(
+            crate::fact::push_mir_target_contract(
                 &mut fields,
-                false,
+                crate::fact::TargetContractSide::Actual,
                 failure.actual_target(),
             );
 

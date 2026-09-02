@@ -22,6 +22,7 @@ impl DiagnosticFailureField {
 /// Locale-neutral value retained by a compiler query-runtime failure.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticFailureValue {
+    Boolean(bool),
     Count(u64),
     Identity([u8; 32]),
     IdentityList(Box<[[u8; 32]]>),
