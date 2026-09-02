@@ -633,16 +633,14 @@ impl Compilation {
         cancellation: &CancellationToken,
         priority: QueryPriority,
     ) -> Result<SourceReferenceIndex, FactQueryError> {
-        let source = self
-            .source(source_id)
-            .ok_or_else(|| {
-                FactQueryError::from(crate::compilation::SemanticQueryFailure::contract(
-                    crate::compilation::SemanticQueryContext::Source(source_id),
-                    crate::compilation::SemanticQueryViolation::Missing(
-                        crate::compilation::SemanticDataKind::SourceSnapshot,
-                    ),
-                ))
-            })?;
+        let source = self.source(source_id).ok_or_else(|| {
+            FactQueryError::from(crate::compilation::SemanticQueryFailure::contract(
+                crate::compilation::SemanticQueryContext::Source(source_id),
+                crate::compilation::SemanticQueryViolation::Missing(
+                    crate::compilation::SemanticDataKind::SourceSnapshot,
+                ),
+            ))
+        })?;
 
         let graph = self.symbol_graph()?;
         let declarations = self.product_source_graph()?.declarations();

@@ -8,5 +8,5 @@ pub(in crate::compilation) mod product_query;
 mod routing;
 mod terminal;
 
-pub use model::{ProductEmissionError, ProductEmissionErrorKind};
 pub(crate) use evaluation::diagnostic_evaluation_failure;
+pub use model::{ProductEmissionError, ProductEmissionErrorKind};

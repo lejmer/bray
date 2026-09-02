@@ -419,6 +419,37 @@ impl DiagnosticNativeProductFailureJson {
             Kind::EvaluationProduct(failure) => product_query_failure_context(failure),
             Kind::EvaluationForeign(failure) => foreign_query_failure_context(failure),
             Kind::InvalidNativeLinkInput(failure) => native_link_input_failure_context(failure),
+            Kind::RuntimeSelectionIncompatible(detail)
+            | Kind::RuntimeSelectionMissingRoleOwner(detail)
+            | Kind::RuntimeSelectionMissingCapabilityOwner(detail)
+            | Kind::RuntimeSelectionUnreadableArchive(detail)
+            | Kind::RuntimeSelectionInvalidArchive(detail)
+            | Kind::RuntimeSelectionArchiveDigestMismatch(detail)
+            | Kind::CodegenBackendUnsupportedArtifact(detail)
+            | Kind::CodegenBackendLibraryFailure(detail)
+            | Kind::CodegenBackendToolFailure(detail)
+            | Kind::CodegenBackendRejectedModule(detail)
+            | Kind::CodegenBackendArtifactConstruction(detail)
+            | Kind::CodegenInvalidRequest(detail)
+            | Kind::CodegenMirUnavailable(detail)
+            | Kind::CodegenInvalidInstance(detail)
+            | Kind::CodegenInvalidUnit(detail)
+            | Kind::CodegenUnitMismatch(detail)
+            | Kind::CodegenInvalidHostMir(detail)
+            | Kind::CodegenInvalidLifecycleMir(detail)
+            | Kind::CodegenInvalidMappings(detail)
+            | Kind::CodegenMissingRuntimeRole(detail)
+            | Kind::CodegenOpenConstantTerm(detail)
+            | Kind::CodegenInvalidArrayLength(detail)
+            | Kind::CodegenRecursiveValueType(detail)
+            | Kind::CodegenUnresolvedType(detail)
+            | Kind::CodegenUnsizedTypeByValue(detail)
+            | Kind::CodegenUnsupportedType(detail)
+            | Kind::CodegenMissingHelperInstance(detail)
+            | Kind::CodegenLayoutOverflow(detail)
+            | Kind::CodegenInvalidAbiMapping(Some(detail)) => {
+                diagnostic_failure_context(detail.context())
+            }
             _ => Vec::new(),
         };
 

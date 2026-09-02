@@ -8,17 +8,17 @@ use bray_diagnostics::{
     DiagnosticCallableOverloadArm, DiagnosticCallableOverloadProblem,
     DiagnosticCallbackStateProblem, DiagnosticCheckerFailure, DiagnosticConstructionInputRejection,
     DiagnosticDependencySubjectKind, DiagnosticEmissionEvaluationFailure,
-    DiagnosticEmissionFailure, DiagnosticGenericParameterCategory, DiagnosticId,
-    DiagnosticFactRuntimeFailure, DiagnosticFailureField, DiagnosticFailureValue,
+    DiagnosticEmissionFailure, DiagnosticFactRuntimeFailure, DiagnosticFailureField,
+    DiagnosticFailureValue, DiagnosticGenericParameterCategory, DiagnosticId,
     DiagnosticInterfaceDeclarationIdentity, DiagnosticInterfaceLimit, DiagnosticInterfaceSection,
     DiagnosticInterfaceSemanticProblem, DiagnosticInterfaceSymbolIdentity,
     DiagnosticInterfaceSymbolKind, DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind,
     DiagnosticLayoutOption, DiagnosticLayoutProblem, DiagnosticLoweringFailure,
     DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
     DiagnosticLoweringInputFailureKind, DiagnosticMemoryOperation, DiagnosticModuleTrust,
-    DiagnosticNameKind, DiagnosticNamedType, DiagnosticNativeProductFailureKind, DiagnosticNote,
-    DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticPatternCoverage,
-    DiagnosticPatternMissingCase, DiagnosticProductQueryFailure,
+    DiagnosticNameKind, DiagnosticNamedType, DiagnosticNativeProductFailureDetail,
+    DiagnosticNativeProductFailureKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink,
+    DiagnosticPatternCoverage, DiagnosticPatternMissingCase, DiagnosticProductQueryFailure,
     DiagnosticProjectManifestField, DiagnosticPropagationProblem, DiagnosticRefinementCapacity,
     DiagnosticRefinementCapacitySurface, DiagnosticRejectedSelectionCandidate,
     DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticRuntimeAbiVersion,
@@ -27,11 +27,11 @@ use bray_diagnostics::{
     DiagnosticSelectionCandidates, DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
     DiagnosticSelectionRejections, DiagnosticSemanticContentProblem,
     DiagnosticSemanticQueryFailure, DiagnosticSemanticValueFailure, DiagnosticSourceEdit,
-    DiagnosticStorageAccess,
-    DiagnosticStorageAccessPurpose, DiagnosticStorageProjection, DiagnosticStorageRoot,
-    DiagnosticSuggestion, DiagnosticSuggestionApplicability, DiagnosticSuggestionKind,
-    DiagnosticTargetPredicateValueKind, DiagnosticTraitFulfillmentMismatch, DiagnosticType,
-    DiagnosticTypeArgument, DiagnosticVisibility, DiagnosticYieldCardinality, SeverityKind,
+    DiagnosticStorageAccess, DiagnosticStorageAccessPurpose, DiagnosticStorageProjection,
+    DiagnosticStorageRoot, DiagnosticSuggestion, DiagnosticSuggestionApplicability,
+    DiagnosticSuggestionKind, DiagnosticTargetPredicateValueKind,
+    DiagnosticTraitFulfillmentMismatch, DiagnosticType, DiagnosticTypeArgument,
+    DiagnosticVisibility, DiagnosticYieldCardinality, SeverityKind,
 };
 use bray_source::{SourceSpan, TextRange, TextSize};
 use bray_syntax::SyntaxKind;
@@ -315,10 +315,7 @@ fn runtime_failures_preserve_exact_context_in_emission_and_native_json() {
                 DiagnosticFailureValue::Text("SyntaxTree".to_owned()),
             ),
             DiagnosticFailureField::new("actual_task", DiagnosticFailureValue::Count(23)),
-            DiagnosticFailureField::new(
-                "target_supported",
-                DiagnosticFailureValue::Boolean(true),
-            ),
+            DiagnosticFailureField::new("target_supported", DiagnosticFailureValue::Boolean(true)),
         ],
     );
 
@@ -376,9 +373,9 @@ fn semantic_query_failures_preserve_leaf_context_in_emission_and_native_json() {
         SeverityKind::Error,
     )
     .with_arg(DiagnosticArg::emission_failure(
-        DiagnosticEmissionFailure::Evaluation(
-            DiagnosticEmissionEvaluationFailure::SemanticQuery(failure.clone()),
-        ),
+        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::SemanticQuery(
+            failure.clone(),
+        )),
     ))
     .with_arg(DiagnosticArg::native_product_failure_kind(
         DiagnosticNativeProductFailureKind::EvaluationSemanticQuery(failure),
@@ -1321,6 +1318,72 @@ fn json_output_preserves_memory_operation_and_callback_causes() {
     assert_eq!(callback["value"]["reason"], "context_parameter_not_first");
     assert_eq!(callback["value"]["context"][0]["name"], "actual_ordinal");
     assert_eq!(callback["value"]["context"][0]["value"]["value"], 2);
+}
+
+#[test]
+fn native_product_json_preserves_typed_runtime_selection_payload() {
+    let failure = DiagnosticNativeProductFailureKind::RuntimeSelectionArchiveDigestMismatch(
+        DiagnosticNativeProductFailureDetail::new(
+            "runtime_selection_archive_digest_mismatch",
+            [
+                DiagnosticFailureField::new(
+                    "component",
+                    DiagnosticFailureValue::Text("runtime.product.execution".to_owned()),
+                ),
+                DiagnosticFailureField::new(
+                    "path",
+                    DiagnosticFailureValue::Text("runtime/product.lib".to_owned()),
+                ),
+                DiagnosticFailureField::new(
+                    "expected_digest",
+                    DiagnosticFailureValue::ArtifactDigest(DiagnosticArtifactDigest::new(
+                        DiagnosticArtifactDigestAlgorithm::Sha256,
+                        [3; 32],
+                    )),
+                ),
+                DiagnosticFailureField::new(
+                    "actual_digest",
+                    DiagnosticFailureValue::ArtifactDigest(DiagnosticArtifactDigest::new(
+                        DiagnosticArtifactDigestAlgorithm::Sha256,
+                        [5; 32],
+                    )),
+                ),
+            ],
+        ),
+    );
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::NativeProductPreparationFailed,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::native_product_failure_kind(failure));
+
+    let mut output = Vec::new();
+
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+        .unwrap_or_else(|error| panic!("native-product JSON should write: {error:?}"));
+
+    let output: serde_json::Value = serde_json::from_slice(&output)
+        .unwrap_or_else(|error| panic!("native-product JSON should parse: {error:?}"));
+
+    let value = &output["diagnostics"][0]["args"][0]["value"]["value"];
+
+    assert_eq!(value["reason"], "runtime_selection_archive_digest_mismatch");
+    assert_eq!(value["context"][0]["value"]["kind"], "text");
+    assert_eq!(value["context"][1]["value"]["kind"], "text");
+    assert_eq!(value["context"][2]["value"]["kind"], "artifact_digest");
+    assert_eq!(value["context"][2]["value"]["value"]["algorithm"], "sha256");
+
+    assert_eq!(
+        value["context"][2]["value"]["value"]["bytes"]
+            .as_array()
+            .map(Vec::len),
+        Some(32)
+    );
+
+    assert_eq!(value["context"][2]["value"]["value"]["bytes"][0], 3);
+    assert_eq!(value["context"][3]["value"]["kind"], "artifact_digest");
 }
 
 #[test]

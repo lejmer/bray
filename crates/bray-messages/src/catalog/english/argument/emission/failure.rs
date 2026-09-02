@@ -471,8 +471,15 @@ mod tests {
 
         assert!(executable.contains("example.run"));
         assert!(executable.starts_with(crate::catalog::english::INTERNAL_COMPILER_ERROR));
+
+        assert_eq!(
+            executable
+                .matches(crate::catalog::english::INTERNAL_COMPILER_ERROR)
+                .count(),
+            1,
+        );
+
         assert!(!executable.contains("the compiler "));
-        assert!(!executable.contains("an internal compiler error"));
 
         let overflow = format_english_package_interface_failure(
             &DiagnosticPackageInterfaceFailure::SemanticTableOverflow {

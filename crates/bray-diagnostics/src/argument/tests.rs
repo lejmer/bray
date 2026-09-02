@@ -9,7 +9,7 @@ use super::{
     DiagnosticArtifactDigestAlgorithm, DiagnosticIoErrorKind, DiagnosticLoweringFailure,
     DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
     DiagnosticLoweringInputFailureKind, DiagnosticNameKind, DiagnosticNativeLinkInputFailure,
-    DiagnosticNativeProductFailureKind,
+    DiagnosticNativeProductFailureDetail, DiagnosticNativeProductFailureKind,
 };
 
 #[test]
@@ -207,34 +207,66 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
         Kind::ExecutableHostMissingMainThreadLane,
         Kind::ExecutableHostMissingProtectedFrameAbi,
         Kind::ExecutableHostMissingRole,
-        Kind::RuntimeSelectionIncompatible,
-        Kind::RuntimeSelectionMissingRoleOwner,
-        Kind::RuntimeSelectionMissingCapabilityOwner,
-        Kind::RuntimeSelectionUnreadableArchive,
-        Kind::RuntimeSelectionArchiveDigestMismatch,
+        Kind::RuntimeSelectionIncompatible(native_product_detail(
+            "runtime_selection_runtime_identity_mismatch",
+        )),
+        Kind::RuntimeSelectionMissingRoleOwner(native_product_detail(
+            "runtime_selection_missing_role_owner",
+        )),
+        Kind::RuntimeSelectionMissingCapabilityOwner(native_product_detail(
+            "runtime_selection_missing_capability_owner",
+        )),
+        Kind::RuntimeSelectionUnreadableArchive(native_product_detail(
+            "runtime_selection_unreadable_archive",
+        )),
+        Kind::RuntimeSelectionInvalidArchive(native_product_detail(
+            "runtime_selection_invalid_archive",
+        )),
+        Kind::RuntimeSelectionArchiveDigestMismatch(native_product_detail(
+            "runtime_selection_archive_digest_mismatch",
+        )),
         Kind::StandardLibraryUnavailable,
         Kind::EmissionBackendDuplicateUnit,
         Kind::LinkTargetEmptyTriple,
+        Kind::CodegenBackendUnsupportedTarget,
+        Kind::CodegenBackendUnsupportedArtifact(native_product_detail(
+            "codegen_backend_unsupported_artifact",
+        )),
+        Kind::CodegenBackendInvalidConfiguration,
+        Kind::CodegenBackendResourceExhausted,
+        Kind::CodegenBackendLibraryFailure(native_product_detail(
+            "codegen_backend_library_failure",
+        )),
+        Kind::CodegenBackendToolFailure(native_product_detail("codegen_backend_tool_failure")),
+        Kind::CodegenBackendGeneratedModuleInvariant,
+        Kind::CodegenBackendRejectedModule(native_product_detail(
+            "codegen_backend_rejected_module",
+        )),
+        Kind::CodegenBackendArtifactConstruction(native_product_detail(
+            "codegen_backend_artifact_construction",
+        )),
         Kind::CodegenBackendUnavailable,
-        Kind::CodegenInvalidRequest,
-        Kind::CodegenMirUnavailable,
+        Kind::CodegenInvalidRequest(native_product_detail("codegen_invalid_request")),
+        Kind::CodegenMirUnavailable(native_product_detail("codegen_mir_unavailable")),
         Kind::CodegenMissingEntrypoint,
-        Kind::CodegenInvalidInstance,
-        Kind::CodegenInvalidUnit,
-        Kind::CodegenUnitMismatch,
-        Kind::CodegenInvalidHostMir,
-        Kind::CodegenInvalidLifecycleMir,
-        Kind::CodegenInvalidMappings,
-        Kind::CodegenMissingRuntimeRole,
-        Kind::CodegenOpenConstantTerm,
-        Kind::CodegenInvalidArrayLength,
-        Kind::CodegenRecursiveValueType,
-        Kind::CodegenUnresolvedType,
-        Kind::CodegenUnsizedTypeByValue,
-        Kind::CodegenInvalidAbiMapping,
-        Kind::CodegenUnsupportedType,
-        Kind::CodegenMissingHelperInstance,
-        Kind::CodegenLayoutOverflow,
+        Kind::CodegenInvalidInstance(native_product_detail("codegen_invalid_instance")),
+        Kind::CodegenInvalidUnit(native_product_detail("codegen_invalid_unit")),
+        Kind::CodegenUnitMismatch(native_product_detail("codegen_unit_mismatch")),
+        Kind::CodegenInvalidHostMir(native_product_detail("codegen_invalid_host_mir")),
+        Kind::CodegenInvalidLifecycleMir(native_product_detail("codegen_invalid_lifecycle_mir")),
+        Kind::CodegenInvalidMappings(native_product_detail("codegen_invalid_mappings")),
+        Kind::CodegenMissingRuntimeRole(native_product_detail("codegen_missing_runtime_role")),
+        Kind::CodegenOpenConstantTerm(native_product_detail("codegen_open_constant_term")),
+        Kind::CodegenInvalidArrayLength(native_product_detail("codegen_invalid_array_length")),
+        Kind::CodegenRecursiveValueType(native_product_detail("codegen_recursive_value_type")),
+        Kind::CodegenUnresolvedType(native_product_detail("codegen_unresolved_type")),
+        Kind::CodegenUnsizedTypeByValue(native_product_detail("codegen_unsized_type_by_value")),
+        Kind::CodegenInvalidAbiMapping(None),
+        Kind::CodegenUnsupportedType(native_product_detail("codegen_unsupported_type")),
+        Kind::CodegenMissingHelperInstance(native_product_detail(
+            "codegen_missing_helper_instance",
+        )),
+        Kind::CodegenLayoutOverflow(native_product_detail("codegen_layout_overflow")),
         Kind::CodegenInvalidSymbolName,
     ];
 
@@ -247,8 +279,14 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
     assert_eq!(unique.len(), failures.len());
 
     for key in keys {
-        assert!(!key.contains("fact"), "{key}");
-        assert!(!key.contains("query"), "{key}");
-        assert!(!key.contains("witness"), "{key}");
+        let components = key.split('_').collect::<BTreeSet<_>>();
+
+        for forbidden in ["fact", "query", "witness"] {
+            assert!(!components.contains(forbidden), "{key}");
+        }
     }
+}
+
+fn native_product_detail(reason: &'static str) -> DiagnosticNativeProductFailureDetail {
+    DiagnosticNativeProductFailureDetail::new(reason, [])
 }

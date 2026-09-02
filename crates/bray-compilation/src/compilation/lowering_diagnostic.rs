@@ -99,7 +99,7 @@ const fn source_construct(node: AnyBoundNodeId) -> DiagnosticSourceConstructKind
     }
 }
 
-const fn mir_unit_failure(error: &MirUnitBuildError) -> DiagnosticMirUnitBuildFailure {
+pub(crate) const fn mir_unit_failure(error: &MirUnitBuildError) -> DiagnosticMirUnitBuildFailure {
     match error {
         MirUnitBuildError::SourceOriginMismatch => {
             DiagnosticMirUnitBuildFailure::SourceOriginMismatch

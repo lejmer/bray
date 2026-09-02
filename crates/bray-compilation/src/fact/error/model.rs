@@ -208,10 +208,9 @@ mod tests {
 
     #[test]
     fn public_fact_errors_render_exact_lower_layer_causes() {
-        let codegen = FactQueryError::CodegenTarget(
-            bray_codegen::CodegenTargetBuildError::EmptyTriple,
-        )
-        .to_string();
+        let codegen =
+            FactQueryError::CodegenTarget(bray_codegen::CodegenTargetBuildError::EmptyTriple)
+                .to_string();
 
         let interface = FactQueryError::PackageInterface(Box::new(
             bray_package_interface::InterfaceValidationError::InvalidMagic {
@@ -227,9 +226,7 @@ mod tests {
 
     #[test]
     fn imported_query_failures_keep_rare_payloads_out_of_query_stack_frames() {
-        assert!(
-            std::mem::size_of::<ImportedQueryFailure>() <= 4 * std::mem::size_of::<usize>()
-        );
+        assert!(std::mem::size_of::<ImportedQueryFailure>() <= 4 * std::mem::size_of::<usize>());
     }
 
     #[test]
@@ -589,7 +586,9 @@ impl std::fmt::Display for FactQueryError {
             Self::InfrastructureFailure => {
                 formatter.write_str("fact evaluation encountered an infrastructure failure")
             }
-            Self::SymbolGraph(error) => write!(formatter, "symbol graph construction failed: {error}"),
+            Self::SymbolGraph(error) => {
+                write!(formatter, "symbol graph construction failed: {error}")
+            }
             Self::CodegenTarget(error) => {
                 write!(formatter, "native target construction failed: {error:?}")
             }

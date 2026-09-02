@@ -50,21 +50,28 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::ExecutableHostMissingProtectedFrameAbi
         | Kind::ExecutableHostMissingRole
         | Kind::EmissionBackendDuplicateUnit
-        | Kind::CodegenInvalidRequest
-        | Kind::CodegenInvalidInstance
-        | Kind::CodegenInvalidUnit
-        | Kind::CodegenUnitMismatch
-        | Kind::CodegenInvalidHostMir
-        | Kind::CodegenInvalidLifecycleMir
-        | Kind::CodegenInvalidMappings
-        | Kind::CodegenMissingRuntimeRole
-        | Kind::CodegenOpenConstantTerm
-        | Kind::CodegenInvalidArrayLength
-        | Kind::CodegenRecursiveValueType
-        | Kind::CodegenUnresolvedType
-        | Kind::CodegenUnsizedTypeByValue
-        | Kind::CodegenInvalidAbiMapping
-        | Kind::CodegenMissingHelperInstance
+        | Kind::CodegenBackendInvalidConfiguration
+        | Kind::CodegenBackendResourceExhausted
+        | Kind::CodegenBackendLibraryFailure(_)
+        | Kind::CodegenBackendToolFailure(_)
+        | Kind::CodegenBackendGeneratedModuleInvariant
+        | Kind::CodegenBackendRejectedModule(_)
+        | Kind::CodegenBackendArtifactConstruction(_)
+        | Kind::CodegenInvalidRequest(_)
+        | Kind::CodegenInvalidInstance(_)
+        | Kind::CodegenInvalidUnit(_)
+        | Kind::CodegenUnitMismatch(_)
+        | Kind::CodegenInvalidHostMir(_)
+        | Kind::CodegenInvalidLifecycleMir(_)
+        | Kind::CodegenInvalidMappings(_)
+        | Kind::CodegenMissingRuntimeRole(_)
+        | Kind::CodegenOpenConstantTerm(_)
+        | Kind::CodegenInvalidArrayLength(_)
+        | Kind::CodegenRecursiveValueType(_)
+        | Kind::CodegenUnresolvedType(_)
+        | Kind::CodegenUnsizedTypeByValue(_)
+        | Kind::CodegenInvalidAbiMapping(_)
+        | Kind::CodegenMissingHelperInstance(_)
         | Kind::CodegenInvalidSymbolName => true,
         Kind::CodegenBackendNotSelected
         | Kind::MissingProductRoot
@@ -78,18 +85,20 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::CodegenTargetEmptyTriple
         | Kind::CodegenTargetEmptyCpu
         | Kind::CodegenTargetEmptyFeature
-        | Kind::RuntimeSelectionIncompatible
-        | Kind::RuntimeSelectionMissingRoleOwner
-        | Kind::RuntimeSelectionMissingCapabilityOwner
-        | Kind::RuntimeSelectionUnreadableArchive
-        | Kind::RuntimeSelectionInvalidArchive
-        | Kind::RuntimeSelectionArchiveDigestMismatch
+        | Kind::RuntimeSelectionIncompatible(_)
+        | Kind::RuntimeSelectionMissingRoleOwner(_)
+        | Kind::RuntimeSelectionMissingCapabilityOwner(_)
+        | Kind::RuntimeSelectionUnreadableArchive(_)
+        | Kind::RuntimeSelectionInvalidArchive(_)
+        | Kind::RuntimeSelectionArchiveDigestMismatch(_)
         | Kind::StandardLibraryUnavailable
         | Kind::LinkTargetEmptyTriple
+        | Kind::CodegenBackendUnsupportedTarget
+        | Kind::CodegenBackendUnsupportedArtifact(_)
         | Kind::CodegenBackendUnavailable
-        | Kind::CodegenMirUnavailable
+        | Kind::CodegenMirUnavailable(_)
         | Kind::CodegenMissingEntrypoint
-        | Kind::CodegenUnsupportedType
-        | Kind::CodegenLayoutOverflow => false,
+        | Kind::CodegenUnsupportedType(_)
+        | Kind::CodegenLayoutOverflow(_) => false,
     }
 }

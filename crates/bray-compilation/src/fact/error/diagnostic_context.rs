@@ -3,17 +3,11 @@ use std::hash::Hash;
 use bray_base::StableDigestHasher;
 use bray_diagnostics::{DiagnosticFailureField, DiagnosticFailureValue};
 
-pub(crate) fn text_field(
-    name: &'static str,
-    value: impl Into<String>,
-) -> DiagnosticFailureField {
+pub(crate) fn text_field(name: &'static str, value: impl Into<String>) -> DiagnosticFailureField {
     DiagnosticFailureField::new(name, DiagnosticFailureValue::Text(value.into()))
 }
 
-pub(crate) fn identity_field(
-    name: &'static str,
-    value: &impl Hash,
-) -> DiagnosticFailureField {
+pub(crate) fn identity_field(name: &'static str, value: &impl Hash) -> DiagnosticFailureField {
     DiagnosticFailureField::new(name, DiagnosticFailureValue::Identity(identity(value)))
 }
 
@@ -36,9 +30,7 @@ pub(crate) fn boolean_field(name: &'static str, value: bool) -> DiagnosticFailur
     DiagnosticFailureField::new(name, DiagnosticFailureValue::Boolean(value))
 }
 
-pub(crate) const fn constant_value_kind(
-    kind: &bray_symbols::ConstantValueKind,
-) -> &'static str {
+pub(crate) const fn constant_value_kind(kind: &bray_symbols::ConstantValueKind) -> &'static str {
     use bray_symbols::ConstantValueKind as Kind;
 
     match kind {
@@ -93,7 +85,11 @@ pub(crate) fn push_symbol(
     symbol: bray_symbols::AnySymbolId,
 ) {
     context.push(text_field(kind_name, symbol.kind().as_str()));
-    context.push(count_field(identity_name, u64::from(symbol.symbol_id().raw())));
+
+    context.push(count_field(
+        identity_name,
+        u64::from(symbol.symbol_id().raw()),
+    ));
 }
 
 pub(crate) fn push_source_span(

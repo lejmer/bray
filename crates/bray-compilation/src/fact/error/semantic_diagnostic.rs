@@ -90,23 +90,17 @@ pub(crate) fn diagnostic_semantic_query_failure(
         SemanticQueryFailure::ImplementationAmbiguity { requirement, cause } => (
             "semantic_query_implementation",
             implementation_ambiguity_reason(cause),
-            vec![
-                identity_field("requirement", requirement),
-            ],
+            vec![identity_field("requirement", requirement)],
         ),
         SemanticQueryFailure::ImplementationCandidateSet { requirement, cause } => (
             "semantic_query_implementation",
             implementation_candidate_set_reason(cause),
-            vec![
-                identity_field("requirement", requirement),
-            ],
+            vec![identity_field("requirement", requirement)],
         ),
         SemanticQueryFailure::ImplementationCoherenceEvidence { requirement, cause } => (
             "semantic_query_implementation",
             implementation_coherence_reason(cause),
-            vec![
-                identity_field("requirement", requirement),
-            ],
+            vec![identity_field("requirement", requirement)],
         ),
         SemanticQueryFailure::ImplementationCandidate {
             requirement,
@@ -131,12 +125,12 @@ pub(crate) fn diagnostic_semantic_query_failure(
         SemanticQueryFailure::ImplementationParticipation { domain, cause } => (
             "semantic_query_implementation",
             implementation_participation_reason(cause),
-            vec![
-                identity_field("domain", domain),
-            ],
+            vec![identity_field("domain", domain)],
         ),
         SemanticQueryFailure::CheckedConstantTerms { unit, cause } => {
-            let bray_checker::CheckedConstantTermsBuildError::DuplicateOccurrence(occurrence) = cause;
+            let bray_checker::CheckedConstantTermsBuildError::DuplicateOccurrence(occurrence) =
+                cause;
+
             let mut context = vec![identity_field("occurrence", occurrence)];
 
             if let Some(unit) = unit {
@@ -152,12 +146,7 @@ pub(crate) fn diagnostic_semantic_query_failure(
         SemanticQueryFailure::TypeAssociatedSurface { subject, cause } => {
             let mut context = Vec::new();
 
-            push_symbol(
-                &mut context,
-                "subject_kind",
-                "subject",
-                subject.into_any(),
-            );
+            push_symbol(&mut context, "subject_kind", "subject", subject.into_any());
 
             match cause {
                 bray_symbols::TypeAssociatedSurfaceBuildError::DuplicateMember(member) => {
@@ -264,10 +253,7 @@ fn push_contract_violation(
             "semantic_query_missing_data"
         }
         Violation::UnexpectedSymbolKind { expected, actual } => {
-            context.push(text_field(
-                "expected",
-                semantic_symbol_category(*expected),
-            ));
+            context.push(text_field("expected", semantic_symbol_category(*expected)));
 
             context.push(text_field("actual", actual.as_str()));
 
@@ -362,12 +348,7 @@ fn push_contract_violation(
             "semantic_query_count_overflow"
         }
         Violation::QueryStackMismatch { expected, actual } => {
-            push_symbol(
-                context,
-                "expected_kind",
-                "expected",
-                *expected,
-            );
+            push_symbol(context, "expected_kind", "expected", *expected);
 
             push_optional_symbol(context, "actual_kind", "actual", *actual);
 
@@ -668,13 +649,13 @@ const fn implementation_candidate_reason(
     use bray_symbols::ImplementationCandidateError as Error;
 
     match cause {
-        Error::MissingCoherenceParticipant => "implementation_candidate_missing_coherence_participant",
+        Error::MissingCoherenceParticipant => {
+            "implementation_candidate_missing_coherence_participant"
+        }
         Error::ConflictingConstraintOrdinal => {
             "implementation_candidate_conflicting_constraint_ordinal"
         }
-        Error::ConflictingTargetProperty => {
-            "implementation_candidate_conflicting_target_property"
-        }
+        Error::ConflictingTargetProperty => "implementation_candidate_conflicting_target_property",
     }
 }
 
@@ -811,17 +792,30 @@ mod tests {
         assert_eq!(diagnostic.category(), "semantic_query_contract_violation");
         assert_eq!(diagnostic.reason(), "semantic_query_count_mismatch");
 
-        assert!(diagnostic.context().contains(&bray_diagnostics::DiagnosticFailureField::new(
-            "expected",
-            DiagnosticFailureValue::Natural("3".to_owned()),
-        )));
+        assert!(
+            diagnostic
+                .context()
+                .contains(&bray_diagnostics::DiagnosticFailureField::new(
+                    "expected",
+                    DiagnosticFailureValue::Natural("3".to_owned()),
+                ))
+        );
 
-        assert!(diagnostic.context().contains(&bray_diagnostics::DiagnosticFailureField::new(
-            "actual",
-            DiagnosticFailureValue::Natural("4".to_owned()),
-        )));
+        assert!(
+            diagnostic
+                .context()
+                .contains(&bray_diagnostics::DiagnosticFailureField::new(
+                    "actual",
+                    DiagnosticFailureValue::Natural("4".to_owned()),
+                ))
+        );
 
-        assert!(!diagnostic.context().iter().any(|field| field.name() == "cause"));
+        assert!(
+            !diagnostic
+                .context()
+                .iter()
+                .any(|field| field.name() == "cause")
+        );
     }
 
     #[test]
@@ -840,10 +834,14 @@ mod tests {
 
         assert_eq!(callable.reason(), "semantic_value_unknown_id");
 
-        assert!(callable.context().contains(&bray_diagnostics::DiagnosticFailureField::new(
-            "value_kind",
-            DiagnosticFailureValue::Text("type".to_owned()),
-        )));
+        assert!(
+            callable
+                .context()
+                .contains(&bray_diagnostics::DiagnosticFailureField::new(
+                    "value_kind",
+                    DiagnosticFailureValue::Text("type".to_owned()),
+                ))
+        );
 
         let implementation = SemanticQueryFailure::ImplementationMatch {
             implementation: None,
@@ -863,18 +861,22 @@ mod tests {
             "generic_substitution_argument_count_mismatch"
         );
 
-        assert!(implementation.context().contains(
-            &bray_diagnostics::DiagnosticFailureField::new(
-                "parameter_count",
-                DiagnosticFailureValue::Natural("2".to_owned()),
-            )
-        ));
+        assert!(
+            implementation
+                .context()
+                .contains(&bray_diagnostics::DiagnosticFailureField::new(
+                    "parameter_count",
+                    DiagnosticFailureValue::Natural("2".to_owned()),
+                ))
+        );
 
-        assert!(implementation.context().contains(
-            &bray_diagnostics::DiagnosticFailureField::new(
-                "argument_count",
-                DiagnosticFailureValue::Natural("3".to_owned()),
-            )
-        ));
+        assert!(
+            implementation
+                .context()
+                .contains(&bray_diagnostics::DiagnosticFailureField::new(
+                    "argument_count",
+                    DiagnosticFailureValue::Natural("3".to_owned()),
+                ))
+        );
     }
 }

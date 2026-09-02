@@ -1,0 +1,383 @@
+use bray_codegen::{CodegenInstanceBuildError, CodegenUnitBuildError};
+use bray_diagnostics::{
+    DiagnosticFailureField, DiagnosticFailureValue, DiagnosticNativeProductFailureDetail,
+    DiagnosticNativeProductFailureKind,
+};
+
+use super::context::{
+    count_failure_field, failure_detail, identity_failure_detail, text_failure_field,
+};
+use super::query::fact_query_failure_kind;
+
+pub(in crate::compilation) fn codegen_preparation_failure_kind(
+    error: &crate::compilation::CodegenPreparationError,
+) -> Option<DiagnosticNativeProductFailureKind> {
+    use crate::compilation::CodegenPreparationError;
+    use DiagnosticNativeProductFailureKind as Kind;
+
+    Some(match error {
+        CodegenPreparationError::CodegenUnavailable => Kind::CodegenBackendUnavailable,
+        CodegenPreparationError::InvalidRequest(cause) => {
+            Kind::CodegenInvalidRequest(failure_detail(codegen_request_failure(*cause), []))
+        }
+        CodegenPreparationError::MirUnavailable(unit) => {
+            Kind::CodegenMirUnavailable(failure_detail(
+                "codegen_mir_unavailable",
+                [crate::fact::diagnostic_context::identity_field(
+                    "mir_unit", unit,
+                )],
+            ))
+        }
+        CodegenPreparationError::MissingEntrypoint => Kind::CodegenMissingEntrypoint,
+        CodegenPreparationError::InvalidInstance(cause) => {
+            Kind::CodegenInvalidInstance(failure_detail(codegen_instance_failure(*cause), []))
+        }
+        CodegenPreparationError::InvalidUnit(cause) => {
+            Kind::CodegenInvalidUnit(failure_detail(codegen_unit_preparation_failure(*cause), []))
+        }
+        CodegenPreparationError::UnitMismatch(unit) => Kind::CodegenUnitMismatch(failure_detail(
+            "codegen_unit_mismatch",
+            [crate::fact::diagnostic_context::identity_field(
+                "codegen_unit",
+                unit,
+            )],
+        )),
+        CodegenPreparationError::InvalidHostMir(cause) => {
+            Kind::CodegenInvalidHostMir(mir_unit_failure_detail("codegen_invalid_host_mir", *cause))
+        }
+        CodegenPreparationError::InvalidGeneratedLifecycleMir(cause) => {
+            Kind::CodegenInvalidLifecycleMir(mir_unit_failure_detail(
+                "codegen_invalid_lifecycle_mir",
+                *cause,
+            ))
+        }
+        CodegenPreparationError::InvalidMappings(cause) => {
+            Kind::CodegenInvalidMappings(failure_detail(codegen_mappings_failure(*cause), []))
+        }
+        CodegenPreparationError::MissingRuntimeRole(role) => {
+            Kind::CodegenMissingRuntimeRole(failure_detail(
+                "codegen_missing_runtime_role",
+                [text_failure_field("role", role.as_str())],
+            ))
+        }
+        CodegenPreparationError::InvalidRuntimeRoleSourceBinding {
+            role,
+            expected,
+            actual,
+        } => Kind::CodegenInvalidAbiMapping(Some(runtime_role_signature_failure_detail(
+            *role, expected, actual,
+        ))),
+        CodegenPreparationError::OpenConstantTerm(term) => Kind::CodegenOpenConstantTerm(
+            identity_failure_detail("codegen_open_constant_term", "constant_term", term),
+        ),
+        CodegenPreparationError::InvalidArrayLength(term) => Kind::CodegenInvalidArrayLength(
+            identity_failure_detail("codegen_invalid_array_length", "constant_term", term),
+        ),
+        CodegenPreparationError::RecursiveValueType(ty) => Kind::CodegenRecursiveValueType(
+            identity_failure_detail("codegen_recursive_value_type", "semantic_type", ty),
+        ),
+        CodegenPreparationError::UnresolvedType(ty) => Kind::CodegenUnresolvedType(
+            identity_failure_detail("codegen_unresolved_type", "semantic_type", ty),
+        ),
+        CodegenPreparationError::UnsizedTypeByValue(ty) => Kind::CodegenUnsizedTypeByValue(
+            identity_failure_detail("codegen_unsized_type_by_value", "semantic_type", ty),
+        ),
+        CodegenPreparationError::InvalidAbiMapping => Kind::CodegenInvalidAbiMapping(None),
+        CodegenPreparationError::UnsupportedType(ty) => Kind::CodegenUnsupportedType(
+            identity_failure_detail("codegen_unsupported_type", "semantic_type", ty),
+        ),
+        CodegenPreparationError::MissingHelperInstance(helper) => {
+            Kind::CodegenMissingHelperInstance(failure_detail(
+                "codegen_missing_helper_instance",
+                [
+                    text_failure_field("helper_kind", mir_helper_kind(helper)),
+                    crate::fact::diagnostic_context::identity_field("helper", helper),
+                ],
+            ))
+        }
+        CodegenPreparationError::Diagnostics(_) => return None,
+        CodegenPreparationError::LayoutOverflow(ty) => Kind::CodegenLayoutOverflow(
+            identity_failure_detail("codegen_layout_overflow", "semantic_type", ty),
+        ),
+        CodegenPreparationError::InvalidSymbolName => Kind::CodegenInvalidSymbolName,
+        CodegenPreparationError::Query(error) => fact_query_failure_kind(error)?,
+    })
+}
+
+const fn codegen_request_failure(error: bray_codegen::CodegenRequestBuildError) -> &'static str {
+    use bray_codegen::CodegenRequestBuildError as Error;
+
+    match error {
+        Error::ArtifactUnitMismatch => "codegen_request_artifact_unit_mismatch",
+        Error::MappingUnitMismatch => "codegen_request_mapping_unit_mismatch",
+        Error::MappingTargetMismatch => "codegen_request_mapping_target_mismatch",
+        Error::DebugInformationMismatch => "codegen_request_debug_information_mismatch",
+        Error::DebugMappingCoverageMismatch => "codegen_request_debug_mapping_coverage_mismatch",
+        Error::TargetMismatch => "codegen_request_target_mismatch",
+        Error::RuntimeContractMismatch => "codegen_request_runtime_contract_mismatch",
+    }
+}
+
+const fn codegen_instance_failure(error: CodegenInstanceBuildError) -> &'static str {
+    match error {
+        CodegenInstanceBuildError::TemplateMismatch => "codegen_instance_template_mismatch",
+        CodegenInstanceBuildError::TargetMismatch => "codegen_instance_target_mismatch",
+        CodegenInstanceBuildError::DependencyTargetMismatch => {
+            "codegen_instance_dependency_target_mismatch"
+        }
+    }
+}
+
+const fn codegen_unit_preparation_failure(error: CodegenUnitBuildError) -> &'static str {
+    match error {
+        CodegenUnitBuildError::Empty => "codegen_unit_empty",
+        CodegenUnitBuildError::DuplicateInstance => "codegen_unit_duplicate_instance",
+        CodegenUnitBuildError::MissingCompatibility => "codegen_unit_missing_compatibility",
+        CodegenUnitBuildError::TargetMismatch => "codegen_unit_target_mismatch",
+        CodegenUnitBuildError::WorkBoundExceeded => "codegen_unit_work_bound_exceeded",
+        CodegenUnitBuildError::RecipeMismatch => "codegen_unit_recipe_mismatch",
+    }
+}
+
+const fn codegen_mappings_failure(error: bray_codegen::CodegenMappingsBuildError) -> &'static str {
+    use bray_codegen::CodegenMappingsBuildError as Error;
+
+    match error {
+        Error::TargetMismatch => "codegen_mappings_target_mismatch",
+        Error::DuplicateType => "codegen_mappings_duplicate_type",
+        Error::DuplicateInstanceType => "codegen_mappings_duplicate_instance_type",
+        Error::InvalidInstanceType => "codegen_mappings_invalid_instance_type",
+        Error::InvalidTypeLayout => "codegen_mappings_invalid_type_layout",
+        Error::InvalidAbiTypeLayout => "codegen_mappings_invalid_abi_type_layout",
+        Error::DuplicateSymbol => "codegen_mappings_duplicate_symbol",
+        Error::DuplicateConstant => "codegen_mappings_duplicate_constant",
+        Error::DuplicateConstantTerm => "codegen_mappings_duplicate_constant_term",
+        Error::DuplicateCallable => "codegen_mappings_duplicate_callable",
+        Error::DuplicateOperation => "codegen_mappings_duplicate_operation",
+        Error::DuplicateStaticStorage => "codegen_mappings_duplicate_static_storage",
+        Error::DuplicateNativeStaticStorage => "codegen_mappings_duplicate_native_static_storage",
+        Error::StaticStorageCoverageMismatch => "codegen_mappings_static_storage_coverage_mismatch",
+        Error::InvalidStaticStorage => "codegen_mappings_invalid_static_storage",
+        Error::NativeStaticStorageCoverageMismatch => {
+            "codegen_mappings_native_static_storage_coverage_mismatch"
+        }
+        Error::InvalidNativeStaticStorage => "codegen_mappings_invalid_native_static_storage",
+        Error::DuplicateTerminator => "codegen_mappings_duplicate_terminator",
+        Error::DuplicateBinarySymbolName => "codegen_mappings_duplicate_binary_symbol_name",
+        Error::DuplicateDebugLocation => "codegen_mappings_duplicate_debug_location",
+        Error::UnsupportedLinkage => "codegen_mappings_unsupported_linkage",
+        Error::InvalidNativeEntry => "codegen_mappings_invalid_native_entry",
+        Error::InstanceSymbolCoverageMismatch => {
+            "codegen_mappings_instance_symbol_coverage_mismatch"
+        }
+        Error::CallableCoverageMismatch => "codegen_mappings_callable_coverage_mismatch",
+        Error::OperationCoverageMismatch => "codegen_mappings_operation_coverage_mismatch",
+        Error::TerminatorCoverageMismatch => "codegen_mappings_terminator_coverage_mismatch",
+        Error::ConstantCoverageMismatch => "codegen_mappings_constant_coverage_mismatch",
+        Error::InvalidConstantRepresentation => "codegen_mappings_invalid_constant_representation",
+        Error::RuntimeSymbolCoverageMismatch => "codegen_mappings_runtime_symbol_coverage_mismatch",
+        Error::FrameSymbolCoverageMismatch => "codegen_mappings_frame_symbol_coverage_mismatch",
+        Error::TypeCoverageMismatch => "codegen_mappings_type_coverage_mismatch",
+    }
+}
+
+fn runtime_role_signature_failure_detail(
+    role: bray_runtime_interface::RuntimeAbiRole,
+    expected: &bray_codegen::CodegenCallableSignature,
+    actual: &bray_codegen::CodegenCallableSignature,
+) -> DiagnosticNativeProductFailureDetail {
+    let expected_parameters = expected
+        .parameters()
+        .iter()
+        .map(crate::fact::diagnostic_context::identity)
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+
+    let actual_parameters = actual
+        .parameters()
+        .iter()
+        .map(crate::fact::diagnostic_context::identity)
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+
+    failure_detail(
+        "codegen_invalid_runtime_role_source_binding",
+        [
+            text_failure_field("role", role.as_str()),
+            text_failure_field(
+                "expected_abi",
+                bray_symbols::diagnostic_callable_abi(expected.abi()).as_str(),
+            ),
+            text_failure_field(
+                "actual_abi",
+                bray_symbols::diagnostic_callable_abi(actual.abi()).as_str(),
+            ),
+            DiagnosticFailureField::new(
+                "expected_variadic",
+                DiagnosticFailureValue::Boolean(expected.is_variadic()),
+            ),
+            DiagnosticFailureField::new(
+                "actual_variadic",
+                DiagnosticFailureValue::Boolean(actual.is_variadic()),
+            ),
+            DiagnosticFailureField::new(
+                "expected_panic_report_context",
+                DiagnosticFailureValue::Boolean(expected.has_panic_report_context()),
+            ),
+            DiagnosticFailureField::new(
+                "actual_panic_report_context",
+                DiagnosticFailureValue::Boolean(actual.has_panic_report_context()),
+            ),
+            DiagnosticFailureField::new(
+                "expected_parameters",
+                DiagnosticFailureValue::IdentityList(expected_parameters),
+            ),
+            DiagnosticFailureField::new(
+                "actual_parameters",
+                DiagnosticFailureValue::IdentityList(actual_parameters),
+            ),
+            crate::fact::diagnostic_context::identity_field("expected_result", expected.result()),
+            crate::fact::diagnostic_context::identity_field("actual_result", actual.result()),
+        ],
+    )
+}
+
+fn mir_unit_failure_detail(
+    reason: &'static str,
+    error: bray_ir::MirUnitBuildError,
+) -> DiagnosticNativeProductFailureDetail {
+    use bray_ir::MirUnitBuildError as Error;
+
+    let mut context = vec![text_failure_field(
+        "cause",
+        crate::compilation::lowering_diagnostic::mir_unit_failure(&error).as_str(),
+    )];
+
+    match error {
+        Error::ForeignBlock { expected, actual } => {
+            context.push(count_failure_field("expected_unit", expected.raw()));
+            context.push(count_failure_field("actual_unit", actual.raw()));
+        }
+        Error::ForeignOperation(id)
+        | Error::MissingOperation(id)
+        | Error::MissingOperationResult(id)
+        | Error::UnexpectedOperationResult(id)
+        | Error::OperationResultTypeMismatch(id)
+        | Error::InvalidAggregateOperation(id)
+        | Error::InvalidMemoryOperation(id)
+        | Error::InvalidAnonymousCallable(id)
+        | Error::InvalidConstructionInput(id)
+        | Error::InvalidCall(id)
+        | Error::InvalidHostOperation(id)
+        | Error::InvalidOperationBlock(id) => {
+            push_mir_local_identity(&mut context, "operation", id.unit(), id.slot())
+        }
+        Error::ForeignStorage(id)
+        | Error::MissingStorage(id)
+        | Error::StorageKindMismatch(id)
+        | Error::StorageTypeMismatch(id) => {
+            push_mir_local_identity(&mut context, "storage", id.unit(), id.slot());
+        }
+        Error::ForeignValue(id) | Error::MissingValue(id) | Error::ValueDoesNotDominateUse(id) => {
+            push_mir_local_identity(&mut context, "value", id.unit(), id.slot());
+        }
+        Error::MissingBlock(id)
+        | Error::DuplicateTerminator(id)
+        | Error::MissingTerminator(id)
+        | Error::InvalidInlineAssemblyTerminator(id)
+        | Error::InvalidSuspensionPayload(id)
+        | Error::InvalidCallPanicCheck(id)
+        | Error::EdgeArgumentCountMismatch(id)
+        | Error::EdgeArgumentTypeMismatch(id)
+        | Error::DuplicateSwitchCase(id)
+        | Error::CleanupPhaseOrderViolation(id)
+        | Error::InvalidFrameStateEntry(id) => {
+            push_mir_local_identity(&mut context, "block", id.unit(), id.slot());
+        }
+        Error::CleanupTargetMismatch { phase, target } => {
+            context.push(text_failure_field(
+                "cleanup_phase",
+                mir_cleanup_phase(phase),
+            ));
+
+            push_mir_local_identity(&mut context, "target_block", target.unit(), target.slot());
+        }
+        Error::RuntimeRoleMismatch { expected, actual } => {
+            context.push(text_failure_field("expected_role", expected.as_str()));
+            context.push(text_failure_field("actual_role", actual.as_str()));
+        }
+        Error::SourceOriginMismatch
+        | Error::IdentityCapacityExceeded
+        | Error::InvalidHostSequence
+        | Error::RuntimeAbiVersionMismatch
+        | Error::ProtectedFrameMismatch
+        | Error::MissingFrameDescriptor
+        | Error::DuplicateFrameDescriptor
+        | Error::UnexpectedFrameDescriptor
+        | Error::MissingFrameState => {}
+    }
+
+    failure_detail(reason, context)
+}
+
+fn push_mir_local_identity(
+    context: &mut Vec<DiagnosticFailureField>,
+    prefix: &'static str,
+    unit: bray_ir::MirUnitId,
+    slot: u32,
+) {
+    let unit_name = match prefix {
+        "operation" => "operation_unit",
+        "storage" => "storage_unit",
+        "value" => "value_unit",
+        "block" => "block_unit",
+        "target_block" => "target_block_unit",
+        _ => "mir_unit",
+    };
+
+    let slot_name = match prefix {
+        "operation" => "operation_slot",
+        "storage" => "storage_slot",
+        "value" => "value_slot",
+        "block" => "block_slot",
+        "target_block" => "target_block_slot",
+        _ => "mir_slot",
+    };
+
+    context.push(count_failure_field(unit_name, unit.raw()));
+    context.push(count_failure_field(slot_name, slot));
+}
+
+const fn mir_cleanup_phase(phase: bray_ir::MirCleanupPhase) -> &'static str {
+    match phase {
+        bray_ir::MirCleanupPhase::TaskCancellation => "task_cancellation",
+        bray_ir::MirCleanupPhase::LifecycleResolution => "lifecycle_resolution",
+    }
+}
+
+const fn mir_helper_kind(helper: &bray_ir::MirHelperReference) -> &'static str {
+    use bray_ir::MirHelperReference as Helper;
+
+    match helper {
+        Helper::AnonymousCallable(_) => "anonymous_callable",
+        Helper::DeclaredCallable(_) => "declared_callable",
+        Helper::CallableDefault(_) => "callable_default",
+        Helper::ConstructionDefault(_) => "construction_default",
+        Helper::TypeForm(_) => "type_form",
+        Helper::Conversion(_) => "conversion",
+        Helper::BeginGenerator => "begin_generator",
+        Helper::PushGenerator => "push_generator",
+        Helper::FinishGenerator => "finish_generator",
+        Helper::PanicReport => "panic_report",
+        Helper::StandardLibrary(_) => "standard_library",
+        Helper::Finalize(_) => "finalize",
+        Helper::StaticFinalize(_) => "static_finalize",
+        Helper::Destroy(_) => "destroy",
+        Helper::Cleanup { .. } => "cleanup",
+        Helper::CreateFrame(_) => "create_frame",
+        Helper::MoveInactiveFrame(_) => "move_inactive_frame",
+        Helper::ComposeAwaitedFrame(_) => "compose_awaited_frame",
+        Helper::CommitAwaitedCompletion(_) => "commit_awaited_completion",
+        Helper::DestroyTerminalTask => "destroy_terminal_task",
+    }
+}

@@ -170,8 +170,19 @@ fn push_target_properties(
 
     let operations = properties.operations();
 
-    push_boolean_property(context, &names, "operation.raw_memory", operations.raw_memory());
-    push_boolean_property(context, &names, "operation.allocation", operations.allocation());
+    push_boolean_property(
+        context,
+        &names,
+        "operation.raw_memory",
+        operations.raw_memory(),
+    );
+
+    push_boolean_property(
+        context,
+        &names,
+        "operation.allocation",
+        operations.allocation(),
+    );
 
     push_boolean_property(
         context,
@@ -182,8 +193,19 @@ fn push_target_properties(
 
     let symbols = properties.native_symbols();
 
-    push_boolean_property(context, &names, "native_symbol.ordinals", symbols.ordinals());
-    push_boolean_property(context, &names, "native_symbol.versions", symbols.versions());
+    push_boolean_property(
+        context,
+        &names,
+        "native_symbol.ordinals",
+        symbols.ordinals(),
+    );
+
+    push_boolean_property(
+        context,
+        &names,
+        "native_symbol.versions",
+        symbols.versions(),
+    );
 
     push_boolean_property(
         context,
@@ -302,12 +324,7 @@ fn push_abi_properties(
         ("transparent_layout", contract.transparent_layout()),
         ("variadic", contract.variadic()),
     ] {
-        push_boolean_property(
-            context,
-            names,
-            format!("{abi_name}.{property_name}"),
-            value,
-        );
+        push_boolean_property(context, names, format!("{abi_name}.{property_name}"), value);
     }
 
     push_natural_property(
@@ -429,9 +446,10 @@ mod tests {
         let changed = bray_target::TargetProfile::try_new(
             baseline.identity().clone(),
             baseline.machine().clone(),
-            baseline.properties().clone().with_operations(
-                bray_target::TargetOperationSupport::new(true, false, false),
-            ),
+            baseline
+                .properties()
+                .clone()
+                .with_operations(bray_target::TargetOperationSupport::new(true, false, false)),
         )
         .unwrap_or_else(|error| panic!("changed test target profile must be valid: {error:?}"));
 
@@ -447,11 +465,7 @@ mod tests {
             &baseline,
         );
 
-        push_mir_target_contract(
-            &mut changed_fields,
-            TargetContractSide::Expected,
-            &changed,
-        );
+        push_mir_target_contract(&mut changed_fields, TargetContractSide::Expected, &changed);
 
         assert_eq!(
             property_value(&baseline_fields, "operation.raw_memory"),

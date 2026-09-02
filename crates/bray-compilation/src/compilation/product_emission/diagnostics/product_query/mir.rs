@@ -27,7 +27,10 @@ pub(super) fn push_mir_helper(
             }
         },
         Helper::DeclaredCallable(reference) => {
-            fields.push(identity_field("helper_callable_instance", &reference.instance()));
+            fields.push(identity_field(
+                "helper_callable_instance",
+                &reference.instance(),
+            ));
         }
         Helper::CallableDefault(provider) => {
             fields.push(identity_field("helper_default_provider", provider));
@@ -53,7 +56,11 @@ pub(super) fn push_mir_helper(
             fields.push(identity_field("helper_type", ty));
         }
         Helper::Cleanup { phase, ty } => {
-            fields.push(text_field("helper_cleanup_phase", mir_cleanup_phase(*phase)));
+            fields.push(text_field(
+                "helper_cleanup_phase",
+                mir_cleanup_phase(*phase),
+            ));
+
             fields.push(identity_field("helper_type", ty));
         }
         Helper::CreateFrame(frame)

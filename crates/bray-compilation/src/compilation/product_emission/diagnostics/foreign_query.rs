@@ -13,10 +13,9 @@ pub(super) fn diagnostic_foreign_query_failure(
     use ForeignQueryFailure as Failure;
 
     let (reason, context) = match error.cause() {
-        Failure::Missing { context, data } => (
-            "foreign_query_missing",
-            context_with_data(context, *data),
-        ),
+        Failure::Missing { context, data } => {
+            ("foreign_query_missing", context_with_data(context, *data))
+        }
         Failure::CountMismatch {
             context,
             data,
@@ -98,10 +97,7 @@ pub(super) fn diagnostic_foreign_query_failure(
             ];
 
             if let bray_symbols::CallableSignatureTemplateError::SemanticValue(cause) = cause {
-                crate::fact::push_semantic_value_failure(
-                    &mut fields,
-                    *cause,
-                );
+                crate::fact::push_semantic_value_failure(&mut fields, *cause);
             }
 
             ("foreign_query_callable_signature", fields)

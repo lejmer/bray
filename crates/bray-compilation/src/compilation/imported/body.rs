@@ -204,10 +204,9 @@ impl super::super::Compilation {
         };
 
         let Some(surface) = loaded.surface() else {
-            return Err(ImportedQueryFailure::MissingLoadedSurface(
-                symbol_address.interface(),
-            )
-            .into());
+            return Err(
+                ImportedQueryFailure::MissingLoadedSurface(symbol_address.interface()).into(),
+            );
         };
 
         let configuration = self
@@ -264,11 +263,9 @@ impl super::super::Compilation {
             return Ok(DiagnosticResult::new(None, graph.diagnostics().clone()));
         };
 
-        let interfaces = self
-            .loaded_interface_views(cancellation)?
-            .ok_or(ImportedQueryFailure::MissingLoadedInterfaceViews(
-                symbol_address.interface(),
-            ))?;
+        let interfaces = self.loaded_interface_views(cancellation)?.ok_or(
+            ImportedQueryFailure::MissingLoadedInterfaceViews(symbol_address.interface()),
+        )?;
 
         let current = interfaces
             .iter()
@@ -404,11 +401,9 @@ impl super::super::Compilation {
         address: ImportedSemanticAddress,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<Option<Arc<CheckedTemplate>>>, FactQueryError> {
-        let input = self
-            .dependency_interface_input(address.interface())
-            .ok_or(ImportedQueryFailure::MissingDependencyInput(
-                address.interface(),
-            ))?;
+        let input = self.dependency_interface_input(address.interface()).ok_or(
+            ImportedQueryFailure::MissingDependencyInput(address.interface()),
+        )?;
 
         let loaded = self
             .loaded_dependency_interface_with_cancellation(address.interface(), cancellation)?
@@ -491,11 +486,9 @@ impl super::super::Compilation {
 
         cancellation.check()?;
 
-        let interfaces = self
-            .loaded_interface_views(cancellation)?
-            .ok_or(ImportedQueryFailure::MissingLoadedInterfaceViews(
-                address.interface(),
-            ))?;
+        let interfaces = self.loaded_interface_views(cancellation)?.ok_or(
+            ImportedQueryFailure::MissingLoadedInterfaceViews(address.interface()),
+        )?;
 
         let Some(current) = interfaces
             .iter()

@@ -9,9 +9,7 @@ use super::diagnostic_context::{
     count_field, identity, identity_field, natural_field, signed_field, text_field,
 };
 
-use crate::fact::{
-    CompilationFactKey, CompilationInputKey, FactRuntimeError, FactRuntimeFailure,
-};
+use crate::fact::{CompilationFactKey, CompilationInputKey, FactRuntimeError, FactRuntimeFailure};
 
 pub(crate) fn diagnostic_fact_runtime_failure(
     error: &FactRuntimeError,
@@ -204,9 +202,7 @@ pub(crate) fn diagnostic_fact_runtime_failure(
                 text_field("actual", cancellation_state_key(*actual)),
             ],
         ),
-        Failure::RecursiveCancellationInterest => {
-            ("recursive_cancellation_interest", Vec::new())
-        }
+        Failure::RecursiveCancellationInterest => ("recursive_cancellation_interest", Vec::new()),
         Failure::InvalidFrozenFact { fact } => {
             let mut context = Vec::new();
             push_fact(&mut context, "fact_kind", "fact_identity", fact);
@@ -331,10 +327,7 @@ fn missing_cycle_context(
         active.iter().map(compilation_fact_kind),
     ));
 
-    context.push(identity_list_field(
-        "active_fact_identities",
-        active.iter(),
-    ));
+    context.push(identity_list_field("active_fact_identities", active.iter()));
 
     ("missing_cycle", context)
 }
@@ -351,12 +344,7 @@ fn push_publication_state(
             context.push(text_field("actual_state", "computing"));
             context.push(task_field("actual_task", *task));
 
-            push_fact(
-                context,
-                "actual_fact_kind",
-                "actual_fact_identity",
-                fact,
-            );
+            push_fact(context, "actual_fact_kind", "actual_fact_identity", fact);
         }
         State::Ready { fact } => {
             context.push(text_field("actual_state", "ready"));
@@ -427,10 +415,7 @@ fn identity_list_field<'a, T: Hash + 'a>(
     )
 }
 
-fn task_field(
-    name: &'static str,
-    value: crate::fact::FactTaskIdentity,
-) -> DiagnosticFailureField {
+fn task_field(name: &'static str, value: crate::fact::FactTaskIdentity) -> DiagnosticFailureField {
     count_field(name, value.0)
 }
 
@@ -454,9 +439,7 @@ fn push_optional_natural(
     }
 }
 
-fn synchronization_component_key(
-    value: crate::fact::SynchronizationComponent,
-) -> &'static str {
+fn synchronization_component_key(value: crate::fact::SynchronizationComponent) -> &'static str {
     use crate::fact::SynchronizationComponent as Value;
 
     match value {
@@ -675,7 +658,12 @@ mod tests {
         let diagnostic = diagnostic_fact_runtime_failure(&error);
 
         assert_eq!(diagnostic.reason(), "publication_mismatch");
-        assert_eq!(field_text(&diagnostic, "requested_fact_kind"), "syntax_tree");
+
+        assert_eq!(
+            field_text(&diagnostic, "requested_fact_kind"),
+            "syntax_tree"
+        );
+
         assert_eq!(field_count(&diagnostic, "requested_task"), 17);
         assert_eq!(field_text(&diagnostic, "actual_state"), "computing");
         assert_eq!(field_text(&diagnostic, "actual_fact_kind"), "symbol_graph");
@@ -745,10 +733,7 @@ mod tests {
         value
     }
 
-    fn field_count(
-        diagnostic: &bray_diagnostics::DiagnosticFactRuntimeFailure,
-        name: &str,
-    ) -> u64 {
+    fn field_count(diagnostic: &bray_diagnostics::DiagnosticFactRuntimeFailure, name: &str) -> u64 {
         let DiagnosticFailureValue::Count(value) = field(diagnostic, name) else {
             panic!("diagnostic field {name} must contain a count")
         };

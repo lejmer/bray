@@ -715,15 +715,12 @@ impl Compilation {
             };
 
             // Stable symbol keys are Arc-backed and retained by each bound-unit key.
-            let owner = symbols
-                .symbol_key(symbol)
-                .cloned()
-                .ok_or_else(|| {
-                    FactQueryError::from(SemanticQueryFailure::contract(
-                        SemanticQueryContext::Symbol(symbol),
-                        SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
-                    ))
-                })?;
+            let owner = symbols.symbol_key(symbol).cloned().ok_or_else(|| {
+                FactQueryError::from(SemanticQueryFailure::contract(
+                    SemanticQueryContext::Symbol(symbol),
+                    SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
+                ))
+            })?;
 
             self.push_primary_unit_key(&mut keys, declaration, owner.clone(), &syntax_index)?;
 
@@ -832,25 +829,20 @@ impl Compilation {
             return Ok(());
         };
 
-        let provider = symbols
-            .runtime_default_provider(symbol)
-            .ok_or_else(|| {
-                FactQueryError::from(SemanticQueryFailure::contract(
-                    SemanticQueryContext::Symbol(symbol),
-                    SemanticQueryViolation::Missing(SemanticDataKind::RuntimeDefault),
-                ))
-            })?;
+        let provider = symbols.runtime_default_provider(symbol).ok_or_else(|| {
+            FactQueryError::from(SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(symbol),
+                SemanticQueryViolation::Missing(SemanticDataKind::RuntimeDefault),
+            ))
+        })?;
 
         // Synthesized provider keys are Arc-backed and retained by the runtime-default unit key.
-        let provider = symbols
-            .symbol_key(provider)
-            .cloned()
-            .ok_or_else(|| {
-                FactQueryError::from(SemanticQueryFailure::contract(
-                    SemanticQueryContext::Symbol(provider),
-                    SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
-                ))
-            })?;
+        let provider = symbols.symbol_key(provider).cloned().ok_or_else(|| {
+            FactQueryError::from(SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(provider),
+                SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
+            ))
+        })?;
 
         let context = SemanticQueryContext::SymbolKey(provider.clone());
 
@@ -901,18 +893,15 @@ impl Compilation {
                 continue;
             };
 
-            let expression = unit
-                .view()
-                .expression(entry.expression())
-                .ok_or_else(|| {
-                    FactQueryError::from(SemanticQueryFailure::contract(
-                        SemanticQueryContext::BoundExpression {
-                            unit: unit.unit(),
-                            expression: entry.expression(),
-                        },
-                        SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression),
-                    ))
-                })?;
+            let expression = unit.view().expression(entry.expression()).ok_or_else(|| {
+                FactQueryError::from(SemanticQueryFailure::contract(
+                    SemanticQueryContext::BoundExpression {
+                        unit: unit.unit(),
+                        expression: entry.expression(),
+                    },
+                    SemanticQueryViolation::Missing(SemanticDataKind::BoundExpression),
+                ))
+            })?;
 
             let request = TargetValidityRequest::new(
                 expression.origin().source_anchor(),
@@ -948,17 +937,15 @@ impl Compilation {
                 .into());
             };
 
-            let callee = types
-                .expression(expression.callee())
-                .ok_or_else(|| {
-                    FactQueryError::from(SemanticQueryFailure::contract(
-                        SemanticQueryContext::BoundExpression {
-                            unit: unit.unit(),
-                            expression: expression.callee(),
-                        },
-                        SemanticQueryViolation::Missing(SemanticDataKind::Type),
-                    ))
-                })?;
+            let callee = types.expression(expression.callee()).ok_or_else(|| {
+                FactQueryError::from(SemanticQueryFailure::contract(
+                    SemanticQueryContext::BoundExpression {
+                        unit: unit.unit(),
+                        expression: expression.callee(),
+                    },
+                    SemanticQueryViolation::Missing(SemanticDataKind::Type),
+                ))
+            })?;
 
             let data = values
                 .type_data(callee.ty())

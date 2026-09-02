@@ -28,39 +28,32 @@ pub(crate) fn diagnostic_evaluation_failure(
 ) -> DiagnosticEmissionEvaluationFailure {
     match error {
         FactQueryError::Cancelled => DiagnosticEmissionEvaluationFailure::Cancelled,
-        FactQueryError::Cycle(cycle) => DiagnosticEmissionEvaluationFailure::Cycle(
-            crate::fact::diagnostic_cycle_failure(cycle),
-        ),
-        FactQueryError::InfrastructureFailure => DiagnosticEmissionEvaluationFailure::Infrastructure,
+        FactQueryError::Cycle(cycle) => {
+            DiagnosticEmissionEvaluationFailure::Cycle(crate::fact::diagnostic_cycle_failure(cycle))
+        }
+        FactQueryError::InfrastructureFailure => {
+            DiagnosticEmissionEvaluationFailure::Infrastructure
+        }
         FactQueryError::SymbolGraph(error) => DiagnosticEmissionEvaluationFailure::SemanticQuery(
             crate::fact::diagnostic_symbol_graph_failure(*error),
         ),
-        FactQueryError::CodegenTarget(error) => {
-            DiagnosticEmissionEvaluationFailure::Product(
-                bray_diagnostics::DiagnosticProductQueryFailure::new(
-                    codegen_target_reason(*error),
-                    [],
-                ),
-            )
-        }
-        FactQueryError::PackageInterface(error) => {
-            DiagnosticEmissionEvaluationFailure::Product(
-                bray_diagnostics::DiagnosticProductQueryFailure::new(
-                    interface_validation_reason(error.as_ref()),
-                    [bray_diagnostics::DiagnosticFailureField::new(
-                        "interface_validation_cause",
-                        bray_diagnostics::DiagnosticFailureValue::InterfaceValidationFailure(
-                            error.as_ref().clone().into_diagnostic_failure(),
-                        ),
-                    )],
-                ),
-            )
-        }
-        FactQueryError::ImportedQuery(error) => {
-            DiagnosticEmissionEvaluationFailure::SemanticQuery(diagnostic_imported_query_failure(
-                error.clone(),
-            ))
-        }
+        FactQueryError::CodegenTarget(error) => DiagnosticEmissionEvaluationFailure::Product(
+            bray_diagnostics::DiagnosticProductQueryFailure::new(codegen_target_reason(*error), []),
+        ),
+        FactQueryError::PackageInterface(error) => DiagnosticEmissionEvaluationFailure::Product(
+            bray_diagnostics::DiagnosticProductQueryFailure::new(
+                interface_validation_reason(error.as_ref()),
+                [bray_diagnostics::DiagnosticFailureField::new(
+                    "interface_validation_cause",
+                    bray_diagnostics::DiagnosticFailureValue::InterfaceValidationFailure(
+                        error.as_ref().clone().into_diagnostic_failure(),
+                    ),
+                )],
+            ),
+        ),
+        FactQueryError::ImportedQuery(error) => DiagnosticEmissionEvaluationFailure::SemanticQuery(
+            diagnostic_imported_query_failure(error.clone()),
+        ),
         FactQueryError::Runtime(error) => DiagnosticEmissionEvaluationFailure::Runtime(
             crate::fact::diagnostic_fact_runtime_failure(error),
         ),
@@ -255,10 +248,7 @@ fn diagnostic_imported_query_failure(
                     "expected_key",
                     failure.expected_key(),
                 ),
-                crate::fact::diagnostic_context::identity_field(
-                    "actual_key",
-                    failure.actual_key(),
-                ),
+                crate::fact::diagnostic_context::identity_field("actual_key", failure.actual_key()),
             ];
 
             crate::fact::push_mir_target_contract(
@@ -277,7 +267,9 @@ fn diagnostic_imported_query_failure(
         }
         Error::InterfaceCapacityExceeded(index) => (
             "imported_query_interface_capacity_exceeded",
-            vec![crate::fact::diagnostic_context::natural_field("index", index)],
+            vec![crate::fact::diagnostic_context::natural_field(
+                "index", index,
+            )],
         ),
     };
 
@@ -288,10 +280,7 @@ fn imported_record_context(
     key: crate::fact::ImportedSemanticRecordKey,
 ) -> Vec<bray_diagnostics::DiagnosticFailureField> {
     vec![
-        crate::fact::diagnostic_context::count_field(
-            "interface",
-            u64::from(key.interface().raw()),
-        ),
+        crate::fact::diagnostic_context::count_field("interface", u64::from(key.interface().raw())),
         crate::fact::diagnostic_context::count_field("owner", u64::from(key.owner().raw())),
         crate::fact::diagnostic_context::text_field("record_kind", key.kind().as_str()),
     ]
@@ -370,9 +359,8 @@ mod tests {
             InterfaceSemanticRecordKind::CallableSignature,
         );
 
-        let failure = diagnostic_imported_query_failure(
-            ImportedQueryFailure::MissingInterfaceSymbol(key),
-        );
+        let failure =
+            diagnostic_imported_query_failure(ImportedQueryFailure::MissingInterfaceSymbol(key));
 
         let names: Vec<_> = failure.context().iter().map(|field| field.name()).collect();
 

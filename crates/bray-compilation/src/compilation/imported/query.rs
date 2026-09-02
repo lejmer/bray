@@ -155,10 +155,7 @@ impl super::super::Compilation {
     ) -> Option<&LoadedDependencyInterface> {
         super::super::boundary::expect_uncancelled_query(
             "loaded_dependency_interface",
-            self.loaded_dependency_interface_with_cancellation(
-                interface,
-                &self.state.cancellation,
-            ),
+            self.loaded_dependency_interface_with_cancellation(interface, &self.state.cancellation),
         )
     }
 
@@ -184,9 +181,9 @@ impl super::super::Compilation {
             cache,
             cancellation,
             |cancellation| {
-                let input = self
-                    .dependency_interface(interface)
-                    .ok_or(crate::fact::ImportedQueryFailure::MissingDependencyInput(interface))?;
+                let input = self.dependency_interface(interface).ok_or(
+                    crate::fact::ImportedQueryFailure::MissingDependencyInput(interface),
+                )?;
 
                 load_dependency_interface(input, cancellation)
             },
@@ -227,7 +224,9 @@ impl super::super::Compilation {
             let Some(interface_result) =
                 self.loaded_dependency_interface_with_cancellation(interface, cancellation)?
             else {
-                return Err(crate::fact::ImportedQueryFailure::MissingLoadedInterface(interface).into());
+                return Err(
+                    crate::fact::ImportedQueryFailure::MissingLoadedInterface(interface).into(),
+                );
             };
 
             diagnostics.push(interface_result.result().diagnostics());
@@ -296,11 +295,15 @@ impl super::super::Compilation {
         let Some(loaded) =
             self.loaded_dependency_interface_with_cancellation(interface, cancellation)?
         else {
-            return Err(crate::fact::ImportedQueryFailure::MissingLoadedInterface(interface).into());
+            return Err(
+                crate::fact::ImportedQueryFailure::MissingLoadedInterface(interface).into(),
+            );
         };
 
         let Some(input) = self.dependency_interface_input(interface) else {
-            return Err(crate::fact::ImportedQueryFailure::MissingDependencyInput(interface).into());
+            return Err(
+                crate::fact::ImportedQueryFailure::MissingDependencyInput(interface).into(),
+            );
         };
 
         let (Some(validated), Some(surface)) = (loaded.validated(), loaded.surface()) else {
@@ -360,16 +363,20 @@ impl super::super::Compilation {
 
         let loaded = self
             .loaded_dependency_interface_with_cancellation(key.interface(), cancellation)?
-            .ok_or(crate::fact::ImportedQueryFailure::MissingLoadedInterface(key.interface()))?;
+            .ok_or(crate::fact::ImportedQueryFailure::MissingLoadedInterface(
+                key.interface(),
+            ))?;
 
-        let surface = loaded
-            .surface()
-            .ok_or(crate::fact::ImportedQueryFailure::MissingInterfaceSurface(key))?;
+        let surface =
+            loaded
+                .surface()
+                .ok_or(crate::fact::ImportedQueryFailure::MissingInterfaceSurface(
+                    key,
+                ))?;
 
-        let identity = surface
-            .symbols()
-            .symbol(key.owner())
-            .ok_or(crate::fact::ImportedQueryFailure::MissingInterfaceSymbol(key))?;
+        let identity = surface.symbols().symbol(key.owner()).ok_or(
+            crate::fact::ImportedQueryFailure::MissingInterfaceSymbol(key),
+        )?;
 
         let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
 
@@ -377,7 +384,9 @@ impl super::super::Compilation {
             .value()
             .as_ref()
             .and_then(|skeleton| skeleton.symbol_by_external_key(identity.key()))
-            .ok_or(crate::fact::ImportedQueryFailure::MissingImportedSymbol(key))?;
+            .ok_or(crate::fact::ImportedQueryFailure::MissingImportedSymbol(
+                key,
+            ))?;
 
         cancellation.check()?;
 
@@ -393,11 +402,13 @@ impl super::super::Compilation {
     ) -> Result<Option<DiagnosticResult<Option<Arc<ImportedSemantics>>>>, FactQueryError> {
         let loaded = self
             .loaded_dependency_interface_with_cancellation(key.interface(), cancellation)?
-            .ok_or(crate::fact::ImportedQueryFailure::MissingLoadedInterface(key.interface()))?;
+            .ok_or(crate::fact::ImportedQueryFailure::MissingLoadedInterface(
+                key.interface(),
+            ))?;
 
-        let input = self
-            .dependency_interface_input(key.interface())
-            .ok_or(crate::fact::ImportedQueryFailure::MissingDependencyInput(key.interface()))?;
+        let input = self.dependency_interface_input(key.interface()).ok_or(
+            crate::fact::ImportedQueryFailure::MissingDependencyInput(key.interface()),
+        )?;
 
         let (Some(validated), Some(surface)) = (loaded.validated(), loaded.surface()) else {
             return Ok(Some(DiagnosticResult::without_diagnostics(None)));
@@ -446,7 +457,9 @@ impl super::super::Compilation {
             .copied()
             .find(|loaded| loaded.interface() == interface)
         else {
-            return Err(crate::fact::ImportedQueryFailure::MissingCurrentInterface(interface).into());
+            return Err(
+                crate::fact::ImportedQueryFailure::MissingCurrentInterface(interface).into(),
+            );
         };
 
         let symbols = self.symbol_graph()?;
@@ -496,7 +509,9 @@ impl super::super::Compilation {
 
             let loaded = self
                 .loaded_dependency_interface_with_cancellation(interface, cancellation)?
-                .ok_or(crate::fact::ImportedQueryFailure::MissingLoadedInterface(interface))?;
+                .ok_or(crate::fact::ImportedQueryFailure::MissingLoadedInterface(
+                    interface,
+                ))?;
 
             let (Some(validated), Some(surface)) = (loaded.validated(), loaded.surface()) else {
                 return Ok(None);

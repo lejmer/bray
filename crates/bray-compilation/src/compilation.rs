@@ -52,8 +52,11 @@ pub(crate) use foreign::{
     ForeignSourceRole, ForeignTypeKind,
 };
 pub use foreign::{ForeignQueryError, ForeignQueryErrorKind};
+pub(crate) use implementation::ImplementationMatchError;
 pub use linking::LinkedProductEmissionError;
 pub use load::CompilationLoadError;
+#[cfg(test)]
+pub(crate) use product::ProductSynchronizationComponent;
 pub use product::{
     NativeProductPlan, NativeProductPlanningError, ProductQueryError, ProductQueryErrorKind,
 };
@@ -61,11 +64,8 @@ pub(crate) use product::{
     ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductTestCatalogFailureKind,
     ProductValueKind,
 };
-#[cfg(test)]
-pub(crate) use product::ProductSynchronizationComponent;
-pub use product_emission::{ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs};
 pub(crate) use product_emission::diagnostics::diagnostic_evaluation_failure;
-pub(crate) use implementation::ImplementationMatchError;
+pub use product_emission::{ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs};
 pub use semantic_error::{SemanticQueryError, SemanticQueryErrorKind};
 pub use source_graph::ProductSourceGraph;
 pub use state::Compilation;

@@ -251,18 +251,18 @@ fn format_english_native_product_failure_detail(
             "the executable host lacks the required protected-frame ABI"
         }
         Kind::ExecutableHostMissingRole => "the executable host lacks a required runtime role",
-        Kind::RuntimeSelectionIncompatible => {
+        Kind::RuntimeSelectionIncompatible(_) => {
             "the selected runtime is incompatible with the product"
         }
-        Kind::RuntimeSelectionMissingRoleOwner => {
+        Kind::RuntimeSelectionMissingRoleOwner(_) => {
             "the selected runtime has no owner for a required ABI role"
         }
-        Kind::RuntimeSelectionMissingCapabilityOwner => {
+        Kind::RuntimeSelectionMissingCapabilityOwner(_) => {
             "the selected runtime has no owner for a required capability"
         }
-        Kind::RuntimeSelectionUnreadableArchive => "a selected runtime archive cannot be read",
-        Kind::RuntimeSelectionInvalidArchive => "a selected runtime archive is invalid",
-        Kind::RuntimeSelectionArchiveDigestMismatch => {
+        Kind::RuntimeSelectionUnreadableArchive(_) => "a selected runtime archive cannot be read",
+        Kind::RuntimeSelectionInvalidArchive(_) => "a selected runtime archive is invalid",
+        Kind::RuntimeSelectionArchiveDigestMismatch(_) => {
             "a selected runtime archive does not match its declared digest"
         }
         Kind::StandardLibraryUnavailable => {
@@ -272,30 +272,59 @@ fn format_english_native_product_failure_detail(
             "the native-code generator contains a duplicate work item"
         }
         Kind::LinkTargetEmptyTriple => "the native link target has an empty target triple",
+        Kind::CodegenBackendUnsupportedTarget => {
+            "the native-code generator does not support the selected target"
+        }
+        Kind::CodegenBackendUnsupportedArtifact(_) => {
+            "the native-code generator does not support a requested artifact"
+        }
+        Kind::CodegenBackendInvalidConfiguration => {
+            "the native-code generator configuration is internally inconsistent"
+        }
+        Kind::CodegenBackendResourceExhausted => {
+            "native code generation exceeded an available resource budget"
+        }
+        Kind::CodegenBackendLibraryFailure(_) => {
+            "the native-code generator library failed while processing a valid request"
+        }
+        Kind::CodegenBackendToolFailure(_) => {
+            "a native-code generator support program completed unsuccessfully"
+        }
+        Kind::CodegenBackendGeneratedModuleInvariant => {
+            "generated native-code input violated an internal module contract"
+        }
+        Kind::CodegenBackendRejectedModule(_) => {
+            "the native-code generator rejected internally generated input"
+        }
+        Kind::CodegenBackendArtifactConstruction(_) => {
+            "the native-code generator could not construct a requested artifact"
+        }
         Kind::CodegenBackendUnavailable => "no native-code generator is available",
-        Kind::CodegenInvalidRequest => "the code generation request is internally inconsistent",
-        Kind::CodegenMirUnavailable => "the program is not ready for native code generation",
+        Kind::CodegenInvalidRequest(_) => "the code generation request is internally inconsistent",
+        Kind::CodegenMirUnavailable(_) => "the program is not ready for native code generation",
         Kind::CodegenMissingEntrypoint => "the product has no selected entrypoint",
-        Kind::CodegenInvalidInstance => "a compiled program item is invalid",
-        Kind::CodegenInvalidUnit => "a native-code work item is invalid",
-        Kind::CodegenUnitMismatch => "a native-code work item differs from its original request",
-        Kind::CodegenInvalidHostMir => "generated executable startup code is invalid",
-        Kind::CodegenInvalidLifecycleMir => "generated lifecycle code is invalid",
-        Kind::CodegenInvalidMappings => {
+        Kind::CodegenInvalidInstance(_) => "a compiled program item is invalid",
+        Kind::CodegenInvalidUnit(_) => "a native-code work item is invalid",
+        Kind::CodegenUnitMismatch(_) => "a native-code work item differs from its original request",
+        Kind::CodegenInvalidHostMir(_) => "generated executable startup code is invalid",
+        Kind::CodegenInvalidLifecycleMir(_) => "generated lifecycle code is invalid",
+        Kind::CodegenInvalidMappings(_) => {
             "required native-code metadata is incomplete or inconsistent"
         }
-        Kind::CodegenMissingRuntimeRole => "a required runtime ABI role has no selected binding",
-        Kind::CodegenOpenConstantTerm => "a compiled constant still contains unresolved parameters",
-        Kind::CodegenInvalidArrayLength => "a checked array length has no integer value",
-        Kind::CodegenRecursiveValueType => "a value type contains itself without indirection",
-        Kind::CodegenUnresolvedType => "a required type is still unresolved",
-        Kind::CodegenUnsizedTypeByValue => "an unsized type is used by value",
-        Kind::CodegenInvalidAbiMapping => "a callable ABI mapping is invalid",
-        Kind::CodegenUnsupportedType => {
+        Kind::CodegenMissingRuntimeRole(_) => "a required runtime ABI role has no selected binding",
+        Kind::CodegenOpenConstantTerm(_) => {
+            "a compiled constant still contains unresolved parameters"
+        }
+        Kind::CodegenInvalidArrayLength(_) => "a checked array length has no integer value",
+        Kind::CodegenRecursiveValueType(_) => "a value type contains itself without indirection",
+        Kind::CodegenUnresolvedType(_) => "a required type is still unresolved",
+        Kind::CodegenUnsizedTypeByValue(_) => "an unsized type is used by value",
+        Kind::CodegenInvalidAbiMapping(_) => "a callable ABI mapping is invalid",
+        Kind::CodegenUnsupportedType(_) => {
             "the native-code generator cannot represent a required type"
         }
-        Kind::CodegenMissingHelperInstance => "a required generated helper is missing",
-        Kind::CodegenLayoutOverflow => "a required type layout exceeds the selected target",
+        Kind::CodegenMissingHelperInstance(_) => "a required generated helper is missing",
+        Kind::CodegenLayoutOverflow(_) => "a required type layout exceeds the selected target",
         Kind::CodegenInvalidSymbolName => "a generated binary symbol name is not representable",
     };
 
@@ -668,9 +697,7 @@ const fn format_english_runtime_artifact_purpose(
     }
 }
 
-fn format_english_binding_failure(
-    failure: &bray_diagnostics::DiagnosticBindingFailure,
-) -> String {
+fn format_english_binding_failure(failure: &bray_diagnostics::DiagnosticBindingFailure) -> String {
     if let Some(failure) = failure.semantic_value_failure() {
         return format_english_semantic_value_failure(failure);
     }
@@ -729,15 +756,13 @@ mod tests {
 
     #[test]
     fn product_query_failures_hide_internal_context() {
-        let message = format_english_product_query_failure(
-            &DiagnosticProductQueryFailure::new(
-                "product_query_missing",
-                [DiagnosticFailureField::new(
-                    "product_context_identity",
-                    DiagnosticFailureValue::Identity([7; 32]),
-                )],
-            ),
-        );
+        let message = format_english_product_query_failure(&DiagnosticProductQueryFailure::new(
+            "product_query_missing",
+            [DiagnosticFailureField::new(
+                "product_context_identity",
+                DiagnosticFailureValue::Identity([7; 32]),
+            )],
+        ));
 
         assert!(message.starts_with(INTERNAL_COMPILER_ERROR));
         assert!(!message.contains("product_query_missing"));
@@ -754,10 +779,7 @@ mod tests {
                     "requested_fact",
                     DiagnosticFailureValue::Text("SyntaxTree".to_owned()),
                 ),
-                DiagnosticFailureField::new(
-                    "actual_task",
-                    DiagnosticFailureValue::Count(23),
-                ),
+                DiagnosticFailureField::new("actual_task", DiagnosticFailureValue::Count(23)),
             ],
         ));
 
@@ -798,6 +820,7 @@ mod tests {
             bray_diagnostics::DiagnosticNativeProductFailureKind::CheckingInfrastructureFailure,
             bray_diagnostics::DiagnosticNativeProductFailureKind::GeneratedHostMirInvalid,
             bray_diagnostics::DiagnosticNativeProductFailureKind::InstanceTemplateMismatch,
+            bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenBackendGeneratedModuleInvariant,
         ];
 
         for failure in &failures {
@@ -812,6 +835,7 @@ mod tests {
             bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationCancelled,
             bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenTargetUnsupportedProfile,
             bray_diagnostics::DiagnosticNativeProductFailureKind::StandardLibraryUnavailable,
+            bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenBackendUnsupportedTarget,
         ] {
             let message = format_english_native_product_failure(&failure);
 
@@ -822,21 +846,17 @@ mod tests {
 
     #[test]
     fn semantic_query_failures_share_actor_free_user_facing_prose() {
-        let first = format_english_semantic_query_failure(
-            &DiagnosticSemanticQueryFailure::new(
-                "semantic_query_bound_unit",
-                "bound_unit_missing_root",
-                [],
-            ),
-        );
+        let first = format_english_semantic_query_failure(&DiagnosticSemanticQueryFailure::new(
+            "semantic_query_bound_unit",
+            "bound_unit_missing_root",
+            [],
+        ));
 
-        let second = format_english_semantic_query_failure(
-            &DiagnosticSemanticQueryFailure::new(
-                "semantic_query_implementation",
-                "implementation_match_semantic_value",
-                [],
-            ),
-        );
+        let second = format_english_semantic_query_failure(&DiagnosticSemanticQueryFailure::new(
+            "semantic_query_implementation",
+            "implementation_match_semantic_value",
+            [],
+        ));
 
         assert_eq!(first, second);
         assert!(first.starts_with(INTERNAL_COMPILER_ERROR));
@@ -851,15 +871,9 @@ mod tests {
     fn binding_failures_share_actor_free_user_facing_prose() {
         use bray_diagnostics::DiagnosticBindingFailure as Failure;
 
-        let syntax = format_english_binding_failure(&Failure::new(
-            "binding_missing_syntax",
-            [],
-        ));
+        let syntax = format_english_binding_failure(&Failure::new("binding_missing_syntax", []));
 
-        let owner = format_english_binding_failure(&Failure::new(
-            "binding_missing_owner",
-            [],
-        ));
+        let owner = format_english_binding_failure(&Failure::new("binding_missing_owner", []));
 
         assert_eq!(syntax, owner);
         assert!(syntax.starts_with(INTERNAL_COMPILER_ERROR));

@@ -267,6 +267,11 @@ pub(in crate::output::diagnostic::json) fn diagnostic_failure_context(
         .iter()
         .map(|diagnostic_field| {
             let value = match diagnostic_field.value() {
+                bray_diagnostics::DiagnosticFailureValue::ArtifactDigest(value) => {
+                    DiagnosticEmissionFieldValueJson::ArtifactDigest(
+                        super::super::DiagnosticArtifactDigestJson::from_digest(value),
+                    )
+                }
                 bray_diagnostics::DiagnosticFailureValue::Boolean(value) => {
                     DiagnosticEmissionFieldValueJson::Boolean(*value)
                 }
@@ -293,6 +298,11 @@ pub(in crate::output::diagnostic::json) fn diagnostic_failure_context(
                         ),
                     ))
                 }
+                bray_diagnostics::DiagnosticFailureValue::ExternalToolExit(value) => {
+                    DiagnosticEmissionFieldValueJson::ExternalToolExit(
+                        super::super::DiagnosticExternalToolExitJson::from_exit(value),
+                    )
+                }
                 bray_diagnostics::DiagnosticFailureValue::InterfaceSymbolIdentity(value) => {
                     DiagnosticEmissionFieldValueJson::InterfaceSymbolIdentity(
                         DiagnosticInterfaceSymbolIdentityJson::from_identity(value),
@@ -307,6 +317,9 @@ pub(in crate::output::diagnostic::json) fn diagnostic_failure_context(
                     DiagnosticEmissionFieldValueJson::InterfaceValidationFailure(
                         super::super::interface_validation_failure_json(value),
                     )
+                }
+                bray_diagnostics::DiagnosticFailureValue::IoErrorKind(value) => {
+                    DiagnosticEmissionFieldValueJson::IoErrorKind(value.as_str())
                 }
                 bray_diagnostics::DiagnosticFailureValue::Natural(value) => {
                     DiagnosticEmissionFieldValueJson::Natural(value.clone())
@@ -637,21 +650,16 @@ mod tests {
             )),
         )]);
 
-        let context = serde_json::to_value(context)
-            .unwrap_or_else(|error| panic!("nested evaluation context should serialize: {error:?}"));
+        let context = serde_json::to_value(context).unwrap_or_else(|error| {
+            panic!("nested evaluation context should serialize: {error:?}")
+        });
 
         assert_eq!(context[0]["value"]["value"]["category"], "evaluation");
         assert_eq!(context[0]["value"]["value"]["reason"], "missing_owner");
 
-        assert_eq!(
-            context[0]["value"]["value"]["context"][0]["name"],
-            "cause"
-        );
+        assert_eq!(context[0]["value"]["value"]["context"][0]["name"], "cause");
 
-        assert_eq!(
-            context[0]["value"]["value"]["context"][1]["name"],
-            "owner"
-        );
+        assert_eq!(context[0]["value"]["value"]["context"][1]["name"], "owner");
 
         assert_eq!(
             context[0]["value"]["value"]["context"][1]["value"]["value"],
@@ -674,13 +682,11 @@ mod tests {
             ),
         )]);
 
-        let context = serde_json::to_value(context)
-            .unwrap_or_else(|error| panic!("nested validation context should serialize: {error:?}"));
+        let context = serde_json::to_value(context).unwrap_or_else(|error| {
+            panic!("nested validation context should serialize: {error:?}")
+        });
 
-        assert_eq!(
-            context[0]["value"]["value"]["reason"],
-            "truncated"
-        );
+        assert_eq!(context[0]["value"]["value"]["reason"], "truncated");
 
         assert_eq!(
             context[0]["value"]["value"]["context"][0]["value"]["value"],

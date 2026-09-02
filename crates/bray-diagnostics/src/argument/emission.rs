@@ -14,5 +14,6 @@ pub use lowering::{
     DiagnosticSourceConstructKind,
 };
 pub use product::{
-    DiagnosticNativeLinkInputFailure, DiagnosticNativeProductFailureKind, DiagnosticProductKind,
+    DiagnosticNativeLinkInputFailure, DiagnosticNativeProductFailureDetail,
+    DiagnosticNativeProductFailureKind, DiagnosticProductKind,
 };

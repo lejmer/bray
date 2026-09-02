@@ -4,9 +4,9 @@ use super::checker::DiagnosticCheckerFailure;
 use crate::{
     DiagnosticArtifactDigest, DiagnosticArtifactKind, DiagnosticArtifactRequirement,
     DiagnosticAssemblySyntaxKind, DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
-    DiagnosticIoErrorKind, DiagnosticLinkInputKind, DiagnosticLinkedArtifactKind,
-    DiagnosticLinkedProductKind, DiagnosticOutputSink, DiagnosticProductKind,
-    DiagnosticFactRuntimeFailure, DiagnosticProductQueryFailure,
+    DiagnosticFactRuntimeFailure, DiagnosticIoErrorKind, DiagnosticLinkInputKind,
+    DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind, DiagnosticOutputSink,
+    DiagnosticProductKind, DiagnosticProductQueryFailure,
 };
 
 /// Locale-neutral identity of one artifact in an emission operation.

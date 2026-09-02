@@ -2,15 +2,15 @@ use bray_diagnostics::{
     DiagnosticFailureField, DiagnosticFailureValue, DiagnosticProductQueryFailure,
 };
 
+use super::mir::{push_mir_call_target, push_mir_helper};
+use crate::compilation::product::ProductSynchronizationComponent;
 use crate::compilation::{
     ProductDataKind, ProductQueryContext, ProductQueryError, ProductQueryFailure, ProductValueKind,
 };
-use crate::compilation::product::ProductSynchronizationComponent;
 use crate::fact::diagnostic_context::{
     constant_value_kind, count_field, identity, identity_field, natural_field, push_symbol,
     semantic_type_kind, text_field,
 };
-use super::mir::{push_mir_call_target, push_mir_helper};
 
 // rust-style: allow(function-too-large, reason = "product-query variants form one exhaustive flat conversion into typed diagnostic fields")
 pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_query_failure(
@@ -19,14 +19,12 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
     use ProductQueryFailure as Failure;
 
     let (reason, context) = match error.cause() {
-        Failure::Missing { context, data } => (
-            "product_query_missing",
-            context_with_data(context, *data),
-        ),
-        Failure::Conflict { context, data } => (
-            "product_query_conflict",
-            context_with_data(context, *data),
-        ),
+        Failure::Missing { context, data } => {
+            ("product_query_missing", context_with_data(context, *data))
+        }
+        Failure::Conflict { context, data } => {
+            ("product_query_conflict", context_with_data(context, *data))
+        }
         Failure::UnexpectedKind {
             context,
             expected,
@@ -72,10 +70,7 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
                 crate::fact::generic_substitution_reason(cause),
             )];
 
-            crate::fact::push_generic_substitution_failure(
-                &mut fields,
-                cause,
-            );
+            crate::fact::push_generic_substitution_failure(&mut fields, cause);
 
             push_optional_identity(&mut fields, "substitution", substitution.as_ref());
 
@@ -235,7 +230,10 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
                 fields.push(text_field("actual_representation", actual.as_str()));
             }
 
-            ("product_query_compiler_known_representation_mismatch", fields)
+            (
+                "product_query_compiler_known_representation_mismatch",
+                fields,
+            )
         }
         Failure::NativeBoundaryKindMismatch { reference, actual } => (
             "product_query_native_boundary_kind_mismatch",
@@ -446,7 +444,9 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
     DiagnosticProductQueryFailure::new(reason, context)
 }
 
-const fn product_test_catalog_failure(cause: crate::compilation::ProductTestCatalogFailureKind) -> &'static str {
+const fn product_test_catalog_failure(
+    cause: crate::compilation::ProductTestCatalogFailureKind,
+) -> &'static str {
     use crate::compilation::ProductTestCatalogFailureKind as Error;
 
     match cause {
@@ -818,11 +818,7 @@ mod tests {
 
         assert_eq!(
             names,
-            [
-                "substitution_cause",
-                "parameter_count",
-                "argument_count",
-            ]
+            ["substitution_cause", "parameter_count", "argument_count",]
         );
     }
 
@@ -834,10 +830,7 @@ mod tests {
 
         let names: Vec<_> = fields.iter().map(|field| field.name()).collect();
 
-        assert_eq!(
-            names,
-            ["helper_kind", "helper_abi", "helper_runtime_role"]
-        );
+        assert_eq!(names, ["helper_kind", "helper_abi", "helper_runtime_role"]);
 
         assert_eq!(
             fields[2].value(),

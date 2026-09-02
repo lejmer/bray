@@ -22,18 +22,21 @@ impl DiagnosticFailureField {
 /// Locale-neutral value retained by a compiler query-runtime failure.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticFailureValue {
+    ArtifactDigest(crate::DiagnosticArtifactDigest),
     Boolean(bool),
     Count(u64),
     Identity([u8; 32]),
     IdentityList(Box<[[u8; 32]]>),
     /// Exact nested evaluation failure retained without hashing its payload.
     Evaluation(Box<super::DiagnosticEmissionEvaluationFailure>),
+    ExternalToolExit(crate::DiagnosticExternalToolExit),
     /// Exact package-interface declaration identity.
     InterfaceSymbolIdentity(crate::DiagnosticInterfaceSymbolIdentity),
     /// Exact package-interface symbol graph problem.
     InterfaceSymbolGraphProblem(crate::DiagnosticInterfaceSymbolGraphProblem),
     /// Exact package-interface validation failure.
     InterfaceValidationFailure(crate::DiagnosticInterfaceValidationFailure),
+    IoErrorKind(crate::DiagnosticIoErrorKind),
     Natural(String),
     Signed(i64),
     Text(String),
@@ -48,10 +51,7 @@ pub struct DiagnosticFactRuntimeFailure {
 }
 
 impl DiagnosticFactRuntimeFailure {
-    pub fn new(
-        reason: &'static str,
-        context: impl Into<Box<[DiagnosticFailureField]>>,
-    ) -> Self {
+    pub fn new(reason: &'static str, context: impl Into<Box<[DiagnosticFailureField]>>) -> Self {
         Self {
             reason,
             context: context.into(),

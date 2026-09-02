@@ -1,8 +1,6 @@
 use bray_diagnostics::{DiagnosticFailureField, DiagnosticFailureValue};
 
-use crate::fact::diagnostic_context::{
-    count_field, identity_field, push_source_span, text_field,
-};
+use crate::fact::diagnostic_context::{count_field, identity_field, push_source_span, text_field};
 
 pub(super) fn push_package_interface_export_failure(
     fields: &mut Vec<DiagnosticFailureField>,
@@ -115,9 +113,9 @@ fn push_evaluation_failure(
 ) {
     fields.push(DiagnosticFailureField::new(
         "evaluation_cause",
-        DiagnosticFailureValue::Evaluation(Box::new(
-            super::super::diagnostic_evaluation_failure(error),
-        )),
+        DiagnosticFailureValue::Evaluation(Box::new(super::super::diagnostic_evaluation_failure(
+            error,
+        ))),
     ));
 }
 
@@ -140,11 +138,7 @@ fn push_optional_source_span(
     if let Some(span) = span {
         let (source, start, end) = match prefix {
             "first_declaration" => ("first_source", "first_source_start", "first_source_end"),
-            "second_declaration" => (
-                "second_source",
-                "second_source_start",
-                "second_source_end",
-            ),
+            "second_declaration" => ("second_source", "second_source_start", "second_source_end"),
             _ => unreachable!(),
         };
 

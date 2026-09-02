@@ -27,7 +27,8 @@ pub use emission::{
     DiagnosticEmissionArtifactOperation, DiagnosticLoweringFailure, DiagnosticLoweringFailureKind,
     DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind,
     DiagnosticMirUnitBuildFailure, DiagnosticNativeLinkInputFailure,
-    DiagnosticNativeProductFailureKind, DiagnosticProductKind, DiagnosticSourceConstructKind,
+    DiagnosticNativeProductFailureDetail, DiagnosticNativeProductFailureKind,
+    DiagnosticProductKind, DiagnosticSourceConstructKind,
 };
 pub use external::{
     DiagnosticExternalToolFailureKind, DiagnosticExternalToolOperation, DiagnosticIoErrorKind,
