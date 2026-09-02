@@ -30,6 +30,9 @@ use super::checker::checker_result;
 use super::constant::collect_constant_references;
 use super::diagnostics::source_diagnostic;
 use super::directive::{directive_source_text, first_directive};
+use super::semantic_error::{
+    SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+};
 use super::substitution::named_type;
 use super::unit::semantic_unit_context_for;
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
@@ -118,8 +121,13 @@ impl Compilation {
         let source = self.bound_source(argument.expression().syntax())?;
 
         // The unit key retains the module's Arc-backed identity after this graph lookup.
-        BoundUnitKey::target_gate(module.key().clone(), source)
-            .ok_or(FactQueryError::InfrastructureFailure)
+        BoundUnitKey::target_gate(module.key().clone(), source).ok_or_else(|| {
+            SemanticQueryFailure::contract(
+                SemanticQueryContext::SymbolKey(module.key().clone()),
+                SemanticQueryViolation::Missing(SemanticDataKind::BoundUnit),
+            )
+            .into()
+        })
     }
 
     fn compute_module_contribution_gate(
@@ -129,15 +137,23 @@ impl Compilation {
     ) -> Result<DiagnosticResult<ModuleContributionGate>, FactQueryError> {
         let declarations = self.declaration_table();
 
-        let part = declarations
-            .module_part(part)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let fact = CompilationFactKey::ModuleContributionGate(part);
+
+        let part = declarations.module_part(part).ok_or_else(|| {
+            FactQueryError::from(SemanticQueryFailure::contract(
+                SemanticQueryContext::Fact(fact.clone()),
+                SemanticQueryViolation::Missing(SemanticDataKind::DeclarationRecord),
+            ))
+        })?;
 
         let symbols = self.discovery_symbol_graph()?;
 
-        let module = symbols
-            .module_for_part(part.id())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let module = symbols.module_for_part(part.id()).ok_or_else(|| {
+            FactQueryError::from(SemanticQueryFailure::contract(
+                SemanticQueryContext::Fact(fact),
+                SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+            ))
+        })?;
 
         let context = self.discovery_binding_context(cancellation)?;
 
@@ -220,7 +236,11 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<ModuleContributionGate>, FactQueryError> {
         if key.kind() != BoundUnitKind::TargetGate {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(SemanticQueryFailure::contract(
+                SemanticQueryContext::Unit(key),
+                SemanticQueryViolation::Unsupported(SemanticDataKind::BoundUnit),
+            )
+            .into());
         }
 
         // Independently cached semantic results retain the same Arc-backed unit identity.
@@ -308,7 +328,12 @@ impl Compilation {
         let key = SymbolProvider::<ConstantSymbolId>::symbol(provider, symbol)
             .map(bray_symbols::ConstantSymbol::key)
             .cloned()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                FactQueryError::from(SemanticQueryFailure::contract(
+                    SemanticQueryContext::Symbol(symbol.into()),
+                    SemanticQueryViolation::Missing(SemanticDataKind::SymbolKey),
+                ))
+            })?;
 
         Ok((
             ConstantReferenceResolution::Value(value),
@@ -371,7 +396,12 @@ impl Compilation {
         let definition = self
             .available_compiler_known_symbols()
             .representation_symbol::<StructSymbolId>(role)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                FactQueryError::from(SemanticQueryFailure::contract(
+                    SemanticQueryContext::CompilerKnownRepresentation(role),
+                    SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+                ))
+            })?;
 
         named_type(
             self.semantic_value_store()?,

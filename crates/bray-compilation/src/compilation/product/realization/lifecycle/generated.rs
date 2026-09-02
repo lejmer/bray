@@ -12,6 +12,9 @@ use bray_symbols::{
 
 use super::super::super::super::CodegenPreparationError;
 use super::super::super::super::Compilation;
+use super::super::super::super::{
+    ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductValueKind,
+};
 use super::super::support::{lifecycle_operation_block_kind, projected_lifecycle_place};
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -182,7 +185,9 @@ impl Compilation {
                     | bray_ir::MirGeneratedLifecycleRole::StaticFinalize
                     | bray_ir::MirGeneratedLifecycleRole::Cleanup(
                         bray_ir::MirCleanupPhase::LifecycleResolution,
-                    ) => return Err(FactQueryError::InfrastructureFailure.into()),
+                    ) => {
+                        return Err(ProductQueryFailure::UnsupportedLifecycleRole { role }.into());
+                    }
                 };
 
                 self.push_lifecycle_operation(
@@ -220,7 +225,12 @@ impl Compilation {
                 Ok(block)
             }
             TypeData::Borrow { .. } | TypeData::Callable(_) => {
-                Err(FactQueryError::InfrastructureFailure.into())
+                Err(ProductQueryFailure::UnexpectedSemanticType {
+                    ty: place.ty(),
+                    expected: ProductValueKind::LifecycleRepresentableType,
+                    actual: data.as_ref().clone(),
+                }
+                .into())
             }
         }
     }
@@ -304,7 +314,12 @@ impl Compilation {
         let union = binding_context
             .union(union)
             .map_err(super::super::super::super::binder::binding_query_error)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::Symbol(union.into()),
+                    ProductDataKind::Symbol,
+                )
+            })?;
 
         let mut current = block;
 
@@ -312,7 +327,12 @@ impl Compilation {
             let variant_record = binding_context
                 .union_variant(*variant)
                 .map_err(super::super::super::super::binder::binding_query_error)?
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    ProductQueryFailure::missing(
+                        ProductQueryContext::Symbol((*variant).into()),
+                        ProductDataKind::Symbol,
+                    )
+                })?;
 
             let matched = builder
                 .push_block(source.clone(), kind)
@@ -357,7 +377,7 @@ impl Compilation {
                         ty,
                     ))
                 })
-                .collect::<Result<Vec<_>, FactQueryError>>()?;
+                .collect::<Result<Vec<_>, CodegenPreparationError>>()?;
 
             self.push_child_lifecycle_operations(builder, matched, source, role, children)?;
 
@@ -423,7 +443,7 @@ impl Compilation {
                 }
                 bray_ir::MirGeneratedLifecycleRole::Finalize
                 | bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
-                    return Err(FactQueryError::InfrastructureFailure.into());
+                    return Err(ProductQueryFailure::UnsupportedLifecycleRole { role }.into());
                 }
             }
         }
@@ -505,7 +525,7 @@ impl Compilation {
             }
             bray_ir::MirGeneratedLifecycleRole::Finalize
             | bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
-                return Err(FactQueryError::InfrastructureFailure.into());
+                return Err(ProductQueryFailure::UnsupportedLifecycleRole { role }.into());
             }
         }
 

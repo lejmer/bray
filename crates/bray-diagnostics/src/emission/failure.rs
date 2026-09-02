@@ -6,6 +6,7 @@ use crate::{
     DiagnosticAssemblySyntaxKind, DiagnosticDebugInformationMode, DiagnosticDebugOutputMode,
     DiagnosticIoErrorKind, DiagnosticLinkInputKind, DiagnosticLinkedArtifactKind,
     DiagnosticLinkedProductKind, DiagnosticOutputSink, DiagnosticProductKind,
+    DiagnosticProductQueryFailure,
 };
 
 /// Locale-neutral identity of one artifact in an emission operation.
@@ -350,7 +351,7 @@ pub enum DiagnosticEmissionLinkPlanFailure {
 }
 
 /// Exact compiler-evaluation failure observed during emission.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticEmissionEvaluationFailure {
     Cycle,
     Infrastructure,
@@ -370,6 +371,8 @@ pub enum DiagnosticEmissionEvaluationFailure {
     SemanticContext,
     /// A semantic query failed with an exact compiler-owned category.
     SemanticQuery(DiagnosticSemanticQueryFailure),
+    /// Product specialization or realization violated an exact retained contract.
+    Product(DiagnosticProductQueryFailure),
     Checker(DiagnosticCheckerFailure),
 }
 
@@ -705,7 +708,7 @@ impl DiagnosticEmissionLinkPlanFailure {
 }
 
 impl DiagnosticEmissionEvaluationFailure {
-    pub const fn as_str(self) -> &'static str {
+    pub const fn as_str(&self) -> &'static str {
         match self {
             Self::Cycle => "cycle",
             Self::Infrastructure => "infrastructure",
@@ -726,6 +729,7 @@ impl DiagnosticEmissionEvaluationFailure {
             Self::ImportedExecutableTemplateMismatch => "imported_executable_template_mismatch",
             Self::SemanticContext => "semantic_context",
             Self::SemanticQuery(failure) => failure.as_str(),
+            Self::Product(failure) => failure.as_str(),
             Self::Checker(failure) => failure.as_str(),
         }
     }

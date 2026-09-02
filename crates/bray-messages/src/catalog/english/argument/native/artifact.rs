@@ -1,5 +1,6 @@
 use super::super::source::{format_english_artifact_digest, format_english_artifact_kind};
 use super::checker::format_english_checker_failure;
+use super::product_query::format_english_product_query_failure;
 use bray_diagnostics::DiagnosticArtifactDigest;
 
 pub(crate) fn format_artifact_failure(
@@ -21,7 +22,7 @@ pub(crate) fn format_unit_failure(message: &str, unit: &DiagnosticArtifactDigest
 }
 
 pub(crate) fn format_english_emission_evaluation_failure(
-    failure: bray_diagnostics::DiagnosticEmissionEvaluationFailure,
+    failure: &bray_diagnostics::DiagnosticEmissionEvaluationFailure,
 ) -> String {
     use bray_diagnostics::DiagnosticEmissionEvaluationFailure as Failure;
 
@@ -32,11 +33,11 @@ pub(crate) fn format_english_emission_evaluation_failure(
             "process-local semantic-value store identity capacity was exhausted during compiler evaluation"
         }
         Failure::SemanticValue(failure) => {
-            return format_english_semantic_value_failure(failure);
+            return format_english_semantic_value_failure(*failure);
         }
-        Failure::Binding(failure) => return format_english_binding_failure(failure),
-        Failure::LoweringInput(failure) => return format_english_lowering_input_failure(failure),
-        Failure::Lowering(failure) => return format_english_lowering_failure(failure),
+        Failure::Binding(failure) => return format_english_binding_failure(*failure),
+        Failure::LoweringInput(failure) => return format_english_lowering_input_failure(*failure),
+        Failure::Lowering(failure) => return format_english_lowering_failure(*failure),
         Failure::ConstantCallableBodyUnavailable => {
             "the selected constant callable has no available body"
         }
@@ -65,9 +66,10 @@ pub(crate) fn format_english_emission_evaluation_failure(
             "the selected program element has inconsistent checking context"
         }
         Failure::SemanticQuery(failure) => {
-            return format_english_semantic_query_failure(failure);
+            return format_english_semantic_query_failure(*failure);
         }
-        Failure::Checker(failure) => return format_english_checker_failure(failure),
+        Failure::Product(failure) => return format_english_product_query_failure(failure),
+        Failure::Checker(failure) => return format_english_checker_failure(*failure),
     };
 
     message.to_owned()
@@ -93,7 +95,7 @@ fn format_english_semantic_query_failure(
 }
 
 pub(crate) fn format_english_native_product_failure(
-    kind: bray_diagnostics::DiagnosticNativeProductFailureKind,
+    kind: &bray_diagnostics::DiagnosticNativeProductFailureKind,
 ) -> String {
     use bray_diagnostics::DiagnosticNativeProductFailureKind as Kind;
 
@@ -114,15 +116,15 @@ pub(crate) fn format_english_native_product_failure(
             "process-local semantic-value store identity capacity was exhausted during product construction"
         }
         Kind::EvaluationSemanticValue(failure) => {
-            return format_english_semantic_value_failure(failure);
+            return format_english_semantic_value_failure(*failure);
         }
         Kind::EvaluationBinding(failure) => {
-            return format_english_binding_failure(failure);
+            return format_english_binding_failure(*failure);
         }
         Kind::EvaluationLoweringInput(failure) => {
-            return format_english_lowering_input_failure(failure);
+            return format_english_lowering_input_failure(*failure);
         }
-        Kind::EvaluationLowering(failure) => return format_english_lowering_failure(failure),
+        Kind::EvaluationLowering(failure) => return format_english_lowering_failure(*failure),
         Kind::EvaluationConstantCallableBodyUnavailable => {
             "the selected constant callable has no available body"
         }
@@ -148,9 +150,10 @@ pub(crate) fn format_english_native_product_failure(
             "an imported native operation does not match its compiled definition"
         }
         Kind::SemanticContextFailure => "a program element has inconsistent checking context",
+        Kind::EvaluationProduct(failure) => return format_english_product_query_failure(failure),
         Kind::CheckingInfrastructureFailure => "semantic checking could not complete",
         Kind::EvaluationChecker(failure) => {
-            return format_english_checker_failure(failure);
+            return format_english_checker_failure(*failure);
         }
         Kind::CodegenTargetUnsupportedProfile => {
             "the selected target profile cannot generate native code"
@@ -233,6 +236,9 @@ pub(crate) fn format_english_native_product_failure(
         Kind::RuntimeSelectionInvalidArchive => "a selected runtime archive is invalid",
         Kind::RuntimeSelectionArchiveDigestMismatch => {
             "a selected runtime archive does not match its declared digest"
+        }
+        Kind::StandardLibraryUnavailable => {
+            "the configured standard library cannot supply a required native artifact"
         }
         Kind::EmissionBackendDuplicateUnit => {
             "the native-code generator contains a duplicate work item"
@@ -685,11 +691,34 @@ pub(crate) const fn format_english_semantic_value_failure_detail(
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::{DiagnosticCheckerNode, DiagnosticCheckerSymbol};
+    use bray_diagnostics::{
+        DiagnosticCheckerNode, DiagnosticCheckerSymbol, DiagnosticProductDataKind,
+        DiagnosticProductQueryContext, DiagnosticProductQueryContextKind,
+        DiagnosticProductQueryFailure,
+    };
     use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 
-    use super::{format_english_binding_failure, format_english_checker_failure};
+    use super::{
+        format_english_binding_failure, format_english_checker_failure,
+        format_english_product_query_failure,
+    };
     use crate::catalog::english::INTERNAL_COMPILER_ERROR;
+
+    #[test]
+    fn product_query_failures_render_exact_context_and_cause() {
+        let message =
+            format_english_product_query_failure(&DiagnosticProductQueryFailure::Missing {
+                context: DiagnosticProductQueryContext::new(
+                    DiagnosticProductQueryContextKind::Instance,
+                    "function#7[type#3]",
+                ),
+                data: DiagnosticProductDataKind::CallableSignature,
+            });
+
+        assert!(message.contains("callable signature"));
+        assert!(message.contains("instance"));
+        assert!(message.contains("function#7[type#3]"));
+    }
 
     #[test]
     fn binding_failures_render_distinct_user_facing_causes() {

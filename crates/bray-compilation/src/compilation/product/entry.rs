@@ -17,6 +17,7 @@ use bray_symbols::{
 use bray_syntax::TrustBoundaryExpressionSyntax;
 
 use crate::compilation::binder::{CompilationBindingContext, binding_query_error};
+use crate::compilation::product::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::FactQueryError;
 
 fn source_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
@@ -253,11 +254,19 @@ pub(super) fn validate_entry(
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<ProductEntryValidation>, FactQueryError> {
     let Some(symbol) = symbols.function(function) else {
-        return Err(FactQueryError::InfrastructureFailure);
+        return Err(ProductQueryFailure::missing(
+            ProductQueryContext::Function(function),
+            ProductDataKind::Symbol,
+        )
+        .into());
     };
 
     let Some(anchor) = symbol.syntax_anchor() else {
-        return Err(FactQueryError::InfrastructureFailure);
+        return Err(ProductQueryFailure::missing(
+            ProductQueryContext::Function(function),
+            ProductDataKind::SourceAnchor,
+        )
+        .into());
     };
 
     let signature = binder

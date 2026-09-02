@@ -197,6 +197,9 @@ impl super::super::Compilation {
             Err(FactQueryError::SemanticQuery(error)) => {
                 panic!("dependency-interface semantic query failed: {error}")
             }
+            Err(FactQueryError::Product(error)) => {
+                panic!("dependency-interface product query failed: {error:?}")
+            }
             Err(FactQueryError::CheckerInfrastructure(error)) => {
                 panic!("semantic checker infrastructure failed: {error:?}")
             }

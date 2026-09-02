@@ -68,13 +68,17 @@ fn canonical_cycle(facts: Box<[CompilationFactKey]>) -> Box<[CompilationFactKey]
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticSemanticValueFailure;
-    use bray_source::SourceId;
+    use bray_source::{SourceId, SourceVersion};
     use bray_symbols::{
-        FunctionSymbolId, GenericOwnerId, SemanticValueKind, SemanticValueStore,
-        SemanticValueStoreCreateError, SemanticValueStoreError, SymbolId,
+        FunctionSymbolId, GenericOwnerId, GenericSubstitutionShapeError, SemanticValueKind,
+        SemanticValueStore, SemanticValueStoreCreateError, SemanticValueStoreError, SymbolId,
     };
 
     use super::{CompilationFactKey, FactCycle, FactQueryError};
+    use crate::compilation::{
+        ProductDataKind, ProductQueryContext, ProductQueryError, ProductQueryErrorKind,
+        ProductQueryFailure, ProductSynchronizationComponent,
+    };
     use crate::fact::diagnostic_semantic_value_failure;
 
     #[test]
@@ -168,6 +172,82 @@ mod tests {
             )
         );
     }
+
+    #[test]
+    fn product_query_errors_box_and_retain_exact_private_causes() {
+        let cause = ProductQueryFailure::missing(
+            ProductQueryContext::Source(SourceId::new(7)),
+            ProductDataKind::DeclarationChunk,
+        );
+
+        let error = ProductQueryError::from(cause.clone());
+
+        assert_eq!(
+            std::mem::size_of::<ProductQueryError>(),
+            std::mem::size_of::<usize>()
+        );
+
+        assert_eq!(error.kind(), ProductQueryErrorKind::MissingData);
+        assert_eq!(error.cause(), &cause);
+
+        let query = FactQueryError::from(cause.clone());
+
+        let FactQueryError::Product(error) = query else {
+            panic!("product failure must retain the product-query boundary")
+        };
+
+        assert_eq!(error.cause(), &cause);
+    }
+
+    #[test]
+    fn product_query_error_kinds_preserve_domain_boundaries() {
+        let cases = [
+            (
+                ProductQueryFailure::count_mismatch(
+                    ProductQueryContext::Source(SourceId::new(1)),
+                    ProductDataKind::CallableParameters,
+                    1,
+                    2,
+                ),
+                ProductQueryErrorKind::ContractViolation,
+            ),
+            (
+                ProductQueryFailure::GenericSubstitution {
+                    substitution: None,
+                    cause: GenericSubstitutionShapeError::ArgumentCountMismatch {
+                        parameter_count: 1,
+                        argument_count: 2,
+                    },
+                },
+                ProductQueryErrorKind::Specialization,
+            ),
+            (
+                ProductQueryFailure::SynchronizationPoisoned {
+                    component: ProductSynchronizationComponent::LifecycleNeeds,
+                },
+                ProductQueryErrorKind::Coordination,
+            ),
+            (
+                ProductQueryFailure::InvalidTestErrorTypeIdentity { digest: [7; 32] },
+                ProductQueryErrorKind::ContractViolation,
+            ),
+            (
+                ProductQueryFailure::SourceSnapshotMismatch {
+                    source: SourceId::new(2),
+                    expected: SourceVersion::new(3),
+                    actual: Some(SourceVersion::new(4)),
+                },
+                ProductQueryErrorKind::Identity,
+            ),
+        ];
+
+        for (cause, expected) in cases {
+            let error = ProductQueryError::from(cause.clone());
+
+            assert_eq!(error.kind(), expected);
+            assert_eq!(error.cause(), &cause);
+        }
+    }
 }
 
 /// A compiler-owned lowering failure and the Bray source construct being compiled.
@@ -230,6 +310,8 @@ pub enum FactQueryError {
     CheckerInfrastructure(CheckerInfrastructureError),
     /// Binding or semantic compilation violated an exact query contract.
     SemanticQuery(SemanticQueryError),
+    /// Product specialization or realization violated an exact query contract.
+    Product(crate::ProductQueryError),
     /// Checked lowering inputs violated the lowering boundary contract.
     LoweringInput(LocatedLoweringFailure<LoweringInputError>),
     /// MIR lowering violated a checked semantic or MIR construction contract.
@@ -257,6 +339,12 @@ impl From<FactRuntimeFailure> for FactQueryError {
 impl From<SemanticQueryFailure> for FactQueryError {
     fn from(error: SemanticQueryFailure) -> Self {
         Self::SemanticQuery(error.into())
+    }
+}
+
+impl From<crate::compilation::ProductQueryFailure> for FactQueryError {
+    fn from(error: crate::compilation::ProductQueryFailure) -> Self {
+        Self::Product(error.into())
     }
 }
 
@@ -359,6 +447,7 @@ impl std::fmt::Display for FactQueryError {
                 )
             }
             Self::SemanticQuery(error) => write!(formatter, "{error}"),
+            Self::Product(error) => write!(formatter, "product query failed: {error:?}"),
             Self::LoweringInput(error) => {
                 write!(
                     formatter,

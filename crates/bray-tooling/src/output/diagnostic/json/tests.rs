@@ -17,10 +17,12 @@ use bray_diagnostics::{
     DiagnosticLoweringInputFailureKind, DiagnosticMemoryOperation, DiagnosticModuleTrust,
     DiagnosticNameKind, DiagnosticNamedType, DiagnosticNativeProductFailureKind, DiagnosticNote,
     DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticPatternCoverage,
-    DiagnosticPatternMissingCase, DiagnosticProjectManifestField, DiagnosticPropagationProblem,
-    DiagnosticRefinementCapacity, DiagnosticRefinementCapacitySurface,
-    DiagnosticRejectedSelectionCandidate, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
-    DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem, DiagnosticSelectionCandidate,
+    DiagnosticPatternMissingCase, DiagnosticProductDataKind, DiagnosticProductQueryContext,
+    DiagnosticProductQueryContextKind, DiagnosticProductQueryFailure,
+    DiagnosticProjectManifestField, DiagnosticPropagationProblem, DiagnosticRefinementCapacity,
+    DiagnosticRefinementCapacitySurface, DiagnosticRejectedSelectionCandidate,
+    DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticRuntimeAbiVersion,
+    DiagnosticRuntimeArtifactProblem, DiagnosticSelectionCandidate,
     DiagnosticSelectionCandidateIdentity, DiagnosticSelectionCandidateSignature,
     DiagnosticSelectionCandidates, DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
     DiagnosticSelectionRejections, DiagnosticSemanticContentProblem,
@@ -51,6 +53,7 @@ const JSON_SOURCE_INVENTORY: &[&str] = &[
     "output/diagnostic/json/emission.rs",
     "output/diagnostic/json/emission/context.rs",
     "output/diagnostic/json/emission/failure.rs",
+    "output/diagnostic/json/emission/product_query.rs",
     "output/diagnostic/json/foreign.rs",
     "output/diagnostic/json/interface.rs",
     "output/diagnostic/json/interface/identity.rs",
@@ -230,6 +233,59 @@ fn emission_evaluation_failures_use_domain_named_json_categories() {
 
     assert_eq!(failure["category"], "evaluation");
     assert_eq!(failure["reason"], "cycle");
+}
+
+#[test]
+fn product_query_failures_preserve_exact_context_in_emission_and_native_json() {
+    let failure = DiagnosticProductQueryFailure::Missing {
+        context: DiagnosticProductQueryContext::new(
+            DiagnosticProductQueryContextKind::Instance,
+            "function#7[type#3]",
+        ),
+        data: DiagnosticProductDataKind::CallableSignature,
+    };
+
+    let diagnostic = Diagnostic::new(
+        DiagnosticId::new(0),
+        DiagnosticKind::EmissionFailed,
+        SeverityKind::Error,
+    )
+    .with_arg(DiagnosticArg::emission_failure(
+        DiagnosticEmissionFailure::Evaluation(DiagnosticEmissionEvaluationFailure::Product(
+            failure.clone(),
+        )),
+    ))
+    .with_arg(DiagnosticArg::native_product_failure_kind(
+        DiagnosticNativeProductFailureKind::EvaluationProduct(failure),
+    ));
+
+    let mut output = Vec::new();
+
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+        .unwrap_or_else(|error| panic!("JSON diagnostics should write: {error:?}"));
+
+    let output: serde_json::Value = serde_json::from_slice(&output)
+        .unwrap_or_else(|error| panic!("JSON diagnostics should parse: {error:?}"));
+
+    let emission = &output["diagnostics"][0]["args"][0]["value"]["value"];
+    let native = &output["diagnostics"][0]["args"][1]["value"]["value"];
+
+    assert_eq!(emission["reason"], "product_query_missing");
+    assert_eq!(emission["context"][1]["name"], "product_context_kind");
+    assert_eq!(emission["context"][1]["value"]["value"], "instance");
+
+    assert_eq!(
+        emission["context"][2]["value"]["value"],
+        "function#7[type#3]"
+    );
+
+    assert_eq!(
+        emission["context"][3]["value"]["value"],
+        "callable_signature"
+    );
+
+    assert_eq!(native["reason"], "product_query_missing");
+    assert_eq!(native["context"], emission["context"]);
 }
 
 #[test]

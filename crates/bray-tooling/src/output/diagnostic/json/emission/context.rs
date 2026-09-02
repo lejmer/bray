@@ -6,6 +6,8 @@ use super::failure::{
 };
 use crate::output::path_to_output_string;
 
+use super::product_query::product_query_failure_context;
+
 pub(super) fn planning_failure_context(
     failure: &bray_diagnostics::DiagnosticEmissionPlanningFailure,
 ) -> Vec<DiagnosticEmissionFieldJson> {
@@ -298,6 +300,7 @@ pub(super) fn evaluation_failure_context(
             }
             _ => vec![text_field("cause", failure.as_str())],
         },
+        Failure::Product(failure) => product_query_failure_context(failure),
         _ => vec![text_field("cause", failure.as_str())],
     }
 }

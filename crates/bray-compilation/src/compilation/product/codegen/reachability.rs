@@ -7,6 +7,7 @@ use bray_codegen::{
 use bray_ir::{MirUnit, MirUnitId, MirUnitKey};
 
 use super::super::super::Compilation;
+use super::super::error::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::error::{NativeProductPlanningError, native_batch_error};
 use crate::fact::{BatchWork, CancellationToken, FactQueryError};
@@ -123,13 +124,21 @@ impl Compilation {
                 }
                 std::collections::btree_map::Entry::Occupied(entry) => {
                     if entry.get() != &realization {
-                        return Err(FactQueryError::InfrastructureFailure.into());
+                        return Err(FactQueryError::from(ProductQueryFailure::Conflict {
+                            context: ProductQueryContext::Instance(key),
+                            data: ProductDataKind::ReachabilityRealization,
+                        })
+                        .into());
                     }
                 }
             }
 
-            if evaluations.insert(key, evaluation).is_some() {
-                return Err(FactQueryError::InfrastructureFailure.into());
+            if evaluations.insert(key.clone(), evaluation).is_some() {
+                return Err(FactQueryError::from(ProductQueryFailure::Conflict {
+                    context: ProductQueryContext::Instance(key),
+                    data: ProductDataKind::ReachabilityEvaluation,
+                })
+                .into());
             }
         }
 
@@ -146,9 +155,12 @@ impl Compilation {
             }
 
             for key in frontier.iter() {
-                let evaluation = evaluations
-                    .remove(key)
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let evaluation = evaluations.remove(key).ok_or_else(|| {
+                    FactQueryError::from(ProductQueryFailure::missing(
+                        ProductQueryContext::Instance(key.clone()),
+                        ProductDataKind::ReachabilityEvaluation,
+                    ))
+                })?;
 
                 match evaluation {
                     ReachabilityEvaluation::External => builder.push_external(key.clone()),
@@ -158,8 +170,12 @@ impl Compilation {
             }
         }
 
-        if !evaluations.is_empty() {
-            return Err(FactQueryError::InfrastructureFailure.into());
+        if let Some(key) = evaluations.keys().next() {
+            return Err(FactQueryError::from(ProductQueryFailure::Conflict {
+                context: ProductQueryContext::Instance(key.clone()),
+                data: ProductDataKind::ReachabilityEvaluation,
+            })
+            .into());
         }
 
         let graph = builder

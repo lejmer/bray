@@ -107,9 +107,31 @@ impl NativeProductPlanningError {
     pub fn diagnostic(&self, product: &ProductIdentity, target: &str) -> Option<DiagnosticBag> {
         let failure = native_product_failure_kind(self)?;
 
-        Some(DiagnosticBag::single(
-            native_product_preparation_diagnostic(failure, product, target),
-        ))
+        let outer = DiagnosticBag::single(native_product_preparation_diagnostic(
+            failure, product, target,
+        ));
+
+        match self {
+            Self::StandardLibrary(error) => {
+                let (cause, artifact_path) =
+                    super::super::super::imported::standard_library_failure_diagnostic(
+                        error.clone(),
+                    );
+
+                let cause = if let Some(artifact_path) = artifact_path.as_deref() {
+                    super::super::super::imported::with_standard_library_product_context(
+                        cause,
+                        product,
+                        artifact_path,
+                    )
+                } else {
+                    cause
+                };
+
+                Some(DiagnosticBag::single(cause).merged(&outer))
+            }
+            _ => Some(outer),
+        }
     }
 }
 
@@ -125,7 +147,7 @@ pub(in crate::compilation) fn native_product_preparation_diagnostic(
     )
     .with_arg(DiagnosticArg::actual_product_identity(product.to_string()))
     .with_arg(DiagnosticArg::target_triple(target))
-    .with_arg(DiagnosticArg::native_product_failure_kind(failure));
+    .with_arg(DiagnosticArg::native_product_failure_kind(failure.clone()));
 
     match failure {
         DiagnosticNativeProductFailureKind::EvaluationLoweringInput(failure) => {
@@ -234,7 +256,7 @@ fn native_product_failure_kind(
         NativeProductPlanningError::InvalidLinkTarget(LinkTargetBuildError::EmptyTriple) => {
             Kind::LinkTargetEmptyTriple
         }
-        NativeProductPlanningError::StandardLibrary(_) => return None,
+        NativeProductPlanningError::StandardLibrary(_) => Kind::StandardLibraryUnavailable,
         NativeProductPlanningError::Codegen(error) => codegen_preparation_failure_kind(error)?,
     })
 }
@@ -339,6 +361,9 @@ fn fact_query_failure_kind(error: &FactQueryError) -> Option<DiagnosticNativePro
         }
         FactQueryError::SemanticUnitContext(_) => Some(Kind::SemanticContextFailure),
         FactQueryError::SemanticQuery(_) => Some(Kind::SemanticContextFailure),
+        FactQueryError::Product(error) => Some(Kind::EvaluationProduct(
+            super::super::super::product_emission::diagnostics::product_query::diagnostic_product_query_failure(error),
+        )),
         FactQueryError::CheckerInfrastructure(error) => Some(match error {
             bray_checker::CheckerInfrastructureError::AtomicRepresentationTypeUnavailable => {
                 Kind::EvaluationAtomicRepresentationTypeUnavailable
@@ -379,7 +404,7 @@ impl From<super::super::super::CodegenPreparationError> for NativeProductPlannin
 mod tests {
     use bray_checker::CheckerInfrastructureError;
     use bray_diagnostics::{
-        DiagnosticArgName, DiagnosticArgValue, DiagnosticKind, DiagnosticLabelKind,
+        DiagnosticArg, DiagnosticArgName, DiagnosticArgValue, DiagnosticKind, DiagnosticLabelKind,
         DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
         DiagnosticLoweringInputFailureKind, DiagnosticNativeProductFailureKind, DiagnosticNoteKind,
         DiagnosticSemanticValueFailure,
@@ -549,6 +574,68 @@ mod tests {
         }));
 
         assert!(diagnostic.notes().is_empty());
+    }
+
+    #[test]
+    fn standard_library_failures_preserve_product_target_and_exact_cause() {
+        let package = PackageIdentity::try_new("example")
+            .unwrap_or_else(|| panic!("test package identity must be valid"));
+
+        let product = ProductIdentity::try_new(package, "application")
+            .unwrap_or_else(|| panic!("test product identity must be valid"));
+
+        let target = bray_target::TargetIdentity::try_new("x86_64-pc-windows-msvc")
+            .unwrap_or_else(|| panic!("test target identity must be valid"));
+
+        let diagnostics = NativeProductPlanningError::StandardLibrary(
+            bray_standard_library::StandardLibraryLoadError::OptimizationUnavailable {
+                target: target.clone(),
+            },
+        )
+        .diagnostic(&product, target.as_str())
+        .unwrap_or_else(|| panic!("standard-library planning failure must diagnose"));
+
+        assert!(diagnostics.iter().any(|diagnostic| {
+            diagnostic.kind() == DiagnosticKind::StandardLibraryOptimizationUnavailable
+        }));
+
+        let outer = diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.kind() == DiagnosticKind::NativeProductPreparationFailed)
+            .unwrap_or_else(|| panic!("product-context diagnostic must exist"));
+
+        assert!(outer.args().iter().any(|arg| {
+            matches!(
+                arg.value(),
+                DiagnosticArgValue::NativeProductFailureKind(
+                    DiagnosticNativeProductFailureKind::StandardLibraryUnavailable
+                )
+            )
+        }));
+
+        assert_eq!(
+            DiagnosticRenderer::english().render(outer).message(),
+            "cannot prepare native product 'example/application' for target 'x86_64-pc-windows-msvc': the configured standard library cannot supply a required native artifact"
+        );
+
+        let artifact_path = std::path::PathBuf::from("targets/test/libstd.a");
+        let infrastructure = NativeProductPlanningError::StandardLibrary(
+            bray_standard_library::StandardLibraryLoadError::Infrastructure {
+                path: artifact_path.clone(),
+            },
+        )
+        .diagnostic(&product, target.as_str())
+        .unwrap_or_else(|| panic!("standard-library infrastructure failure must diagnose"));
+
+        let cause = infrastructure
+            .iter()
+            .find(|diagnostic| {
+                diagnostic.kind() == DiagnosticKind::StandardLibraryInfrastructureFailure
+            })
+            .unwrap_or_else(|| panic!("standard-library infrastructure cause must exist"));
+
+        assert_eq!(cause.args(), &[DiagnosticArg::artifact_path(artifact_path)]);
+        bray_testing::assert_goal_state_diagnostic(cause);
     }
 
     #[test]

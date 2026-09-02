@@ -21,6 +21,7 @@ use super::support::{
     ensure_target_alignment, indirect_abi_value, indirect_parameter_kind, packed_alignment,
     pointer_mapping, signature_types, sized_layout, target_layout_contract,
 };
+use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
@@ -361,7 +362,12 @@ impl Compilation {
         let definition = self
             .available_compiler_known_symbols()
             .representation_symbol::<StructSymbolId>(role)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::CompilerKnownRepresentation(role),
+                    ProductDataKind::CompilerKnownRepresentation,
+                )
+            })?;
 
         named_type(
             self.semantic_value_store()?,
@@ -514,8 +520,15 @@ impl Compilation {
             template,
             constants.value(),
         )
-        .map_err(FactQueryError::from)?
-        .ok_or(FactQueryError::InfrastructureFailure)?;
+        .map_err(FactQueryError::from)?;
+
+        let Some(ty) = ty else {
+            return Err(ProductQueryFailure::missing(
+                ProductQueryContext::Substitution(substitution),
+                ProductDataKind::ResolvedType,
+            )
+            .into());
+        };
 
         self.semantic_value_store()?
             .substitute_type(ty, substitution)

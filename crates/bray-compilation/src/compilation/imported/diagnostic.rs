@@ -42,7 +42,23 @@ pub(super) fn standard_library_diagnostics(
     error: StandardLibraryLoadError,
     input: &DependencyInterfaceInput,
 ) -> DiagnosticBag {
-    let (diagnostic, artifact_path) = match error {
+    let (diagnostic, artifact_path) = standard_library_failure_diagnostic(error);
+
+    let artifact_path = artifact_path
+        .as_deref()
+        .unwrap_or_else(|| input.artifact_path());
+
+    DiagnosticBag::single(with_dependency_context_path(
+        diagnostic,
+        input,
+        artifact_path,
+    ))
+}
+
+pub(in crate::compilation) fn standard_library_failure_diagnostic(
+    error: StandardLibraryLoadError,
+) -> (Diagnostic, Option<std::path::PathBuf>) {
+    match error {
         StandardLibraryLoadError::Read { path, kind } => {
             let diagnostic = Diagnostic::new(
                 DiagnosticId::new(0),
@@ -145,27 +161,20 @@ pub(super) fn standard_library_diagnostics(
             .with_arg(DiagnosticArg::target_triple(target.as_str())),
             None,
         ),
-        StandardLibraryLoadError::Infrastructure => (
-            Diagnostic::new(
+        StandardLibraryLoadError::Infrastructure { path } => {
+            let diagnostic = Diagnostic::new(
                 DiagnosticId::new(0),
                 DiagnosticKind::StandardLibraryInfrastructureFailure,
                 SeverityKind::Error,
             )
-            .with_arg(DiagnosticArg::artifact_path(input.artifact_path()))
+            .with_arg(DiagnosticArg::artifact_path(path.clone()))
             .with_note(DiagnosticNote::new(
                 DiagnosticNoteKind::ReportCompilerDefect,
-            )),
-            None,
-        ),
-    };
+            ));
 
-    DiagnosticBag::single(with_dependency_context_path(
-        diagnostic,
-        input,
-        artifact_path
-            .as_deref()
-            .unwrap_or_else(|| input.artifact_path()),
-    ))
+            (diagnostic, Some(path))
+        }
+    }
 }
 
 const fn manifest_problem(
@@ -389,14 +398,11 @@ fn with_dependency_context_path(
     input: &DependencyInterfaceInput,
     artifact_path: &std::path::Path,
 ) -> Diagnostic {
-    let note = DiagnosticNote::new(DiagnosticNoteKind::InterfaceDependencyContext)
-        .with_arg(DiagnosticArg::expected_package_identity(
-            input.package().as_str(),
-        ))
-        .with_arg(DiagnosticArg::expected_product_identity(
-            input.product().as_str(),
-        ))
-        .with_arg(DiagnosticArg::artifact_path(artifact_path));
+    let note = interface_dependency_context_note(
+        input.package().as_str(),
+        input.product().as_str(),
+        artifact_path,
+    );
 
     if let Some(span) = input.dependency_span() {
         diagnostic = diagnostic
@@ -408,6 +414,29 @@ fn with_dependency_context_path(
     }
 
     diagnostic.with_note(note)
+}
+
+pub(in crate::compilation) fn with_standard_library_product_context(
+    diagnostic: Diagnostic,
+    product: &bray_symbols::ProductIdentity,
+    artifact_path: &std::path::Path,
+) -> Diagnostic {
+    diagnostic.with_note(interface_dependency_context_note(
+        product.package().as_str(),
+        product.name(),
+        artifact_path,
+    ))
+}
+
+fn interface_dependency_context_note(
+    package: &str,
+    product: &str,
+    artifact_path: &std::path::Path,
+) -> DiagnosticNote {
+    DiagnosticNote::new(DiagnosticNoteKind::InterfaceDependencyContext)
+        .with_arg(DiagnosticArg::expected_package_identity(package))
+        .with_arg(DiagnosticArg::expected_product_identity(product))
+        .with_arg(DiagnosticArg::artifact_path(artifact_path))
 }
 
 #[cfg(test)]
@@ -532,8 +561,20 @@ mod tests {
             DiagnosticKind::StandardLibraryRuntimeAbiMismatch,
         );
 
-        let infrastructure_bag =
-            standard_library_diagnostics(StandardLibraryLoadError::Infrastructure, &input);
+        let infrastructure_path = std::path::PathBuf::from("interfaces/std-cache.brayi");
+        let infrastructure_bag = standard_library_diagnostics(
+            StandardLibraryLoadError::Infrastructure {
+                path: infrastructure_path.clone(),
+            },
+            &input,
+        );
+
+        let diagnostic = bray_testing::single_diagnostic(&infrastructure_bag);
+
+        assert_eq!(
+            diagnostic.args(),
+            &[DiagnosticArg::artifact_path(infrastructure_path)]
+        );
 
         bray_testing::assert_goal_state_diagnostic_kind(
             &infrastructure_bag,

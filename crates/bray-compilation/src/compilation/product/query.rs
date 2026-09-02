@@ -24,6 +24,12 @@ use crate::compilation::directive::{
 };
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
+use super::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
+
+fn missing_product_data(context: ProductQueryContext, data: ProductDataKind) -> FactQueryError {
+    ProductQueryFailure::missing(context, data).into()
+}
+
 fn source_diagnostic(anchor: SyntaxAnchor, kind: DiagnosticKind) -> Diagnostic {
     labeled_source_diagnostic(
         anchor,
@@ -144,18 +150,29 @@ impl Compilation {
                 )?;
 
                 if let Some(validation) = validation {
-                    let result = validation
-                        .test_result()
-                        .ok_or(FactQueryError::InfrastructureFailure)?;
+                    let result = validation.test_result().ok_or_else(|| {
+                        missing_product_data(
+                            ProductQueryContext::Function(function),
+                            ProductDataKind::TestResult,
+                        )
+                    })?;
 
-                    let module = symbols
-                        .containing_module(function.into())
-                        .ok_or(FactQueryError::InfrastructureFailure)?;
+                    let module = symbols.containing_module(function.into()).ok_or_else(|| {
+                        missing_product_data(
+                            ProductQueryContext::Function(function),
+                            ProductDataKind::ContainingModule,
+                        )
+                    })?;
 
                     let name = symbols
                         .member_name(function.into())
                         .cloned()
-                        .ok_or(FactQueryError::InfrastructureFailure)?;
+                        .ok_or_else(|| {
+                            missing_product_data(
+                                ProductQueryContext::Function(function),
+                                ProductDataKind::MemberName,
+                            )
+                        })?;
 
                     let identity = (module.path().clone(), name.clone());
 
@@ -213,7 +230,12 @@ impl Compilation {
                 .module_parts()
                 .first()
                 .map(bray_declarations::ModulePartRecord::syntax_anchor)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    missing_product_data(
+                        ProductQueryContext::Product(kind),
+                        ProductDataKind::SourceAnchor,
+                    )
+                })?;
 
             let selection = select_executable_entrypoint(
                 &binder,
@@ -275,9 +297,12 @@ impl Compilation {
             [argument] if matches!(argument.name(), DirectiveArgumentName::Positional) => {
                 let syntax = argument.expression().syntax();
 
-                let source = self
-                    .source(syntax.source_id())
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let source = self.source(syntax.source_id()).ok_or_else(|| {
+                    missing_product_data(
+                        ProductQueryContext::Source(syntax.source_id()),
+                        ProductDataKind::SourceSnapshot,
+                    )
+                })?;
 
                 let name = bare_directive_argument_name(
                     self.syntax_tree_result().syntax_tree(),

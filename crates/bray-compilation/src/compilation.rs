@@ -48,7 +48,13 @@ pub use emission::{EmissionCodegenError, EmissionCodegenErrorKind};
 pub use export::PackageInterfaceExportError;
 pub use linking::LinkedProductEmissionError;
 pub use load::CompilationLoadError;
-pub use product::{NativeProductPlan, NativeProductPlanningError};
+pub use product::{
+    NativeProductPlan, NativeProductPlanningError, ProductQueryError, ProductQueryErrorKind,
+};
+pub(crate) use product::{
+    ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductSynchronizationComponent,
+    ProductTestCatalogFailureKind, ProductValueKind,
+};
 pub use product_emission::{ProductEmissionError, ProductEmissionErrorKind, ProductEmissionInputs};
 pub use semantic_error::{SemanticQueryError, SemanticQueryErrorKind};
 pub use source_graph::ProductSourceGraph;

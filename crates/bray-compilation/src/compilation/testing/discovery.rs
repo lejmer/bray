@@ -12,6 +12,9 @@ use bray_test_protocol::{
 
 use crate::compilation::Compilation;
 use crate::compilation::product::structural_type_identity;
+use crate::compilation::{
+    ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductTestCatalogFailureKind,
+};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
 /// Stable test metadata paired with compilation-local callable identities.
@@ -79,7 +82,12 @@ impl Compilation {
     ) -> Result<DiagnosticResult<TestDiscovery>, FactQueryError> {
         if product.package() != self.package_identity() && self.product_kind() != ProductKind::Test
         {
-            return Err(FactQueryError::InfrastructureFailure);
+            return Err(ProductQueryFailure::TestProductMismatch {
+                requested: product,
+                compilation_package: self.package_identity().clone(),
+                compilation_kind: self.product_kind(),
+            }
+            .into());
         }
 
         let semantic = self.product_semantics_with_cancellation(cancellation)?;
@@ -94,11 +102,19 @@ impl Compilation {
 
                 let anchor = symbols
                     .declaration_syntax_anchor(test.function().into())
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                    .ok_or_else(|| {
+                        ProductQueryFailure::missing(
+                            ProductQueryContext::Function(test.function()),
+                            ProductDataKind::SourceAnchor,
+                        )
+                    })?;
 
-                let source = self
-                    .source(anchor.source_id())
-                    .ok_or(FactQueryError::InfrastructureFailure)?;
+                let source = self.source(anchor.source_id()).ok_or_else(|| {
+                    ProductQueryFailure::missing(
+                        ProductQueryContext::Source(anchor.source_id()),
+                        ProductDataKind::SourceSnapshot,
+                    )
+                })?;
 
                 let declaration =
                     TestDeclarationPath::new(test.module().clone(), test.name().clone());
@@ -131,8 +147,29 @@ impl Compilation {
             }
         }
 
+        let catalog_product = product.clone();
+
         let catalog = TestCatalog::try_new(product, entries.iter().map(|(entry, _)| entry.clone()))
-            .map_err(|_| FactQueryError::InfrastructureFailure)?;
+            .map_err(|cause| {
+                let (identity, cause) = match cause {
+                    bray_test_protocol::TestCatalogBuildError::ProductMismatch(identity) => {
+                        (identity, ProductTestCatalogFailureKind::ProductMismatch)
+                    }
+                    bray_test_protocol::TestCatalogBuildError::DuplicateIdentity(identity) => {
+                        (identity, ProductTestCatalogFailureKind::DuplicateIdentity)
+                    }
+                    bray_test_protocol::TestCatalogBuildError::InvalidResultMetadata(identity) => (
+                        identity,
+                        ProductTestCatalogFailureKind::InvalidResultMetadata,
+                    ),
+                };
+
+                ProductQueryFailure::TestCatalog {
+                    product: catalog_product,
+                    identity,
+                    cause,
+                }
+            })?;
 
         let discovery = TestDiscovery::new(
             catalog,
@@ -150,7 +187,7 @@ impl Compilation {
 
 fn error_type_identity(digest: [u8; 32]) -> Result<TestErrorTypeIdentity, FactQueryError> {
     TestErrorTypeIdentity::try_new(lowercase_hex(&digest))
-        .ok_or(FactQueryError::InfrastructureFailure)
+        .ok_or_else(|| ProductQueryFailure::InvalidTestErrorTypeIdentity { digest }.into())
 }
 
 #[cfg(test)]

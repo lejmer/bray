@@ -8,6 +8,7 @@ use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{AnySymbolId, ModuleContributionGate, ProductKind, SymbolGraph, SymbolKey};
 
 use super::Compilation;
+use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::{CompilationFactKey, FactQueryError};
 
 /// Enabled source declarations for one selected package product and target.
@@ -115,7 +116,11 @@ impl Compilation {
 
         for source in self.sources().iter() {
             let Some(chunk) = self.declaration_chunk(source.source_id()) else {
-                return Err(FactQueryError::InfrastructureFailure);
+                return Err(ProductQueryFailure::missing(
+                    ProductQueryContext::Source(source.source_id()),
+                    ProductDataKind::DeclarationChunk,
+                )
+                .into());
             };
 
             chunks.push(chunk);

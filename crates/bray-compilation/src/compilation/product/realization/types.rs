@@ -25,6 +25,7 @@ use super::support::{
     callable_type_signature, closed_array_length, codegen_checker_error, pointer_layout,
     pointer_mapping, target_layout_contract,
 };
+use crate::compilation::ProductQueryFailure;
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
@@ -496,8 +497,11 @@ impl Compilation {
             return Ok(mapping);
         }
 
-        let heap_key = CompilerKnownDeclarationKey::try_new("Heap")
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let heap_key = CompilerKnownDeclarationKey::try_new("Heap").ok_or_else(|| {
+            ProductQueryFailure::InvalidCompilerKnownDeclarationKey {
+                key: "Heap".to_owned(),
+            }
+        })?;
 
         if self
             .available_compiler_known_symbols()

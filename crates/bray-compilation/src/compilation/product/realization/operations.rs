@@ -1,12 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::num::NonZeroU32;
 
 use bray_binder::BindingQueryContext;
 use bray_codegen::{
-    CodegenCallSite, CodegenDebugLocation, CodegenHelperMapping, CodegenInstance,
-    CodegenOperationMapping, CodegenSourceFile, CodegenSymbolKey, CodegenSymbolMapping,
-    CodegenTarget, CodegenTypeMapping, CodegenUnit, demanded_callable_instance_for_call,
-    demanded_debug_sources,
+    CodegenCallSite, CodegenHelperMapping, CodegenInstance, CodegenOperationMapping,
+    CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTypeMapping, CodegenUnit,
+    demanded_callable_instance_for_call,
 };
 use bray_ir::{
     MirAsyncOperation, MirBlockKind, MirCallTarget, MirCleanupEdge, MirEdge, MirFrameInitializer,
@@ -15,7 +13,6 @@ use bray_ir::{
     MirUnitId, MirUnitKey,
 };
 use bray_runtime_interface::RuntimeAbiRole;
-use bray_source::LineIndex;
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableDefinitionId, SymbolKeyData, TypeAssociatedLifecycleSlot,
     TypeData, TypeId,
@@ -27,79 +24,13 @@ use super::super::specialization::{
     ConcreteCodegenCallee, ConcreteCodegenInstance, ConcreteCodegenReachability,
 };
 use super::support::{
-    codegen_source_file, dependency_symbol, direct_helper_symbol, helper_runtime_symbol,
-    is_void_result, operation_result_type,
+    dependency_symbol, direct_helper_symbol, helper_runtime_symbol, is_void_result,
+    operation_result_type,
 };
+use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
-    pub(super) fn codegen_debug_locations(
-        &self,
-        unit: &CodegenUnit,
-    ) -> Result<Vec<CodegenDebugLocation>, CodegenPreparationError> {
-        let mut sources = BTreeMap::new();
-
-        let generated_file = CodegenSourceFile::try_new("generated.bray")
-            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-        let mut locations = Vec::new();
-
-        for anchor in demanded_debug_sources(unit) {
-            let debug_location = match &anchor {
-                MirSourceAnchor::Source(origin) => {
-                    let source_anchor = origin.source_anchor();
-                    let syntax = source_anchor.syntax();
-
-                    if !sources.contains_key(&syntax.source_id()) {
-                        let source = self
-                            .source(syntax.source_id())
-                            .filter(|source| source.version() == source_anchor.source_version())
-                            .ok_or(FactQueryError::InfrastructureFailure)?;
-
-                        let index = LineIndex::new(source.text())
-                            .map_err(|_| FactQueryError::InfrastructureFailure)?;
-
-                        let file = codegen_source_file(source)?;
-
-                        sources.insert(syntax.source_id(), (index, file));
-                    }
-
-                    let (index, file) = sources
-                        .get(&syntax.source_id())
-                        .ok_or(FactQueryError::InfrastructureFailure)?;
-
-                    let location = index
-                        .line_column(syntax.full_range().start())
-                        .ok_or(FactQueryError::InfrastructureFailure)?;
-
-                    let line = NonZeroU32::new(location.line())
-                        .ok_or(FactQueryError::InfrastructureFailure)?;
-
-                    let column = NonZeroU32::new(location.column())
-                        .ok_or(FactQueryError::InfrastructureFailure)?;
-
-                    // The clone retains the shared immutable normalized path.
-                    CodegenDebugLocation::new(anchor, file.clone(), line, column)
-                }
-                MirSourceAnchor::ImportedExecutable(_)
-                | MirSourceAnchor::ExecutableHost(_)
-                | MirSourceAnchor::GeneratedLifecycle(_) => {
-                    // The clone retains the shared immutable generated path.
-                    CodegenDebugLocation::new(
-                        anchor,
-                        generated_file.clone(),
-                        NonZeroU32::MIN,
-                        NonZeroU32::MIN,
-                    )
-                }
-            };
-
-            locations.push(debug_location);
-        }
-
-        Ok(locations)
-    }
-
     pub(super) fn codegen_operations(
         &self,
         unit: &CodegenUnit,
@@ -110,9 +41,12 @@ impl Compilation {
         let mut mappings = Vec::new();
 
         for instance in unit.instances() {
-            let realization = reachability
-                .instance(instance.key())
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let realization = reachability.instance(instance.key()).ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::Instance(instance.key().clone()),
+                    ProductDataKind::ConcreteInstance,
+                )
+            })?;
 
             for (operation, data) in instance.mir().operations_with_ids() {
                 let references = data.kind().helper_references();
@@ -207,6 +141,7 @@ impl Compilation {
 
         if let Some(dependency) = self.concrete_codegen_helper_dependency(
             owner_realization,
+            operation_id,
             operation,
             operation_result_type,
             &reference,
@@ -237,6 +172,7 @@ impl Compilation {
     pub(in crate::compilation::product) fn concrete_codegen_helper_dependency(
         &self,
         owner: &ConcreteCodegenInstance,
+        operation_id: MirOperationId,
         operation: &MirOperationKind,
         operation_result_type: Option<TypeId>,
         reference: &MirHelperReference,
@@ -248,8 +184,15 @@ impl Compilation {
 
         let dependency = match &concrete_reference {
             MirHelperReference::AnonymousCallable(unit) => {
-                let callable_type =
-                    operation_result_type.ok_or(FactQueryError::InfrastructureFailure)?;
+                let callable_type = operation_result_type.ok_or_else(|| {
+                    ProductQueryFailure::missing(
+                        ProductQueryContext::Operation {
+                            instance: owner.key().clone(),
+                            operation: operation_id,
+                        },
+                        ProductDataKind::OperationResultType,
+                    )
+                })?;
 
                 self.concrete_codegen_anonymous_callable(owner, unit, callable_type)?
             }
@@ -261,11 +204,27 @@ impl Compilation {
             )?,
             MirHelperReference::CallableDefault(provider) => {
                 let MirOperationKind::Call(call) = operation else {
-                    return Err(FactQueryError::InfrastructureFailure.into());
+                    return Err(ProductQueryFailure::InvalidHelperOperation {
+                        context: ProductQueryContext::Operation {
+                            instance: owner.key().clone(),
+                            operation: operation_id,
+                        },
+                        helper: concrete_reference.clone(),
+                        operation: operation.clone(),
+                    }
+                    .into());
                 };
 
                 let MirCallTarget::Direct(callable) = call.target() else {
-                    return Err(FactQueryError::InfrastructureFailure.into());
+                    return Err(ProductQueryFailure::InvalidHelperCallTarget {
+                        context: ProductQueryContext::Operation {
+                            instance: owner.key().clone(),
+                            operation: operation_id,
+                        },
+                        helper: concrete_reference.clone(),
+                        target: call.target().clone(),
+                    }
+                    .into());
                 };
 
                 let callee = self.concrete_codegen_callable_data(
@@ -404,8 +363,13 @@ impl Compilation {
             ));
         }
 
-        ConcreteCodegenInstance::imported_runtime_default(owner, provider)
-            .ok_or_else(|| FactQueryError::InfrastructureFailure.into())
+        ConcreteCodegenInstance::imported_runtime_default(owner, provider).ok_or_else(|| {
+            ProductQueryFailure::missing(
+                ProductQueryContext::Symbol(provider),
+                ProductDataKind::ConcreteInstance,
+            )
+            .into()
+        })
     }
 
     pub(super) fn runtime_default_unit(
@@ -433,7 +397,12 @@ impl Compilation {
 
         let (parameters, _) = symbols
             .callable_parameters_and_receiver(callable.callable_symbol())
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::CallableDefinition(callable),
+                    ProductDataKind::CallableParameters,
+                )
+            })?;
 
         let mut defaults = Vec::new();
 
@@ -445,9 +414,12 @@ impl Compilation {
                 continue;
             };
 
-            let unit = self
-                .runtime_default_unit(provider.into())?
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let unit = self.runtime_default_unit(provider.into())?.ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::Symbol(provider.into()),
+                    ProductDataKind::RuntimeDefaultUnit,
+                )
+            })?;
 
             defaults.push(self.concrete_codegen_bound_helper(owner, unit)?);
         }
@@ -520,11 +492,22 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<MirUnit, CodegenPreparationError> {
         let MirUnitKey::GeneratedLifecycle(key) = instance.template() else {
-            return Err(FactQueryError::InfrastructureFailure.into());
+            return Err(ProductQueryFailure::missing(
+                ProductQueryContext::Instance(instance.clone()),
+                ProductDataKind::GeneratedLifecycleInstance,
+            )
+            .into());
         };
 
-        if Some(key.role()) != bray_ir::MirGeneratedLifecycleRole::from_reference(reference) {
-            return Err(FactQueryError::InfrastructureFailure.into());
+        let actual_role = bray_ir::MirGeneratedLifecycleRole::from_reference(reference);
+
+        if Some(key.role()) != actual_role {
+            return Err(ProductQueryFailure::LifecycleRoleMismatch {
+                instance: instance.clone(),
+                expected: Some(key.role()),
+                actual: actual_role,
+            }
+            .into());
         }
 
         let ty = reference

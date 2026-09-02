@@ -8,6 +8,7 @@ use bray_symbols::{
 use super::super::super::binder::{CompilationBindingContext, binding_query_error};
 use super::super::super::implementation::implementation_instance_requirement;
 use super::super::specialization::ConcreteCodegenInstance;
+use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::FactQueryError;
 
 pub(in crate::compilation::product) fn substitute_contextual_self(
@@ -68,13 +69,28 @@ pub(in crate::compilation::product) fn codegen_instance_contextual_self(
             let container = binding_context
                 .containing_symbol(callable.definition().symbol())
                 .map_err(binding_query_error)?
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    ProductQueryFailure::missing(
+                        ProductQueryContext::Instance(instance.key().clone()),
+                        ProductDataKind::ContainingSymbol,
+                    )
+                })?;
 
-            let trait_definition = TraitSymbolId::try_from_any(container)
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+            let trait_definition = TraitSymbolId::try_from_any(container).ok_or_else(|| {
+                ProductQueryFailure::UnexpectedSymbolKind {
+                    symbol: container,
+                    expected: bray_symbols::SymbolKind::Trait,
+                    actual: container.kind(),
+                }
+            })?;
 
             if trait_definition != application.definition() {
-                return Err(FactQueryError::InfrastructureFailure);
+                return Err(ProductQueryFailure::TraitDefinitionMismatch {
+                    context: ProductQueryContext::Instance(instance.key().clone()),
+                    expected: application.definition(),
+                    actual: trait_definition,
+                }
+                .into());
             }
         }
 
@@ -105,7 +121,11 @@ pub(in crate::compilation::product) fn codegen_instance_contextual_self(
     }
 
     if TraitSymbolId::try_from_any(container).is_some() {
-        return Err(FactQueryError::InfrastructureFailure);
+        return Err(ProductQueryFailure::missing(
+            ProductQueryContext::Instance(instance.key().clone()),
+            ProductDataKind::ContextualSelfWitness,
+        )
+        .into());
     }
 
     Ok(None)

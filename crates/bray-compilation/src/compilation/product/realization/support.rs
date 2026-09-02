@@ -3,9 +3,9 @@ use std::num::{NonZeroU16, NonZeroU64};
 
 use bray_codegen::{
     CodegenCallableSignature, CodegenIndirectParameterKind, CodegenInstance, CodegenLinkage,
-    CodegenOperationMapping, CodegenParameterMapping, CodegenResultMapping, CodegenSourceFile,
-    CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTypeKind, CodegenTypeMapping,
-    CodegenUnit, TargetAddressSpaceKind, mapped_runtime_references,
+    CodegenOperationMapping, CodegenParameterMapping, CodegenResultMapping, CodegenSymbolKey,
+    CodegenSymbolMapping, CodegenTarget, CodegenTypeKind, CodegenTypeMapping, CodegenUnit,
+    TargetAddressSpaceKind, mapped_runtime_references,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
@@ -13,7 +13,6 @@ use bray_ir::{
     MirProjectionKind, MirRuntimeReference, MirUnit,
 };
 use bray_runtime_interface::{BinarySymbolName, ProtectedFrameOperation, RuntimeAbiRole};
-use bray_source::SourceSnapshot;
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableExecution, ConstantTermData, ConstantValueKind,
     DeclaredLayoutMode, ForeignCallableDirection, NamedTypeSymbolId, NativeSymbolBinding,
@@ -27,6 +26,7 @@ use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
 use super::super::super::substitution::named_type;
 use super::symbols::NativeBoundaryMapping;
+use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
@@ -37,7 +37,12 @@ impl Compilation {
         let definition = self
             .available_compiler_known_symbols()
             .representation_symbol::<StructSymbolId>(role)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::CompilerKnownRepresentation(role),
+                    ProductDataKind::CompilerKnownRepresentation,
+                )
+            })?;
 
         named_type(
             self.semantic_value_store()?,
@@ -55,7 +60,16 @@ impl Compilation {
                 element,
             )
             .map_err(FactQueryError::SemanticValueStore)?
-            .ok_or(FactQueryError::InfrastructureFailure)
+            .ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::UnaryRepresentation {
+                        role: RepresentationRole::RawPointer,
+                        argument: element,
+                    },
+                    ProductDataKind::CompilerKnownRepresentation,
+                )
+                .into()
+            })
     }
 }
 
@@ -192,25 +206,6 @@ pub(super) fn source_backed_symbol_key(key: &SymbolKey) -> bool {
         | SymbolKeyData::CompilerKnownDeclaration { .. }
         | SymbolKeyData::External(_) => false,
     }
-}
-
-pub(super) fn codegen_source_file(
-    source: &SourceSnapshot,
-) -> Result<CodegenSourceFile, CodegenPreparationError> {
-    let origin = source.origin();
-
-    let path = origin
-        .file_path()
-        .map(|path| path.to_string_lossy().replace('\\', "/"))
-        .or_else(|| origin.virtual_name().map(str::to_owned))
-        .or_else(|| origin.generated_name().map(str::to_owned))
-        .or_else(|| origin.lsp_uri().map(str::to_owned))
-        .or_else(|| origin.test_fixture_name().map(str::to_owned))
-        .unwrap_or_else(|| format!("source-{}.bray", source.identity().raw()));
-
-    CodegenSourceFile::try_new(path)
-        .ok_or(FactQueryError::InfrastructureFailure)
-        .map_err(CodegenPreparationError::from)
 }
 
 pub(super) const fn target_layout_contract(layout: DeclaredLayoutMode) -> TargetLayoutContract {
@@ -411,7 +406,15 @@ pub(super) fn callable_type_signature(
                 callable.result(),
             )
             .map_err(FactQueryError::SemanticValueStore)?
-            .ok_or(FactQueryError::InfrastructureFailure)?
+            .ok_or_else(|| {
+                ProductQueryFailure::missing(
+                    ProductQueryContext::UnaryRepresentation {
+                        role: RepresentationRole::Future,
+                        argument: callable.result(),
+                    },
+                    ProductDataKind::CompilerKnownRepresentation,
+                )
+            })?
     } else {
         callable.result()
     };
@@ -474,7 +477,7 @@ pub(super) fn lifecycle_operation_block_kind(
         | bray_ir::MirGeneratedLifecycleRole::StaticFinalize
         | bray_ir::MirGeneratedLifecycleRole::Cleanup(
             bray_ir::MirCleanupPhase::LifecycleResolution,
-        ) => Err(FactQueryError::InfrastructureFailure),
+        ) => Err(ProductQueryFailure::UnsupportedLifecycleRole { role }.into()),
     }
 }
 
@@ -789,7 +792,7 @@ mod tests {
     };
     use bray_symbols::testing::intern_type;
     use bray_symbols::{
-        BorrowKind, CallableAbi, NamedTypeSymbolId, ReceiverMode, SymbolOrigin,
+        BorrowKind, CallableAbi, NamedTypeSymbolId, ProductKind, ReceiverMode, SymbolOrigin,
         TraitApplicationData, TypeData, TypeId,
     };
     use bray_target::{NativeTarget, TargetLayoutContract, TargetValueLayout};
@@ -802,7 +805,7 @@ mod tests {
     use crate::compilation::CodegenPreparationError;
     use crate::compilation::product::specialization::ConcreteCodegenInstance;
     use crate::compilation::substitution::{empty_substitution, named_type};
-    use crate::test_support::compilation;
+    use crate::test_support::{compilation, compilation_with_product};
     use crate::{CancellationToken, Compilation, SelectedTarget};
 
     #[test]
@@ -1674,6 +1677,45 @@ mod tests {
                 "void result classification must resolve: {error:?}"
             ))
         );
+    }
+
+    #[test]
+    fn real_product_callable_roots_retain_signatures() {
+        let source = concat!(
+            "module app;\n",
+            "static ANSWER: i32 = 42;\n",
+            "func main() -> i32\n",
+            "{\n",
+            "    return ANSWER;\n",
+            "}\n",
+        );
+
+        let compilation = compilation_with_product(source, ProductKind::Executable);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let cancellation = CancellationToken::new();
+        let target = codegen_target(&compilation);
+
+        let semantic = compilation
+            .product_semantics()
+            .unwrap_or_else(|error| panic!("product semantics must resolve: {error:?}"));
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
+            .unwrap_or_else(|error| panic!("product roots must resolve: {error:?}"));
+
+        assert!(roots.iter().any(|root| root.callable_instance().is_some()));
+
+        for root in roots {
+            compilation
+                .codegen_instance_signature(&root, &cancellation)
+                .unwrap_or_else(|error| panic!("root signature must realize: {error:?}"));
+        }
     }
 
     #[test]

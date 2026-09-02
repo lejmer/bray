@@ -82,10 +82,11 @@ pub use emission::{
     DiagnosticEmissionLinkPlanFailure, DiagnosticEmissionPlanningFailure,
     DiagnosticEmissionStagingFailure, DiagnosticHostEnvironmentVariable,
     DiagnosticLiteralValueFailure, DiagnosticLlvmToolRole, DiagnosticPackageInterfaceFailure,
-    DiagnosticPatternInputFailure, DiagnosticSemanticQueryFailure,
-    DiagnosticSemanticSelectionFailure, DiagnosticSemanticSnapshotFailure,
-    DiagnosticSemanticValueFailure, DiagnosticStorageFlowFailure,
-    DiagnosticUnsupportedEmissionReason,
+    DiagnosticPatternInputFailure, DiagnosticProductDataKind, DiagnosticProductQueryContext,
+    DiagnosticProductQueryContextKind, DiagnosticProductQueryFailure, DiagnosticProductValueKind,
+    DiagnosticSemanticQueryFailure, DiagnosticSemanticSelectionFailure,
+    DiagnosticSemanticSnapshotFailure, DiagnosticSemanticValueFailure,
+    DiagnosticStorageFlowFailure, DiagnosticUnsupportedEmissionReason,
 };
 pub use id::DiagnosticId;
 pub use inspection::{

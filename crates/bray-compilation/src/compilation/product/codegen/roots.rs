@@ -12,12 +12,13 @@ use super::super::super::Compilation;
 use super::super::super::binder::has_visible_generic_parameters;
 use super::super::super::implementation::implementation_fulfillments;
 use super::super::super::substitution::empty_substitution;
+use super::super::error::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use super::super::specialization::ConcreteCodegenInstance;
 use super::error::NativeProductPlanningError;
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
-    pub(super) fn product_root_instances(
+    pub(in crate::compilation::product) fn product_root_instances(
         &self,
         semantic: &bray_symbols::ProductSemantics,
         test_discovery: Option<&super::super::super::testing::TestDiscovery>,
@@ -81,7 +82,12 @@ impl Compilation {
                 .value()
                 .declared_type()
                 .resolved_type()
-                .ok_or(FactQueryError::InfrastructureFailure)?;
+                .ok_or_else(|| {
+                    FactQueryError::from(ProductQueryFailure::missing(
+                        ProductQueryContext::Symbol(static_symbol.id().into()),
+                        ProductDataKind::StaticDeclaredType,
+                    ))
+                })?;
 
             let native_direction =
                 self.foreign_static_direction(static_symbol.id(), cancellation)?;
@@ -173,9 +179,12 @@ impl Compilation {
             return Ok(None);
         }
 
-        let initializer = self
-            .static_initializer_key(declaration)?
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let initializer = self.static_initializer_key(declaration)?.ok_or_else(|| {
+            FactQueryError::from(ProductQueryFailure::missing(
+                ProductQueryContext::Symbol(declaration.into()),
+                ProductDataKind::StaticInitializer,
+            ))
+        })?;
 
         let substitution = empty_substitution(
             binding_context.semantic_values(),
@@ -267,10 +276,12 @@ impl Compilation {
 
         let headers = self.implementation_header_index(cancellation)?;
 
-        let header = headers
-            .value()
-            .header(implementation)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+        let header = headers.value().header(implementation).ok_or_else(|| {
+            FactQueryError::from(ProductQueryFailure::missing(
+                ProductQueryContext::Symbol(implementation.into_any()),
+                ProductDataKind::ImplementationHeader,
+            ))
+        })?;
 
         let values = self.semantic_value_store()?;
 
@@ -309,7 +320,12 @@ pub(super) fn product_entry_symbols(
             .into_iter()
             .collect()),
         ProductKind::Test => {
-            let discovery = test_discovery.ok_or(FactQueryError::InfrastructureFailure)?;
+            let discovery = test_discovery.ok_or_else(|| {
+                FactQueryError::from(ProductQueryFailure::missing(
+                    ProductQueryContext::Product(ProductKind::Test),
+                    ProductDataKind::TestDiscovery,
+                ))
+            })?;
 
             Ok(discovery
                 .catalog()
