@@ -168,11 +168,15 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
         Kind::EvaluationCycle(crate::DiagnosticEvaluationFailureDetail::new("cycle", [])),
         Kind::EvaluationInfrastructure,
         Kind::EvaluationLoweringInput(DiagnosticLoweringInputFailure::new(
-            DiagnosticLoweringInputFailureKind::InvalidStorageExit,
+            DiagnosticLoweringInputFailureKind::InvalidStorageExit(
+                crate::DiagnosticLoweringIdentity::new(3, 5),
+            ),
             source,
         )),
         Kind::EvaluationLowering(DiagnosticLoweringFailure::new(
-            DiagnosticLoweringFailureKind::MissingCleanupPlan,
+            DiagnosticLoweringFailureKind::MissingCleanupPlan(
+                crate::DiagnosticLoweringIdentity::new(3, 5),
+            ),
             source,
         )),
         Kind::SemanticContextFailure(crate::DiagnosticEvaluationFailureDetail::new(

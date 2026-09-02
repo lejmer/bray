@@ -403,7 +403,9 @@ fn compiler_owned_code_production_failures_are_explicit_and_source_anchored() {
 
     let failure =
         DiagnosticNativeProductFailureKind::EvaluationLowering(DiagnosticLoweringFailure::new(
-            DiagnosticLoweringFailureKind::MissingSuspensionPoint,
+            DiagnosticLoweringFailureKind::MissingSuspensionPoint(
+                bray_diagnostics::DiagnosticLoweringIdentity::new(2, 7),
+            ),
             source,
         ));
 
@@ -448,9 +450,10 @@ fn code_production_node_failures_name_the_highlighted_syntax_category() {
 
     let failure =
         DiagnosticNativeProductFailureKind::EvaluationLowering(DiagnosticLoweringFailure::new(
-            DiagnosticLoweringFailureKind::MissingSourceNode(
-                bray_diagnostics::DiagnosticSourceConstructKind::Pattern,
-            ),
+            DiagnosticLoweringFailureKind::MissingSourceNode {
+                kind: bray_diagnostics::DiagnosticSourceConstructKind::Pattern,
+                identity: bray_diagnostics::DiagnosticLoweringIdentity::new(2, 7),
+            },
             source,
         ));
 

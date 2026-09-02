@@ -1,7 +1,8 @@
 use bray_bound_tree::AnyBoundNodeId;
 use bray_diagnostics::{
-    DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
-    DiagnosticLoweringInputFailureKind, DiagnosticMirUnitBuildFailure,
+    DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringIdentity,
+    DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind, DiagnosticLoweringRoot,
+    DiagnosticMirUnitBuildFailure,
     DiagnosticMirUnitBuildFailureContext, DiagnosticMirUnitBuildFailureKind,
     DiagnosticMirUnitLocalIdentity, DiagnosticSourceConstructKind,
 };
@@ -16,23 +17,49 @@ pub(super) fn lowering_input_failure(
     use DiagnosticLoweringInputFailureKind as Kind;
 
     let kind = match failure.cause() {
-        LoweringInputError::ForeignInput { .. } => Kind::ForeignInput,
-        LoweringInputError::InputKindMismatch { .. } => Kind::InputKindMismatch,
-        LoweringInputError::MissingSemanticSelection(_) => Kind::MissingSemanticSelection,
-        LoweringInputError::MissingExpressionType(_) => Kind::MissingExpressionType,
+        LoweringInputError::ForeignInput {
+            input,
+            expected,
+            actual,
+        } => Kind::ForeignInput {
+            input: lowering_input_kind(*input),
+            expected_unit: expected.raw(),
+            actual_unit: actual.raw(),
+        },
+        LoweringInputError::InputKindMismatch {
+            input,
+            expected,
+            actual,
+        } => Kind::InputKindMismatch {
+            input: lowering_input_kind(*input),
+            expected_kind: expected.as_str(),
+            actual_kind: actual.as_str(),
+        },
+        LoweringInputError::MissingSemanticSelection(expression) => {
+            Kind::MissingSemanticSelection(bound_identity(expression.unit(), expression.ordinal()))
+        }
+        LoweringInputError::MissingExpressionType(expression) => {
+            Kind::MissingExpressionType(bound_identity(expression.unit(), expression.ordinal()))
+        }
         LoweringInputError::InvalidPatternInput => Kind::InvalidPatternInput,
-        LoweringInputError::InvalidInputContents(_) => Kind::InvalidInputContents,
+        LoweringInputError::InvalidInputContents(input) => {
+            Kind::InvalidInputContents(lowering_input_kind(*input))
+        }
         LoweringInputError::SemanticValue(error) => {
             Kind::SemanticValue(crate::fact::diagnostic_semantic_value_failure(*error))
         }
-        LoweringInputError::InvalidStorageOperation(_) => Kind::InvalidStorageOperation,
+        LoweringInputError::InvalidStorageOperation(expression) => Kind::InvalidStorageOperation(
+            bound_identity(expression.unit(), expression.ordinal()),
+        ),
         LoweringInputError::StorageOperationCountMismatch { expected, actual } => {
             Kind::StorageOperationCountMismatch {
                 expected: u64::try_from(*expected).unwrap_or(u64::MAX),
                 actual: u64::try_from(*actual).unwrap_or(u64::MAX),
             }
         }
-        LoweringInputError::InvalidStorageExit(_) => Kind::InvalidStorageExit,
+        LoweringInputError::InvalidStorageExit(block) => {
+            Kind::InvalidStorageExit(bound_identity(block.unit(), block.ordinal()))
+        }
         LoweringInputError::LiteralTargetWidthMismatch { expected, actual } => {
             Kind::LiteralTargetWidthMismatch {
                 expected: expected.get(),
@@ -56,30 +83,72 @@ pub(super) fn lowering_failure(
     use DiagnosticLoweringFailureKind as Kind;
 
     let kind = match failure.cause() {
-        LoweringError::UnsupportedRoot(_) => Kind::UnsupportedRoot,
-        LoweringError::MissingBoundNode(node) => Kind::MissingSourceNode(source_construct(*node)),
-        LoweringError::RecoveredBoundNode(node) => {
-            Kind::RecoveredSourceNode(source_construct(*node))
+        LoweringError::UnsupportedRoot(root) => Kind::UnsupportedRoot(lowering_root(*root)),
+        LoweringError::MissingBoundNode(node) => Kind::MissingSourceNode {
+            kind: source_construct(*node),
+            identity: any_bound_identity(*node),
+        },
+        LoweringError::RecoveredBoundNode(node) => Kind::RecoveredSourceNode {
+            kind: source_construct(*node),
+            identity: any_bound_identity(*node),
+        },
+        LoweringError::MissingExpressionType(expression) => {
+            Kind::MissingExpressionType(bound_identity(expression.unit(), expression.ordinal()))
         }
-        LoweringError::MissingExpressionType(_) => Kind::MissingExpressionType,
-        LoweringError::AwaitOutsideProtectedFrame(_) => Kind::AwaitOutsideProtectedFrame,
-        LoweringError::MissingSuspensionPoint(_) => Kind::MissingSuspensionPoint,
-        LoweringError::InvalidTaskOperation(_) => Kind::InvalidTaskOperation,
+        LoweringError::AwaitOutsideProtectedFrame(expression) => Kind::AwaitOutsideProtectedFrame(
+            bound_identity(expression.unit(), expression.ordinal()),
+        ),
+        LoweringError::MissingSuspensionPoint(expression) => Kind::MissingSuspensionPoint(
+            bound_identity(expression.unit(), expression.ordinal()),
+        ),
+        LoweringError::InvalidTaskOperation(expression) => Kind::InvalidTaskOperation(
+            bound_identity(expression.unit(), expression.ordinal()),
+        ),
         LoweringError::MissingCallableResultType => Kind::MissingCallableResultType,
-        LoweringError::MissingLiteralValue(_) => Kind::MissingLiteralValue,
-        LoweringError::MissingSemanticSelection(_) => Kind::MissingSemanticSelection,
-        LoweringError::UnsupportedExpression(_) => Kind::UnsupportedExpression,
-        LoweringError::UnsupportedPattern(_) => Kind::UnsupportedPattern,
-        LoweringError::UnsupportedOperator { .. } => Kind::UnsupportedOperator,
-        LoweringError::MissingStorageAccess(_) => Kind::MissingStorageAccess,
-        LoweringError::MissingStorageAccessRecord(_) => Kind::MissingStorageAccessRecord,
-        LoweringError::MissingCleanupPlan(_) => Kind::MissingCleanupPlan,
-        LoweringError::MissingStorageIdentity(_) => Kind::MissingStorageIdentity,
-        LoweringError::MissingStorageIdentityRecord(_) => Kind::MissingStorageIdentityRecord,
-        LoweringError::MissingIterationStorage(_) => Kind::MissingIterationStorage,
-        LoweringError::UnsupportedStorageAccess(_) => Kind::UnsupportedStorageAccess,
-        LoweringError::MissingOperationResult(_) => Kind::MissingOperationResult,
-        LoweringError::MissingRepresentation(_) => Kind::MissingRepresentation,
+        LoweringError::MissingLiteralValue(expression) => {
+            Kind::MissingLiteralValue(bound_identity(expression.unit(), expression.ordinal()))
+        }
+        LoweringError::MissingSemanticSelection(expression) => Kind::MissingSemanticSelection(
+            bound_identity(expression.unit(), expression.ordinal()),
+        ),
+        LoweringError::UnsupportedExpression(expression) => {
+            Kind::UnsupportedExpression(bound_identity(expression.unit(), expression.ordinal()))
+        }
+        LoweringError::UnsupportedPattern(pattern) => {
+            Kind::UnsupportedPattern(bound_identity(pattern.unit(), pattern.ordinal()))
+        }
+        LoweringError::UnsupportedOperator {
+            expression,
+            operator,
+        } => Kind::UnsupportedOperator {
+            expression: bound_identity(expression.unit(), expression.ordinal()),
+            operator: operator.as_str(),
+        },
+        LoweringError::MissingStorageAccess(expression) => {
+            Kind::MissingStorageAccess(bound_identity(expression.unit(), expression.ordinal()))
+        }
+        LoweringError::MissingStorageAccessRecord(access) => Kind::MissingStorageAccessRecord(
+            bound_identity(access.unit(), access.ordinal()),
+        ),
+        LoweringError::MissingCleanupPlan(block) => {
+            Kind::MissingCleanupPlan(bound_identity(block.unit(), block.ordinal()))
+        }
+        LoweringError::MissingStorageIdentity(access) => Kind::MissingStorageIdentity(
+            bound_identity(access.unit(), access.ordinal()),
+        ),
+        LoweringError::MissingStorageIdentityRecord(identity) => {
+            Kind::MissingStorageIdentityRecord(bound_identity(identity.unit(), identity.ordinal()))
+        }
+        LoweringError::MissingIterationStorage(expression) => Kind::MissingIterationStorage(
+            bound_identity(expression.unit(), expression.ordinal()),
+        ),
+        LoweringError::UnsupportedStorageAccess(access) => Kind::UnsupportedStorageAccess(
+            bound_identity(access.unit(), access.ordinal()),
+        ),
+        LoweringError::MissingOperationResult(expression) => {
+            Kind::MissingOperationResult(bound_identity(expression.unit(), expression.ordinal()))
+        }
+        LoweringError::MissingRepresentation(role) => Kind::MissingRepresentation(role.as_str()),
         LoweringError::SemanticValueUnavailable => Kind::SemanticValueUnavailable,
         LoweringError::SemanticValue(error) => {
             Kind::SemanticValue(crate::fact::diagnostic_semantic_value_failure(*error))
@@ -89,6 +158,72 @@ pub(super) fn lowering_failure(
     };
 
     DiagnosticLoweringFailure::new(kind, failure.source())
+}
+
+const fn bound_identity(
+    unit: bray_bound_tree::BoundUnitId,
+    ordinal: u32,
+) -> DiagnosticLoweringIdentity {
+    DiagnosticLoweringIdentity::new(unit.raw(), ordinal)
+}
+
+const fn any_bound_identity(node: AnyBoundNodeId) -> DiagnosticLoweringIdentity {
+    bound_identity(node.unit(), node.ordinal())
+}
+
+const fn lowering_root(root: bray_bound_tree::BoundUnitRoot) -> DiagnosticLoweringRoot {
+    use bray_bound_tree::BoundUnitRoot as Root;
+
+    match root {
+        Root::CallableBody { execution, body } => DiagnosticLoweringRoot::CallableBody {
+            execution: callable_execution(execution),
+            body: bound_identity(body.unit(), body.ordinal()),
+        },
+        Root::AnonymousCallable {
+            callable,
+            execution,
+            body,
+        } => DiagnosticLoweringRoot::AnonymousCallable {
+            callable_region: callable.region().raw(),
+            callable_ordinal: callable.ordinal(),
+            execution: callable_execution(execution),
+            body: bound_identity(body.unit(), body.ordinal()),
+        },
+        Root::Expression(expression) => DiagnosticLoweringRoot::Expression(bound_identity(
+            expression.unit(),
+            expression.ordinal(),
+        )),
+        Root::ExpressionSequence(block) => DiagnosticLoweringRoot::ExpressionSequence(
+            bound_identity(block.unit(), block.ordinal()),
+        ),
+    }
+}
+
+const fn callable_execution(execution: bray_symbols::CallableExecution) -> &'static str {
+    match execution {
+        bray_symbols::CallableExecution::Synchronous => "synchronous",
+        bray_symbols::CallableExecution::Asynchronous => "asynchronous",
+    }
+}
+
+const fn lowering_input_kind(kind: bray_lowering::LoweringInputKind) -> &'static str {
+    use bray_lowering::LoweringInputKind as Kind;
+
+    match kind {
+        Kind::ControlFlow => "control_flow",
+        Kind::ExpressionTypes => "expression_types",
+        Kind::Patterns => "patterns",
+        Kind::SemanticSelections => "semantic_selections",
+        Kind::LiteralValues => "literal_values",
+        Kind::ConstantReferences => "constant_references",
+        Kind::StoragePlan => "storage_plan",
+        Kind::Liveness => "liveness",
+        Kind::Refinements => "refinements",
+        Kind::StorageFlow => "storage_flow",
+        Kind::DependencyContracts => "dependency_contracts",
+        Kind::Async => "async",
+        Kind::BodyBehavior => "body_behavior",
+    }
 }
 
 const fn source_construct(node: AnyBoundNodeId) -> DiagnosticSourceConstructKind {
@@ -346,6 +481,42 @@ mod tests {
                 ),),
                 source,
             )
+        );
+    }
+
+    #[test]
+    fn lowering_contract_failures_retain_non_mir_payloads() {
+        let source = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(10), TextSize::new(20)),
+        );
+
+        let input = super::lowering_input_failure(&LocatedLoweringFailure::new(
+            LoweringInputError::ForeignInput {
+                input: bray_lowering::LoweringInputKind::StoragePlan,
+                expected: bray_bound_tree::BoundUnitId::new(7),
+                actual: bray_bound_tree::BoundUnitId::new(11),
+            },
+            source,
+        ));
+
+        assert_eq!(
+            input.kind(),
+            DiagnosticLoweringInputFailureKind::ForeignInput {
+                input: "storage_plan",
+                expected_unit: 7,
+                actual_unit: 11,
+            }
+        );
+
+        let lowering = super::lowering_failure(&LocatedLoweringFailure::new(
+            LoweringError::MissingRepresentation(bray_compiler_known::RepresentationRole::Task),
+            source,
+        ));
+
+        assert_eq!(
+            lowering.kind(),
+            DiagnosticLoweringFailureKind::MissingRepresentation("Task")
         );
     }
 

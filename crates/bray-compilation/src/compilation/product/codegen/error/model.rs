@@ -147,6 +147,8 @@ impl NativeProductPlanningError {
             Self::StandardLibrary(error) => {
                 let (cause, artifact_path) =
                     crate::compilation::imported::standard_library_failure_diagnostic(
+                        // The nested diagnostic conversion owns the standard-library failure
+                        // while this planning error remains available for outer context.
                         error.clone(),
                     );
 

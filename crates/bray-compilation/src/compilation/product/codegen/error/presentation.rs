@@ -175,7 +175,7 @@ fn runtime_compatibility_detail(
             "executable_host_runtime_frame_abi_mismatch",
             vec![text_failure_field(
                 "frame_operation",
-                protected_frame_abi_operation(operation),
+                super::context::protected_frame_abi_operation(operation),
             )],
         ),
         Error::MissingCapability(capability) => (
@@ -192,20 +192,6 @@ fn runtime_compatibility_detail(
     };
 
     failure_detail(reason, context)
-}
-
-const fn protected_frame_abi_operation(
-    operation: bray_runtime_interface::ProtectedFrameAbiOperation,
-) -> &'static str {
-    use bray_runtime_interface::ProtectedFrameAbiOperation as Operation;
-
-    match operation {
-        Operation::Resume => "resume",
-        Operation::TaskBroadcast => "task_broadcast",
-        Operation::LifecycleResolution => "lifecycle_resolution",
-        Operation::CompletionMove => "completion_move",
-        Operation::Destruction => "destruction",
-    }
 }
 
 const fn codegen_unit_failure_kind(

@@ -4,7 +4,9 @@ use bray_diagnostics::{
 };
 use bray_runtime_interface::RuntimeArtifactSelectionError;
 
-use super::context::{failure_detail, path_failure_field, text_failure_field};
+use super::context::{
+    failure_detail, path_failure_field, protected_frame_abi_operation, text_failure_field,
+};
 
 pub(super) fn runtime_selection_failure_kind(
     error: &RuntimeArtifactSelectionError,
@@ -25,7 +27,7 @@ pub(super) fn runtime_selection_failure_kind(
                     "runtime_selection_frame_abi_mismatch",
                     vec![text_failure_field(
                         "frame_operation",
-                        protected_frame_operation(*operation),
+                        protected_frame_abi_operation(*operation),
                     )],
                 ),
                 Compatibility::MissingCapability(capability) => (
@@ -60,6 +62,7 @@ pub(super) fn runtime_selection_failure_kind(
             "runtime_selection_unreadable_archive",
             [
                 text_failure_field("component", component.as_str()),
+                // The diagnostic outlives this borrowed selection error and owns its path.
                 path_failure_field("path", path.clone()),
                 DiagnosticFailureField::new(
                     "io_error",
@@ -72,6 +75,7 @@ pub(super) fn runtime_selection_failure_kind(
                 "runtime_selection_invalid_archive",
                 [
                     text_failure_field("component", component.as_str()),
+                    // The diagnostic outlives this borrowed selection error and owns its path.
                     path_failure_field("path", path.clone()),
                 ],
             ))
@@ -85,6 +89,7 @@ pub(super) fn runtime_selection_failure_kind(
             "runtime_selection_archive_digest_mismatch",
             [
                 text_failure_field("component", component.as_str()),
+                // The diagnostic outlives this borrowed selection error and owns its path.
                 path_failure_field("path", path.clone()),
                 DiagnosticFailureField::new(
                     "expected_digest",
@@ -102,19 +107,5 @@ pub(super) fn runtime_selection_failure_kind(
                 ),
             ],
         )),
-    }
-}
-
-const fn protected_frame_operation(
-    operation: bray_runtime_interface::ProtectedFrameAbiOperation,
-) -> &'static str {
-    use bray_runtime_interface::ProtectedFrameAbiOperation as Operation;
-
-    match operation {
-        Operation::Resume => "resume",
-        Operation::TaskBroadcast => "task_broadcast",
-        Operation::LifecycleResolution => "lifecycle_resolution",
-        Operation::CompletionMove => "completion_move",
-        Operation::Destruction => "destruction",
     }
 }

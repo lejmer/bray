@@ -2,9 +2,9 @@ use bray_diagnostics::DiagnosticArgValue;
 use serde::Serialize;
 
 use super::emission::{
-    DiagnosticEmissionFieldJson, diagnostic_failure_context, fact_runtime_failure_context,
-    foreign_query_failure_context, lowering_failure_context, lowering_input_failure_context,
-    native_link_input_failure_context, product_query_failure_context,
+    DiagnosticEmissionFieldJson, checker_failure_context, diagnostic_failure_context,
+    fact_runtime_failure_context, foreign_query_failure_context, lowering_failure_context,
+    lowering_input_failure_context, native_link_input_failure_context, product_query_failure_context,
     semantic_value_failure_context, text_field,
 };
 use super::{
@@ -397,10 +397,8 @@ impl DiagnosticNativeProductFailureJson {
 
                 context
             }
-            Kind::EvaluationSemanticValue(failure)
-            | Kind::EvaluationChecker(bray_diagnostics::DiagnosticCheckerFailure::SemanticValue(
-                failure,
-            )) => semantic_value_failure_context(*failure),
+            Kind::EvaluationSemanticValue(failure) => semantic_value_failure_context(*failure),
+            Kind::EvaluationChecker(failure) => checker_failure_context(*failure),
             Kind::EvaluationBinding(failure) => match failure.semantic_value_failure() {
                 Some(failure) => semantic_value_failure_context(failure),
                 None => diagnostic_failure_context(failure.context()),
@@ -448,7 +446,55 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::CodegenInvalidAbiMapping(Some(detail)) => {
                 diagnostic_failure_context(detail.context())
             }
-            _ => Vec::new(),
+            Kind::CodegenBackendNotSelected
+            | Kind::MissingProductRoot
+            | Kind::InvalidEntryResult
+            | Kind::MissingRuntime
+            | Kind::LibraryCleanupRequiresMainThread
+            | Kind::InvalidSymbolName
+            | Kind::EvaluationCancelled
+            | Kind::EvaluationInfrastructure
+            | Kind::EvaluationSemanticValueStoreCreate
+            | Kind::EvaluationConstantCallableBodyUnavailable
+            | Kind::EvaluationConstantCallableRootUnavailable
+            | Kind::EvaluationAtomicRepresentationTypeUnavailable
+            | Kind::EvaluationAtomicRepresentationArgumentsUnavailable
+            | Kind::EvaluationAtomicInitializerArgumentUnavailable
+            | Kind::EvaluationAtomicInitializerResultUnavailable
+            | Kind::EvaluationUninitInitializerResultUnavailable
+            | Kind::EvaluationImportedExecutableTemplateMismatch
+            | Kind::CheckingInfrastructureFailure
+            | Kind::CodegenTargetUnsupportedProfile
+            | Kind::CodegenTargetEmptyTriple
+            | Kind::CodegenTargetEmptyCpu
+            | Kind::CodegenTargetEmptyFeature
+            | Kind::ReachabilityEmptyRoots
+            | Kind::ReachabilityDuplicateInstance
+            | Kind::ReachabilityUndemandedInstance
+            | Kind::ReachabilityIncomplete
+            | Kind::InstanceTemplateMismatch
+            | Kind::InstanceTargetMismatch
+            | Kind::InstanceDependencyTargetMismatch
+            | Kind::UnitEmpty
+            | Kind::UnitDuplicateInstance
+            | Kind::UnitMissingCompatibility
+            | Kind::UnitTargetMismatch
+            | Kind::UnitWorkBoundExceeded
+            | Kind::UnitRecipeMismatch
+            | Kind::ExecutableHostMissingRuntime
+            | Kind::ExecutableHostMissingMainThreadLane
+            | Kind::ExecutableHostMissingProtectedFrameAbi
+            | Kind::StandardLibraryUnavailable
+            | Kind::EmissionBackendDuplicateUnit
+            | Kind::LinkTargetEmptyTriple
+            | Kind::CodegenBackendUnsupportedTarget
+            | Kind::CodegenBackendInvalidConfiguration
+            | Kind::CodegenBackendResourceExhausted
+            | Kind::CodegenBackendGeneratedModuleInvariant
+            | Kind::CodegenBackendUnavailable
+            | Kind::CodegenMissingEntrypoint
+            | Kind::CodegenInvalidAbiMapping(None)
+            | Kind::CodegenInvalidSymbolName => Vec::new(),
         };
 
         Self {

@@ -31,6 +31,8 @@ pub(super) fn codegen_backend_failure_kind(
             Kind::CodegenBackendToolFailure(failure_detail(
                 "codegen_backend_tool_failure",
                 [
+                    // The diagnostic must retain the exact executable path after this borrowed
+                    // backend failure is released.
                     path_failure_field("program", program.clone()),
                     DiagnosticFailureField::new(
                         "exit",

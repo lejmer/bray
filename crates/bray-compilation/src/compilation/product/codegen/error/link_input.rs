@@ -8,12 +8,14 @@ pub(super) fn diagnostic_native_link_input_failure(
     match error {
         NativeLinkInputPlanningError::UnsupportedStandardLibraryArtifact { path, kind } => {
             DiagnosticFailure::UnsupportedStandardLibraryArtifact {
+                // The diagnostic outlives this borrowed planning error and owns its path.
                 path: path.clone(),
                 artifact_kind: standard_library_artifact_kind(*kind),
             }
         }
         NativeLinkInputPlanningError::InvalidStandardLibraryArtifact { path, kind, cause } => {
             DiagnosticFailure::InvalidStandardLibraryArtifact {
+                // The diagnostic outlives this borrowed planning error and owns its path.
                 path: path.clone(),
                 input_kind: link_input_kind(*kind),
                 cause: link_input_failure(*cause),
@@ -24,6 +26,7 @@ pub(super) fn diagnostic_native_link_input_failure(
             kind,
             provenance,
         } => DiagnosticFailure::InvalidRequirement {
+            // The diagnostic outlives this borrowed planning error and owns the native name.
             name: name.clone(),
             link_kind: kind.as_str().to_owned(),
             provenance_kind: link_input_provenance_kind(provenance),

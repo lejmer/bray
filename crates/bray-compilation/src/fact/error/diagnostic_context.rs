@@ -30,6 +30,13 @@ pub(crate) fn boolean_field(name: &'static str, value: bool) -> DiagnosticFailur
     DiagnosticFailureField::new(name, DiagnosticFailureValue::Boolean(value))
 }
 
+pub(crate) const fn target_endianness(value: bray_target::Endianness) -> &'static str {
+    match value {
+        bray_target::Endianness::Little => "little",
+        bray_target::Endianness::Big => "big",
+    }
+}
+
 pub(crate) const fn constant_value_kind(kind: &bray_symbols::ConstantValueKind) -> &'static str {
     use bray_symbols::ConstantValueKind as Kind;
 

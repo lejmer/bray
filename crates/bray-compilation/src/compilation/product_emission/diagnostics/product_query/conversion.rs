@@ -2,7 +2,7 @@ use bray_diagnostics::{
     DiagnosticFailureField, DiagnosticFailureValue, DiagnosticProductQueryFailure,
 };
 
-use super::context::product_query_context;
+use super::context::{product_kind, product_query_context};
 use super::mir::{push_mir_call_target, push_mir_helper};
 use crate::compilation::product::ProductSynchronizationComponent;
 use crate::compilation::{
@@ -625,14 +625,6 @@ const fn mir_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &'stati
         bray_ir::MirGeneratedLifecycleRole::Cleanup(
             bray_ir::MirCleanupPhase::LifecycleResolution,
         ) => "cleanup_lifecycle_resolution",
-    }
-}
-
-const fn product_kind(kind: bray_symbols::ProductKind) -> &'static str {
-    match kind {
-        bray_symbols::ProductKind::Executable => "executable",
-        bray_symbols::ProductKind::Library => "library",
-        bray_symbols::ProductKind::Test => "test",
     }
 }
 

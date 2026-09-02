@@ -20,4 +20,6 @@ pub(crate) use semantic_diagnostic::{
     callable_signature_reason, diagnostic_semantic_query_failure, generic_substitution_reason,
     push_generic_substitution_failure, push_semantic_value_failure,
 };
-pub(crate) use target_diagnostic::{TargetContractSide, push_mir_target_contract};
+pub(crate) use target_diagnostic::{
+    TargetContractSide, push_mir_target_contract, push_selected_target_properties,
+};

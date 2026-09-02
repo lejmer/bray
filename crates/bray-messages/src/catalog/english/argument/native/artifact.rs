@@ -347,31 +347,31 @@ fn format_english_lowering_input_failure(
         Failure::LiteralTargetWidthMismatch { expected, actual } => format!(
             "generating target-correct code for the highlighted integer because it was interpreted as {actual} bits instead of the target's {expected} bits"
         ),
-        Failure::ForeignInput => {
+        Failure::ForeignInput { .. } => {
             "generating executable code for the highlighted declaration because required analysis belongs to another declaration".to_owned()
         }
-        Failure::InputKindMismatch => {
+        Failure::InputKindMismatch { .. } => {
             "generating executable code for the highlighted declaration because required analysis describes a different kind of declaration".to_owned()
         }
-        Failure::MissingSemanticSelection => {
+        Failure::MissingSemanticSelection(_) => {
             "generating executable code for the highlighted expression because its selected callable or built-in behavior is unavailable".to_owned()
         }
-        Failure::MissingExpressionType => {
+        Failure::MissingExpressionType(_) => {
             "generating executable code for the highlighted expression because the type established for it is unavailable".to_owned()
         }
         Failure::InvalidPatternInput => {
             "generating executable code for the highlighted pattern".to_owned()
         }
-        Failure::InvalidInputContents => {
+        Failure::InvalidInputContents(_) => {
             "generating executable code for the highlighted declaration because required analysis refers to another declaration".to_owned()
         }
         Failure::SemanticValue(failure) => {
             return format_english_semantic_value_failure(failure);
         }
-        Failure::InvalidStorageOperation => {
+        Failure::InvalidStorageOperation(_) => {
             "generating ownership-safe code for the highlighted expression because its read, borrow, move, or write behavior is unavailable".to_owned()
         }
-        Failure::InvalidStorageExit => {
+        Failure::InvalidStorageExit(_) => {
             "generating cleanup code for the highlighted scope because the values it must release are unavailable".to_owned()
         }
         Failure::ExecutableHostRequiresSyntheticInput => {
@@ -389,72 +389,72 @@ fn format_english_lowering_failure(failure: bray_diagnostics::DiagnosticLowering
     use bray_diagnostics::DiagnosticLoweringFailureKind as Failure;
 
     let prevented_operation = match failure.kind() {
-        Failure::UnsupportedRoot => {
+        Failure::UnsupportedRoot(_) => {
             "generating executable code for the highlighted declaration because it has no executable body"
         }
-        Failure::MissingSourceNode(kind) => {
+        Failure::MissingSourceNode { kind, .. } => {
             return super::format_internal_compiler_error(format!(
                 "could not generate executable code for the highlighted {}",
                 format_source_construct(kind),
             ));
         }
-        Failure::RecoveredSourceNode(kind) => {
+        Failure::RecoveredSourceNode { kind, .. } => {
             return super::format_internal_compiler_error(format!(
                 "could not generate executable code for the highlighted {} after an earlier error",
                 format_source_construct(kind),
             ));
         }
-        Failure::MissingExpressionType => {
+        Failure::MissingExpressionType(_) => {
             "generating executable code for the highlighted expression because the type established for it is unavailable"
         }
-        Failure::AwaitOutsideProtectedFrame => {
+        Failure::AwaitOutsideProtectedFrame(_) => {
             "generating resumable code for the highlighted `await` expression"
         }
-        Failure::MissingSuspensionPoint => {
+        Failure::MissingSuspensionPoint(_) => {
             "generating a valid resume path for the highlighted `await` expression"
         }
-        Failure::InvalidTaskOperation => {
+        Failure::InvalidTaskOperation(_) => {
             "generating a type-correct call for the highlighted task operation"
         }
         Failure::MissingCallableResultType => {
             "generating executable code for the highlighted callable because its result type is unavailable"
         }
-        Failure::MissingLiteralValue => {
+        Failure::MissingLiteralValue(_) => {
             "generating executable code for the highlighted literal because its value is unavailable"
         }
-        Failure::MissingSemanticSelection => {
+        Failure::MissingSemanticSelection(_) => {
             "generating executable code for the highlighted expression because its selected callable or built-in behavior is unavailable"
         }
-        Failure::UnsupportedExpression => {
+        Failure::UnsupportedExpression(_) => {
             "generating executable code for the highlighted expression"
         }
-        Failure::UnsupportedPattern => "generating executable code for the highlighted pattern",
-        Failure::UnsupportedOperator => "generating executable code for the highlighted operator",
-        Failure::MissingStorageAccess => {
+        Failure::UnsupportedPattern(_) => "generating executable code for the highlighted pattern",
+        Failure::UnsupportedOperator { .. } => "generating executable code for the highlighted operator",
+        Failure::MissingStorageAccess(_) => {
             "generating ownership-safe code for the highlighted expression because its value-access behavior is unavailable"
         }
-        Failure::MissingStorageAccessRecord => {
+        Failure::MissingStorageAccessRecord(_) => {
             "generating ownership-safe code for the highlighted expression because its read, borrow, move, or write behavior is unavailable"
         }
-        Failure::MissingCleanupPlan => {
+        Failure::MissingCleanupPlan(_) => {
             "generating cleanup code for the highlighted scope because the values it must release are unavailable"
         }
-        Failure::MissingStorageIdentity => {
+        Failure::MissingStorageIdentity(_) => {
             "generating ownership-safe code for the highlighted expression because the value it accesses is unavailable"
         }
-        Failure::MissingStorageIdentityRecord => {
+        Failure::MissingStorageIdentityRecord(_) => {
             "generating ownership-safe code for the highlighted declaration because one of its associated values is unavailable"
         }
-        Failure::MissingIterationStorage => {
+        Failure::MissingIterationStorage(_) => {
             "generating executable code for the highlighted iteration because its cursor or current value is unavailable"
         }
-        Failure::UnsupportedStorageAccess => {
+        Failure::UnsupportedStorageAccess(_) => {
             "generating ownership-safe code for the highlighted value access"
         }
-        Failure::MissingOperationResult => {
+        Failure::MissingOperationResult(_) => {
             "generating the value required by the highlighted expression"
         }
-        Failure::MissingRepresentation => {
+        Failure::MissingRepresentation(_) => {
             "generating target-correct code for the highlighted declaration because its target representation is unavailable"
         }
         Failure::SemanticValueUnavailable => {

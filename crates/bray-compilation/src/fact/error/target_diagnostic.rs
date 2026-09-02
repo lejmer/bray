@@ -1,6 +1,6 @@
 use bray_diagnostics::{DiagnosticFailureField, DiagnosticFailureValue};
 
-use super::diagnostic_context::{boolean_field, count_field, text_field};
+use super::diagnostic_context::{boolean_field, count_field, target_endianness, text_field};
 
 #[derive(Clone, Copy)]
 pub(crate) enum TargetContractSide {
@@ -73,10 +73,7 @@ pub(crate) fn push_mir_target_contract(
         text_field(names[2], machine.object_format().as_str()),
         text_field(
             names[3],
-            match machine.endianness() {
-                bray_target::Endianness::Little => "little",
-                bray_target::Endianness::Big => "big",
-            },
+            target_endianness(machine.endianness()),
         ),
         count_field(names[4], u64::from(machine.pointer_width_bits().get())),
         count_field(names[5], u64::from(machine.pointer_alignment_bytes().get())),
@@ -88,25 +85,50 @@ pub(crate) fn push_mir_target_contract(
     push_target_properties(context, side, target.profile().properties());
 }
 
+pub(crate) fn push_selected_target_properties(
+    context: &mut Vec<DiagnosticFailureField>,
+    properties: &bray_target::TargetProperties,
+) {
+    push_target_properties_with_names(
+        context,
+        &TargetPropertyFieldNames {
+            name: "target_property_name",
+            boolean: "target_property_boolean",
+            natural: "target_property_natural",
+            text: "target_property_text",
+        },
+        properties,
+    );
+}
+
 fn push_target_properties(
     context: &mut Vec<DiagnosticFailureField>,
     side: TargetContractSide,
     properties: &bray_target::TargetProperties,
 ) {
     let names = side.property_field_names();
+
+    push_target_properties_with_names(context, &names, properties);
+}
+
+fn push_target_properties_with_names(
+    context: &mut Vec<DiagnosticFailureField>,
+    names: &TargetPropertyFieldNames,
+    properties: &bray_target::TargetProperties,
+) {
     let identity = properties.identity();
 
-    push_text_property(context, &names, "identity.vendor", identity.vendor());
-    push_text_property(context, &names, "identity.system", identity.system());
+    push_text_property(context, names, "identity.vendor", identity.vendor());
+    push_text_property(context, names, "identity.system", identity.system());
 
     push_text_property(
         context,
-        &names,
+        names,
         "identity.environment",
         identity.environment(),
     );
 
-    push_text_property(context, &names, "identity.abi", identity.abi());
+    push_text_property(context, names, "identity.abi", identity.abi());
 
     let scalars = properties.scalars();
 
