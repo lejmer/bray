@@ -231,7 +231,7 @@ where
     };
 
     let substitution = GenericSubstitutionData::try_new(owner, parameters, arguments)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+        .map_err(CheckerInfrastructureError::GenericSubstitution)?;
 
     let substitution = request
         .semantic_values()

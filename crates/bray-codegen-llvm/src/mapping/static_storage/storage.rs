@@ -255,7 +255,7 @@ fn declare_static_accessor<'context>(
                 &[descriptor.as_pointer_value().into()],
                 "static.attachment.current",
             )
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+            .map_err(CodegenFailure::backend_library)?
             .try_as_basic_value()
             .basic()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?
@@ -263,7 +263,7 @@ fn declare_static_accessor<'context>(
 
         let previous = builder
             .build_load(context.i64_type(), attachment, "static.attachment.previous")
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+            .map_err(CodegenFailure::backend_library)?
             .into_int_value();
 
         let changed = builder
@@ -273,7 +273,7 @@ fn declare_static_accessor<'context>(
                 previous,
                 "static.attachment.changed",
             )
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         let cleaning = builder
             .build_int_compare(
@@ -282,7 +282,7 @@ fn declare_static_accessor<'context>(
                 context.i64_type().const_all_ones(),
                 "static.attachment.cleaning",
             )
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         let available = builder
             .build_int_compare(
@@ -291,15 +291,15 @@ fn declare_static_accessor<'context>(
                 context.i64_type().const_zero(),
                 "static.attachment.attached",
             )
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         let not_cleaning = builder
             .build_not(cleaning, "static.attachment.not_cleaning")
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         let available = builder
             .build_and(available, not_cleaning, "static.attachment.available")
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         let decision = context.append_basic_block(accessor, "static.attachment.decision");
         let initialize_block = context.append_basic_block(accessor, "static.attachment.initialize");
@@ -308,19 +308,19 @@ fn declare_static_accessor<'context>(
 
         builder
             .build_conditional_branch(available, decision, unavailable)
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         builder.position_at_end(decision);
 
         builder
             .build_conditional_branch(changed, initialize_block, ready)
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         builder.position_at_end(initialize_block);
 
         builder
             .build_store(storage, initializer)
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         let register_name = bray_runtime_abi::THREAD_STATIC_CLEANUP_REGISTRATION_SYMBOL;
 
@@ -338,7 +338,7 @@ fn declare_static_accessor<'context>(
                 &[registration.as_pointer_value().into()],
                 "static.register",
             )
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+            .map_err(CodegenFailure::backend_library)?
             .try_as_basic_value()
             .basic()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?
@@ -351,42 +351,42 @@ fn declare_static_accessor<'context>(
                 context.i32_type().const_zero(),
                 "static.registered",
             )
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         let registered_block = context.append_basic_block(accessor, "static.attachment.registered");
 
         builder
             .build_conditional_branch(registered, registered_block, unavailable)
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         builder.position_at_end(registered_block);
 
         builder
             .build_store(attachment, current)
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         builder
             .build_unconditional_branch(ready)
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         builder.position_at_end(ready);
 
         builder
             .build_return(Some(&storage))
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         builder.position_at_end(unavailable);
 
         builder
             .build_return(Some(&pointer.const_null()))
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         return Ok(accessor);
     }
 
     builder
         .build_return(Some(&storage))
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     Ok(accessor)
 }
@@ -449,12 +449,12 @@ fn declare_static_prepare<'context>(
     if let Some(attachment) = attachment {
         builder
             .build_store(attachment, context.i64_type().const_all_ones())
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
     }
 
     builder
         .build_return(None)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     Ok(prepare)
 }
@@ -496,7 +496,7 @@ fn declare_static_lifecycle_phase<'context>(
 
         let call = builder
             .build_call(function, &[storage.into()], "")
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         call.set_call_convention(function.get_call_conventions());
         apply_signature_call_attributes(call, symbol.signature(), types)?;
@@ -504,7 +504,7 @@ fn declare_static_lifecycle_phase<'context>(
 
     builder
         .build_return(None)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     Ok(callback)
 }
@@ -536,16 +536,16 @@ fn declare_static_detach<'context>(
     if let Some(attachment) = attachment {
         builder
             .build_store(storage, initializer)
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         builder
             .build_store(attachment, context.i64_type().const_zero())
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
     }
 
     builder
         .build_return(None)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     Ok(detach)
 }

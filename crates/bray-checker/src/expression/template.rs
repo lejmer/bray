@@ -81,7 +81,7 @@ where
         template.generic().parameters().iter().copied(),
         arguments,
     )
-    .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+    .map_err(CheckerInfrastructureError::GenericSubstitution)?;
 
     let substitution = request
         .semantic_values()
@@ -255,7 +255,7 @@ where
         template.generic().parameters().iter().copied(),
         arguments,
     )
-    .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+    .map_err(CheckerInfrastructureError::GenericSubstitution)?;
 
     let substitution = values
         .intern_generic_substitution(substitution)

@@ -107,6 +107,8 @@ impl NativeProductPlanningError {
             Self::CodegenUnavailable
                 | Self::BitcodeTargetContract(
                     bray_codegen::CodegenFailure::UnsupportedTarget
+                        | bray_codegen::CodegenFailure::UnsupportedTargetReport { .. }
+                        | bray_codegen::CodegenFailure::UnsupportedTargetValue { .. }
                         | bray_codegen::CodegenFailure::UnsupportedArtifact(_)
                 )
                 | Self::MissingRuntime

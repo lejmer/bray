@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_compilation::Compilation;
+use bray_compilation::{Compilation, FactQueryError};
 use bray_declarations::{DeclarationId, DeclarationTable, SyntaxAnchor};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{AnySymbolId, SemanticValueStore, SymbolGraph, SymbolOrigin};
@@ -21,32 +21,33 @@ use super::relationship::{
     relationship_kind,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SymbolInspectionRenderError {
     Declaration,
-    Graph,
-    Json,
-    Source,
+    Evaluation(FactQueryError),
+    Json(String),
+    Source(InspectionSourceError),
     SourceIndex,
+    SourceIndexOverflow(bray_source::TextSizeOverflow),
     Symbol,
     SymbolCycle,
-    SymbolState,
-    Type,
+    Type(TypeInspectionError),
     UnsupportedRelationship,
 }
 
 impl From<InspectionSourceError> for SymbolInspectionRenderError {
     fn from(error: InspectionSourceError) -> Self {
         match error {
-            InspectionSourceError::Source => Self::Source,
+            InspectionSourceError::Source => Self::Source(error),
             InspectionSourceError::SourceIndex => Self::SourceIndex,
+            InspectionSourceError::SourceIndexOverflow(error) => Self::SourceIndexOverflow(error),
         }
     }
 }
 
 impl From<TypeInspectionError> for SymbolInspectionRenderError {
-    fn from(_: TypeInspectionError) -> Self {
-        Self::Type
+    fn from(error: TypeInspectionError) -> Self {
+        Self::Type(error)
     }
 }
 
@@ -58,7 +59,7 @@ pub(crate) fn render_symbol_inspection(
 
     let symbols = compilation
         .symbol_graph()
-        .map_err(|_| SymbolInspectionRenderError::Graph)?;
+        .map_err(SymbolInspectionRenderError::Evaluation)?;
 
     let diagnostics = compilation
         .syntax_tree_result()
@@ -75,7 +76,8 @@ pub(crate) fn render_symbol_inspection(
     let stdout = match output_format {
         OutputFormat::Text => render_text_report(&report),
         OutputFormat::Json => {
-            render_pretty_json(&report).map_err(|_| SymbolInspectionRenderError::Json)?
+            render_pretty_json(&report)
+                .map_err(|error| SymbolInspectionRenderError::Json(error.to_string()))?
         }
     };
 
@@ -103,7 +105,7 @@ impl SymbolInspectionReport {
 
         let semantic_values = compilation
             .semantic_value_store()
-            .map_err(|_| SymbolInspectionRenderError::SymbolState)?;
+            .map_err(SymbolInspectionRenderError::Evaluation)?;
 
         let mut context = SymbolInspectionContext::new(
             compilation,
@@ -288,7 +290,7 @@ impl<'model, 'source> SymbolInspectionContext<'model, 'source> {
         if let Some(signature) = self
             .compilation
             .callable_signature_template(id)
-            .map_err(|_| SymbolInspectionRenderError::SymbolState)?
+            .map_err(SymbolInspectionRenderError::Evaluation)?
         {
             self.diagnostics
                 .add_range(signature.diagnostics().iter().cloned());
@@ -308,7 +310,7 @@ impl<'model, 'source> SymbolInspectionContext<'model, 'source> {
         if let Some(signature) = self
             .compilation
             .predicate_signature_template(id)
-            .map_err(|_| SymbolInspectionRenderError::SymbolState)?
+            .map_err(SymbolInspectionRenderError::Evaluation)?
         {
             self.diagnostics
                 .add_range(signature.diagnostics().iter().cloned());
@@ -341,7 +343,7 @@ impl<'model, 'source> SymbolInspectionContext<'model, 'source> {
         if let Some(ty) = self
             .compilation
             .symbol_type_template(id)
-            .map_err(|_| SymbolInspectionRenderError::SymbolState)?
+            .map_err(SymbolInspectionRenderError::Evaluation)?
         {
             self.diagnostics.add_range(ty.diagnostics().iter().cloned());
 

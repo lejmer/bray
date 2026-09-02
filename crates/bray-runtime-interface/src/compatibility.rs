@@ -180,7 +180,7 @@ impl RuntimeRequirements {
 }
 
 /// A contradiction between independently collected runtime requirements.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum RuntimeRequirementsMergeError {
     /// Two requirements select different exact runtime implementations.
     RuntimeIdentityMismatch,

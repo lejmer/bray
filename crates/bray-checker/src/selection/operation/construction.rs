@@ -53,8 +53,7 @@ where
     let mut recovered = false;
 
     for (source_ordinal, input) in source.into_iter().enumerate() {
-        let source_ordinal = u64::try_from(source_ordinal)
-            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+        let source_ordinal = super::super::capacity::selection_ordinal_u64(source_ordinal)?;
 
         let surface_index = match input.name {
             Some(name) => {
@@ -144,8 +143,7 @@ where
         }
 
         let Some(provider) = surface.default() else {
-            let ordinal = u64::try_from(index)
-                .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            let ordinal = super::super::capacity::selection_ordinal_u64(index)?;
 
             return Ok(ConstructionInputMapping::Rejected(
                 SelectionConstructionInputRejection::Missing {

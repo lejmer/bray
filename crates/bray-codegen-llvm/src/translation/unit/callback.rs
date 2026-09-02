@@ -284,7 +284,7 @@ fn declare_callback<'context>(
 
     if let Some(result) = call.try_as_basic_value().basic() {
         let field =
-            usize::try_from(body.count_params()).map_err(|_| CodegenFailure::ResourceExhausted)?;
+            crate::conversion::resource_limit(body.count_params(), "callback_parameter_count")?;
 
         let destination = field_pointer(
             &builder,
@@ -323,7 +323,7 @@ fn field_pointer<'context>(
     field: usize,
     name: &str,
 ) -> Result<PointerValue<'context>, CodegenFailure> {
-    let field = u32::try_from(field).map_err(|_| CodegenFailure::ResourceExhausted)?;
+    let field = crate::conversion::resource_limit(field, "callback_field_index")?;
 
     llvm(builder.build_struct_gep(state_type, state, field, name))
 }

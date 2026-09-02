@@ -242,9 +242,9 @@ where
             .collect::<Result<Vec<_>, _>>()?;
 
         let normalized = GenericSubstitutionData::try_new(data.owner(), parameters, arguments)
-            .map_err(|_| {
+            .map_err(|error| {
                 CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SemanticValueUnavailable,
+                    CheckerInfrastructureError::GenericSubstitution(error),
                 )
             })?;
 

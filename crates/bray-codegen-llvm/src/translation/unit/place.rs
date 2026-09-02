@@ -519,12 +519,15 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | (CodegenTypeKind::Aggregate(fields), MirProjectionKind::ElementFromStart(index)) => {
                 self.aggregate_element(
                     fields,
-                    usize::try_from(*index).map_err(|_| CodegenFailure::ResourceExhausted)?,
+                    crate::conversion::resource_limit::<usize, _>(
+                        *index,
+                        "place_field_index",
+                    )?,
                 )
             }
             (CodegenTypeKind::Aggregate(fields), MirProjectionKind::ElementFromEnd(index)) => {
-                let index =
-                    usize::try_from(*index).map_err(|_| CodegenFailure::ResourceExhausted)?;
+                let index: usize =
+                    crate::conversion::resource_limit(*index, "place_field_index")?;
 
                 let index = fields
                     .len()

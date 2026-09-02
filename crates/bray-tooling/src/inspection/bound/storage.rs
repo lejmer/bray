@@ -15,19 +15,20 @@ use crate::inspection::{
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum StorageInspectionError {
-    Source,
-    Type,
+    Capacity { resource: &'static str, actual: usize },
+    Source(InspectionSourceError),
+    Type(TypeInspectionError),
 }
 
 impl From<InspectionSourceError> for StorageInspectionError {
-    fn from(_: InspectionSourceError) -> Self {
-        Self::Source
+    fn from(error: InspectionSourceError) -> Self {
+        Self::Source(error)
     }
 }
 
 impl From<TypeInspectionError> for StorageInspectionError {
-    fn from(_: TypeInspectionError) -> Self {
-        Self::Type
+    fn from(error: TypeInspectionError) -> Self {
+        Self::Type(error)
     }
 }
 
@@ -468,7 +469,10 @@ struct InspectionStorageAlternative {
 
 impl InspectionStorageAlternative {
     fn new(id: usize, alternative: &StorageAlternative) -> Result<Self, StorageInspectionError> {
-        let id = u32::try_from(id).map_err(|_| StorageInspectionError::Source)?;
+        let id = u32::try_from(id).map_err(|_| StorageInspectionError::Capacity {
+            resource: "inspection_storage_alternative_count",
+            actual: id,
+        })?;
 
         Ok(Self {
             id,

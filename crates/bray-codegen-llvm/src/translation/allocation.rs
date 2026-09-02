@@ -39,7 +39,7 @@ pub(crate) fn allocate_temporary<'context>(
 
     builder
         .build_alloca(ty, name)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
+        .map_err(CodegenFailure::backend_library)
 }
 
 #[cfg(test)]

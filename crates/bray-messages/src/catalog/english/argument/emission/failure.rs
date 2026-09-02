@@ -220,6 +220,9 @@ fn format_english_package_interface_failure(
         Failure::InvalidCompilation => {
             "source or semantic errors prevent package-interface export".to_owned()
         }
+        Failure::InvalidCompilationCause { .. } => format_internal_compiler_error(
+            "package-interface export could not satisfy an internal compilation contract",
+        ),
         Failure::SemanticValueStoreCreate => format_english_package_interface_store_create(),
         Failure::SemanticValue(failure) => format_english_package_interface_semantic_value(*failure),
         Failure::RecoveredPublicSymbol(kind) => {
@@ -450,17 +453,6 @@ mod tests {
         assert!(cycle.starts_with(crate::catalog::english::INTERNAL_COMPILER_ERROR));
         assert!(!cycle.contains("declaration_table"));
         assert!(!cycle.contains("symbol_graph"));
-
-        let infrastructure = format_english_package_interface_failure(
-            &DiagnosticPackageInterfaceFailure::DeclarationDiscoveryFailure {
-                cause: DiagnosticEmissionEvaluationFailure::Infrastructure,
-                cycle: Box::new([]),
-            },
-        );
-
-        assert!(infrastructure.starts_with(crate::catalog::english::INTERNAL_COMPILER_ERROR));
-        assert!(!infrastructure.contains("compiler evaluation"));
-        assert!(!infrastructure.contains(';'));
 
         let executable = format_english_package_interface_failure(
             &DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {

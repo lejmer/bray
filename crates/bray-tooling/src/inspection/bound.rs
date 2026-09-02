@@ -6,3 +6,4 @@ mod selection;
 mod storage;
 
 pub(crate) use report::{BoundInspectionRenderError, render_bound_inspection};
+pub(crate) use selection::SelectionInspectionError;

@@ -16,6 +16,11 @@ pub(super) fn push_package_interface_export_failure(
             "query"
         }
         Error::InvalidCompilation => "invalid_compilation",
+        Error::InvalidCompilationCause(cause) => {
+            push_invalid_compilation_cause(fields, cause);
+
+            "invalid_compilation_cause"
+        }
         Error::SemanticValueStoreCreate(_) => "semantic_value_store_create",
         Error::SemanticValueStore(cause) => {
             crate::fact::push_semantic_value_failure(fields, *cause);
@@ -67,6 +72,15 @@ pub(super) fn push_package_interface_export_failure(
                 "cyclic_semantic_fragment"
             }
         }
+        Error::MissingSemanticFragmentSymbol(identity) => {
+            push_interface_symbol_identity(
+                fields,
+                "declaration",
+                &bray_symbols::diagnostic_external_symbol_identity(identity),
+            );
+
+            "missing_semantic_fragment_symbol"
+        }
         Error::ConflictingSemanticFragment {
             first,
             second,
@@ -105,6 +119,38 @@ pub(super) fn push_package_interface_export_failure(
     };
 
     fields.push(text_field("external_symbol_cause", reason));
+}
+
+fn push_invalid_compilation_cause(
+    fields: &mut Vec<DiagnosticFailureField>,
+    cause: &crate::compilation::PackageInterfaceInvalidCompilationCause,
+) {
+    use crate::compilation::PackageInterfaceInvalidCompilationCause as Cause;
+
+    match cause {
+        Cause::CodegenTarget(cause) => {
+            fields.push(text_field("codegen_target_cause", format!("{cause:?}")));
+        }
+        Cause::Capacity { field, actual } => {
+            fields.push(text_field("capacity_field", *field));
+            fields.push(text_field("capacity_actual", actual));
+        }
+        Cause::RuntimeRequirements(cause) => {
+            fields.push(text_field(
+                "runtime_requirements_cause",
+                format!("{cause:?}"),
+            ));
+        }
+        Cause::CheckedTemplate { reason } => {
+            fields.push(text_field("checked_template_cause", *reason));
+        }
+        Cause::ExecutableTemplate { reason } => {
+            fields.push(text_field("executable_template_cause", *reason));
+        }
+        Cause::ExportContract(contract) => {
+            fields.push(text_field("export_contract", contract.name()));
+        }
+    }
 }
 
 fn push_evaluation_failure(

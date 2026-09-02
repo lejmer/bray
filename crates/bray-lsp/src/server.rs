@@ -17,7 +17,8 @@ use crate::model::{
 };
 use crate::protocol::{
     CONTENT_MODIFIED, INTERNAL_ERROR, INVALID_PARAMS, IncomingMessage, METHOD_NOT_FOUND,
-    REQUEST_CANCELLED, read_messages, write_error, write_notification, write_result,
+    REQUEST_CANCELLED, read_messages, write_error, write_error_with_data, write_notification,
+    write_result,
 };
 use crate::query::{Query, QueryError, execute};
 use crate::workspace::{
@@ -247,7 +248,22 @@ fn handle_message(
     match message {
         IncomingMessage::Request { id, method, params } => {
             if method == "initialize" {
-                let params = serde_json::from_value::<InitializeParams>(params).unwrap_or_default();
+                let params = match serde_json::from_value::<InitializeParams>(params) {
+                    Ok(params) => params,
+                    Err(cause) => {
+                        return write_error_with_data(
+                            output,
+                            id,
+                            INVALID_PARAMS,
+                            LanguageServerMessage::InvalidParams,
+                            json!({
+                                "reason": "invalid_params",
+                                "cause": cause.to_string(),
+                            }),
+                            client.renderer,
+                        );
+                    }
+                };
 
                 *client = client_configuration(&params);
 
@@ -266,12 +282,16 @@ fn handle_message(
                 client.multiline_semantic_tokens,
             ) {
                 Ok(task) => task,
-                Err(RequestPreparationError::InvalidParams) => {
-                    return write_error(
+                Err(RequestPreparationError::InvalidParams(cause)) => {
+                    return write_error_with_data(
                         output,
                         id,
                         INVALID_PARAMS,
                         LanguageServerMessage::InvalidParams,
+                        json!({
+                            "reason": "invalid_params",
+                            "cause": cause.to_string(),
+                        }),
                         client.renderer,
                     );
                 }
@@ -285,11 +305,12 @@ fn handle_message(
                     );
                 }
                 Err(RequestPreparationError::Workspace(error)) => {
-                    return write_error(
+                    return write_error_with_data(
                         output,
                         id,
                         INTERNAL_ERROR,
                         error.message(),
+                        error.data(),
                         client.renderer,
                     );
                 }
@@ -547,11 +568,12 @@ fn publish_completed(
 
     match (task.id, task.result) {
         (Some(id), Ok(result)) => write_result(output, id, result),
-        (Some(id), Err(_)) => write_error(
+        (Some(id), Err(error)) => write_error_with_data(
             output,
             id,
             INTERNAL_ERROR,
             LanguageServerMessage::QueryFailed,
+            error.data(),
             renderer,
         ),
         (None, Ok(report)) => {
@@ -693,11 +715,11 @@ fn request_key(id: &Value) -> String {
 }
 
 fn parameters<T: DeserializeOwned>(params: Value) -> Result<T, RequestPreparationError> {
-    serde_json::from_value(params).map_err(|_| RequestPreparationError::InvalidParams)
+    serde_json::from_value(params).map_err(RequestPreparationError::InvalidParams)
 }
 
 enum RequestPreparationError {
-    InvalidParams,
+    InvalidParams(serde_json::Error),
     MethodNotFound,
     Workspace(WorkspaceError),
 }

@@ -104,9 +104,9 @@ impl SemanticFragment {
         graph
             .symbol_key(self.symbol)
             .map(bray_symbols::diagnostic_symbol_identity)
-            .ok_or(PackageInterfaceExportError::FragmentCoordination(
-                crate::fact::FactQueryError::InfrastructureFailure,
-            ))
+            .ok_or_else(|| {
+                PackageInterfaceExportError::MissingSemanticFragmentSymbol(self.identity.clone())
+            })
     }
 
     pub(super) fn diagnostic_span(

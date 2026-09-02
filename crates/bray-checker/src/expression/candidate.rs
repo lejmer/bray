@@ -1558,9 +1558,13 @@ where
                 CallableSignatureQuery,
             >::new(parameter.owner()))?;
 
-            let index = usize::try_from(parameter.ordinal()).map_err(|_| {
+            let ordinal = parameter.ordinal();
+
+            let index = usize::try_from(ordinal).map_err(|_| {
                 CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::InvalidSemanticSelectionInput,
+                    CheckerInfrastructureError::SelectionInputOrdinalUnrepresentable {
+                        ordinal,
+                    },
                 )
             })?;
 

@@ -13,14 +13,15 @@ use crate::inspection::{
 };
 use crate::output::{DiagnosticJson, diagnostic_jsons};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum DeclarationInspectionRenderError {
     Container,
     Declaration,
     ModulePart,
     Source,
     SourceIndex,
-    Json,
+    SourceIndexOverflow(bray_source::TextSizeOverflow),
+    Json(String),
 }
 
 impl From<InspectionSourceError> for DeclarationInspectionRenderError {
@@ -28,6 +29,7 @@ impl From<InspectionSourceError> for DeclarationInspectionRenderError {
         match error {
             InspectionSourceError::Source => Self::Source,
             InspectionSourceError::SourceIndex => Self::SourceIndex,
+            InspectionSourceError::SourceIndexOverflow(error) => Self::SourceIndexOverflow(error),
         }
     }
 }
@@ -49,7 +51,8 @@ pub(crate) fn render_declaration_inspection(
     let stdout = match output_format {
         OutputFormat::Text => render_text_report(&report),
         OutputFormat::Json => {
-            render_pretty_json(&report).map_err(|_| DeclarationInspectionRenderError::Json)?
+            render_pretty_json(&report)
+                .map_err(|error| DeclarationInspectionRenderError::Json(error.to_string()))?
         }
     };
 

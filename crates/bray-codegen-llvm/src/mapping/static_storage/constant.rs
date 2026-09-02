@@ -313,7 +313,7 @@ fn string_value<'context>(
         return Err(CodegenFailure::GeneratedModuleInvariant);
     };
 
-    let length = u64::try_from(length).map_err(|_| CodegenFailure::ResourceExhausted)?;
+    let length = crate::conversion::resource_limit(length, "static_array_length")?;
 
     physical_aggregate(
         types,
@@ -409,7 +409,7 @@ fn static_array<'context>(
             types,
         )?;
 
-        let index = u64::try_from(index).map_err(|_| CodegenFailure::ResourceExhausted)?;
+        let index: u64 = crate::conversion::resource_limit(index, "static_array_index")?;
 
         values.push((index.saturating_mul(stride), stride, value));
     }
@@ -495,7 +495,7 @@ fn static_real_constant<'context>(
         .custom_width_int_type(
             std::num::NonZeroU32::new(width).unwrap_or(std::num::NonZeroU32::MIN),
         )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     Ok(integer
         .const_int_arbitrary_precision(&crate::translation::real_words(bits))
@@ -554,7 +554,7 @@ fn push_padding<'context>(
         return Ok(());
     }
 
-    let size = u32::try_from(size).map_err(|_| CodegenFailure::ResourceExhausted)?;
+    let size = crate::conversion::resource_limit(size, "static_padding_size")?;
     let padding = types.context().i8_type().array_type(size);
 
     element_types.push(padding.into());

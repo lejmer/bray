@@ -422,10 +422,16 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::ExecutableHostIncompatibleRuntime(detail)
             | Kind::ExecutableHostMissingRole(detail)
             | Kind::CodegenBackendUnsupportedArtifact(detail)
+            | Kind::CodegenBackendUnsupportedTargetDetail(detail)
+            | Kind::CodegenBackendInvalidConfigurationDetail(detail)
+            | Kind::CodegenBackendGeneratedModuleInvariantDetail(detail)
             | Kind::CodegenBackendLibraryFailure(detail)
             | Kind::CodegenBackendToolFailure(detail)
+            | Kind::CodegenBackendInvalidRuntimeMetadata(detail)
+            | Kind::CodegenBackendInvalidOutcome(detail)
             | Kind::CodegenBackendRejectedModule(detail)
             | Kind::CodegenBackendArtifactConstruction(detail)
+            | Kind::CodegenBackendResourceLimit(detail)
             | Kind::CodegenInvalidRequest(detail)
             | Kind::CodegenMirUnavailable(detail)
             | Kind::CodegenInvalidInstance(detail)
@@ -453,7 +459,6 @@ impl DiagnosticNativeProductFailureJson {
             | Kind::LibraryCleanupRequiresMainThread
             | Kind::InvalidSymbolName
             | Kind::EvaluationCancelled
-            | Kind::EvaluationInfrastructure
             | Kind::EvaluationSemanticValueStoreCreate
             | Kind::EvaluationConstantCallableBodyUnavailable
             | Kind::EvaluationConstantCallableRootUnavailable

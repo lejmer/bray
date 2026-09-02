@@ -58,7 +58,7 @@ pub(super) fn export_callable_semantics(
 
     let signature = binder
         .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(callable))
-        .map_err(|error| super::super::binding_query_export_error(error, incomplete(symbol)))?;
+        .map_err(super::super::binding_query_export_error)?;
 
     if signature.diagnostics().has_errors() {
         return Err(incomplete(symbol));
@@ -70,7 +70,7 @@ pub(super) fn export_callable_semantics(
 
     let contracts = binder
         .resolve_symbol_query(SymbolQueryRequest::<CallableContractsQuery>::new(callable))
-        .map_err(|error| super::super::binding_query_export_error(error, incomplete(symbol)))?;
+        .map_err(super::super::binding_query_export_error)?;
 
     if contracts.diagnostics().has_errors() {
         return Err(incomplete(symbol));
@@ -84,7 +84,7 @@ pub(super) fn export_callable_semantics(
         .resolve_symbol_query(SymbolQueryRequest::<CallableContractTemplateQuery>::new(
             callable,
         ))
-        .map_err(|error| super::super::binding_query_export_error(error, incomplete(symbol)))?;
+        .map_err(super::super::binding_query_export_error)?;
 
     if template.diagnostics().has_errors() {
         return Err(incomplete(symbol));
@@ -110,7 +110,7 @@ pub(super) fn export_callable_semantics(
 
         let source = compilation
             .bound_source(expression.unit_syntax())
-            .map_err(|error| super::super::fact_query_export_error(error, incomplete(symbol)))?;
+            .map_err(super::super::fact_query_export_error)?;
 
         let Some(predicate) = clause.predicate() else {
             continue;
@@ -127,7 +127,6 @@ pub(super) fn export_callable_semantics(
         let inputs = callable_template_inputs(
             compilation,
             export,
-            symbol,
             signature.value(),
             generic_parameters(binder, symbol)?,
         )?;
@@ -172,7 +171,7 @@ pub(super) fn export_generic_semantics(
         .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
             owner,
         ))
-        .map_err(|error| super::super::binding_query_export_error(error, incomplete(symbol)))?;
+        .map_err(super::super::binding_query_export_error)?;
 
     if generic.diagnostics().has_errors() {
         return Err(incomplete(symbol));
@@ -184,7 +183,7 @@ pub(super) fn export_generic_semantics(
 
     let checked = binder
         .resolve_symbol_query(SymbolQueryRequest::<GenericConstraintsQuery>::new(owner))
-        .map_err(|error| super::super::binding_query_export_error(error, incomplete(symbol)))?;
+        .map_err(super::super::binding_query_export_error)?;
 
     if checked.diagnostics().has_errors() {
         return Err(incomplete(symbol));
@@ -275,7 +274,7 @@ pub(super) fn export_default_semantics(
                     SymbolQueryRequest::<CallableParameterDefaultTemplateQuery>::new(parameter),
                 )
                 .map_err(|error| {
-                    super::super::binding_query_export_error(error, incomplete(symbol))
+                    super::super::binding_query_export_error(error)
                 })?;
 
             if default.diagnostics().has_errors() {
@@ -294,7 +293,7 @@ pub(super) fn export_default_semantics(
                     compilation
                         .callable_parameter_default(parameter)
                         .map_err(|error| {
-                            super::super::fact_query_export_error(error, incomplete(symbol))
+                            super::super::fact_query_export_error(error)
                         })?;
 
                 if checked.diagnostics().has_errors() {
@@ -324,7 +323,7 @@ pub(super) fn export_default_semantics(
                 let checked = compilation
                     .struct_field_default(field.id())
                     .map_err(|error| {
-                        super::super::fact_query_export_error(error, incomplete(symbol))
+                        super::super::fact_query_export_error(error)
                     })?;
 
                 if checked.diagnostics().has_errors() {
@@ -354,7 +353,7 @@ pub(super) fn export_default_semantics(
                 let checked = compilation
                     .union_payload_field_default(field.id())
                     .map_err(|error| {
-                        super::super::fact_query_export_error(error, incomplete(symbol))
+                        super::super::fact_query_export_error(error)
                     })?;
 
                 if checked.diagnostics().has_errors() {
@@ -449,7 +448,7 @@ pub(super) fn export_type_semantics(
 ) -> Result<(), PackageInterfaceExportError> {
     if let Some(template) = compilation
         .symbol_type_template(symbol)
-        .map_err(|error| super::super::fact_query_export_error(error, incomplete(symbol)))?
+        .map_err(super::super::fact_query_export_error)?
     {
         if template.diagnostics().has_errors() {
             return Err(incomplete(symbol));
@@ -469,7 +468,7 @@ pub(super) fn export_type_semantics(
 
     let representation = compilation
         .declared_type_representation(named_type)
-        .map_err(|error| super::super::fact_query_export_error(error, incomplete(symbol)))?;
+        .map_err(super::super::fact_query_export_error)?;
 
     if representation.diagnostics().has_errors() || representation.value().is_recovered() {
         return Err(incomplete(symbol));
@@ -501,7 +500,7 @@ pub(super) fn export_runtime_default(
 
     let key = compilation
         .source_runtime_default_key(provider, *expression)
-        .map_err(|error| super::super::fact_query_export_error(error, incomplete(provider)))?;
+        .map_err(super::super::fact_query_export_error)?;
 
     let mut inputs = runtime_default_inputs(compilation, graph, export, contextual_inputs)?;
 

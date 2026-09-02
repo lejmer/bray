@@ -135,7 +135,7 @@ fn translate_constructor<'context>(
             ],
             "frame.storage",
         )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     let storage = call
         .try_as_basic_value()
@@ -180,19 +180,19 @@ fn translate_constructor<'context>(
 
     let inactive = builder
         .build_insert_value(inactive, storage, 0, "frame.inactive.context")
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+        .map_err(CodegenFailure::backend_library)?
         .into_struct_value();
 
     let inactive = builder
         .build_insert_value(inactive, adapter, 1, "frame.inactive.adapter")
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+        .map_err(CodegenFailure::backend_library)?
         .into_struct_value();
 
     match symbol.signature().result() {
         CodegenResultMapping::Direct { .. } => {
             builder
                 .build_return(Some(&inactive))
-                .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+                .map_err(CodegenFailure::backend_library)?;
         }
         CodegenResultMapping::Indirect { .. } => {
             let destination = function
@@ -202,11 +202,11 @@ fn translate_constructor<'context>(
 
             builder
                 .build_store(destination, inactive)
-                .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+                .map_err(CodegenFailure::backend_library)?;
 
             builder
                 .build_return(None)
-                .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+                .map_err(CodegenFailure::backend_library)?;
         }
         CodegenResultMapping::Void => {
             return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -263,7 +263,7 @@ fn initialize_parameters(
 
                 let value = builder
                     .build_load(types.map(*pointee)?, source, "frame.parameter.indirect")
-                    .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+                    .map_err(CodegenFailure::backend_library)?;
 
                 store_frame_parameter(builder, context_type, context, storage, value)?;
 
@@ -293,11 +293,11 @@ fn store_frame_parameter<'context>(
             frame_storage_field_index(storage)?,
             "frame.parameter",
         )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder
         .build_store(destination, value)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     Ok(())
 }
@@ -385,8 +385,10 @@ fn translate_frame_adapter<'context>(
         context
             .i32_type()
             .const_int(
-                u64::try_from(descriptor.states().len())
-                    .map_err(|_| CodegenFailure::ResourceExhausted)?,
+                crate::conversion::resource_limit(
+                    descriptor.states().len(),
+                    "frame_state_count",
+                )?,
                 false,
             )
             .into(),
@@ -412,10 +414,10 @@ fn translate_frame_adapter<'context>(
             .build_insert_value(
                 frame,
                 field,
-                u32::try_from(index).map_err(|_| CodegenFailure::ResourceExhausted)?,
+                crate::conversion::resource_limit(index, "frame_adapter_field_index")?,
                 "frame.adapter.field",
             )
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+            .map_err(CodegenFailure::backend_library)?
             .into_struct_value();
     }
 
@@ -508,7 +510,7 @@ fn translate_state_callback(
 
     builder
         .build_switch(state, invalid, &cases)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder.position_at_end(invalid);
 
@@ -550,11 +552,11 @@ fn translate_cancellation_entry<'context>(
 
     let requested = builder
         .build_struct_gep(context_type, context, 2, "frame.cancellation.pointer")
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder
         .build_store(requested, types.context().i8_type().const_int(1, false))
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     let context = function
         .get_nth_param(parameter)
@@ -609,5 +611,5 @@ pub(super) fn integer_pointer<'context>(
             types.context().ptr_type(AddressSpace::default()),
             "frame.pointer",
         )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
+        .map_err(CodegenFailure::backend_library)
 }

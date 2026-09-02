@@ -14,7 +14,7 @@ pub(crate) fn branch_on_pending_panic<'context>(
 ) -> Result<(IntValue<'context>, BasicBlock<'context>), CodegenFailure> {
     let report = builder
         .build_load(ty, storage, "call.panic.report")
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?
+        .map_err(CodegenFailure::backend_library)?
         .into_int_value();
 
     let pending = builder
@@ -24,7 +24,7 @@ pub(crate) fn branch_on_pending_panic<'context>(
             ty.const_zero(),
             "call.panic.pending",
         )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     let function = builder
         .get_insert_block()
@@ -36,7 +36,7 @@ pub(crate) fn branch_on_pending_panic<'context>(
 
     builder
         .build_conditional_branch(pending, propagate, continued)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder.position_at_end(propagate);
 

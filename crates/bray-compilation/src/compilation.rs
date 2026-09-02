@@ -46,7 +46,10 @@ mod unit;
 pub use codegen::CodegenPreparationError;
 pub use configuration::BuildConfiguration;
 pub use emission::{EmissionCodegenError, EmissionCodegenErrorKind};
-pub use export::PackageInterfaceExportError;
+pub use export::{
+    PackageInterfaceExportContract, PackageInterfaceExportError,
+    PackageInterfaceInvalidCompilationCause,
+};
 pub(crate) use foreign::{
     ForeignDataKind, ForeignIntegerWidth, ForeignQueryContext, ForeignQueryFailure,
     ForeignSourceRole, ForeignTypeKind,

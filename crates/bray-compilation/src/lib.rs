@@ -18,7 +18,8 @@ pub use compilation::{
     CompilationLoadError, CompletionCandidate, DependencyContractsView, EmissionCodegenError,
     EmissionCodegenErrorKind, ExpressionTypesView, ForeignQueryError, ForeignQueryErrorKind,
     LinkedProductEmissionError, LiteralValuesView, LivenessView, NativeProductPlan,
-    NativeProductPlanningError, PackageInterfaceExportError, ProductEmissionError,
+    NativeProductPlanningError, PackageInterfaceExportContract, PackageInterfaceExportError,
+    PackageInterfaceInvalidCompilationCause, ProductEmissionError,
     ProductEmissionErrorKind, ProductEmissionInputs, ProductQueryError, ProductQueryErrorKind,
     ProductSourceGraph, RefinementsView, SemanticAvailability, SemanticQueryError,
     SemanticQueryErrorKind, SemanticSelectionsView, StorageFlowView, TestDiscovery,
@@ -30,6 +31,7 @@ pub use fact::{
     CancellationToken, FactCycle, FactQueryError, FactRuntimeError, FactRuntimeErrorKind,
     ImportedExecutableTemplateMismatch, ImportedQueryFailure, ImportedSemanticRecordKey,
     LocatedLoweringFailure, QueryPriority, SymbolCompletionError,
+    diagnostic_semantic_value_failure,
 };
 pub use profile::{
     CompilationProfileAggregation, CompilationProfileCategory, CompilationProfileConfiguration,

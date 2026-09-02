@@ -5,7 +5,6 @@ pub(super) const fn native_product_failure_is_internal(
 
     match kind {
         Kind::EvaluationCycle(_)
-        | Kind::EvaluationInfrastructure
         | Kind::EvaluationRuntime(_)
         | Kind::EvaluationSemanticValueStoreCreate
         | Kind::EvaluationSemanticValue(_)
@@ -51,10 +50,15 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::ExecutableHostMissingRole(_)
         | Kind::EmissionBackendDuplicateUnit
         | Kind::CodegenBackendInvalidConfiguration
+        | Kind::CodegenBackendInvalidConfigurationDetail(_)
         | Kind::CodegenBackendResourceExhausted
+        | Kind::CodegenBackendResourceLimit(_)
         | Kind::CodegenBackendLibraryFailure(_)
         | Kind::CodegenBackendToolFailure(_)
         | Kind::CodegenBackendGeneratedModuleInvariant
+        | Kind::CodegenBackendGeneratedModuleInvariantDetail(_)
+        | Kind::CodegenBackendInvalidRuntimeMetadata(_)
+        | Kind::CodegenBackendInvalidOutcome(_)
         | Kind::CodegenBackendRejectedModule(_)
         | Kind::CodegenBackendArtifactConstruction(_)
         | Kind::CodegenInvalidRequest(_)
@@ -94,6 +98,7 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::StandardLibraryUnavailable
         | Kind::LinkTargetEmptyTriple
         | Kind::CodegenBackendUnsupportedTarget
+        | Kind::CodegenBackendUnsupportedTargetDetail(_)
         | Kind::CodegenBackendUnsupportedArtifact(_)
         | Kind::CodegenBackendUnavailable
         | Kind::CodegenMirUnavailable(_)

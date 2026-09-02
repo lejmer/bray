@@ -40,6 +40,11 @@ pub(super) fn format_english_checker_failure(
             true,
             "declaration information required by this product was unavailable",
         ),
+        Failure::GenericSubstitution(failure) => {
+            return super::format_internal_compiler_error(format_generic_substitution_failure(
+                failure,
+            ));
+        }
         Failure::SemanticValue(failure) => {
             return super::artifact::format_english_semantic_value_failure(failure);
         }
@@ -111,6 +116,26 @@ pub(super) fn format_english_checker_failure(
                 failure,
             ));
         }
+        Failure::ConstantOperation(failure) => {
+            return super::format_internal_compiler_error(format_constant_operation_failure(
+                failure,
+            ));
+        }
+        Failure::SelectionInputCapacityExceeded { count } => {
+            return super::format_internal_compiler_error(format!(
+                "could not represent semantic-selection input position {count}",
+            ));
+        }
+        Failure::SelectionInputOrdinalUnrepresentable { ordinal } => {
+            return super::format_internal_compiler_error(format!(
+                "could not represent semantic-selection callable parameter ordinal {ordinal}",
+            ));
+        }
+        Failure::ConstantArrayLengthCapacityExceeded { length } => {
+            return super::format_internal_compiler_error(format!(
+                "could not represent constant array length {length}",
+            ));
+        }
         Failure::InvalidSemanticSelectionInput => (
             true,
             "the operation or call for an expression could not be selected",
@@ -128,6 +153,9 @@ pub(super) fn format_english_checker_failure(
             true,
             "the local values used by a source body could not be arranged",
         ),
+        Failure::StoragePlan(failure) => {
+            return super::format_internal_compiler_error(format_storage_plan_failure(failure));
+        }
         Failure::InvalidLiveness => (true, "value lifetimes could not be determined"),
         Failure::InvalidRefinementInput => (
             true,
@@ -194,6 +222,68 @@ pub(super) fn format_english_checker_failure(
         super::format_internal_compiler_error(message)
     } else {
         message.to_owned()
+    }
+}
+
+pub(super) fn format_generic_substitution_failure(
+    failure: bray_diagnostics::DiagnosticGenericSubstitutionFailure,
+) -> String {
+    use bray_diagnostics::DiagnosticGenericSubstitutionFailure as Failure;
+
+    match failure {
+        Failure::ArgumentCountMismatch {
+            parameter_count,
+            argument_count,
+        } => format!(
+            "received {argument_count} generic arguments for {parameter_count} parameters",
+        ),
+        Failure::ArgumentKindMismatch {
+            ordinal,
+            expected,
+            actual,
+        } => format!(
+            "expected a {expected} generic argument at position {ordinal}, but received {actual}",
+        ),
+        Failure::OrdinalOverflow => {
+            "could not represent every generic argument position".to_owned()
+        }
+    }
+}
+
+fn format_constant_operation_failure(
+    failure: bray_diagnostics::DiagnosticCheckerConstantOperationFailure,
+) -> String {
+    use bray_diagnostics::DiagnosticCheckerConstantOperationFailure as Failure;
+
+    match failure {
+        Failure::Invalid => "received incompatible constant values for equality comparison".to_owned(),
+        Failure::DivisionByZero => "encountered division by zero while comparing constants".to_owned(),
+        Failure::NotRepresentable => {
+            "could not represent the result of a constant comparison".to_owned()
+        }
+        Failure::ResourceLimitExceeded { actual, maximum } => format!(
+            "required {actual} units of constant-evaluation work, exceeding the limit of {maximum}",
+        ),
+    }
+}
+
+fn format_storage_plan_failure(
+    failure: bray_diagnostics::DiagnosticStoragePlanFailure,
+) -> &'static str {
+    use bray_diagnostics::DiagnosticStoragePlanFailure as Failure;
+
+    match failure {
+        Failure::ForeignUnit => "associated planned storage with a different source body",
+        Failure::CapacityExceeded => "could not represent every planned storage record",
+        Failure::MissingIdentity => "referenced a planned storage identity that does not exist",
+        Failure::MissingAccess => "referenced a planned storage access that does not exist",
+        Failure::MissingBorrowCapability => {
+            "referenced a planned borrow capability that does not exist"
+        }
+        Failure::DuplicateBinding => "bound one source value to storage more than once",
+        Failure::BindingIdentityMismatch => {
+            "bound one source value to an incompatible storage identity"
+        }
     }
 }
 

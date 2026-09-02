@@ -6,7 +6,9 @@ use bray_declarations::{
     ContainerId, DeclarationKind, DeclarationName, DeclarationRecord, SyntaxAnchor,
 };
 use bray_source::{LineIndex, LspPosition, SourceId, SourceSnapshot, TextRange, TextSize};
-use bray_symbols::{CallableDefinitionId, LocalScopeId, LocalSymbolSnapshot, SymbolKind};
+use bray_symbols::{
+    CallableDefinitionId, CallableSymbolId, LocalScopeId, LocalSymbolSnapshot, SymbolKind,
+};
 use bray_syntax::{
     ArgumentListSyntax, CallOperationSyntax, SyntaxKind, SyntaxWalkControl, SyntaxWalkEvent,
     walk_syntax_node,
@@ -76,29 +78,81 @@ pub(crate) fn execute(
         }
     };
 
-    result.map_err(|_| QueryError::Serialization)
+    result.map_err(QueryError::Serialization)
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Debug)]
 pub(crate) enum QueryError {
     Cancelled,
-    Compiler,
-    InvalidPosition,
-    Serialization,
+    Evaluation(FactQueryError),
+    MissingSyntax(SourceId),
+    MissingLocation(BoundSourceAnchor),
+    MissingCallableParameters(CallableSymbolId),
+    MissingSource {
+        source: SourceId,
+        expected_version: Option<u64>,
+    },
+    Workspace(WorkspaceError),
+    Serialization(serde_json::Error),
+}
+
+impl QueryError {
+    pub(crate) fn data(&self) -> serde_json::Value {
+        use serde_json::json;
+
+        match self {
+            Self::Cancelled => json!({ "reason": "cancelled" }),
+            Self::Evaluation(error) => bray_tooling::diagnostic_evaluation_failure_json(
+                &error.diagnostic_evaluation_failure(),
+            )
+            .unwrap_or_else(|cause| {
+                json!({
+                    "reason": "evaluation_serialization",
+                    "cause": cause.to_string(),
+                    "evaluation": format!("{error:?}"),
+                })
+            }),
+            Self::MissingSyntax(source) => json!({
+                "reason": "missing_syntax",
+                "source": source.raw(),
+            }),
+            Self::MissingLocation(anchor) => json!({
+                "reason": "missing_location",
+                "anchor": format!("{anchor:?}"),
+            }),
+            Self::MissingCallableParameters(callable) => json!({
+                "reason": "missing_callable_parameters",
+                "callable": format!("{callable:?}"),
+            }),
+            Self::MissingSource {
+                source,
+                expected_version,
+            } => json!({
+                "reason": "missing_source",
+                "source": source.raw(),
+                "expected_version": expected_version,
+            }),
+            Self::Workspace(error) => error.data(),
+            Self::Serialization(cause) => json!({
+                "reason": "serialization",
+                "cause": cause.to_string(),
+            }),
+        }
+    }
 }
 
 impl From<FactQueryError> for QueryError {
     fn from(error: FactQueryError) -> Self {
         match error {
             FactQueryError::Cancelled => Self::Cancelled,
-            _ => Self::Compiler,
+            error => Self::Evaluation(error),
         }
     }
 }
 
 impl From<WorkspaceError> for QueryError {
-    fn from(_: WorkspaceError) -> Self {
-        Self::InvalidPosition
+    fn from(error: WorkspaceError) -> Self {
+        Self::Workspace(error)
     }
 }
 
@@ -188,7 +242,7 @@ fn definition(
     };
 
     location_for_anchor(document.compilation.as_ref(), anchor)
-        .ok_or(QueryError::Compiler)
+        .ok_or(QueryError::MissingLocation(anchor))
         .map(Some)
 }
 
@@ -416,7 +470,9 @@ fn signature_help(
 
     let (parameter_ids, _) = graph
         .callable_parameters_and_receiver(definition.callable_symbol())
-        .ok_or(QueryError::Compiler)?;
+        .ok_or(QueryError::MissingCallableParameters(
+            definition.callable_symbol(),
+        ))?;
 
     let parameters = parameter_ids
         .iter()
@@ -461,7 +517,7 @@ fn callable_definition_before_call(
     let syntax = document
         .compilation
         .source_unit_syntax(document.source_id)
-        .ok_or(QueryError::Compiler)?;
+        .ok_or(QueryError::MissingSyntax(document.source_id))?;
 
     let callable = syntax
         .source_unit()
@@ -520,7 +576,7 @@ fn call_syntax_at(
     let syntax = document
         .compilation
         .source_unit_syntax(document.source_id)
-        .ok_or(QueryError::Compiler)?;
+        .ok_or(QueryError::MissingSyntax(document.source_id))?;
 
     let mut selected = None;
 
@@ -639,14 +695,20 @@ fn source_for_anchor(
     compilation
         .source(anchor.syntax().source_id())
         .filter(|source| source.version() == anchor.source_version())
-        .ok_or(QueryError::Compiler)
+        .ok_or(QueryError::MissingSource {
+            source: anchor.syntax().source_id(),
+            expected_version: Some(anchor.source_version().raw()),
+        })
 }
 
 pub(super) fn source(document: &DocumentSnapshot) -> Result<&SourceSnapshot, QueryError> {
     document
         .compilation
         .source(document.source_id)
-        .ok_or(QueryError::Compiler)
+        .ok_or(QueryError::MissingSource {
+            source: document.source_id,
+            expected_version: None,
+        })
 }
 
 pub(super) fn lsp_range(source: &SourceSnapshot, range: TextRange) -> Option<Range> {
@@ -934,10 +996,10 @@ mod tests {
 
         cancellation.cancel();
 
-        assert_eq!(
+        assert!(matches!(
             semantic_tokens(&document, &cancellation, false),
             Err(QueryError::Cancelled)
-        );
+        ));
     }
 
     #[test]

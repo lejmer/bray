@@ -30,19 +30,19 @@ pub(crate) enum MirInspectionModelError {
     InvalidGeneratedLifecycle,
     MissingOperation,
     MissingSymbol,
-    Source,
-    Type,
+    Source(InspectionSourceError),
+    Type(TypeInspectionError),
 }
 
 impl From<InspectionSourceError> for MirInspectionModelError {
-    fn from(_: InspectionSourceError) -> Self {
-        Self::Source
+    fn from(error: InspectionSourceError) -> Self {
+        Self::Source(error)
     }
 }
 
 impl From<TypeInspectionError> for MirInspectionModelError {
-    fn from(_: TypeInspectionError) -> Self {
-        Self::Type
+    fn from(error: TypeInspectionError) -> Self {
+        Self::Type(error)
     }
 }
 

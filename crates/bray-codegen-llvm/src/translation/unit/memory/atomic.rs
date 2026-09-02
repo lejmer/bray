@@ -42,7 +42,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 instruction
                     .set_atomic_ordering(llvm_memory_order(order))
-                    .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+                    .map_err(CodegenFailure::backend_library)?;
 
                 Ok(None)
             }
@@ -124,7 +124,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         instruction
             .set_atomic_ordering(llvm_memory_order(order))
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         Ok(loaded)
     }
@@ -263,7 +263,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .context()
                     .custom_width_int_type(bits)
                     .map(BasicTypeEnum::from)
-                    .map_err(|_| CodegenFailure::GeneratedModuleInvariant)
+                    .map_err(CodegenFailure::backend_library)
             }
             _ => Err(CodegenFailure::GeneratedModuleInvariant),
         }

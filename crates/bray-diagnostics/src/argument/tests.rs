@@ -166,7 +166,6 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
             provenance_identity: Some("test".to_owned()),
         }),
         Kind::EvaluationCycle(crate::DiagnosticEvaluationFailureDetail::new("cycle", [])),
-        Kind::EvaluationInfrastructure,
         Kind::EvaluationLoweringInput(DiagnosticLoweringInputFailure::new(
             DiagnosticLoweringInputFailureKind::InvalidStorageExit(
                 crate::DiagnosticLoweringIdentity::new(3, 5),

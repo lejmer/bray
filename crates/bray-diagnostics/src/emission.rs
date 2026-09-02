@@ -6,11 +6,12 @@ mod runtime;
 mod unsupported;
 
 pub use checker::{
-    DiagnosticCheckerFailure, DiagnosticCheckerLocal, DiagnosticCheckerNode,
-    DiagnosticCheckerSymbol, DiagnosticConstantEvaluationFailure, DiagnosticConstantInputFailure,
+    DiagnosticCheckerConstantOperationFailure, DiagnosticCheckerFailure, DiagnosticCheckerLocal,
+    DiagnosticCheckerNode, DiagnosticCheckerSymbol, DiagnosticConstantEvaluationFailure,
+    DiagnosticConstantInputFailure, DiagnosticGenericSubstitutionFailure,
     DiagnosticLiteralValueFailure, DiagnosticPatternInputFailure,
     DiagnosticSemanticSelectionFailure, DiagnosticSemanticSnapshotFailure,
-    DiagnosticStorageFlowFailure,
+    DiagnosticStorageFlowFailure, DiagnosticStoragePlanFailure,
 };
 pub use failure::{
     DiagnosticBindingFailure, DiagnosticEmissionArtifact, DiagnosticEmissionCodegenFailure,

@@ -201,7 +201,7 @@ where
             if let Some(binding) = binding {
                 self.builder_mut()?
                     .bind(target, binding)
-                    .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+                    .map_err(CheckerInfrastructureError::StoragePlan)?;
             }
         }
 
@@ -250,7 +250,7 @@ where
 
         self.builder_mut()?
             .push_access(access)
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         Ok(())
     }
@@ -331,7 +331,7 @@ where
             let alternative = self
                 .builder_mut()?
                 .push_alternative(pattern_id, accesses)
-                .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+                .map_err(CheckerInfrastructureError::StoragePlan)?;
 
             let identity = self.bind_identity(
                 StorageBindingTarget::Local(binding),
@@ -353,7 +353,7 @@ where
 
                 self.builder_mut()?
                     .push_access(access)
-                    .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+                    .map_err(CheckerInfrastructureError::StoragePlan)?;
             }
         }
 
@@ -463,7 +463,7 @@ where
 
         self.builder_mut()?
             .push_access(access)
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan.into())
+            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
     }
 }
 

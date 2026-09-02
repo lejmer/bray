@@ -27,7 +27,7 @@ pub(super) fn semantic_tokens(
     let syntax = document
         .compilation
         .source_unit_syntax(document.source_id)
-        .ok_or(QueryError::Compiler)?;
+        .ok_or(QueryError::MissingSyntax(document.source_id))?;
 
     let mut absolute = Vec::new();
 

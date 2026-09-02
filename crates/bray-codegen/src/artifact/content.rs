@@ -365,7 +365,7 @@ fn content_identity(bytes: &[u8]) -> [u8; 32] {
 }
 
 /// A contract violation that prevents immutable artifact content construction.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ArtifactContentBuildError {
     /// The in-memory content length exceeds the contract's compact length field.
     LengthExceeded,

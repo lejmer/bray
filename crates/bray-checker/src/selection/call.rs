@@ -470,11 +470,9 @@ where
     Ok(if arguments.len() <= expected_count {
         Compatibility::Yes
     } else {
-        let provided = u64::try_from(arguments.len())
-            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+        let provided = super::capacity::selection_ordinal_u64(arguments.len())?;
 
-        let maximum = u64::try_from(expected_count)
-            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+        let maximum = super::capacity::selection_ordinal_u64(expected_count)?;
 
         Compatibility::No(SelectionCandidateRejectionReason::GenericArgumentCount {
             provided,
@@ -738,8 +736,7 @@ fn map_arguments(
         let Some(parameter_index) = parameter_index else {
             let conversion = variadic_argument_conversion(request, actual.ty())?;
 
-            let ordinal = u32::try_from(source_ordinal)
-                .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            let ordinal = super::capacity::selection_ordinal_u32(source_ordinal)?;
 
             on_argument(SelectedArgument::Explicit {
                 expression: argument.expression(),
@@ -755,8 +752,7 @@ fn map_arguments(
         let conversion = argument_conversion(request, actual.ty(), expected)?;
 
         if !actual.is_recovered() && conversion.is_none() {
-            let ordinal = u64::try_from(source_ordinal)
-                .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            let ordinal = super::capacity::selection_ordinal_u64(source_ordinal)?;
 
             return Ok(ArgumentMapping::Rejected(
                 SelectionCallableArgumentRejection::Type {
@@ -787,8 +783,7 @@ fn map_arguments(
 
     let Some(signatures) = signatures else {
         if let Some(index) = supplied.iter().position(Option::is_none) {
-            let ordinal = u64::try_from(index)
-                .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            let ordinal = super::capacity::selection_ordinal_u64(index)?;
 
             return Ok(ArgumentMapping::Rejected(
                 SelectionCallableArgumentRejection::Missing {
@@ -814,8 +809,7 @@ fn map_arguments(
         }
 
         if mode == CallableSelectionMode::Overload {
-            let ordinal = u64::try_from(index)
-                .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            let ordinal = super::capacity::selection_ordinal_u64(index)?;
 
             return Ok(ArgumentMapping::Rejected(
                 SelectionCallableArgumentRejection::Missing {
@@ -831,8 +825,7 @@ fn map_arguments(
             .find(|(parameter, _)| *parameter == signature.parameter())
             .copied()
         else {
-            let ordinal = u64::try_from(index)
-                .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            let ordinal = super::capacity::selection_ordinal_u64(index)?;
 
             return Ok(ArgumentMapping::Rejected(
                 SelectionCallableArgumentRejection::Missing {
@@ -898,8 +891,7 @@ fn map_argument_parameter_indices_for_diagnostic(
     let mut mapped = Vec::with_capacity(arguments.len());
 
     for (source_ordinal, argument) in arguments.iter().enumerate() {
-        let ordinal = u64::try_from(source_ordinal)
-            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+        let ordinal = super::capacity::selection_ordinal_u64(source_ordinal)?;
 
         let parameter_index = match argument.name() {
             Some(name) => {

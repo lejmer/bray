@@ -32,6 +32,9 @@ use bray_diagnostics::{
     DiagnosticSuggestionKind, DiagnosticTargetPredicateValueKind,
     DiagnosticTraitFulfillmentMismatch, DiagnosticType, DiagnosticTypeArgument,
     DiagnosticVisibility, DiagnosticYieldCardinality, SeverityKind,
+    DiagnosticInspectionFailure, DiagnosticInspectionFailureDetail,
+    DiagnosticInspectionOutputFormat, DiagnosticProjectCommandFailure,
+    DiagnosticSourceInspectionFailure,
 };
 use bray_source::{SourceSpan, TextRange, TextSize};
 use bray_syntax::SyntaxKind;
@@ -216,6 +219,37 @@ fn unsupported_emission_reasons_keep_exact_json_payloads() {
 
         assert_eq!(reason, expected_reason);
     }
+}
+
+#[test]
+fn inspection_failures_keep_exact_leaf_context_in_json() {
+    let failure = DiagnosticInspectionFailure::Source {
+        format: DiagnosticInspectionOutputFormat::Json,
+        cause: DiagnosticSourceInspectionFailure::Detail(
+            DiagnosticInspectionFailureDetail::new(
+                "source_inspection_json",
+                [DiagnosticFailureField::new(
+                    "report",
+                    DiagnosticFailureValue::Text("invalid map key".to_owned()),
+                )],
+            ),
+        ),
+    };
+
+    let diagnostic = DiagnosticProjectCommandFailure::Inspection(failure)
+        .diagnostic(DiagnosticId::new(0));
+
+    let mut output = Vec::new();
+
+    write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut output)
+        .unwrap_or_else(|error| panic!("inspection diagnostic should write: {error:?}"));
+
+    let output = String::from_utf8(output)
+        .unwrap_or_else(|error| panic!("inspection diagnostic should be UTF-8: {error}"));
+
+    assert!(output.contains(r#""cause": "source_inspection_json""#));
+    assert!(output.contains(r#""name": "report""#));
+    assert!(output.contains(r#""value": "invalid map key""#));
 }
 
 #[test]

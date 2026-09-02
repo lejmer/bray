@@ -346,7 +346,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let status = self
             .builder
             .build_phi(self.types.context().i64_type(), "test.host.status")
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         let incoming = self
             .host_selection_statuses
@@ -525,7 +525,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         };
 
         let progress = self.build_frame_progress(
-            u32::try_from(kind).map_err(|_| CodegenFailure::ResourceExhausted)?,
+            crate::conversion::resource_limit(kind, "host_effect_progress_kind")?,
             self.types.context().i32_type().const_zero(),
             payload,
         )?;

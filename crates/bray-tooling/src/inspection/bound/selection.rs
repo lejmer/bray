@@ -14,15 +14,16 @@ use serde::Serialize;
 use crate::inspection::{InspectionSymbolIdentity, InspectionType, TypeInspectionError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(super) enum SelectionInspectionError {
+pub(crate) enum SelectionInspectionError {
+    InvalidConstraintDispatch,
     Local,
-    SemanticValue,
-    Type,
+    SemanticValue(bray_symbols::SemanticValueStoreError),
+    Type(TypeInspectionError),
 }
 
 impl From<TypeInspectionError> for SelectionInspectionError {
-    fn from(_: TypeInspectionError) -> Self {
-        Self::Type
+    fn from(error: TypeInspectionError) -> Self {
+        Self::Type(error)
     }
 }
 
@@ -495,7 +496,7 @@ fn operator_target(
             ..
         } => {
             let Some((owner, ordinal)) = dispatch.constraint() else {
-                return Err(SelectionInspectionError::SemanticValue);
+                return Err(SelectionInspectionError::InvalidConstraintDispatch);
             };
 
             Ok(InspectionSelectionTarget::TraitConstraintOperator {
@@ -544,7 +545,7 @@ fn index_target(
             ..
         } => {
             let Some((owner, ordinal)) = dispatch.constraint() else {
-                return Err(SelectionInspectionError::SemanticValue);
+                return Err(SelectionInspectionError::InvalidConstraintDispatch);
             };
 
             return Ok(InspectionSelectionTarget::TraitConstraintIndex {
@@ -594,7 +595,7 @@ fn inspection_conversion(
             member, dispatch, ..
         } => {
             let Some((owner, ordinal)) = dispatch.constraint() else {
-                return Err(SelectionInspectionError::SemanticValue);
+                return Err(SelectionInspectionError::InvalidConstraintDispatch);
             };
 
             InspectionConversionRule::TraitConstraint {
@@ -684,11 +685,11 @@ fn implementation_evidence(
 ) -> Result<InspectionImplementationEvidence, SelectionInspectionError> {
     let trait_application = semantic_values
         .trait_application_data(requirement.trait_application())
-        .map_err(|_| SelectionInspectionError::SemanticValue)?;
+        .map_err(SelectionInspectionError::SemanticValue)?;
 
     let implementation = semantic_values
         .implementation_instance_data(witness)
-        .map_err(|_| SelectionInspectionError::SemanticValue)?;
+        .map_err(SelectionInspectionError::SemanticValue)?;
 
     Ok(InspectionImplementationEvidence {
         subject: InspectionType::from_type(semantic_values, symbols, requirement.subject())?,

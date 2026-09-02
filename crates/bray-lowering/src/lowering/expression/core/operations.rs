@@ -214,7 +214,7 @@ impl Lowerer<'_> {
                     .ok_or(LoweringError::SemanticValueUnavailable)?;
 
                 let substitution = GenericSubstitutionData::try_new(owner, [], [])
-                    .map_err(|_| LoweringError::SemanticValueUnavailable)?;
+                    .map_err(LoweringError::GenericSubstitution)?;
 
                 let substitution = self
                     .input

@@ -78,7 +78,7 @@ pub fn resolve_type_expression_template(
 
             let substitution =
                 GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments)
-                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                    .map_err(CheckerInfrastructureError::GenericSubstitution)?;
 
             let substitution = values
                 .intern_generic_substitution(substitution)
@@ -109,7 +109,7 @@ pub fn resolve_type_expression_template(
 
             let substitution =
                 GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments)
-                    .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+                    .map_err(CheckerInfrastructureError::GenericSubstitution)?;
 
             let substitution = values
                 .intern_generic_substitution(substitution)
@@ -348,7 +348,7 @@ pub fn resolve_trait_application_template(
 
     let substitution =
         GenericSubstitutionData::try_new(owner, template.parameters().iter().copied(), arguments)
-            .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?;
+            .map_err(CheckerInfrastructureError::GenericSubstitution)?;
 
     let substitution = values
         .intern_generic_substitution(substitution)

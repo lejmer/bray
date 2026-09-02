@@ -1,15 +1,17 @@
 use bray_compilation::Compilation;
-use bray_source::{LineIndex, SourceNewlinePolicy, SourceSnapshot};
+use bray_source::{LineIndex, SourceNewlinePolicy, SourceSnapshot, TextSizeOverflow};
 use serde::Serialize;
 
 use crate::OutputFormat;
 use crate::inspection::{push_indented_report_value, push_report_value, render_pretty_json};
 use crate::output::SourceOriginOutput;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SourceInspectionRenderError {
+    Capacity { resource: &'static str, actual: usize },
     SourceIndex,
-    Json,
+    SourceIndexOverflow(TextSizeOverflow),
+    Json(String),
 }
 
 pub(crate) fn render_source_inspection(
@@ -21,7 +23,8 @@ pub(crate) fn render_source_inspection(
     match output_format {
         OutputFormat::Text => Ok(render_text_report(&report)),
         OutputFormat::Json => {
-            render_pretty_json(&report).map_err(|_| SourceInspectionRenderError::Json)
+            render_pretty_json(&report)
+                .map_err(|error| SourceInspectionRenderError::Json(error.to_string()))
         }
     }
 }
@@ -70,7 +73,7 @@ impl<'source> SourceInspection<'source> {
         snapshot: &'source SourceSnapshot,
     ) -> Result<Self, SourceInspectionRenderError> {
         let line_index = LineIndex::new(snapshot.text())
-            .map_err(|_| SourceInspectionRenderError::SourceIndex)?;
+            .map_err(SourceInspectionRenderError::SourceIndexOverflow)?;
 
         Ok(Self {
             source_id: snapshot.source_id().raw(),
@@ -91,7 +94,10 @@ fn line_start_offsets(index: &LineIndex) -> Result<Vec<u32>, SourceInspectionRen
     let mut starts = Vec::with_capacity(index.line_count());
 
     for line in 0..index.line_count() {
-        let line = u32::try_from(line).map_err(|_| SourceInspectionRenderError::SourceIndex)?;
+        let line = u32::try_from(line).map_err(|_| SourceInspectionRenderError::Capacity {
+            resource: "source_line_count",
+            actual: line,
+        })?;
 
         let start = index
             .line_start(line)

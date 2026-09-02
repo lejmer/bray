@@ -26,6 +26,7 @@ use super::implementation::{
     implementation_fulfillments, implementation_requirement, selected_type_valued_member,
 };
 use super::unit::semantic_unit_context_for;
+use super::{SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError, IterationSourceQueryKey};
 
 #[derive(Clone, Copy)]
@@ -98,7 +99,15 @@ impl Compilation {
 
         let source_type = types
             .expression(source)
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                SemanticQueryFailure::contract(
+                    SemanticQueryContext::Expression {
+                        unit: key.unit().clone(),
+                        expression: source,
+                    },
+                    SemanticQueryViolation::Missing(SemanticDataKind::Type),
+                )
+            })?;
 
         if source_type.is_recovered() {
             return Ok(DiagnosticResult::new(None, diagnostics));
@@ -109,7 +118,12 @@ impl Compilation {
         let protocol = self
             .available_compiler_known_symbols()
             .iteration_protocol()
-            .ok_or(FactQueryError::InfrastructureFailure)?;
+            .ok_or_else(|| {
+                SemanticQueryFailure::contract(
+                    SemanticQueryContext::Fact(CompilationFactKey::IterationSource(key.clone())),
+                    SemanticQueryViolation::Missing(SemanticDataKind::IterationProtocol),
+                )
+            })?;
 
         let source_type = source_type.ty();
 
@@ -498,7 +512,16 @@ fn iteration_source(
     unit.view()
         .expression(expression)
         .and_then(BoundExpression::iteration_source)
-        .ok_or(FactQueryError::InfrastructureFailure)
+        .ok_or_else(|| {
+            SemanticQueryFailure::contract(
+                SemanticQueryContext::Expression {
+                    unit: unit.key().clone(),
+                    expression,
+                },
+                SemanticQueryViolation::Missing(SemanticDataKind::IterationSource),
+            )
+            .into()
+        })
 }
 
 fn iteration_candidate(

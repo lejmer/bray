@@ -5,7 +5,7 @@ use bray_bound_tree::{
     BoundWalkOutcome, CheckedExpressionTypes, CheckedSemanticSelections, StoragePlan,
     walk_bound_unit_view,
 };
-use bray_compilation::Compilation;
+use bray_compilation::{Compilation, FactQueryError};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{SemanticValueStore, SymbolGraph};
 use serde::Serialize;
@@ -25,48 +25,50 @@ use super::selection::{
 };
 use super::storage::{InspectionStorage, InspectionStoragePlan, StorageInspectionError};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum BoundInspectionRenderError {
-    BoundState,
-    Json,
+    Evaluation(FactQueryError),
+    Json(String),
     MissingNode,
-    Source,
+    Source(InspectionSourceError),
     SourceIndex,
-    StorageState,
+    SourceIndexOverflow(bray_source::TextSizeOverflow),
     Symbol,
-    SymbolState,
-    Type,
-    TypeState,
-    SelectionState,
-    Selection,
+    Type(TypeInspectionError),
+    Selection(SelectionInspectionError),
+    Capacity { resource: &'static str, actual: usize },
 }
 
 impl From<InspectionSourceError> for BoundInspectionRenderError {
     fn from(error: InspectionSourceError) -> Self {
         match error {
-            InspectionSourceError::Source => Self::Source,
+            InspectionSourceError::Source => Self::Source(error),
             InspectionSourceError::SourceIndex => Self::SourceIndex,
+            InspectionSourceError::SourceIndexOverflow(error) => Self::SourceIndexOverflow(error),
         }
     }
 }
 
 impl From<TypeInspectionError> for BoundInspectionRenderError {
-    fn from(_: TypeInspectionError) -> Self {
-        Self::Type
+    fn from(error: TypeInspectionError) -> Self {
+        Self::Type(error)
     }
 }
 
 impl From<SelectionInspectionError> for BoundInspectionRenderError {
-    fn from(_: SelectionInspectionError) -> Self {
-        Self::Selection
+    fn from(error: SelectionInspectionError) -> Self {
+        Self::Selection(error)
     }
 }
 
 impl From<StorageInspectionError> for BoundInspectionRenderError {
     fn from(error: StorageInspectionError) -> Self {
         match error {
-            StorageInspectionError::Source => Self::Source,
-            StorageInspectionError::Type => Self::Type,
+            StorageInspectionError::Capacity { resource, actual } => {
+                Self::Capacity { resource, actual }
+            }
+            StorageInspectionError::Source(error) => error.into(),
+            StorageInspectionError::Type(error) => Self::Type(error),
         }
     }
 }
@@ -74,8 +76,9 @@ impl From<StorageInspectionError> for BoundInspectionRenderError {
 impl From<UnitInspectionSelectionError> for BoundInspectionRenderError {
     fn from(error: UnitInspectionSelectionError) -> Self {
         match error {
-            UnitInspectionSelectionError::BoundState => Self::BoundState,
-            UnitInspectionSelectionError::Source => Self::Source,
+            UnitInspectionSelectionError::Evaluation(error) => Self::Evaluation(error),
+            UnitInspectionSelectionError::Source => Self::Source(InspectionSourceError::Source),
+            UnitInspectionSelectionError::SourceOverflow(error) => Self::SourceIndexOverflow(error),
         }
     }
 }
@@ -98,11 +101,11 @@ pub(crate) fn render_bound_inspection(
 
     let symbols = compilation
         .symbol_graph()
-        .map_err(|_| BoundInspectionRenderError::SymbolState)?;
+        .map_err(BoundInspectionRenderError::Evaluation)?;
 
     let semantic_values = compilation
         .semantic_value_store()
-        .map_err(|_| BoundInspectionRenderError::SymbolState)?;
+        .map_err(BoundInspectionRenderError::Evaluation)?;
 
     let sources = InspectionSources::new(compilation.sources())?;
 
@@ -115,15 +118,15 @@ pub(crate) fn render_bound_inspection(
 
         let expression_types = compilation
             .expression_types(key.clone())
-            .map_err(|_| BoundInspectionRenderError::TypeState)?;
+            .map_err(BoundInspectionRenderError::Evaluation)?;
 
         let selections = compilation
             .semantic_selections(key.clone())
-            .map_err(|_| BoundInspectionRenderError::SelectionState)?;
+            .map_err(BoundInspectionRenderError::Evaluation)?;
 
         let storage = compilation
             .storage_plan(key)
-            .map_err(|_| BoundInspectionRenderError::StorageState)?;
+            .map_err(BoundInspectionRenderError::Evaluation)?;
 
         diagnostics = DiagnosticBag::merged_all([
             &diagnostics,
@@ -157,7 +160,8 @@ fn render_report(
     let stdout = match output_format {
         OutputFormat::Text => render_text_report(&report),
         OutputFormat::Json => {
-            render_pretty_json(&report).map_err(|_| BoundInspectionRenderError::Json)?
+            render_pretty_json(&report)
+                .map_err(|error| BoundInspectionRenderError::Json(error.to_string()))?
         }
     };
 
@@ -900,7 +904,9 @@ mod tests {
 
         assert_eq!(
             render_bound_inspection(&compilation, target, OutputFormat::Json).map(|_| ()),
-            Err(super::BoundInspectionRenderError::Source)
+            Err(super::BoundInspectionRenderError::Source(
+                crate::inspection::InspectionSourceError::Source,
+            ))
         );
     }
 
@@ -917,7 +923,9 @@ mod tests {
 
         assert_eq!(
             render_bound_inspection(&compilation, target, OutputFormat::Json).map(|_| ()),
-            Err(super::BoundInspectionRenderError::Source)
+            Err(super::BoundInspectionRenderError::Source(
+                crate::inspection::InspectionSourceError::Source,
+            ))
         );
     }
 

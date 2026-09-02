@@ -23,7 +23,7 @@ pub fn format_semantic_type(
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum TypeInspectionError {
     Depth,
-    SemanticValue,
+    SemanticValue(bray_symbols::SemanticValueStoreError),
 }
 
 #[derive(Serialize)]
@@ -59,7 +59,7 @@ impl InspectionType {
 
         let data = semantic_values
             .type_data(ty)
-            .map_err(|_| TypeInspectionError::SemanticValue)?;
+            .map_err(TypeInspectionError::SemanticValue)?;
 
         let type_kind = type_data_kind(data.as_ref());
         let text = formatter.ty(ty, 0)?;
@@ -213,7 +213,7 @@ impl<'model> TypeFormatter<'model> {
         let data = self
             .semantic_values
             .type_data(ty)
-            .map_err(|_| TypeInspectionError::SemanticValue)?;
+            .map_err(TypeInspectionError::SemanticValue)?;
 
         match data.as_ref() {
             TypeData::Error => Ok(String::from("<error>")),
@@ -226,7 +226,7 @@ impl<'model> TypeFormatter<'model> {
                 let substitution = self
                     .semantic_values
                     .generic_substitution_data(*substitution)
-                    .map_err(|_| TypeInspectionError::SemanticValue)?;
+                    .map_err(TypeInspectionError::SemanticValue)?;
 
                 let arguments = self.substitution_arguments(&substitution, depth)?;
 
@@ -378,14 +378,14 @@ impl<'model> TypeFormatter<'model> {
         let application = self
             .semantic_values
             .trait_application_data(application)
-            .map_err(|_| TypeInspectionError::SemanticValue)?;
+            .map_err(TypeInspectionError::SemanticValue)?;
 
         let name = self.symbol(application.definition().into());
 
         let substitution = self
             .semantic_values
             .generic_substitution_data(application.substitution())
-            .map_err(|_| TypeInspectionError::SemanticValue)?;
+            .map_err(TypeInspectionError::SemanticValue)?;
 
         let arguments = self.substitution_arguments(&substitution, depth)?;
 

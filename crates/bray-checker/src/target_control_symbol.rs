@@ -120,7 +120,7 @@ where
 {
     let substitution =
         GenericSubstitutionData::try_new(owner, parameters.iter().copied(), arguments)
-            .map_err(|_| CheckerInfrastructureError::InvalidSemanticSelectionInput)?;
+            .map_err(CheckerInfrastructureError::GenericSubstitution)?;
 
     request
         .semantic_values()

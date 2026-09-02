@@ -1,6 +1,6 @@
 use bray_compilation::Compilation;
 use bray_parser::SourceUnitSyntaxResult;
-use bray_source::{LineIndex, SourceSnapshot, SourceStore};
+use bray_source::{LineIndex, SourceSnapshot, SourceStore, TextSizeOverflow};
 use bray_syntax::{
     SourceUnitSyntax, SyntaxToken, SyntaxWalkControl, SyntaxWalkEvent, walk_source_unit,
 };
@@ -17,14 +17,15 @@ use crate::output::{
     DiagnosticJson, SourceLocationOutput, SourceOriginOutput, TextRangeOutput, diagnostic_jsons,
 };
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SyntaxInspectionRenderError {
     SourceIndex,
+    SourceIndexOverflow(TextSizeOverflow),
     SourceMismatch,
     TokenText,
     TriviaText,
     TreeStructure,
-    Json,
+    Json(String),
 }
 
 pub(crate) fn render_syntax_inspection(
@@ -37,7 +38,8 @@ pub(crate) fn render_syntax_inspection(
     let stdout = match output_format {
         OutputFormat::Text => render_text_report(&report),
         OutputFormat::Json => {
-            render_pretty_json(&report).map_err(|_| SyntaxInspectionRenderError::Json)?
+            render_pretty_json(&report)
+                .map_err(|error| SyntaxInspectionRenderError::Json(error.to_string()))?
         }
     };
 
@@ -103,7 +105,7 @@ impl SyntaxInspectionSource {
         }
 
         let line_index = LineIndex::new(snapshot.text())
-            .map_err(|_| SyntaxInspectionRenderError::SourceIndex)?;
+            .map_err(SyntaxInspectionRenderError::SourceIndexOverflow)?;
 
         let (tree, node_count, token_count) =
             syntax_tree_elements(snapshot, &line_index, result.source_unit())?;

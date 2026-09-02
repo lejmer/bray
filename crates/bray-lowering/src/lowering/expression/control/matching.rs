@@ -40,8 +40,15 @@ impl Lowerer<'_> {
         let mut candidate = current;
 
         for (index, arm) in expression.arms().iter().copied().enumerate() {
-            let ordinal =
-                u32::try_from(index).map_err(|_| LoweringError::UnsupportedExpression(id))?;
+            let ordinal = match u32::try_from(index) {
+                Ok(ordinal) => ordinal,
+                Err(_) => {
+                    return Err(LoweringError::MatchArmOrdinalUnrepresentable {
+                        expression: id,
+                        ordinal: index,
+                    });
+                }
+            };
 
             if coverage.unreachable_arms().contains(&ordinal) {
                 continue;

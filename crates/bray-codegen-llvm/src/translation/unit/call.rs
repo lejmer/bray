@@ -676,13 +676,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let pointee = self.types.map(pointee)?;
         let storage = self.allocate_temporary(pointee, name)?;
 
-        let alignment = u32::try_from(alignment).map_err(|_| CodegenFailure::UnsupportedTarget)?;
+        let alignment = crate::conversion::target_value(alignment, "allocation_alignment")?;
 
         storage
             .as_instruction_value()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?
             .set_alignment(alignment)
-            .map_err(|_| CodegenFailure::UnsupportedTarget)?;
+            .map_err(CodegenFailure::unsupported_target_report)?;
 
         Ok(storage)
     }

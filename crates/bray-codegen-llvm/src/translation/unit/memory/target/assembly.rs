@@ -204,7 +204,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             };
 
             let parameter =
-                u32::try_from(arguments.len()).map_err(|_| CodegenFailure::ResourceExhausted)?;
+                crate::conversion::resource_limit(arguments.len(), "assembly_parameter_count")?;
 
             if descriptor.kind() == InlineAssemblyOperandKind::Memory {
                 let target = match self
@@ -287,15 +287,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 "target.inline_assembly",
             )
             .map_err(|error| match error {
-                CallBrError::ResourceExhausted => CodegenFailure::ResourceExhausted,
-                CallBrError::ContextMismatch
-                | CallBrError::DestinationOutsideFunction
-                | CallBrError::InvalidArguments
-                | CallBrError::InvalidName
-                | CallBrError::MissingInstruction
-                | CallBrError::UnexpectedInstruction
-                | CallBrError::UnexpectedResultType
-                | CallBrError::UnsetPosition => CodegenFailure::GeneratedModuleInvariant,
+                CallBrError::ResourceLimit { resource, actual } => {
+                    CodegenFailure::resource_limit(resource, actual)
+                }
+                error => CodegenFailure::generated_module_invariant(error),
             })?,
             None => {
                 let call = llvm(self.builder.build_indirect_call(
@@ -375,14 +370,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 extract_value(
                     &self.builder,
                     raw,
-                    u32::try_from(ordinal).map_err(|_| CodegenFailure::ResourceExhausted)?,
+                    crate::conversion::resource_limit(ordinal, "assembly_argument_ordinal")?,
                 )?
             };
 
             let destination = self.aggregate_element(fields, ordinal)?;
 
-            let destination =
-                usize::try_from(destination).map_err(|_| CodegenFailure::ResourceExhausted)?;
+            let destination = crate::conversion::resource_limit(
+                destination,
+                "assembly_destination_ordinal",
+            )?;
 
             result = insert_value(&self.builder, result, value, destination)?;
         }

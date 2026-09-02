@@ -196,10 +196,22 @@ pub enum DiagnosticLoweringFailureKind {
     MissingRepresentation(&'static str),
     /// A required type or constant value is unavailable.
     SemanticValueUnavailable,
+    /// Generic substitution construction rejected one exact relationship.
+    GenericSubstitution(crate::DiagnosticGenericSubstitutionFailure),
     /// A semantic value could not cross the lowering boundary.
     SemanticValue(crate::DiagnosticSemanticValueFailure),
     /// Protected-frame metadata violates the lowering contract.
-    InvalidFrameDescriptor,
+    InvalidFrameDescriptor(DiagnosticFrameDescriptorFailure),
+    /// A selected memory argument ordinal cannot index the host collection.
+    MemoryArgumentOrdinalUnrepresentable {
+        expression: DiagnosticLoweringIdentity,
+        ordinal: u64,
+    },
+    /// A match-arm ordinal cannot be represented by the MIR protocol.
+    MatchArmOrdinalUnrepresentable {
+        expression: DiagnosticLoweringIdentity,
+        ordinal: usize,
+    },
     /// MIR construction rejected the lowered unit.
     Mir(DiagnosticMirUnitBuildFailure),
 }
@@ -231,11 +243,27 @@ impl DiagnosticLoweringFailureKind {
             Self::MissingOperationResult(_) => "code_production_expression_value_unavailable",
             Self::MissingRepresentation(_) => "code_production_target_representation_unavailable",
             Self::SemanticValueUnavailable => "code_production_type_or_constant_unavailable",
+            Self::GenericSubstitution(_) => "code_production_generic_substitution_invalid",
             Self::SemanticValue(failure) => failure.as_str(),
-            Self::InvalidFrameDescriptor => "code_production_resumable_state_conflict",
+            Self::InvalidFrameDescriptor(_) => "code_production_resumable_state_conflict",
+            Self::MemoryArgumentOrdinalUnrepresentable { .. } => {
+                "code_production_memory_argument_ordinal_unrepresentable"
+            }
+            Self::MatchArmOrdinalUnrepresentable { .. } => {
+                "code_production_match_arm_ordinal_unrepresentable"
+            }
             Self::Mir(failure) => failure.as_str(),
         }
     }
+}
+
+/// Exact protected-frame descriptor failure retained across compiler boundaries.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticFrameDescriptorFailure {
+    MissingState,
+    NonContiguousState,
+    DuplicateStateOrEntry,
+    IdentityCapacityExceeded,
 }
 
 /// The Bray syntax category associated with a compiler-owned source-node failure.

@@ -65,6 +65,16 @@ pub(in crate::output::diagnostic::json) fn lowering_failure_context(
 
     match failure.kind() {
         Failure::SemanticValue(failure) => semantic_value_failure_context(failure),
+        Failure::GenericSubstitution(failure) => {
+            let mut context = vec![text_field(
+                "cause",
+                "code_production_generic_substitution_invalid",
+            )];
+
+            super::checker::push_generic_substitution_failure(&mut context, failure);
+
+            context
+        }
         Failure::Mir(failure) => mir_unit_failure_context(failure),
         Failure::UnsupportedRoot(root) => lowering_root_context(failure.as_str(), root),
         Failure::MissingSourceNode { kind, identity }
@@ -113,9 +123,47 @@ pub(in crate::output::diagnostic::json) fn lowering_failure_context(
             text_field("cause", failure.as_str()),
             text_field("representation_role", role),
         ],
+        Failure::InvalidFrameDescriptor(problem) => vec![
+            text_field("cause", failure.as_str()),
+            text_field("frame_descriptor_problem", frame_descriptor_failure(problem)),
+        ],
+        Failure::MemoryArgumentOrdinalUnrepresentable {
+            expression,
+            ordinal,
+        } => {
+            let mut context =
+                lowering_identity_context(failure.as_str(), "expression", expression);
+
+            context.push(count_u64_field("memory_argument_ordinal", ordinal));
+
+            context
+        }
+        Failure::MatchArmOrdinalUnrepresentable {
+            expression,
+            ordinal,
+        } => {
+            let mut context =
+                lowering_identity_context(failure.as_str(), "expression", expression);
+
+            context.push(text_field("match_arm_ordinal", ordinal.to_string()));
+
+            context
+        }
         Failure::MissingCallableResultType
-        | Failure::SemanticValueUnavailable
-        | Failure::InvalidFrameDescriptor => vec![text_field("cause", failure.as_str())],
+        | Failure::SemanticValueUnavailable => vec![text_field("cause", failure.as_str())],
+    }
+}
+
+const fn frame_descriptor_failure(
+    failure: bray_diagnostics::DiagnosticFrameDescriptorFailure,
+) -> &'static str {
+    use bray_diagnostics::DiagnosticFrameDescriptorFailure as Failure;
+
+    match failure {
+        Failure::MissingState => "missing_state",
+        Failure::NonContiguousState => "non_contiguous_state",
+        Failure::DuplicateStateOrEntry => "duplicate_state_or_entry",
+        Failure::IdentityCapacityExceeded => "identity_capacity_exceeded",
     }
 }
 

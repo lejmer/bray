@@ -50,15 +50,15 @@ fn translate_failure_cleanup<'context>(
 
     let requested = builder
         .build_struct_gep(context_type, context, 2, "frame.failure.cancellation")
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder
         .build_store(requested, types.context().i8_type().const_int(1, false))
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder
         .build_return(None)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     let resolve = frame_operation_function(
         module,
@@ -96,11 +96,11 @@ fn translate_failure_cleanup<'context>(
             exit.get_type().const_int(3, false),
             "frame.runtime.failed",
         )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder
         .build_conditional_branch(failed, cleanup, done)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder.position_at_end(cleanup);
 
@@ -130,13 +130,13 @@ fn translate_failure_cleanup<'context>(
 
     builder
         .build_unconditional_branch(done)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder.position_at_end(done);
 
     builder
         .build_return(None)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     Ok(())
 }
@@ -173,7 +173,7 @@ fn translate_completion_move<'context>(
 
     let source = builder
         .build_struct_gep(context_type, context, 1, "frame.completion")
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     let completion = builder
         .build_load(
@@ -181,15 +181,15 @@ fn translate_completion_move<'context>(
             source,
             "frame.completion.value",
         )
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder
         .build_store(destination, completion)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder
         .build_return(None)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     Ok(())
 }
@@ -232,15 +232,15 @@ fn translate_destruction(
 
     let storage = builder
         .build_int_to_ptr(storage, pointer, "frame.storage")
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder
         .build_call(free, &[storage.into()], "")
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     builder
         .build_return(None)
-        .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+        .map_err(CodegenFailure::backend_library)?;
 
     Ok(())
 }

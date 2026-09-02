@@ -348,7 +348,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             progress = llvm(self.builder.build_insert_value(
                 progress,
                 field,
-                u32::try_from(index).map_err(|_| CodegenFailure::ResourceExhausted)?,
+                crate::conversion::resource_limit(index, "frame_progress_field_index")?,
                 "frame.progress.field",
             ))?
             .into_struct_value();

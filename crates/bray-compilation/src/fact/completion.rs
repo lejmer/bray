@@ -429,14 +429,14 @@ mod tests {
     }
 
     #[test]
-    fn compiler_domain_infrastructure_failure_survives_completion_unchanged() {
+    fn compiler_domain_failure_survives_completion_unchanged() {
         let completion = symbol_completion_error::<()>(BatchCompletionError::Scheduler(
-            FactQueryError::InfrastructureFailure,
+            FactQueryError::BindingDependencyUnavailable,
         ));
 
         assert_eq!(
             completion,
-            SymbolCompletionError::Scheduler(FactQueryError::InfrastructureFailure)
+            SymbolCompletionError::Scheduler(FactQueryError::BindingDependencyUnavailable)
         );
     }
 

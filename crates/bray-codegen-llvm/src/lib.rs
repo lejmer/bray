@@ -5,6 +5,7 @@
 mod backend;
 mod callbr;
 mod comdat;
+mod conversion;
 mod environment;
 mod initialization;
 mod installation;

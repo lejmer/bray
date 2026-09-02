@@ -163,7 +163,7 @@ impl BackendArtifactSet {
 }
 
 /// A contract violation that prevents creation of a complete artifact set.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum BackendArtifactSetBuildError {
     /// Generated runtime metadata does not match protected MIR membership.
     RuntimeMetadataMismatch,

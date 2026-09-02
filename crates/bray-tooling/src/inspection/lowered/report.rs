@@ -1,4 +1,4 @@
-use bray_compilation::Compilation;
+use bray_compilation::{Compilation, FactQueryError};
 use bray_diagnostics::DiagnosticBag;
 use bray_lowering::LoweredUnit;
 use serde::Serialize;
@@ -16,33 +16,33 @@ use crate::inspection::{
 use crate::output::{DiagnosticJson, diagnostic_jsons};
 use crate::{InspectionTarget, OutputFormat};
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum LoweredInspectionRenderError {
-    Json,
-    LoweringState,
-    Model,
-    Source,
-    SymbolState,
-    UnitState,
+    Evaluation(FactQueryError),
+    Json(String),
+    Model(MirInspectionModelError),
+    Source(InspectionSourceError),
+    SourceIndexOverflow(bray_source::TextSizeOverflow),
 }
 
 impl From<InspectionSourceError> for LoweredInspectionRenderError {
-    fn from(_: InspectionSourceError) -> Self {
-        Self::Source
+    fn from(error: InspectionSourceError) -> Self {
+        Self::Source(error)
     }
 }
 
 impl From<MirInspectionModelError> for LoweredInspectionRenderError {
-    fn from(_: MirInspectionModelError) -> Self {
-        Self::Model
+    fn from(error: MirInspectionModelError) -> Self {
+        Self::Model(error)
     }
 }
 
 impl From<UnitInspectionSelectionError> for LoweredInspectionRenderError {
     fn from(error: UnitInspectionSelectionError) -> Self {
         match error {
-            UnitInspectionSelectionError::BoundState => Self::UnitState,
-            UnitInspectionSelectionError::Source => Self::Source,
+            UnitInspectionSelectionError::Evaluation(error) => Self::Evaluation(error),
+            UnitInspectionSelectionError::Source => Self::Source(InspectionSourceError::Source),
+            UnitInspectionSelectionError::SourceOverflow(error) => Self::SourceIndexOverflow(error),
         }
     }
 }
@@ -59,7 +59,8 @@ pub(crate) fn render_lowered_inspection(
     let stdout = match output_format {
         OutputFormat::Text => render_text_report(&report),
         OutputFormat::Json => {
-            render_pretty_json(&report).map_err(|_| LoweredInspectionRenderError::Json)?
+            render_pretty_json(&report)
+                .map_err(|error| LoweredInspectionRenderError::Json(error.to_string()))?
         }
     };
 
@@ -91,7 +92,8 @@ pub(crate) fn render_mir_inspection(
                 diagnostics: diagnostic_jsons(&diagnostics, Some(compilation.sources())),
             };
 
-            render_pretty_json(&report).map_err(|_| LoweredInspectionRenderError::Json)?
+            render_pretty_json(&report)
+                .map_err(|error| LoweredInspectionRenderError::Json(error.to_string()))?
         }
     };
 
@@ -112,11 +114,11 @@ fn inspect_units(
 
     let symbols = compilation
         .symbol_graph()
-        .map_err(|_| LoweredInspectionRenderError::SymbolState)?;
+        .map_err(LoweredInspectionRenderError::Evaluation)?;
 
     let semantic_values = compilation
         .semantic_value_store()
-        .map_err(|_| LoweredInspectionRenderError::SymbolState)?;
+        .map_err(LoweredInspectionRenderError::Evaluation)?;
 
     let sources = InspectionSources::new(compilation.sources())?;
     let mut diagnostics = source_diagnostics;
@@ -128,7 +130,7 @@ fn inspect_units(
 
         let lowered = compilation
             .lowered_unit(key)
-            .map_err(|_| LoweredInspectionRenderError::LoweringState)?;
+            .map_err(LoweredInspectionRenderError::Evaluation)?;
 
         diagnostics =
             DiagnosticBag::merged_all([&diagnostics, bound.diagnostics(), lowered.diagnostics()]);

@@ -20,6 +20,7 @@ pub(in crate::output::diagnostic::json) use checking::{
     callback_state_problem_json, copy_contract_problem_json, layout_problem_json,
     propagation_problem_json, refinement_capacity_json, union_tag_problem_json,
 };
+pub use emission::diagnostic_evaluation_failure_json;
 pub(in crate::output::diagnostic::json) use emission::DiagnosticEmissionFailureJson;
 pub(in crate::output::diagnostic::json) use foreign::{
     DiagnosticProblemJson, native_link_directive_problem_json,

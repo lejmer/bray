@@ -62,8 +62,7 @@ impl Lowerer<'_> {
         let mut inline_assembly_labels = None;
 
         for (index, (ordinal, expression, conversion)) in selected_arguments.iter().enumerate() {
-            let ordinal = usize::try_from(*ordinal)
-                .map_err(|_| LoweringError::MissingSemanticSelection(id))?;
+            let ordinal = memory_argument_index(id, *ordinal)?;
 
             if matches!(
                 kind,
@@ -495,6 +494,16 @@ impl Lowerer<'_> {
             .intern_type(TypeData::tuple(runtime.into_iter().map(|(_, ty)| ty)))
             .map_err(LoweringError::from)
     }
+}
+
+fn memory_argument_index(
+    expression: BoundExpressionId,
+    ordinal: u32,
+) -> Result<usize, LoweringError> {
+    usize::try_from(ordinal).map_err(|_| LoweringError::MemoryArgumentOrdinalUnrepresentable {
+        expression,
+        ordinal,
+    })
 }
 
 const fn is_runtime_expression(kind: CheckedMemoryOperationKind, ordinal: usize) -> bool {

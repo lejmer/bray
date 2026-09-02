@@ -2,7 +2,10 @@ use bray_declarations::SyntaxAnchor;
 use std::borrow::Cow;
 
 use bray_diagnostics::DiagnosticBag;
-use bray_source::{LineIndex, SourceLocation, SourceSnapshot, SourceSpan, SourceStore, TextRange};
+use bray_source::{
+    LineIndex, SourceLocation, SourceSnapshot, SourceSpan, SourceStore, TextRange,
+    TextSizeOverflow,
+};
 use bray_symbols::{AnySymbolId, SymbolGraph};
 use bray_syntax::SyntaxTrivia;
 use serde::Serialize;
@@ -57,6 +60,7 @@ pub(crate) fn push_indented_report_value(
 pub(crate) enum InspectionSourceError {
     Source,
     SourceIndex,
+    SourceIndexOverflow(TextSizeOverflow),
 }
 
 pub(crate) struct InspectionSources<'source> {
@@ -70,7 +74,7 @@ impl<'source> InspectionSources<'source> {
             .iter()
             .map(|snapshot| LineIndex::new(snapshot.text()))
             .collect::<Result<_, _>>()
-            .map_err(|_| InspectionSourceError::SourceIndex)?;
+            .map_err(InspectionSourceError::SourceIndexOverflow)?;
 
         Ok(Self {
             sources,

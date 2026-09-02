@@ -203,7 +203,7 @@ impl<'unit> Lowerer<'unit> {
                 result_type,
                 self.frame_states,
             )
-            .map_err(|_| LoweringError::InvalidFrameDescriptor)?;
+            .map_err(LoweringError::InvalidFrameDescriptor)?;
 
             self.builder.set_frame_descriptor(descriptor)?;
         }

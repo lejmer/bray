@@ -9,7 +9,7 @@ use crate::{
 use bray_symbols::TypeId;
 
 /// A contract violation that prevents construction of one storage plan.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum StoragePlanBuildError {
     /// A record or relationship belongs to another bound unit.
     ForeignUnit,

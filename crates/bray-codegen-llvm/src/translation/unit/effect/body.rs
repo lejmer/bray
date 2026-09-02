@@ -572,8 +572,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .into();
 
         for (index, _) in fields.iter().enumerate() {
-            let element = u32::try_from(self.aggregate_value_element(&fields, index)?)
-                .map_err(|_| CodegenFailure::UnsupportedTarget)?;
+            let element = crate::conversion::target_value(
+                self.aggregate_value_element(&fields, index)?,
+                "effect_state_field_index",
+            )?;
 
             let value = extract_value(&self.builder, frame, element)?;
 

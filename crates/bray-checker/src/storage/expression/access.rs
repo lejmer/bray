@@ -366,7 +366,7 @@ where
         let capability = self
             .builder_mut()?
             .push_borrow_capability(capability)
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         self.push_expression_access(
             expression,
@@ -407,7 +407,7 @@ where
 
         self.builder_mut()?
             .push_access(access)
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan.into())
+            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
     }
 
     pub(super) fn temporary_access(
@@ -419,11 +419,11 @@ where
         let storage = self
             .builder_mut()?
             .push_identity(StorageIdentity::Temporary(expression))
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         self.builder_mut()?
             .set_identity_type(storage, ty)
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         self.direct_access(expression, storage)
     }
@@ -459,7 +459,7 @@ where
         let capability = self
             .builder_mut()?
             .push_borrow_capability(capability)
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         let borrow_type = self
             .request
@@ -473,11 +473,11 @@ where
         let storage = self
             .builder_mut()?
             .push_identity(StorageIdentity::CustomIndexBorrow(expression))
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         self.builder_mut()?
             .set_identity_type(storage, borrow_type)
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         self.push_expression_access(
             expression,
@@ -509,7 +509,7 @@ where
             StorageAccessRoot::Storage(
                 self.builder_mut()?
                     .push_identity(identity)
-                    .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?,
+                    .map_err(CheckerInfrastructureError::StoragePlan)?,
             ),
             [],
             ty,
@@ -519,7 +519,7 @@ where
 
         self.builder_mut()?
             .push_access(access)
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan.into())
+            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
     }
 
     pub(super) fn recovery_access(
@@ -538,7 +538,7 @@ where
         let storage = self
             .builder_mut()?
             .push_identity(StorageIdentity::Error(source))
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan)?;
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         self.builder_mut()?
             .push_access(StorageAccess::new(
@@ -548,7 +548,7 @@ where
                 source,
                 true,
             ))
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan.into())
+            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
     }
 
     pub(super) fn result_access(
@@ -592,6 +592,6 @@ where
 
         self.builder_mut()?
             .push_access(access)
-            .map_err(|_| CheckerInfrastructureError::InvalidStoragePlan.into())
+            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
     }
 }

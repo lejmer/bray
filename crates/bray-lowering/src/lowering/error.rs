@@ -3,8 +3,8 @@ use bray_bound_tree::{
     StorageAccessId, StorageIdentityId,
 };
 use bray_compiler_known::RepresentationRole;
-use bray_ir::MirUnitBuildError;
-use bray_symbols::SemanticValueStoreError;
+use bray_ir::{MirFrameDescriptorBuildError, MirUnitBuildError};
+use bray_symbols::{GenericSubstitutionShapeError, SemanticValueStoreError};
 
 /// A violated checked-HIR or MIR construction contract encountered during lowering.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -58,10 +58,26 @@ pub enum LoweringError {
     MissingRepresentation(RepresentationRole),
     /// A checked semantic value could not be read or interned.
     SemanticValueUnavailable,
+    /// Generic substitution construction rejected an exact parameter-to-argument relationship.
+    GenericSubstitution(GenericSubstitutionShapeError),
     /// The semantic value store rejected a required read or intern operation.
     SemanticValue(SemanticValueStoreError),
     /// Checked async analysis could not form one coherent frame descriptor.
-    InvalidFrameDescriptor,
+    InvalidFrameDescriptor(MirFrameDescriptorBuildError),
+    /// A selected memory argument ordinal cannot index the host collection.
+    MemoryArgumentOrdinalUnrepresentable {
+        /// Memory operation whose argument ordinal was rejected.
+        expression: BoundExpressionId,
+        /// Exact selected ordinal.
+        ordinal: u32,
+    },
+    /// A match-arm ordinal cannot be represented by the MIR protocol.
+    MatchArmOrdinalUnrepresentable {
+        /// Match expression containing the arm.
+        expression: BoundExpressionId,
+        /// Exact zero-based arm ordinal.
+        ordinal: usize,
+    },
     /// The MIR builder or validator rejected the lowered unit.
     Mir(MirUnitBuildError),
 }

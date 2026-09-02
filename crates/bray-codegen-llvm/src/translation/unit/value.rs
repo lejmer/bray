@@ -125,7 +125,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     let element = self.aggregate_value_element(&fields, index)?;
 
                     let element =
-                        u32::try_from(element).map_err(|_| CodegenFailure::ResourceExhausted)?;
+                        crate::conversion::resource_limit(element, "aggregate_element_index")?;
 
                     let field_value = super::support::extract_value(&self.builder, value, element)?;
 
@@ -135,7 +135,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             CodegenTypeKind::Array { element, length } => {
                 for index in 0..length {
                     let index =
-                        u32::try_from(index).map_err(|_| CodegenFailure::ResourceExhausted)?;
+                        crate::conversion::resource_limit(index, "aggregate_element_index")?;
 
                     let element_value = super::support::extract_value(&self.builder, value, index)?;
 
@@ -388,7 +388,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .custom_width_int_type(
                 std::num::NonZeroU32::new(width).unwrap_or(std::num::NonZeroU32::MIN),
             )
-            .map_err(|_| CodegenFailure::GeneratedModuleInvariant)?;
+            .map_err(CodegenFailure::backend_library)?;
 
         let integer = integer_type.const_int_arbitrary_precision(&words);
 
@@ -585,7 +585,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         *length_value = length_type
             .const_int(
-                u64::try_from(length).map_err(|_| CodegenFailure::ResourceExhausted)?,
+                crate::conversion::resource_limit(length, "constant_array_length")?,
                 false,
             )
             .into();

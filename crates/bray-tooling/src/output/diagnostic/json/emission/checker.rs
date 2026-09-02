@@ -29,6 +29,9 @@ pub(in crate::output::diagnostic::json) fn checker_failure_context(
             fields.push(text_field("query_kind", query));
         }
         Failure::SemanticValue(failure) => return semantic_value_failure_context(failure),
+        Failure::GenericSubstitution(failure) => {
+            push_generic_substitution_failure(&mut fields, failure);
+        }
         Failure::CompilerKnownRepresentationUnavailable(role) => {
             fields.push(text_field("representation_role", role));
         }
@@ -60,10 +63,25 @@ pub(in crate::output::diagnostic::json) fn checker_failure_context(
         Failure::ConstantEvaluation(failure) => {
             push_constant_evaluation_failure(&mut fields, failure);
         }
+        Failure::ConstantOperation(failure) => {
+            push_constant_operation_failure(&mut fields, failure);
+        }
+        Failure::SelectionInputCapacityExceeded { count } => {
+            fields.push(text_field("selection_input_count", count.to_string()));
+        }
+        Failure::SelectionInputOrdinalUnrepresentable { ordinal } => {
+            fields.push(text_field("selection_input_ordinal", ordinal.to_string()));
+        }
+        Failure::ConstantArrayLengthCapacityExceeded { length } => {
+            fields.push(text_field("array_length", length.to_string()));
+        }
         Failure::SemanticSelection(failure) => {
             push_semantic_selection_failure(&mut fields, failure);
         }
         Failure::StorageFlow(failure) => push_storage_flow_failure(&mut fields, failure),
+        Failure::StoragePlan(failure) => {
+            fields.push(text_field("storage_plan_problem", storage_plan_failure(failure)));
+        }
         Failure::InvalidStorageOperation {
             expression,
             access,
@@ -101,6 +119,77 @@ pub(in crate::output::diagnostic::json) fn checker_failure_context(
     }
 
     fields
+}
+
+pub(super) fn push_generic_substitution_failure(
+    fields: &mut Vec<DiagnosticEmissionFieldJson>,
+    failure: bray_diagnostics::DiagnosticGenericSubstitutionFailure,
+) {
+    use bray_diagnostics::DiagnosticGenericSubstitutionFailure as Failure;
+
+    match failure {
+        Failure::ArgumentCountMismatch {
+            parameter_count,
+            argument_count,
+        } => fields.extend([
+            text_field("substitution_problem", "argument_count_mismatch"),
+            text_field("parameter_count", parameter_count.to_string()),
+            text_field("argument_count", argument_count.to_string()),
+        ]),
+        Failure::ArgumentKindMismatch {
+            ordinal,
+            expected,
+            actual,
+        } => fields.extend([
+            text_field("substitution_problem", "argument_kind_mismatch"),
+            count_field("argument_ordinal", ordinal),
+            text_field("expected_argument_kind", expected),
+            text_field("actual_argument_kind", actual),
+        ]),
+        Failure::OrdinalOverflow => fields.push(text_field(
+            "substitution_problem",
+            "argument_ordinal_overflow",
+        )),
+    }
+}
+
+fn push_constant_operation_failure(
+    fields: &mut Vec<DiagnosticEmissionFieldJson>,
+    failure: bray_diagnostics::DiagnosticCheckerConstantOperationFailure,
+) {
+    use bray_diagnostics::DiagnosticCheckerConstantOperationFailure as Failure;
+
+    let problem = match failure {
+        Failure::Invalid => "invalid",
+        Failure::DivisionByZero => "division_by_zero",
+        Failure::NotRepresentable => "not_representable",
+        Failure::ResourceLimitExceeded { actual, maximum } => {
+            fields.extend([
+                count_u64_field("actual_resource_demand", actual),
+                count_u64_field("maximum_resource_demand", maximum),
+            ]);
+
+            "resource_limit_exceeded"
+        }
+    };
+
+    fields.push(text_field("constant_operation_problem", problem));
+}
+
+const fn storage_plan_failure(
+    failure: bray_diagnostics::DiagnosticStoragePlanFailure,
+) -> &'static str {
+    use bray_diagnostics::DiagnosticStoragePlanFailure as Failure;
+
+    match failure {
+        Failure::ForeignUnit => "foreign_unit",
+        Failure::CapacityExceeded => "capacity_exceeded",
+        Failure::MissingIdentity => "missing_identity",
+        Failure::MissingAccess => "missing_access",
+        Failure::MissingBorrowCapability => "missing_borrow_capability",
+        Failure::DuplicateBinding => "duplicate_binding",
+        Failure::BindingIdentityMismatch => "binding_identity_mismatch",
+    }
 }
 
 fn push_literal_failure(

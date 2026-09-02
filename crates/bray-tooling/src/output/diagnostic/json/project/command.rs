@@ -459,7 +459,7 @@ impl DiagnosticProjectCommandFailureJson {
                 }
             }
             Failure::Inspection(failure) => Self::Inspection {
-                failure: DiagnosticInspectionFailureJson::from_failure(*failure),
+                failure: DiagnosticInspectionFailureJson::from_failure(failure),
             },
             Failure::Invariant(operation) => Self::Invariant {
                 operation: operation.as_str(),

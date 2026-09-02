@@ -596,9 +596,14 @@ fn array_length<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let magnitude = u64::try_from(length)
-        .map_err(|_| CheckerInfrastructureError::SemanticValueUnavailable)?
-        .to_be_bytes();
+    let magnitude = match u64::try_from(length) {
+        Ok(length) => length.to_be_bytes(),
+        Err(_) => {
+            return Err(CheckerInfrastructureError::ConstantArrayLengthCapacityExceeded {
+                length,
+            });
+        }
+    };
 
     let integer = IntegerConstant::new(IntegerSign::NonNegative, magnitude);
 
