@@ -126,6 +126,7 @@ pub(crate) fn push_mir_target_contract(
     let names = if expected {
         [
             "expected_target_identity",
+            "expected_target_properties",
             "expected_target_architecture",
             "expected_target_object_format",
             "expected_target_endianness",
@@ -138,6 +139,7 @@ pub(crate) fn push_mir_target_contract(
     } else {
         [
             "actual_target_identity",
+            "actual_target_properties",
             "actual_target_architecture",
             "actual_target_object_format",
             "actual_target_endianness",
@@ -151,20 +153,21 @@ pub(crate) fn push_mir_target_contract(
 
     context.extend([
         text_field(names[0], target.identity().as_str()),
-        text_field(names[1], machine.architecture().as_str()),
-        text_field(names[2], machine.object_format().as_str()),
+        identity_field(names[1], target.profile().properties()),
+        text_field(names[2], machine.architecture().as_str()),
+        text_field(names[3], machine.object_format().as_str()),
         text_field(
-            names[3],
+            names[4],
             match machine.endianness() {
                 bray_target::Endianness::Little => "little",
                 bray_target::Endianness::Big => "big",
             },
         ),
-        count_field(names[4], u64::from(machine.pointer_width_bits().get())),
-        count_field(names[5], u64::from(machine.pointer_alignment_bytes().get())),
-        count_field(names[6], u64::from(machine.stack_alignment_bytes().get())),
-        count_field(names[7], u64::from(version.major())),
-        count_field(names[8], u64::from(version.minor())),
+        count_field(names[5], u64::from(machine.pointer_width_bits().get())),
+        count_field(names[6], u64::from(machine.pointer_alignment_bytes().get())),
+        count_field(names[7], u64::from(machine.stack_alignment_bytes().get())),
+        count_field(names[8], u64::from(version.major())),
+        count_field(names[9], u64::from(version.minor())),
     ]);
 }
 
@@ -175,9 +178,12 @@ mod tests {
     use super::push_mir_target_contract;
 
     #[test]
-    fn mir_target_contract_context_preserves_machine_and_runtime_abi_fields() {
+    fn mir_target_contract_context_preserves_properties_machine_and_runtime_abi() {
+        let profile = bray_target::test_support::test_target_profile();
+        let expected_properties = super::identity(profile.properties());
+
         let target = bray_ir::MirTargetContract::new(
-            bray_target::test_support::test_target_profile(),
+            profile,
             bray_runtime_interface::RuntimeAbiVersion::new(3, 7),
         );
 
@@ -191,6 +197,7 @@ mod tests {
             names,
             [
                 "expected_target_identity",
+                "expected_target_properties",
                 "expected_target_architecture",
                 "expected_target_object_format",
                 "expected_target_endianness",
@@ -202,7 +209,38 @@ mod tests {
             ]
         );
 
-        assert_eq!(fields[7].value(), &DiagnosticFailureValue::Count(3));
-        assert_eq!(fields[8].value(), &DiagnosticFailureValue::Count(7));
+        assert_eq!(
+            fields[1].value(),
+            &DiagnosticFailureValue::Identity(expected_properties)
+        );
+
+        assert_eq!(fields[8].value(), &DiagnosticFailureValue::Count(3));
+        assert_eq!(fields[9].value(), &DiagnosticFailureValue::Count(7));
+    }
+
+    #[test]
+    fn mir_target_contract_context_distinguishes_property_only_mismatches() {
+        let baseline = bray_target::test_support::test_target_profile();
+
+        let changed = bray_target::TargetProfile::try_new(
+            baseline.identity().clone(),
+            baseline.machine().clone(),
+            baseline.properties().clone().with_operations(
+                bray_target::TargetOperationSupport::new(true, false, false),
+            ),
+        )
+        .unwrap_or_else(|error| panic!("changed test target profile must be valid: {error:?}"));
+
+        let version = bray_runtime_interface::RuntimeAbiVersion::new(3, 7);
+        let baseline = bray_ir::MirTargetContract::new(baseline, version);
+        let changed = bray_ir::MirTargetContract::new(changed, version);
+        let mut baseline_fields = Vec::new();
+        let mut changed_fields = Vec::new();
+
+        push_mir_target_contract(&mut baseline_fields, true, &baseline);
+        push_mir_target_contract(&mut changed_fields, true, &changed);
+
+        assert_ne!(baseline_fields, changed_fields);
+        assert_ne!(baseline_fields[1], changed_fields[1]);
     }
 }

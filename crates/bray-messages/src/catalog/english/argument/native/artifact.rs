@@ -334,6 +334,7 @@ const fn native_product_failure_is_evaluation(
             | Kind::EvaluationProduct(_)
             | Kind::EvaluationForeign(_)
             | Kind::EvaluationChecker(_)
+            | Kind::SemanticContextFailure(_)
     )
 }
 
@@ -824,6 +825,12 @@ mod tests {
         let failures = [
             bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationInfrastructure,
             bray_diagnostics::DiagnosticNativeProductFailureKind::EvaluationProduct(nested),
+            bray_diagnostics::DiagnosticNativeProductFailureKind::SemanticContextFailure(
+                bray_diagnostics::DiagnosticEvaluationFailureDetail::new(
+                    "semantic_context_failure",
+                    [],
+                ),
+            ),
         ];
 
         for failure in &failures {
