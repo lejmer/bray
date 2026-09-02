@@ -99,12 +99,19 @@ pub use inspection::{
     DiagnosticTokenInspectionFailure,
 };
 pub use interface::{
-    DiagnosticCheckedTemplateProblem, DiagnosticInterfaceDeclarationIdentity,
-    DiagnosticInterfaceLimit, DiagnosticInterfaceRelationshipKind, DiagnosticInterfaceSection,
-    DiagnosticInterfaceSemanticProblem, DiagnosticInterfaceSymbolGraphProblem,
+    DiagnosticCheckedTemplateProblem, DiagnosticInterfaceCompressionFailure,
+    DiagnosticInterfaceDeclarationIdentity, DiagnosticInterfaceDependency,
+    DiagnosticInterfaceIdentitySurfaceProblem, DiagnosticInterfaceIntegerTarget,
+    DiagnosticInterfaceLimit, DiagnosticInterfaceMalformedCause, DiagnosticInterfaceProductKind,
+    DiagnosticInterfaceRelationship, DiagnosticInterfaceRelationshipKind,
+    DiagnosticInterfaceSection, DiagnosticInterfaceSemanticProblem,
+    DiagnosticInterfaceSemanticRecordKind, DiagnosticInterfaceSymbolGraphProblem,
     DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolKind,
     DiagnosticInterfaceSymbolReference, DiagnosticInterfaceSynthesizedIdentity,
-    DiagnosticSemanticContentProblem, DiagnosticSemanticValueKind,
+    DiagnosticInterfaceUtf8Failure, DiagnosticInterfaceValidationContext,
+    DiagnosticInterfaceValidationFailure, DiagnosticInterfaceValidationField,
+    DiagnosticPackageInterfaceIdentity, DiagnosticSemanticContentProblem,
+    DiagnosticSemanticValueKind,
 };
 pub use kind::DiagnosticKind;
 pub use label::{DiagnosticLabel, DiagnosticLabelKind, DiagnosticLabelStyle};

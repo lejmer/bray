@@ -7,7 +7,8 @@ use bray_symbols::{AnySymbolId, ImportedSemanticAddress};
 
 use super::diagnostic::{
     executable_template_decode_diagnostics, executable_template_diagnostics,
-    implementation_body_diagnostics,
+    implementation_body_diagnostics, implementation_validation_diagnostics,
+    standard_library_diagnostics,
 };
 use crate::fact::{
     CancellationToken, CompilationFactKey, FactQueryError, ImportedExecutableTemplateAddress,
@@ -56,10 +57,10 @@ impl super::super::Compilation {
                 let bytes = match input.shared_implementation_bytes() {
                     Ok(Some(bytes)) => bytes,
                     Ok(None) => return Ok(DiagnosticResult::without_diagnostics(None)),
-                    Err(_) => {
+                    Err(error) => {
                         return Ok(DiagnosticResult::new(
                             None,
-                            executable_template_diagnostics(input),
+                            standard_library_diagnostics(error, input),
                         ));
                     }
                 };
@@ -74,9 +75,9 @@ impl super::super::Compilation {
                     Ok(artifact) => Ok(DiagnosticResult::without_diagnostics(Some(Arc::new(
                         artifact,
                     )))),
-                    Err(_) => Ok(DiagnosticResult::new(
+                    Err(error) => Ok(DiagnosticResult::new(
                         None,
-                        executable_template_diagnostics(input),
+                        implementation_validation_diagnostics(error, input),
                     )),
                 }
             },

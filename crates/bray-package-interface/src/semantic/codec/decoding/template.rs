@@ -32,11 +32,13 @@ pub(super) fn decode_template_tables<'bytes>(
     let format_version = read_u32(&mut reader)?;
 
     if format_version != super::super::DECLARATION_TEMPLATE_FORMAT_VERSION {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Template,
+        ));
     }
 
-    let checked_templates = RecordTable::read_from(&mut reader, context)?;
-    let declaration_templates = RecordTable::read_from(&mut reader, context)?;
+    let checked_templates = RecordTable::read_from(&mut reader, context, section.tag())?;
+    let declaration_templates = RecordTable::read_from(&mut reader, context, section.tag())?;
 
     validate_record_count(
         section,
@@ -214,7 +216,9 @@ fn decode_input_kind(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceCheckedTemplateInputKind, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         1 => Ok(InterfaceCheckedTemplateInputKind::GenericType(
             read_symbol_reference(reader, context)?,
         )),
@@ -226,7 +230,10 @@ fn decode_input_kind(
             SymbolOrdinal::new(read_u32(reader)?),
         )),
         5 => Ok(InterfaceCheckedTemplateInputKind::PostconditionResult),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_discriminant(
+            crate::InterfaceValidationField::Template,
+            raw,
+        )),
     }
 }
 
@@ -235,7 +242,9 @@ fn decode_operation(
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceCheckedTemplateOperation, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         1 => Ok(InterfaceCheckedTemplateOperation::Input(
             CheckedTemplateInputId::new(read_u32(reader)?),
         )),
@@ -257,13 +266,20 @@ fn decode_operation(
             let substitution = crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?);
             let arguments = read_node_ids(reader, limits, context)?;
 
-            let implementation = match read_u32(reader)? {
+            let implementation_raw = read_u32(reader)?;
+
+            let implementation = match implementation_raw {
                 0 => None,
                 1 => Some((
                     decode_implementation_reference(reader, context)?,
                     crate::InterfaceGenericSubstitutionId::new(read_u32(reader)?),
                 )),
-                _ => return Err(InterfaceValidationError::Malformed),
+                _ => {
+                    return Err(crate::semantic::codec::invalid_discriminant(
+                        crate::InterfaceValidationField::Template,
+                        implementation_raw,
+                    ));
+                }
             };
 
             Ok(InterfaceCheckedTemplateOperation::call(
@@ -313,7 +329,10 @@ fn decode_operation(
             kind: decode_tag(read_u32(reader)?)?,
             operand: CheckedTemplateNodeId::new(read_u32(reader)?),
         }),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_discriminant(
+            crate::InterfaceValidationField::Template,
+            raw,
+        )),
     }
 }
 
@@ -336,14 +355,19 @@ fn decode_template_reference(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceTemplateReference, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         1 => Ok(InterfaceTemplateReference::Symbol(read_symbol_reference(
             reader, context,
         )?)),
         2 => Ok(InterfaceTemplateReference::Support(
             InterfaceSupportEntityId::new(read_u32(reader)?),
         )),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_discriminant(
+            crate::InterfaceValidationField::Template,
+            raw,
+        )),
     }
 }
 
@@ -351,14 +375,19 @@ fn decode_implementation_reference(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceImplementationReference, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         1 => Ok(InterfaceImplementationReference::Symbol(
             read_symbol_reference(reader, context)?,
         )),
         2 => Ok(InterfaceImplementationReference::Support(
             InterfaceSupportEntityId::new(read_u32(reader)?),
         )),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_discriminant(
+            crate::InterfaceValidationField::Template,
+            raw,
+        )),
     }
 }
 
@@ -539,7 +568,9 @@ mod tests {
                 &surface,
                 InterfaceValidationLimits::default()
             ),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Template
+            ))
         );
 
         let mut entities = semantics.support_entities().to_vec();
@@ -562,7 +593,9 @@ mod tests {
                 &surface,
                 InterfaceValidationLimits::default()
             ),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Support
+            ))
         );
     }
 
@@ -601,7 +634,9 @@ mod tests {
 
         assert_eq!(
             encode_semantics(&missing, &surface, InterfaceValidationLimits::default()),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Discriminant
+            ))
         );
 
         let uninitialized = invalid_semantics(
@@ -615,7 +650,9 @@ mod tests {
                 &surface,
                 InterfaceValidationLimits::default()
             ),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Template
+            ))
         );
     }
 
@@ -653,7 +690,9 @@ mod tests {
 
         assert_eq!(
             encode_semantics(&invalid, &surface, InterfaceValidationLimits::default()),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Template
+            ))
         );
     }
 
@@ -684,7 +723,16 @@ mod tests {
 
         assert_eq!(
             decode_semantics(&owned_section_views(&owned), &surface, limits),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::InterfaceValidationError::Malformed {
+                context: crate::InterfaceValidationContext::Record {
+                    section: crate::InterfaceSectionTag::DeclarationTemplates,
+                    index: 0,
+                },
+                cause: crate::InterfaceMalformedCause::InvalidDiscriminant {
+                    field: crate::InterfaceValidationField::Discriminant,
+                    actual: u64::from(u32::MAX),
+                },
+            })
         );
 
         let constrained = limits.with_template_graph_size(1);
@@ -727,7 +775,9 @@ mod tests {
 
         assert_eq!(
             encode_semantics(&invalid_owner, &surface, limits),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Template
+            ))
         );
 
         let mut templates = semantics.checked_templates().to_vec();
@@ -751,7 +801,9 @@ mod tests {
 
         assert_eq!(
             encode_semantics(&duplicate_input, &surface, limits),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Template
+            ))
         );
 
         let mut templates = semantics.checked_templates().to_vec();
@@ -780,7 +832,9 @@ mod tests {
 
         assert_eq!(
             encode_semantics(&wrong_generic_category, &surface, limits),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Template
+            ))
         );
     }
 
@@ -822,7 +876,9 @@ mod tests {
 
         assert_eq!(
             encode_semantics(&invalid, &surface, InterfaceValidationLimits::default()),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Template
+            ))
         );
     }
 
@@ -869,7 +925,9 @@ mod tests {
                 &surface,
                 InterfaceValidationLimits::default()
             ),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Template
+            ))
         );
 
         let target_mismatch = invalid_semantics(
@@ -889,7 +947,9 @@ mod tests {
                 &surface,
                 InterfaceValidationLimits::default()
             ),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Template
+            ))
         );
     }
 
@@ -921,7 +981,9 @@ mod tests {
 
         assert_eq!(
             encode_semantics(&foreign_support, &surface, limits),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Support
+            ))
         );
 
         entities[0] =
@@ -931,7 +993,9 @@ mod tests {
 
         assert_eq!(
             encode_semantics(&exported_alias, &surface, limits),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Support
+            ))
         );
     }
 
@@ -956,7 +1020,10 @@ mod tests {
 
         let decoded = decode_semantics(&owned_section_views(&owned), &surface, limits);
 
-        assert_eq!(decoded, Err(InterfaceValidationError::Truncated));
+        assert!(matches!(
+            decoded,
+            Err(InterfaceValidationError::Truncated { .. })
+        ));
     }
 
     fn template_fixture() -> (crate::PackageInterfaceSurface, InterfaceSemantics) {

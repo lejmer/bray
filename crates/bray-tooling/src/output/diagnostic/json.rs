@@ -26,8 +26,8 @@ pub(in crate::output::diagnostic::json) use foreign::{
 };
 pub(in crate::output::diagnostic::json) use interface::{
     DiagnosticInterfaceSymbolIdentityJson, interface_semantic_problem_json,
-    interface_symbol_graph_problem_json, problem, problem_array_length, problem_count_u64,
-    problem_text, problem_type, problem_types,
+    interface_symbol_graph_problem_json, interface_validation_failure_json, problem,
+    problem_array_length, problem_count_u64, problem_text, problem_type, problem_types,
 };
 pub(in crate::output::diagnostic::json) use project::{
     DiagnosticExternalToolExitJson, DiagnosticLinkerDriverIdentityJson,

@@ -10,6 +10,7 @@ mod model;
 mod payload;
 mod specialization;
 
+pub(crate) use codec::{invalid_value, map_wire_error};
 pub(crate) use family::invalid_executable_template_family;
 
 pub use artifact::PackageImplementationArtifact;

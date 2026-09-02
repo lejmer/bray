@@ -50,7 +50,9 @@ pub(crate) fn decode_inspection_records(
         | InterfaceSectionTag::Dependencies
         | InterfaceSectionTag::SymbolIdentities
         | InterfaceSectionTag::Relationships
-        | InterfaceSectionTag::ExportedLookup => Err(InterfaceValidationError::Malformed),
+        | InterfaceSectionTag::ExportedLookup => Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::SectionTag,
+        )),
     }
 }
 

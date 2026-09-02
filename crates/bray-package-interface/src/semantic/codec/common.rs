@@ -6,13 +6,16 @@ use bray_symbols::{
     SynthesizedSymbolRole,
 };
 
-use crate::decode::DecodeBudget;
-pub(super) use crate::decode::{map_wire_error, read_optional_u32, read_u32};
+use crate::decode::{
+    DecodeBudget, read_optional_u32 as decode_optional_u32, read_u32 as decode_u32, wire_error,
+};
 pub(super) use crate::external_key::write_external_key;
 use crate::tag::WireTag;
 use crate::wire::{WireEncoder, WireReader};
 use crate::{
-    DependencyInterfaceId, InterfaceLimit, InterfaceSymbolReference, InterfaceValidationError,
+    DependencyInterfaceId, InterfaceIntegerTarget, InterfaceLimit, InterfaceMalformedCause,
+    InterfaceSectionTag, InterfaceSymbolReference, InterfaceUtf8Failure,
+    InterfaceValidationContext, InterfaceValidationError, InterfaceValidationField,
     InterfaceValidationLimits,
 };
 
@@ -45,7 +48,9 @@ pub(crate) fn read_symbol_reference(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceSymbolReference, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let shape = read_u32(reader)?;
+
+    match shape {
         1 => Ok(InterfaceSymbolReference::Local(
             bray_symbols::InterfaceSymbolId::new(read_u32(reader)?),
         )),
@@ -57,11 +62,14 @@ pub(crate) fn read_symbol_reference(
             let key = read_compiler_known_key(reader, context)?;
 
             let reference = crate::CompilerKnownSymbolReference::try_new(key)
-                .ok_or(InterfaceValidationError::Malformed)?;
+                .ok_or_else(|| invalid_value(InterfaceValidationField::Reference))?;
 
             Ok(InterfaceSymbolReference::CompilerKnown(reference))
         }
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(invalid_discriminant(
+            InterfaceValidationField::Discriminant,
+            shape,
+        )),
     }
 }
 
@@ -112,43 +120,66 @@ fn read_compiler_known_key(
     context.charge_external_reference(count)?;
 
     if count == 0 {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(malformed(InterfaceMalformedCause::Missing {
+            field: InterfaceValidationField::Identity,
+        }));
     }
 
     let mut key = None;
 
     for index in 0..count {
-        key = Some(match read_u32(reader)? {
+        let shape = read_u32(reader)?;
+
+        key = Some(match shape {
             1 if index == 0 => {
                 let declaration = bray_compiler_known::CompilerKnownDeclarationKey::try_new(
                     read_string(reader, context)?,
                 )
-                .ok_or(InterfaceValidationError::Malformed)?;
+                .ok_or_else(|| invalid_value(InterfaceValidationField::Declaration))?;
 
-                let kind = SymbolKind::from_wire(read_u32(reader)?)
-                    .ok_or(InterfaceValidationError::Malformed)?;
+                let kind_raw = read_u32(reader)?;
+
+                let kind = SymbolKind::from_wire(kind_raw).ok_or_else(|| {
+                    invalid_discriminant(InterfaceValidationField::SymbolKind, kind_raw)
+                })?;
 
                 SymbolKey::compiler_known_declaration(declaration, kind)
-                    .ok_or(InterfaceValidationError::Malformed)?
+                    .ok_or_else(|| invalid_value(InterfaceValidationField::Identity))?
             }
             2 if index > 0 => {
-                let subject = key.ok_or(InterfaceValidationError::Malformed)?;
+                let subject = key.ok_or_else(|| {
+                    malformed(InterfaceMalformedCause::Missing {
+                        field: InterfaceValidationField::Subject,
+                    })
+                })?;
 
-                let role = SynthesizedSymbolRole::from_wire(read_u32(reader)?)
-                    .ok_or(InterfaceValidationError::Malformed)?;
+                let role_raw = read_u32(reader)?;
+
+                let role = SynthesizedSymbolRole::from_wire(role_raw).ok_or_else(|| {
+                    invalid_discriminant(InterfaceValidationField::Role, role_raw)
+                })?;
 
                 let ordinal = read_optional_u32(reader)?.map(SymbolOrdinal::new);
 
                 let synthesized = SynthesizedSymbolKey::try_new(role, subject, ordinal)
-                    .ok_or(InterfaceValidationError::Malformed)?;
+                    .ok_or_else(|| invalid_value(InterfaceValidationField::Identity))?;
 
                 SymbolKey::synthesized(synthesized)
             }
-            _ => return Err(InterfaceValidationError::Malformed),
+            _ => {
+                return Err(invalid_discriminant(
+                    InterfaceValidationField::Discriminant,
+                    shape,
+                ));
+            }
         });
     }
 
-    key.ok_or(InterfaceValidationError::Malformed)
+    key.ok_or_else(|| {
+        malformed(InterfaceMalformedCause::Missing {
+            field: InterfaceValidationField::Identity,
+        })
+    })
 }
 
 pub(super) fn write_symbol_references(
@@ -186,12 +217,14 @@ pub(super) fn read_external_key(
 
 pub(crate) struct SemanticDecodeContext {
     budget: DecodeBudget,
+    validation: InterfaceValidationContext,
 }
 
 impl SemanticDecodeContext {
     pub(crate) const fn new(limits: InterfaceValidationLimits) -> Self {
         Self {
             budget: DecodeBudget::new(limits),
+            validation: InterfaceValidationContext::Artifact,
         }
     }
 
@@ -204,14 +237,20 @@ impl SemanticDecodeContext {
         reader: &WireReader<'_>,
         count: usize,
     ) -> Result<Vec<T>, InterfaceValidationError> {
-        self.budget.allocate_items(reader, count)
+        self.budget.allocate_items(
+            reader,
+            self.validation,
+            InterfaceValidationField::Value,
+            count,
+        )
     }
 
     pub(crate) fn allocate_derived_items<T>(
         &mut self,
         count: usize,
     ) -> Result<Vec<T>, InterfaceValidationError> {
-        self.budget.allocate_derived_items(count)
+        self.budget
+            .allocate_derived_items(self.validation, InterfaceValidationField::Value, count)
     }
 
     pub(crate) fn charge_items<T>(&mut self, count: usize) -> Result<(), InterfaceValidationError> {
@@ -228,6 +267,17 @@ impl SemanticDecodeContext {
     fn charge(&mut self, bytes: usize) -> Result<(), InterfaceValidationError> {
         self.budget.charge(bytes)
     }
+
+    pub(crate) const fn validation(&self) -> InterfaceValidationContext {
+        self.validation
+    }
+
+    pub(crate) fn replace_validation(
+        &mut self,
+        validation: InterfaceValidationContext,
+    ) -> InterfaceValidationContext {
+        std::mem::replace(&mut self.validation, validation)
+    }
 }
 
 pub(super) fn write_string(encoder: &mut WireEncoder, value: &str) {
@@ -243,8 +293,26 @@ pub(super) fn read_string(
 
     context.charge(length)?;
 
-    let bytes = reader.read_bytes(length).map_err(map_wire_error)?;
-    let value = str::from_utf8(bytes).map_err(|_| InterfaceValidationError::Malformed)?;
+    let offset = reader.position();
+
+    let bytes = reader.read_bytes(length).map_err(wire_error(
+        context.validation(),
+        InterfaceValidationField::String,
+    ))?;
+
+    let value = str::from_utf8(bytes).map_err(|cause| InterfaceValidationError::InvalidUtf8 {
+        context: context.validation(),
+        field: InterfaceValidationField::String,
+        offset: offset as u64,
+        length: length as u64,
+        cause: cause
+            .error_len()
+            .map_or(InterfaceUtf8Failure::IncompleteSequence, |error_length| {
+                InterfaceUtf8Failure::InvalidSequence {
+                    error_length: Some(error_length as u64),
+                }
+            }),
+    })?;
 
     Ok(Arc::from(value))
 }
@@ -262,7 +330,13 @@ pub(super) fn read_count(
 
     limits.check(limit, u64::from(value))?;
 
-    usize::try_from(value).map_err(|_| InterfaceValidationError::Malformed)
+    usize::try_from(value).map_err(|_| {
+        malformed(InterfaceMalformedCause::NumericOverflow {
+            field: InterfaceValidationField::RecordCount,
+            value: u64::from(value),
+            target: InterfaceIntegerTarget::Usize,
+        })
+    })
 }
 
 pub(super) fn write_optional_u32(encoder: &mut WireEncoder, value: Option<u32>) {
@@ -273,4 +347,53 @@ pub(super) fn write_optional_u32(encoder: &mut WireEncoder, value: Option<u32>) 
         }
         None => encoder.write_u32(0),
     }
+}
+
+pub(super) fn read_u32(reader: &mut WireReader<'_>) -> Result<u32, InterfaceValidationError> {
+    decode_u32(
+        reader,
+        InterfaceValidationContext::Section(InterfaceSectionTag::SemanticRecordDirectory),
+        InterfaceValidationField::Value,
+    )
+}
+
+pub(super) fn read_optional_u32(
+    reader: &mut WireReader<'_>,
+) -> Result<Option<u32>, InterfaceValidationError> {
+    decode_optional_u32(
+        reader,
+        InterfaceValidationContext::Section(InterfaceSectionTag::SemanticRecordDirectory),
+        InterfaceValidationField::Value,
+    )
+}
+
+pub(super) fn map_wire_error(error: crate::wire::WireDecodeError) -> InterfaceValidationError {
+    crate::decode::map_wire_error(
+        InterfaceValidationContext::Section(InterfaceSectionTag::SemanticRecordDirectory),
+        InterfaceValidationField::RecordPayload,
+        error,
+    )
+}
+
+pub(super) const fn malformed(cause: InterfaceMalformedCause) -> InterfaceValidationError {
+    InterfaceValidationError::Malformed {
+        context: InterfaceValidationContext::Section(InterfaceSectionTag::SemanticRecordDirectory),
+        cause,
+    }
+}
+
+pub(in crate::semantic) const fn invalid_value(
+    field: InterfaceValidationField,
+) -> InterfaceValidationError {
+    malformed(InterfaceMalformedCause::InvalidValue { field })
+}
+
+pub(in crate::semantic) const fn invalid_discriminant(
+    field: InterfaceValidationField,
+    actual: u32,
+) -> InterfaceValidationError {
+    malformed(InterfaceMalformedCause::InvalidDiscriminant {
+        field,
+        actual: actual as u64,
+    })
 }

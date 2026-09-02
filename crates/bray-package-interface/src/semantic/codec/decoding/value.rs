@@ -35,11 +35,11 @@ pub(super) fn decode_type_tables<'bytes>(
 ) -> Result<TypeRecordTables<'bytes>, InterfaceValidationError> {
     let mut reader = WireReader::new(section.bytes());
 
-    let substitutions = RecordTable::read_from(&mut reader, context)?;
-    let trait_applications = RecordTable::read_from(&mut reader, context)?;
-    let callable_instances = RecordTable::read_from(&mut reader, context)?;
-    let implementation_instances = RecordTable::read_from(&mut reader, context)?;
-    let types = RecordTable::read_from(&mut reader, context)?;
+    let substitutions = RecordTable::read_from(&mut reader, context, section.tag())?;
+    let trait_applications = RecordTable::read_from(&mut reader, context, section.tag())?;
+    let callable_instances = RecordTable::read_from(&mut reader, context, section.tag())?;
+    let implementation_instances = RecordTable::read_from(&mut reader, context, section.tag())?;
+    let types = RecordTable::read_from(&mut reader, context, section.tag())?;
 
     validate_record_count(
         section,
@@ -114,13 +114,19 @@ pub(super) fn decode_substitution(
 
     for _ in 0..binding_count {
         let parameter = read_symbol_reference(reader, context)?;
+        let raw = read_u32(reader)?;
 
-        let argument = match read_u32(reader)? {
+        let argument = match raw {
             1 => InterfaceGenericArgument::Type(InterfaceTypeId::new(read_u32(reader)?)),
             2 => {
                 InterfaceGenericArgument::Constant(InterfaceConstantTermId::new(read_u32(reader)?))
             }
-            _ => return Err(InterfaceValidationError::Malformed),
+            _ => {
+                return Err(crate::semantic::codec::invalid_discriminant(
+                    crate::InterfaceValidationField::Argument,
+                    raw,
+                ));
+            }
         };
 
         bindings.push(InterfaceGenericBinding::new(parameter, argument));
@@ -164,7 +170,9 @@ pub(super) fn decode_type(
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceType, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         1 => Ok(InterfaceType::Named {
             definition: read_symbol_reference(reader, context)?,
             substitution: InterfaceGenericSubstitutionId::new(read_u32(reader)?),
@@ -213,7 +221,10 @@ pub(super) fn decode_type(
         12 => Ok(InterfaceType::ContextualSelf(read_symbol_reference(
             reader, context,
         )?)),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_discriminant(
+            crate::InterfaceValidationField::Type,
+            raw,
+        )),
     }
 }
 
@@ -237,22 +248,40 @@ pub(super) fn decode_callable_type(
 
     Ok(InterfaceType::Callable {
         parameters: parameters.into(),
-        variadic: match read_u32(reader)? {
-            0 => false,
-            1 => true,
-            _ => return Err(InterfaceValidationError::Malformed),
+        variadic: {
+            let raw = read_u32(reader)?;
+
+            match raw {
+                0 => false,
+                1 => true,
+                _ => {
+                    return Err(crate::semantic::codec::invalid_discriminant(
+                        crate::InterfaceValidationField::Type,
+                        raw,
+                    ));
+                }
+            }
         },
         result: InterfaceTypeId::new(read_u32(reader)?),
         constness: decode_tag(read_u32(reader)?)?,
         trust: decode_tag(read_u32(reader)?)?,
         abi: decode_tag(read_u32(reader)?)?,
         invocation_behavior: super::contract::decode_callable_behavior(reader, limits, context)?,
-        deferred_execution_behavior: match read_u32(reader)? {
-            0 => None,
-            1 => Some(super::contract::decode_callable_behavior(
-                reader, limits, context,
-            )?),
-            _ => return Err(InterfaceValidationError::Malformed),
+        deferred_execution_behavior: {
+            let raw = read_u32(reader)?;
+
+            match raw {
+                0 => None,
+                1 => Some(super::contract::decode_callable_behavior(
+                    reader, limits, context,
+                )?),
+                _ => {
+                    return Err(crate::semantic::codec::invalid_discriminant(
+                        crate::InterfaceValidationField::Type,
+                        raw,
+                    ));
+                }
+            }
         },
     })
 }
@@ -268,8 +297,8 @@ pub(super) fn decode_constant_tables<'bytes>(
 ) -> Result<ConstantRecordTables<'bytes>, InterfaceValidationError> {
     let mut reader = WireReader::new(section.bytes());
 
-    let values = RecordTable::read_from(&mut reader, context)?;
-    let terms = RecordTable::read_from(&mut reader, context)?;
+    let values = RecordTable::read_from(&mut reader, context, section.tag())?;
+    let terms = RecordTable::read_from(&mut reader, context, section.tag())?;
 
     validate_record_count(section, [values.len(), terms.len()])?;
 
@@ -314,15 +343,26 @@ pub(super) fn decode_constant_value(
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceConstantValueKind, InterfaceValidationError> {
-    match read_u32(reader)? {
-        1 => match read_u32(reader)? {
-            0 => Ok(InterfaceConstantValueKind::Boolean(false)),
-            1 => Ok(InterfaceConstantValueKind::Boolean(true)),
-            _ => Err(InterfaceValidationError::Malformed),
-        },
+    let raw = read_u32(reader)?;
+
+    match raw {
+        1 => {
+            let boolean = read_u32(reader)?;
+
+            match boolean {
+                0 => Ok(InterfaceConstantValueKind::Boolean(false)),
+                1 => Ok(InterfaceConstantValueKind::Boolean(true)),
+                _ => Err(crate::semantic::codec::invalid_discriminant(
+                    crate::InterfaceValidationField::Constant,
+                    boolean,
+                )),
+            }
+        }
         2 => char::from_u32(read_u32(reader)?)
             .map(InterfaceConstantValueKind::Character)
-            .ok_or(InterfaceValidationError::Malformed),
+            .ok_or(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Constant,
+            )),
         3 => decode_integer(reader, limits).map(InterfaceConstantValueKind::Integer),
         4 => Ok(InterfaceConstantValueKind::Real(decode_real(reader)?)),
         5 => Ok(InterfaceConstantValueKind::Complex {
@@ -356,7 +396,10 @@ pub(super) fn decode_constant_value(
             variant: read_symbol_reference(reader, context)?,
             fields: read_constant_fields(reader, context, InterfaceConstantValueId::new)?,
         }),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_discriminant(
+            crate::InterfaceValidationField::Constant,
+            raw,
+        )),
     }
 }
 
@@ -364,7 +407,9 @@ pub(super) fn decode_constant_term(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceConstantTerm, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         1 => Ok(InterfaceConstantTerm::Value(InterfaceConstantValueId::new(
             read_u32(reader)?,
         ))),
@@ -441,7 +486,10 @@ pub(super) fn decode_constant_term(
         18 => Ok(InterfaceConstantTerm::CallableArgument(
             bray_symbols::SymbolOrdinal::new(read_u32(reader)?),
         )),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_discriminant(
+            crate::InterfaceValidationField::Constant,
+            raw,
+        )),
     }
 }
 
@@ -467,10 +515,17 @@ pub(super) fn decode_integer(
     reader: &mut WireReader<'_>,
     limits: InterfaceValidationLimits,
 ) -> Result<IntegerConstant, InterfaceValidationError> {
-    let sign = match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    let sign = match raw {
         1 => IntegerSign::NonNegative,
         2 => IntegerSign::Negative,
-        _ => return Err(InterfaceValidationError::Malformed),
+        _ => {
+            return Err(crate::semantic::codec::invalid_discriminant(
+                crate::InterfaceValidationField::Constant,
+                raw,
+            ));
+        }
     };
 
     let length = read_count(reader, limits, InterfaceLimit::BlobLength)?;
@@ -479,7 +534,9 @@ pub(super) fn decode_integer(
     let integer = IntegerConstant::new(sign, magnitude.iter().copied());
 
     if integer.sign() != sign || integer.magnitude() != magnitude {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Constant,
+        ));
     }
 
     Ok(integer)
@@ -489,7 +546,9 @@ pub(super) fn decode_constant_projection(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
 ) -> Result<InterfaceConstantProjection, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         1 => Ok(InterfaceConstantProjection::TupleElement(
             SymbolOrdinal::new(read_u32(reader)?),
         )),
@@ -503,7 +562,10 @@ pub(super) fn decode_constant_projection(
             read_symbol_reference(reader, context)?,
         )),
         5 => Ok(InterfaceConstantProjection::NullableValue),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_discriminant(
+            crate::InterfaceValidationField::Constant,
+            raw,
+        )),
     }
 }
 
@@ -690,7 +752,13 @@ mod tests {
 
         assert_eq!(
             decode_owned(&malformed, &surface, limits),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::InterfaceValidationError::TrailingBytes {
+                context: crate::InterfaceValidationContext::Section(
+                    crate::InterfaceSectionTag::SemanticRecordDirectory,
+                ),
+                offset: 19,
+                count: 14,
+            })
         );
 
         let store = SemanticValueStore::try_new()
@@ -963,7 +1031,16 @@ mod tests {
 
         assert_eq!(
             decode_owned(&owned, &surface, limits),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::InterfaceValidationError::Malformed {
+                context: crate::InterfaceValidationContext::Record {
+                    section: crate::InterfaceSectionTag::SemanticTypes,
+                    index: 0,
+                },
+                cause: crate::InterfaceMalformedCause::InvalidDiscriminant {
+                    field: crate::InterfaceValidationField::Type,
+                    actual: 99,
+                },
+            })
         );
 
         owned[types_index].2[type_range.start..type_range.start + 4]
@@ -973,7 +1050,16 @@ mod tests {
 
         assert_eq!(
             decode_owned(&owned, &surface, limits),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::InterfaceValidationError::Malformed {
+                context: crate::InterfaceValidationContext::Section(
+                    crate::InterfaceSectionTag::SemanticTypes,
+                ),
+                cause: crate::InterfaceMalformedCause::CountMismatch {
+                    field: crate::InterfaceValidationField::RecordCount,
+                    expected: 8,
+                    actual: 7,
+                },
+            })
         );
     }
 
@@ -1006,7 +1092,9 @@ mod tests {
 
         assert_eq!(
             encode_semantics(&semantics, &surface, InterfaceValidationLimits::default()),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Constant
+            ))
         );
     }
 
@@ -1076,7 +1164,9 @@ mod tests {
 
         assert_eq!(
             encode_semantics(&semantics, &surface, InterfaceValidationLimits::default()),
-            Err(InterfaceValidationError::Malformed)
+            Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference
+            ))
         );
     }
 

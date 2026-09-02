@@ -43,7 +43,9 @@ impl InterfaceSemantics {
         if template_entities.len() != self.checked_templates.len()
             || self.declaration_templates.len() != self.checked_templates.len()
         {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Template,
+            ));
         }
 
         for (entity_index, template_index) in template_entities {
@@ -79,7 +81,9 @@ impl InterfaceSemantics {
                 .kind()
                 .accepts_owner(validate_symbol_kind(declaration.owner(), surface)?)
             {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
             }
 
             let entity_index = support_index(declaration.entity(), self.support_entities.len())?;
@@ -87,7 +91,9 @@ impl InterfaceSemantics {
             let InterfaceSupportEntity::CheckedTemplate(template_id) =
                 &self.support_entities[entity_index]
             else {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
             };
 
             let template_index =
@@ -96,12 +102,16 @@ impl InterfaceSemantics {
             if self.checked_templates[template_index].kind() != declaration.kind()
                 || !mapped_entities.insert(entity_index)
             {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
             }
         }
 
         if mapped_entities.len() != self.checked_templates.len() {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Template,
+            ));
         }
 
         validate_predicate_templates(self)?;
@@ -157,7 +167,9 @@ pub(crate) fn validate_constraint_templates(
         .map(|template| (template.owner(), template.ordinal()));
 
     if !constraints.eq(templates) {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Template,
+        ));
     }
 
     Ok(())
@@ -170,7 +182,9 @@ fn validate_declaration_order(
         (pair[0].owner(), pair[0].kind(), pair[0].ordinal())
             < (pair[1].owner(), pair[1].kind(), pair[1].ordinal())
     }) {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Template,
+        ));
     }
 
     Ok(())
@@ -192,14 +206,18 @@ fn validate_template(
         || !is_strictly_sorted(template.behavior().lifecycle_obligations())
         || !is_strictly_sorted(template.behavior().witnesses())
     {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Template,
+        ));
     }
 
     let mut input_kinds = BTreeSet::new();
 
     for input in template.inputs() {
         if !input_kinds.insert(input.kind()) {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Template,
+            ));
         }
 
         validate_index(input.ty().to_index(), semantics.types.len())?;
@@ -209,14 +227,18 @@ fn validate_template(
                 validate_symbol(parameter, symbol_count, dependency_count)?;
 
                 if validate_symbol_kind(parameter, surface)? != SymbolKind::GenericTypeParameter {
-                    return Err(InterfaceValidationError::Malformed);
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Template,
+                    ));
                 }
             }
             InterfaceCheckedTemplateInputKind::GenericConstant(parameter) => {
                 validate_symbol(parameter, symbol_count, dependency_count)?;
 
                 if validate_symbol_kind(parameter, surface)? != SymbolKind::GenericConstParameter {
-                    return Err(InterfaceValidationError::Malformed);
+                    return Err(crate::semantic::codec::invalid_value(
+                        crate::InterfaceValidationField::Template,
+                    ));
                 }
             }
             InterfaceCheckedTemplateInputKind::Receiver
@@ -248,7 +270,9 @@ fn validate_template(
         )?;
 
         if previous_initializer.is_some_and(|previous| initializer < previous) {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Template,
+            ));
         }
 
         previous_initializer = Some(initializer);
@@ -261,7 +285,9 @@ fn validate_template(
         )?;
 
         if template.nodes()[initializer].ty() != temporary.ty() {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Template,
+            ));
         }
     }
 
@@ -353,7 +379,9 @@ fn validate_operation_references(
                         | SymbolKind::TraitPredicateFulfillment
                 )
             {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
             }
 
             validate_index(
@@ -432,7 +460,9 @@ fn validate_operation_type(
                 target,
             }) = type_at(semantics, node.ty())
             else {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
             };
 
             ty_kind == kind && node_type(template, *operand) == Some(*target)
@@ -440,7 +470,9 @@ fn validate_operation_type(
         InterfaceCheckedTemplateOperation::Convert { target, .. } => *target == node.ty(),
         InterfaceCheckedTemplateOperation::Tuple(elements) => {
             let Some(InterfaceType::Tuple(types)) = type_at(semantics, node.ty()) else {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
             };
 
             elements.len() == types.len()
@@ -451,7 +483,9 @@ fn validate_operation_type(
         }
         InterfaceCheckedTemplateOperation::Array(elements) => {
             let Some(InterfaceType::Array { element, .. }) = type_at(semantics, node.ty()) else {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
             };
 
             elements
@@ -483,7 +517,9 @@ fn validate_operation_type(
     };
 
     if !valid {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Template,
+        ));
     }
 
     Ok(())
@@ -503,13 +539,17 @@ fn validate_template_reference(
             let reference_index = support_index(*entity, context.semantics.support_entities.len())?;
 
             if reference_index >= context.entity_index {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
             }
 
             let InterfaceSupportEntity::Declaration(declaration) =
                 &context.semantics.support_entities[reference_index]
             else {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
             };
 
             Ok(declaration.kind())
@@ -526,7 +566,9 @@ fn validate_implementation_reference(
             validate_symbol(symbol, context.symbol_count, context.dependency_count)?;
 
             if !validate_symbol_kind(symbol, context.surface)?.is_implementation() {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
             }
 
             Ok(())
@@ -540,7 +582,9 @@ fn validate_implementation_reference(
                     InterfaceSupportEntity::Implementation(_)
                 )
             {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Template,
+                ));
             }
 
             Ok(())
@@ -564,7 +608,9 @@ fn validate_prior_node(
     current: usize,
 ) -> Result<(), InterfaceValidationError> {
     if compact_index(node.raw()).is_none_or(|index| index >= current) {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Template,
+        ));
     }
 
     Ok(())

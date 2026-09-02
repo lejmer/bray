@@ -1,6 +1,7 @@
 mod inventory;
 mod problem;
 mod source;
+mod validation;
 
 pub(super) use inventory::{format_english_interface_limit, format_english_interface_section};
 pub(super) use problem::{
@@ -9,3 +10,4 @@ pub(super) use problem::{
     format_english_interface_symbol_reference, interface_symbol_identity_text,
 };
 pub(super) use source::format_english_source_input;
+pub(super) use validation::format_english_interface_validation_failure;

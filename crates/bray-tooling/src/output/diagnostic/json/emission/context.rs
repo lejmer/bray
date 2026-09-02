@@ -1,5 +1,7 @@
-use super::super::DiagnosticInterfaceSymbolIdentityJson;
-use super::super::DiagnosticOutputSinkJson;
+use super::super::{
+    DiagnosticInterfaceSymbolIdentityJson, DiagnosticOutputSinkJson,
+    interface_symbol_graph_problem_json,
+};
 use super::failure::{
     DiagnosticEmissionFieldJson, DiagnosticEmissionFieldValueJson, artifact_field, count_field,
     count_u64_field, digest_field, field, text_field,
@@ -169,30 +171,11 @@ pub(super) fn package_interface_failure_context(
             text_field("semantic_table", table),
             count_field("maximum_records", *maximum),
         ],
-        Failure::DuplicateDependencyPackage(package) => {
-            vec![text_field("package", package)]
-        }
-        Failure::NonCanonicalSymbolOrder { previous, current } => vec![
-            count_field("previous_record", *previous),
-            count_field("current_record", *current),
-        ],
-        Failure::IdentityNonCanonicalSymbolId { expected, actual } => vec![
-            count_field("expected_record", *expected),
-            count_field("actual_record", *actual),
-        ],
-        Failure::IdentityMissingPackageRoot { actual } => {
-            vec![text_field("actual_symbol_kind", actual)]
-        }
-        Failure::IdentityPackageRootHasContainer(container) => {
-            vec![count_field("container_record", *container)]
-        }
-        Failure::IdentityPackageMismatch(record)
-        | Failure::IdentityMissingContainer(record)
-        | Failure::ExportOwnerOutOfBounds(record)
-        | Failure::InvalidExportOwner(record)
-        | Failure::ExportTargetOutOfBounds(record)
-        | Failure::InvalidDirectExportTarget(record)
-        | Failure::DuplicateConstantCallableBody(record)
+        Failure::SymbolGraph(problem) => vec![field(
+            "symbol_graph",
+            DiagnosticEmissionFieldValueJson::Problem(interface_symbol_graph_problem_json(problem)),
+        )],
+        Failure::DuplicateConstantCallableBody(record)
         | Failure::DuplicateExecutableTemplate(record)
         | Failure::InvalidExecutableTemplateFamily(record)
         | Failure::DuplicateNativeBoundary(record)
@@ -205,54 +188,6 @@ pub(super) fn package_interface_failure_context(
         | Failure::ImplementationInvalidCallableOwner(record) => {
             vec![count_field("record", *record)]
         }
-        Failure::IdentitySymbolKindMismatch {
-            record,
-            declared,
-            keyed,
-        } => vec![
-            count_field("record", *record),
-            text_field("declared_symbol_kind", declared),
-            text_field("keyed_symbol_kind", keyed),
-        ],
-        Failure::IdentityDuplicateExternalKey { first, duplicate } => vec![
-            count_field("first_record", *first),
-            count_field("duplicate_record", *duplicate),
-        ],
-        Failure::IdentityInvalidContainer { record, container }
-        | Failure::IdentityContainerKeyMismatch { record, container } => vec![
-            count_field("record", *record),
-            count_field("container_record", *container),
-        ],
-        Failure::IdentityUnexpectedRoot { record, kind } => vec![
-            count_field("record", *record),
-            text_field("symbol_kind", kind),
-        ],
-        Failure::RelationshipSymbolOutOfBounds {
-            owner,
-            member,
-            ordinal,
-        }
-        | Failure::InvalidRelationship {
-            owner,
-            member,
-            ordinal,
-        }
-        | Failure::DuplicateRelationshipPosition {
-            owner,
-            member,
-            ordinal,
-        } => vec![
-            count_field("owner_record", *owner),
-            count_field("member_record", *member),
-            count_field("ordinal", *ordinal),
-        ],
-        Failure::DependencyOutOfBounds(index) | Failure::DependencyKeyPackageMismatch(index) => {
-            vec![count_field("dependency_index", *index)]
-        }
-        Failure::DuplicateExportName { owner, name } => vec![
-            count_field("owner_record", *owner),
-            text_field("name", name),
-        ],
         Failure::DeclarationDiscoveryFailure { cause, cycle } => {
             let mut context = evaluation_failure_context(cause);
 
@@ -268,10 +203,6 @@ pub(super) fn package_interface_failure_context(
         Failure::Unavailable
         | Failure::InvalidCompilation
         | Failure::SymbolCountOverflow
-        | Failure::NonLibraryProduct
-        | Failure::DependencyCountOverflow
-        | Failure::IdentityEmpty
-        | Failure::IdentitySymbolCountOverflow
         | Failure::ImplementationContentTooLarge
         | Failure::ImplementationDuplicateSpecialization
         | Failure::ImplementationSpecializationIdentityMismatch => Vec::new(),

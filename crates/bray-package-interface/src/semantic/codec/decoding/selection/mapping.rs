@@ -121,7 +121,9 @@ fn record_map<T>(records: &RecordSet<T>) -> Result<BTreeMap<u32, u32>, Interface
         .copied()
         .enumerate()
         .map(|(new, old)| {
-            let new = u32::try_from(new).map_err(|_| InterfaceValidationError::Malformed)?;
+            let new = u32::try_from(new).map_err(|_| {
+                crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Index)
+            })?;
 
             Ok((old, new))
         })
@@ -136,5 +138,7 @@ fn remap_id<T>(
     map.get(&old)
         .copied()
         .map(constructor)
-        .ok_or(InterfaceValidationError::Malformed)
+        .ok_or(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Index,
+        ))
 }

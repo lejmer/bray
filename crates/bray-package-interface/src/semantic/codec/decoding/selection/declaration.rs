@@ -34,7 +34,9 @@ pub(super) fn decode_callable_parameter_default(
     )?;
 
     if default.parameter() != &owner {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Declaration,
+        ));
     }
 
     let semantics = InterfaceSemantics::new().with_declarations([], [], [default], []);
@@ -70,7 +72,9 @@ pub(super) fn decode_predicate_definition(
     )?;
 
     if definition.owner() != &owner {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Declaration,
+        ));
     }
 
     crate::semantic::validation::validate_predicate_definition(&definition, surface)?;
@@ -94,7 +98,9 @@ pub(super) fn decode_predicate_definition(
         )?;
 
         if template.owner() != &owner {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Declaration,
+            ));
         }
 
         if crate::semantic::validation::validate_predicate_template(&template)? {
@@ -119,10 +125,14 @@ fn validate_declaration_template_directory(
         .filter(|entry| entry.kind() == InterfaceSemanticRecordKind::DeclarationTemplate)
         .map(|entry| {
             if entry.section() != InterfaceSectionTag::DeclarationTemplates {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Declaration,
+                ));
             }
 
-            usize::try_from(entry.record()).map_err(|_| InterfaceValidationError::Malformed)
+            usize::try_from(entry.record()).map_err(|_| {
+                crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Declaration)
+            })
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -134,7 +144,9 @@ fn validate_declaration_template_directory(
             .enumerate()
             .all(|(expected, actual)| expected == actual)
     {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Declaration,
+        ));
     }
 
     Ok(())
@@ -152,11 +164,15 @@ fn declaration_record(
     });
 
     let Some(entry) = entries.next() else {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Declaration,
+        ));
     };
 
     if entries.next().is_some() {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Declaration,
+        ));
     }
 
     Ok(entry.record())

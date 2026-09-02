@@ -281,7 +281,12 @@ fn selected_sections<'interface>(
                 continue;
             }
 
-            return Err(InterfaceValidationError::Malformed);
+            return Err(InterfaceValidationError::Malformed {
+                context: crate::InterfaceValidationContext::Section(section_tag),
+                cause: crate::InterfaceMalformedCause::Missing {
+                    field: crate::InterfaceValidationField::RecordPayload,
+                },
+            });
         };
 
         sections.push(section);
@@ -354,7 +359,12 @@ fn decode_surface_inspection_records(
         | InterfaceSectionTag::TargetDependencies
         | InterfaceSectionTag::SourceProvenance
         | InterfaceSectionTag::SupportGraph => {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(InterfaceValidationError::Malformed {
+                context: crate::InterfaceValidationContext::Section(section.tag()),
+                cause: crate::InterfaceMalformedCause::InvalidValue {
+                    field: crate::InterfaceValidationField::SectionTag,
+                },
+            });
         }
     };
 
@@ -370,16 +380,26 @@ fn decode_strings_index<'strings>(
     budget: &mut DecodeBudget,
 ) -> Result<&'strings [Arc<str>], InterfaceValidationError> {
     if strings.is_none() {
-        let section = interface
-            .section(InterfaceSectionTag::Strings)?
-            .ok_or(InterfaceValidationError::Malformed)?;
+        let section = interface.section(InterfaceSectionTag::Strings)?.ok_or(
+            InterfaceValidationError::Malformed {
+                context: crate::InterfaceValidationContext::Section(InterfaceSectionTag::Strings),
+                cause: crate::InterfaceMalformedCause::Missing {
+                    field: crate::InterfaceValidationField::RecordPayload,
+                },
+            },
+        )?;
 
         *strings = Some(crate::surface::decode_strings(section, budget)?);
     }
 
     strings
         .as_deref()
-        .ok_or(InterfaceValidationError::Malformed)
+        .ok_or(InterfaceValidationError::Malformed {
+            context: crate::InterfaceValidationContext::Section(InterfaceSectionTag::Strings),
+            cause: crate::InterfaceMalformedCause::Missing {
+                field: crate::InterfaceValidationField::RecordPayload,
+            },
+        })
 }
 
 const fn is_semantic_section(section: InterfaceSectionTag) -> bool {

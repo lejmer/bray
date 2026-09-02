@@ -60,6 +60,8 @@ const JSON_SOURCE_INVENTORY: &[&str] = &[
     "output/diagnostic/json/interface.rs",
     "output/diagnostic/json/interface/identity.rs",
     "output/diagnostic/json/interface/validation.rs",
+    "output/diagnostic/json/interface/validation/failure.rs",
+    "output/diagnostic/json/interface/validation/problem.rs",
     "output/diagnostic/json/project.rs",
     "output/diagnostic/json/project/command.rs",
     "output/diagnostic/json/project/execution.rs",

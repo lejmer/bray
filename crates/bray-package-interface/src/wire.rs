@@ -2,8 +2,23 @@ use std::array::TryFromSliceError;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum WireDecodeError {
-    Truncated,
-    TrailingBytes,
+    Truncated {
+        offset: usize,
+        expected_length: usize,
+        actual_length: usize,
+    },
+    TrailingBytes {
+        offset: usize,
+        count: usize,
+    },
+}
+
+impl WireDecodeError {
+    pub(crate) const fn offset(self) -> usize {
+        match self {
+            Self::Truncated { offset, .. } | Self::TrailingBytes { offset, .. } => offset,
+        }
+    }
 }
 
 pub(crate) struct WireReader<'bytes> {
@@ -33,17 +48,21 @@ impl<'bytes> WireReader<'bytes> {
     }
 
     pub(crate) fn read_bytes(&mut self, length: usize) -> Result<&'bytes [u8], WireDecodeError> {
-        let end = self
-            .position
-            .checked_add(length)
-            .ok_or(WireDecodeError::Truncated)?;
+        let Some(remaining) = self.bytes.get(self.position..) else {
+            return Err(WireDecodeError::Truncated {
+                offset: self.position,
+                expected_length: length,
+                actual_length: 0,
+            });
+        };
 
-        let bytes = self
-            .bytes
-            .get(self.position..end)
-            .ok_or(WireDecodeError::Truncated)?;
+        let bytes = remaining.get(..length).ok_or(WireDecodeError::Truncated {
+            offset: self.position,
+            expected_length: length,
+            actual_length: remaining.len(),
+        })?;
 
-        self.position = end;
+        self.position += length;
 
         Ok(bytes)
     }
@@ -52,32 +71,34 @@ impl<'bytes> WireReader<'bytes> {
         self.bytes.len() - self.position
     }
 
+    pub(crate) const fn position(&self) -> usize {
+        self.position
+    }
+
     pub(crate) fn finish(self) -> Result<(), WireDecodeError> {
         if self.position == self.bytes.len() {
             Ok(())
         } else {
-            Err(WireDecodeError::TrailingBytes)
+            Err(WireDecodeError::TrailingBytes {
+                offset: self.position,
+                count: self.bytes.len() - self.position,
+            })
         }
     }
 
     pub(crate) fn read_array<const LENGTH: usize>(
         &mut self,
     ) -> Result<[u8; LENGTH], WireDecodeError> {
-        let end = self
-            .position
-            .checked_add(LENGTH)
-            .ok_or(WireDecodeError::Truncated)?;
-
-        let bytes = self
-            .bytes
-            .get(self.position..end)
-            .ok_or(WireDecodeError::Truncated)?;
-
-        self.position = end;
+        let offset = self.position;
+        let bytes = self.read_bytes(LENGTH)?;
 
         bytes
             .try_into()
-            .map_err(|_: TryFromSliceError| WireDecodeError::Truncated)
+            .map_err(|_: TryFromSliceError| WireDecodeError::Truncated {
+                offset,
+                expected_length: LENGTH,
+                actual_length: bytes.len(),
+            })
     }
 }
 
@@ -160,7 +181,14 @@ mod tests {
         for length in 0..8 {
             let mut reader = WireReader::new(&[0; 8][..length]);
 
-            assert_eq!(reader.read_u64(), Err(WireDecodeError::Truncated));
+            assert_eq!(
+                reader.read_u64(),
+                Err(WireDecodeError::Truncated {
+                    offset: 0,
+                    expected_length: 8,
+                    actual_length: length,
+                })
+            );
         }
     }
 
@@ -169,7 +197,14 @@ mod tests {
         let mut reader = WireReader::new(&[1, 2, 3]);
 
         assert_eq!(reader.read_bytes(2), Ok(&[1, 2][..]));
-        assert_eq!(reader.finish(), Err(WireDecodeError::TrailingBytes));
+
+        assert_eq!(
+            reader.finish(),
+            Err(WireDecodeError::TrailingBytes {
+                offset: 2,
+                count: 1,
+            })
+        );
 
         let mut reader = WireReader::new(&[1, 2, 3]);
 

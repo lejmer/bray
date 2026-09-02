@@ -13,12 +13,23 @@ pub(super) fn validate_record_count(
 
     for count in counts {
         total = total
-            .checked_add(u64::try_from(count).map_err(|_| InterfaceValidationError::Malformed)?)
-            .ok_or(InterfaceValidationError::Malformed)?;
+            .checked_add(u64::try_from(count).map_err(|_| {
+                crate::semantic::codec::invalid_value(crate::InterfaceValidationField::RecordCount)
+            })?)
+            .ok_or(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::RecordCount,
+            ))?;
     }
 
     if total != section.record_count() {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(InterfaceValidationError::Malformed {
+            context: crate::InterfaceValidationContext::Section(section.tag()),
+            cause: crate::InterfaceMalformedCause::CountMismatch {
+                field: crate::InterfaceValidationField::RecordCount,
+                expected: section.record_count(),
+                actual: total,
+            },
+        });
     }
 
     Ok(())
@@ -42,7 +53,9 @@ pub(super) fn read_ids<T>(
 pub(super) fn decode_real(
     reader: &mut WireReader<'_>,
 ) -> Result<RealConstantBits, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         1 => Ok(RealConstantBits::Binary16(
             reader.read_u16().map_err(map_wire_error)?,
         )),
@@ -53,10 +66,16 @@ pub(super) fn decode_real(
         4 => Ok(RealConstantBits::Binary128(
             reader.read_array().map_err(map_wire_error)?,
         )),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_discriminant(
+            crate::InterfaceValidationField::Discriminant,
+            raw,
+        )),
     }
 }
 
 pub(super) fn decode_tag<T: WireTag>(value: u32) -> Result<T, InterfaceValidationError> {
-    T::from_wire(value).ok_or(InterfaceValidationError::Malformed)
+    T::from_wire(value).ok_or(crate::semantic::codec::invalid_discriminant(
+        crate::InterfaceValidationField::Discriminant,
+        value,
+    ))
 }

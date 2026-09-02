@@ -73,7 +73,9 @@ impl InterfaceSemantics {
 
         for contract in &*self.dependency_contracts {
             if !is_strictly_sorted(&contract.requirements) {
-                return Err(InterfaceValidationError::Malformed);
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Constant,
+                ));
             }
 
             for requirement in &*contract.requirements {
@@ -159,7 +161,9 @@ impl InterfaceSemantics {
                     )?;
 
                     if parameter.name.is_empty() {
-                        return Err(InterfaceValidationError::Malformed);
+                        return Err(crate::semantic::codec::invalid_value(
+                            crate::InterfaceValidationField::Constant,
+                        ));
                     }
 
                     validate_index(parameter.ty.to_index(), self.types.len())?;
@@ -441,8 +445,9 @@ fn validate_type_depth(
     semantics: &InterfaceSemantics,
     limits: InterfaceValidationLimits,
 ) -> Result<(), InterfaceValidationError> {
-    let depth = interface_type_graph_depth(&semantics.types)
-        .map_err(|_| InterfaceValidationError::Malformed)?;
+    let depth = interface_type_graph_depth(&semantics.types).map_err(|_| {
+        crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Constant)
+    })?;
 
     limits.check(InterfaceLimit::SemanticTypeDepth, depth)
 }

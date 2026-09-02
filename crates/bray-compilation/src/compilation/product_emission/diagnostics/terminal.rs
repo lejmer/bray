@@ -10,9 +10,7 @@ use bray_package_interface::{
     PackageInterfaceExportBuildError, PackageInterfaceExportSurfaceError,
     PackageInterfaceSurfaceBuildError,
 };
-use bray_symbols::{
-    ImportedIdentitySurfaceError, ProductIdentity, diagnostic_external_symbol_identity,
-};
+use bray_symbols::{ProductIdentity, diagnostic_external_symbol_identity};
 use bray_target::TargetIdentity;
 
 use super::common::{
@@ -581,227 +579,22 @@ fn package_interface_structural_failure_diagnostic(
     product: &ProductIdentity,
     target: &TargetIdentity,
 ) -> Diagnostic {
-    match error {
-        PackageInterfaceSurfaceBuildError::NonLibraryProduct => package_failure_diagnostic(
-            DiagnosticPackageInterfaceFailure::NonLibraryProduct,
-            product,
-            target,
+    package_failure_diagnostic(
+        DiagnosticPackageInterfaceFailure::SymbolGraph(
+            bray_package_interface::diagnostic_surface_problem(error.clone()),
         ),
-        PackageInterfaceSurfaceBuildError::DependencyCountOverflow => package_failure_diagnostic(
-            DiagnosticPackageInterfaceFailure::DependencyCountOverflow,
-            product,
-            target,
-        ),
-        PackageInterfaceSurfaceBuildError::DuplicateDependencyPackage(package) => {
-            package_failure_diagnostic(
-                DiagnosticPackageInterfaceFailure::DuplicateDependencyPackage(
-                    package.as_str().to_owned(),
-                ),
-                product,
-                target,
-            )
-        }
-        PackageInterfaceSurfaceBuildError::NonCanonicalSymbolOrder { previous, current } => {
-            package_failure_diagnostic(
-                DiagnosticPackageInterfaceFailure::NonCanonicalSymbolOrder {
-                    previous: previous.raw(),
-                    current: current.raw(),
-                },
-                product,
-                target,
-            )
-        }
-        PackageInterfaceSurfaceBuildError::Identity(error) => {
-            package_interface_identity_failure_diagnostic(error, product, target)
-        }
-        PackageInterfaceSurfaceBuildError::RelationshipSymbolOutOfBounds(relationship) => {
-            package_failure_diagnostic(
-                relationship_failure(*relationship, RelationshipFailureKind::SymbolOutOfBounds),
-                product,
-                target,
-            )
-        }
-        PackageInterfaceSurfaceBuildError::InvalidRelationship(relationship) => {
-            package_failure_diagnostic(
-                relationship_failure(*relationship, RelationshipFailureKind::Invalid),
-                product,
-                target,
-            )
-        }
-        PackageInterfaceSurfaceBuildError::DuplicateRelationshipPosition(relationship) => {
-            package_failure_diagnostic(
-                relationship_failure(*relationship, RelationshipFailureKind::DuplicatePosition),
-                product,
-                target,
-            )
-        }
-        PackageInterfaceSurfaceBuildError::ExportOwnerOutOfBounds(owner) => {
-            package_failure_diagnostic(
-                DiagnosticPackageInterfaceFailure::ExportOwnerOutOfBounds(owner.raw()),
-                product,
-                target,
-            )
-        }
-        PackageInterfaceSurfaceBuildError::InvalidExportOwner(owner) => package_failure_diagnostic(
-            DiagnosticPackageInterfaceFailure::InvalidExportOwner(owner.raw()),
-            product,
-            target,
-        ),
-        PackageInterfaceSurfaceBuildError::ExportTargetOutOfBounds(target_symbol) => {
-            package_failure_diagnostic(
-                DiagnosticPackageInterfaceFailure::ExportTargetOutOfBounds(target_symbol.raw()),
-                product,
-                target,
-            )
-        }
-        PackageInterfaceSurfaceBuildError::DependencyOutOfBounds(dependency) => {
-            package_failure_diagnostic(
-                DiagnosticPackageInterfaceFailure::DependencyOutOfBounds(dependency.raw()),
-                product,
-                target,
-            )
-        }
-        PackageInterfaceSurfaceBuildError::DependencyKeyPackageMismatch(dependency) => {
-            package_failure_diagnostic(
-                DiagnosticPackageInterfaceFailure::DependencyKeyPackageMismatch(dependency.raw()),
-                product,
-                target,
-            )
-        }
-        PackageInterfaceSurfaceBuildError::InvalidDirectExportTarget(target_symbol) => {
-            package_failure_diagnostic(
-                DiagnosticPackageInterfaceFailure::InvalidDirectExportTarget(target_symbol.raw()),
-                product,
-                target,
-            )
-        }
-        PackageInterfaceSurfaceBuildError::DuplicateExportName { owner, name } => {
-            package_failure_diagnostic(
-                DiagnosticPackageInterfaceFailure::DuplicateExportName {
-                    owner: owner.raw(),
-                    name: name.as_str().to_owned(),
-                },
-                product,
-                target,
-            )
-        }
-    }
-}
-
-fn package_interface_identity_failure_diagnostic(
-    error: &ImportedIdentitySurfaceError,
-    product: &ProductIdentity,
-    target: &TargetIdentity,
-) -> Diagnostic {
-    let failure = match error {
-        ImportedIdentitySurfaceError::Empty => DiagnosticPackageInterfaceFailure::IdentityEmpty,
-        ImportedIdentitySurfaceError::SymbolCountOverflow => {
-            DiagnosticPackageInterfaceFailure::IdentitySymbolCountOverflow
-        }
-        ImportedIdentitySurfaceError::NonCanonicalSymbolId { expected, actual } => {
-            DiagnosticPackageInterfaceFailure::IdentityNonCanonicalSymbolId {
-                expected: expected.raw(),
-                actual: actual.raw(),
-            }
-        }
-        ImportedIdentitySurfaceError::MissingPackageRoot { actual } => {
-            DiagnosticPackageInterfaceFailure::IdentityMissingPackageRoot {
-                actual: actual.as_str().to_owned(),
-            }
-        }
-        ImportedIdentitySurfaceError::PackageRootHasContainer { container } => {
-            DiagnosticPackageInterfaceFailure::IdentityPackageRootHasContainer(container.raw())
-        }
-        ImportedIdentitySurfaceError::PackageIdentityMismatch { symbol } => {
-            DiagnosticPackageInterfaceFailure::IdentityPackageMismatch(symbol.raw())
-        }
-        ImportedIdentitySurfaceError::SymbolKindMismatch {
-            symbol,
-            declared,
-            keyed,
-        } => DiagnosticPackageInterfaceFailure::IdentitySymbolKindMismatch {
-            record: symbol.raw(),
-            declared: declared.as_str().to_owned(),
-            keyed: keyed.as_str().to_owned(),
-        },
-        ImportedIdentitySurfaceError::DuplicateExternalKey { first, duplicate } => {
-            DiagnosticPackageInterfaceFailure::IdentityDuplicateExternalKey {
-                first: first.raw(),
-                duplicate: duplicate.raw(),
-            }
-        }
-        ImportedIdentitySurfaceError::MissingContainer { symbol } => {
-            DiagnosticPackageInterfaceFailure::IdentityMissingContainer(symbol.raw())
-        }
-        ImportedIdentitySurfaceError::InvalidContainer { symbol, container } => {
-            DiagnosticPackageInterfaceFailure::IdentityInvalidContainer {
-                record: symbol.raw(),
-                container: container.raw(),
-            }
-        }
-        ImportedIdentitySurfaceError::ContainerKeyMismatch { symbol, container } => {
-            DiagnosticPackageInterfaceFailure::IdentityContainerKeyMismatch {
-                record: symbol.raw(),
-                container: container.raw(),
-            }
-        }
-        ImportedIdentitySurfaceError::UnexpectedRoot { symbol, kind } => {
-            DiagnosticPackageInterfaceFailure::IdentityUnexpectedRoot {
-                record: symbol.raw(),
-                kind: kind.as_str().to_owned(),
-            }
-        }
-    };
-
-    package_failure_diagnostic(failure, product, target)
-}
-
-#[derive(Clone, Copy)]
-enum RelationshipFailureKind {
-    SymbolOutOfBounds,
-    Invalid,
-    DuplicatePosition,
-}
-
-fn relationship_failure(
-    relationship: bray_package_interface::SymbolRelationship,
-    kind: RelationshipFailureKind,
-) -> DiagnosticPackageInterfaceFailure {
-    let owner = relationship.owner().raw();
-    let member = relationship.member().raw();
-    let ordinal = relationship.ordinal();
-
-    match kind {
-        RelationshipFailureKind::SymbolOutOfBounds => {
-            DiagnosticPackageInterfaceFailure::RelationshipSymbolOutOfBounds {
-                owner,
-                member,
-                ordinal,
-            }
-        }
-        RelationshipFailureKind::Invalid => {
-            DiagnosticPackageInterfaceFailure::InvalidRelationship {
-                owner,
-                member,
-                ordinal,
-            }
-        }
-        RelationshipFailureKind::DuplicatePosition => {
-            DiagnosticPackageInterfaceFailure::DuplicateRelationshipPosition {
-                owner,
-                member,
-                ordinal,
-            }
-        }
-    }
+        product,
+        target,
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::{
-        DiagnosticEmissionEvaluationFailure, DiagnosticInterfaceSymbolIdentity,
-        DiagnosticInterfaceSymbolKind, DiagnosticLabelKind, DiagnosticLoweringFailure,
-        DiagnosticLoweringFailureKind, DiagnosticNoteKind, DiagnosticRelatedLocationKind,
+        DiagnosticArgValue, DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure,
+        DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolKind, DiagnosticLabelKind,
+        DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticNoteKind,
+        DiagnosticPackageInterfaceFailure, DiagnosticRelatedLocationKind,
     };
     use bray_lowering::LoweringError;
     use bray_messages::DiagnosticRenderer;
@@ -922,6 +715,12 @@ mod tests {
             },
         ];
 
+        let expected_cause =
+            DiagnosticEmissionEvaluationFailure::Lowering(DiagnosticLoweringFailure::new(
+                DiagnosticLoweringFailureKind::InvalidFrameDescriptor,
+                source,
+            ));
+
         for error in errors {
             let diagnostic = package_interface_export_failure_diagnostic(&error, &product, &target)
                 .unwrap_or_else(|| panic!("package evaluation failure must diagnose"));
@@ -939,11 +738,25 @@ mod tests {
                     .any(|note| note.kind() == DiagnosticNoteKind::ReportCompilerDefect)
             );
 
-            let rendered = DiagnosticRenderer::english().render(&diagnostic);
+            assert!(diagnostic.args().iter().any(|arg| {
+                let DiagnosticArgValue::EmissionFailure(
+                    DiagnosticEmissionFailure::PackageInterface(failure),
+                ) = arg.value()
+                else {
+                    return false;
+                };
 
-            assert!(rendered.message().contains(
-                "an internal compiler error prevented Bray from generating resumable code for the highlighted callable"
-            ));
+                match failure {
+                    DiagnosticPackageInterfaceFailure::ConstantCallableEvaluation {
+                        cause, ..
+                    }
+                    | DiagnosticPackageInterfaceFailure::ExecutableTemplateEvaluation {
+                        cause,
+                        ..
+                    } => cause == &expected_cause,
+                    _ => false,
+                }
+            }));
         }
     }
 

@@ -31,7 +31,9 @@ pub(crate) fn validate_predicate_definition(
     };
 
     if !is_valid {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Declaration,
+        ));
     }
 
     Ok(())
@@ -45,7 +47,9 @@ pub(crate) fn validate_predicate_template(
     }
 
     if template.ordinal() != SymbolOrdinal::new(0) {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Declaration,
+        ));
     }
 
     Ok(true)
@@ -58,7 +62,9 @@ pub(crate) fn validate_predicate_template_count(
     let expected = usize::from(definition.state() == InterfacePredicateDefinitionState::Defined);
 
     if actual != expected {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Declaration,
+        ));
     }
 
     Ok(())
@@ -82,7 +88,9 @@ pub(super) fn validate_predicate_templates(
     }
 
     if !template_counts.is_empty() {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Declaration,
+        ));
     }
 
     Ok(())

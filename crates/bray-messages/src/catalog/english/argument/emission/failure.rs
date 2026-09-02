@@ -1,4 +1,5 @@
 use super::super::super::format_internal_compiler_error;
+use super::super::interface::format_english_interface_symbol_graph_problem;
 use super::super::native::{
     format_artifact_failure, format_english_emission_evaluation_failure, format_unit_failure,
 };
@@ -243,97 +244,8 @@ fn format_english_package_interface_failure(
         Failure::SymbolCountOverflow => {
             "the export surface exceeds the compact symbol identity range".to_owned()
         }
-        Failure::NonLibraryProduct => {
-            "compiled interfaces can describe only library products".to_owned()
-        }
-        Failure::DependencyCountOverflow => {
-            "the dependency table exceeds the compact identity range".to_owned()
-        }
-        Failure::DuplicateDependencyPackage(package) => {
-            format!("dependency package {package} appears more than once")
-        }
-        Failure::NonCanonicalSymbolOrder { previous, current } => {
-            format!("symbol record {current} does not sort after preceding record {previous}")
-        }
-        Failure::IdentityEmpty => "the identity surface contains no package root".to_owned(),
-        Failure::IdentitySymbolCountOverflow => {
-            "the identity surface exceeds the compact symbol identity range".to_owned()
-        }
-        Failure::IdentityNonCanonicalSymbolId { expected, actual } => {
-            format!("symbol record ID {actual} does not match canonical table position {expected}")
-        }
-        Failure::IdentityMissingPackageRoot { actual } => {
-            format!("the first identity record is {actual}, but it must be the package root")
-        }
-        Failure::IdentityPackageRootHasContainer(container) => {
-            format!("the package root incorrectly names record {container} as its container")
-        }
-        Failure::IdentityPackageMismatch(record) => {
-            format!("symbol record {record} belongs to another package")
-        }
-        Failure::IdentitySymbolKindMismatch {
-            record,
-            declared,
-            keyed,
-        } => format!(
-            "symbol record {record} declares kind {declared}, but its external key encodes {keyed}"
-        ),
-        Failure::IdentityDuplicateExternalKey { first, duplicate } => {
-            format!("symbol records {first} and {duplicate} use the same stable external key")
-        }
-        Failure::IdentityMissingContainer(record) => {
-            format!("non-root symbol record {record} has no semantic container")
-        }
-        Failure::IdentityInvalidContainer { record, container } => {
-            format!("symbol record {record} refers to invalid container record {container}")
-        }
-        Failure::IdentityContainerKeyMismatch { record, container } => format!(
-            "record {record} names container {container}, but its external key names another owner"
-        ),
-        Failure::IdentityUnexpectedRoot { record, kind } => {
-            format!("symbol record {record} is an unexpected additional {kind} root")
-        }
-        Failure::RelationshipSymbolOutOfBounds {
-            owner,
-            member,
-            ordinal,
-        } => format!(
-            "relationship position {ordinal} from owner {owner} references missing record {member}"
-        ),
-        Failure::InvalidRelationship {
-            owner,
-            member,
-            ordinal,
-        } => format!(
-            "relationship position {ordinal} between records {owner} and {member} has an invalid shape"
-        ),
-        Failure::DuplicateRelationshipPosition {
-            owner,
-            member,
-            ordinal,
-        } => format!(
-            "relationship position {ordinal} from owner {owner} is duplicated by member {member}"
-        ),
-        Failure::ExportOwnerOutOfBounds(record) => {
-            format!("export owner record {record} is outside the identity table")
-        }
-        Failure::InvalidExportOwner(record) => {
-            format!("export owner record {record} is not a package or module")
-        }
-        Failure::ExportTargetOutOfBounds(record) => {
-            format!("local export target record {record} is outside the identity table")
-        }
-        Failure::DependencyOutOfBounds(index) => {
-            format!("export dependency slot {index} is outside the dependency table")
-        }
-        Failure::DependencyKeyPackageMismatch(index) => {
-            format!("the export key for dependency slot {index} belongs to another package")
-        }
-        Failure::InvalidDirectExportTarget(record) => {
-            format!("direct export target record {record} is not contained by its owner")
-        }
-        Failure::DuplicateExportName { owner, name } => {
-            format!("export owner record {owner} projects name {name} more than once")
+        Failure::SymbolGraph(problem) => {
+            format_english_interface_symbol_graph_problem(problem)
         }
         Failure::MissingDeclarationData(declaration) => format_internal_compiler_error(format!(
             "complete declaration data was unavailable for exported {}",
@@ -343,7 +255,8 @@ fn format_english_package_interface_failure(
             declaration,
             table,
             reference,
-        } => format_english_lost_declaration_reference(
+        } => format_english_package_interface_declaration_reference_failure(
+            PackageInterfaceDeclarationReferenceFailure::Missing,
             declaration.as_ref(),
             table,
             *reference,
@@ -362,15 +275,12 @@ fn format_english_package_interface_failure(
             declaration,
             table,
             reference,
-        } => match declaration {
-            Some(declaration) => format_internal_compiler_error(format!(
-                "recursive {table} entry {reference} exists while preparing exported {}",
-                format_english_interface_symbol_identity(declaration)
-            )),
-            None => format_internal_compiler_error(format!(
-                "recursive {table} entry {reference} exists while preparing the package interface"
-            )),
-        },
+        } => format_english_package_interface_declaration_reference_failure(
+            PackageInterfaceDeclarationReferenceFailure::Recursive,
+            declaration.as_ref(),
+            table,
+            *reference,
+        ),
         Failure::DeclarationDiscoveryFailure { cause, cycle } => {
             if cycle.is_empty() {
                 format!(
@@ -449,20 +359,37 @@ fn format_english_package_interface_failure(
     }
 }
 
-fn format_english_lost_declaration_reference(
+enum PackageInterfaceDeclarationReferenceFailure {
+    Missing,
+    Recursive,
+}
+
+fn format_english_package_interface_declaration_reference_failure(
+    failure: PackageInterfaceDeclarationReferenceFailure,
     declaration: Option<&bray_diagnostics::DiagnosticInterfaceSymbolIdentity>,
     table: &str,
     reference: u32,
 ) -> String {
-    match declaration {
-        Some(declaration) => format_internal_compiler_error(format!(
+    use crate::catalog::english::argument::interface::format_english_interface_symbol_identity;
+
+    let detail = match (failure, declaration) {
+        (PackageInterfaceDeclarationReferenceFailure::Missing, Some(declaration)) => format!(
             "{table} entry {reference} was unavailable while preparing exported {}",
-            super::super::interface::format_english_interface_symbol_identity(declaration)
-        )),
-        None => format_internal_compiler_error(format!(
+            format_english_interface_symbol_identity(declaration)
+        ),
+        (PackageInterfaceDeclarationReferenceFailure::Missing, None) => format!(
             "{table} entry {reference} was unavailable while preparing an exported declaration"
-        )),
-    }
+        ),
+        (PackageInterfaceDeclarationReferenceFailure::Recursive, Some(declaration)) => format!(
+            "recursive {table} entry {reference} exists while preparing exported {}",
+            format_english_interface_symbol_identity(declaration)
+        ),
+        (PackageInterfaceDeclarationReferenceFailure::Recursive, None) => format!(
+            "recursive {table} entry {reference} exists while preparing the package interface"
+        ),
+    };
+
+    format_internal_compiler_error(detail)
 }
 
 fn format_english_package_interface_store_create() -> String {

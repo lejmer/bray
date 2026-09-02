@@ -15,8 +15,9 @@ pub(crate) fn decode_semantic_directory(
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
 ) -> Result<Arc<[InterfaceSemanticRecord]>, InterfaceValidationError> {
-    let count =
-        usize::try_from(section.record_count()).map_err(|_| InterfaceValidationError::Malformed)?;
+    let count = usize::try_from(section.record_count()).map_err(|_| {
+        crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Reference)
+    })?;
 
     limits.check(InterfaceLimit::RecordCount, section.record_count())?;
 
@@ -26,11 +27,23 @@ pub(crate) fn decode_semantic_directory(
     for _ in 0..count {
         let owner = read_symbol_reference(&mut reader, context)?;
 
-        let kind = InterfaceSemanticRecordKind::from_wire(read_u32(&mut reader)?)
-            .ok_or(InterfaceValidationError::Malformed)?;
+        let kind_raw = read_u32(&mut reader)?;
 
-        let section = InterfaceSectionTag::from_wire_value(read_u32(&mut reader)?)
-            .ok_or(InterfaceValidationError::Malformed)?;
+        let kind = InterfaceSemanticRecordKind::from_wire(kind_raw).ok_or(
+            crate::semantic::codec::invalid_discriminant(
+                crate::InterfaceValidationField::Discriminant,
+                kind_raw,
+            ),
+        )?;
+
+        let section_raw = read_u32(&mut reader)?;
+
+        let section = InterfaceSectionTag::from_wire_value(section_raw).ok_or(
+            crate::semantic::codec::invalid_discriminant(
+                crate::InterfaceValidationField::SectionTag,
+                section_raw,
+            ),
+        )?;
 
         let record = read_u32(&mut reader)?;
 
@@ -45,7 +58,9 @@ pub(crate) fn decode_semantic_directory(
     reader.finish().map_err(map_wire_error)?;
 
     if !is_strictly_sorted(&entries) {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Reference,
+        ));
     }
 
     Ok(entries.into())

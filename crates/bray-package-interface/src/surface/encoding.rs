@@ -461,10 +461,15 @@ mod tests {
 
         exports.payload[16..20].copy_from_slice(&u32::MAX.to_le_bytes());
 
-        assert_eq!(
+        assert!(matches!(
             decode(&sections, InterfaceValidationLimits::default()),
-            Err(InterfaceValidationError::Malformed)
-        );
+            Err(InterfaceValidationError::SurfaceBuild { cause })
+                if matches!(
+                    cause.as_ref(),
+                    crate::PackageInterfaceSurfaceBuildError::ExportTargetOutOfBounds(target)
+                        if *target == InterfaceSymbolId::new(u32::MAX)
+                )
+        ));
 
         let sections = encode_surface(&surface(false));
 
@@ -504,10 +509,14 @@ mod tests {
 
         relationships.payload[8..12].copy_from_slice(&0_u32.to_le_bytes());
 
-        assert_eq!(
+        assert!(matches!(
             decode(&sections, InterfaceValidationLimits::default()),
-            Err(InterfaceValidationError::Malformed)
-        );
+            Err(InterfaceValidationError::SurfaceBuild { cause })
+                if matches!(
+                    cause.as_ref(),
+                    crate::PackageInterfaceSurfaceBuildError::InvalidRelationship(_)
+                )
+        ));
     }
 
     fn surface(reverse: bool) -> PackageInterfaceSurface {

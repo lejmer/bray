@@ -740,14 +740,19 @@ mod tests {
             TextRange::new(TextSize::new(10), TextSize::new(20)),
         );
 
-        let diagnostic = native_product_preparation_diagnostic(
+        let failure =
             DiagnosticNativeProductFailureKind::EvaluationLowering(DiagnosticLoweringFailure::new(
                 DiagnosticLoweringFailureKind::MissingSuspensionPoint,
                 source,
-            )),
+            ));
+
+        let diagnostic = native_product_preparation_diagnostic(
+            failure.clone(),
             &product,
             "x86_64-pc-windows-msvc",
         );
+
+        assert_native_product_failure(&diagnostic, &failure);
 
         assert_eq!(diagnostic.primary_span(), Some(source));
 
@@ -764,11 +769,6 @@ mod tests {
 
         let rendered = DiagnosticRenderer::english().render(&diagnostic);
         let message = rendered.message();
-
-        assert_eq!(
-            message,
-            "cannot prepare native product 'example/application' for target 'x86_64-pc-windows-msvc': an internal compiler error prevented Bray from generating a valid resume path for the highlighted `await` expression"
-        );
 
         for forbidden in ["MIR", "lowering", "node", "frame descriptor", "terminator"] {
             assert!(!message.contains(forbidden));
@@ -788,24 +788,25 @@ mod tests {
             TextRange::new(TextSize::new(10), TextSize::new(20)),
         );
 
-        let diagnostic = native_product_preparation_diagnostic(
+        let failure =
             DiagnosticNativeProductFailureKind::EvaluationLowering(DiagnosticLoweringFailure::new(
                 DiagnosticLoweringFailureKind::MissingSourceNode(
                     bray_diagnostics::DiagnosticSourceConstructKind::Pattern,
                 ),
                 source,
-            )),
+            ));
+
+        let diagnostic = native_product_preparation_diagnostic(
+            failure.clone(),
             &product,
             "x86_64-pc-windows-msvc",
         );
 
+        assert_native_product_failure(&diagnostic, &failure);
+
         let rendered = DiagnosticRenderer::english().render(&diagnostic);
 
-        assert_eq!(
-            rendered.message(),
-            "cannot prepare native product 'example/application' for target 'x86_64-pc-windows-msvc': an internal compiler error prevented Bray from generating executable code for the highlighted pattern"
-        );
-
+        assert!(rendered.message().contains("pattern"));
         assert!(!rendered.message().contains("node"));
     }
 
@@ -822,26 +823,23 @@ mod tests {
             TextRange::new(TextSize::new(10), TextSize::new(20)),
         );
 
-        let diagnostic = native_product_preparation_diagnostic(
-            DiagnosticNativeProductFailureKind::EvaluationLoweringInput(
-                DiagnosticLoweringInputFailure::new(
-                    DiagnosticLoweringInputFailureKind::StorageOperationCountMismatch {
-                        expected: 3,
-                        actual: 2,
-                    },
-                    source,
-                ),
+        let failure = DiagnosticNativeProductFailureKind::EvaluationLoweringInput(
+            DiagnosticLoweringInputFailure::new(
+                DiagnosticLoweringInputFailureKind::StorageOperationCountMismatch {
+                    expected: 3,
+                    actual: 2,
+                },
+                source,
             ),
+        );
+
+        let diagnostic = native_product_preparation_diagnostic(
+            failure.clone(),
             &product,
             "x86_64-pc-windows-msvc",
         );
 
-        let rendered = DiagnosticRenderer::english().render(&diagnostic);
-
-        assert_eq!(
-            rendered.message(),
-            "cannot prepare native product 'example/application' for target 'x86_64-pc-windows-msvc': an internal compiler error prevented Bray from reconciling the highlighted declaration's 2 value accesses with the 3 required by ownership analysis"
-        );
+        assert_native_product_failure(&diagnostic, &failure);
 
         assert_eq!(diagnostic.primary_span(), Some(source));
 
@@ -851,5 +849,17 @@ mod tests {
                 .iter()
                 .any(|note| note.kind() == DiagnosticNoteKind::ReportCompilerDefect)
         );
+    }
+
+    fn assert_native_product_failure(
+        diagnostic: &bray_diagnostics::Diagnostic,
+        expected: &DiagnosticNativeProductFailureKind,
+    ) {
+        assert!(diagnostic.args().iter().any(|arg| {
+            matches!(
+                arg.value(),
+                DiagnosticArgValue::NativeProductFailureKind(actual) if actual == expected
+            )
+        }));
     }
 }

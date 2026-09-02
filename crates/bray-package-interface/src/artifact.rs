@@ -175,7 +175,19 @@ pub(crate) fn encode_interface_artifact(
     sections.sort_by_key(|section| section.tag);
 
     if sections.windows(2).any(|pair| pair[0].tag == pair[1].tag) {
-        return Err(InterfaceValidationError::Malformed);
+        let duplicate = sections
+            .windows(2)
+            .find(|pair| pair[0].tag == pair[1].tag)
+            .map(|pair| pair[0].tag.wire_value())
+            .unwrap_or_default();
+
+        return Err(InterfaceValidationError::Malformed {
+            context: crate::InterfaceValidationContext::Directory,
+            cause: crate::InterfaceMalformedCause::Duplicate {
+                field: crate::InterfaceValidationField::SectionTag,
+                index: u64::from(duplicate),
+            },
+        });
     }
 
     assemble_sections(
@@ -210,15 +222,44 @@ fn assemble_stored_sections(
     let directory_length = stored_sections
         .len()
         .checked_mul(DirectoryEntry::LENGTH)
-        .ok_or(InterfaceValidationError::Malformed)?;
+        .ok_or(InterfaceValidationError::Malformed {
+            context: crate::InterfaceValidationContext::Directory,
+            cause: crate::InterfaceMalformedCause::RangeOverflow {
+                offset: stored_sections.len() as u64,
+                length: DirectoryEntry::LENGTH as u64,
+            },
+        })?;
 
     let directory_offset = InterfaceHeader::LENGTH
-        .checked_add(payload_length.ok_or(InterfaceValidationError::Malformed)?)
-        .ok_or(InterfaceValidationError::Malformed)?;
+        .checked_add(
+            payload_length.ok_or(InterfaceValidationError::Malformed {
+                context: crate::InterfaceValidationContext::Artifact,
+                cause: crate::InterfaceMalformedCause::RangeOverflow {
+                    offset: 0,
+                    length: stored_sections
+                        .iter()
+                        .map(|section| section.payload.len() as u64)
+                        .sum(),
+                },
+            })?,
+        )
+        .ok_or(InterfaceValidationError::Malformed {
+            context: crate::InterfaceValidationContext::Artifact,
+            cause: crate::InterfaceMalformedCause::RangeOverflow {
+                offset: InterfaceHeader::LENGTH as u64,
+                length: payload_length.unwrap_or(usize::MAX) as u64,
+            },
+        })?;
 
-    let file_length = directory_offset
-        .checked_add(directory_length)
-        .ok_or(InterfaceValidationError::Malformed)?;
+    let file_length = directory_offset.checked_add(directory_length).ok_or(
+        InterfaceValidationError::Malformed {
+            context: crate::InterfaceValidationContext::Artifact,
+            cause: crate::InterfaceMalformedCause::RangeOverflow {
+                offset: directory_offset as u64,
+                length: directory_length as u64,
+            },
+        },
+    )?;
 
     let mut encoder = WireEncoder::new();
 
@@ -240,8 +281,16 @@ fn assemble_stored_sections(
         entries.push(DirectoryEntry::for_encoded(
             section.tag,
             section.encoding,
-            usize_to_u64(payload_offset)?,
-            usize_to_u64(section.payload.len())?,
+            usize_to_u64(
+                crate::InterfaceValidationContext::Section(section.tag),
+                crate::InterfaceValidationField::SectionOffset,
+                payload_offset,
+            )?,
+            usize_to_u64(
+                crate::InterfaceValidationContext::Section(section.tag),
+                crate::InterfaceValidationField::EncodedLength,
+                section.payload.len(),
+            )?,
             section.decoded_length,
             section.record_count,
             checksum,
@@ -250,9 +299,15 @@ fn assemble_stored_sections(
 
         encoder.write_bytes(&section.payload);
 
-        payload_offset = payload_offset
-            .checked_add(section.payload.len())
-            .ok_or(InterfaceValidationError::Malformed)?;
+        payload_offset = payload_offset.checked_add(section.payload.len()).ok_or(
+            InterfaceValidationError::Malformed {
+                context: crate::InterfaceValidationContext::Section(section.tag),
+                cause: crate::InterfaceMalformedCause::RangeOverflow {
+                    offset: payload_offset as u64,
+                    length: section.payload.len() as u64,
+                },
+            },
+        )?;
     }
 
     for entry in &entries {
@@ -277,9 +332,23 @@ fn encode_header(
 
     encoder.write_u64(InterfaceRequiredFlags::NONE.bits());
 
-    encoder.write_u64(usize_to_u64(file_length)?);
-    encoder.write_u64(usize_to_u64(directory_offset)?);
-    encoder.write_u64(usize_to_u64(directory_length)?);
+    encoder.write_u64(usize_to_u64(
+        crate::InterfaceValidationContext::Header,
+        crate::InterfaceValidationField::DeclaredFileLength,
+        file_length,
+    )?);
+
+    encoder.write_u64(usize_to_u64(
+        crate::InterfaceValidationContext::Header,
+        crate::InterfaceValidationField::DirectoryOffset,
+        directory_offset,
+    )?);
+
+    encoder.write_u64(usize_to_u64(
+        crate::InterfaceValidationContext::Header,
+        crate::InterfaceValidationField::DirectoryLength,
+        directory_length,
+    )?);
 
     encoder.write_bytes(&[0; 32]);
     encoder.write_bytes(&[0; 32]);
@@ -294,8 +363,16 @@ fn encoded_directory_entry(
     Ok(DirectoryEntry::for_encoded(
         section.tag,
         section.encoding,
-        usize_to_u64(payload_offset)?,
-        usize_to_u64(section.payload.len())?,
+        usize_to_u64(
+            crate::InterfaceValidationContext::Section(section.tag),
+            crate::InterfaceValidationField::SectionOffset,
+            payload_offset,
+        )?,
+        usize_to_u64(
+            crate::InterfaceValidationContext::Section(section.tag),
+            crate::InterfaceValidationField::EncodedLength,
+            section.payload.len(),
+        )?,
         section.decoded_length,
         section.record_count,
         crate::InterfaceSectionHash::from_bytes([0; 32]),
@@ -323,8 +400,13 @@ fn finish_hashes(
     mut bytes: Vec<u8>,
     entries: &[DirectoryEntry],
 ) -> Result<InterfaceArtifact, InterfaceValidationError> {
-    let decoded =
-        InterfaceHeader::decode(&bytes).map_err(|_| InterfaceValidationError::Malformed)?;
+    let decoded = InterfaceHeader::decode(&bytes).map_err(|error| {
+        crate::decode::map_wire_error(
+            crate::InterfaceValidationContext::Header,
+            crate::InterfaceValidationField::Value,
+            error,
+        )
+    })?;
 
     let content_hash = compute_content_hash(
         &decoded.header,
@@ -338,13 +420,26 @@ fn finish_hashes(
     bytes[InterfaceHeader::CONTENT_HASH_OFFSET..InterfaceHeader::CONTENT_HASH_OFFSET + 32]
         .copy_from_slice(content_hash.as_bytes());
 
-    let artifact_hash = compute_artifact_hash(&bytes).ok_or(InterfaceValidationError::Malformed)?;
+    let artifact_hash =
+        compute_artifact_hash(&bytes).ok_or(InterfaceValidationError::DigestUnavailable {
+            context: crate::InterfaceValidationContext::Artifact,
+            field: crate::InterfaceValidationField::ArtifactHash,
+        })?;
 
     bytes[InterfaceHeader::ARTIFACT_HASH_OFFSET..InterfaceHeader::ARTIFACT_HASH_OFFSET + 32]
         .copy_from_slice(artifact_hash.as_bytes());
 
-    let byte_len = usize_to_u64(bytes.len())?;
-    let section_count = usize_to_u64(entries.len())?;
+    let byte_len = usize_to_u64(
+        crate::InterfaceValidationContext::Artifact,
+        crate::InterfaceValidationField::DeclaredFileLength,
+        bytes.len(),
+    )?;
+
+    let section_count = usize_to_u64(
+        crate::InterfaceValidationContext::Directory,
+        crate::InterfaceValidationField::RecordCount,
+        entries.len(),
+    )?;
 
     Ok(InterfaceArtifact::new(
         identity,
@@ -356,8 +451,19 @@ fn finish_hashes(
     ))
 }
 
-fn usize_to_u64(value: usize) -> Result<u64, InterfaceValidationError> {
-    u64::try_from(value).map_err(|_| InterfaceValidationError::Malformed)
+fn usize_to_u64(
+    context: crate::InterfaceValidationContext,
+    field: crate::InterfaceValidationField,
+    value: usize,
+) -> Result<u64, InterfaceValidationError> {
+    u64::try_from(value).map_err(|_| InterfaceValidationError::Malformed {
+        context,
+        cause: crate::InterfaceMalformedCause::NumericOverflow {
+            field,
+            value: u64::MAX,
+            target: crate::InterfaceIntegerTarget::U64,
+        },
+    })
 }
 
 pub(crate) struct EncodedArtifactSection {
@@ -379,10 +485,17 @@ impl StoredArtifactSection {
     fn try_from_decoded(
         section: &EncodedArtifactSection,
     ) -> Result<Self, InterfaceValidationError> {
-        let decoded_length = usize_to_u64(section.payload.len())?;
+        let context = crate::InterfaceValidationContext::Section(section.tag);
+
+        let decoded_length = usize_to_u64(
+            context,
+            crate::InterfaceValidationField::DecodedLength,
+            section.payload.len(),
+        )?;
+
         let content_hash = compute_section_content_hash(section.tag, &section.payload);
 
-        let (encoding, payload) = encode_section(&section.payload)?;
+        let (encoding, payload) = encode_section(context, &section.payload)?;
 
         Ok(Self {
             tag: section.tag,

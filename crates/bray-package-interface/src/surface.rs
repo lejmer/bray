@@ -1,6 +1,7 @@
 mod decoding;
 mod encoding;
 mod model;
+mod presentation;
 mod reference;
 
 mod validation;
@@ -17,3 +18,4 @@ pub(crate) use decoding::{
     decode_surface, decode_symbols,
 };
 pub(crate) use encoding::{EncodedSurfaceSection, encode_surface};
+pub use presentation::diagnostic_surface_problem;

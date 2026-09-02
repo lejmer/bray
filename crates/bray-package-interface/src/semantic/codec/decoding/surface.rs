@@ -37,8 +37,8 @@ pub(super) fn decode_implementation_tables<'bytes>(
     context: &mut SemanticDecodeContext,
 ) -> Result<ImplementationRecordTables<'bytes>, InterfaceValidationError> {
     let mut reader = WireReader::new(section.bytes());
-    let implementations = RecordTable::read_from(&mut reader, context)?;
-    let coherence = RecordTable::read_from(&mut reader, context)?;
+    let implementations = RecordTable::read_from(&mut reader, context, section.tag())?;
+    let coherence = RecordTable::read_from(&mut reader, context, section.tag())?;
 
     validate_record_count(section, [implementations.len(), coherence.len()])?;
 
@@ -68,8 +68,9 @@ pub(super) fn decode_implementations(
         decode_coherence_record(reader, limits, context)
     })?;
 
-    let coherence_by_implementation =
-        coherence_record_indexes(&coherence).ok_or(InterfaceValidationError::Malformed)?;
+    let coherence_by_implementation = coherence_record_indexes(&coherence).ok_or(
+        crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Type),
+    )?;
 
     for implementation in &implementations {
         let expected = coherence_by_implementation
@@ -77,7 +78,9 @@ pub(super) fn decode_implementations(
             .map_or(&[][..], Vec::as_slice);
 
         if implementation.coherence != expected {
-            return Err(InterfaceValidationError::Malformed);
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Type,
+            ));
         }
     }
 
@@ -110,7 +113,9 @@ pub(super) fn decode_implementation_record(
     }
 
     if !coherence.windows(2).all(|pair| pair[0] < pair[1]) {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Type,
+        ));
     }
 
     Ok(DecodedImplementationRecord {
@@ -152,9 +157,9 @@ pub(super) fn decode_target_tables<'bytes>(
 ) -> Result<TargetRecordTables<'bytes>, InterfaceValidationError> {
     let mut reader = WireReader::new(section.bytes());
 
-    let targets = RecordTable::read_from(&mut reader, context)?;
-    let abis = RecordTable::read_from(&mut reader, context)?;
-    let runtimes = RecordTable::read_from(&mut reader, context)?;
+    let targets = RecordTable::read_from(&mut reader, context, section.tag())?;
+    let abis = RecordTable::read_from(&mut reader, context, section.tag())?;
+    let runtimes = RecordTable::read_from(&mut reader, context, section.tag())?;
 
     validate_record_count(section, [targets.len(), abis.len(), runtimes.len()])?;
     reader.finish().map_err(map_wire_error)?;
@@ -230,11 +235,13 @@ pub(super) fn decode_runtime_record(
         false => None,
     };
 
-    let target = TargetIdentity::try_new(read_string(reader, context)?)
-        .ok_or(InterfaceValidationError::Malformed)?;
+    let target = TargetIdentity::try_new(read_string(reader, context)?).ok_or(
+        crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Type),
+    )?;
 
-    let panic_abi = PanicAbiIdentity::try_new(read_string(reader, context)?)
-        .ok_or(InterfaceValidationError::Malformed)?;
+    let panic_abi = PanicAbiIdentity::try_new(read_string(reader, context)?).ok_or(
+        crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Type),
+    )?;
 
     let capabilities = read_tags::<RuntimeCapability>(reader, limits, context)?;
     let lanes = read_tags::<ExecutionLaneRequirement>(reader, limits, context)?;
@@ -266,35 +273,45 @@ fn read_frames(
     for _ in 0..count {
         let bytes = reader.read_bytes(32).map_err(map_wire_error)?;
 
-        let digest =
-            <[u8; 32]>::try_from(bytes).map_err(|_| InterfaceValidationError::Malformed)?;
+        let digest = <[u8; 32]>::try_from(bytes).map_err(|_| {
+            crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Type)
+        })?;
 
         frames.push(ProtectedAsyncFrameId::new(digest));
     }
 
     if !frames.windows(2).all(|pair| pair[0] < pair[1]) {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Type,
+        ));
     }
 
     Ok(frames)
 }
 
 fn read_presence(reader: &mut WireReader<'_>) -> Result<bool, InterfaceValidationError> {
-    match read_u32(reader)? {
+    let raw = read_u32(reader)?;
+
+    match raw {
         0 => Ok(false),
         1 => Ok(true),
-        _ => Err(InterfaceValidationError::Malformed),
+        _ => Err(crate::semantic::codec::invalid_discriminant(
+            crate::InterfaceValidationField::RuntimeRequirements,
+            raw,
+        )),
     }
 }
 
 fn read_version(
     reader: &mut WireReader<'_>,
 ) -> Result<RuntimeAbiVersion, InterfaceValidationError> {
-    let major =
-        u16::try_from(read_u32(reader)?).map_err(|_| InterfaceValidationError::Malformed)?;
+    let major = u16::try_from(read_u32(reader)?).map_err(|_| {
+        crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Type)
+    })?;
 
-    let minor =
-        u16::try_from(read_u32(reader)?).map_err(|_| InterfaceValidationError::Malformed)?;
+    let minor = u16::try_from(read_u32(reader)?).map_err(|_| {
+        crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Type)
+    })?;
 
     Ok(RuntimeAbiVersion::new(major, minor))
 }
@@ -312,7 +329,9 @@ fn read_tags<T: WireTag + Ord>(
     }
 
     if !values.windows(2).all(|pair| pair[0] < pair[1]) {
-        return Err(InterfaceValidationError::Malformed);
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Type,
+        ));
     }
 
     Ok(values)
@@ -324,8 +343,9 @@ pub(super) fn decode_provenance(
     context: &mut SemanticDecodeContext,
     semantics: &mut InterfaceSemantics,
 ) -> Result<(), InterfaceValidationError> {
-    let count =
-        usize::try_from(section.record_count()).map_err(|_| InterfaceValidationError::Malformed)?;
+    let count = usize::try_from(section.record_count()).map_err(|_| {
+        crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Type)
+    })?;
 
     limits.check(InterfaceLimit::RecordCount, section.record_count())?;
 
@@ -339,8 +359,9 @@ pub(super) fn decode_provenance(
         let start = read_u32(&mut reader)?;
         let end = read_u32(&mut reader)?;
 
-        let value = InterfaceSourceProvenance::try_new(symbol, document, start, end)
-            .ok_or(InterfaceValidationError::Malformed)?;
+        let value = InterfaceSourceProvenance::try_new(symbol, document, start, end).ok_or(
+            crate::semantic::codec::invalid_value(crate::InterfaceValidationField::Type),
+        )?;
 
         values.push(value);
     }
