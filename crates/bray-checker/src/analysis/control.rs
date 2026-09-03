@@ -164,46 +164,23 @@ where
             return Some(Some(current));
         };
 
-        let current = self
-            .build_expression(left, current)?
-            .unwrap_or_else(|| self.push_block());
-
         self.push_bound(current, id.into());
 
         let join = self.push_block();
         let right_entry = self.push_block();
 
-        let (right_kind, bypass_kind) = match operator {
-            BoundOperator::LogicalAnd => (
-                AnalysisEdgeKind::ConditionalTrue,
-                AnalysisEdgeKind::ConditionalFalse,
-            ),
-            BoundOperator::LogicalOr => (
-                AnalysisEdgeKind::ConditionalFalse,
-                AnalysisEdgeKind::ConditionalTrue,
-            ),
+        let (matched, unmatched) = match operator {
+            BoundOperator::LogicalAnd => (right_entry, join),
+            BoundOperator::LogicalOr => (join, right_entry),
             _ => return Some(Some(current)),
         };
 
-        self.push_edge(
+        self.build_condition(
+            left,
             current,
-            right_entry,
-            right_kind,
-            Some(AnalysisRefinement::Condition {
-                expression: left,
-                value: operator == BoundOperator::LogicalAnd,
-            }),
-        );
-
-        self.push_edge(
-            current,
-            join,
-            bypass_kind,
-            Some(AnalysisRefinement::Condition {
-                expression: left,
-                value: operator == BoundOperator::LogicalOr,
-            }),
-        );
+            (matched, AnalysisEdgeKind::ConditionalTrue),
+            (unmatched, AnalysisEdgeKind::ConditionalFalse),
+        )?;
 
         if let Some(right) = operands.get(1).copied() {
             if let Some(completion) = self.build_expression(right, right_entry)? {
@@ -229,34 +206,17 @@ where
             return Some(Some(current));
         };
 
-        let current = self
-            .build_expression(condition, current)?
-            .unwrap_or_else(|| self.push_block());
-
         self.push_bound(current, id.into());
 
         let success = self.push_block();
         let failure = self.push_block();
 
-        self.push_edge(
+        self.build_condition(
+            condition,
             current,
-            success,
-            AnalysisEdgeKind::ConditionalTrue,
-            Some(AnalysisRefinement::Condition {
-                expression: condition,
-                value: true,
-            }),
-        );
-
-        self.push_edge(
-            current,
-            failure,
-            AnalysisEdgeKind::ConditionalFalse,
-            Some(AnalysisRefinement::Condition {
-                expression: condition,
-                value: false,
-            }),
-        );
+            (success, AnalysisEdgeKind::ConditionalTrue),
+            (failure, AnalysisEdgeKind::ConditionalFalse),
+        )?;
 
         let failure = self.build_operands(operands.get(1..).unwrap_or_default(), failure)?;
 
@@ -410,33 +370,14 @@ where
 
             let body_entry = match arm.guard() {
                 Some(guard) => {
-                    let guard_expression = guard;
-
-                    let guard = self
-                        .build_expression(guard, arm_entry)?
-                        .unwrap_or_else(|| self.push_block());
-
                     let body_entry = self.push_block();
 
-                    self.push_edge(
+                    self.build_condition(
                         guard,
-                        body_entry,
-                        AnalysisEdgeKind::ConditionalTrue,
-                        Some(AnalysisRefinement::Condition {
-                            expression: guard_expression,
-                            value: true,
-                        }),
-                    );
-
-                    self.push_edge(
-                        guard,
-                        next_candidate,
-                        AnalysisEdgeKind::ConditionalFalse,
-                        Some(AnalysisRefinement::Condition {
-                            expression: guard_expression,
-                            value: false,
-                        }),
-                    );
+                        arm_entry,
+                        (body_entry, AnalysisEdgeKind::ConditionalTrue),
+                        (next_candidate, AnalysisEdgeKind::ConditionalFalse),
+                    )?;
 
                     body_entry
                 }
@@ -483,9 +424,8 @@ where
         self.build_condition(
             condition,
             header,
-            body_entry,
-            exhausted,
-            AnalysisEdgeKind::LoopEntry,
+            (body_entry, AnalysisEdgeKind::LoopEntry),
+            (exhausted, AnalysisEdgeKind::ConditionalFalse),
         )?;
 
         self.loops.push(LoopContext {

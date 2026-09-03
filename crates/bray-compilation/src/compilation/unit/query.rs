@@ -8134,7 +8134,7 @@ func main(pos choice: Choice, pos point: Point, pos optional: i32?, pos pair: (i
     }
 
     #[test]
-    fn pattern_conditions_publish_both_nullable_outcomes_and_common_alternative_facts() {
+    fn pattern_conditions_publish_both_nullable_outcomes_and_common_alternative_refinements() {
         for condition in [
             "value matches none",
             "!(value matches none)",
@@ -8276,6 +8276,87 @@ func main(pos choice: Choice, pos point: Point, pos optional: i32?, pos pair: (i
 
                 assert_eq!(actual, expected, "{condition} at {marker}");
             }
+        }
+    }
+
+    #[test]
+    fn boolean_condition_refinements_respect_later_operand_mutation() {
+        for (body, expected) in [
+            (
+                "if !(value matches none || { value = none; yield false; }) { 11; }",
+                None,
+            ),
+            (
+                "if !(value matches ?_ && { value = none; yield true; }) {} else { 11; }",
+                None,
+            ),
+            (
+                "if value matches ?_ && ({ value = none; yield true; }) { 11; }",
+                None,
+            ),
+            (
+                "assert(!(value matches none || { value = none; yield false; })); 11;",
+                None,
+            ),
+            (
+                "match true { case true when !(value matches none || { value = none; yield false; }) { 11; } case _ {} }",
+                None,
+            ),
+            (
+                "while !(value matches none || { value = none; yield false; }) { 11; break; }",
+                None,
+            ),
+            (
+                "let result = (value matches none || { value = none; yield false; }) || { 11; yield false; };",
+                None,
+            ),
+            (
+                "if !(value matches none || { other = none; yield false; }) { 11; }",
+                Some(PatternPredicate::NullablePresent),
+            ),
+            (
+                "if !(value matches none || false) { 11; }",
+                Some(PatternPredicate::NullablePresent),
+            ),
+        ] {
+            let source = format!(
+                "module app; func main(pos mut value: i32?, pos mut other: i32?) {{ {body} }}"
+            );
+
+            let compilation = compilation(&source);
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{source}: {:?}",
+                compilation.check_diagnostics()
+            );
+
+            let key = source_callable_body_key(&compilation);
+            let unit = compilation.bound_unit(key.clone()).unwrap();
+            let analysis = compilation.refinements(key).unwrap();
+            let offset = u32::try_from(source.find("11;").unwrap()).unwrap();
+
+            let marker = unit.value().tree().expressions().find_map(|(id, expression)| {
+                matches!(expression, BoundExpression::Literal(literal) if literal.spelling_range().start().bytes() == offset).then_some(id)
+            }).unwrap();
+
+            let actual = analysis
+                .value()
+                .refinements_before(marker.into())
+                .iter()
+                .filter_map(|refinement| match refinement.kind() {
+                    RefinementKind::Pattern {
+                        predicate:
+                            predicate @ (PatternPredicate::NullablePresent
+                            | PatternPredicate::NullableAbsent),
+                        value: true,
+                        ..
+                    } => Some(predicate),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(actual, expected.into_iter().collect::<Vec<_>>(), "{body}");
         }
     }
 

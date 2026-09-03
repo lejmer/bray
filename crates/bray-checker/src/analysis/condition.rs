@@ -29,9 +29,8 @@ where
             self.build_condition(
                 condition,
                 current,
-                entry,
-                next,
-                AnalysisEdgeKind::ConditionalTrue,
+                (entry, AnalysisEdgeKind::ConditionalTrue),
+                (next, AnalysisEdgeKind::ConditionalFalse),
             )?;
 
             let completion = self.build_result_branch(branch, entry, join, depth)?;
@@ -97,9 +96,8 @@ where
         &mut self,
         id: BoundExpressionId,
         current: AnalysisBlockId,
-        matched: AnalysisBlockId,
-        unmatched: AnalysisBlockId,
-        success_kind: AnalysisEdgeKind,
+        matched: (AnalysisBlockId, AnalysisEdgeKind),
+        unmatched: (AnalysisBlockId, AnalysisEdgeKind),
     ) -> Option<()> {
         if let bray_bound_tree::BoundExpression::Structured(condition) =
             self.view().expression(id)?
@@ -109,11 +107,24 @@ where
 
             self.push_bound(current, id.into());
 
-            return self.build_condition(operand, current, matched, unmatched, success_kind);
+            return self.build_condition(operand, current, matched, unmatched);
+        }
+
+        if let bray_bound_tree::BoundExpression::Unary(unary) = self.view().expression(id)?
+            && unary.operator() == BoundOperator::LogicalNot
+        {
+            let operand = *unary.operands().first()?;
+
+            self.push_bound(current, id.into());
+
+            return self.build_condition(operand, current, unmatched, matched);
         }
 
         if let bray_bound_tree::BoundExpression::Binary(binary) = self.view().expression(id)?
-            && binary.operator() == BoundOperator::LogicalAnd
+            && matches!(
+                binary.operator(),
+                BoundOperator::LogicalAnd | BoundOperator::LogicalOr
+            )
         {
             let [left, right] = binary.operands() else {
                 return None;
@@ -121,10 +132,29 @@ where
 
             let (left, right) = (*left, *right);
 
+            let operator = binary.operator();
+
             let next = self.push_block();
 
-            self.build_condition(left, current, next, unmatched, success_kind)?;
-            self.build_condition(right, next, matched, unmatched, success_kind)?;
+            self.push_bound(current, id.into());
+
+            if operator == BoundOperator::LogicalAnd {
+                self.build_condition(
+                    left,
+                    current,
+                    (next, AnalysisEdgeKind::ConditionalTrue),
+                    unmatched,
+                )?;
+            } else {
+                self.build_condition(
+                    left,
+                    current,
+                    matched,
+                    (next, AnalysisEdgeKind::ConditionalFalse),
+                )?;
+            }
+
+            self.build_condition(right, next, matched, unmatched)?;
 
             return Some(());
         }
@@ -154,13 +184,13 @@ where
         let success = if pattern.is_some() {
             self.push_block()
         } else {
-            matched
+            matched.0
         };
 
         self.push_edge(
             current,
             success,
-            success_kind,
+            matched.1,
             Some(AnalysisRefinement::Condition {
                 expression: id,
                 value: true,
@@ -169,8 +199,8 @@ where
 
         self.push_edge(
             current,
-            unmatched,
-            AnalysisEdgeKind::ConditionalFalse,
+            unmatched.0,
+            unmatched.1,
             Some(AnalysisRefinement::Condition {
                 expression: id,
                 value: false,
@@ -180,7 +210,7 @@ where
         if let Some((_, pattern)) = pattern
             && let Some(completion) = self.build_pattern(pattern, success)?
         {
-            self.push_edge(completion, matched, AnalysisEdgeKind::Sequential, None);
+            self.push_edge(completion, matched.0, AnalysisEdgeKind::Sequential, None);
         }
 
         Some(())

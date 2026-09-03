@@ -46,11 +46,22 @@ impl Parser {
     }
 
     pub(in crate::parser::expression) fn should_parse_slice_index_operation(&mut self) -> bool {
-        self.scan_ahead(Parser::scan_bracket_has_top_level_dot_dot)
+        self.scan_ahead(|scan| {
+            scan.scan_delimited_contains_top_level(
+                SyntaxKind::OpenBracketToken,
+                SyntaxKind::CloseBracketToken,
+                SyntaxKind::DotDotToken,
+            )
+        })
     }
 
-    fn scan_bracket_has_top_level_dot_dot(&mut self) -> bool {
-        if !self.at(SyntaxKind::OpenBracketToken) {
+    fn scan_delimited_contains_top_level(
+        &mut self,
+        opening: SyntaxKind,
+        closing: SyntaxKind,
+        sought: SyntaxKind,
+    ) -> bool {
+        if !self.at(opening) {
             return false;
         }
 
@@ -61,11 +72,11 @@ impl Parser {
         while !self.at(SyntaxKind::EndOfFileToken) {
             let kind = self.peek().kind();
 
-            if depth.is_at_root() && kind == SyntaxKind::DotDotToken {
+            if depth.is_at_root() && kind == sought {
                 return true;
             }
 
-            if depth.is_at_root() && kind == SyntaxKind::CloseBracketToken {
+            if depth.is_at_root() && kind == closing {
                 return false;
             }
 
@@ -106,6 +117,13 @@ impl Parser {
         self.at(SyntaxKind::OpenBraceToken)
             && self.lookahead(1).kind() == SyntaxKind::IdentifierToken
             && self.lookahead(2).kind() == SyntaxKind::EqualsToken
+            && !self.scan_ahead(|scan| {
+                scan.scan_delimited_contains_top_level(
+                    SyntaxKind::OpenBraceToken,
+                    SyntaxKind::CloseBraceToken,
+                    SyntaxKind::SemicolonToken,
+                )
+            })
     }
 
     pub(in crate::parser::expression) fn should_parse_general_generator_expression(
@@ -116,13 +134,6 @@ impl Parser {
 
     pub(in crate::parser::expression) fn at_named_argument_start(&mut self) -> bool {
         self.at(SyntaxKind::IdentifierToken) && self.lookahead(1).kind() == SyntaxKind::EqualsToken
-    }
-
-    pub(in crate::parser::expression) fn at_parenthesized_expression_boundary(
-        &mut self,
-        at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
-    ) -> bool {
-        self.at(SyntaxKind::CloseParenToken) || self.at(SyntaxKind::CommaToken) || at_boundary(self)
     }
 
     pub(in crate::parser::expression) fn at_parenthesized_tuple_missing_separator(

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundOperator, BoundPatternId, BoundPatternKind,
+    BoundExpression, BoundExpressionId, BoundPatternId, BoundPatternKind,
     BoundStructuredExpressionKind, BoundUnitView, CheckedPatterns, PatternPredicate,
     PatternRefutability, Refinement, RefinementKind, StorageAccessId, StorageBinding,
     StorageBindingTarget, StoragePlan, StorageRelationship,
@@ -39,105 +39,25 @@ pub(super) fn condition_refinements(
     expression: BoundExpressionId,
     value: bool,
 ) -> Vec<Refinement> {
-    let mut result = Vec::new();
-    let mut pending = vec![(expression, value)];
+    let mut result = vec![Refinement::new(
+        RefinementKind::Condition { expression, value },
+        expression_dependencies(view, dependencies, expression),
+    )];
 
-    while let Some((expression, value)) = pending.pop() {
-        result.push(Refinement::new(
-            RefinementKind::Condition { expression, value },
-            expression_dependencies(view, dependencies, expression),
+    if let Some(BoundExpression::Structured(test)) = view.expression(expression)
+        && matches!(
+            test.kind(),
+            BoundStructuredExpressionKind::PatternTest
+                | BoundStructuredExpressionKind::PatternBinding
+        )
+        && let ([subject], [pattern]) = (test.operands(), test.patterns())
+    {
+        result.extend(pattern_refinements(
+            view, patterns, storage, *subject, *pattern, value,
         ));
-
-        match view.expression(expression) {
-            Some(BoundExpression::Structured(condition))
-                if condition.kind() == BoundStructuredExpressionKind::Condition =>
-            {
-                pending.extend(condition.operands().iter().map(|operand| (*operand, value)));
-            }
-            Some(BoundExpression::Unary(unary))
-                if unary.operator() == BoundOperator::LogicalNot =>
-            {
-                pending.extend(unary.operands().iter().map(|operand| (*operand, !value)));
-            }
-            Some(BoundExpression::Binary(binary))
-                if matches!(
-                    binary.operator(),
-                    BoundOperator::LogicalAnd | BoundOperator::LogicalOr
-                ) =>
-            {
-                let every_operand = value == (binary.operator() == BoundOperator::LogicalAnd);
-
-                if every_operand {
-                    pending.extend(binary.operands().iter().map(|operand| (*operand, value)));
-                } else {
-                    let mut alternatives =
-                        boolean_leaves(view, expression, binary.operator()).into_iter();
-
-                    if let Some(first) = alternatives.next() {
-                        let mut common = condition_refinements(
-                            view,
-                            patterns,
-                            storage,
-                            dependencies,
-                            first,
-                            value,
-                        );
-
-                        for alternative in alternatives {
-                            let alternative = condition_refinements(
-                                view,
-                                patterns,
-                                storage,
-                                dependencies,
-                                alternative,
-                                value,
-                            );
-
-                            retain_common(&mut common, &alternative, storage);
-                        }
-
-                        result.extend(common);
-                    }
-                }
-            }
-            Some(BoundExpression::Structured(test))
-                if matches!(
-                    test.kind(),
-                    BoundStructuredExpressionKind::PatternTest
-                        | BoundStructuredExpressionKind::PatternBinding
-                ) =>
-            {
-                if let ([subject], [pattern]) = (test.operands(), test.patterns()) {
-                    result.extend(pattern_refinements(
-                        view, patterns, storage, *subject, *pattern, value,
-                    ));
-                }
-            }
-            _ => {}
-        }
     }
 
     result
-}
-
-fn boolean_leaves(
-    view: BoundUnitView<'_>,
-    root: BoundExpressionId,
-    operator: BoundOperator,
-) -> Vec<BoundExpressionId> {
-    let mut pending = vec![root];
-    let mut leaves = Vec::new();
-
-    while let Some(expression) = pending.pop() {
-        match view.expression(expression) {
-            Some(BoundExpression::Binary(binary)) if binary.operator() == operator => {
-                pending.extend(binary.operands().iter().rev().copied());
-            }
-            _ => leaves.push(expression),
-        }
-    }
-
-    leaves
 }
 
 pub(super) fn pattern_refinements(
