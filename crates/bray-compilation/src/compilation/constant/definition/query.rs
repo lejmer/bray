@@ -1285,6 +1285,36 @@ mod tests {
     }
 
     #[test]
+    fn pattern_conditions_evaluate_constant_calls_and_conditional_bindings() {
+        let compilation = compilation(
+            "module app; const func choose(pos input: i32) -> i32 { if input matches 0 | 1 { return 10; } else if let value = input && value > 5 && let next = value + 1 { return next; } else { return 99; } }",
+        );
+
+        let result_type = i32_type(&compilation);
+
+        for (input, expected) in [(0, 10), (1, 10), (3, 99), (7, 8)] {
+            let input = integer_constant(&compilation, result_type, input);
+
+            let (_, request) = source_constant_call_request(&compilation, [input], result_type);
+
+            let result = compilation
+                .constant_call_with_cancellation(&request, &compilation.state.cancellation)
+                .unwrap();
+
+            assert!(
+                result.diagnostics().is_empty(),
+                "{:?}",
+                result.diagnostics()
+            );
+
+            assert_eq!(
+                integer_value(&compilation, result.value().unwrap().value()),
+                expected
+            );
+        }
+    }
+
+    #[test]
     fn constant_calls_evaluate_parameters_conditionals_and_local_constants() {
         let compilation = compilation(concat!(
             "module app;\n",

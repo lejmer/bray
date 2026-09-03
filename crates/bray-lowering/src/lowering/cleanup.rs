@@ -88,8 +88,9 @@ impl Lowerer<'_> {
         scope: BoundBlockId,
         current: MirBlockId,
         source: &MirSourceAnchor,
+        exit: AnyBoundNodeId,
     ) -> Result<MirBlockId, LoweringError> {
-        if !self.scope_has_cleanup(scope, scope.into())? {
+        if !self.scope_has_cleanup(scope, exit)? {
             return Ok(current);
         }
 
@@ -104,7 +105,7 @@ impl Lowerer<'_> {
             CleanupEntry::Ordinary,
             CleanupDestination::Goto(continuation),
             None,
-            scope.into(),
+            exit,
         )?;
 
         Ok(continuation)

@@ -104,10 +104,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .type_mapping(query.operand_type())
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
+                    let nullable = self
+                        .type_mapping(query.nullable_type())
+                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
                     if !matches!(
                         mapping.kind(),
                         CodegenTypeKind::Pointer { target, .. }
-                            if *target == query.nullable_type()
+                            if *target == nullable.ty()
                     ) {
                         return Err(CodegenFailure::GeneratedModuleInvariant);
                     }
@@ -512,7 +516,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .map(Some)
             }
             MirAsyncOperation::ObserveCurrentRunCancellation { runtime } => {
-                let value = self.invoke_native_runtime(*runtime, &[])?
+                let value = self
+                    .invoke_native_runtime(*runtime, &[])?
                     .and_then(int_value)
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 

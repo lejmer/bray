@@ -35,7 +35,7 @@ where
             .clone();
 
         if pattern.kind() == BoundPatternKind::Alternative {
-            self.install_alternative_bindings(&pattern)?;
+            self.install_alternative_bindings(id)?;
         }
 
         let checked = self
@@ -63,6 +63,13 @@ where
             }
             None => parent_access,
         };
+
+        self.builder_mut()?
+            .bind(
+                StorageBindingTarget::PatternSubject(id),
+                StorageBinding::Access(access),
+            )
+            .map_err(CheckerInfrastructureError::StoragePlan)?;
 
         if pattern.kind() == BoundPatternKind::Discard {
             let transfers_borrow = checked.operation() == PatternOperation::Consume
@@ -140,7 +147,7 @@ where
         }
 
         if pattern.kind() == BoundPatternKind::Alternative {
-            self.finalize_alternative_bindings(id, &pattern)?;
+            self.finalize_alternative_bindings(id)?;
         }
 
         Ok(())
@@ -270,7 +277,7 @@ where
 
     fn install_alternative_bindings(
         &mut self,
-        pattern: &BoundPattern,
+        pattern: BoundPatternId,
     ) -> Result<(), PlanError<C::UpstreamError>> {
         let bindings = self.descendant_bindings(pattern)?;
 
@@ -301,9 +308,14 @@ where
     fn finalize_alternative_bindings(
         &mut self,
         pattern_id: BoundPatternId,
-        pattern: &BoundPattern,
     ) -> Result<(), PlanError<C::UpstreamError>> {
-        for binding in self.descendant_bindings(pattern)? {
+        let pattern = self
+            .request
+            .view()
+            .pattern(pattern_id)
+            .ok_or_else(|| invalid_node(pattern_id))?;
+
+        for binding in self.descendant_bindings(pattern_id)? {
             let Some(alternatives) = self.alternative_pattern_bindings.get_mut(&binding) else {
                 continue;
             };
@@ -362,16 +374,18 @@ where
 
     fn descendant_bindings(
         &self,
-        pattern: &BoundPattern,
+        pattern: BoundPatternId,
     ) -> Result<Vec<bray_symbols::LocalBindingSymbolId>, PlanError<C::UpstreamError>> {
-        let mut bindings = pattern.bindings().to_vec();
-
-        bindings.extend(pattern.entries().iter().filter_map(|entry| entry.binding()));
-
-        let mut pending = pattern.children().to_vec();
+        let mut bindings = Vec::new();
+        let mut pending = vec![pattern];
 
         while let Some(pattern) = pending.pop() {
             self.check_cancellation()?;
+
+            let checked = self
+                .patterns
+                .pattern(pattern)
+                .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
 
             let pattern = self
                 .request
@@ -379,8 +393,7 @@ where
                 .pattern(pattern)
                 .ok_or_else(|| invalid_node(pattern))?;
 
-            bindings.extend_from_slice(pattern.bindings());
-            bindings.extend(pattern.entries().iter().filter_map(|entry| entry.binding()));
+            bindings.extend(checked.bindings(pattern));
             pending.extend_from_slice(pattern.children());
         }
 

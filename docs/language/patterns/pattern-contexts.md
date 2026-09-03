@@ -16,7 +16,11 @@ A context that accepts refutable patterns defines what happens when a pattern do
 A context that requires irrefutable patterns rejects refutable patterns during checking.
 
 The syntax grammar names this split with `irrefutable-pattern` for irrefutable-only contexts and `case-pattern` for
-match arms.
+match arms, `matches`, and conditional `let`.
+
+`matches` accepts refutable patterns but rejects bindings at every depth. `if let` and `while let` accept refutable
+patterns and expose bindings to later `&&` condition operands and their successful body. These contexts do not require exhaustiveness and use the
+existing observing match mode.
 
 The syntax root does not prove refutability by itself. Refutability is checked against the subject type.
 

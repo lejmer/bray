@@ -20,7 +20,10 @@ macro_rules! test_token_list_syntax {
             };
 
             use super::{$item_syntax, $list_syntax};
-            use $crate::{SourceSyntaxNode, SyntaxNode, SyntaxText, SyntaxToken, SyntaxTrivia};
+            use $crate::{
+                SeparatedSyntaxNode, SourceSyntaxNode, SyntaxNode, SyntaxText, SyntaxToken,
+                SyntaxTrivia,
+            };
 
             #[test]
             fn stores_items_separators_and_source_text() {

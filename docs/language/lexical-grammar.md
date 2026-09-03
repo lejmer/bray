@@ -215,6 +215,7 @@ keyword =
     | "let"
     | "loop"
     | "match"
+    | "matches"
     | "module"
     | "move"
     | "mut"

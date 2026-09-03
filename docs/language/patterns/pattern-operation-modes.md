@@ -28,6 +28,11 @@ In **copy mode**, the pattern copies matched parts when the type's copy contract
 The same pattern syntax can be used in multiple operation modes. The surrounding construct decides how the pattern
 accesses or extracts the matched parts.
 
+`matches`, `if let`, and `while let` select the same observing mode as an ordinary non-consuming `match`. `matches`
+prohibits bindings. Conditional `let` exposes observing bindings to later `&&` operands and the successful body. It does not grant
+permission to move a non-copyable payload from the subject. Existing rules govern copying, borrowing, mutation authority,
+temporary lifetimes, destruction, and partially initialized storage.
+
 ## Navigation
 
 - [Language index](../index.md)

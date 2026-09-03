@@ -206,17 +206,14 @@ macro_rules! define_pattern_root_syntax {
             }
         }
 
+        impl crate::node::GreenSeparatedSyntaxNode for $node {}
+
         impl $node {
             /// Returns the first literal-pattern token.
             pub fn literal_token(&self) -> Option<SyntaxToken> {
-                self.tokens().find(|token| token.kind().is_pattern_literal())
+                self.node.first_child_token_matching(self.start, SyntaxKind::is_pattern_literal)
             }
 
-            /// Returns comma separator tokens in source order.
-            pub fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
-                self.tokens()
-                    .filter(|token| token.kind() == SyntaxKind::CommaToken)
-            }
         }
 
         impl $builder {
@@ -424,7 +421,8 @@ define_pattern_root_syntax! {
 impl CasePatternSyntax {
     /// Returns alternative separator tokens in source order.
     pub fn alternative_separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
-        self.tokens()
+        self.node
+            .child_tokens(self.start)
             .filter(|token| token.kind() == SyntaxKind::PipeToken)
     }
 }
@@ -453,6 +451,7 @@ define_pattern_entry_syntax! {
 
 #[cfg(test)]
 mod tests {
+    use crate::SeparatedSyntaxNode;
     use bray_source::TextSize;
 
     use crate::test_support::{

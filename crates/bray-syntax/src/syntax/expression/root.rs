@@ -1,7 +1,7 @@
 use crate::green::GreenElement;
 use crate::node::{child_nodes, define_source_syntax_node};
 use crate::{
-    CallOperationSyntax, ConversionOperationSyntax, ElementIndexOperationSyntax,
+    CallOperationSyntax, CasePatternSyntax, ConversionOperationSyntax, ElementIndexOperationSyntax,
     GenericArgumentListSyntax, MemberAccessOperationSyntax, NullablePropagationOperationSyntax,
     PrimaryExpressionSyntax, SliceIndexOperationSyntax, SyntaxKind, SyntaxToken,
     TraitApplicationSyntax, TraitQualifiedMemberOperationSyntax, TypeExpressionSyntax,
@@ -34,9 +34,34 @@ define_source_syntax_node! {
         builder_debug_name: "ExpressionSyntaxBuilder",
         skipped_syntax: true,
         required_tokens: [],
-        optional_tokens: [],
+        optional_tokens: [
+            {
+                /// Returns the `let` token of a conditional pattern binding.
+                let_keyword;
+                /// Appends the conditional binding's `let` token.
+                push_let_keyword;
+                kind: SyntaxKind::LetKeyword;
+                slot: "expression.let_keyword";
+            },
+            {
+                /// Returns the initializer separator of a conditional pattern binding.
+                equals_token;
+                /// Appends the conditional binding's initializer separator.
+                push_equals_token;
+                kind: SyntaxKind::EqualsToken;
+                slot: "expression.equals_token";
+            }
+        ],
         required_children: [],
         repeated_children: [
+            {
+                /// Returns structural test patterns in source order.
+                case_patterns;
+                /// Appends a structural test pattern.
+                push_case_pattern;
+                ty: CasePatternSyntax;
+                kind: SyntaxKind::CasePattern;
+            },
             {
                 /// Returns direct nested expression children in source order.
                 expressions;

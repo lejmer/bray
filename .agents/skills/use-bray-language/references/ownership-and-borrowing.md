@@ -96,6 +96,8 @@ A plain parameter receives ownership. `&T` observes reached storage, `&mut T` gr
 
 ### Explicit consuming contexts
 
+Structural `matches` tests and conditional `let` use the existing observing match mode. They do not consume the subject or permit moving its non-copyable payload. Conditional bindings are available to later `&&` operands and the successful body. An owned temporary subject remains alive through those observations and is cleaned up when the chain fails or the body exits. Copy, borrow, mutation, destruction, and partial-state checks use the same contracts as other observing patterns. Use an explicit consuming match to move selected parts.
+
 ```bray
 union Message
 {

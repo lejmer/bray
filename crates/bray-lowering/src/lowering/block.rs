@@ -47,8 +47,13 @@ impl Lowerer<'_> {
         let (join, result, result_type) =
             self.push_result_join(expression_id, expression.origin())?;
 
-        let completion =
-            self.lower_yielding_block(expression.block(), current, join, result_type)?;
+        let completion = self.lower_yielding_block(
+            expression.block(),
+            current,
+            join,
+            result_type,
+            self.active_scopes.len(),
+        )?;
 
         self.finish_result_edge(completion, join, result_type)?;
 
@@ -99,7 +104,7 @@ impl Lowerer<'_> {
                 current = continuation;
             }
 
-            current = self.finish_scope(id, current, &source)?;
+            current = self.finish_scope(id, current, &source, id.into())?;
 
             Ok(LoweredExpression::continuing(current, None, source))
         })();
@@ -115,6 +120,7 @@ impl Lowerer<'_> {
         current: MirBlockId,
         target: MirBlockId,
         result_type: TypeId,
+        scope_depth: usize,
     ) -> Result<LoweredExpression, LoweringError> {
         let syntax = self
             .input
@@ -128,7 +134,7 @@ impl Lowerer<'_> {
             syntax,
             block: target,
             result_type,
-            scope_depth: self.active_scopes.len(),
+            scope_depth,
         });
 
         let completion = self.lower_block(id, current);

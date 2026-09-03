@@ -76,11 +76,7 @@ internal func park_until_woken(pos value: i32) -> i32
 
 internal func name_current_thread(pos name: string) -> bool
 {
-    match std.thread.set_current_name(&name)
-    {
-        case Ok(_) { return true; }
-        case Error(_) { return false; }
-    }
+    return std.thread.set_current_name(&name) matches Ok(_);
 }
 
 internal func generic_thread_values(pos ignored: unit) -> (u64, u64)

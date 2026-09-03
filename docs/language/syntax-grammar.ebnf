@@ -136,7 +136,7 @@ logical-and-expression =
     comparison-expression { "&&" comparison-expression } ;
 
 comparison-expression =
-    bitwise-or-expression [ comparison-operator bitwise-or-expression ] ;
+    bitwise-or-expression [ comparison-operator bitwise-or-expression | "matches" case-pattern ] ;
 
 bitwise-or-expression =
     bitwise-xor-expression { "|" bitwise-xor-expression } ;
@@ -446,7 +446,15 @@ local-binding-declaration =
    than a block-expression. *)
 
 conditional-expression =
-    "if" condition-expression block-expression [ "else" conditional-else ] ;
+    "if" conditional-test block-expression [ "else" conditional-else ] ;
+
+conditional-test =
+      logical-or-expression
+    | binding-condition { "&&" binding-condition } ;
+
+binding-condition =
+      comparison-expression
+    | "let" case-pattern "=" comparison-expression ;
 
 conditional-else =
       block-expression
@@ -465,7 +473,7 @@ match-arm =
     "case" case-pattern [ "when" guard-expression ] block-expression ;
 
 while-expression =
-    "while" condition-expression block-expression [ "else" block-expression ] ;
+    "while" conditional-test block-expression [ "else" block-expression ] ;
 
 for-expression =
     "for" irrefutable-pattern "in" iteration-source block-expression

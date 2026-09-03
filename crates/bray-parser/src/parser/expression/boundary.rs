@@ -197,7 +197,25 @@ impl Parser {
     }
 
     pub(in crate::parser::expression) fn at_expression_before_block_boundary(&mut self) -> bool {
-        self.at(SyntaxKind::OpenBraceToken) || self.at(SyntaxKind::EndOfFileToken)
+        if !self.at(SyntaxKind::OpenBraceToken) {
+            return self.at(SyntaxKind::EndOfFileToken);
+        }
+
+        !self.scan_ahead(|scan| {
+            let body = scan.parse_struct_construction_body();
+            let continuation = scan.peek().kind();
+
+            !body.is_recovered()
+                && (at_infix_operator(continuation)
+                    || postfix_operation_start(continuation).is_some()
+                    || matches!(
+                        continuation,
+                        SyntaxKind::OpenBraceToken
+                            | SyntaxKind::CloseParenToken
+                            | SyntaxKind::CloseBracketToken
+                            | SyntaxKind::CommaToken
+                    ))
+        })
     }
 
     pub(in crate::parser::expression) fn at_expression_before_block_recovery_boundary(
@@ -205,7 +223,7 @@ impl Parser {
     ) -> bool {
         let kind = self.peek().kind();
 
-        self.at_expression_before_block_boundary()
+        kind == SyntaxKind::OpenBraceToken
             || at_primary_hard_boundary(kind)
             || matches!(
                 kind,

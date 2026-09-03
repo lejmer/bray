@@ -5,7 +5,7 @@ use bray_declarations::SyntaxAnchor;
 
 use crate::CheckerRequestContext;
 
-use super::build::{CatchContext, ControlFlowGraphBuilder, LoopContext, ResultYieldContext};
+use super::build::{CatchContext, ControlFlowGraphBuilder, LoopContext};
 use super::id::AnalysisBlockId;
 use super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement};
 
@@ -20,13 +20,25 @@ where
         current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
         match expression.kind() {
-            BoundStructuredExpressionKind::Conditional => {
-                let current = self.build_operands(expression.operands(), current)?;
-                let condition = expression.operands().first().copied();
+            BoundStructuredExpressionKind::PatternTest => {
+                let [scope] = expression.blocks() else {
+                    return None;
+                };
 
+                self.push_bound(current, (*scope).into());
+                self.scopes.push(*scope);
+
+                let completion = self.build_operands(expression.operands(), current)?;
+
+                self.push_bound(completion, id.into());
+                self.scopes.pop();
+
+                Some(Some(self.push_scope_exit(completion, *scope, id.into())))
+            }
+            BoundStructuredExpressionKind::Conditional => {
                 self.push_bound(current, id.into());
 
-                self.build_branches(expression.blocks(), condition, current)
+                self.build_branches(expression.blocks(), expression.operands(), current)
             }
             BoundStructuredExpressionKind::While => {
                 let Some(body) = expression.blocks().first().copied() else {
@@ -368,9 +380,10 @@ where
             let arm_entry = self.push_block();
             let next_candidate = self.push_block();
 
-            let refinement = AnalysisRefinement::PatternSuccess {
+            let refinement = AnalysisRefinement::PatternOutcome {
                 subject: expression.subject(),
                 pattern: arm.pattern(),
+                value: true,
             };
 
             self.push_edge(
@@ -384,7 +397,11 @@ where
                 candidate,
                 next_candidate,
                 AnalysisEdgeKind::MatchNoMatch,
-                None,
+                Some(AnalysisRefinement::PatternOutcome {
+                    subject: expression.subject(),
+                    pattern: arm.pattern(),
+                    value: false,
+                }),
             );
 
             let arm_entry = self
@@ -426,7 +443,9 @@ where
                 None => arm_entry,
             };
 
-            if let Some(completion) = self.build_result_branch(arm.body(), body_entry, join)? {
+            if let Some(completion) =
+                self.build_result_branch(arm.body(), body_entry, join, self.scope_depth())?
+            {
                 self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
             }
 
@@ -436,76 +455,6 @@ where
         self.push_edge(candidate, join, AnalysisEdgeKind::MatchNoMatch, None);
 
         Some(Some(join))
-    }
-
-    fn build_branches(
-        &mut self,
-        branches: &[BoundBlockId],
-        condition: Option<BoundExpressionId>,
-        current: AnalysisBlockId,
-    ) -> Option<Option<AnalysisBlockId>> {
-        let join = self.push_block();
-
-        for (index, branch) in branches.iter().copied().enumerate() {
-            let entry = self.push_block();
-
-            let kind = if index == 0 {
-                AnalysisEdgeKind::ConditionalTrue
-            } else {
-                AnalysisEdgeKind::ConditionalFalse
-            };
-
-            self.push_edge(
-                current,
-                entry,
-                kind,
-                condition.map(|expression| AnalysisRefinement::Condition {
-                    expression,
-                    value: index == 0,
-                }),
-            );
-
-            let completion = self.build_result_branch(branch, entry, join)?;
-
-            if let Some(completion) = completion {
-                self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
-            }
-        }
-
-        if branches.len() < 2 {
-            self.push_edge(
-                current,
-                join,
-                AnalysisEdgeKind::ConditionalFalse,
-                condition.map(|expression| AnalysisRefinement::Condition {
-                    expression,
-                    value: false,
-                }),
-            );
-        }
-
-        Some(Some(join))
-    }
-
-    fn build_result_branch(
-        &mut self,
-        branch: BoundBlockId,
-        entry: AnalysisBlockId,
-        completion: AnalysisBlockId,
-    ) -> Option<Option<AnalysisBlockId>> {
-        let target = self.view().block(branch)?.origin().source_anchor().syntax();
-
-        self.result_yields.push(ResultYieldContext {
-            target,
-            completion,
-            scope_depth: self.scope_depth(),
-        });
-
-        let result = self.build_block(branch, entry);
-
-        self.result_yields.pop();
-
-        result
     }
 
     fn build_while(
@@ -524,41 +473,43 @@ where
 
         self.push_edge(current, header, AnalysisEdgeKind::Sequential, None);
 
-        let condition_expression = condition.last().copied();
-        let condition = self.build_operands(condition, header)?;
+        let condition = condition.first().copied()?;
 
-        self.push_bound(condition, id.into());
+        self.push_bound(header, id.into());
 
-        self.push_edge(
+        let depth = self.scope_depth();
+        let scope = self.begin_condition_scope(condition, header);
+
+        self.build_condition(
             condition,
+            header,
             body_entry,
-            AnalysisEdgeKind::LoopEntry,
-            condition_expression.map(|expression| AnalysisRefinement::Condition {
-                expression,
-                value: true,
-            }),
-        );
-
-        self.push_edge(
-            condition,
             exhausted,
-            AnalysisEdgeKind::ConditionalFalse,
-            condition_expression.map(|expression| AnalysisRefinement::Condition {
-                expression,
-                value: false,
-            }),
-        );
+            AnalysisEdgeKind::LoopEntry,
+        )?;
 
         self.loops.push(LoopContext {
             target,
             continue_target: Some(header),
             completion: join,
-            scope_depth: self.scope_depth(),
+            scope_depth: depth,
         });
 
         if let Some(body_exit) = self.build_block(body, body_entry)? {
+            let body_exit = scope.map_or(body_exit, |scope| {
+                self.push_scope_exit(body_exit, scope, body.into())
+            });
+
             self.push_edge(body_exit, header, AnalysisEdgeKind::LoopBack, None);
         }
+
+        let exhausted = if let Some(scope) = scope {
+            self.scopes.pop();
+
+            self.push_scope_exit(exhausted, scope, condition.into())
+        } else {
+            exhausted
+        };
 
         if let Some(context) = self.loops.last_mut() {
             context.continue_target = None;

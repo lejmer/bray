@@ -13,6 +13,27 @@
 
 The following independent fragments assume the named products, unions, constants, and helper callables have the fields and signatures implied by their use.
 
+### Structural tests and conditional bindings
+
+```bray
+assert(result matches Ok(_));
+assert(run_result matches Panicked(_) | Cancelled);
+
+if let Ok(value) = result && ready(value)
+{
+    inspect(value);
+}
+
+while let Some(value) = iterator.next()
+{
+    inspect(value);
+}
+```
+
+[`matches`](https://github.com/lejmer/bray/blob/develop/docs/language/expressions/pattern-test-expressions.md) observes its subject once and returns `bool`. It accepts every existing non-binding pattern family, requires no exhaustiveness, and never requires or invokes `Equatable`. Unqualified union variants resolve from the subject type. Any binding, including field shorthand or an alternative's binding, is rejected. Use `_` or a conditional `let` instead.
+
+Conditional `let` evaluates its initializer once per attempted match, uses the existing observing match mode, and exposes bindings to later `&&` operands and the successful body. Conditions short-circuit from left to right. Failure selects the false or natural-exhaustion path. `while let` failure runs `else` when present, while `break` bypasses it. Binding operands cannot appear under `||` or negation. Successful alternatives grant only shared refinements, and failures grant only facts justified by every way to fail. Field facts remain attached to the matched field.
+
 ### Bindings and irrefutable destructuring
 
 ```bray

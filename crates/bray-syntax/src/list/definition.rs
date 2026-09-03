@@ -13,8 +13,7 @@ macro_rules! define_list_syntax {
             builder_debug_name: $builder_debug_name:literal $(,)?
         }
         separator: {
-            kind: $separator_kind:path,
-            tokens: $separator_tokens_method:ident $(,)?
+            kind: $separator_kind:path $(,)?
         } $(,)?
     ) => {
         $crate::list::define_list_syntax! {
@@ -34,14 +33,6 @@ macro_rules! define_list_syntax {
                     $list_kind,
                     $separator_kind,
                 ),
-                separator_methods: [
-                    /// Returns separator tokens in source order.
-                    pub fn $separator_tokens_method(
-                        &self,
-                    ) -> impl Iterator<Item = $crate::SyntaxToken> + '_ {
-                        self.list.separator_tokens($separator_kind)
-                    }
-                ],
                 builder_separator_methods: [
                     /// Appends a separator token in source order.
                     pub fn push_separator_token(&mut self, token: $crate::SyntaxToken) {
@@ -56,6 +47,10 @@ macro_rules! define_list_syntax {
                     }
                 ],
             }
+        }
+
+        impl $crate::node::GreenSeparatedSyntaxNode for $list_syntax {
+            const SEPARATOR_KIND: $crate::SyntaxKind = $separator_kind;
         }
     };
 
@@ -88,7 +83,6 @@ macro_rules! define_list_syntax {
                 debug_name: $debug_name,
                 builder_debug_name: $builder_debug_name,
                 builder_new: $crate::list::SyntaxListBuilder::new($list_kind),
-                separator_methods: [],
                 builder_separator_methods: [],
             }
         }
@@ -108,7 +102,6 @@ macro_rules! define_list_syntax {
             debug_name: $debug_name:literal,
             builder_debug_name: $builder_debug_name:literal,
             builder_new: $builder_new:expr,
-            separator_methods: [$($separator_methods:item)*],
             builder_separator_methods: [$($builder_separator_methods:item)*] $(,)?
         }
     ) => {
@@ -178,7 +171,6 @@ macro_rules! define_list_syntax {
                 })
             }
 
-            $($separator_methods)*
 
             /// Returns descendant syntax tokens in source order.
             pub fn tokens(&self) -> impl Iterator<Item = $crate::SyntaxToken> + '_ {

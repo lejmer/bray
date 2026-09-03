@@ -61,7 +61,7 @@ impl Parser {
         builder.build()
     }
 
-    fn parse_expression_with_min_binding_power_until(
+    pub(in crate::parser::expression) fn parse_expression_with_min_binding_power_until(
         &mut self,
         at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
         min_binding_power: u8,
@@ -94,12 +94,20 @@ impl Parser {
             let mut builder = ExpressionSyntax::builder(self.syntax_source(), start);
 
             builder.push_expression(expression);
-            builder.push_operator_token(self.consume());
 
-            builder.push_expression(self.parse_expression_with_min_binding_power_until(
-                at_boundary,
-                operator.right_binding_power,
-            ));
+            let token = self.consume();
+            let is_pattern_test = token.kind() == SyntaxKind::MatchesKeyword;
+
+            builder.push_operator_token(token);
+
+            if is_pattern_test {
+                builder.push_case_pattern(self.parse_case_pattern_until(at_boundary));
+            } else {
+                builder.push_expression(self.parse_expression_with_min_binding_power_until(
+                    at_boundary,
+                    operator.right_binding_power,
+                ));
+            }
 
             expression = builder.build();
 
@@ -167,7 +175,8 @@ fn infix_operator(kind: SyntaxKind) -> Option<InfixOperator> {
         SyntaxKind::DotDotToken => (0, 1, OperatorAssociativity::None),
         SyntaxKind::PipePipeToken => (1, 2, OperatorAssociativity::Left),
         SyntaxKind::AmpersandAmpersandToken => (3, 4, OperatorAssociativity::Left),
-        SyntaxKind::EqualsEqualsToken
+        SyntaxKind::MatchesKeyword
+        | SyntaxKind::EqualsEqualsToken
         | SyntaxKind::BangEqualsToken
         | SyntaxKind::LessToken
         | SyntaxKind::LessEqualsToken
@@ -329,6 +338,64 @@ mod tests {
         let diagnostics = parser.finish();
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn pattern_conditions_stop_before_a_second_comparison() {
+        for text in [
+            "value matches 0 matches 1;",
+            "value matches 0 == true;",
+            "value < other matches _;",
+        ] {
+            let sources = source_store([text]);
+            let mut parser = Parser::new(source(&sources, 0));
+
+            let expression =
+                parser.parse_expression_until(&mut |parser| parser.at(SyntaxKind::SemicolonToken));
+
+            assert!(
+                !parser.at(SyntaxKind::SemicolonToken),
+                "{text}: {expression:?}"
+            );
+
+            assert!(parser.finish().is_empty());
+        }
+    }
+
+    #[test]
+    fn pattern_conditions_group_patterns_inside_boolean_operators() {
+        let sources = source_store(["value + 1 matches 0 | 1 && flag;"]);
+        let mut parser = Parser::new(source(&sources, 0));
+
+        let expression =
+            parser.parse_expression_until(&mut |parser| parser.at(SyntaxKind::SemicolonToken));
+
+        assert_eq!(
+            expression.operator_token().unwrap().kind(),
+            SyntaxKind::AmpersandAmpersandToken
+        );
+
+        let tested = expression.expressions().next().unwrap();
+
+        assert_eq!(
+            tested.operator_token().unwrap().kind(),
+            SyntaxKind::MatchesKeyword
+        );
+
+        assert_eq!(tested.case_patterns().count(), 1);
+
+        assert_eq!(
+            tested
+                .expressions()
+                .next()
+                .unwrap()
+                .operator_token()
+                .unwrap()
+                .kind(),
+            SyntaxKind::PlusToken
+        );
+
+        assert!(parser.finish().is_empty());
     }
 
     #[test]

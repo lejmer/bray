@@ -1,5 +1,5 @@
 use crate::node::define_source_syntax_node;
-use crate::{ExpressionSyntax, SyntaxKind, SyntaxToken};
+use crate::{ExpressionSyntax, SyntaxKind};
 
 define_source_syntax_node! {
     /// Struct field initializer entry.
@@ -97,13 +97,7 @@ define_source_syntax_node! {
     }
 }
 
-impl StructConstructionBodySyntax {
-    /// Returns comma separator tokens in source order.
-    pub fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
-        self.tokens()
-            .filter(|token| token.kind() == SyntaxKind::CommaToken)
-    }
-}
+impl crate::node::GreenSeparatedSyntaxNode for StructConstructionBodySyntax {}
 
 #[cfg(test)]
 mod tests {

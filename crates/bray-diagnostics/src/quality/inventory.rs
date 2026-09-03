@@ -1062,6 +1062,10 @@ impl DiagnosticKind {
                     DiagnosticNoteKind::RefutablePatternRequiresConditionalContext
                 ),
             ),
+            Self::CheckingBindingInPatternTest => Self::quality_source(
+                &[],
+                note_components!(&[], DiagnosticNoteKind::PatternTestMustNotBind),
+            ),
             Self::CheckingNonExhaustiveMatch => {
                 Self::quality_source(&[PatternCoverage], primary_components!(&[PatternCoverage]))
             }

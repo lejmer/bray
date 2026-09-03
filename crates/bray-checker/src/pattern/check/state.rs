@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundPattern, BoundPatternEntryKind,
@@ -130,6 +130,7 @@ where
     pub(in crate::pattern) constant_guards:
         &'input BTreeMap<BoundExpressionId, bray_symbols::ConstantValueId>,
     subjects: BTreeMap<BoundPatternId, PatternSubject>,
+    non_binding_roots: BTreeSet<BoundPatternId>,
     pub(in crate::pattern) patterns: BTreeMap<BoundPatternId, PatternCheckEntry>,
     pub(super) binding_types: BTreeMap<bray_symbols::LocalBindingSymbolId, PatternBindingTypeEntry>,
     pub(in crate::pattern) matches: Vec<MatchCoverageEntry>,
@@ -204,6 +205,7 @@ where
             constant_patterns: input.constant_patterns(),
             constant_guards: input.constant_guards(),
             subjects: BTreeMap::new(),
+            non_binding_roots: BTreeSet::new(),
             patterns: BTreeMap::new(),
             binding_types: BTreeMap::new(),
             matches: Vec::new(),
@@ -319,7 +321,12 @@ where
                 self.collect_iteration_subject(expression.pattern());
             }
             BoundExpression::Structured(expression)
-                if expression.kind() == BoundStructuredExpressionKind::With =>
+                if matches!(
+                    expression.kind(),
+                    BoundStructuredExpressionKind::With
+                        | BoundStructuredExpressionKind::PatternTest
+                        | BoundStructuredExpressionKind::PatternBinding
+                ) =>
             {
                 let Some(operand) = expression.operands().first().copied() else {
                     return Ok(());
@@ -329,6 +336,10 @@ where
 
                 for pattern in expression.patterns() {
                     self.subjects.insert(*pattern, subject);
+
+                    if expression.kind() == BoundStructuredExpressionKind::PatternTest {
+                        self.non_binding_roots.insert(*pattern);
+                    }
                 }
             }
             _ => {}
@@ -384,7 +395,12 @@ where
                 break;
             }
 
-            self.check_pattern(pattern, subject, None)?;
+            self.check_pattern(
+                pattern,
+                subject,
+                None,
+                self.non_binding_roots.contains(&pattern),
+            )?;
         }
 
         Ok(())
@@ -395,6 +411,7 @@ where
         id: BoundPatternId,
         subject: PatternSubject,
         projection: Option<PatternProjection>,
+        non_binding: bool,
     ) -> Result<PatternCheckEntry, CheckerQueryError<C::UpstreamError>> {
         if let Some(entry) = self.patterns.get(&id).copied() {
             return Ok(entry);
@@ -452,13 +469,36 @@ where
                 .copied()
                 .unwrap_or((self.recovered_subject(), None));
 
-            let checked = self.check_pattern(child, subject, projection)?;
+            let checked = self.check_pattern(child, subject, projection, non_binding)?;
 
             child_refutability.push(checked.refutability());
             child_recovered |= checked.is_recovered();
         }
 
-        let is_recovered = subject.is_recovered
+        let forbidden_binding = non_binding
+            && (kind == BoundPatternKind::Binding
+                || pattern
+                    .entries()
+                    .iter()
+                    .any(|entry| entry.binding().is_some()));
+
+        if forbidden_binding {
+            if kind == BoundPatternKind::Binding {
+                self.report_binding_in_test(id, pattern, pattern.bindings().first().copied())?;
+            }
+
+            for binding in pattern.entries().iter().filter_map(|entry| entry.binding()) {
+                self.report_binding_in_test(id, pattern, Some(binding))?;
+            }
+        }
+
+        let coherent = kind != BoundPatternKind::Alternative
+            || child_recovered
+            || self.check_alternative_bindings(id, pattern)?;
+
+        let is_recovered = !coherent
+            || forbidden_binding
+            || subject.is_recovered
             || pattern.is_recovered()
             || pattern
                 .entries()

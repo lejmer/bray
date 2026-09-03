@@ -255,7 +255,13 @@ impl Lowerer<'_> {
     ) -> Result<LoweredExpression, LoweringError> {
         match (expression.operands(), expression.blocks()) {
             ([operand], []) => self.lower_expression(*operand, current),
-            ([], [block]) => self.lower_yielding_block(*block, current, success, success_type),
+            ([], [block]) => self.lower_yielding_block(
+                *block,
+                current,
+                success,
+                success_type,
+                self.active_scopes.len(),
+            ),
             _ => Err(LoweringError::UnsupportedExpression(id)),
         }
     }

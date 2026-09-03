@@ -2,7 +2,7 @@ use crate::node::{child_nodes, define_source_syntax_node};
 use crate::{
     CallableDirectivesSyntax, CallableModifiersSyntax, CallableResultClauseSyntax,
     EnsuresClauseSyntax, ExpressionSyntax, GenericArgumentListSyntax, ParameterListSyntax,
-    PathSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxToken, TraitApplicationSyntax,
+    PathSyntax, RequiresClauseSyntax, SyntaxKind, TraitApplicationSyntax,
     TypeFormArgumentListSyntax, UsesClauseSyntax, WithClauseSyntax,
 };
 
@@ -274,6 +274,8 @@ define_source_syntax_node! {
     }
 }
 
+impl crate::node::GreenSeparatedSyntaxNode for TypeExpressionSyntax {}
+
 impl TypeExpressionSyntax {
     /// Returns the direct path child when this is a path type expression.
     pub fn path(&self) -> Option<PathSyntax> {
@@ -286,16 +288,11 @@ impl TypeExpressionSyntax {
         )
         .next()
     }
-
-    /// Returns comma separator tokens in source order.
-    pub fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
-        self.tokens()
-            .filter(|token| token.kind() == SyntaxKind::CommaToken)
-    }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::SeparatedSyntaxNode;
     use bray_source::{TextRange, TextSize};
 
     use crate::test_support::{

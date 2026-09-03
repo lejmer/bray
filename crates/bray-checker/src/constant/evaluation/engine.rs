@@ -724,6 +724,17 @@ where
         let operands = structured.operands();
 
         match structured.kind() {
+            BoundStructuredExpressionKind::Condition => {
+                let [operand] = operands else {
+                    return Err(EvaluationFailure::invalid_expression(expression));
+                };
+
+                self.evaluate(*operand)
+            }
+            BoundStructuredExpressionKind::PatternTest
+            | BoundStructuredExpressionKind::PatternBinding => {
+                self.evaluate_pattern_test(expression, structured, ty)
+            }
             BoundStructuredExpressionKind::Unit => {
                 self.intern_value_term(ty, ConstantValueKind::Unit)
             }

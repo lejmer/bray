@@ -107,6 +107,8 @@ pub enum DiagnosticNoteKind {
     CallbackStateRequirements,
     /// Recovery guidance for a refutable pattern used in an irrefutable context.
     RefutablePatternRequiresConditionalContext,
+    /// Recovery guidance for a binding inside a structural boolean test.
+    PatternTestMustNotBind,
     /// Recovery guidance for an ambiguous semantic selection.
     SelectionMustBeDisambiguated,
     /// Package-selection context for an external interface diagnostic.
@@ -190,6 +192,7 @@ impl DiagnosticNoteKind {
             Self::RefutablePatternRequiresConditionalContext => {
                 "refutable_pattern_requires_conditional_context"
             }
+            Self::PatternTestMustNotBind => "pattern_test_must_not_bind",
             Self::SelectionMustBeDisambiguated => "selection_must_be_disambiguated",
             Self::InterfaceDependencyContext => "interface_dependency_context",
             Self::LinkPlanContext => "link_plan_context",

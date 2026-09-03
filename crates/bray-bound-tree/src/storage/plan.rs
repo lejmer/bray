@@ -118,6 +118,8 @@ pub enum StorageBindingTarget {
     Local(LocalBindingSymbolId),
     /// An owned value consumed by a discard pattern.
     PatternDiscard(BoundPatternId),
+    /// The exact input access observed by a structural pattern occurrence.
+    PatternSubject(BoundPatternId),
     /// A callable result visible to a postcondition.
     PostconditionResult(PostconditionResultSymbolId),
     /// The value produced by the bound unit.

@@ -46,9 +46,8 @@ impl ExpressionBinder {
         let pattern = pattern.pattern();
 
         let recovered = syntax.is_recovered()
-            || binder.expression_is_recovered(initializer)
-            || binder.pattern_is_recovered(pattern)
-            || binder.block_is_recovered(body);
+            || binder.children_are_recovered(&[initializer], &[body])
+            || binder.pattern_is_recovered(pattern);
 
         let expression = BoundStructuredExpression::new(
             binder.source_origin(syntax),
@@ -134,9 +133,8 @@ impl ExpressionBinder {
         let else_body = blocks.next();
 
         let recovered = syntax.is_recovered()
-            || binder.expression_is_recovered(iteration)
+            || binder.children_are_recovered(&[iteration], &[body])
             || binder.pattern_is_recovered(pattern_id)
-            || binder.block_is_recovered(body)
             || else_body.is_some_and(|block| binder.block_is_recovered(block));
 
         let expression = BoundForExpression::new(
@@ -224,8 +222,5 @@ where
     C: BindingQueryContext + ?Sized,
 {
     binder.pattern_is_recovered(arm.pattern())
-        || arm
-            .guard()
-            .is_some_and(|guard| binder.expression_is_recovered(guard))
-        || binder.block_is_recovered(arm.body())
+        || binder.children_are_recovered(arm.guard().as_slice(), &[arm.body()])
 }

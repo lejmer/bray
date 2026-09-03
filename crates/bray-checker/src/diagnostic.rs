@@ -58,7 +58,10 @@ pub(crate) const fn expression_category(
             BoundStructuredExpressionKind::TypeFormConstruction => {
                 DiagnosticExpressionCategory::Construction
             }
-            BoundStructuredExpressionKind::Conditional
+            BoundStructuredExpressionKind::PatternTest
+            | BoundStructuredExpressionKind::Condition
+            | BoundStructuredExpressionKind::PatternBinding
+            | BoundStructuredExpressionKind::Conditional
             | BoundStructuredExpressionKind::While
             | BoundStructuredExpressionKind::Loop
             | BoundStructuredExpressionKind::With

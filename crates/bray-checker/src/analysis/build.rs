@@ -91,7 +91,7 @@ where
     pub(super) catches: Vec<CatchContext>,
     pub(super) yield_regions: Vec<SyntaxAnchor>,
     pub(super) result_yields: Vec<ResultYieldContext>,
-    scopes: Vec<BoundBlockId>,
+    pub(super) scopes: Vec<BoundBlockId>,
     checked_storage: Option<&'view StoragePlan>,
     selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
     infrastructure_failure: Option<CheckerInfrastructureError>,
@@ -602,7 +602,7 @@ where
         }
     }
 
-    fn push_scope_exit(
+    pub(super) fn push_scope_exit(
         &mut self,
         current: AnalysisBlockId,
         block: BoundBlockId,

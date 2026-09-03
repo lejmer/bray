@@ -72,6 +72,23 @@ where
                 access
             }
             BoundExpression::Structured(structured) => {
+                if matches!(
+                    structured.kind(),
+                    BoundStructuredExpressionKind::PatternTest
+                        | BoundStructuredExpressionKind::PatternBinding
+                ) {
+                    let [subject] = structured.operands() else {
+                        return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+                    };
+
+                    let access =
+                        self.plan_expression(*subject, Some(StorageAccessPurpose::Read))?;
+
+                    for pattern in structured.patterns() {
+                        self.plan_pattern(*pattern, *subject, access)?;
+                    }
+                }
+
                 self.plan_structured(id, structured.kind(), structured.operands())?
             }
             BoundExpression::StructConstruction(construction) => {

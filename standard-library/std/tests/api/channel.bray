@@ -59,11 +59,13 @@ async func buffered_send_completes_before_receiving()
 
     std.testing.assert_ok<unit, std.channel.SendError<i32>>(try await send.join());
 
-    match receiver.try_receive()
+    if let Received(value) = receiver.try_receive()
     {
-        case Received(value) { assert(value == 13); }
-        case Empty { assert(false); }
-        case Closed { assert(false); }
+        assert(value == 13);
+    }
+    else
+    {
+        assert(false);
     }
 
     sender.close();
@@ -81,16 +83,22 @@ async func buffered_channel_transfers_messages_in_commit_order()
     std.testing.assert_ok<unit, std.channel.SendError<i32>>(await sender.send(11));
     std.testing.assert_ok<unit, std.channel.SendError<i32>>(await sender.send(29));
 
-    match await receiver.receive()
+    if let Received(value) = await receiver.receive()
     {
-        case Received(value) { assert(value == 11); }
-        case Closed { assert(false); }
+        assert(value == 11);
+    }
+    else
+    {
+        assert(false);
     }
 
-    match await receiver.receive()
+    if let Received(value) = await receiver.receive()
     {
-        case Received(value) { assert(value == 29); }
-        case Closed { assert(false); }
+        assert(value == 29);
+    }
+    else
+    {
+        assert(false);
     }
 
     sender.close();
@@ -107,10 +115,13 @@ async func rendezvous_send_suspends_until_a_receiver_is_registered()
 
     let send: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(41).start();
 
-    match await receiver.receive()
+    if let Received(value) = await receiver.receive()
     {
-        case Received(value) { assert(value == 41); }
-        case Closed { assert(false); }
+        assert(value == 41);
+    }
+    else
+    {
+        assert(false);
     }
 
     std.testing.assert_ok<unit, std.channel.SendError<i32>>(try await send.join());
@@ -133,10 +144,13 @@ async func cancelling_a_rendezvous_wait_withdraws_it_before_reuse()
 
     let next: Task<Result<unit, std.channel.SendError<i32>>> = sender.send(23).start();
 
-    match await receiver.receive()
+    if let Received(value) = await receiver.receive()
     {
-        case Received(value) { assert(value == 23); }
-        case Closed { assert(false); }
+        assert(value == 23);
+    }
+    else
+    {
+        assert(false);
     }
 
     std.testing.assert_ok<unit, std.channel.SendError<i32>>(try await next.join());
@@ -182,18 +196,24 @@ async func cancelling_a_registered_receiver_preserves_a_committed_rendezvous_val
     {
         case Completed(result)
         {
-            match result
+            if let Received(value) = result
             {
-                case Received(value) { assert(value == 31); }
-                case Closed { assert(false); }
+                assert(value == 31);
+            }
+            else
+            {
+                assert(false);
             }
         }
         case Cancelled
         {
-            match await receiver.receive()
+            if let Received(value) = await receiver.receive()
             {
-                case Received(value) { assert(value == 31); }
-                case Closed { assert(false); }
+                assert(value == 31);
+            }
+            else
+            {
+                assert(false);
             }
         }
         case Panicked(_) { assert(false); }
@@ -221,24 +241,24 @@ async func concurrency_stress_contended_producers_preserve_each_senders_commit_o
 
     while received < 128
     {
-        match await receiver.receive()
+        if let Received(value) = await receiver.receive()
         {
-            case Received(value)
+            if value < 1_000
             {
-                if value < 1_000
-                {
-                    assert(value == first_expected);
-                    first_expected += 1;
-                }
-                else
-                {
-                    assert(value == second_expected);
-                    second_expected += 1;
-                }
-
-                received += 1;
+                assert(value == first_expected);
+                first_expected += 1;
             }
-            case Closed { assert(false); }
+            else
+            {
+                assert(value == second_expected);
+                second_expected += 1;
+            }
+
+            received += 1;
+        }
+        else
+        {
+            assert(false);
         }
     }
 
@@ -314,10 +334,9 @@ func concurrency_model_channel_capacity_overflow_is_recoverable()
 {
     let impossible_capacity: usize = ~0;
 
-    match std.testing.assert_error<(std.channel.Sender<u64>, std.channel.Receiver<u64>), std.channel.ChannelError>(
-        std.channel.bounded<u64>(capacity = impossible_capacity)
-    )
-    {
-        case CapacityOverflow {}
-    }
+    assert(
+        std.testing.assert_error<(std.channel.Sender<u64>, std.channel.Receiver<u64>), std.channel.ChannelError>(
+            std.channel.bounded<u64>(capacity = impossible_capacity)
+        ) matches CapacityOverflow
+    );
 }

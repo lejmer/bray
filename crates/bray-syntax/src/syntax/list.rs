@@ -38,7 +38,6 @@ define_token_list_syntax! {
     }
     separator: {
         kind: SyntaxKind::CommaToken,
-        tokens: separator_tokens,
     }
 }
 

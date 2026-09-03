@@ -9,6 +9,7 @@ Consult the lexical grammar for spelling, trivia, token boundaries, and lexer fa
 - Source text is UTF-8 without Unicode normalization. An optional byte order mark is accepted only at the beginning.
 - Only ASCII space, horizontal tab, LF, and CRLF are whitespace outside comments and literals. A lone CR is not a line ending.
 - Tokenization uses longest matching. Keywords win over identifiers at equal length, while a longer spelling such as `ifx` remains an identifier.
+- `matches` is reserved for structural pattern tests. Longer identifiers such as `matches_value` remain identifiers.
 - Bray has line comments, nested block comments, and structured line or block documentation comments.
 - Identifiers are ASCII and case-sensitive, and they start with a letter. `_` alone is a discard token, and directive names are ordinary identifier spellings after `@`.
 - Integer literals can be decimal, binary, or hexadecimal. Real literals are decimal, digit separators must occur between digits, and type suffixes are invalid. Only trailing `i` forms an imaginary literal.

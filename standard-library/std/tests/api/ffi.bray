@@ -136,42 +136,35 @@ trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.Strin
 {
     let invalid: [u8; 3] = [65, 0, 66];
 
-    match std.testing.assert_error<std.ffi.c.OwnedNarrowString, std.ffi.c.StringError>(
-        trusted std.ffi.c.OwnedNarrowString.from_bytes(&invalid[..]),
-    )
-    {
-        case std.ffi.c.StringError.InteriorNul {}
-        case _ { assert(false); }
-    }
+    assert(
+        std.testing.assert_error<std.ffi.c.OwnedNarrowString, std.ffi.c.StringError>(
+            trusted std.ffi.c.OwnedNarrowString.from_bytes(&invalid[..]),
+        ) matches std.ffi.c.StringError.InteriorNul
+    );
 
     let invalid_utf8: [u8; 2] = [255, 0];
     let encoded: std.ffi.c.BorrowedNarrowString = try std.ffi.c.borrow_string(&invalid_utf8[..]);
 
-    match std.testing.assert_error<string, std.ffi.c.StringError>(encoded.to_string())
-    {
-        case std.ffi.c.StringError.InvalidEncoding {}
-        case _ { assert(false); }
-    }
+    assert(
+        std.testing.assert_error<string, std.ffi.c.StringError>(encoded.to_string()) matches
+            std.ffi.c.StringError.InvalidEncoding
+    );
 
     let unterminated: [u8; 1] = [65];
 
-    match std.testing.assert_error<std.ffi.c.BorrowedNarrowString, std.ffi.c.StringError>(
-        std.ffi.c.borrow_string(&unterminated[..]),
-    )
-    {
-        case std.ffi.c.StringError.MissingTerminator {}
-        case _ { assert(false); }
-    }
+    assert(
+        std.testing.assert_error<std.ffi.c.BorrowedNarrowString, std.ffi.c.StringError>(
+            std.ffi.c.borrow_string(&unterminated[..]),
+        ) matches std.ffi.c.StringError.MissingTerminator
+    );
 
     let wide_unterminated: [std.ffi.c.WideChar; 1] = [std.ffi.c.wide_char_wrapping(65)];
 
-    match std.testing.assert_error<std.ffi.c.BorrowedWideString, std.ffi.c.StringError>(
-        std.ffi.c.borrow_string(&wide_unterminated[..]),
-    )
-    {
-        case std.ffi.c.StringError.MissingTerminator {}
-        case _ { assert(false); }
-    }
+    assert(
+        std.testing.assert_error<std.ffi.c.BorrowedWideString, std.ffi.c.StringError>(
+            std.ffi.c.borrow_string(&wide_unterminated[..]),
+        ) matches std.ffi.c.StringError.MissingTerminator
+    );
 
     let wide_interior: [std.ffi.c.WideChar; 3] = [
         std.ffi.c.wide_char_wrapping(65),
@@ -179,13 +172,11 @@ trusted func c_strings_reject_invalid_contents() -> Result<unit, std.ffi.c.Strin
         std.ffi.c.wide_char_wrapping(66),
     ];
 
-    match std.testing.assert_error<std.ffi.c.OwnedWideString, std.ffi.c.StringError>(
-        trusted std.ffi.c.OwnedWideString.from_units(&wide_interior[..]),
-    )
-    {
-        case std.ffi.c.StringError.InteriorNul {}
-        case _ { assert(false); }
-    }
+    assert(
+        std.testing.assert_error<std.ffi.c.OwnedWideString, std.ffi.c.StringError>(
+            trusted std.ffi.c.OwnedWideString.from_units(&wide_interior[..]),
+        ) matches std.ffi.c.StringError.InteriorNul
+    );
 
     return Ok(unit);
 }
@@ -203,11 +194,7 @@ func foreign_errors_preserve_structured_categories_and_codes()
         native_code = code,
     );
 
-    match error.kind()
-    {
-        case std.ffi.ForeignErrorKind.PermissionDenied {}
-        case _ { assert(false); }
-    }
+    assert(error.kind() matches std.ffi.ForeignErrorKind.PermissionDenied);
 
     let reported_code: i64 = std.testing.assert_present<i64>(error.native_code());
 
@@ -226,11 +213,7 @@ trusted func foreign_resources_reject_invalid_handles() -> Result<unit, std.ffi.
         trusted internal std.ffi.owned_foreign_resource(0, valid = false, invalid_native_code = native_code)
     );
 
-    match error.kind()
-    {
-        case std.ffi.ForeignErrorKind.InvalidResource {}
-        case _ { assert(false); }
-    }
+    assert(error.kind() matches std.ffi.ForeignErrorKind.InvalidResource);
 
     let reported_code: i64 = std.testing.assert_present<i64>(error.native_code());
 
@@ -264,11 +247,7 @@ trusted func foreign_resources_borrow_transfer_and_reject_repeated_transfer() ->
         trusted internal std.ffi.transfer_foreign_resource(&mut resource),
     );
 
-    match error.kind()
-    {
-        case std.ffi.ForeignErrorKind.InvalidResource {}
-        case _ { assert(false); }
-    }
+    assert(error.kind() matches std.ffi.ForeignErrorKind.InvalidResource);
 
     return Ok(unit);
 }
@@ -304,11 +283,7 @@ trusted func foreign_resource_release_consumes_successful_and_failed_owners() ->
             trusted internal std.ffi.resolve_foreign_resource_release(&mut released, repeated_release),
         );
 
-        match error.kind()
-        {
-            case std.ffi.ForeignErrorKind.InvalidResource {}
-            case _ { assert(false); }
-        }
+        assert(error.kind() matches std.ffi.ForeignErrorKind.InvalidResource);
     }
 
     let denied: std.platform.PlatformStatus =
@@ -328,11 +303,7 @@ trusted func foreign_resource_release_consumes_successful_and_failed_owners() ->
             trusted internal std.ffi.resolve_foreign_resource_release(&mut failed, denied),
         );
 
-        match release_error.kind()
-        {
-            case std.ffi.ForeignErrorKind.PermissionDenied {}
-            case _ { assert(false); }
-        }
+        assert(release_error.kind() matches std.ffi.ForeignErrorKind.PermissionDenied);
 
         let native_code: i64 = std.testing.assert_present<i64>(release_error.native_code());
 
@@ -344,11 +315,7 @@ trusted func foreign_resource_release_consumes_successful_and_failed_owners() ->
             trusted internal std.ffi.transfer_foreign_resource(&mut failed),
         );
 
-        match transfer_error.kind()
-        {
-            case std.ffi.ForeignErrorKind.InvalidResource {}
-            case _ { assert(false); }
-        }
+        assert(transfer_error.kind() matches std.ffi.ForeignErrorKind.InvalidResource);
     }
 
     return Ok(unit);
@@ -368,11 +335,7 @@ func foreign_platform_statuses_preserve_stable_failures()
         internal std.ffi.checked_foreign_status(denied),
     );
 
-    match denied_error.kind()
-    {
-        case std.ffi.ForeignErrorKind.PermissionDenied {}
-        case _ { assert(false); }
-    }
+    assert(denied_error.kind() matches std.ffi.ForeignErrorKind.PermissionDenied);
 
     let denied_code: i64 = std.testing.assert_present<i64>(denied_error.native_code());
 
@@ -389,11 +352,7 @@ func foreign_platform_statuses_preserve_stable_failures()
         internal std.ffi.checked_foreign_status(malformed),
     );
 
-    match malformed_error.kind()
-    {
-        case std.ffi.ForeignErrorKind.IncompatibleAbi {}
-        case _ { assert(false); }
-    }
+    assert(malformed_error.kind() matches std.ffi.ForeignErrorKind.IncompatibleAbi);
 
     let missing: std.platform.PlatformStatus =
     {
@@ -406,11 +365,7 @@ func foreign_platform_statuses_preserve_stable_failures()
         internal std.ffi.checked_foreign_library_status(missing),
     );
 
-    match library_error.kind()
-    {
-        case std.ffi.ForeignErrorKind.UnavailableLibrary {}
-        case _ { assert(false); }
-    }
+    assert(library_error.kind() matches std.ffi.ForeignErrorKind.UnavailableLibrary);
 
     let library_code: i64 = std.testing.assert_present<i64>(library_error.native_code());
 
@@ -427,9 +382,5 @@ func foreign_platform_statuses_preserve_stable_failures()
         internal std.ffi.checked_foreign_symbol_status(missing_symbol),
     );
 
-    match symbol_error.kind()
-    {
-        case std.ffi.ForeignErrorKind.UnavailableSymbol {}
-        case _ { assert(false); }
-    }
+    assert(symbol_error.kind() matches std.ffi.ForeignErrorKind.UnavailableSymbol);
 }

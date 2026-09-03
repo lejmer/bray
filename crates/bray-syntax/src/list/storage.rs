@@ -51,14 +51,6 @@ impl SyntaxList {
         self.node.child_nodes(self.start, kind)
     }
 
-    pub(crate) fn separator_tokens(
-        &self,
-        separator_kind: SyntaxKind,
-    ) -> impl Iterator<Item = SyntaxToken> + '_ {
-        self.tokens()
-            .filter(move |token| token.kind() == separator_kind)
-    }
-
     pub(crate) fn tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
         self.node.syntax_tokens(self.start)
     }

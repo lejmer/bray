@@ -52,6 +52,7 @@ enum TestFrameBehavior {
         value: i32,
     },
     Panics,
+    PropagatesCancellation,
 }
 
 impl TestFrame {
@@ -112,6 +113,15 @@ impl TestFrame {
 
     pub(crate) fn panicking_with_cleanup_panic() -> Self {
         Self::panicking_with_cleanup(true)
+    }
+
+    pub(crate) fn propagating_cancellation(cleanup_panics: bool) -> Self {
+        Self {
+            descriptor: descriptor(1),
+            behavior: TestFrameBehavior::PropagatesCancellation,
+            cleanup_panics,
+            wake_on_suspension: false,
+        }
     }
 
     pub(crate) fn blocking(entered: Arc<Barrier>, release: Arc<Barrier>, value: i32) -> Self {
@@ -256,6 +266,9 @@ impl ProtectedFrame for TestFrame {
                 FrameProgress::Completed(*value)
             }
             TestFrameBehavior::Panics => panic!("primary test panic"),
+            TestFrameBehavior::PropagatesCancellation => {
+                crate::root::propagate_current_run_cancellation()
+            }
         };
 
         if frame.wake_on_suspension

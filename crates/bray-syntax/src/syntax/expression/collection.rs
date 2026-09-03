@@ -1,5 +1,5 @@
 use crate::node::define_source_syntax_node;
-use crate::{ExpressionSyntax, GeneratorIterationExpressionSyntax, SyntaxKind, SyntaxToken};
+use crate::{ExpressionSyntax, GeneratorIterationExpressionSyntax, SyntaxKind};
 
 define_source_syntax_node! {
     /// Parenthesized grouped expression.
@@ -97,13 +97,7 @@ define_source_syntax_node! {
     }
 }
 
-impl TupleExpressionSyntax {
-    /// Returns comma separator tokens in source order.
-    pub fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
-        self.tokens()
-            .filter(|token| token.kind() == SyntaxKind::CommaToken)
-    }
-}
+impl crate::node::GreenSeparatedSyntaxNode for TupleExpressionSyntax {}
 
 define_source_syntax_node! {
     /// Array expression.
@@ -174,13 +168,7 @@ define_source_syntax_node! {
     }
 }
 
-impl ArrayExpressionSyntax {
-    /// Returns comma separator tokens in source order.
-    pub fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
-        self.tokens()
-            .filter(|token| token.kind() == SyntaxKind::CommaToken)
-    }
-}
+impl crate::node::GreenSeparatedSyntaxNode for ArrayExpressionSyntax {}
 
 #[cfg(test)]
 mod tests {

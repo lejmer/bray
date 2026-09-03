@@ -129,11 +129,10 @@ trusted func byte_buffer_growth_reports_length_overflow() -> Result<unit, std.me
 
     let result: Result<unit, std.memory.MemoryLayoutError> = trusted std.bytes.reserve(&mut buffer, additional = ~0);
 
-    match std.testing.assert_error<unit, std.memory.MemoryLayoutError>(result)
-    {
-        case std.memory.MemoryLayoutError.SizeOverflow { assert(true); }
-        case _ { assert(false); }
-    }
+    assert(
+        std.testing.assert_error<unit, std.memory.MemoryLayoutError>(result) matches
+            std.memory.MemoryLayoutError.SizeOverflow
+    );
 
     return Ok(unit);
 }

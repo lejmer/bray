@@ -59,12 +59,7 @@ func child_processes_capture_output_and_reap_cleanly()
 
     assert(observed > 0);
 
-    match status
-    {
-        case Code(0) {}
-        case Code(_) { assert(false); }
-        case TargetTermination(_) { assert(false); }
-    }
+    assert(status matches Code(0));
 }
 
 @test(serial)
@@ -84,12 +79,7 @@ func child_processes_accept_an_empty_environment()
 
     let status: std.process.ExitStatus = required_wait(required_child(command));
 
-    match status
-    {
-        case Code(0) {}
-        case Code(_) { assert(false); }
-        case TargetTermination(_) { assert(false); }
-    }
+    assert(status matches Code(0));
 }
 
 func required_child_executable() -> std.path.Path

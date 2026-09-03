@@ -251,6 +251,7 @@ impl TypeDeclarationSyntaxSink for UnionDeclarationSyntaxBuilder {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticKind;
+    use bray_syntax::SeparatedSyntaxNode;
     use bray_syntax::{SyntaxKind, SyntaxText};
     use bray_testing::test_source_store as source_store;
 

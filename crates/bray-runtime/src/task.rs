@@ -9,6 +9,7 @@ use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId};
 
 use crate::context::{TaskOutput, current_task_output, current_task_start_site};
 use crate::frame::suspension_state;
+use crate::root::is_propagated_cancellation;
 use crate::{
     CancellationContext, ErasedProtectedFrame, ErasedSendableProtectedFrame, FrameContext,
     FrameExit, FrameProgress, FrameSuspension, ProtectedFrame, RunOutcome, RunOutcomeKind,
@@ -348,9 +349,13 @@ where
                 return Err(TaskResumeError::NotResumable(TaskState::Failed(failure)));
             };
 
-            catch_unwind(AssertUnwindSafe(|| frame.as_mut().resume(context))).unwrap_or_else(
-                |payload| FrameProgress::Panicked(RuntimePanic::from_payload(payload)),
-            )
+            match catch_unwind(AssertUnwindSafe(|| frame.as_mut().resume(context))) {
+                Ok(progress) => progress,
+                Err(payload) if is_propagated_cancellation(payload.as_ref()) => {
+                    FrameProgress::Cancelled
+                }
+                Err(payload) => FrameProgress::Panicked(RuntimePanic::from_payload(payload)),
+            }
         };
 
         let (status, waiters) = match progress {
@@ -1034,6 +1039,37 @@ mod tests {
 
         assert!(panic.primary_is::<&'static str>());
         assert_eq!(panic.suppressed_count(), 1);
+    }
+
+    #[test]
+    fn propagated_cancellation_reaches_task_cleanup_as_cancellation() {
+        let task = TaskControlBlock::start(TestFrame::propagating_cancellation(false))
+            .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
+
+        assert_eq!(
+            task.resume(),
+            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Cancelled))
+        );
+
+        assert!(matches!(task.take_outcome(), Ok(RunOutcome::Cancelled)));
+    }
+
+    #[test]
+    fn propagated_cancellation_preserves_a_real_cleanup_panic() {
+        let task = TaskControlBlock::start(TestFrame::propagating_cancellation(true))
+            .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
+
+        assert_eq!(
+            task.resume(),
+            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Panicked))
+        );
+
+        let Ok(RunOutcome::Panicked(panic)) = task.take_outcome() else {
+            panic!("cleanup panic must remain observable");
+        };
+
+        assert!(panic.primary_is::<&'static str>());
+        assert_eq!(panic.suppressed_count(), 0);
     }
 
     #[test]

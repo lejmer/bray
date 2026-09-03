@@ -170,11 +170,7 @@ func synchronization_signals_cover_immediate_progress()
         std.sync.Barrier(participants = 1)
     );
 
-    match barrier.wait()
-    {
-        case Leader {}
-        case Follower { assert(false); }
-    }
+    assert(barrier.wait() matches Leader);
 }
 
 @test
@@ -219,11 +215,7 @@ async func concurrency_model_reader_writer_lock_admits_a_pending_writer_before_l
 
     while !writer_pending
     {
-        match lock.try_read()
-        {
-            case ?_ {}
-            case none { writer_pending = true; }
-        }
+        writer_pending = lock.try_read() matches none;
 
         if !writer_pending
         {

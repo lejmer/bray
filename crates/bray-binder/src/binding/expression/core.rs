@@ -65,7 +65,12 @@ impl ExpressionBinder {
             return self.push_missing_error(binder);
         };
 
-        let expression = if let Some(primary) = syntax.primary_expression() {
+        let expression = if syntax
+            .operator_token()
+            .is_some_and(|token| token.kind() == SyntaxKind::MatchesKeyword)
+        {
+            self.bind_pattern_condition(binder, scope, scope, syntax)?
+        } else if let Some(primary) = syntax.primary_expression() {
             self.bind_primary(binder, scope, &primary)?
         } else if let Some(operator) = syntax.operator_token() {
             self.bind_operator(binder, scope, syntax, operator.kind())?
@@ -98,9 +103,7 @@ impl ExpressionBinder {
 
         let recovered = syntax.is_recovered()
             || operands.len() > 2
-            || operands
-                .iter()
-                .any(|operand| binder.expression_is_recovered(*operand));
+            || binder.children_are_recovered(&operands, &[]);
 
         let expression = if operator_kind == SyntaxKind::DotDotToken {
             BoundExpression::Structured(BoundStructuredExpression::new(
@@ -170,11 +173,7 @@ impl ExpressionBinder {
 
         let (operands, blocks) = children?;
 
-        let recovered = syntax.is_recovered()
-            || operands
-                .iter()
-                .any(|operand| binder.expression_is_recovered(*operand))
-            || blocks.iter().any(|block| binder.block_is_recovered(*block));
+        let recovered = syntax.is_recovered() || binder.children_are_recovered(&operands, &blocks);
 
         let mut expression = BoundStructuredExpression::new(
             binder.source_origin(&syntax),
@@ -216,14 +215,9 @@ impl ExpressionBinder {
     {
         let (children, blocks) = self.bind_semantic_children(binder, scope, syntax, true)?;
 
-        let recovered = syntax.is_recovered()
-            || binder.expression_is_recovered(operand)
-            || children
-                .iter()
-                .any(|child| binder.expression_is_recovered(*child))
-            || blocks.iter().any(|block| binder.block_is_recovered(*block));
-
         let operands = std::iter::once(operand).chain(children).collect::<Vec<_>>();
+
+        let recovered = syntax.is_recovered() || binder.children_are_recovered(&operands, &blocks);
 
         let mut expression = BoundStructuredExpression::new(
             binder.source_origin(&syntax),

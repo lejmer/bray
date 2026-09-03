@@ -586,11 +586,7 @@ fn validate_pattern_completeness(
         let mut introduced = Vec::new();
 
         for ((_, pattern), checked) in unit.tree().patterns().zip(analysis.patterns()) {
-            if checked.target().is_none() {
-                introduced.extend_from_slice(pattern.bindings());
-            }
-
-            introduced.extend(pattern.entries().iter().filter_map(|entry| entry.binding()));
+            introduced.extend(checked.bindings(pattern));
         }
 
         introduced.sort_unstable();
@@ -653,7 +649,7 @@ fn validate_refinements(
     let valid = analysis.occurrences().iter().all(|occurrence| {
         unit.view().node_is_recovered(occurrence.node()).is_some()
             && occurrence.refinements().iter().all(|input| {
-                refinement_kind_exists(unit, input.kind())
+                refinement_kind_exists(unit, storage, input.kind())
                     && input
                         .dependencies()
                         .iter()
@@ -670,7 +666,7 @@ fn validate_refinements(
     Ok(())
 }
 
-fn refinement_kind_exists(unit: &BoundUnit, kind: RefinementKind) -> bool {
+fn refinement_kind_exists(unit: &BoundUnit, storage: &StoragePlan, kind: RefinementKind) -> bool {
     match kind {
         RefinementKind::Condition { expression, .. }
         | RefinementKind::NullablePresence { expression, .. }
@@ -679,8 +675,18 @@ fn refinement_kind_exists(unit: &BoundUnit, kind: RefinementKind) -> bool {
             unit.view().expression(expression).is_some()
         }
         RefinementKind::Pattern {
-            subject, pattern, ..
-        } => unit.view().expression(subject).is_some() && unit.view().pattern(pattern).is_some(),
+            subject,
+            pattern,
+            access,
+            ..
+        } => {
+            unit.view().expression(subject).is_some()
+                && unit.view().pattern(pattern).is_some()
+                && storage.access(access).is_some()
+                && matches!(storage.binding(bray_bound_tree::StorageBindingTarget::PatternSubject(pattern)),
+                Some(bray_bound_tree::StorageBinding::Access(original))
+                    if storage.relationship(original, access) == bray_bound_tree::StorageRelationship::Identical)
+        }
     }
 }
 

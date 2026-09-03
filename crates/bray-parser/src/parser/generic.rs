@@ -395,6 +395,7 @@ fn at_generic_argument_expression_operator(kind: SyntaxKind) -> bool {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticKind;
+    use bray_syntax::SeparatedSyntaxNode;
     use bray_syntax::SyntaxText;
     use bray_testing::test_source_store as source_store;
 

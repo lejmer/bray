@@ -244,13 +244,7 @@ define_source_syntax_node! {
     }
 }
 
-impl ParameterListSyntax {
-    /// Returns comma separator tokens in source order.
-    pub fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
-        self.tokens()
-            .filter(|token| token.kind() == SyntaxKind::CommaToken)
-    }
-}
+impl crate::node::GreenSeparatedSyntaxNode for ParameterListSyntax {}
 
 define_source_syntax_node! {
     /// Callable result clause.
@@ -315,6 +309,7 @@ define_source_syntax_node! {
 
 #[cfg(test)]
 mod tests {
+    use crate::SeparatedSyntaxNode;
     use bray_source::{SourceSnapshot, TextRange, TextSize};
 
     use crate::test_support::{

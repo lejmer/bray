@@ -40,6 +40,13 @@ impl Lowerer<'_> {
             BoundStructuredExpressionKind::Conditional => {
                 self.lower_conditional(id, expression, current)
             }
+            BoundStructuredExpressionKind::PatternTest => {
+                self.lower_pattern_test(id, expression, current)
+            }
+            BoundStructuredExpressionKind::Condition
+            | BoundStructuredExpressionKind::PatternBinding => {
+                Err(LoweringError::UnsupportedExpression(id))
+            }
             BoundStructuredExpressionKind::While => self.lower_while(id, expression, current),
             BoundStructuredExpressionKind::Loop => self.lower_loop(id, expression, current),
             BoundStructuredExpressionKind::BooleanAllFold
@@ -101,41 +108,15 @@ impl Lowerer<'_> {
             return Err(LoweringError::UnsupportedExpression(id));
         }
 
-        let first_condition = self.lower_expression(conditions[0], current)?;
-
-        let Some(mut current) = first_condition.block else {
-            return Ok(first_condition);
-        };
-
-        let Some(condition) = first_condition.value else {
-            return Err(LoweringError::MissingOperationResult(conditions[0]));
-        };
-
-        let mut condition = Some(condition);
+        let mut current = current;
 
         let source = self.source(expression.origin());
 
         let (join, result, ty) = self.push_result_join(id, expression.origin())?;
 
         for (index, then_block) in blocks.iter().take(conditions.len()).enumerate() {
-            if index > 0 {
-                let lowered = self.lower_expression(conditions[index], current)?;
-
-                let Some(next) = lowered.block else {
-                    return Ok(LoweredExpression::continuing(
-                        join,
-                        Some(MirOperand::Value(result)),
-                        source,
-                    ));
-                };
-
-                let Some(value) = lowered.value else {
-                    return Err(LoweringError::MissingOperationResult(conditions[index]));
-                };
-
-                current = next;
-                condition = Some(value);
-            }
+            let depth = self.active_scopes.len();
+            let scope = self.begin_condition_scope(conditions[index])?;
 
             let then_entry = self
                 .builder
@@ -145,26 +126,57 @@ impl Lowerer<'_> {
                 .builder
                 .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-            self.builder.set_terminator(
-                current,
-                Self::retained_source(&source),
-                MirTerminatorKind::Branch {
-                    condition: condition
-                        .take()
-                        .ok_or(LoweringError::MissingOperationResult(conditions[index]))?,
-                    then_edge: MirEdge::new(then_entry, []),
-                    else_edge: MirEdge::new(else_entry, []),
-                },
-            )?;
+            if !self.lower_condition(conditions[index], current, then_entry, else_entry)? {
+                self.finish_unreachable_blocks(&[then_entry, else_entry], &source)?;
 
-            let then_completion = self.lower_yielding_block(*then_block, then_entry, join, ty)?;
+                if scope.is_some() {
+                    self.active_scopes.pop();
+                }
+
+                return if index == 0 {
+                    self.finish_unreachable_blocks(&[join], &source)?;
+
+                    Ok(LoweredExpression::terminated(source))
+                } else {
+                    Ok(LoweredExpression::continuing(
+                        join,
+                        Some(MirOperand::Value(result)),
+                        source,
+                    ))
+                };
+            }
+
+            let mut then_completion = if self.builder.is_reachable(current, then_entry)? {
+                self.lower_yielding_block(*then_block, then_entry, join, ty, depth)?
+            } else {
+                self.finish_unreachable_blocks(&[then_entry], &source)?;
+
+                LoweredExpression::terminated(Self::retained_source(&source))
+            };
+
+            if let (Some(scope), Some(block)) = (scope, then_completion.block) {
+                then_completion.block =
+                    Some(self.finish_scope(scope, block, &source, (*then_block).into())?);
+            }
 
             self.finish_result_edge(then_completion, join, ty)?;
-            current = else_entry;
+
+            current = if let Some(scope) = scope {
+                let completion =
+                    self.finish_scope(scope, else_entry, &source, conditions[index].into())?;
+
+                self.active_scopes.pop();
+
+                completion
+            } else {
+                else_entry
+            };
         }
 
         let else_completion = match blocks.get(conditions.len()).copied() {
-            Some(block) => self.lower_yielding_block(block, current, join, ty)?,
+            Some(block) => {
+                self.lower_yielding_block(block, current, join, ty, self.active_scopes.len())?
+            }
             None => LoweredExpression::continuing(
                 current,
                 Some(self.unit_operand(ty)),

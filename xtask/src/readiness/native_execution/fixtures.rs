@@ -2,6 +2,8 @@ pub(super) const STARTUP_FIXTURE: &str = "xtask/fixtures/native-execution/contro
 pub(super) const RANGE_FIXTURE: &str = "xtask/fixtures/native-execution/half-open-range.bray";
 pub(super) const NULLABLE_STATE_FIXTURE: &str =
     "xtask/fixtures/native-execution/nullable-state.bray";
+pub(super) const PATTERN_CONDITIONS_FIXTURE: &str =
+    "xtask/fixtures/native-execution/pattern-conditions.bray";
 pub(super) const ENTRY_RESULT_FIXTURE: &str = "xtask/fixtures/native-execution/entry-i32.bray";
 pub(super) const ABI_FIXTURE: &str = "xtask/fixtures/native-execution/abi-primitive.bray";
 pub(super) const ABI_HOST: &str = "xtask/fixtures/native-execution/abi-primitive-x86_64-linux.s";

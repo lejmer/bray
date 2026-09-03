@@ -29,8 +29,7 @@ macro_rules! define_token_list_syntax {
             }
         }
         separator: {
-            kind: $separator_kind:path,
-            tokens: $separator_tokens_method:ident $(,)?
+            kind: $separator_kind:path $(,)?
         } $(,)?
     ) => {
         $crate::list::define_token_item_syntax! {
@@ -65,7 +64,6 @@ macro_rules! define_token_list_syntax {
             }
             separator: {
                 kind: $separator_kind,
-                tokens: $separator_tokens_method,
             }
         }
     };

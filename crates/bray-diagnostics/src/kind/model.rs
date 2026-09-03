@@ -387,6 +387,8 @@ define_diagnostic_kinds! {
     CheckingIncompatiblePattern,
     /// A context requiring an irrefutable pattern received a refutable pattern.
     CheckingRefutablePattern,
+    /// A non-binding structural test introduces a local binding.
+    CheckingBindingInPatternTest,
     /// A match expression does not cover every value of its subject type.
     CheckingNonExhaustiveMatch,
     /// A match arm cannot be selected because earlier arms already cover it.
@@ -823,6 +825,7 @@ impl DiagnosticKind {
             Self::CheckingInvalidCallbackStateContext => 7093,
             Self::CheckingIncompatiblePattern => 7021,
             Self::CheckingRefutablePattern => 7022,
+            Self::CheckingBindingInPatternTest => 7115,
             Self::CheckingNonExhaustiveMatch => 7023,
             Self::CheckingUnreachableMatchArm => 7024,
             Self::CheckingUnreachablePatternAlternative => 7027,
@@ -1214,6 +1217,7 @@ impl DiagnosticKind {
             Self::CheckingInvalidCallbackStateContext => "checking_invalid_callback_state_context",
             Self::CheckingIncompatiblePattern => "checking_incompatible_pattern",
             Self::CheckingRefutablePattern => "checking_refutable_pattern",
+            Self::CheckingBindingInPatternTest => "checking_binding_in_pattern_test",
             Self::CheckingNonExhaustiveMatch => "checking_non_exhaustive_match",
             Self::CheckingUnreachableMatchArm => "checking_unreachable_match_arm",
             Self::CheckingUnreachablePatternAlternative => {

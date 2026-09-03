@@ -332,9 +332,11 @@ fn dependency_guard_may_apply(
         BoundDependencyGuard::NullablePresent(access) => {
             refinement_guard_value(storage, refinements, access, |kind| match kind {
                 RefinementKind::NullablePresence { is_present, .. } => Some(is_present),
-                RefinementKind::Pattern { predicate, .. } => match predicate {
-                    PatternPredicate::NullableAbsent => Some(false),
-                    PatternPredicate::NullablePresent => Some(true),
+                RefinementKind::Pattern {
+                    predicate, value, ..
+                } => match predicate {
+                    PatternPredicate::NullableAbsent => Some(!value),
+                    PatternPredicate::NullablePresent => Some(value),
                     PatternPredicate::Literal(_)
                     | PatternPredicate::Constant(_)
                     | PatternPredicate::ActiveUnionVariant(_)
@@ -353,8 +355,17 @@ fn dependency_guard_may_apply(
             refinement_guard_value(storage, refinements, access, |kind| match kind {
                 RefinementKind::Pattern {
                     predicate: PatternPredicate::ActiveUnionVariant(active),
+                    value,
                     ..
-                } => Some(active == variant),
+                } => {
+                    if value {
+                        Some(active == variant)
+                    } else if active == variant {
+                        Some(false)
+                    } else {
+                        None
+                    }
+                }
                 RefinementKind::Condition { .. }
                 | RefinementKind::NullablePresence { .. }
                 | RefinementKind::Pattern { .. }
@@ -377,6 +388,15 @@ fn refinement_guard_value(
     value: impl Fn(RefinementKind) -> Option<bool>,
 ) -> Option<bool> {
     refinements.iter().find_map(|refinement| {
+        if let RefinementKind::Pattern {
+            access: subject, ..
+        } = refinement.kind()
+        {
+            return (storage.relationship(subject, access) == StorageRelationship::Identical)
+                .then(|| value(refinement.kind()))
+                .flatten();
+        }
+
         refinement
             .dependencies()
             .iter()

@@ -23,11 +23,7 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
         std.ffi.ForeignError
     >(relative_open);
 
-    match relative_error.kind()
-    {
-        case std.ffi.ForeignErrorKind.InvalidInput {}
-        case _ { assert(false); }
-    }
+    assert(relative_error.kind() matches std.ffi.ForeignErrorKind.InvalidInput);
 
     let mut library: std.dynamic.DynamicLibrary = try std.dynamic.DynamicLibrary.open(
         std.dynamic.SystemLibrary.CRuntime,
@@ -45,11 +41,7 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
         std.ffi.ForeignError
     >(invalid_result);
 
-    match invalid_error.kind()
-    {
-        case std.ffi.ForeignErrorKind.InvalidInput {}
-        case _ { assert(false); }
-    }
+    assert(invalid_error.kind() matches std.ffi.ForeignErrorKind.InvalidInput);
 
     {
         let missing_name: [u8; 19] = [
@@ -83,11 +75,7 @@ trusted func dynamic_libraries_resolve_typed_symbols_and_close_owners() -> Resul
             std.ffi.ForeignError
         >(missing);
 
-        match missing_error.kind()
-        {
-            case std.ffi.ForeignErrorKind.UnavailableSymbol {}
-            case _ { assert(false); }
-        }
+        assert(missing_error.kind() matches std.ffi.ForeignErrorKind.UnavailableSymbol);
 
         let name: [u8; 6] = [115, 116, 114, 108, 101, 110];
         let _: std.dynamic.DynamicSymbol<u8> = try trusted library.symbol<u8>(&name[..]);

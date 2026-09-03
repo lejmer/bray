@@ -15,7 +15,10 @@ use crate::inspection::{
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum StorageInspectionError {
-    Capacity { resource: &'static str, actual: usize },
+    Capacity {
+        resource: &'static str,
+        actual: usize,
+    },
     Source(InspectionSourceError),
     Type(TypeInspectionError),
 }
@@ -591,6 +594,10 @@ impl From<StorageBindingTarget> for InspectionStorageBindingTarget {
             },
             StorageBindingTarget::PatternDiscard(pattern) => Self::LocalSymbol {
                 symbol_kind: "pattern_discard",
+                id: pattern.ordinal(),
+            },
+            StorageBindingTarget::PatternSubject(pattern) => Self::LocalSymbol {
+                symbol_kind: "pattern_subject",
                 id: pattern.ordinal(),
             },
             StorageBindingTarget::PostconditionResult(symbol) => Self::LocalSymbol {

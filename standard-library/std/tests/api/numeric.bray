@@ -68,41 +68,27 @@ func widest_integer_parsing()
     assert(decimal_value == 42);
     assert(hexadecimal_value == 255);
 
-    match std.testing.assert_error<u128, std.numeric.ParseError>(invalid)
-    {
-        case std.numeric.ParseError.InvalidDigit {}
-        case _ { assert(false); }
-    }
+    assert(std.testing.assert_error<u128, std.numeric.ParseError>(invalid) matches std.numeric.ParseError.InvalidDigit);
 
     let signed_value: i32 = std.testing.assert_ok<i32, std.numeric.ParseError>(signed);
 
     assert(signed_value == -42);
 
-    match std.testing.assert_error<u8, std.numeric.ParseError>(narrow_overflow)
-    {
-        case std.numeric.ParseError.Overflow {}
-        case _ { assert(false); }
-    }
+    assert(
+        std.testing.assert_error<u8, std.numeric.ParseError>(narrow_overflow) matches std.numeric.ParseError.Overflow
+    );
 
-    match std.testing.assert_error<u16, std.numeric.ParseError>(empty)
-    {
-        case std.numeric.ParseError.Empty {}
-        case _ { assert(false); }
-    }
+    assert(std.testing.assert_error<u16, std.numeric.ParseError>(empty) matches std.numeric.ParseError.Empty);
 
-    match std.testing.assert_error<u32, std.numeric.ParseError>(invalid_radix)
-    {
-        case std.numeric.ParseError.InvalidRadix {}
-        case _ { assert(false); }
-    }
+    assert(
+        std.testing.assert_error<u32, std.numeric.ParseError>(invalid_radix) matches std.numeric.ParseError.InvalidRadix
+    );
 
     let minimum_value: i8 = std.testing.assert_ok<i8, std.numeric.ParseError>(signed_minimum);
 
     assert(minimum_value == -128);
 
-    match std.testing.assert_error<i8, std.numeric.ParseError>(signed_overflow)
-    {
-        case std.numeric.ParseError.Overflow {}
-        case _ { assert(false); }
-    }
+    assert(
+        std.testing.assert_error<i8, std.numeric.ParseError>(signed_overflow) matches std.numeric.ParseError.Overflow
+    );
 }

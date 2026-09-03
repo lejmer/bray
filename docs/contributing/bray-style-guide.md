@@ -369,6 +369,21 @@ belongs in the thin module root.
 Document public APIs in terms of purpose, observable behavior, caller obligations, and failure conditions. Do not expose
 internal storage or implementation mechanics unless they materially affect callers.
 
+## Pattern conditions
+
+Use `value matches Pattern(_)` to assert a variant or structural shape. Keep one space on each side of `matches` and
+around a pattern alternative's `|`. Use `if let` or `while let` when the successful body needs a matched part. Write the
+initializer separator with one space on each side, and format the body using the ordinary conditional or loop rules.
+
+```bray
+assert(result matches Ok(_));
+
+if let Ok(value) = result
+{
+    inspect(value);
+}
+```
+
 ## Construction APIs
 
 Use a primary constructor when an operation exists to produce a value of one concrete type. Use a named constructor when

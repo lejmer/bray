@@ -340,6 +340,14 @@ pub enum BoundStructuredExpressionKind {
     GeneralGenerator,
     /// A conditional branch.
     Conditional,
+    /// A non-binding structural boolean test that observes its subject.
+    /// Its sole block owns temporaries until the test produces its Boolean result.
+    PatternTest,
+    /// A structural condition whose bindings enter scope after a successful match.
+    PatternBinding,
+    /// A condition with bindings. Its sole operand is a boolean expression, and its sole block
+    /// owns bindings and initializer temporaries through the successful body or failed attempt.
+    Condition,
     /// A conditional loop.
     While,
     /// An unconditional loop.
@@ -452,6 +460,9 @@ impl BoundStructuredExpressionKind {
             Self::ArrayGenerator => "array_generator",
             Self::GeneralGenerator => "general_generator",
             Self::Conditional => "conditional",
+            Self::PatternTest => "pattern_test",
+            Self::PatternBinding => "pattern_binding",
+            Self::Condition => "condition",
             Self::While => "while",
             Self::Loop => "loop",
             Self::With => "with",

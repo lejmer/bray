@@ -13,6 +13,21 @@
 
 The following independent fragments assume referenced support types, traits, capabilities, and helper callables are in scope. Each fragment demonstrates a distinct part of the expression inventory.
 
+### Structural pattern conditions
+
+Use `value matches Pattern(_)` for a structural boolean test. It observes its subject once, introduces no bindings, and has non-associative comparison precedence. Use `==` to compare runtime values through `Equatable`, `if let` or `while let` to inspect a matched payload in a successful body, and `match` to select among cases.
+
+```bray
+assert(result matches Ok(_));
+
+if let Ok(value) = result && ready(value)
+{
+    inspect(value);
+}
+```
+
+The right operand of `matches` is a pattern. `|` belongs to pattern alternatives, while `&&`, `||`, and negation combine boolean tests without binding names. Conditional initializers run once when reached, and once per attempt in a loop. Conditional `let` operands also compose through `&&`. Each binding is available to later operands and the successful body. Write `if let ?value = input && value > 0`, without grouping the `let` operand. Group a boolean initializer when needed, as in `if let true = (ready || fallback) && permitted`. Binding operands cannot occur under `||` or negation.
+
 ### Values, access paths, calls, and construction
 
 ```bray

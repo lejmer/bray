@@ -1,5 +1,5 @@
 use crate::node::define_source_syntax_node;
-use crate::{ExpressionSyntax, SyntaxKind, SyntaxToken};
+use crate::{ExpressionSyntax, SyntaxKind};
 
 macro_rules! define_bare_directive_syntax {
     (
@@ -208,13 +208,7 @@ define_source_syntax_node! {
     }
 }
 
-impl DirectiveArgumentListSyntax {
-    /// Returns comma separator tokens in source order.
-    pub fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
-        self.tokens()
-            .filter(|token| token.kind() == SyntaxKind::CommaToken)
-    }
-}
+impl crate::node::GreenSeparatedSyntaxNode for DirectiveArgumentListSyntax {}
 
 define_argument_list_directive_syntax! {
     /// `@target(...)` directive.
