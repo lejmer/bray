@@ -103,7 +103,7 @@ for item in items
 ```bray
 let found: Item? = for item in items
 {
-    if item.matches(query)
+    if item.satisfies(query)
     {
         break item;
     }

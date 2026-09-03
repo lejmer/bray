@@ -112,7 +112,7 @@ let found: Item? = while index < items.count()
 {
     let item = items.at(index);
 
-    if item.matches(query)
+    if item.satisfies(query)
     {
         break item;
     }
