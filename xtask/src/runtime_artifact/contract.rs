@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use bray_runtime_interface::{RuntimeAbiRole, RuntimeAbiType};
@@ -13,6 +13,17 @@ pub(super) fn validate(root: &Path) -> Result<(), String> {
     )?;
 
     paths.sort();
+
+    let known_symbols = RuntimeAbiRole::ALL
+        .into_iter()
+        .filter(|role| role.bootstrap_declaration().is_none())
+        .filter_map(RuntimeAbiRole::native_symbol)
+        .chain(
+            super::command::RuntimeArchiveKind::ALL
+                .into_iter()
+                .flat_map(super::archive::support_exports),
+        )
+        .collect::<BTreeSet<_>>();
 
     let mut implementations = BTreeMap::new();
 
@@ -32,12 +43,23 @@ pub(super) fn validate(root: &Path) -> Result<(), String> {
                 continue;
             }
 
-            let function = syn::parse2::<syn::ItemFn>(item.mac.tokens)
-                .map_err(|error| format!("invalid native adapter in {}: {error}", path.display()))?;
+            let function = syn::parse2::<syn::ItemFn>(item.mac.tokens).map_err(|error| {
+                format!("invalid native adapter in {}: {error}", path.display())
+            })?;
 
             let name = function.sig.ident.to_string();
 
-            implementations.entry(name).or_insert_with(Vec::new).push((path.clone(), function.sig));
+            if !known_symbols.contains(name.as_str()) {
+                return Err(format!(
+                    "{}: native adapter {name} has no runtime role or support-export owner",
+                    path.display(),
+                ));
+            }
+
+            implementations
+                .entry(name)
+                .or_insert_with(Vec::new)
+                .push((path.clone(), function.sig));
         }
     }
 
@@ -50,8 +72,12 @@ pub(super) fn validate(root: &Path) -> Result<(), String> {
             continue;
         }
 
-        let signatures = implementations.get(symbol)
-            .ok_or_else(|| format!("runtime role {} has no native adapter for {symbol}", role.as_str()))?;
+        let signatures = implementations.get(symbol).ok_or_else(|| {
+            format!(
+                "runtime role {} has no native adapter for {symbol}",
+                role.as_str()
+            )
+        })?;
 
         for (path, signature) in signatures {
             validate_signature(role, signature)
@@ -63,38 +89,59 @@ pub(super) fn validate(root: &Path) -> Result<(), String> {
 }
 
 fn validate_signature(role: RuntimeAbiRole, signature: &syn::Signature) -> Result<(), String> {
-    let expected = role.native_signature()
-        .ok_or_else(|| format!("compiler-owned role {} cannot have a native adapter", role.as_str()))?;
+    let expected = role.native_signature().ok_or_else(|| {
+        format!(
+            "compiler-owned role {} cannot have a native adapter",
+            role.as_str()
+        )
+    })?;
 
-    let abi = signature.abi.as_ref().and_then(|abi| abi.name.as_ref()).map(syn::LitStr::value);
+    let abi = signature
+        .abi
+        .as_ref()
+        .and_then(|abi| abi.name.as_ref())
+        .map(syn::LitStr::value);
 
     if !matches!(abi.as_deref(), Some("C" | "C-unwind")) || signature.variadic.is_some() {
-        return Err(format!("runtime role {} requires a non-variadic C ABI", role.as_str()));
+        return Err(format!(
+            "runtime role {} requires a non-variadic C ABI",
+            role.as_str()
+        ));
     }
 
     if signature.asyncness.is_some() || !signature.generics.params.is_empty() {
-        return Err(format!("runtime role {} requires a synchronous non-generic adapter", role.as_str()));
+        return Err(format!(
+            "runtime role {} requires a synchronous non-generic adapter",
+            role.as_str()
+        ));
     }
 
-    let parameters = signature.inputs.iter().map(|argument| {
-        let syn::FnArg::Typed(argument) = argument else {
-            return Err(format!("runtime role {} has a receiver", role.as_str()));
-        };
+    let parameters = signature
+        .inputs
+        .iter()
+        .map(|argument| {
+            let syn::FnArg::Typed(argument) = argument else {
+                return Err(format!("runtime role {} has a receiver", role.as_str()));
+            };
 
-        native_type(&argument.ty)
-    }).collect::<Result<Vec<_>, _>>()
+            native_type(&argument.ty)
+        })
+        .collect::<Result<Vec<_>, _>>()
         .map_err(|error| format!("runtime role {}: {error}", role.as_str()))?;
 
     let result = match &signature.output {
         syn::ReturnType::Default => RuntimeAbiType::Void,
-        syn::ReturnType::Type(_, ty) => native_type(ty)
-            .map_err(|error| format!("runtime role {}: {error}", role.as_str()))?,
+        syn::ReturnType::Type(_, ty) => {
+            native_type(ty).map_err(|error| format!("runtime role {}: {error}", role.as_str()))?
+        }
     };
 
     if parameters != expected.parameters() || result != expected.result() {
         return Err(format!(
             "runtime role {} has signature {parameters:?} -> {result:?}, expected {:?} -> {:?}",
-            role.as_str(), expected.parameters(), expected.result(),
+            role.as_str(),
+            expected.parameters(),
+            expected.result(),
         ));
     }
 
@@ -106,13 +153,19 @@ fn native_type(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
         syn::Type::Never(_) => return Ok(RuntimeAbiType::Never),
         syn::Type::Ptr(pointer) => return pointer_kind(&pointer.elem),
         syn::Type::Reference(reference) => return pointer_kind(&reference.elem),
-        syn::Type::Path(path) => path.path.segments.last().map(|segment| segment.ident.to_string()),
+        syn::Type::Path(path) => path
+            .path
+            .segments
+            .last()
+            .map(|segment| segment.ident.to_string()),
         _ => None,
     };
 
     Ok(match name.as_deref() {
         Some("u8") => RuntimeAbiType::U8,
-        Some("u32" | "NativeRuntimeStatus" | "NativeRunState" | "NativeProductHostOperation") => RuntimeAbiType::U32,
+        Some("u32" | "NativeRuntimeStatus" | "NativeRunState" | "NativeProductHostOperation") => {
+            RuntimeAbiType::U32
+        }
         Some("u64" | "NativeRootHandle" | "NativeTaskHandle") => RuntimeAbiType::U64,
         Some("usize" | "NativeProtectedFrameTransfer") => RuntimeAbiType::Usize,
         Some("NativeRuntimeConfiguration") => RuntimeAbiType::Configuration,
@@ -125,7 +178,12 @@ fn native_type(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
         Some("NativeProductHostObservation") => RuntimeAbiType::ProductObservation,
         Some("NativeWakeCallback" | "NativeRuntimeEventCallback") => RuntimeAbiType::Pointer,
         Some("Option") if is_optional_cleanup_callback(ty) => RuntimeAbiType::Pointer,
-        _ => return Err(format!("unsupported native adapter type {}", ty.to_token_stream())),
+        _ => {
+            return Err(format!(
+                "unsupported native adapter type {}",
+                ty.to_token_stream()
+            ));
+        }
     })
 }
 
@@ -133,7 +191,10 @@ fn pointer_kind(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
     if matches!(ty, syn::Type::Slice(_) | syn::Type::TraitObject(_))
         || matches!(ty, syn::Type::Path(path) if path.path.is_ident("str"))
     {
-        return Err(format!("native adapter pointer has unsized target {}", ty.to_token_stream()));
+        return Err(format!(
+            "native adapter pointer has unsized target {}",
+            ty.to_token_stream()
+        ));
     }
 
     if matches!(ty, syn::Type::Path(path) if path.path.is_ident("usize")) {
@@ -167,6 +228,28 @@ mod tests {
     use super::{native_type, validate, validate_signature};
 
     #[test]
+    fn undeclared_native_adapters_fail_even_without_a_reserved_prefix() {
+        let directory = tempfile::tempdir().expect("test directory exists");
+        let sources = directory.path().join("crates/bray-runtime-adapter/src");
+        std::fs::create_dir_all(&sources).expect("adapter directory exists");
+        let source = sources.join("unprojected.rs");
+
+        std::fs::write(
+            &source,
+            "native_adapter! { pub extern \"C\" fn forgotten_adapter() {} }",
+        )
+        .expect("adapter source writes");
+
+        assert_eq!(
+            validate(directory.path()),
+            Err(format!(
+                "{}: native adapter forgotten_adapter has no runtime role or support-export owner",
+                source.display(),
+            )),
+        );
+    }
+
+    #[test]
     fn wide_pointers_are_not_native_addresses() {
         for source in ["*const [u8]", "&str", "*mut dyn Send"] {
             let ty = syn::parse_str::<syn::Type>(source).expect("type parses");
@@ -186,12 +269,17 @@ mod tests {
     fn role_signature_mismatches_identify_the_role_and_shapes() {
         let signature = syn::parse_str::<syn::ItemFn>(
             "pub extern \"C\" fn bray_runtime_task_event_creation() -> u32 { 0 }",
-        ).expect("signature parses").sig;
+        )
+        .expect("signature parses")
+        .sig;
 
         let error = validate_signature(RuntimeAbiRole::TaskEventCreation, &signature)
             .expect_err("wrong result kind must fail");
 
-        assert_eq!(error, "runtime role task_event_creation has signature [] -> U32, expected [] -> Usize");
+        assert_eq!(
+            error,
+            "runtime role task_event_creation has signature [] -> U32, expected [] -> Usize"
+        );
     }
 
     #[test]
@@ -202,7 +290,9 @@ mod tests {
             "pub async extern \"C\" fn operation(value: usize) -> u32 { 0 }",
             "pub extern \"C\" fn operation<T>(value: usize) -> u32 { 0 }",
         ] {
-            let signature = syn::parse_str::<syn::ItemFn>(source).expect("signature parses").sig;
+            let signature = syn::parse_str::<syn::ItemFn>(source)
+                .expect("signature parses")
+                .sig;
 
             assert!(validate_signature(RuntimeAbiRole::TaskEventSignal, &signature).is_err());
         }

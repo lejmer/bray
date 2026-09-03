@@ -38,7 +38,9 @@ pub(crate) fn validate_role_exports(
     let unexpected = definitions
         .keys()
         .filter(|symbol| {
-            (known.contains(**symbol) || symbol.starts_with("bray_platform_"))
+            (known.contains(**symbol)
+                || symbol.starts_with("bray_runtime_")
+                || symbol.starts_with("bray_platform_"))
                 && !required.contains(**symbol)
         })
         .map(|symbol| (*symbol).to_owned())
