@@ -385,10 +385,7 @@ fn translate_frame_adapter<'context>(
         context
             .i32_type()
             .const_int(
-                crate::conversion::resource_limit(
-                    descriptor.states().len(),
-                    "frame_state_count",
-                )?,
+                crate::conversion::resource_limit(descriptor.states().len(), "frame_state_count")?,
                 false,
             )
             .into(),
@@ -422,6 +419,7 @@ fn translate_frame_adapter<'context>(
     }
 
     crate::native::return_frame_result(
+        types.context(),
         &builder,
         function,
         request.target(),
@@ -493,7 +491,6 @@ fn translate_state_callback(
         crate::native::return_frame_state(
             context,
             &builder,
-            request.target(),
             u64::from(affinity),
             lane_requirements,
         )?;
@@ -514,7 +511,7 @@ fn translate_state_callback(
 
     builder.position_at_end(invalid);
 
-    crate::native::return_frame_state(context, &builder, request.target(), 0, 0)?;
+    crate::native::return_frame_state(context, &builder, 0, 0)?;
 
     Ok(())
 }
@@ -581,6 +578,7 @@ fn translate_cancellation_entry<'context>(
     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     crate::native::return_frame_result(
+        types.context(),
         &builder,
         function,
         request.target(),

@@ -7,13 +7,14 @@ use bray_platform::{
     begin_current_run_output_operation,
 };
 use bray_platform_abi_support::{
-    platform_io_error, publish_transfer_count, source_slice, validate_transfer,
+    native_platform_export, platform_io_error, publish_transfer_count, source_slice,
+    validate_transfer,
 };
 use bray_runtime_abi::NativePlatformStatus;
 
 macro_rules! captured_standard_stream {
     ($write:ident, $flush:ident, $stream:expr) => {
-        native_adapter! {
+        native_platform_export! {
             pub extern "C" fn $write(
                 source: *const u8,
                 length: u64,
@@ -23,7 +24,7 @@ macro_rules! captured_standard_stream {
             }
         }
 
-        native_adapter! {
+        native_platform_export! {
             pub extern "C" fn $flush() -> NativePlatformStatus {
                 flush_standard_stream($stream)
             }
@@ -40,7 +41,7 @@ fn inherited_io_result<T>(result: io::Result<T>) -> Result<T, NativePlatformStat
     result.map_err(|error| platform_io_error(&error))
 }
 
-native_adapter! {
+native_platform_export! {
     pub extern "C" fn bray_platform_standard_input_read(
         destination: *mut u8,
         length: u64,
@@ -50,7 +51,7 @@ native_adapter! {
     }
 }
 
-native_adapter! {
+native_platform_export! {
     pub extern "C" fn bray_platform_standard_input_lock() -> NativePlatformStatus {
         STANDARD_INPUT_OPERATION.with(|operation| {
             let mut operation = operation.borrow_mut();
@@ -66,7 +67,7 @@ native_adapter! {
     }
 }
 
-native_adapter! {
+native_platform_export! {
     pub extern "C" fn bray_platform_standard_input_unlock() -> NativePlatformStatus {
         STANDARD_INPUT_OPERATION.with(|operation| {
             operation
@@ -114,13 +115,13 @@ captured_standard_stream!(
 
 macro_rules! captured_standard_stream_lock {
     ($lock:ident, $unlock:ident, $stream:expr) => {
-        native_adapter! {
+        native_platform_export! {
             pub extern "C" fn $lock() -> NativePlatformStatus {
                 begin_standard_stream_operation($stream)
             }
         }
 
-        native_adapter! {
+        native_platform_export! {
             pub extern "C" fn $unlock() -> NativePlatformStatus {
                 end_standard_stream_operation($stream)
             }

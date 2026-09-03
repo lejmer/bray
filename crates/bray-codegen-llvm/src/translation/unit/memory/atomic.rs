@@ -291,15 +291,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .map(BasicValueEnum::from);
         }
 
-        let storage = self.allocate_temporary(storage_type, "atomic.value.storage")?;
-
-        llvm(self.builder.build_store(storage, storage_type.const_zero()))?;
-
-        llvm(self.builder.build_store(storage, value))?;
-
-        llvm(
-            self.builder
-                .build_load(storage_type, storage, "atomic.value.bits"),
+        crate::translation::reinterpret_value(
+            self.types.context(),
+            &self.builder,
+            value,
+            storage_type,
+            storage_type,
+            "atomic.value.bits",
         )
     }
 
@@ -327,13 +325,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let storage_type = self.atomic_storage_type(value_type)?;
 
-        let storage = self.allocate_temporary(storage_type, "atomic.bits.storage")?;
-
-        llvm(self.builder.build_store(storage, value))?;
-
-        llvm(
-            self.builder
-                .build_load(semantic_type, storage, "atomic.bits.value"),
+        crate::translation::reinterpret_value(
+            self.types.context(),
+            &self.builder,
+            value,
+            semantic_type,
+            storage_type,
+            "atomic.bits.value",
         )
     }
 

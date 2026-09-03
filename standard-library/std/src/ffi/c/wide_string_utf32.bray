@@ -25,7 +25,7 @@ trusted internal func decode_wide_string(pos value: &BorrowedWideString) -> Resu
             return Error(StringError.InvalidEncoding);
         }
 
-        try trusted internal append_wide_decoded_scalar(&mut bytes, scalar = scalar as u32);
+        try trusted internal append_wide_decoded_scalar(&mut bytes, scalar = std.truncate_to<u32>(scalar));
         index += 1;
     }
 

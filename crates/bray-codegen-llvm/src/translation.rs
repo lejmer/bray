@@ -4,7 +4,7 @@ mod panic;
 mod string;
 mod unit;
 
-pub(crate) use allocation::allocate_temporary;
+pub(crate) use allocation::{allocate_temporary, reinterpret_value};
 pub(crate) use panic::branch_on_pending_panic;
 pub(crate) use string::{publish_string_global, string_constant_name};
 pub(crate) use unit::{

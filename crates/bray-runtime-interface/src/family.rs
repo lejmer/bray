@@ -16,3 +16,13 @@ pub enum PlatformServiceFamily {
     /// Dynamic-library loading and symbol lookup.
     DynamicLibrary,
 }
+
+impl PlatformServiceFamily {
+    /// Returns the catalog roles owned by this capability family in stable order.
+    pub fn roles(self) -> impl Iterator<Item = crate::PlatformServiceRole> {
+        crate::PlatformServiceRole::ALL
+            .iter()
+            .copied()
+            .filter(move |role| role.family() == self)
+    }
+}

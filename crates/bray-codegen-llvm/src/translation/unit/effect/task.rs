@@ -3,34 +3,16 @@ use super::super::support::{extract_value, int_value, llvm};
 use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenSymbolKey, CodegenTypeKind};
 use bray_ir::MirRunResultVariants;
 use inkwell::IntPredicate;
-use inkwell::values::{BasicValueEnum, FunctionValue, PointerValue};
+use inkwell::values::{BasicValueEnum, PointerValue};
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) fn allocate_native_task(
         &mut self,
         runtime: bray_ir::MirRuntimeReference,
     ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
-        let function = self.runtime_function(runtime)?;
-        let allocation_type = crate::native::task_allocation_type(self.types.context());
-
-        let allocation = if crate::native::uses_microsoft_x64_abi(self.request.target()) {
-            let storage = self.allocate_temporary(allocation_type, "task.allocation")?;
-
-            llvm(
-                self.builder
-                    .build_call(function, &[storage.into()], "task.allocation.call"),
-            )?;
-
-            llvm(
-                self.builder
-                    .build_load(allocation_type, storage, "task.allocation.value"),
-            )?
-        } else {
-            llvm(self.builder.build_call(function, &[], "task.allocation"))?
-                .try_as_basic_value()
-                .basic()
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?
-        };
+        let allocation = self
+            .invoke_native_runtime(runtime, &[])?
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let status = extract_value(&self.builder, allocation, 0)?;
 
@@ -46,22 +28,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         task: inkwell::values::IntValue<'context>,
         frame: BasicValueEnum<'context>,
     ) -> Result<(), CodegenFailure> {
-        let function = self.runtime_function(runtime)?;
-        let mut arguments = vec![task.into()];
-
-        if crate::native::uses_microsoft_x64_abi(self.request.target()) {
-            let frame_type = crate::native::inactive_frame_type(self.types.context());
-            let storage = self.allocate_temporary(frame_type, "task.frame")?;
-
-            llvm(self.builder.build_store(storage, frame))?;
-            arguments.push(storage.into());
-        } else {
-            arguments.push(frame.into());
-        }
-
-        let status = llvm(self.builder.build_call(function, &arguments, "task.start"))?
-            .try_as_basic_value()
-            .basic()
+        let status = self
+            .invoke_native_runtime(runtime, &[task.into(), frame])?
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         self.require_runtime_success(status, "task.start")?;
@@ -83,7 +51,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         cancellation: &CodegenHelperMapping,
         lifecycle: &CodegenHelperMapping,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let function = self.helper_function(creation)?;
+        let Some(CodegenSymbolKey::Runtime(runtime)) = creation.symbol() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
         let layout = self.run_result_layout(result, variants)?;
         let task = int_value(task).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
@@ -106,7 +77,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .helper_address(lifecycle)?
             .unwrap_or_else(|| callback_type.const_null().into());
 
-        let mut arguments = vec![
+        let arguments = [
             task.into(),
             boolean.into(),
             layout.into(),
@@ -114,31 +85,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             lifecycle.into(),
         ];
 
-        let frame_type = crate::native::inactive_frame_type(self.types.context());
-
-        if crate::native::uses_microsoft_x64_abi(self.request.target()) {
-            let storage = self.allocate_temporary(frame_type, "task.observation.frame")?;
-
-            arguments.insert(0, storage.into());
-
-            llvm(
-                self.builder
-                    .build_call(function, &arguments, "task.observation.create"),
-            )?;
-
-            return llvm(
-                self.builder
-                    .build_load(frame_type, storage, "task.observation.value"),
-            );
-        }
-
-        llvm(
-            self.builder
-                .build_call(function, &arguments, "task.observation.create"),
-        )?
-        .try_as_basic_value()
-        .basic()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)
+        self.invoke_native_runtime(*runtime, &arguments)?
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)
     }
 
     pub(super) fn resolve_native_task(
@@ -157,16 +105,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let storage = self.aligned_alloca(result, mapping.alignment().get(), "task.result")?;
         let layout = self.run_result_layout(result, variants)?;
-        let function = self.runtime_function(runtime)?;
 
-        let status = llvm(self.builder.build_call(
-            function,
-            &[task.into(), storage.into(), layout.into()],
-            "task.resolve",
-        ))?
-        .try_as_basic_value()
-        .basic()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let status = self
+            .invoke_native_runtime(runtime, &[task.into(), storage.into(), layout.into()])?
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         self.require_runtime_success(status, "task.resolve")?;
 
@@ -280,35 +222,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         llvm(self.builder.build_store(storage, value))?;
 
         Ok(storage)
-    }
-
-    fn runtime_function(
-        &self,
-        runtime: bray_ir::MirRuntimeReference,
-    ) -> Result<FunctionValue<'context>, CodegenFailure> {
-        let symbol = self
-            .request
-            .mappings()
-            .symbol(&CodegenSymbolKey::Runtime(runtime))
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        self.module
-            .get_function(symbol.name().as_str())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
-    }
-
-    fn helper_function(
-        &self,
-        helper: &CodegenHelperMapping,
-    ) -> Result<FunctionValue<'context>, CodegenFailure> {
-        let symbol = helper
-            .symbol()
-            .and_then(|key| self.request.mappings().symbol(key))
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        self.module
-            .get_function(symbol.name().as_str())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
     }
 
     pub(super) fn require_runtime_success(

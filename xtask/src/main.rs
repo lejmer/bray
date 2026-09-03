@@ -10,6 +10,7 @@ mod json;
 mod link_map;
 mod native_archive;
 mod native_product;
+mod native_symbols;
 mod native_toolchain;
 mod package_interface;
 mod path;

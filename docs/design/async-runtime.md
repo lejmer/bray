@@ -447,8 +447,12 @@ ownership or availability fail compilation. Runtime artifact metadata still vali
 complete ownership and dependency graph before product linking.
 
 Native signatures describe the C boundary. Compiler signatures describe MIR values, including operations whose native
-arguments come from generated host or frame state. LLVM derives native declarations and target aggregate passing from
-the native signature. Bootstrap source validation checks that same signature against the checked Bray declaration.
+arguments come from generated host or frame state. LLVM derives native declarations, scalar extension, and aggregate
+passing from the native signature. Bootstrap source validation checks that same signature against the checked Bray declaration.
+Native Rust exports check their declared value kinds against the catalog. Native C++ providers compile against
+catalog-generated declarations. Before publication, each ordinary or optimization archive must define every role it
+owns exactly once and must not define another component's roles. Temporal and dynamic-library providers have separate
+archives and inventories derived from their capability families.
 
 Each native runtime is packaged as a target-specific component catalog plus bounded compiler-readable metadata.
 Ordinary-product adapter components separately own host, scheduler, cancellation, and event roles or capabilities. A

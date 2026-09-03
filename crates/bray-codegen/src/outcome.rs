@@ -8,8 +8,8 @@ use bray_diagnostics::{
 };
 
 use crate::{
-    ArtifactContentBuildError, BackendArtifactContribution, BackendArtifactKind, BackendArtifactSet,
-    BackendArtifactSetBuildError, CodegenRequest, CodegenRuntimeMetadata,
+    ArtifactContentBuildError, BackendArtifactContribution, BackendArtifactKind,
+    BackendArtifactSet, BackendArtifactSetBuildError, CodegenRequest, CodegenRuntimeMetadata,
     CodegenRuntimeMetadataBuildError,
 };
 
@@ -51,6 +51,12 @@ pub enum CodegenFailure {
     GeneratedModuleInvariantDetail { report: Arc<str> },
     /// A compiler-owned role was requested as a native runtime function.
     CompilerOwnedRuntimeRole(bray_runtime_interface::RuntimeAbiRole),
+    /// A native runtime call supplied a different number of arguments than its role requires.
+    NativeRuntimeArgumentCount {
+        role: bray_runtime_interface::RuntimeAbiRole,
+        expected: u64,
+        actual: u64,
+    },
     /// Generated runtime metadata violated its publication contract.
     InvalidRuntimeMetadata(CodegenRuntimeMetadataBuildError),
     /// A successful backend outcome violated its publication contract.
@@ -274,7 +280,9 @@ pub fn codegen_failure_diagnostic(
             (DiagnosticKind::CodegenGeneratedModuleInvalid, None)
         }
         CodegenFailure::CompilerOwnedRuntimeRole(_)
-        | CodegenFailure::InvalidRuntimeMetadata(_) | CodegenFailure::InvalidOutcome(_) => {
+        | CodegenFailure::NativeRuntimeArgumentCount { .. }
+        | CodegenFailure::InvalidRuntimeMetadata(_)
+        | CodegenFailure::InvalidOutcome(_) => {
             (DiagnosticKind::CodegenGeneratedModuleInvalid, None)
         }
         CodegenFailure::BackendRejectedModule { .. } => {
@@ -282,9 +290,10 @@ pub fn codegen_failure_diagnostic(
         }
         CodegenFailure::ArtifactConstruction(artifact)
         | CodegenFailure::ArtifactSerialization { artifact, .. }
-        | CodegenFailure::InvalidArtifactContent { artifact, .. } => {
-            (DiagnosticKind::CodegenArtifactConstructionFailed, Some(*artifact))
-        }
+        | CodegenFailure::InvalidArtifactContent { artifact, .. } => (
+            DiagnosticKind::CodegenArtifactConstructionFailed,
+            Some(*artifact),
+        ),
     };
 
     let mut diagnostic = Diagnostic::new(DiagnosticId::new(0), kind, SeverityKind::Error)
@@ -321,23 +330,30 @@ pub fn codegen_failure_diagnostic(
         }
         CodegenFailure::CompilerOwnedRuntimeRole(role) => {
             diagnostic = diagnostic.with_arg(DiagnosticArg::codegen_backend_report(format!(
-                "compiler_owned_runtime_role={}", role.as_str(),
+                "compiler_owned_runtime_role={}",
+                role.as_str(),
+            )));
+        }
+        CodegenFailure::NativeRuntimeArgumentCount {
+            role,
+            expected,
+            actual,
+        } => {
+            diagnostic = diagnostic.with_arg(DiagnosticArg::codegen_backend_report(format!(
+                "native_runtime_role={} expected_argument_count={expected} actual_argument_count={actual}", role.as_str(),
             )));
         }
         CodegenFailure::InvalidRuntimeMetadata(cause) => {
-            diagnostic = diagnostic.with_arg(DiagnosticArg::codegen_backend_report(format!(
-                "{cause:?}"
-            )));
+            diagnostic =
+                diagnostic.with_arg(DiagnosticArg::codegen_backend_report(format!("{cause:?}")));
         }
         CodegenFailure::InvalidOutcome(cause) => {
-            diagnostic = diagnostic.with_arg(DiagnosticArg::codegen_backend_report(format!(
-                "{cause:?}"
-            )));
+            diagnostic =
+                diagnostic.with_arg(DiagnosticArg::codegen_backend_report(format!("{cause:?}")));
         }
         CodegenFailure::InvalidArtifactContent { cause, .. } => {
-            diagnostic = diagnostic.with_arg(DiagnosticArg::codegen_backend_report(format!(
-                "{cause:?}"
-            )));
+            diagnostic =
+                diagnostic.with_arg(DiagnosticArg::codegen_backend_report(format!("{cause:?}")));
         }
         CodegenFailure::BackendToolExited { program, exit } => {
             diagnostic = diagnostic
@@ -354,7 +370,7 @@ pub fn codegen_failure_diagnostic(
 
     if matches!(
         failure,
-            CodegenFailure::InvalidConfiguration
+        CodegenFailure::InvalidConfiguration
             | CodegenFailure::InvalidConfigurationReport { .. }
             | CodegenFailure::ResourceExhausted
             | CodegenFailure::ResourceLimit { .. }
@@ -363,6 +379,7 @@ pub fn codegen_failure_diagnostic(
             | CodegenFailure::GeneratedModuleInvariant
             | CodegenFailure::GeneratedModuleInvariantDetail { .. }
             | CodegenFailure::CompilerOwnedRuntimeRole(_)
+            | CodegenFailure::NativeRuntimeArgumentCount { .. }
             | CodegenFailure::InvalidRuntimeMetadata(_)
             | CodegenFailure::InvalidOutcome(_)
             | CodegenFailure::BackendRejectedModule { .. }

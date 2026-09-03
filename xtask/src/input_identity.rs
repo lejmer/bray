@@ -14,6 +14,7 @@ const COMMON_SOURCE_INPUTS: &[&str] = &[
     "toolchains",
     "xtask/src/bundle.rs",
     "xtask/src/native_archive.rs",
+    "xtask/src/native_symbols.rs",
     "xtask/src/path.rs",
     "xtask/src/input_identity.rs",
     "xtask/src/progress.rs",

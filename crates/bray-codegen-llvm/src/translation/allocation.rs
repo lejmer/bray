@@ -2,8 +2,36 @@ use bray_codegen::CodegenFailure;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
-use inkwell::types::BasicType;
-use inkwell::values::{InstructionOpcode, PointerValue};
+use inkwell::types::{BasicType, BasicTypeEnum};
+use inkwell::values::{BasicValueEnum, InstructionOpcode, PointerValue};
+
+pub(crate) fn reinterpret_value<'context>(
+    context: &'context Context,
+    builder: &Builder<'context>,
+    value: BasicValueEnum<'context>,
+    result: BasicTypeEnum<'context>,
+    storage_type: BasicTypeEnum<'context>,
+    name: &str,
+) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+    if value.get_type() == result {
+        return Ok(value);
+    }
+
+    // The caller supplies storage large and aligned enough for both representations.
+    let storage = allocate_temporary(context, builder, storage_type, &format!("{name}.storage"))?;
+
+    builder
+        .build_store(storage, storage_type.const_zero())
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder
+        .build_store(storage, value)
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder
+        .build_load(result, storage, name)
+        .map_err(CodegenFailure::backend_library)
+}
 
 pub(crate) fn allocate_temporary<'context>(
     context: &'context Context,

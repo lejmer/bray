@@ -67,54 +67,7 @@ macro_rules! define_platform_service_roles {
 
 bray_runtime_abi::platform_role_catalog!(define_platform_service_roles);
 
-/// One ABI value kind used by the closed platform-service callable schema.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum PlatformAbiType {
-    /// Fixed-width signed 32-bit scalar.
-    I32,
-    /// Fixed-width unsigned 32-bit scalar.
-    U32,
-    /// Fixed-width unsigned 64-bit scalar.
-    U64,
-    /// Fixed-width signed 64-bit scalar.
-    I64,
-    /// Raw pointer to byte storage.
-    PointerU8,
-    /// Raw pointer to unsigned 32-bit storage.
-    PointerU32,
-    /// Raw pointer to unsigned 64-bit storage.
-    PointerU64,
-    /// Raw pointer to signed 64-bit storage.
-    PointerI64,
-    /// Raw pointer to one target-native raw address output.
-    RawAddressPointer,
-    /// Call-only target-native path bytes.
-    Path,
-    /// Call-only target-native text units.
-    NativeText,
-    /// The fixed-layout file-open options record.
-    FileOptions,
-    /// Raw pointer to a fixed-layout file metadata record.
-    FileMetadataPointer,
-    /// The fixed-layout child-process construction record.
-    ChildRequest,
-    /// Raw pointer to a fixed-layout child exit-status record.
-    ExitStatusPointer,
-    /// The fixed-layout civil date-time record.
-    TemporalDateTime,
-    /// Raw pointer to a civil date-time record.
-    TemporalDateTimePointer,
-    /// Raw pointer to a timezone observation record.
-    TemporalObservationPointer,
-    /// Raw pointer to a local-time resolution record.
-    TemporalResolutionPointer,
-    /// The fixed-layout parsing and formatting value record.
-    TemporalValue,
-    /// Raw pointer to a parsing and formatting value record.
-    TemporalValuePointer,
-    /// The fixed-layout platform status record.
-    Status,
-}
+pub use bray_runtime_abi::PlatformAbiType;
 
 /// The exact parameter and result shape of one platform-service role.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]

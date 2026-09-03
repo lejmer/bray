@@ -24,6 +24,11 @@ pub(in crate::standard_library) enum BuildError {
     OsBindings(String),
     UnicodeData(String),
     NativeArchive(String),
+    NativeSymbolInspection(crate::native_symbols::InspectionError),
+    PlatformRoleExports {
+        family: bray_runtime_interface::PlatformServiceFamily,
+        error: crate::native_symbols::ExportMismatch,
+    },
     TemporaryDirectory(std::io::Error),
     UnsupportedTarget(TargetIdentity),
     CompilerUnavailable(bray_tooling::LlvmCompilationLoadError),
@@ -162,6 +167,14 @@ impl fmt::Display for BuildError {
                     "standard library Unicode data is invalid: {error}"
                 )
             }
+            Self::NativeSymbolInspection(error) => write!(
+                formatter,
+                "could not inspect native archive symbols: {error}"
+            ),
+            Self::PlatformRoleExports { family, error } => write!(
+                formatter,
+                "{family:?} provider role exports do not match the catalog: {error}"
+            ),
             Self::NativeArchive(error) => {
                 write!(
                     formatter,

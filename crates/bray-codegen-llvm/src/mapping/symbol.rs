@@ -121,6 +121,16 @@ fn apply_native_attributes(
     target: &CodegenTarget,
     types: &LlvmTypeMappings<'_, '_>,
 ) -> Result<(), CodegenFailure> {
+    if let bray_codegen::CodegenSymbolKey::Runtime(reference) = mapping.key() {
+        for (location, attribute) in
+            crate::native::runtime_attributes(types.context(), target, reference.role())?
+        {
+            function.add_attribute(location, attribute);
+        }
+
+        return Ok(());
+    }
+
     let Some(result) = crate::native::indirect_result_type(types.context(), target, mapping.key())
     else {
         return Ok(());
@@ -394,7 +404,7 @@ fn apply_call_enum_attribute(
     value: u64,
     types: &LlvmTypeMappings<'_, '_>,
 ) -> Result<(), CodegenFailure> {
-    call.add_attribute(location, enum_attribute(name, value, types)?);
+    call.add_attribute(location, enum_attribute(name, value, types.context())?);
 
     Ok(())
 }
@@ -461,7 +471,7 @@ fn apply_enum_attribute(
     value: u64,
     types: &LlvmTypeMappings<'_, '_>,
 ) -> Result<(), CodegenFailure> {
-    function.add_attribute(location, enum_attribute(name, value, types)?);
+    function.add_attribute(location, enum_attribute(name, value, types.context())?);
 
     Ok(())
 }
@@ -531,6 +541,42 @@ mod tests {
     };
     use crate::machine::LlvmTargetMachine;
     use crate::mapping::LlvmTypeMappings;
+
+    #[test]
+    fn mapped_runtime_declarations_use_native_byte_extension() {
+        let fixture = codegen_request();
+        let request = fixture.request();
+        let context = Context::create();
+        let module = context.create_module("mapped.runtime");
+        let target = CodegenTarget::for_native(NativeTarget::X86_64LinuxGnu);
+        let machine = LlvmTargetMachine::create(&target).unwrap();
+        let target_data = machine.target_data();
+        let mut types = LlvmTypeMappings::new(&context, request.mappings(), &target, &target_data);
+        let role = bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationObservation;
+
+        let mapping = CodegenSymbolMapping::new(
+            bray_codegen::CodegenSymbolKey::Runtime(bray_ir::MirRuntimeReference::new(
+                role,
+                RuntimeAbiVersion::new(1, 0),
+            )),
+            BinarySymbolName::try_new(role.native_symbol().unwrap()).unwrap(),
+            CodegenLinkage::Import,
+            request.mappings().symbols()[0].signature().clone(),
+        );
+
+        let function =
+            super::declare_symbol(&module, &mapping, &target, false, &mut types).unwrap();
+
+        let zero_extend = inkwell::attributes::Attribute::get_named_enum_kind_id("zeroext");
+
+        assert!(
+            function
+                .get_enum_attribute(AttributeLoc::Return, zero_extend)
+                .is_some()
+        );
+
+        module.verify().unwrap();
+    }
 
     #[test]
     fn weak_linkage_is_emitted_only_by_the_defining_unit() {

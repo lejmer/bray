@@ -418,47 +418,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(None)
     }
 
-    pub(super) fn invoke_native_runtime(
-        &self,
-        runtime: bray_ir::MirRuntimeReference,
-        arguments: &[BasicValueEnum<'context>],
-    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
-        let key = bray_codegen::CodegenSymbolKey::Runtime(runtime);
-
-        let function = self
-            .request
-            .mappings()
-            .symbol(&key)
-            .and_then(|symbol| self.module.get_function(symbol.name().as_str()))
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        let mut native_arguments = Vec::with_capacity(arguments.len());
-
-        for (index, argument) in arguments.iter().copied().enumerate() {
-            if crate::native::uses_indirect_argument(self.request.target(), runtime.role(), index) {
-                let storage = self.allocate_temporary(
-                    argument.get_type(),
-                    &format!("{}.argument", runtime.role().as_str()),
-                )?;
-
-                llvm(self.builder.build_store(storage, argument))?;
-                native_arguments.push(storage.into());
-            } else {
-                native_arguments.push(argument.into());
-            }
-        }
-
-        crate::native::invoke_function(
-            self.types.context(),
-            &self.builder,
-            self.request.target(),
-            &key,
-            function,
-            &native_arguments,
-            runtime.role().as_str(),
-        )
-    }
-
     pub(super) fn translate_frame_terminal_state(
         &mut self,
         state: &bray_ir::MirTaskTerminalState,

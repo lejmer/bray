@@ -530,7 +530,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.builder.position_at_end(state_dispatch);
 
-                let requested = nonzero_integer(&self.builder, cancellation, "frame.cancellation.requested")?;
+                let requested =
+                    nonzero_integer(&self.builder, cancellation, "frame.cancellation.requested")?;
 
                 llvm(self.builder.build_conditional_branch(
                     requested,
@@ -580,6 +581,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         progress: BasicValueEnum<'context>,
     ) -> Result<(), CodegenFailure> {
         crate::native::return_frame_result(
+            self.types.context(),
             &self.builder,
             self.function,
             self.request.target(),
@@ -723,12 +725,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 CodegenParameterMapping::Direct { .. } => {
                     let value = self
                         .function
-                        .get_nth_param(
-                            crate::conversion::resource_limit(
-                                llvm_index,
-                                "aggregate_element_index",
-                            )?,
-                        )
+                        .get_nth_param(crate::conversion::resource_limit(
+                            llvm_index,
+                            "aggregate_element_index",
+                        )?)
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                     if let Some(storage) = storage {
@@ -742,12 +742,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 CodegenParameterMapping::Indirect { pointee, .. } => {
                     let source = self
                         .function
-                        .get_nth_param(
-                            crate::conversion::resource_limit(
-                                llvm_index,
-                                "aggregate_element_index",
-                            )?,
-                        )
+                        .get_nth_param(crate::conversion::resource_limit(
+                            llvm_index,
+                            "aggregate_element_index",
+                        )?)
                         .and_then(pointer_value)
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 

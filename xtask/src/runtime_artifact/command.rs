@@ -300,6 +300,10 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
         })
         .collect::<Result<Vec<_>, CommandError>>()?;
 
+    crate::progress::run("Validating runtime archive exports", || {
+        super::archive::validate(&root, &package(output, target), target)
+    })?;
+
     let metadata_value = metadata(target, &components)?;
 
     let bytes = metadata_value
@@ -411,13 +415,10 @@ fn metadata(
                 purpose,
                 component(components, RuntimeArchiveKind::Bootstrap)?,
                 "bootstrap",
-                RuntimeAbiRole::ALL.into_iter().filter(|role| role.bootstrap_declaration().is_some()),
+                RuntimeArchiveKind::Bootstrap.runtime_roles(),
                 [],
             )?
-            .with_platform_services(
-                RuntimeArchiveKind::Bootstrap
-                    .platform_services(),
-            )
+            .with_platform_services(RuntimeArchiveKind::Bootstrap.platform_services())
             .with_dependencies(bootstrap_dependencies),
         );
 
@@ -458,22 +459,13 @@ fn metadata(
                     &[RuntimeCapability::Reactor][..],
                 ),
             ] {
-                let roles = contract
-                    .role_bindings()
-                    .iter()
-                    .map(RuntimeRoleBinding::role)
-                    .filter(|role| {
-                        role.bootstrap_declaration().is_none()
-                            && runtime_role_archive(*role) == Some(kind)
-                    });
-
                 metadata_components.push(
                     component_metadata(
                         target,
                         purpose,
                         component(components, kind)?,
                         name,
-                        roles,
+                        kind.runtime_roles(),
                         capabilities.iter().copied(),
                     )?
                     .with_dependencies([common_identity.clone()]),
@@ -482,27 +474,18 @@ fn metadata(
         }
 
         if purpose == RuntimeArtifactPurpose::TestRunner {
-            let roles = contract
-                .role_bindings()
-                .iter()
-                .map(RuntimeRoleBinding::role)
-                .filter(|role| role.bootstrap_declaration().is_none());
-
             metadata_components.push(
                 component_metadata(
                     target,
                     purpose,
                     component(components, RuntimeArchiveKind::TestHost)?,
                     "test_host",
-                    roles,
+                    RuntimeArchiveKind::TestHost.runtime_roles(),
                     SCHEDULER_CAPABILITIES
                         .into_iter()
                         .chain([RuntimeCapability::Reactor]),
                 )?
-                .with_platform_services(
-                    RuntimeArchiveKind::TestHost
-                        .platform_services(),
-                )
+                .with_platform_services(RuntimeArchiveKind::TestHost.platform_services())
                 .with_dependencies([common_identity.clone()]),
             );
         }
@@ -595,11 +578,7 @@ fn runtime_role_bindings() -> Result<Vec<RuntimeRoleBinding>, CommandError> {
         .map(|(role, name)| {
             let symbol = BinarySymbolName::try_new(name).ok_or(CommandError::MetadataContract)?;
 
-            Ok(RuntimeRoleBinding::new(
-                role,
-                symbol,
-                role.implementation(),
-            ))
+            Ok(RuntimeRoleBinding::new(role, symbol, role.implementation()))
         })
         .collect::<Result<_, _>>()?;
 
@@ -692,7 +671,7 @@ pub(super) enum RuntimeArchiveKind {
 }
 
 impl RuntimeArchiveKind {
-    const ALL: [Self; 10] = [
+    pub(super) const ALL: [Self; 10] = [
         Self::Common,
         Self::TestCommon,
         Self::Observation,
@@ -730,13 +709,38 @@ impl RuntimeArchiveKind {
         }
     }
 
-    pub(super) fn platform_services(self) -> impl Iterator<Item = PlatformServiceRole> {
-        PlatformServiceRole::ALL.iter().copied().filter(move |role| match self {
-            Self::TestHost => role.family() == bray_runtime_interface::PlatformServiceFamily::StandardStreams,
-            Self::Bootstrap => role.bootstrap_declaration().is_some(),
-            Self::Common | Self::TestCommon | Self::Observation | Self::Host | Self::Callback
-            | Self::Scheduler | Self::Cancellation | Self::Event => false,
+    pub(super) fn runtime_roles(self) -> impl Iterator<Item = RuntimeAbiRole> {
+        RuntimeAbiRole::ALL.into_iter().filter(move |role| {
+            if role.native_symbol().is_none() {
+                return false;
+            }
+
+            if role.bootstrap_declaration().is_some() {
+                return self == Self::Bootstrap;
+            }
+
+            self == Self::TestHost || runtime_role_archive(*role) == Some(self)
         })
+    }
+
+    pub(super) fn platform_services(self) -> impl Iterator<Item = PlatformServiceRole> {
+        PlatformServiceRole::ALL
+            .iter()
+            .copied()
+            .filter(move |role| match self {
+                Self::TestHost => {
+                    role.family() == bray_runtime_interface::PlatformServiceFamily::StandardStreams
+                }
+                Self::Bootstrap => role.bootstrap_declaration().is_some(),
+                Self::Common
+                | Self::TestCommon
+                | Self::Observation
+                | Self::Host
+                | Self::Callback
+                | Self::Scheduler
+                | Self::Cancellation
+                | Self::Event => false,
+            })
     }
 }
 
@@ -766,16 +770,16 @@ pub(super) enum CommandError {
     TemporaryDirectory(std::io::Error),
     NonUtf8Path,
     Rustc(std::io::Error),
-    NativeSymbolToolUnavailable(bray_tooling::LlvmToolPathError),
-    NativeSymbolInspection(std::io::Error),
-    NativeSymbolInspectionFailed,
+    NativeSymbolInspection(crate::native_symbols::InspectionError),
     NativeCompilerToolUnavailable(bray_tooling::LlvmToolPathError),
     NativeCompiler(std::io::Error),
+    RuntimeRoleExports {
+        kind: RuntimeArchiveKind,
+        error: crate::native_symbols::ExportMismatch,
+    },
     RuntimeComponentBoundary {
         kind: RuntimeArchiveKind,
-        missing: Vec<String>,
         forbidden: Vec<String>,
-        undeclared_platform_services: Vec<String>,
     },
     RuntimePartitionTool(std::io::Error),
     RuntimePartitionToolUnavailable(bray_tooling::LlvmToolPathError),
@@ -853,20 +857,11 @@ impl fmt::Display for CommandError {
             }
             Self::NonUtf8Path => formatter.write_str("runtime archive path is not valid UTF-8"),
             Self::Rustc(error) => write!(formatter, "could not run rustc: {error}"),
-            Self::NativeSymbolToolUnavailable(error) => {
-                write!(
-                    formatter,
-                    "llvm-nm is unavailable for runtime artifact inspection: {error}"
-                )
-            }
             Self::NativeSymbolInspection(error) => {
                 write!(
                     formatter,
                     "could not inspect runtime archive symbols: {error}"
                 )
-            }
-            Self::NativeSymbolInspectionFailed => {
-                formatter.write_str("runtime archive symbol inspection failed")
             }
             Self::NativeCompilerToolUnavailable(error) => {
                 write!(
@@ -877,18 +872,17 @@ impl fmt::Display for CommandError {
             Self::NativeCompiler(error) => {
                 write!(formatter, "could not run native compiler: {error}")
             }
-            Self::RuntimeComponentBoundary {
-                kind,
-                missing,
-                forbidden,
-                undeclared_platform_services,
-            } => {
+            Self::RuntimeRoleExports { kind, error } => {
                 write!(
                     formatter,
-                    "runtime {kind:?} archive has an invalid exported surface: missing [{}], forbidden [{}], undeclared platform services [{}]",
-                    missing.join(", "),
-                    forbidden.join(", "),
-                    undeclared_platform_services.join(", ")
+                    "runtime {kind:?} archive role exports do not match the catalog: {error}"
+                )
+            }
+            Self::RuntimeComponentBoundary { kind, forbidden } => {
+                write!(
+                    formatter,
+                    "runtime {kind:?} archive has forbidden exports [{}]",
+                    forbidden.join(", ")
                 )
             }
             Self::RuntimePartitionTool(error) => {
@@ -1105,11 +1099,19 @@ mod tests {
                 .find(|component| component.identity().as_str().ends_with("product.bootstrap"))
                 .unwrap_or_else(|| panic!("runtime metadata must contain bootstrap support"));
 
-            assert_eq!(bootstrap.roles(), RuntimeAbiRole::ALL.into_iter().filter(|role| role.bootstrap_declaration().is_some()).collect::<Vec<_>>());
+            assert_eq!(
+                bootstrap.roles(),
+                RuntimeAbiRole::ALL
+                    .into_iter()
+                    .filter(|role| role.bootstrap_declaration().is_some())
+                    .collect::<Vec<_>>()
+            );
 
             assert_eq!(
                 bootstrap.platform_services(),
-                RuntimeArchiveKind::Bootstrap.platform_services().collect::<Vec<_>>()
+                RuntimeArchiveKind::Bootstrap
+                    .platform_services()
+                    .collect::<Vec<_>>()
             );
 
             assert!(
