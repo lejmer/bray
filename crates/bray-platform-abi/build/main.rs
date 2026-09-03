@@ -1,3 +1,5 @@
+mod dynamic;
+
 use std::borrow::Cow;
 use std::env;
 use std::fmt::Write;
@@ -40,7 +42,7 @@ const TZDATA_FILES: &[&str] = &[
     "windowsZones.xml",
 ];
 
-pub(crate) fn main() {
+fn main() {
     let manifest = PathBuf::from(
         env::var_os("CARGO_MANIFEST_DIR")
             .unwrap_or_else(|| panic!("Cargo must provide CARGO_MANIFEST_DIR")),
@@ -51,7 +53,7 @@ pub(crate) fn main() {
     }
 
     if env::var_os("CARGO_FEATURE_DYNAMIC").is_some() {
-        super::dynamic::build(&manifest);
+        dynamic::build(&manifest);
     }
 }
 
@@ -189,7 +191,7 @@ fn verify_provider(root: &Path, provenance: &ProviderProvenance) {
     );
 }
 
-pub(super) fn configure_discardable_sections(native: &mut cc::Build) {
+fn configure_discardable_sections(native: &mut cc::Build) {
     if env::var("CARGO_CFG_TARGET_ENV").is_ok_and(|environment| environment == "msvc") {
         native.flags(["/EHsc", "/Gy", "/Gw"]);
     } else {

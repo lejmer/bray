@@ -28,7 +28,7 @@ pub(crate) fn build(manifest: &Path) {
         .file(provider.join("src/provider.cpp"))
         .warnings(false);
 
-    crate::core::configure_discardable_sections(&mut native);
+    crate::configure_discardable_sections(&mut native);
     native.compile("bray_dynamic_provider");
 
     if env::var("CARGO_CFG_TARGET_OS").is_ok_and(|target| target == "linux") {
