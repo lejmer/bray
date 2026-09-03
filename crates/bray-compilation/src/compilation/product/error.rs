@@ -9,7 +9,7 @@ use bray_ir::{
     MirUnitKey,
 };
 use bray_package_interface::InterfaceNativeBoundaryKind;
-use bray_runtime_interface::{ExecutableEntryResult, RuntimeAbiRole};
+use bray_runtime_interface::ExecutableEntryResult;
 use bray_source::{SourceId, SourceVersion, TextSize, TextSizeOverflow};
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, ConstantValueId, ConstantValueKind,
@@ -509,11 +509,6 @@ pub(crate) enum ProductQueryFailure {
         /// The exact rejected symbol category.
         actual: SymbolKind,
     },
-    /// The selected target contract does not support one exact runtime ABI role.
-    UnsupportedRuntimeRole {
-        /// The unsupported runtime ABI role.
-        role: RuntimeAbiRole,
-    },
     /// A generated helper encountered an operation incompatible with its helper role.
     InvalidHelperOperation {
         /// The exact instance and MIR operation being analyzed.
@@ -702,7 +697,6 @@ impl ProductQueryFailure {
             | Self::NativeBoundaryKindMismatch { .. }
             | Self::UnexpectedSymbolKind { .. }
             | Self::ImplementationSymbolKeyExpected { .. }
-            | Self::UnsupportedRuntimeRole { .. }
             | Self::InvalidHelperOperation { .. }
             | Self::InvalidHelperCallTarget { .. }
             | Self::LifecycleRoleMismatch { .. }

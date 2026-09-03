@@ -1,5 +1,5 @@
 use super::edge::{checked_call_operations, reachable_blocks};
-use super::support::{llvm, physical_aggregate_element, pointer_value};
+use super::support::{llvm, nonzero_integer, physical_aggregate_element, pointer_value};
 use crate::mapping::{LlvmDebugInfo, LlvmTypeMappings, apply_instance_optimization_attributes};
 use crate::translation::frame::frame_storage_field_index;
 use bray_codegen::{
@@ -11,7 +11,6 @@ use bray_ir::{
     MirBlockId, MirOperationId, MirPlace, MirStorageId, MirStorageKind, MirTerminatorKind, MirUnit,
     MirValueId,
 };
-use inkwell::IntPredicate;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
@@ -531,12 +530,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.builder.position_at_end(state_dispatch);
 
-                let requested = llvm(self.builder.build_int_compare(
-                    IntPredicate::NE,
-                    cancellation,
-                    cancellation.get_type().const_zero(),
-                    "frame.cancellation.requested",
-                ))?;
+                let requested = nonzero_integer(&self.builder, cancellation, "frame.cancellation.requested")?;
 
                 llvm(self.builder.build_conditional_branch(
                     requested,

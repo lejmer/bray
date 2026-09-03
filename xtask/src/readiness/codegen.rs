@@ -53,26 +53,6 @@ const REQUIRED_CLOSED_CATEGORIES: &[&str] = &[
     "PatternProjection",
 ];
 
-const CODEGEN_RUNTIME_ROLES: &[&str] = &[
-    "CleanupIncidentReporting",
-    "CleanupIncidentTransfer",
-    "CurrentRunCancellationObservation",
-    "FrameLifecycleResolution",
-    "FrameResume",
-    "FrameTaskBroadcast",
-    "JoinRegistration",
-    "RootCancellationRequest",
-    "RootExecution",
-    "RootTerminalObservation",
-    "StructuredShutdown",
-    "SuspensionRegistration",
-    "TaskAllocation",
-    "TaskCancellationRequest",
-    "TaskStart",
-    "TerminalPublication",
-    "Wake",
-];
-
 #[derive(Deserialize)]
 struct CoverageFixture {
     unit_kinds: Vec<CoverageRow>,
@@ -81,7 +61,6 @@ struct CoverageFixture {
     host_operations: Vec<CoverageRow>,
     terminators: Vec<CoverageRow>,
     closed_categories: Vec<ClosedCategory>,
-    runtime_roles: Vec<RuntimeRoleRow>,
     artifact_kinds: Vec<CoverageRow>,
     contracts: Vec<ContractRow>,
 }
@@ -116,13 +95,6 @@ struct ClosedCategory {
 }
 
 #[derive(Deserialize)]
-struct RuntimeRoleRow {
-    name: String,
-    production: SourceAnchor,
-    consumption: SourceAnchor,
-}
-
-#[derive(Deserialize)]
 struct SourceAnchor {
     path: String,
     symbol: String,
@@ -138,7 +110,6 @@ pub(super) fn audit(workspace: &RustWorkspace) -> Result<(), String> {
     require_enum_coverage(&fixture.terminators, workspace, "MirTerminatorKind")?;
     require_enum_coverage(&fixture.artifact_kinds, workspace, "BackendArtifactKind")?;
     require_closed_categories(&fixture.closed_categories, workspace)?;
-    require_runtime_roles(&fixture.runtime_roles, workspace)?;
     require_disposition(&fixture.unit_kinds, Disposition::Translated)?;
     require_disposition(&fixture.operations, Disposition::Translated)?;
     require_disposition(&fixture.async_operations, Disposition::Translated)?;
@@ -291,21 +262,6 @@ fn require_closed_categories(
         }
 
         require_source_anchor(&category.production, workspace, &category.name)?;
-    }
-
-    Ok(())
-}
-
-fn require_runtime_roles(rows: &[RuntimeRoleRow], workspace: &RustWorkspace) -> Result<(), String> {
-    require_unique_names(
-        rows.iter().map(|row| row.name.as_str()),
-        CODEGEN_RUNTIME_ROLES,
-        "code generation runtime-role inventory",
-    )?;
-
-    for row in rows {
-        require_source_anchor(&row.production, workspace, &row.name)?;
-        require_source_anchor(&row.consumption, workspace, &row.name)?;
     }
 
     Ok(())

@@ -8,7 +8,7 @@ use bray_symbols::{
 
 use super::super::super::{CodegenPreparationError, Compilation};
 use super::super::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
-use super::support::{is_void_result, void_signature};
+use super::support::is_void_result;
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
@@ -78,232 +78,47 @@ impl Compilation {
             false,
         ))
     }
-
-    pub(super) fn codegen_runtime_signature(
-        &self,
-        role: RuntimeAbiRole,
-    ) -> Result<CodegenCallableSignature, CodegenPreparationError> {
-        if let Some(signature) = self.codegen_runtime_source_signature(role)? {
-            return Ok(signature);
-        }
-
-        if role == RuntimeAbiRole::CurrentRunCancellationObservation {
-            let boolean = self.codegen_representation_type(RepresentationRole::ScalarBool)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [],
-                CodegenResultMapping::direct(boolean, None, []),
-                CallableAbi::Bray,
-                false,
-            ));
-        }
-
-        if role == RuntimeAbiRole::NativeThreadExecution {
-            let pointer = self.codegen_opaque_pointer_type()?;
-            let address = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
-            let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [
-                    CodegenParameterMapping::direct(pointer, None, []),
-                    CodegenParameterMapping::direct(address, None, []),
-                    CodegenParameterMapping::direct(pointer, None, []),
-                    CodegenParameterMapping::direct(address, None, []),
-                    CodegenParameterMapping::direct(pointer, None, []),
-                ],
-                CodegenResultMapping::direct(status, None, []),
-                CallableAbi::C,
-                false,
-            ));
-        }
-
-        if matches!(
-            role,
-            RuntimeAbiRole::CurrentNativeThreadIdentity | RuntimeAbiRole::MainNativeThreadIdentity
-        ) {
-            let identity = self.codegen_representation_type(RepresentationRole::ScalarU64)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [],
-                CodegenResultMapping::direct(identity, None, []),
-                CallableAbi::Bray,
-                false,
-            ));
-        }
-
-        if role == RuntimeAbiRole::NativeThreadPanicReportRecovery {
-            let address = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
-            let report = self.codegen_representation_type(RepresentationRole::PanicReport)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [CodegenParameterMapping::direct(address, None, [])],
-                CodegenResultMapping::direct(report, None, []),
-                CallableAbi::Bray,
-                false,
-            ));
-        }
-
-        if role == RuntimeAbiRole::PanicPropagation {
-            let report = self.codegen_representation_type(RepresentationRole::PanicReport)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [CodegenParameterMapping::direct(report, None, [])],
-                CodegenResultMapping::Void,
-                CallableAbi::Bray,
-                false,
-            ));
-        }
-
-        if matches!(
-            role,
-            RuntimeAbiRole::PanicReporting | RuntimeAbiRole::PanicReportDestruction
-        ) {
-            let report = self.codegen_representation_type(RepresentationRole::PanicReport)?;
-            let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [CodegenParameterMapping::direct(report, None, [])],
-                CodegenResultMapping::direct(status, None, []),
-                CallableAbi::Bray,
-                false,
-            ));
-        }
-
-        if matches!(
-            role,
-            RuntimeAbiRole::TaskCancellationRequest | RuntimeAbiRole::TaskDestruction
-        ) {
-            let task = self.codegen_representation_type(RepresentationRole::ScalarU64)?;
-            let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [CodegenParameterMapping::direct(task, None, [])],
-                CodegenResultMapping::direct(status, None, []),
-                CallableAbi::Bray,
-                false,
-            ));
-        }
-
-        if role == RuntimeAbiRole::TaskEventCreation {
-            let event = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [],
-                CodegenResultMapping::direct(event, None, []),
-                CallableAbi::Bray,
-                false,
-            ));
-        }
-
-        if matches!(
-            role,
-            RuntimeAbiRole::TaskEventSignal | RuntimeAbiRole::TaskEventDestruction
-        ) {
-            let event = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
-            let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
-
-            return Ok(CodegenCallableSignature::new(
-                [CodegenParameterMapping::direct(event, None, [])],
-                CodegenResultMapping::direct(status, None, []),
-                CallableAbi::Bray,
-                false,
-            ));
-        }
-
-        match role {
-            RuntimeAbiRole::GeneratorBegin
-            | RuntimeAbiRole::GeneratorPush
-            | RuntimeAbiRole::GeneratorFinish
-            | RuntimeAbiRole::GeneratorCleanupBroadcast
-            | RuntimeAbiRole::GeneratorDestruction => {}
-            RuntimeAbiRole::RuntimeInitialization
-            | RuntimeAbiRole::RootExecution
-            | RuntimeAbiRole::SynchronousRootExecution
-            | RuntimeAbiRole::ForeignCallbackExecution
-            | RuntimeAbiRole::NativeThreadExecution
-            | RuntimeAbiRole::CurrentNativeThreadIdentity
-            | RuntimeAbiRole::MainNativeThreadIdentity
-            | RuntimeAbiRole::NativeThreadPanicReportRecovery
-            | RuntimeAbiRole::TaskEventCreation
-            | RuntimeAbiRole::TaskEventSignal
-            | RuntimeAbiRole::TaskEventDestruction
-            | RuntimeAbiRole::ThreadAttachmentIdentity
-            | RuntimeAbiRole::ThreadStaticCleanupRegistration
-            | RuntimeAbiRole::ProductHostControl
-            | RuntimeAbiRole::RootCancellationRequest
-            | RuntimeAbiRole::TaskAllocation
-            | RuntimeAbiRole::TaskStart
-            | RuntimeAbiRole::FrameResume
-            | RuntimeAbiRole::SuspensionRegistration
-            | RuntimeAbiRole::Wake
-            | RuntimeAbiRole::TaskCancellationRequest
-            | RuntimeAbiRole::CurrentRunCancellationObservation
-            | RuntimeAbiRole::CurrentRunCancellationPropagation
-            | RuntimeAbiRole::JoinRegistration
-            | RuntimeAbiRole::TaskObservationCreation
-            | RuntimeAbiRole::TaskResolution
-            | RuntimeAbiRole::TerminalPublication
-            | RuntimeAbiRole::RuntimeEvent
-            | RuntimeAbiRole::CompatibleLaneSelection
-            | RuntimeAbiRole::CleanupIncidentTransfer
-            | RuntimeAbiRole::CleanupIncidentReporting
-            | RuntimeAbiRole::MainThreadLaneStartup
-            | RuntimeAbiRole::MainThreadLaneDrive
-            | RuntimeAbiRole::RootTerminalObservation
-            | RuntimeAbiRole::RootCompletionResolution
-            | RuntimeAbiRole::PanicReporting
-            | RuntimeAbiRole::PanicReportDestruction
-            | RuntimeAbiRole::EntryFailureReporting
-            | RuntimeAbiRole::TestEntrySelection
-            | RuntimeAbiRole::StructuredShutdown
-            | RuntimeAbiRole::FrameTaskBroadcast
-            | RuntimeAbiRole::FrameLifecycleResolution
-            | RuntimeAbiRole::FrameCompletionMove
-            | RuntimeAbiRole::FrameDestruction
-            | RuntimeAbiRole::PanicReportConstruction
-            | RuntimeAbiRole::PanicPropagation
-            | RuntimeAbiRole::FrameCreation
-            | RuntimeAbiRole::InactiveFrameMove
-            | RuntimeAbiRole::AwaitedFrameComposition
-            | RuntimeAbiRole::TaskDestruction => return Ok(void_signature(CallableAbi::Bray)),
-        }
-
-        let pointer = self.codegen_opaque_pointer_type()?;
-        let usize = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
-        let boolean = self.codegen_representation_type(RepresentationRole::ScalarBool)?;
-        let parameter = |ty| CodegenParameterMapping::direct(ty, None, []);
-
-        let (parameters, result) = match role {
-            RuntimeAbiRole::GeneratorBegin => (
-                vec![
-                    parameter(pointer),
-                    parameter(usize),
-                    parameter(usize),
-                    parameter(usize),
-                    parameter(usize),
-                    parameter(boolean),
-                ],
-                CodegenResultMapping::Void,
-            ),
-            RuntimeAbiRole::GeneratorPush | RuntimeAbiRole::GeneratorCleanupBroadcast => (
-                vec![parameter(pointer), parameter(pointer)],
-                CodegenResultMapping::Void,
-            ),
-            RuntimeAbiRole::GeneratorFinish => {
-                (vec![parameter(pointer)], CodegenResultMapping::Void)
-            }
-            RuntimeAbiRole::GeneratorDestruction => (
-                vec![parameter(pointer), parameter(pointer), parameter(pointer)],
-                CodegenResultMapping::Void,
-            ),
-            _ => return Err(ProductQueryFailure::UnsupportedRuntimeRole { role }.into()),
-        };
-
-        Ok(CodegenCallableSignature::new(
-            parameters,
-            result,
-            CallableAbi::Bray,
-            false,
-        ))
-    }
 }
+
+macro_rules! define_runtime_signatures {
+    ($( $role:ident {
+        $documentation:literal, $name:literal,
+        native: ($($symbol:ident = $native:literal, [$($native_parameter:ident),*] -> $native_result:ident)?),
+        call_hook: ($($hook:ident)?),
+        compiler: $abi:ident [$($parameter:ident),*] -> $result:ident,
+        owner: $owner:ident, availability: $availability:ident,
+        bootstrap: ($($bootstrap:literal)?), host_control: $host_control:literal,
+        capabilities: [$($capability:ident),*],
+        effects: [$($effect:ident),*]
+    })+) => {
+        impl Compilation {
+            pub(super) fn codegen_runtime_signature(
+                &self,
+                role: RuntimeAbiRole,
+            ) -> Result<CodegenCallableSignature, CodegenPreparationError> {
+                match role {
+                    $(RuntimeAbiRole::$role => Ok(CodegenCallableSignature::new(
+                        [$(CodegenParameterMapping::direct(
+                            define_runtime_signatures!(@type self, $parameter)?, None, [],
+                        ),)*],
+                        define_runtime_signatures!(@result self, $result),
+                        CallableAbi::$abi,
+                        false,
+                    )),)+
+                }
+            }
+        }
+    };
+    (@type $compilation:ident, Pointer) => { $compilation.codegen_opaque_pointer_type() };
+    (@type $compilation:ident, Usize) => { $compilation.codegen_representation_type(RepresentationRole::ScalarUsize) };
+    (@type $compilation:ident, U32) => { $compilation.codegen_representation_type(RepresentationRole::ScalarU32) };
+    (@type $compilation:ident, U64) => { $compilation.codegen_representation_type(RepresentationRole::ScalarU64) };
+    (@type $compilation:ident, Bool) => { $compilation.codegen_representation_type(RepresentationRole::ScalarBool) };
+    (@type $compilation:ident, PanicReport) => { $compilation.codegen_representation_type(RepresentationRole::PanicReport) };
+    (@result $compilation:ident, Void) => { CodegenResultMapping::Void };
+    (@result $compilation:ident, $kind:ident) => {
+        CodegenResultMapping::direct(define_runtime_signatures!(@type $compilation, $kind)?, None, [])
+    };
+}
+
+bray_runtime_abi::runtime_role_catalog!(define_runtime_signatures);

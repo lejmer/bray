@@ -16,8 +16,7 @@ use bray_runtime_interface::{
     BinarySymbolName, PanicAbiIdentity, PlatformServiceRole, ProtectedFrameAbiVersions,
     RuntimeAbiRole, RuntimeAbiVersion, RuntimeArtifactComponentMetadata, RuntimeArtifactDigest,
     RuntimeArtifactId, RuntimeArtifactMetadata, RuntimeArtifactPurpose, RuntimeCapability,
-    RuntimeContract, RuntimeIdentity, RuntimeRoleBinding, RuntimeRoleImplementation,
-    native_runtime_role_symbol,
+    RuntimeContract, RuntimeIdentity, RuntimeRoleBinding,
 };
 use bray_symbols::NativeLinkRequirement;
 use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
@@ -186,7 +185,9 @@ fn build_contents(target: NativeTarget, output: &Path, profile: &str) -> Result<
     let root = workspace::root().map_err(CommandError::Workspace)?;
 
     crate::progress::run("Auditing runtime dependency boundaries", || {
-        audit_dependency_boundaries(&root)
+        audit_dependency_boundaries(&root)?;
+
+        super::contract::validate(&root).map_err(CommandError::RoleContract)
     })?;
 
     let mut partitioner = super::partition::RuntimeArchivePartitioner::new(&root)?;
@@ -410,14 +411,12 @@ fn metadata(
                 purpose,
                 component(components, RuntimeArchiveKind::Bootstrap)?,
                 "bootstrap",
-                super::bootstrap::RUNTIME_ROLES,
+                RuntimeAbiRole::ALL.into_iter().filter(|role| role.bootstrap_declaration().is_some()),
                 [],
             )?
             .with_platform_services(
                 RuntimeArchiveKind::Bootstrap
-                    .platform_services()
-                    .iter()
-                    .copied(),
+                    .platform_services(),
             )
             .with_dependencies(bootstrap_dependencies),
         );
@@ -464,7 +463,7 @@ fn metadata(
                     .iter()
                     .map(RuntimeRoleBinding::role)
                     .filter(|role| {
-                        !super::bootstrap::owns_runtime_role(*role)
+                        role.bootstrap_declaration().is_none()
                             && runtime_role_archive(*role) == Some(kind)
                     });
 
@@ -487,7 +486,7 @@ fn metadata(
                 .role_bindings()
                 .iter()
                 .map(RuntimeRoleBinding::role)
-                .filter(|role| !super::bootstrap::owns_runtime_role(*role));
+                .filter(|role| role.bootstrap_declaration().is_none());
 
             metadata_components.push(
                 component_metadata(
@@ -502,9 +501,7 @@ fn metadata(
                 )?
                 .with_platform_services(
                     RuntimeArchiveKind::TestHost
-                        .platform_services()
-                        .iter()
-                        .copied(),
+                        .platform_services(),
                 )
                 .with_dependencies([common_identity.clone()]),
             );
@@ -568,51 +565,16 @@ fn component_identity(
 }
 
 fn runtime_role_archive(role: RuntimeAbiRole) -> Option<RuntimeArchiveKind> {
-    Some(match role {
-        RuntimeAbiRole::RuntimeInitialization
-        | RuntimeAbiRole::SynchronousRootExecution
-        | RuntimeAbiRole::ThreadAttachmentIdentity
-        | RuntimeAbiRole::ThreadStaticCleanupRegistration
-        | RuntimeAbiRole::ProductHostControl
-        | RuntimeAbiRole::CleanupIncidentReporting
-        | RuntimeAbiRole::RootTerminalObservation
-        | RuntimeAbiRole::RootCompletionResolution
-        | RuntimeAbiRole::PanicReporting
-        | RuntimeAbiRole::PanicReportDestruction
-        | RuntimeAbiRole::EntryFailureReporting
-        | RuntimeAbiRole::StructuredShutdown
-        | RuntimeAbiRole::PanicReportConstruction
-        | RuntimeAbiRole::PanicPropagation => RuntimeArchiveKind::Host,
-        RuntimeAbiRole::ForeignCallbackExecution
-        | RuntimeAbiRole::NativeThreadExecution
-        | RuntimeAbiRole::CurrentNativeThreadIdentity
-        | RuntimeAbiRole::MainNativeThreadIdentity
-        | RuntimeAbiRole::NativeThreadPanicReportRecovery => RuntimeArchiveKind::Callback,
-        RuntimeAbiRole::RootExecution
-        | RuntimeAbiRole::TaskEventCreation
-        | RuntimeAbiRole::TaskEventSignal
-        | RuntimeAbiRole::TaskEventDestruction
-        | RuntimeAbiRole::TaskAllocation
-        | RuntimeAbiRole::TaskStart
-        | RuntimeAbiRole::SuspensionRegistration
-        | RuntimeAbiRole::Wake
-        | RuntimeAbiRole::JoinRegistration
-        | RuntimeAbiRole::TaskObservationCreation
-        | RuntimeAbiRole::TaskResolution
-        | RuntimeAbiRole::TaskDestruction
-        | RuntimeAbiRole::TerminalPublication
-        | RuntimeAbiRole::CompatibleLaneSelection
-        | RuntimeAbiRole::MainThreadLaneStartup
-        | RuntimeAbiRole::MainThreadLaneDrive
-        | RuntimeAbiRole::AwaitedFrameComposition
-        | RuntimeAbiRole::FrameCompletionMove => RuntimeArchiveKind::Scheduler,
-        RuntimeAbiRole::RootCancellationRequest
-        | RuntimeAbiRole::TaskCancellationRequest
-        | RuntimeAbiRole::CurrentRunCancellationObservation
-        | RuntimeAbiRole::CurrentRunCancellationPropagation => RuntimeArchiveKind::Cancellation,
-        RuntimeAbiRole::RuntimeEvent => RuntimeArchiveKind::Event,
-        RuntimeAbiRole::TestEntrySelection => RuntimeArchiveKind::TestHost,
-        _ => return None,
+    use bray_runtime_interface::RuntimeRoleArtifact;
+
+    Some(match role.artifact_owner() {
+        RuntimeRoleArtifact::Compiler => return None,
+        RuntimeRoleArtifact::Host => RuntimeArchiveKind::Host,
+        RuntimeRoleArtifact::Callback => RuntimeArchiveKind::Callback,
+        RuntimeRoleArtifact::Scheduler => RuntimeArchiveKind::Scheduler,
+        RuntimeRoleArtifact::Cancellation => RuntimeArchiveKind::Cancellation,
+        RuntimeRoleArtifact::Event => RuntimeArchiveKind::Event,
+        RuntimeRoleArtifact::TestHost => RuntimeArchiveKind::TestHost,
     })
 }
 
@@ -629,14 +591,14 @@ fn component(
 fn runtime_role_bindings() -> Result<Vec<RuntimeRoleBinding>, CommandError> {
     let bindings: Vec<_> = RuntimeAbiRole::ALL
         .into_iter()
-        .filter_map(|role| native_runtime_role_symbol(role).map(|name| (role, name)))
+        .filter_map(|role| role.native_symbol().map(|name| (role, name)))
         .map(|(role, name)| {
             let symbol = BinarySymbolName::try_new(name).ok_or(CommandError::MetadataContract)?;
 
             Ok(RuntimeRoleBinding::new(
                 role,
                 symbol,
-                RuntimeRoleImplementation::BrayRuntime,
+                role.implementation(),
             ))
         })
         .collect::<Result<_, _>>()?;
@@ -768,36 +730,13 @@ impl RuntimeArchiveKind {
         }
     }
 
-    pub(super) const fn platform_services(self) -> &'static [PlatformServiceRole] {
-        match self {
-            Self::TestHost => &[
-                PlatformServiceRole::StandardInputRead,
-                PlatformServiceRole::StandardInputLock,
-                PlatformServiceRole::StandardInputUnlock,
-                PlatformServiceRole::StandardOutputWrite,
-                PlatformServiceRole::StandardOutputFlush,
-                PlatformServiceRole::StandardOutputLock,
-                PlatformServiceRole::StandardOutputUnlock,
-                PlatformServiceRole::StandardErrorWrite,
-                PlatformServiceRole::StandardErrorFlush,
-                PlatformServiceRole::StandardErrorLock,
-                PlatformServiceRole::StandardErrorUnlock,
-            ],
-            Self::Bootstrap => &[
-                PlatformServiceRole::ThreadStorageCreate,
-                PlatformServiceRole::ThreadStorageLoad,
-                PlatformServiceRole::ThreadStorageStore,
-                PlatformServiceRole::ThreadStorageDestroy,
-            ],
-            Self::Common
-            | Self::TestCommon
-            | Self::Observation
-            | Self::Host
-            | Self::Callback
-            | Self::Scheduler
-            | Self::Cancellation
-            | Self::Event => &[],
-        }
+    pub(super) fn platform_services(self) -> impl Iterator<Item = PlatformServiceRole> {
+        PlatformServiceRole::ALL.iter().copied().filter(move |role| match self {
+            Self::TestHost => role.family() == bray_runtime_interface::PlatformServiceFamily::StandardStreams,
+            Self::Bootstrap => role.bootstrap_declaration().is_some(),
+            Self::Common | Self::TestCommon | Self::Observation | Self::Host | Self::Callback
+            | Self::Scheduler | Self::Cancellation | Self::Event => false,
+        })
     }
 }
 
@@ -822,6 +761,7 @@ pub(super) enum CommandError {
         error: std::io::Error,
     },
     MetadataContract,
+    RoleContract(String),
     MetadataEncoding,
     TemporaryDirectory(std::io::Error),
     NonUtf8Path,
@@ -901,6 +841,7 @@ impl fmt::Display for CommandError {
             Self::Write { path, error } => {
                 write!(formatter, "could not write {}: {error}", path.display())
             }
+            Self::RoleContract(error) => formatter.write_str(error),
             Self::MetadataContract => {
                 formatter.write_str("runtime artifact metadata contract is invalid")
             }
@@ -1149,7 +1090,7 @@ mod tests {
             let callback_roles = RuntimeAbiRole::ALL
                 .into_iter()
                 .filter(|role| {
-                    !super::super::bootstrap::owns_runtime_role(*role)
+                    role.bootstrap_declaration().is_none()
                         && runtime_role_archive(*role) == Some(RuntimeArchiveKind::Callback)
                 })
                 .collect::<Vec<_>>();
@@ -1164,11 +1105,11 @@ mod tests {
                 .find(|component| component.identity().as_str().ends_with("product.bootstrap"))
                 .unwrap_or_else(|| panic!("runtime metadata must contain bootstrap support"));
 
-            assert_eq!(bootstrap.roles(), super::super::bootstrap::RUNTIME_ROLES);
+            assert_eq!(bootstrap.roles(), RuntimeAbiRole::ALL.into_iter().filter(|role| role.bootstrap_declaration().is_some()).collect::<Vec<_>>());
 
             assert_eq!(
                 bootstrap.platform_services(),
-                RuntimeArchiveKind::Bootstrap.platform_services()
+                RuntimeArchiveKind::Bootstrap.platform_services().collect::<Vec<_>>()
             );
 
             assert!(

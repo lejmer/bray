@@ -239,15 +239,9 @@ fn declare_static_accessor<'context>(
             .get_global(product_host.descriptor_symbol().as_str())
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let identity_name = bray_runtime_abi::THREAD_ATTACHMENT_IDENTITY_SYMBOL;
-
-        let identity = module.get_function(identity_name).unwrap_or_else(|| {
-            module.add_function(
-                identity_name,
-                context.i64_type().fn_type(&[pointer.into()], false),
-                None,
-            )
-        });
+        let identity = crate::native::declare_runtime_function(
+            module, context, types.target(), bray_runtime_interface::RuntimeAbiRole::ThreadAttachmentIdentity,
+        )?;
 
         let current = builder
             .build_call(
@@ -322,15 +316,9 @@ fn declare_static_accessor<'context>(
             .build_store(storage, initializer)
             .map_err(CodegenFailure::backend_library)?;
 
-        let register_name = bray_runtime_abi::THREAD_STATIC_CLEANUP_REGISTRATION_SYMBOL;
-
-        let register = module.get_function(register_name).unwrap_or_else(|| {
-            module.add_function(
-                register_name,
-                context.i32_type().fn_type(&[pointer.into()], false),
-                None,
-            )
-        });
+        let register = crate::native::declare_runtime_function(
+            module, context, types.target(), bray_runtime_interface::RuntimeAbiRole::ThreadStaticCleanupRegistration,
+        )?;
 
         let status = builder
             .build_call(

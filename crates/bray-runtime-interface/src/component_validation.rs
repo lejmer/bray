@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    RuntimeAbiRole, RuntimeArtifactComponentMetadata, RuntimeArtifactMetadataBuildError,
+    RuntimeArtifactComponentMetadata, RuntimeArtifactMetadataBuildError,
     RuntimeArtifactPurpose, RuntimeContract,
 };
 
@@ -39,8 +39,8 @@ pub(crate) fn validate(
         if component.purpose() == RuntimeArtifactPurpose::Product
             && component
                 .roles()
-                .binary_search(&RuntimeAbiRole::TestEntrySelection)
-                .is_ok()
+                .iter()
+                .any(|role| !role.available_to_product())
         {
             return Err(
                 RuntimeArtifactMetadataBuildError::TestRoleInProductComponent(
@@ -94,7 +94,7 @@ fn validate_role_owners(
     for binding in contract.role_bindings() {
         let role = binding.role();
 
-        if purpose == RuntimeArtifactPurpose::Product && role == RuntimeAbiRole::TestEntrySelection
+        if purpose == RuntimeArtifactPurpose::Product && !role.available_to_product()
         {
             continue;
         }

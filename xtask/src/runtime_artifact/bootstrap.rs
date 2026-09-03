@@ -17,79 +17,6 @@ const PACKAGE_IDENTITY: &str = "bray_runtime_bootstrap";
 const PRODUCT_NAME: &str = "runtime";
 const MODULE: &str = "bray.runtime.bootstrap";
 
-const PLATFORM_BINDINGS: [(PlatformServiceRole, &str); 4] = [
-    (
-        PlatformServiceRole::ThreadStorageCreate,
-        "bray.runtime.bootstrap.platform_thread_storage_create",
-    ),
-    (
-        PlatformServiceRole::ThreadStorageLoad,
-        "bray.runtime.bootstrap.platform_thread_storage_load",
-    ),
-    (
-        PlatformServiceRole::ThreadStorageStore,
-        "bray.runtime.bootstrap.platform_thread_storage_store",
-    ),
-    (
-        PlatformServiceRole::ThreadStorageDestroy,
-        "bray.runtime.bootstrap.platform_thread_storage_destroy",
-    ),
-];
-
-const RUNTIME_BINDINGS: [(RuntimeAbiRole, &str); 10] = [
-    (
-        RuntimeAbiRole::RuntimeInitialization,
-        "runtime_initialization",
-    ),
-    (
-        RuntimeAbiRole::SynchronousRootExecution,
-        "synchronous_root_execution",
-    ),
-    (
-        RuntimeAbiRole::ForeignCallbackExecution,
-        "foreign_callback_execution",
-    ),
-    (
-        RuntimeAbiRole::NativeThreadExecution,
-        "native_thread_execution",
-    ),
-    (
-        RuntimeAbiRole::ThreadAttachmentIdentity,
-        "thread_attachment_identity",
-    ),
-    (
-        RuntimeAbiRole::ThreadStaticCleanupRegistration,
-        "register_thread_cleanup",
-    ),
-    (RuntimeAbiRole::PanicReporting, "panic_reporting"),
-    (
-        RuntimeAbiRole::PanicReportDestruction,
-        "panic_report_destruction",
-    ),
-    (RuntimeAbiRole::StructuredShutdown, "structured_shutdown"),
-    (
-        RuntimeAbiRole::PanicReportConstruction,
-        "panic_report_construction",
-    ),
-];
-
-pub(super) const RUNTIME_ROLES: [RuntimeAbiRole; 10] = [
-    RuntimeAbiRole::RuntimeInitialization,
-    RuntimeAbiRole::SynchronousRootExecution,
-    RuntimeAbiRole::ForeignCallbackExecution,
-    RuntimeAbiRole::NativeThreadExecution,
-    RuntimeAbiRole::ThreadAttachmentIdentity,
-    RuntimeAbiRole::ThreadStaticCleanupRegistration,
-    RuntimeAbiRole::PanicReporting,
-    RuntimeAbiRole::PanicReportDestruction,
-    RuntimeAbiRole::StructuredShutdown,
-    RuntimeAbiRole::PanicReportConstruction,
-];
-
-pub(super) fn owns_runtime_role(role: RuntimeAbiRole) -> bool {
-    RUNTIME_ROLES.contains(&role)
-}
-
 pub(super) fn build(root: &Path, target: NativeTarget, destination: &Path) -> Result<(), String> {
     let support = tempfile::Builder::new()
         .prefix("bray-runtime-bootstrap-")
@@ -205,18 +132,20 @@ fn source_paths(root: &Path) -> Result<Vec<PathBuf>, String> {
 }
 
 fn platform_bindings() -> Result<Vec<PlatformServiceBinding>, String> {
-    PLATFORM_BINDINGS
-        .into_iter()
-        .map(|(role, path)| {
-            PlatformServiceBinding::try_new(role, path)
+    PlatformServiceRole::ALL.iter().copied()
+        .filter_map(|role| role.bootstrap_declaration().map(|declaration| (role, declaration)))
+        .map(|(role, declaration)| {
+            let path = format!("{MODULE}.{declaration}");
+
+            PlatformServiceBinding::try_new(role, &path)
                 .ok_or_else(|| format!("bootstrap platform binding is invalid: {path}"))
-        })
-        .collect()
+        }).collect()
 }
 
 fn runtime_bindings() -> Result<Vec<RuntimeRoleSourceBinding>, String> {
-    RUNTIME_BINDINGS
+    RuntimeAbiRole::ALL
         .into_iter()
+        .filter_map(|role| role.bootstrap_declaration().map(|declaration| (role, declaration)))
         .map(|(role, declaration)| {
             let path = format!("{MODULE}.{declaration}");
 

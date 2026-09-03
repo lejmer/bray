@@ -741,7 +741,7 @@ mod tests {
     use std::path::Path;
 
     use bray_base::NonEmptySharedStr;
-    use bray_runtime_abi::MAIN_THREAD_LANE_STARTUP_SYMBOL;
+    use bray_runtime_abi::symbols::MAIN_THREAD_LANE_STARTUP_SYMBOL;
     use bray_symbols::{NativeLinkKind, NativeLinkRequirement};
     use bray_target::TargetIdentity;
 

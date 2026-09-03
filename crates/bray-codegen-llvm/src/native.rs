@@ -1,14 +1,14 @@
 use bray_codegen::{
     CodegenFailure, CodegenInstance, CodegenRequest, CodegenSymbolKey, CodegenTarget,
 };
-use bray_runtime_interface::{ProtectedFrameOperation, RuntimeAbiRole};
+use bray_runtime_interface::{ProtectedFrameOperation, RuntimeAbiRole, RuntimeAbiType};
 use bray_target::{ObjectFormat, TargetArchitecture};
 use inkwell::AddressSpace;
 use inkwell::attributes::{Attribute, AttributeLoc};
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::Module;
-use inkwell::types::{AnyType, BasicMetadataTypeEnum, BasicTypeEnum, FunctionType, StructType};
+use inkwell::types::{AnyType, BasicMetadataTypeEnum, BasicType, BasicTypeEnum, FunctionType, StructType};
 use inkwell::values::{BasicMetadataValueEnum, BasicValueEnum, FunctionValue, StructValue};
 
 pub(crate) fn symbol_function_type<'context>(
@@ -42,20 +42,9 @@ pub(crate) fn indirect_result_type<'context>(
         return Some(protected_frame_type(context, target).into());
     }
 
-    if !uses_microsoft_x64_abi(target) {
-        return None;
-    }
-
     match key {
-        CodegenSymbolKey::Runtime(reference) => match reference.role() {
-            RuntimeAbiRole::RootExecution => Some(root_start_type(context).into()),
-            RuntimeAbiRole::SynchronousRootExecution
-            | RuntimeAbiRole::ForeignCallbackExecution
-            | RuntimeAbiRole::RootTerminalObservation
-            | RuntimeAbiRole::JoinRegistration => Some(run_outcome_type(context, target).into()),
-            RuntimeAbiRole::TaskAllocation => Some(task_allocation_type(context).into()),
-            RuntimeAbiRole::TaskObservationCreation => Some(inactive_frame_type(context).into()),
-            _ => None,
+        CodegenSymbolKey::Runtime(reference) => {
+            runtime_indirect_result_type(context, target, reference.role())
         },
         CodegenSymbolKey::ProtectedFrame { operation, .. } => {
             frame_result_is_indirect(target, *operation).then(|| match operation {
@@ -83,10 +72,9 @@ pub(crate) fn uses_indirect_argument(
     index: usize,
 ) -> bool {
     uses_microsoft_x64_abi(target)
-        && matches!(
-            (role, index),
-            (RuntimeAbiRole::RootExecution, 1) | (RuntimeAbiRole::AwaitedFrameComposition, 0)
-        )
+        && role.native_signature()
+            .and_then(|signature| signature.parameters().get(index))
+            .is_some_and(|kind| aggregate_is_indirect(*kind))
 }
 
 pub(crate) fn invoke_function<'context>(
@@ -120,21 +108,42 @@ pub(crate) fn invoke_function<'context>(
         .build_call(function, &arguments, name)
         .map_err(CodegenFailure::backend_library)?;
 
+    call.add_attribute(AttributeLoc::Param(0), indirect_result_attribute(context, result)?);
+
+    builder
+        .build_load(result, storage, name)
+        .map(Some)
+        .map_err(CodegenFailure::backend_library)
+}
+
+pub(crate) fn indirect_result_attribute(
+    context: &Context,
+    result: BasicTypeEnum<'_>,
+) -> Result<Attribute, CodegenFailure> {
     let kind = Attribute::get_named_enum_kind_id("sret");
 
     if kind == 0 {
         return Err(CodegenFailure::UnsupportedTarget);
     }
 
-    call.add_attribute(
-        AttributeLoc::Param(0),
-        context.create_type_attribute(kind, result.as_any_type_enum()),
-    );
+    Ok(context.create_type_attribute(kind, result.as_any_type_enum()))
+}
 
-    builder
-        .build_load(result, storage, name)
-        .map(Some)
-        .map_err(CodegenFailure::backend_library)
+pub(crate) fn runtime_indirect_result_type<'context>(
+    context: &'context Context,
+    target: &CodegenTarget,
+    role: RuntimeAbiRole,
+) -> Option<BasicTypeEnum<'context>> {
+    let result = role.native_signature()?.result();
+
+    // Product observations exceed the register-return limit on every supported native ABI.
+    if result == RuntimeAbiType::ProductObservation
+        || uses_microsoft_x64_abi(target) && aggregate_is_indirect(result)
+    {
+        runtime_value_type(context, target, result)
+    } else {
+        None
+    }
 }
 
 pub(crate) fn frame_parameter_index(
@@ -411,271 +420,100 @@ pub(crate) fn pointer_integer_type<'context>(
     }
 }
 
-fn runtime_function_type<'context>(
+pub(crate) fn declare_runtime_function<'context>(
+    module: &Module<'context>,
+    context: &'context Context,
+    target: &CodegenTarget,
+    role: RuntimeAbiRole,
+) -> Result<FunctionValue<'context>, CodegenFailure> {
+    let name = role.native_symbol().ok_or(CodegenFailure::CompilerOwnedRuntimeRole(role))?;
+
+    let signature = runtime_function_type(context, target, role)
+        .ok_or(CodegenFailure::CompilerOwnedRuntimeRole(role))?;
+
+    let function = module.get_function(name).unwrap_or_else(|| {
+        module.add_function(name, signature, None)
+    });
+
+    if let Some(result) = runtime_indirect_result_type(context, target, role) {
+        function.add_attribute(AttributeLoc::Param(0), indirect_result_attribute(context, result)?);
+    }
+
+    Ok(function)
+}
+
+pub(crate) fn runtime_function_type<'context>(
     context: &'context Context,
     target: &CodegenTarget,
     role: RuntimeAbiRole,
 ) -> Option<FunctionType<'context>> {
-    if uses_microsoft_x64_abi(target) {
-        let pointer = context.ptr_type(AddressSpace::default());
-        let usize = pointer_integer_type(context, target);
+    let signature = role.native_signature()?;
+    let microsoft = uses_microsoft_x64_abi(target);
+    let pointer = context.ptr_type(AddressSpace::default());
+    let indirect_result = runtime_indirect_result_type(context, target, role).is_some();
+    let mut parameters = Vec::with_capacity(signature.parameters().len() + usize::from(indirect_result));
 
-        match role {
-            RuntimeAbiRole::RootExecution => {
-                return Some(context.void_type().fn_type(
-                    &[
-                        pointer.into(),
-                        pointer_integer_type(context, target).into(),
-                        pointer.into(),
-                    ],
-                    false,
-                ));
-            }
-            RuntimeAbiRole::SynchronousRootExecution | RuntimeAbiRole::ForeignCallbackExecution => {
-                return Some(context.void_type().fn_type(
-                    &[
-                        pointer.into(),
-                        pointer.into(),
-                        pointer_integer_type(context, target).into(),
-                    ],
-                    false,
-                ));
-            }
-            RuntimeAbiRole::RootTerminalObservation => {
-                return Some(
-                    context
-                        .void_type()
-                        .fn_type(&[pointer.into(), context.i64_type().into()], false),
-                );
-            }
-            RuntimeAbiRole::TaskAllocation => {
-                return Some(context.void_type().fn_type(&[pointer.into()], false));
-            }
-            RuntimeAbiRole::TaskStart => {
-                return Some(
-                    context
-                        .i32_type()
-                        .fn_type(&[context.i64_type().into(), pointer.into()], false),
-                );
-            }
-            RuntimeAbiRole::TaskObservationCreation => {
-                return Some(context.void_type().fn_type(
-                    &[
-                        pointer.into(),
-                        context.i64_type().into(),
-                        context.i8_type().into(),
-                        pointer.into(),
-                        pointer.into(),
-                        pointer.into(),
-                    ],
-                    false,
-                ));
-            }
-            RuntimeAbiRole::TaskResolution => {
-                return Some(context.i32_type().fn_type(
-                    &[context.i64_type().into(), pointer.into(), pointer.into()],
-                    false,
-                ));
-            }
-            RuntimeAbiRole::JoinRegistration => {
-                return Some(context.void_type().fn_type(
-                    &[
-                        pointer.into(),
-                        context.i64_type().into(),
-                        pointer.into(),
-                        usize.into(),
-                    ],
-                    false,
-                ));
-            }
-            RuntimeAbiRole::PanicReportConstruction => {
-                return Some(pointer_integer_type(context, target).fn_type(
-                    &[
-                        context.i32_type().into(),
-                        context.i32_type().into(),
-                        context.i32_type().into(),
-                        context.i32_type().into(),
-                        context.i32_type().into(),
-                        context.i64_type().into(),
-                        pointer.into(),
-                        usize.into(),
-                    ],
-                    false,
-                ));
-            }
-            RuntimeAbiRole::AwaitedFrameComposition => {
-                return Some(context.void_type().fn_type(&[pointer.into()], false));
-            }
-            _ => {}
-        }
+    if indirect_result {
+        parameters.push(pointer.into());
     }
 
-    match role {
-        RuntimeAbiRole::RuntimeInitialization => {
-            let capacity = pointer_integer_type(context, target);
+    for parameter in signature.parameters() {
+        let ty = if microsoft && aggregate_is_indirect(*parameter) {
+            pointer.into()
+        } else {
+            runtime_value_type(context, target, *parameter)?
+        };
 
-            Some(
-                context
-                    .i32_type()
-                    .fn_type(&[capacity.into(), capacity.into()], false),
-            )
-        }
-        RuntimeAbiRole::RootExecution => Some(root_start_type(context).fn_type(
-            &[
-                pointer_integer_type(context, target).into(),
-                runtime_configuration_type(context, target).into(),
-            ],
-            false,
-        )),
-        RuntimeAbiRole::TaskAllocation => Some(task_allocation_type(context).fn_type(&[], false)),
-        RuntimeAbiRole::TaskStart => Some(context.i32_type().fn_type(
-            &[
-                context.i64_type().into(),
-                inactive_frame_type(context).into(),
-            ],
-            false,
-        )),
-        RuntimeAbiRole::TaskObservationCreation => Some(inactive_frame_type(context).fn_type(
-            &[
-                context.i64_type().into(),
-                context.i8_type().into(),
-                context.ptr_type(AddressSpace::default()).into(),
-                context.ptr_type(AddressSpace::default()).into(),
-                context.ptr_type(AddressSpace::default()).into(),
-            ],
-            false,
-        )),
-        RuntimeAbiRole::TaskResolution => Some(context.i32_type().fn_type(
-            &[
-                context.i64_type().into(),
-                context.ptr_type(AddressSpace::default()).into(),
-                context.ptr_type(AddressSpace::default()).into(),
-            ],
-            false,
-        )),
-        RuntimeAbiRole::JoinRegistration => Some(run_outcome_type(context, target).fn_type(
-            &[
-                context.i64_type().into(),
-                context.ptr_type(AddressSpace::default()).into(),
-                pointer_integer_type(context, target).into(),
-            ],
-            false,
-        )),
-        RuntimeAbiRole::TaskCancellationRequest | RuntimeAbiRole::TaskDestruction => Some(
-            context
-                .i32_type()
-                .fn_type(&[context.i64_type().into()], false),
-        ),
-        RuntimeAbiRole::NativeThreadExecution => {
-            let address = pointer_integer_type(context, target);
-            let pointer = context.ptr_type(AddressSpace::default());
-
-            Some(context.i32_type().fn_type(
-                &[
-                    pointer.into(),
-                    address.into(),
-                    pointer.into(),
-                    address.into(),
-                    pointer.into(),
-                ],
-                false,
-            ))
-        }
-        RuntimeAbiRole::TaskEventCreation => {
-            Some(pointer_integer_type(context, target).fn_type(&[], false))
-        }
-        RuntimeAbiRole::TaskEventSignal | RuntimeAbiRole::TaskEventDestruction => Some(
-            context
-                .i32_type()
-                .fn_type(&[pointer_integer_type(context, target).into()], false),
-        ),
-        RuntimeAbiRole::CurrentNativeThreadIdentity | RuntimeAbiRole::MainNativeThreadIdentity => {
-            Some(context.i64_type().fn_type(&[], false))
-        }
-        RuntimeAbiRole::NativeThreadPanicReportRecovery => {
-            let address = pointer_integer_type(context, target);
-
-            Some(address.fn_type(&[address.into()], false))
-        }
-        RuntimeAbiRole::SynchronousRootExecution | RuntimeAbiRole::ForeignCallbackExecution => {
-            Some(run_outcome_type(context, target).fn_type(
-                &[
-                    context.ptr_type(AddressSpace::default()).into(),
-                    pointer_integer_type(context, target).into(),
-                ],
-                false,
-            ))
-        }
-        RuntimeAbiRole::RootCancellationRequest => Some(
-            context
-                .i32_type()
-                .fn_type(&[context.i64_type().into()], false),
-        ),
-        RuntimeAbiRole::RootTerminalObservation => {
-            Some(run_outcome_type(context, target).fn_type(&[context.i64_type().into()], false))
-        }
-        RuntimeAbiRole::RootCompletionResolution => Some(
-            context
-                .i32_type()
-                .fn_type(&[context.i64_type().into()], false),
-        ),
-        RuntimeAbiRole::PanicReporting | RuntimeAbiRole::PanicReportDestruction => Some(
-            context
-                .i32_type()
-                .fn_type(&[pointer_integer_type(context, target).into()], false),
-        ),
-        RuntimeAbiRole::EntryFailureReporting => Some(context.i32_type().fn_type(
-            &[
-                pointer_integer_type(context, target).into(),
-                pointer_integer_type(context, target).into(),
-            ],
-            false,
-        )),
-        RuntimeAbiRole::TestEntrySelection => Some(
-            context
-                .i8_type()
-                .fn_type(&[context.i32_type().into()], false),
-        ),
-        RuntimeAbiRole::PanicReportConstruction => {
-            Some(panic_report_construction_type(context, target))
-        }
-        RuntimeAbiRole::PanicPropagation => Some(
-            context
-                .void_type()
-                .fn_type(&[pointer_integer_type(context, target).into()], false),
-        ),
-        RuntimeAbiRole::AwaitedFrameComposition => Some(
-            context
-                .void_type()
-                .fn_type(&[inactive_frame_type(context).into()], false),
-        ),
-        RuntimeAbiRole::FrameCompletionMove => {
-            Some(pointer_integer_type(context, target).fn_type(&[], false))
-        }
-        RuntimeAbiRole::CleanupIncidentReporting | RuntimeAbiRole::StructuredShutdown => {
-            Some(context.i32_type().fn_type(&[], false))
-        }
-        _ => None,
+        parameters.push(ty.into());
     }
+
+    if indirect_result || matches!(signature.result(), RuntimeAbiType::Void | RuntimeAbiType::Never) {
+        return Some(context.void_type().fn_type(&parameters, false));
+    }
+
+    let result = if microsoft && signature.result() == RuntimeAbiType::LaneResult {
+        context.i64_type().into()
+    } else {
+        runtime_value_type(context, target, signature.result())?
+    };
+
+    Some(result.fn_type(&parameters, false))
 }
 
-fn panic_report_construction_type<'context>(
+fn aggregate_is_indirect(kind: RuntimeAbiType) -> bool {
+    matches!(kind, RuntimeAbiType::Configuration | RuntimeAbiType::RootStart
+        | RuntimeAbiType::RunOutcome | RuntimeAbiType::TaskAllocation
+        | RuntimeAbiType::InactiveFrame | RuntimeAbiType::FrameProgress
+        | RuntimeAbiType::ProductObservation)
+}
+
+fn runtime_value_type<'context>(
     context: &'context Context,
     target: &CodegenTarget,
-) -> FunctionType<'context> {
-    pointer_integer_type(context, target).fn_type(
-        &[
-            context.i32_type().into(),
-            context.i32_type().into(),
-            context.i32_type().into(),
-            context.i32_type().into(),
-            context.i32_type().into(),
-            context.i64_type().into(),
-            context.ptr_type(AddressSpace::default()).into(),
-            pointer_integer_type(context, target).into(),
-        ],
-        false,
-    )
+    kind: RuntimeAbiType,
+) -> Option<BasicTypeEnum<'context>> {
+    let usize = pointer_integer_type(context, target);
+
+    Some(match kind {
+        RuntimeAbiType::Void | RuntimeAbiType::Never => return None,
+        RuntimeAbiType::U8 => context.i8_type().into(),
+        RuntimeAbiType::U32 => context.i32_type().into(),
+        RuntimeAbiType::U64 => context.i64_type().into(),
+        RuntimeAbiType::Usize => usize.into(),
+        RuntimeAbiType::Pointer | RuntimeAbiType::PointerUsize => context.ptr_type(AddressSpace::default()).into(),
+        RuntimeAbiType::Configuration => runtime_configuration_type(context, target).into(),
+        RuntimeAbiType::RootStart => root_start_type(context).into(),
+        RuntimeAbiType::RunOutcome => run_outcome_type(context, target).into(),
+        RuntimeAbiType::TaskAllocation => task_allocation_type(context).into(),
+        RuntimeAbiType::InactiveFrame => inactive_frame_type(context).into(),
+        RuntimeAbiType::FrameProgress => frame_progress_type(context).into(),
+        RuntimeAbiType::LaneResult => context.struct_type(&[context.i32_type().into(), context.i32_type().into()], false).into(),
+        RuntimeAbiType::ProductObservation => context.struct_type(&[
+            context.i32_type().into(), context.i32_type().into(),
+            usize.into(), usize.into(), usize.into(), usize.into(), usize.into(), usize.into(),
+            context.i8_type().array_type(32).into(),
+        ], false).into(),
+    })
 }
 
 pub(crate) fn frame_operation_type<'context>(
@@ -747,9 +585,92 @@ pub(crate) fn frame_operation_type<'context>(
 #[cfg(test)]
 mod tests {
     use bray_codegen::CodegenTarget;
-    use bray_runtime_interface::{ProtectedFrameOperation, RuntimeAbiRole};
+    use bray_runtime_interface::{ProtectedFrameOperation, RuntimeAbiRole, RuntimeAbiType};
     use bray_target::NativeTarget;
     use inkwell::context::Context;
+
+    #[test]
+    fn every_native_catalog_role_has_a_declaration_on_every_native_target() {
+        let context = Context::create();
+
+        for native in NativeTarget::ALL {
+            let target = CodegenTarget::for_native(native);
+
+            for role in RuntimeAbiRole::ALL {
+                let actual = super::runtime_function_type(&context, &target, role);
+
+                assert_eq!(actual.is_some(), role.native_signature().is_some(), "{native:?} {role:?}");
+
+                if let (Some(actual), Some(expected)) = (actual, role.native_signature()) {
+                    let indirect = super::runtime_indirect_result_type(&context, &target, role).is_some();
+
+                    assert_eq!(
+                        usize::try_from(actual.count_param_types()).expect("parameter count fits"),
+                        expected.parameters().len() + usize::from(indirect),
+                        "{native:?} {role:?}",
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn native_byte_results_and_lane_records_keep_their_c_abi() {
+        let context = Context::create();
+        let target = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
+
+        let cancellation = super::runtime_function_type(
+            &context, &target, RuntimeAbiRole::CurrentRunCancellationObservation,
+        ).expect("native cancellation signature exists");
+
+        let lane = super::runtime_function_type(
+            &context, &target, RuntimeAbiRole::CompatibleLaneSelection,
+        ).expect("native lane signature exists");
+
+        assert_eq!(cancellation.get_return_type(), Some(context.i8_type().into()));
+        assert_eq!(lane.get_return_type(), Some(context.i64_type().into()));
+
+        assert_eq!(
+            RuntimeAbiRole::SuspensionRegistration.native_signature().expect("native signature exists").result(),
+            RuntimeAbiType::FrameProgress,
+        );
+    }
+
+    #[test]
+    fn product_host_observations_use_indirect_storage_on_every_target() {
+        let context = Context::create();
+
+        for native in NativeTarget::ALL {
+            let target = CodegenTarget::for_native(native);
+            let module = context.create_module("host.contract");
+
+            let function = super::declare_runtime_function(
+                &module, &context, &target, RuntimeAbiRole::ProductHostControl,
+            ).expect("product host role has a native declaration");
+
+            assert_eq!(function.get_type().get_return_type(), None, "{native:?}");
+            assert_eq!(function.count_params(), 3, "{native:?}");
+
+            assert!(function.get_enum_attribute(
+                inkwell::attributes::AttributeLoc::Param(0),
+                inkwell::attributes::Attribute::get_named_enum_kind_id("sret"),
+            ).is_some(), "{native:?}");
+
+            module.verify().expect("native declaration verifies");
+        }
+    }
+
+    #[test]
+    fn native_declarations_reject_compiler_owned_roles_with_exact_identity() {
+        let context = Context::create();
+        let module = context.create_module("compiler.role");
+        let target = CodegenTarget::for_native(NativeTarget::X86_64WindowsMsvc);
+
+        assert_eq!(
+            super::declare_runtime_function(&module, &context, &target, RuntimeAbiRole::FrameResume),
+            Err(bray_codegen::CodegenFailure::CompilerOwnedRuntimeRole(RuntimeAbiRole::FrameResume)),
+        );
+    }
 
     #[test]
     fn cancellation_entry_has_its_exact_progress_callback_abi() {

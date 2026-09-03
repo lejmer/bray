@@ -49,6 +49,8 @@ pub enum CodegenFailure {
     GeneratedModuleInvariant,
     /// Generated backend IR violated an exact backend module invariant.
     GeneratedModuleInvariantDetail { report: Arc<str> },
+    /// A compiler-owned role was requested as a native runtime function.
+    CompilerOwnedRuntimeRole(bray_runtime_interface::RuntimeAbiRole),
     /// Generated runtime metadata violated its publication contract.
     InvalidRuntimeMetadata(CodegenRuntimeMetadataBuildError),
     /// A successful backend outcome violated its publication contract.
@@ -271,7 +273,8 @@ pub fn codegen_failure_diagnostic(
         | CodegenFailure::GeneratedModuleInvariantDetail { .. } => {
             (DiagnosticKind::CodegenGeneratedModuleInvalid, None)
         }
-        CodegenFailure::InvalidRuntimeMetadata(_) | CodegenFailure::InvalidOutcome(_) => {
+        CodegenFailure::CompilerOwnedRuntimeRole(_)
+        | CodegenFailure::InvalidRuntimeMetadata(_) | CodegenFailure::InvalidOutcome(_) => {
             (DiagnosticKind::CodegenGeneratedModuleInvalid, None)
         }
         CodegenFailure::BackendRejectedModule { .. } => {
@@ -316,6 +319,11 @@ pub fn codegen_failure_diagnostic(
                 "{resource}={actual}"
             )));
         }
+        CodegenFailure::CompilerOwnedRuntimeRole(role) => {
+            diagnostic = diagnostic.with_arg(DiagnosticArg::codegen_backend_report(format!(
+                "compiler_owned_runtime_role={}", role.as_str(),
+            )));
+        }
         CodegenFailure::InvalidRuntimeMetadata(cause) => {
             diagnostic = diagnostic.with_arg(DiagnosticArg::codegen_backend_report(format!(
                 "{cause:?}"
@@ -354,6 +362,7 @@ pub fn codegen_failure_diagnostic(
             | CodegenFailure::BackendToolExited { .. }
             | CodegenFailure::GeneratedModuleInvariant
             | CodegenFailure::GeneratedModuleInvariantDetail { .. }
+            | CodegenFailure::CompilerOwnedRuntimeRole(_)
             | CodegenFailure::InvalidRuntimeMetadata(_)
             | CodegenFailure::InvalidOutcome(_)
             | CodegenFailure::BackendRejectedModule { .. }

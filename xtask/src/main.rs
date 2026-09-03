@@ -20,6 +20,7 @@ mod runtime_artifact;
 mod source_format;
 mod standard_library;
 mod style;
+mod text;
 mod windows_crt;
 mod workspace;
 

@@ -40,7 +40,7 @@ impl OptimizationCatalog {
                     .iter()
                     .map(|symbol| symbol.as_str().to_owned())
                     .chain(optimization.platform_services().iter().map(|role| {
-                        bray_runtime_interface::native_platform_service_role_symbol(*role)
+                        role.native_symbol()
                             .to_owned()
                     }))
                     .collect();
@@ -62,7 +62,7 @@ impl OptimizationCatalog {
             .copied()
             .map(|role| {
                 (
-                    bray_runtime_interface::native_platform_service_role_symbol(role),
+                    role.native_symbol(),
                     platform_provider_identity(role.family()),
                 )
             })

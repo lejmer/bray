@@ -267,10 +267,6 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
                 text_field("actual_symbol_kind", actual.as_str()),
             ],
         ),
-        Failure::UnsupportedRuntimeRole { role } => (
-            "product_query_unsupported_runtime_role",
-            vec![text_field("runtime_role", role.as_str())],
-        ),
         Failure::InvalidHelperOperation {
             context,
             helper,

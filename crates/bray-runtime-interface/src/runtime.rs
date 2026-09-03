@@ -45,7 +45,8 @@ impl RuntimeContract {
 
         if let Some(binding) = role_bindings
             .iter()
-            .find(|binding| binding.implementation() == RuntimeRoleImplementation::CompilerLowering)
+            .find(|binding| binding.implementation() == RuntimeRoleImplementation::CompilerLowering
+                || binding.role().native_symbol().is_none())
         {
             return Err(RuntimeContractBuildError::CompilerOwnedRole(binding.role()));
         }
@@ -228,6 +229,11 @@ mod tests {
 
     #[test]
     fn runtime_contracts_reject_duplicate_and_compiler_owned_roles() {
+        assert_eq!(
+            runtime([runtime_binding(RuntimeAbiRole::FrameResume)]),
+            Err(RuntimeContractBuildError::CompilerOwnedRole(RuntimeAbiRole::FrameResume)),
+        );
+
         let role = runtime_binding(RuntimeAbiRole::TaskStart);
 
         assert_eq!(
@@ -254,7 +260,7 @@ mod tests {
     fn compatibility_failures_are_typed_and_deterministic() {
         let Ok(runtime) = runtime([
             runtime_binding(RuntimeAbiRole::TaskStart),
-            runtime_binding(RuntimeAbiRole::FrameResume),
+            runtime_binding(RuntimeAbiRole::TaskAllocation),
         ]) else {
             panic!("test runtime contract must be valid");
         };
@@ -373,7 +379,7 @@ mod tests {
     #[test]
     fn compatible_runtime_contracts_cover_roles_capabilities_and_target() {
         let Ok(runtime) = runtime([
-            runtime_binding(RuntimeAbiRole::FrameResume),
+            runtime_binding(RuntimeAbiRole::TaskAllocation),
             runtime_binding(RuntimeAbiRole::TaskStart),
         ]) else {
             panic!("test runtime contract must be valid");

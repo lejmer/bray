@@ -1708,6 +1708,32 @@ trusted internal func flush() -> PlatformStatus
     }
 
     #[test]
+    fn generic_constant_type_members_export_forwarded_self_results() {
+        let provider = compilation(concat!(
+            "module types;\n",
+            "public struct Container<T>\n",
+            "{\n",
+            "    internal value: T?;\n",
+            "    public static const func empty() -> Self\n",
+            "    {\n",
+            "        return internal make_empty<T>();\n",
+            "    }\n",
+            "    public static const func empty_with<U>() -> Self?\n",
+            "    {\n",
+            "        return internal make_empty<T>();\n",
+            "    }\n",
+            "}\n",
+            "internal const func make_empty<T>() -> Container<T>\n",
+            "{\n",
+            "    return { value = none };\n",
+            "}\n",
+        ));
+
+        assert!(provider.check_diagnostics().is_empty(), "{:#?}", provider.check_diagnostics());
+        export(&provider);
+    }
+
+    #[test]
     fn imported_generic_type_members_reuse_the_receiver_substitution() {
         let provider = compilation(concat!(
             "module types;\n",

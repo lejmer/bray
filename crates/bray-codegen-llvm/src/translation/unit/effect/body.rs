@@ -1,6 +1,6 @@
 use super::super::core::UnitTranslator;
 use super::super::support::{
-    extract_value, insert_value, int_value, llvm, next_helper, pointer_value,
+    extract_value, insert_value, int_value, llvm, next_helper, nonzero_integer, pointer_value,
 };
 use bray_codegen::{CodegenFailure, CodegenSymbolKey, CodegenTypeKind};
 use bray_ir::{
@@ -512,7 +512,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     .map(Some)
             }
             MirAsyncOperation::ObserveCurrentRunCancellation { runtime } => {
-                self.invoke_runtime(*runtime, &[])
+                let value = self.invoke_native_runtime(*runtime, &[])?
+                    .and_then(int_value)
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                nonzero_integer(&self.builder, value, "run.cancelled")
+                    .map(|value| Some(value.into()))
             }
             MirAsyncOperation::PublishTerminalState { state, runtime } => {
                 if self.frame_context.is_some() {

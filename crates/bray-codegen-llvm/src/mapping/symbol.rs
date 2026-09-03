@@ -7,9 +7,8 @@ use bray_ir::MirUnitKey;
 use bray_symbols::SymbolKind;
 use inkwell::DLLStorageClass;
 use inkwell::GlobalVisibility;
-use inkwell::attributes::{Attribute, AttributeLoc};
+use inkwell::attributes::AttributeLoc;
 use inkwell::module::{Linkage, Module};
-use inkwell::types::AnyType;
 use inkwell::values::{CallSiteValue, FunctionValue};
 
 use super::LlvmTypeMappings;
@@ -127,17 +126,9 @@ fn apply_native_attributes(
         return Ok(());
     };
 
-    let kind = Attribute::get_named_enum_kind_id("sret");
-
-    if kind == 0 {
-        return Err(CodegenFailure::UnsupportedTarget);
-    }
-
     function.add_attribute(
         AttributeLoc::Param(0),
-        types
-            .context()
-            .create_type_attribute(kind, result.as_any_type_enum()),
+        crate::native::indirect_result_attribute(types.context(), result)?,
     );
 
     Ok(())
@@ -530,7 +521,7 @@ mod tests {
     };
     use bray_target::{NativeTarget, TargetLayoutContract, TargetValueLayout};
     use inkwell::DLLStorageClass;
-    use inkwell::attributes::{Attribute, AttributeLoc};
+    use inkwell::attributes::AttributeLoc;
     use inkwell::context::Context;
     use inkwell::module::Linkage;
 
@@ -835,7 +826,7 @@ mod tests {
             Ok(())
         );
 
-        let inline_hint = Attribute::get_named_enum_kind_id("inlinehint");
+        let inline_hint = inkwell::attributes::Attribute::get_named_enum_kind_id("inlinehint");
 
         assert!(
             fulfillment_function

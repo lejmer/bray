@@ -80,6 +80,12 @@ pub(super) fn codegen_backend_failure_kind(
                 [text_failure_field("report", report.as_ref())],
             ))
         }
+        Error::CompilerOwnedRuntimeRole(role) => {
+            Kind::CodegenBackendGeneratedModuleInvariantDetail(failure_detail(
+                "codegen_backend_compiler_owned_runtime_role",
+                [text_failure_field("role", role.as_str())],
+            ))
+        }
         Error::InvalidRuntimeMetadata(error) => {
             Kind::CodegenBackendInvalidRuntimeMetadata(runtime_metadata_failure_detail(*error))
         }

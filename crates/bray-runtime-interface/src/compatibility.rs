@@ -37,14 +37,20 @@ impl RuntimeRequirements {
         capabilities: impl IntoIterator<Item = RuntimeCapability>,
         lanes: impl IntoIterator<Item = ExecutionLaneRequirement>,
     ) -> Self {
+        let roles = sorted_unique_shared_slice(roles);
+
+        let capabilities = sorted_unique_shared_slice(capabilities.into_iter().chain(
+            roles.iter().flat_map(|role| role.required_capabilities().iter().copied()),
+        ));
+
         Self {
             runtime,
             abi_version,
             frame_abi,
             target,
             panic_abi,
-            roles: sorted_unique_shared_slice(roles),
-            capabilities: sorted_unique_shared_slice(capabilities),
+            roles,
+            capabilities,
             lanes: sorted_unique_shared_slice(lanes),
         }
     }

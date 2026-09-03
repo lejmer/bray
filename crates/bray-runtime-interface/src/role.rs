@@ -1,264 +1,123 @@
 use std::sync::Arc;
 
-use crate::BinarySymbolName;
+use crate::{BinarySymbolName, RuntimeRoleArtifact, RuntimeAbiType, RuntimeNativeSignature, RuntimeCapability};
 
-/// Closed binary execution ABI role understood by lowering, backends, and product hosts.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum RuntimeAbiRole {
-    /// Initialize one loaded runtime artifact instance before product entry.
-    RuntimeInitialization,
-    /// Begin and own the executable root run.
-    RootExecution,
-    /// Execute one synchronous entry callback behind the product panic boundary.
-    SynchronousRootExecution,
-    /// Execute one foreign callback behind a thread-entry and panic boundary.
-    ForeignCallbackExecution,
-    /// Execute one Bray-owned native-thread root behind its runtime boundary.
-    NativeThreadExecution,
-    /// Read the process-wide identity of the current Bray native thread.
-    CurrentNativeThreadIdentity,
-    /// Read the process-wide identity of the distinguished initial native thread.
-    MainNativeThreadIdentity,
-    /// Recover one owned panic report published by a native-thread boundary.
-    NativeThreadPanicReportRecovery,
-    /// Create one runtime-owned task event.
-    TaskEventCreation,
-    /// Signal one runtime-owned task event.
-    TaskEventSignal,
-    /// Release one runtime-owned task event.
-    TaskEventDestruction,
-    /// Read the identity of the current exact Bray thread attachment.
-    ThreadAttachmentIdentity,
-    /// Register one static cleanup entry with the current exact thread attachment.
-    ThreadStaticCleanupRegistration,
-    /// Control lifecycle and provider obligations for one loaded product host.
-    ProductHostControl,
-    /// Request cancellation of the root run from its host.
-    RootCancellationRequest,
-    /// Allocate stable task-owned storage.
-    TaskAllocation,
-    /// Publish a newly initialized task for execution.
-    TaskStart,
-    /// Enter or resume one protected async frame.
-    FrameResume,
-    /// Register a suspended frame with an event source.
-    SuspensionRegistration,
-    /// Wake a suspended task.
-    Wake,
-    /// Request cancellation of a child task.
-    TaskCancellationRequest,
-    /// Observe cancellation requested for the current run.
-    CurrentRunCancellationObservation,
-    /// Transfer current-run cancellation to the nearest run boundary.
-    CurrentRunCancellationPropagation,
-    /// Register one observer for a task terminal state.
-    JoinRegistration,
-    /// Create one lazy task-observation frame.
-    TaskObservationCreation,
-    /// Resolve one task to its terminal result.
-    TaskResolution,
-    /// Publish one terminal run outcome.
-    TerminalPublication,
-    /// Integrate one runtime event source.
-    RuntimeEvent,
-    /// Select a lane compatible with checked execution requirements.
-    CompatibleLaneSelection,
-    /// Transfer ownership of one cleanup incident.
-    CleanupIncidentTransfer,
-    /// Report and destroy product-host cleanup incidents.
-    CleanupIncidentReporting,
-    /// Initialize the distinguished main-thread execution lane.
-    MainThreadLaneStartup,
-    /// Drive work assigned to the distinguished main-thread lane.
-    MainThreadLaneDrive,
-    /// Observe the root terminal record without creating a source task.
-    RootTerminalObservation,
-    /// Release runtime-owned root completion storage after host resolution.
-    RootCompletionResolution,
-    /// Report and resolve one root panic payload.
-    PanicReporting,
-    /// Destroy one handled panic report without reporting it.
-    PanicReportDestruction,
-    /// Report one recoverable entrypoint failure value before host resolution.
-    EntryFailureReporting,
-    /// Select the catalog entry admitted by the test runner.
-    TestEntrySelection,
-    /// Shut runtime and product-host infrastructure down in checked order.
-    StructuredShutdown,
-    /// Broadcast cancellation to tasks reachable from one frame.
-    FrameTaskBroadcast,
-    /// Resolve async and ordinary lifecycle state retained by one frame.
-    FrameLifecycleResolution,
-    /// Move a frame's completed result into its destination.
-    FrameCompletionMove,
-    /// Infallibly destroy terminal frame storage.
-    FrameDestruction,
-    /// Initialize one generator accumulation.
-    GeneratorBegin,
-    /// Append one value to generator accumulation.
-    GeneratorPush,
-    /// Finish generator accumulation and publish its value.
-    GeneratorFinish,
-    /// Broadcast task cleanup through initialized generator elements.
-    GeneratorCleanupBroadcast,
-    /// Destroy initialized generator elements and release accumulation storage.
-    GeneratorDestruction,
-    /// Construct one owned panic report.
-    PanicReportConstruction,
-    /// Propagate one owned panic report to the nearest native run boundary.
-    PanicPropagation,
-    /// Create one inactive erased protected frame.
-    FrameCreation,
-    /// Move one inactive erased protected frame before first resume.
-    InactiveFrameMove,
-    /// Compose one erased directly awaited frame into its parent.
-    AwaitedFrameComposition,
-    /// Infallibly destroy one terminal task control record.
-    TaskDestruction,
-}
+macro_rules! define_runtime_roles {
+    ($( $role:ident {
+        $documentation:literal, $name:literal,
+        native: ($($symbol:ident = $native:literal, [$($native_parameter:ident),*] -> $native_result:ident)?),
+        call_hook: ($($hook:ident)?),
+        compiler: $abi:ident [$($parameter:ident),*] -> $result:ident,
+        owner: $owner:ident, availability: $availability:ident,
+        bootstrap: ($($bootstrap:literal)?), host_control: $host_control:literal,
+        capabilities: [$($capability:ident),*],
+        effects: [$($effect:ident),*]
+    })+) => {
+        /// Closed execution ABI role understood by lowering, backends, and product hosts.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub enum RuntimeAbiRole { $( #[doc = $documentation] $role, )+ }
 
-impl RuntimeAbiRole {
-    /// Every private execution ABI role in stable order.
-    pub const ALL: [Self; 55] = [
-        Self::RuntimeInitialization,
-        Self::RootExecution,
-        Self::SynchronousRootExecution,
-        Self::ForeignCallbackExecution,
-        Self::NativeThreadExecution,
-        Self::CurrentNativeThreadIdentity,
-        Self::MainNativeThreadIdentity,
-        Self::NativeThreadPanicReportRecovery,
-        Self::TaskEventCreation,
-        Self::TaskEventSignal,
-        Self::TaskEventDestruction,
-        Self::ThreadAttachmentIdentity,
-        Self::ThreadStaticCleanupRegistration,
-        Self::ProductHostControl,
-        Self::RootCancellationRequest,
-        Self::TaskAllocation,
-        Self::TaskStart,
-        Self::FrameResume,
-        Self::SuspensionRegistration,
-        Self::Wake,
-        Self::TaskCancellationRequest,
-        Self::CurrentRunCancellationObservation,
-        Self::CurrentRunCancellationPropagation,
-        Self::JoinRegistration,
-        Self::TaskObservationCreation,
-        Self::TaskResolution,
-        Self::TerminalPublication,
-        Self::RuntimeEvent,
-        Self::CompatibleLaneSelection,
-        Self::CleanupIncidentTransfer,
-        Self::CleanupIncidentReporting,
-        Self::MainThreadLaneStartup,
-        Self::MainThreadLaneDrive,
-        Self::RootTerminalObservation,
-        Self::RootCompletionResolution,
-        Self::PanicReporting,
-        Self::PanicReportDestruction,
-        Self::EntryFailureReporting,
-        Self::TestEntrySelection,
-        Self::StructuredShutdown,
-        Self::FrameTaskBroadcast,
-        Self::FrameLifecycleResolution,
-        Self::FrameCompletionMove,
-        Self::FrameDestruction,
-        Self::GeneratorBegin,
-        Self::GeneratorPush,
-        Self::GeneratorFinish,
-        Self::GeneratorCleanupBroadcast,
-        Self::GeneratorDestruction,
-        Self::PanicReportConstruction,
-        Self::PanicPropagation,
-        Self::FrameCreation,
-        Self::InactiveFrameMove,
-        Self::AwaitedFrameComposition,
-        Self::TaskDestruction,
-    ];
+        impl RuntimeAbiRole {
+            /// Every private execution ABI role in stable order.
+            pub const ALL: [Self; [$(stringify!($role)),+].len()] = [$(Self::$role,)+];
 
-    /// Product-host control roles shared by synchronous and asynchronous roots.
-    pub const EXECUTABLE_HOST_CONTROL: [Self; 7] = [
-        Self::RootCancellationRequest,
-        Self::CleanupIncidentReporting,
-        Self::RootTerminalObservation,
-        Self::RootCompletionResolution,
-        Self::PanicReporting,
-        Self::EntryFailureReporting,
-        Self::StructuredShutdown,
-    ];
+            /// Returns this role's stable textual name.
+            pub const fn as_str(self) -> &'static str {
+                match self { $(Self::$role => $name,)+ }
+            }
 
-    /// Returns this role's stable textual name.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::RuntimeInitialization => "runtime_initialization",
-            Self::RootExecution => "root_execution",
-            Self::SynchronousRootExecution => "synchronous_root_execution",
-            Self::ForeignCallbackExecution => "foreign_callback_execution",
-            Self::NativeThreadExecution => "native_thread_execution",
-            Self::CurrentNativeThreadIdentity => "current_native_thread_identity",
-            Self::MainNativeThreadIdentity => "main_native_thread_identity",
-            Self::NativeThreadPanicReportRecovery => "native_thread_panic_report_recovery",
-            Self::TaskEventCreation => "task_event_creation",
-            Self::TaskEventSignal => "task_event_signal",
-            Self::TaskEventDestruction => "task_event_destruction",
-            Self::ThreadAttachmentIdentity => "thread_attachment_identity",
-            Self::ThreadStaticCleanupRegistration => "thread_static_cleanup_registration",
-            Self::ProductHostControl => "product_host_control",
-            Self::RootCancellationRequest => "root_cancellation_request",
-            Self::TaskAllocation => "task_allocation",
-            Self::TaskStart => "task_start",
-            Self::FrameResume => "frame_resume",
-            Self::SuspensionRegistration => "suspension_registration",
-            Self::Wake => "wake",
-            Self::TaskCancellationRequest => "task_cancellation_request",
-            Self::CurrentRunCancellationObservation => "current_run_cancellation_observation",
-            Self::CurrentRunCancellationPropagation => "current_run_cancellation_propagation",
-            Self::JoinRegistration => "join_registration",
-            Self::TaskObservationCreation => "task_observation_creation",
-            Self::TaskResolution => "task_resolution",
-            Self::TerminalPublication => "terminal_publication",
-            Self::RuntimeEvent => "runtime_event",
-            Self::CompatibleLaneSelection => "compatible_lane_selection",
-            Self::CleanupIncidentTransfer => "cleanup_incident_transfer",
-            Self::CleanupIncidentReporting => "cleanup_incident_reporting",
-            Self::MainThreadLaneStartup => "main_thread_lane_startup",
-            Self::MainThreadLaneDrive => "main_thread_lane_drive",
-            Self::RootTerminalObservation => "root_terminal_observation",
-            Self::RootCompletionResolution => "root_completion_resolution",
-            Self::PanicReporting => "panic_reporting",
-            Self::PanicReportDestruction => "panic_report_destruction",
-            Self::EntryFailureReporting => "entry_failure_reporting",
-            Self::TestEntrySelection => "test_entry_selection",
-            Self::StructuredShutdown => "structured_shutdown",
-            Self::FrameTaskBroadcast => "frame_task_broadcast",
-            Self::FrameLifecycleResolution => "frame_lifecycle_resolution",
-            Self::FrameCompletionMove => "frame_completion_move",
-            Self::FrameDestruction => "frame_destruction",
-            Self::GeneratorBegin => "generator_begin",
-            Self::GeneratorPush => "generator_push",
-            Self::GeneratorFinish => "generator_finish",
-            Self::GeneratorCleanupBroadcast => "generator_cleanup_broadcast",
-            Self::GeneratorDestruction => "generator_destruction",
-            Self::PanicReportConstruction => "panic_report_construction",
-            Self::PanicPropagation => "panic_propagation",
-            Self::FrameCreation => "frame_creation",
-            Self::InactiveFrameMove => "inactive_frame_move",
-            Self::AwaitedFrameComposition => "awaited_frame_composition",
-            Self::TaskDestruction => "task_destruction",
+            /// Resolves one stable textual role name.
+            #[deny(unreachable_patterns)]
+            pub fn from_name(name: &str) -> Option<Self> {
+                match name { $($name => Some(Self::$role),)+ _ => None }
+            }
+
+            /// Returns the compiler-owned semantic contract of this role.
+            pub const fn contract(self) -> RuntimeRoleContract {
+                match self { $(Self::$role => RuntimeRoleContract::new(self, &[$(RuntimeRoleContractEffect::$effect,)*]),)+ }
+            }
+
+            /// Returns the capabilities required by this operation.
+            pub const fn required_capabilities(self) -> &'static [RuntimeCapability] {
+                match self { $(Self::$role => &[$(RuntimeCapability::$capability,)*],)+ }
+            }
+
+            /// Returns the role's stable native symbol, if supplied by a linked artifact.
+            pub const fn native_symbol(self) -> Option<&'static str> {
+                match self { $(Self::$role => define_runtime_roles!(@symbol $($symbol)?),)+ }
+            }
+
+            /// Returns the exact native callable contract for a linked role.
+            pub const fn native_signature(self) -> Option<RuntimeNativeSignature> {
+                match self {
+                    $(Self::$role => define_runtime_roles!(@native $([$($native_parameter),*] -> $native_result)?),)+
+                }
+            }
+
+            /// Returns the reference runtime component implementing this role.
+            pub const fn artifact_owner(self) -> RuntimeRoleArtifact {
+                match self { $(Self::$role => RuntimeRoleArtifact::$owner,)+ }
+            }
+
+            /// Returns the implementation boundary supplying this role.
+            pub const fn implementation(self) -> RuntimeRoleImplementation {
+                match self.artifact_owner() {
+                    RuntimeRoleArtifact::Compiler => RuntimeRoleImplementation::CompilerLowering,
+                    RuntimeRoleArtifact::Host | RuntimeRoleArtifact::Callback
+                    | RuntimeRoleArtifact::Scheduler | RuntimeRoleArtifact::Cancellation
+                    | RuntimeRoleArtifact::Event | RuntimeRoleArtifact::TestHost => RuntimeRoleImplementation::BrayRuntime,
+                }
+            }
+
+            /// Returns whether this role is available to an ordinary product.
+            pub const fn available_to_product(self) -> bool {
+                match self { $(Self::$role => define_runtime_roles!(@available $availability),)+ }
+            }
+
+            /// Returns the trusted bootstrap declaration implementing this role.
+            pub const fn bootstrap_declaration(self) -> Option<&'static str> {
+                match self { $(Self::$role => define_runtime_roles!(@bootstrap $($bootstrap)?),)+ }
+            }
+
+            /// Returns the control operations required by every executable host.
+            pub fn host_controls() -> impl Iterator<Item = Self> {
+                Self::ALL.into_iter().filter(|role| match role { $(Self::$role => $host_control,)+ })
+            }
         }
-    }
 
-    /// Resolves one stable textual role name.
-    pub fn from_name(name: &str) -> Option<Self> {
-        Self::ALL.into_iter().find(|role| role.as_str() == name)
-    }
-
-    /// Returns the compiler-owned semantic contract of this closed ABI role.
-    pub const fn contract(self) -> RuntimeRoleContract {
-        RuntimeRoleContract::new(self, role_effects(self))
-    }
+        const _: () = {
+            $(
+                assert!(
+                    matches!(RuntimeAbiRole::$role.artifact_owner(), RuntimeRoleArtifact::Compiler)
+                        == RuntimeAbiRole::$role.native_signature().is_none(),
+                    "runtime catalog ownership and native signature disagree"
+                );
+                assert!(
+                    RuntimeAbiRole::$role.bootstrap_declaration().is_none()
+                        || RuntimeAbiRole::$role.native_signature().is_some(),
+                    "bootstrap role has no native callable signature"
+                );
+                assert!(
+                    RuntimeAbiRole::$role.available_to_product()
+                        != matches!(RuntimeAbiRole::$role.artifact_owner(), RuntimeRoleArtifact::TestHost),
+                    "runtime catalog availability contradicts artifact ownership"
+                );
+            )+
+        };
+    };
+    (@native [$($parameter:ident),*] -> $result:ident) => {
+        Some(RuntimeNativeSignature::new(&[$(RuntimeAbiType::$parameter,)*], RuntimeAbiType::$result))
+    };
+    (@native) => { None };
+    (@symbol $symbol:ident) => { Some(bray_runtime_abi::symbols::$symbol) };
+    (@symbol) => { None };
+    (@available All) => { true };
+    (@available Test) => { false };
+    (@bootstrap $name:literal) => { Some($name) };
+    (@bootstrap) => { None };
 }
+
+bray_runtime_abi::runtime_role_catalog!(define_runtime_roles);
 
 /// One build-authorized association between a Bray declaration and a private runtime role.
 ///
@@ -470,91 +329,46 @@ pub(crate) fn canonical_role_bindings(
     Ok(bindings.into())
 }
 
-const fn role_effects(role: RuntimeAbiRole) -> &'static [RuntimeRoleContractEffect] {
-    use RuntimeRoleContractEffect as Effect;
-
-    match role {
-        RuntimeAbiRole::RuntimeInitialization => &[Effect::InitializeRuntime],
-        RuntimeAbiRole::RootExecution => &[Effect::EstablishRootRun, Effect::TransferFrame],
-        RuntimeAbiRole::SynchronousRootExecution => {
-            &[Effect::EstablishRootRun, Effect::ExecuteCallbackRoot]
-        }
-        RuntimeAbiRole::ForeignCallbackExecution => {
-            &[Effect::EstablishRootRun, Effect::ExecuteCallbackRoot]
-        }
-        RuntimeAbiRole::NativeThreadExecution => &[
-            Effect::PublishTerminalState,
-            Effect::ObserveCancellation,
-            Effect::EstablishVisibility,
-        ],
-        RuntimeAbiRole::CurrentNativeThreadIdentity | RuntimeAbiRole::MainNativeThreadIdentity => {
-            &[Effect::ObserveThreadAttachment]
-        }
-        RuntimeAbiRole::NativeThreadPanicReportRecovery => &[Effect::AcquireTerminalState],
-        RuntimeAbiRole::TaskEventCreation => &[Effect::CreateTaskEvent],
-        RuntimeAbiRole::TaskEventSignal => &[Effect::SignalTaskEvent, Effect::EstablishVisibility],
-        RuntimeAbiRole::TaskEventDestruction => &[Effect::ReleaseTaskEvent],
-        RuntimeAbiRole::ThreadAttachmentIdentity => &[Effect::ObserveThreadAttachment],
-        RuntimeAbiRole::ThreadStaticCleanupRegistration => &[Effect::RegisterThreadCleanup],
-        RuntimeAbiRole::ProductHostControl => &[Effect::ControlProductHost],
-        RuntimeAbiRole::RootCancellationRequest | RuntimeAbiRole::TaskCancellationRequest => {
-            &[Effect::RequestCancellation]
-        }
-        RuntimeAbiRole::TaskAllocation => &[Effect::AllocateTask],
-        RuntimeAbiRole::TaskStart => &[Effect::TransferFrame, Effect::PublishWork],
-        RuntimeAbiRole::FrameResume => &[Effect::ExecuteCallbackRoot],
-        RuntimeAbiRole::SuspensionRegistration => &[Effect::RegisterContinuation],
-        RuntimeAbiRole::Wake => &[Effect::PublishWork, Effect::EstablishVisibility],
-        RuntimeAbiRole::CurrentRunCancellationObservation => &[Effect::ObserveCancellation],
-        RuntimeAbiRole::CurrentRunCancellationPropagation => &[Effect::PropagateCancellation],
-        RuntimeAbiRole::JoinRegistration => &[
-            Effect::RegisterContinuation,
-            Effect::AcquireTerminalState,
-            Effect::EstablishVisibility,
-        ],
-        RuntimeAbiRole::TaskObservationCreation => &[Effect::CreateFrame],
-        RuntimeAbiRole::TaskResolution => {
-            &[Effect::AcquireTerminalState, Effect::EstablishVisibility]
-        }
-        RuntimeAbiRole::TerminalPublication => {
-            &[Effect::PublishTerminalState, Effect::EstablishVisibility]
-        }
-        RuntimeAbiRole::RuntimeEvent => &[Effect::ExecuteCallbackRoot],
-        RuntimeAbiRole::CompatibleLaneSelection
-        | RuntimeAbiRole::MainThreadLaneStartup
-        | RuntimeAbiRole::MainThreadLaneDrive => &[],
-        RuntimeAbiRole::CleanupIncidentTransfer => &[Effect::TransferCleanupIncident],
-        RuntimeAbiRole::CleanupIncidentReporting => &[Effect::ReportCleanupIncidents],
-        RuntimeAbiRole::RootTerminalObservation => {
-            &[Effect::AcquireTerminalState, Effect::EstablishVisibility]
-        }
-        RuntimeAbiRole::RootCompletionResolution => &[Effect::ReleaseRootCompletion],
-        RuntimeAbiRole::PanicReporting => &[Effect::ReportPanic],
-        RuntimeAbiRole::PanicReportDestruction => &[Effect::DestroyPanicReport],
-        RuntimeAbiRole::EntryFailureReporting => &[Effect::ReportEntryFailure],
-        RuntimeAbiRole::TestEntrySelection => &[Effect::SelectTestEntry],
-        RuntimeAbiRole::StructuredShutdown => &[Effect::StructuredShutdown],
-        RuntimeAbiRole::FrameTaskBroadcast => &[Effect::BroadcastFrameTasks],
-        RuntimeAbiRole::FrameLifecycleResolution => &[Effect::ResolveFrameLifecycle],
-        RuntimeAbiRole::FrameCompletionMove => &[Effect::MoveCompletion],
-        RuntimeAbiRole::FrameDestruction => &[Effect::DestroyFrame],
-        RuntimeAbiRole::GeneratorBegin => &[Effect::InitializeGenerator],
-        RuntimeAbiRole::GeneratorPush => &[Effect::AppendGeneratorValue],
-        RuntimeAbiRole::GeneratorFinish => &[Effect::FinishGenerator],
-        RuntimeAbiRole::GeneratorCleanupBroadcast => &[Effect::BroadcastGeneratorCleanup],
-        RuntimeAbiRole::GeneratorDestruction => &[Effect::DestroyGenerator],
-        RuntimeAbiRole::PanicReportConstruction => &[Effect::ConstructPanicReport],
-        RuntimeAbiRole::PanicPropagation => &[Effect::PropagatePanic],
-        RuntimeAbiRole::FrameCreation => &[Effect::CreateFrame],
-        RuntimeAbiRole::InactiveFrameMove => &[Effect::MoveFrame],
-        RuntimeAbiRole::AwaitedFrameComposition => &[Effect::ComposeAwaitedFrame],
-        RuntimeAbiRole::TaskDestruction => &[Effect::DestroyTask],
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{RuntimeAbiRole, RuntimeRoleContractEffect};
+
+    #[test]
+    fn complete_execution_catalog_has_unique_and_exhaustive_projections() {
+        let mut names = std::collections::BTreeSet::new();
+        let mut symbols = std::collections::BTreeSet::new();
+
+        for role in RuntimeAbiRole::ALL {
+            assert!(names.insert(role.as_str()), "{role:?}");
+            assert_eq!(RuntimeAbiRole::from_name(role.as_str()), Some(role));
+            assert_eq!(role.contract().role(), role);
+            assert_eq!(role.native_symbol().is_some(), role.native_signature().is_some());
+
+            if let Some(symbol) = role.native_symbol() {
+                assert!(symbols.insert(symbol), "{role:?}");
+            }
+        }
+
+        for role in crate::PlatformServiceRole::ALL {
+            assert!(symbols.insert(role.native_symbol()), "{role:?}");
+        }
+    }
+
+    #[test]
+    fn role_catalog_carries_bootstrap_availability_and_capability_requirements() {
+        assert_eq!(
+            RuntimeAbiRole::MainThreadLaneStartup.required_capabilities(),
+            [crate::RuntimeCapability::CooperativeExecution, crate::RuntimeCapability::MainThreadLane],
+        );
+
+        assert_eq!(
+            RuntimeAbiRole::ThreadStaticCleanupRegistration.bootstrap_declaration(),
+            Some("register_thread_cleanup"),
+        );
+
+        assert!(!RuntimeAbiRole::TestEntrySelection.available_to_product());
+        assert_eq!(RuntimeAbiRole::GeneratorBegin.implementation(), super::RuntimeRoleImplementation::CompilerLowering);
+    }
 
     #[test]
     fn role_contracts_are_closed_and_typed() {

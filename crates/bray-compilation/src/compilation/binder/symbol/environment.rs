@@ -413,7 +413,7 @@ pub(in crate::compilation) fn generic_parameter_ids(
     Ok(parameters)
 }
 
-fn self_type_context(symbols: &SymbolGraph, symbol: AnySymbolId) -> Option<SelfTypeContext> {
+pub(in crate::compilation) fn self_type_context(symbols: &SymbolGraph, symbol: AnySymbolId) -> Option<SelfTypeContext> {
     let mut current = symbols.containing_symbol(symbol);
 
     while let Some(owner) = current {

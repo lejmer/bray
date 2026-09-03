@@ -854,9 +854,7 @@ mod tests {
 
         let selected = super::super::link::platform_services_for_imported_symbols(
             &available_services,
-            [bray_runtime_interface::native_platform_service_role_symbol(
-                PlatformServiceRole::StandardOutputWrite,
-            )],
+            [PlatformServiceRole::StandardOutputWrite.native_symbol()],
         );
 
         assert_eq!(
@@ -1056,9 +1054,7 @@ mod tests {
             .standard_library_link_inputs(
                 ProductKind::Executable,
                 &BTreeSet::from(
-                    [bray_runtime_interface::native_platform_service_role_symbol(
-                        PlatformServiceRole::StandardOutputWrite,
-                    )],
+                    [PlatformServiceRole::StandardOutputWrite.native_symbol()],
                 ),
                 &BTreeSet::new(),
             )
@@ -1125,9 +1121,7 @@ mod tests {
             .standard_library_link_inputs(
                 ProductKind::Executable,
                 &BTreeSet::from(
-                    [bray_runtime_interface::native_platform_service_role_symbol(
-                        PlatformServiceRole::FileRead,
-                    )],
+                    [PlatformServiceRole::FileRead.native_symbol()],
                 ),
                 &BTreeSet::new(),
             )
@@ -1170,9 +1164,7 @@ mod tests {
             .standard_library_link_inputs(
                 ProductKind::Test,
                 &BTreeSet::from(
-                    [bray_runtime_interface::native_platform_service_role_symbol(
-                        PlatformServiceRole::StandardOutputWrite,
-                    )],
+                    [PlatformServiceRole::StandardOutputWrite.native_symbol()],
                 ),
                 &BTreeSet::from([PlatformServiceRole::StandardOutputWrite]),
             )
@@ -3966,9 +3958,7 @@ mod tests {
             PlatformServiceBinding::try_new(PlatformServiceRole::StandardOutputFlush, "app.flush")
                 .unwrap_or_else(|| panic!("platform service binding must validate"));
 
-        let platform_symbol = bray_runtime_interface::native_platform_service_role_symbol(
-            PlatformServiceRole::StandardOutputFlush,
-        );
+        let platform_symbol = PlatformServiceRole::StandardOutputFlush.native_symbol();
 
         for target in NativeTarget::ALL {
             let selected = SelectedTarget::for_native(target);
@@ -4053,9 +4043,7 @@ mod tests {
             [binding.clone()],
         );
 
-        let symbol = bray_runtime_interface::native_platform_service_role_symbol(
-            PlatformServiceRole::StandardOutputFlush,
-        );
+        let symbol = PlatformServiceRole::StandardOutputFlush.native_symbol();
 
         assert_direct_platform_service(&plan, symbol);
 
@@ -4294,7 +4282,7 @@ mod tests {
         let (backend, plan) =
             runtime_native_plan_with_source_roles(&[source], ProductKind::Library, [binding]);
 
-        let symbol = bray_runtime_interface::native_runtime_role_symbol(role)
+        let symbol = role.native_symbol()
             .unwrap_or_else(|| panic!("runtime role must have a native symbol"));
 
         assert!(plan.mappings().iter().any(|mappings| {
@@ -4346,7 +4334,7 @@ mod tests {
             [binding],
         );
 
-        let symbol = bray_runtime_interface::native_platform_service_role_symbol(role);
+        let symbol = role.native_symbol();
 
         assert!(plan.mappings().iter().any(|mappings| {
             mappings.symbols().iter().any(|mapping| {
@@ -4392,7 +4380,7 @@ mod tests {
         let (backend, plan) =
             runtime_native_plan_with_source_roles(&[source], ProductKind::Library, [binding]);
 
-        let symbol = bray_runtime_interface::native_runtime_role_symbol(role)
+        let symbol = role.native_symbol()
             .unwrap_or_else(|| panic!("runtime role must have a native symbol"));
 
         assert!(
@@ -4505,10 +4493,10 @@ mod tests {
         let artifact = RuntimeArtifactId::try_new("bray.runtime.test.x86_64")
             .unwrap_or_else(|| panic!("test runtime artifact identity must be valid"));
 
-        let roles: Vec<_> = roles.into_iter().collect();
+        let roles: Vec<_> = roles.into_iter().filter(|role| role.native_symbol().is_some()).collect();
 
         let bindings = roles.iter().copied().map(|role| {
-            let symbol = BinarySymbolName::try_new(format!("bray_runtime_{}", role.as_str()))
+            let symbol = BinarySymbolName::try_new(role.native_symbol().expect("selected native role has a symbol"))
                 .unwrap_or_else(|| panic!("test runtime role symbol must be valid"));
 
             RuntimeRoleBinding::new(role, symbol, RuntimeRoleImplementation::BrayRuntime)
@@ -4549,7 +4537,7 @@ mod tests {
                 roles
                     .iter()
                     .copied()
-                    .filter(|role| *role != RuntimeAbiRole::TestEntrySelection),
+                    .filter(|role| role.available_to_product()),
                 capabilities,
                 "libbray_runtime_product.a",
                 digest,

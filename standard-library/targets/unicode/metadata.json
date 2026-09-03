@@ -1,19 +1,19 @@
 {
   "format": 1,
   "unicode_version": "17.0.0",
-  "generator_revision": 1,
+  "generator_revision": 2,
   "inputs": [
     {
       "name": "DerivedCoreProperties.txt",
-      "sha256": "be9d93b6550b587f1699a5906e958b43743cbc3d841d6fbf5acd48841f19a58b"
+      "sha256": "24c7fed1195c482faaefd5c1e7eb821c5ee1fb6de07ecdbaa64b56a99da22c08"
     },
     {
       "name": "PropList.txt",
-      "sha256": "9226709c9d2c56c31ee440fb8a84c757368158d745d3aa32ebe8f6db10119098"
+      "sha256": "130dcddcaadaf071008bdfce1e7743e04fdfbc910886f017d9f9ac931d8c64dd"
     },
     {
       "name": "DerivedNumericType.txt",
-      "sha256": "c66d090058088f91ced27cbe73df9dbe3ee68382de989a2de5c9ab96ec5ae559"
+      "sha256": "7c83684d3336b698381745b78a971c3e1242cb3fcac58604469086c19b6edcee"
     }
   ]
 }
