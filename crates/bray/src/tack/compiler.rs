@@ -74,7 +74,7 @@ impl<'project> ProjectCompiler<'project> {
     }
 
     pub(crate) fn with_native_link_inputs(mut self, native_link_inputs: Vec<String>) -> Self {
-        self.native_link_inputs = native_link_inputs;
+        self.native_link_inputs = canonical_native_link_inputs(native_link_inputs);
 
         self
     }
@@ -905,6 +905,29 @@ impl<'project> ProjectCompiler<'project> {
                 })?;
 
         Ok(Some(output_directory.join(name)))
+    }
+}
+
+fn canonical_native_link_inputs(mut inputs: Vec<String>) -> Vec<String> {
+    inputs.sort_unstable();
+    inputs.dedup();
+
+    inputs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_native_link_inputs;
+
+    #[test]
+    fn native_link_inputs_are_canonicalized_before_use() {
+        let inputs = canonical_native_link_inputs(vec![
+            "B=system".to_owned(),
+            "A=system".to_owned(),
+            "B=system".to_owned(),
+        ]);
+
+        assert_eq!(inputs, ["A=system", "B=system"]);
     }
 }
 
