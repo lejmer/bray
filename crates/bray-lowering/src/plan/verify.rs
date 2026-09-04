@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::{
     AnyBoundNodeId, AsyncScopeExitPlan, AsyncSuspensionPoint, AsyncTaskOperationKind, BoundBlockId,
     BoundDependencySubject, BoundExpressionId, BoundUnit, BoundUnitId, BoundUnitKind, CheckedAsync,
-    CheckedDependencyContracts, CheckedSemanticSelections, Liveness, StorageFlow,
+    CheckedDependencyContracts, CheckedSemanticSelections, Liveness, StorageExitPoint, StorageFlow,
     StorageIdentityId, StoragePlan,
 };
 use bray_symbols::AvailableCompilerKnownSymbols;
@@ -11,6 +11,29 @@ use bray_symbols::AvailableCompilerKnownSymbols;
 use super::expression::{verify_suspensions, verify_task_operations};
 use super::scope::verify_scope_exits;
 use super::{LoweringPlanFailure, LoweringPlanFailureCause};
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum CleanupPlanLookupError {
+    InvalidScopeDepth {
+        scope_depth: usize,
+        active_scope_count: usize,
+        exit: AnyBoundNodeId,
+    },
+    MissingScopeExit {
+        scope: BoundBlockId,
+        exit: AnyBoundNodeId,
+    },
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum ScopeExitCleanupStatus {
+    /// Checked control flow proves that this syntactic completion cannot run.
+    Unreachable,
+    /// The reachable exit performs no cleanup.
+    NoCleanup,
+    /// The reachable exit performs cancellation or lifecycle cleanup.
+    Cleanup,
+}
 
 /// Complete checked async, cleanup, and task plans safe for MIR lowering.
 #[derive(Clone)]
@@ -184,35 +207,67 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
     }
 
     /// Returns verified scope-exit plans for active scopes in cleanup order.
-    pub fn cleanup_plans(
+    pub(crate) fn cleanup_plans(
         &self,
         active_scopes: &[BoundBlockId],
         scope_depth: usize,
         exit: AnyBoundNodeId,
-    ) -> Vec<AsyncScopeExitPlan> {
-        active_scopes
-            .get(scope_depth..)
-            .unwrap_or_default()
+    ) -> Result<Vec<AsyncScopeExitPlan>, CleanupPlanLookupError> {
+        let scopes =
+            active_scopes
+                .get(scope_depth..)
+                .ok_or(CleanupPlanLookupError::InvalidScopeDepth {
+                    scope_depth,
+                    active_scope_count: active_scopes.len(),
+                    exit,
+                })?;
+
+        scopes
             .iter()
             .rev()
-            .filter_map(|scope| {
+            .map(|scope| {
                 self.scope_exits
                     .get(&(*scope, exit))
                     .and_then(|index| self.analysis.scope_exits().get(*index))
                     // Lowering mutates its builder while retaining these shared immutable plans.
                     .cloned()
+                    .ok_or(CleanupPlanLookupError::MissingScopeExit {
+                        scope: *scope,
+                        exit,
+                    })
             })
             .collect()
     }
 
-    /// Returns whether a verified exit plan performs cleanup for one scope.
-    pub fn scope_has_cleanup(&self, scope: BoundBlockId, exit: AnyBoundNodeId) -> bool {
-        self.scope_exits
-            .get(&(scope, exit))
-            .and_then(|index| self.analysis.scope_exits().get(*index))
-            .is_some_and(|plan| {
-                !plan.cancellation_broadcast().is_empty() || !plan.lifecycle_resolution().is_empty()
-            })
+    /// Returns the verified cleanup status for one scope exit.
+    pub(crate) fn scope_cleanup_status(
+        &self,
+        scope: BoundBlockId,
+        exit: AnyBoundNodeId,
+    ) -> Result<ScopeExitCleanupStatus, CleanupPlanLookupError> {
+        let Some(index) = self.scope_exits.get(&(scope, exit)) else {
+            let point = StorageExitPoint::new(scope, exit);
+
+            return if self.flow.reachable_exits().binary_search(&point).is_ok() {
+                Err(CleanupPlanLookupError::MissingScopeExit { scope, exit })
+            } else {
+                Ok(ScopeExitCleanupStatus::Unreachable)
+            };
+        };
+
+        let plan = self
+            .analysis
+            .scope_exits()
+            .get(*index)
+            .ok_or(CleanupPlanLookupError::MissingScopeExit { scope, exit })?;
+
+        Ok(
+            if plan.cancellation_broadcast().is_empty() && plan.lifecycle_resolution().is_empty() {
+                ScopeExitCleanupStatus::NoCleanup
+            } else {
+                ScopeExitCleanupStatus::Cleanup
+            },
+        )
     }
 
     /// Returns whether one storage identity participates in any lifecycle phase.

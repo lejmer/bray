@@ -7928,7 +7928,7 @@ func other()
     }
 
     #[test]
-    fn pattern_conditions_native_fixture_checks_and_lowers() {
+    fn pattern_conditions_reject_unrepresented_partial_cleanup_before_lowering() {
         let compilation = compilation(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../xtask/fixtures/native-execution/pattern-conditions.bray"
@@ -7940,13 +7940,28 @@ func other()
             compilation.check_diagnostics()
         );
 
-        for name in ["main", "next_value", "probe_return"] {
+        for name in ["next_value", "probe_return"] {
             let lowered = compilation
                 .lowered_unit(source_function_body_key(&compilation, name))
                 .unwrap();
 
             assert!(lowered.value().is_some(), "{name}: {lowered:?}");
         }
+
+        let error = compilation
+            .lowered_unit(source_function_body_key(&compilation, "main"))
+            .expect_err("guarded partial cleanup must not satisfy the lowering boundary");
+
+        assert!(matches!(
+            error,
+            FactQueryError::LoweringInput(failure)
+                if matches!(
+                    failure.cause(),
+                    bray_lowering::LoweringInputError::InvalidPlan(plan)
+                        if plan.kind() == bray_lowering::LoweringPlanKind::Analysis
+                            && plan.cause() == bray_lowering::LoweringPlanFailureCause::Recovered
+                )
+        ));
     }
 
     #[test]

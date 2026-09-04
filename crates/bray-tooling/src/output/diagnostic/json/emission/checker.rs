@@ -1,5 +1,7 @@
 use super::context::semantic_value_failure_context;
-use super::failure::{DiagnosticEmissionFieldJson, count_field, count_u64_field, text_field};
+use super::failure::{
+    DiagnosticEmissionFieldJson, count_field, count_u64_field, count_usize_field, text_field,
+};
 
 pub(in crate::output::diagnostic::json) fn checker_failure_context(
     failure: bray_diagnostics::DiagnosticCheckerFailure,
@@ -459,15 +461,12 @@ fn push_storage_flow_failure(
 
             push_symbol(fields, callable);
 
-            fields.push(count_u64_field(
+            fields.push(count_usize_field(
                 "signature_parameters",
-                count_from_usize(signature_parameters),
+                signature_parameters,
             ));
 
-            fields.push(count_u64_field(
-                "type_parameters",
-                count_from_usize(type_parameters),
-            ));
+            fields.push(count_usize_field("type_parameters", type_parameters));
         }
         Failure::CallableTypeNotCallable { callable } => {
             fields.push(text_field(
@@ -597,10 +596,6 @@ fn push_local(
     fields.push(text_field("local_kind", local.kind()));
     fields.push(count_field("local_region", local.region()));
     fields.push(count_field("local", local.ordinal()));
-}
-
-fn count_from_usize(value: usize) -> u64 {
-    u64::try_from(value).unwrap_or(u64::MAX)
 }
 
 #[cfg(test)]

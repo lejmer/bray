@@ -166,9 +166,8 @@ fn verify_storage_requirements(
     flow: &StorageFlow,
     analysis: &CheckedAsync,
 ) -> Result<BTreeMap<StorageIdentityId, AsyncStorageRequirement>, LoweringPlanFailure> {
-    let owners = StorageScopeOwners::collect(unit).map_err(|_| {
-        LoweringPlanFailure::analysis(LoweringPlanFailureCause::Unexpected)
-    })?;
+    let owners = StorageScopeOwners::collect(unit)
+        .map_err(|_| LoweringPlanFailure::analysis(LoweringPlanFailureCause::Unexpected))?;
 
     let mut remaining = flow
         .exits()
@@ -447,24 +446,38 @@ fn expected_storage_disposition(
         return AsyncStorageExitDisposition::Transferred;
     }
 
-    if !flow.initialized().contains(&requirement.identity()) {
-        return AsyncStorageExitDisposition::PartiallyInitialized;
-    }
-
     if flow.fully_moved().contains(&requirement.identity()) {
         return AsyncStorageExitDisposition::Moved;
     }
 
+    let is_partial = !flow.initialized().contains(&requirement.identity())
+        || flow
+            .moved()
+            .iter()
+            .any(|access| storage.root_identity(*access) == Some(requirement.identity()));
+
+    if is_partial {
+        return match requirement.cleanup() {
+            AsyncStorageCleanupRequirement::None => AsyncStorageExitDisposition::NoCleanup,
+            AsyncStorageCleanupRequirement::Cleanup(_)
+            | AsyncStorageCleanupRequirement::Recovered(_) => {
+                AsyncStorageExitDisposition::Recovered(
+                    bray_bound_tree::AsyncStorageExitRecoveryCause::UnavailablePartialCleanup,
+                )
+            }
+        };
+    }
+
     match requirement.cleanup() {
         AsyncStorageCleanupRequirement::None => AsyncStorageExitDisposition::NoCleanup,
-        AsyncStorageCleanupRequirement::Cleanup(phases) => storage
-            .root_access(requirement.identity())
-            .map_or(
+        AsyncStorageCleanupRequirement::Cleanup(phases) => {
+            storage.root_access(requirement.identity()).map_or(
                 AsyncStorageExitDisposition::Recovered(
                     bray_bound_tree::AsyncStorageExitRecoveryCause::UnavailableRootAccess,
                 ),
                 |access| AsyncStorageExitDisposition::Cleanup { access, phases },
-            ),
+            )
+        }
         AsyncStorageCleanupRequirement::Recovered(cause) => {
             AsyncStorageExitDisposition::Recovered(cause)
         }
@@ -476,11 +489,7 @@ fn verify_storage_order(
     plan: &AsyncScopeExitPlan,
     order: &[StorageIdentityId],
 ) -> Result<(), LoweringPlanFailure> {
-    if order
-        .iter()
-        .copied()
-        .eq(flow.live().iter().rev().copied())
-    {
+    if order.iter().copied().eq(flow.live().iter().rev().copied()) {
         return Ok(());
     }
 

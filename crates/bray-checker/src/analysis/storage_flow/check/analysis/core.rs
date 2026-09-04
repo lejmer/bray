@@ -149,15 +149,15 @@ where
     let input = StorageFlowInput::new(request, storage, copyable_types, mutable_storage);
 
     let owners = match storage_scope_owners(request).map_err(CheckerQueryError::with_upstream) {
-            Ok(owners) => owners,
-            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Infrastructure(error)) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
-            Err(CheckerQueryError::Upstream(error)) => {
-                return CheckerOutcome::UpstreamFailure(error);
-            }
-        };
+        Ok(owners) => owners,
+        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Infrastructure(error)) => {
+            return CheckerOutcome::InfrastructureFailure(error);
+        }
+        Err(CheckerQueryError::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
+    };
 
     let domain = StorageFlowDomain::new(
         &graph,
@@ -484,7 +484,11 @@ where
         }
 
         if matches!(status, StorageOperationStatus::Valid) {
-            self.apply_valid_operation(state, plan, purpose, borrow);
+            if let Err(error) = self.apply_valid_operation(state, plan, purpose, borrow) {
+                self.infrastructure_failure = Some(CheckerQueryError::Infrastructure(error));
+
+                return;
+            }
         } else if matches!(status, StorageOperationStatus::Recovered) {
             self.is_recovered = true;
         }
@@ -544,18 +548,20 @@ where
                 | StorageAccessPurpose::Borrow(_)
         );
 
-        if requires_value && !state.initialized.contains(&root) {
-            return Ok(StorageOperationOutcome::status(
-                StorageOperationStatus::Uninitialized,
-            ));
-        }
+        let pattern_establishes_projection = self.pattern_establishes_projection(plan.access());
 
-        if requires_value && !self.pattern_establishes_projection(plan.access()) {
+        if requires_value && !pattern_establishes_projection {
             let origins = self.moved_origins(state, plan.access());
 
             if !origins.is_empty() {
                 return Ok(StorageOperationOutcome::moved(origins));
             }
+        }
+
+        if requires_value && !pattern_establishes_projection && !state.initialized.contains(&root) {
+            return Ok(StorageOperationOutcome::status(
+                StorageOperationStatus::Uninitialized,
+            ));
         }
 
         let operation_access = self.operation_access(plan, purpose);
@@ -601,16 +607,15 @@ where
         plan: StorageAccessPlan,
         purpose: StorageAccessPurpose,
         borrow: Option<BorrowCapabilityId>,
-    ) {
+    ) -> Result<(), CheckerInfrastructureError> {
         match purpose {
             StorageAccessPurpose::Move => {
                 state.moved.insert(plan.access(), plan.expression());
 
-                if (self.storage.is_root_access(plan.access())
-                    || self.move_consumes_complete_union_payload(plan.access()))
+                if self.move_consumes_complete_storage(plan.access())?
                     && let Some(root) = self.storage.root_identity(plan.access())
                 {
-                    state.fully_moved.insert(root);
+                    state.move_complete_storage(root);
                 }
 
                 if self.move_consumes_complete_union_payload(plan.access())
@@ -650,6 +655,8 @@ where
             | StorageAccessPurpose::Slice
             | StorageAccessPurpose::Projection => {}
         }
+
+        Ok(())
     }
 
     fn pattern_establishes_projection(&self, access: StorageAccessId) -> bool {
@@ -677,10 +684,8 @@ where
     }
 
     fn move_consumes_complete_union_payload(&self, access: StorageAccessId) -> bool {
-        let Some(StorageProjection::ActiveUnionPayloadField { variant, .. }) = self
-            .storage
-            .resolved_projections(access)
-            .and_then(|projections| projections.last())
+        let Some([StorageProjection::ActiveUnionPayloadField { variant, .. }]) =
+            self.storage.resolved_projections(access)
         else {
             return false;
         };
@@ -689,6 +694,63 @@ where
             .symbols()
             .union_variant(*variant)
             .is_some_and(|variant| variant.payload_fields().len() == 1)
+    }
+
+    fn move_consumes_complete_storage(
+        &self,
+        access: StorageAccessId,
+    ) -> Result<bool, CheckerInfrastructureError> {
+        let Some(access_record) = self.storage.access(access) else {
+            return Ok(false);
+        };
+
+        if access_record.root().borrow_capability().is_some() {
+            return Ok(false);
+        }
+
+        if self.storage.is_root_access(access) || self.move_consumes_complete_union_payload(access)
+        {
+            return Ok(true);
+        }
+
+        let Some(projections) = self.storage.resolved_projections(access) else {
+            return Ok(false);
+        };
+
+        if let [StorageProjection::ProductField(field)] = projections {
+            let symbols = self.request.symbols();
+
+            let consumes_complete_product = symbols
+                .struct_field(*field)
+                .and_then(|field| symbols.structure(field.structure()))
+                .is_some_and(|structure| structure.fields().len() == 1);
+
+            return Ok(consumes_complete_product);
+        }
+
+        let [StorageProjection::TupleElement(element)] = projections else {
+            return Ok(false);
+        };
+
+        let Some(root) = self.storage.root_identity(access) else {
+            return Ok(false);
+        };
+
+        let Some(root_type) = self.storage.storage_type(root) else {
+            return Ok(false);
+        };
+
+        let data = self
+            .request
+            .semantic_values()
+            .type_data(root_type)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+        Ok(matches!(
+            data.as_ref(),
+            bray_symbols::TypeData::Tuple(elements)
+                if elements.len() == 1 && element.raw() == 0
+        ))
     }
 
     fn root_access_for(&self, access: StorageAccessId) -> Option<StorageAccessId> {

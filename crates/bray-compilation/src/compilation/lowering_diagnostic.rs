@@ -122,6 +122,19 @@ pub(super) fn lowering_failure(
             Kind::InvalidTaskOperation(bound_identity(expression.unit(), expression.ordinal()))
         }
         LoweringError::MissingCallableResultType => Kind::MissingCallableResultType,
+        LoweringError::InvalidCleanupScopeDepth {
+            scope_depth,
+            active_scope_count,
+            exit,
+        } => Kind::InvalidCleanupScopeDepth {
+            scope_depth: *scope_depth,
+            active_scope_count: *active_scope_count,
+            exit: any_bound_identity(*exit),
+        },
+        LoweringError::MissingScopeExitPlan { scope, exit } => Kind::MissingScopeExitPlan {
+            scope: bound_identity(scope.unit(), scope.ordinal()),
+            exit: any_bound_identity(*exit),
+        },
         LoweringError::MissingLiteralValue(expression) => {
             Kind::MissingLiteralValue(bound_identity(expression.unit(), expression.ordinal()))
         }

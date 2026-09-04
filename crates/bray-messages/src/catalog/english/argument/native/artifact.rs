@@ -436,6 +436,20 @@ fn format_english_lowering_failure(failure: bray_diagnostics::DiagnosticLowering
         Failure::MissingCallableResultType => {
             "generating executable code for the highlighted callable because its result type is unavailable"
         }
+        Failure::InvalidCleanupScopeDepth {
+            scope_depth,
+            active_scope_count,
+            ..
+        } => {
+            return super::format_internal_compiler_error(format!(
+                "could not clean lexical scope position {scope_depth} because only {active_scope_count} scopes were active",
+            ));
+        }
+        Failure::MissingScopeExitPlan { .. } => {
+            return super::format_internal_compiler_error(
+                "could not find the verified lifecycle plan for the highlighted exit",
+            );
+        }
         Failure::MissingLiteralValue(_) => {
             "generating executable code for the highlighted literal because its value is unavailable"
         }

@@ -8,7 +8,7 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
-use bray_symbols::{GenericArgument, TypeData, TypeId};
+use bray_symbols::{DeclaredStorageShape, GenericArgument, TypeData, TypeExpressionTemplate, TypeId};
 
 use crate::storage::storage_scope_owners;
 use crate::{
@@ -171,32 +171,78 @@ where
                 }))
             }
             Some(_) => Ok(CleanupShape::default()),
-            None => {
-                let representation = self.request.declared_type_representation(definition)?;
-                let lifecycle = self.request.declared_type_has_lifecycle(definition)?;
+            None => self.declared_shape(definition, substitution),
+        }
+    }
 
-                let recovered =
-                    representation.value().is_recovered() || lifecycle.diagnostics().has_errors();
+    fn declared_shape(
+        &mut self,
+        definition: bray_symbols::NamedTypeSymbolId,
+        substitution: bray_symbols::GenericSubstitutionId,
+    ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
+        let representation = self.request.declared_type_representation(definition)?;
+        let lifecycle = self.request.declared_type_has_lifecycle(definition)?;
 
-                self.diagnostics
-                    .add_range(representation.diagnostics().clone());
+        let mut shape = CleanupShape {
+            lifecycle: *lifecycle.value(),
+            recovered: representation.value().is_recovered()
+                || lifecycle.diagnostics().has_errors(),
+            ..CleanupShape::default()
+        };
 
-                self.diagnostics.add_range(lifecycle.diagnostics().clone());
+        self.diagnostics
+            .add_range(representation.diagnostics().clone());
 
-                Ok(if representation.value().is_plain_storage() {
-                    CleanupShape {
-                        lifecycle: *lifecycle.value(),
-                        recovered,
-                        ..CleanupShape::default()
-                    }
-                } else {
-                    CleanupShape {
-                        recovered,
-                        ..CleanupShape::BOTH
-                    }
-                })
+        self.diagnostics.add_range(lifecycle.diagnostics().clone());
+
+        match representation.value().storage() {
+            DeclaredStorageShape::Structure(members) => {
+                for member in members.iter() {
+                    shape.merge(self.member_shape(member.ty(), substitution)?);
+                }
+            }
+            DeclaredStorageShape::Union(variants) => {
+                for member in variants.iter().flat_map(|variant| variant.members()) {
+                    shape.merge(self.member_shape(member.ty(), substitution)?);
+                }
             }
         }
+
+        Ok(shape)
+    }
+
+    fn member_shape(
+        &mut self,
+        template: &TypeExpressionTemplate,
+        substitution: bray_symbols::GenericSubstitutionId,
+    ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
+        let constants = self.request.checked_constant_terms(template)?;
+        self.diagnostics.add_range(constants.diagnostics().clone());
+
+        let Some(ty) = crate::resolve_type_expression_template(
+            self.request.semantic_values(),
+            template,
+            constants.value(),
+        )
+        .map_err(CheckerQueryError::Infrastructure)?
+        else {
+            return Ok(CleanupShape {
+                recovered: true,
+                ..CleanupShape::BOTH
+            });
+        };
+
+        let ty = self
+            .request
+            .semantic_values()
+            .substitute_type(ty, substitution)
+            .map_err(|error| {
+                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
+            })?;
+
+        self.resolve(ty)
     }
 
     fn aggregate(
@@ -235,13 +281,7 @@ where
     let mut cleanup_shapes = CleanupShapeResolver::new(request);
     let owners = storage_scope_owners(request).map_err(CheckerQueryError::with_upstream)?;
 
-    let requirements = storage_requirements(
-        request,
-        storage,
-        flow,
-        &owners,
-        &mut cleanup_shapes,
-    )?;
+    let requirements = storage_requirements(request, storage, flow, &owners, &mut cleanup_shapes)?;
 
     let requirements_by_identity = requirements
         .iter()
@@ -319,7 +359,10 @@ where
     let mut requirements = Vec::with_capacity(live.len());
 
     for identity in live {
-        let cleanup = match (storage.root_access(identity), storage.storage_type(identity)) {
+        let cleanup = match (
+            storage.root_access(identity),
+            storage.storage_type(identity),
+        ) {
             (None, _) => AsyncStorageCleanupRequirement::Recovered(
                 AsyncStorageExitRecoveryCause::UnavailableRootAccess,
             ),
@@ -351,9 +394,7 @@ const fn cleanup_requirement(shape: CleanupShape) -> AsyncStorageCleanupRequirem
         (true, true) => {
             AsyncStorageCleanupRequirement::Cleanup(AsyncCleanupPhases::CancellationThenLifecycle)
         }
-        (true, false) => {
-            AsyncStorageCleanupRequirement::Cleanup(AsyncCleanupPhases::Cancellation)
-        }
+        (true, false) => AsyncStorageCleanupRequirement::Cleanup(AsyncCleanupPhases::Cancellation),
         (false, true) => AsyncStorageCleanupRequirement::Cleanup(AsyncCleanupPhases::Lifecycle),
         (false, false) => AsyncStorageCleanupRequirement::None,
     }
@@ -372,22 +413,38 @@ fn storage_exit_disposition(
         return AsyncStorageExitDisposition::Transferred;
     }
 
-    if !exit.initialized().contains(&requirement.identity()) {
-        return AsyncStorageExitDisposition::PartiallyInitialized;
-    }
-
     if exit.fully_moved().contains(&requirement.identity()) {
         return AsyncStorageExitDisposition::Moved;
     }
 
+    let is_partial = !exit.initialized().contains(&requirement.identity())
+        || exit
+            .moved()
+            .iter()
+            .any(|access| storage.root_identity(*access) == Some(requirement.identity()));
+
+    if is_partial {
+        return match requirement.cleanup() {
+            AsyncStorageCleanupRequirement::None => AsyncStorageExitDisposition::NoCleanup,
+            AsyncStorageCleanupRequirement::Cleanup(_)
+            | AsyncStorageCleanupRequirement::Recovered(_) => {
+                AsyncStorageExitDisposition::Recovered(
+                    AsyncStorageExitRecoveryCause::UnavailablePartialCleanup,
+                )
+            }
+        };
+    }
+
     match requirement.cleanup() {
         AsyncStorageCleanupRequirement::None => AsyncStorageExitDisposition::NoCleanup,
-        AsyncStorageCleanupRequirement::Cleanup(phases) => match storage.root_access(requirement.identity()) {
-            Some(access) => AsyncStorageExitDisposition::Cleanup { access, phases },
-            None => AsyncStorageExitDisposition::Recovered(
-                AsyncStorageExitRecoveryCause::UnavailableRootAccess,
-            ),
-        },
+        AsyncStorageCleanupRequirement::Cleanup(phases) => {
+            match storage.root_access(requirement.identity()) {
+                Some(access) => AsyncStorageExitDisposition::Cleanup { access, phases },
+                None => AsyncStorageExitDisposition::Recovered(
+                    AsyncStorageExitRecoveryCause::UnavailableRootAccess,
+                ),
+            }
+        }
         AsyncStorageCleanupRequirement::Recovered(cause) => {
             AsyncStorageExitDisposition::Recovered(cause)
         }

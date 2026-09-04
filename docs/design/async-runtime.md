@@ -212,12 +212,13 @@ new phase-one task while phase two is running.
 
 This is one composite plan, not independently recomputed task and lifecycle passes. Control-flow merge preserves a
 conservative obligation when any reachable predecessor still owns it. Plans retain exact root and projected access
-identities. Partial aggregates use moved access paths as masks so cleanup can traverse the remaining initialized state
-without treating the whole aggregate as moved.
+identities. Partial aggregates require moved access paths as masks so cleanup can traverse the remaining initialized
+state without treating the whole aggregate as moved. A partial state without an exact codegen-ready mask is an
+incomplete recovered disposition and cannot reach lowering.
 
 Each storage identity live on a path reaching the exit has one disposition: retained by an outer scope, transferred by
-the exit, fully moved, partially initialized, free of cleanup, or tied to explicit cancellation and lifecycle phases.
-The order is the reverse of the storage-flow initialization order.
+the exit, fully moved, free of cleanup, tied to explicit cancellation and lifecycle phases, or recovered because an
+exact partial-cleanup representation is unavailable. The order is the reverse of the storage-flow initialization order.
 
 Before lowering, the compilation boundary verifies that every lowering-reachable suspension, task operation, scope
 exit, live-storage disposition, cleanup phase, and dependency is complete and internally consistent. Reachable exits

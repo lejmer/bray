@@ -154,6 +154,13 @@ pub(super) fn count_u64_field(name: &'static str, value: u64) -> DiagnosticEmiss
     field(name, DiagnosticEmissionFieldValueJson::Count(value))
 }
 
+pub(super) fn count_usize_field(
+    name: &'static str,
+    value: usize,
+) -> DiagnosticEmissionFieldJson {
+    count_u64_field(name, u64::try_from(value).unwrap_or(u64::MAX))
+}
+
 pub(in crate::output::diagnostic::json) fn text_field(
     name: &'static str,
     value: impl Into<String>,

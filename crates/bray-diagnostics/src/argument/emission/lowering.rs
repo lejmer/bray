@@ -179,6 +179,22 @@ pub enum DiagnosticLoweringFailureKind {
     InvalidTaskOperation(DiagnosticLoweringIdentity),
     /// The lowered callable has no result type.
     MissingCallableResultType,
+    /// Active lexical scopes do not contain the requested cleanup depth.
+    InvalidCleanupScopeDepth {
+        /// First active scope position that must be cleaned.
+        scope_depth: usize,
+        /// Number of lexical scopes active at the exit.
+        active_scope_count: usize,
+        /// The source occurrence initiating cleanup.
+        exit: DiagnosticLoweringIdentity,
+    },
+    /// A verified lifecycle plan has no decision for one scope and exit.
+    MissingScopeExitPlan {
+        /// The lexical scope whose decision is absent.
+        scope: DiagnosticLoweringIdentity,
+        /// The source occurrence initiating cleanup.
+        exit: DiagnosticLoweringIdentity,
+    },
     /// A literal expression has no checked value.
     MissingLiteralValue(DiagnosticLoweringIdentity),
     /// An expression has no selected semantic behavior.
@@ -244,6 +260,8 @@ impl DiagnosticLoweringFailureKind {
             Self::MissingSuspensionPoint(_) => "code_production_await_resume_path_unavailable",
             Self::InvalidTaskOperation(_) => "code_production_task_call_type_mismatch",
             Self::MissingCallableResultType => "code_production_callable_result_type_unavailable",
+            Self::InvalidCleanupScopeDepth { .. } => "code_production_cleanup_scope_depth_invalid",
+            Self::MissingScopeExitPlan { .. } => "code_production_scope_exit_plan_unavailable",
             Self::MissingLiteralValue(_) => "code_production_literal_value_unavailable",
             Self::MissingSemanticSelection(_) => "code_production_expression_behavior_unavailable",
             Self::UnsupportedExpression(_) => "code_production_expression_unsupported",

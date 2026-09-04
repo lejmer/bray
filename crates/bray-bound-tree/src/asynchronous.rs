@@ -146,8 +146,6 @@ pub enum AsyncStorageExitDisposition {
     Transferred,
     /// The identity was moved in full before the exit.
     Moved,
-    /// The identity is initialized on only some paths reaching this exit.
-    PartiallyInitialized,
     /// The identity requires no cancellation or lifecycle operation.
     NoCleanup,
     /// The identity requires ordered cleanup through its root access.
@@ -168,6 +166,8 @@ pub enum AsyncStorageExitRecoveryCause {
     UnavailableRootAccess,
     /// Recovery prevented the checker from deciding the cleanup shape.
     UnavailableCleanupShape,
+    /// Partial represented storage has no complete codegen-ready cleanup plan.
+    UnavailablePartialCleanup,
 }
 
 /// Type-driven cleanup work required when an owned initialized identity leaves its scope.
@@ -387,7 +387,9 @@ impl CheckedAsync {
                 .any(|operation| operation.expression().unit() != unit)
             || storage_requirements.iter().any(|requirement| {
                 requirement.identity().unit() != unit
-                    || requirement.owner().is_some_and(|owner| owner.unit() != unit)
+                    || requirement
+                        .owner()
+                        .is_some_and(|owner| owner.unit() != unit)
             })
             || scope_exits.iter().any(|exit| {
                 exit.scope().unit() != unit

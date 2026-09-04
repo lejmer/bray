@@ -1299,7 +1299,16 @@ mod tests {
             [],
             [],
             [StorageExitPoint::new(scope, exit)],
-            [StorageExitDecision::new(scope, exit, [], [], [], [], [], false)],
+            [StorageExitDecision::new(
+                scope,
+                exit,
+                [],
+                [],
+                [],
+                [],
+                [],
+                false,
+            )],
             false,
         )
         .unwrap_or_else(|error| panic!("storage exit must build: {error:?}"));
@@ -1848,7 +1857,7 @@ mod tests {
 
         let storage_flow =
             StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
-            .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
+                .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
 
         (storage, storage_flow)
     }

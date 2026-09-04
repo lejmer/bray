@@ -233,10 +233,11 @@ Checker analyses remain independently useful while source recovery is in progres
 `LoweringInput`, the compilation boundary combines the lowering-reachable parts into `VerifiedLoweringPlans`. This
 verification requires every expected suspension, task operation, and control-flow-reachable scope exit exactly once.
 Every storage identity live on any path reaching an exit has one ordered disposition: retained by an outer scope,
-transferred by the exit, moved, partially initialized, requiring no cleanup, or requiring explicit cancellation and
-lifecycle phases. Verification derives ownership, transfer, cleanup, and await-dependency requirements independently
-of those dispositions. Recovered, missing, duplicated, foreign, contradictory, unreachable, or out-of-order entries
-cannot produce a lowering input.
+transferred by the exit, fully moved, requiring no cleanup, or requiring explicit cancellation and lifecycle phases.
+Path-dependent initialization and partial moves with nontrivial cleanup require an exact codegen-ready partial-cleanup
+representation; a recovered disposition cannot stand in for it. Verification derives ownership, transfer, cleanup, and
+await-dependency requirements independently of those dispositions. Recovered, missing, duplicated, foreign,
+contradictory, unreachable, or out-of-order entries cannot produce a lowering input.
 
 Runtime references are explicit in the MIR operations and terminators that require them. Their ABI version comes from
 the target already validated for the lowering request. Generated helper identities depend on the final MIR operation

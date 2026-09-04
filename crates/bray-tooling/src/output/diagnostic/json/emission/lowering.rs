@@ -1,5 +1,5 @@
 use super::context::semantic_value_failure_context;
-use super::failure::{DiagnosticEmissionFieldJson, count_u64_field, text_field};
+use super::failure::{DiagnosticEmissionFieldJson, count_u64_field, count_usize_field, text_field};
 
 pub(in crate::output::diagnostic::json) fn lowering_input_failure_context(
     failure: bray_diagnostics::DiagnosticLoweringInputFailure,
@@ -150,6 +150,23 @@ pub(in crate::output::diagnostic::json) fn lowering_failure_context(
         }
         Failure::MissingStorageIdentityRecord(identity) => {
             lowering_identity_context(failure.as_str(), "storage_identity", identity)
+        }
+        Failure::InvalidCleanupScopeDepth {
+            scope_depth,
+            active_scope_count,
+            exit,
+        } => {
+            let mut context = lowering_identity_context(failure.as_str(), "exit", exit);
+            context.push(count_usize_field("scope_depth", scope_depth));
+            context.push(count_usize_field("active_scope_count", active_scope_count));
+
+            context
+        }
+        Failure::MissingScopeExitPlan { scope, exit } => {
+            let mut context = lowering_identity_context(failure.as_str(), "scope", scope);
+            context.push(count_u64_field("exit", u64::from(exit.ordinal())));
+
+            context
         }
         Failure::MissingRepresentation(role) => vec![
             text_field("cause", failure.as_str()),

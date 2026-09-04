@@ -875,13 +875,13 @@ type representations to emit one two-phase cleanup plan over exact storage acces
 disposition in reverse initialization order: retained, transferred, moved, no cleanup, or cleanup with cancellation,
 lifecycle, or both phases. All owned unresolved tasks receive cancellation before any task is awaited, then normal
 reverse lifecycle resolution proceeds with dependency ordering. Partial moves remain explicit masks rather than being
-collapsed into whole-root state. Ordinary
-standard-library `Thread<T>` and `Process<T>` lifecycle obligations participate through their checked declaration
-contracts rather than compiler name recognition. The plan names separate descriptor broadcast visitors and
-lifecycle-resolution operations for concrete and erased state. It rejects implicit thread cleanup when a possible
-completion payload cannot be resolved synchronously and infallibly. Because the ordinary process finalizer returns
-`Result<unit, ProcessError>`, it always rejects an unresolved `Process<T>` on normal exit and requires explicit
-consuming observation. Abnormal cleanup can record its failure as an incident.
+collapsed into whole-root state. A partial state whose cleanup mask is unavailable remains recovered and cannot satisfy
+the lowering boundary. Ordinary standard-library `Thread<T>` and `Process<T>` lifecycle obligations participate through
+their checked declaration contracts rather than compiler name recognition. The plan names separate descriptor
+broadcast visitors and lifecycle-resolution operations for concrete and erased state. It rejects implicit thread
+cleanup when a possible completion payload cannot be resolved synchronously and infallibly. Because the ordinary
+process finalizer returns `Result<unit, ProcessError>`, it always rejects an unresolved `Process<T>` on normal exit and
+requires explicit consuming observation. Abnormal cleanup can record its failure as an incident.
 
 Recovered plans remain durable checker output for diagnostics and adjacent checks. The compilation boundary verifies
 the lowering-reachable closed set before MIR construction, so a recovered disposition or incomplete plan never serves

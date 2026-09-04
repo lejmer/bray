@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundExpressionId, BoundOperator, BoundPatternId, BoundUnitRoot,
+    AnyBoundNodeId, BoundBlockId, BoundExpressionId, BoundOperator, BoundPatternId, BoundUnitRoot,
     StorageAccessId, StorageIdentityId,
 };
 use bray_compiler_known::RepresentationRole;
@@ -25,6 +25,22 @@ pub enum LoweringError {
     InvalidTaskOperation(BoundExpressionId),
     /// A protected callable frame has no checked completion type.
     MissingCallableResultType,
+    /// Active lowering scopes do not contain the requested cleanup depth.
+    InvalidCleanupScopeDepth {
+        /// First active scope that must be cleaned.
+        scope_depth: usize,
+        /// Number of scopes active at the exit.
+        active_scope_count: usize,
+        /// Exact bound occurrence initiating cleanup.
+        exit: AnyBoundNodeId,
+    },
+    /// The verified plan set has no decision for one active scope and exit.
+    MissingScopeExitPlan {
+        /// Active lexical scope whose decision is absent.
+        scope: BoundBlockId,
+        /// Exact bound occurrence initiating cleanup.
+        exit: AnyBoundNodeId,
+    },
     /// A literal has no canonical checked value.
     MissingLiteralValue(BoundExpressionId),
     /// A checked expression has no required semantic selection.
@@ -89,5 +105,24 @@ impl From<MirUnitBuildError> for LoweringError {
 impl From<SemanticValueStoreError> for LoweringError {
     fn from(error: SemanticValueStoreError) -> Self {
         Self::SemanticValue(error)
+    }
+}
+
+impl From<crate::plan::CleanupPlanLookupError> for LoweringError {
+    fn from(error: crate::plan::CleanupPlanLookupError) -> Self {
+        match error {
+            crate::plan::CleanupPlanLookupError::InvalidScopeDepth {
+                scope_depth,
+                active_scope_count,
+                exit,
+            } => Self::InvalidCleanupScopeDepth {
+                scope_depth,
+                active_scope_count,
+                exit,
+            },
+            crate::plan::CleanupPlanLookupError::MissingScopeExit { scope, exit } => {
+                Self::MissingScopeExitPlan { scope, exit }
+            }
+        }
     }
 }

@@ -8,14 +8,15 @@ use bray_bound_tree::{
     CheckedAsync, CheckedDependencyContracts, CheckedExpressionTypes, CheckedSemanticSelections,
     LiveAcrossSuspension, Liveness, StorageAccess, StorageAccessId, StorageAccessRoot,
     StorageExitDecision, StorageExitPoint, StorageFlow, StorageIdentity, StorageIdentityId,
-    StoragePlan, StoragePlanBuilder,
+    StoragePlan, StoragePlanBuilder, StorageProjection,
 };
 use bray_symbols::testing::available_compiler_known_symbols;
-use bray_symbols::{SemanticValueStore, TypeData};
+use bray_symbols::{SemanticValueStore, SymbolOrdinal, TypeData};
 use bray_testing::test_runtime_default_unit;
 
 use super::{
-    LoweringPlanFailure, LoweringPlanFailureCause, LoweringPlanKind, VerifiedLoweringPlans,
+    CleanupPlanLookupError, LoweringPlanFailure, LoweringPlanFailureCause, LoweringPlanKind,
+    ScopeExitCleanupStatus, VerifiedLoweringPlans,
 };
 
 struct ScopeExitFixture {
@@ -31,6 +32,7 @@ struct ScopeExitFixture {
     second: StorageIdentityId,
     first_access: StorageAccessId,
     second_access: StorageAccessId,
+    second_projected_access: StorageAccessId,
 }
 
 impl ScopeExitFixture {
@@ -100,6 +102,17 @@ impl ScopeExitFixture {
 
         let first_access = push_access(&mut storage, first, ty, source);
         let second_access = push_access(&mut storage, second, ty, source);
+
+        let second_projected_access = storage
+            .push_access(StorageAccess::new(
+                StorageAccessRoot::Storage(second),
+                [StorageProjection::TupleElement(SymbolOrdinal::new(0))],
+                ty,
+                source,
+                false,
+            ))
+            .unwrap_or_else(|error| panic!("projected test access must fit: {error:?}"));
+
         let storage = storage.finish();
 
         let flow = StorageFlow::try_new(
@@ -163,6 +176,7 @@ impl ScopeExitFixture {
             second,
             first_access,
             second_access,
+            second_projected_access,
         }
     }
 
@@ -173,13 +187,24 @@ impl ScopeExitFixture {
         lifecycle: impl IntoIterator<Item = StorageAccessId>,
         recovered: bool,
     ) -> AsyncScopeExitPlan {
+        self.plan_with_moved(storage, cancellation, lifecycle, [], recovered)
+    }
+
+    fn plan_with_moved(
+        &self,
+        storage: impl IntoIterator<Item = AsyncStorageExitDecision>,
+        cancellation: impl IntoIterator<Item = StorageAccessId>,
+        lifecycle: impl IntoIterator<Item = StorageAccessId>,
+        moved: impl IntoIterator<Item = StorageAccessId>,
+        recovered: bool,
+    ) -> AsyncScopeExitPlan {
         AsyncScopeExitPlan::new(
             self.scope,
             self.exit,
             storage,
             cancellation,
             lifecycle,
-            [],
+            moved,
             recovered,
         )
     }
@@ -274,11 +299,38 @@ fn complete_scope_exit_plans_publish_direct_lookup() {
         .unwrap_or_else(|error| panic!("complete plans must verify: {error:?}"));
 
     assert_eq!(
-        plans.cleanup_plans(&[fixture.scope], 0, fixture.exit).len(),
-        1
+        plans
+            .cleanup_plans(&[fixture.scope], 0, fixture.exit)
+            .map(|plans| plans.len()),
+        Ok(1)
     );
 
-    assert!(!plans.scope_has_cleanup(fixture.scope, fixture.exit));
+    assert_eq!(
+        plans.scope_cleanup_status(fixture.scope, fixture.exit),
+        Ok(ScopeExitCleanupStatus::NoCleanup)
+    );
+
+    assert_eq!(
+        plans.cleanup_plans(&[fixture.scope], 2, fixture.exit),
+        Err(CleanupPlanLookupError::InvalidScopeDepth {
+            scope_depth: 2,
+            active_scope_count: 1,
+            exit: fixture.exit,
+        })
+    );
+
+    assert_eq!(
+        plans.cleanup_plans(&[fixture.scope], 0, fixture.scope.into()),
+        Err(CleanupPlanLookupError::MissingScopeExit {
+            scope: fixture.scope,
+            exit: fixture.scope.into(),
+        })
+    );
+
+    assert_eq!(
+        plans.scope_cleanup_status(fixture.scope, fixture.scope.into()),
+        Ok(ScopeExitCleanupStatus::Unreachable)
+    );
 }
 
 #[test]
@@ -469,7 +521,10 @@ fn suspension_verification_rejects_a_substituted_dependency_contract() {
         &unit,
         &storage,
         [(operand, empty.clone()), (suspension, empty)],
-        [(operand, BoundDependencyContract::new([])), (suspension, retained)],
+        [
+            (operand, BoundDependencyContract::new([])),
+            (suspension, retained),
+        ],
         [(access, BoundDependencyContract::new([]))],
         [],
         false,
@@ -824,7 +879,7 @@ fn scope_exit_verification_rejects_storage_state_outside_the_exit_set() {
 }
 
 #[test]
-fn scope_exit_verification_covers_partially_initialized_live_storage() {
+fn trivial_partially_initialized_storage_has_no_cleanup() {
     let fixture = ScopeExitFixture::new();
 
     let flow = StorageFlow::try_new(
@@ -852,7 +907,7 @@ fn scope_exit_verification_covers_partially_initialized_live_storage() {
             [
                 AsyncStorageExitDecision::new(
                     fixture.second,
-                    AsyncStorageExitDisposition::PartiallyInitialized,
+                    AsyncStorageExitDisposition::NoCleanup,
                 ),
                 AsyncStorageExitDecision::new(
                     fixture.first,
@@ -868,7 +923,202 @@ fn scope_exit_verification_covers_partially_initialized_live_storage() {
 
     fixture
         .verify_with_flow(&flow, &analysis)
-        .unwrap_or_else(|error| panic!("explicit partial initialization must verify: {error:?}"));
+        .unwrap_or_else(|error| panic!("trivial partial storage must verify: {error:?}"));
+}
+
+#[test]
+fn nontrivial_partially_initialized_storage_cannot_reach_lowering() {
+    let fixture = ScopeExitFixture::new();
+
+    let flow = StorageFlow::try_new(
+        fixture.unit.unit(),
+        fixture.unit.key().kind(),
+        [],
+        [],
+        [StorageExitPoint::new(fixture.scope, fixture.exit)],
+        [StorageExitDecision::new(
+            fixture.scope,
+            fixture.exit,
+            [fixture.first, fixture.second],
+            [fixture.first],
+            [],
+            [],
+            [],
+            false,
+        )],
+        false,
+    )
+    .unwrap_or_else(|error| panic!("partial test flow must build: {error:?}"));
+
+    let analysis = fixture.analysis_with_requirements(
+        [
+            AsyncStorageRequirement::new(
+                fixture.first,
+                Some(fixture.scope),
+                false,
+                AsyncStorageCleanupRequirement::None,
+            ),
+            AsyncStorageRequirement::new(
+                fixture.second,
+                Some(fixture.scope),
+                false,
+                AsyncStorageCleanupRequirement::Cleanup(AsyncCleanupPhases::Lifecycle),
+            ),
+        ],
+        [fixture.plan(
+            [
+                AsyncStorageExitDecision::new(
+                    fixture.second,
+                    AsyncStorageExitDisposition::Recovered(
+                        AsyncStorageExitRecoveryCause::UnavailablePartialCleanup,
+                    ),
+                ),
+                AsyncStorageExitDecision::new(
+                    fixture.first,
+                    AsyncStorageExitDisposition::NoCleanup,
+                ),
+            ],
+            [],
+            [],
+            true,
+        )],
+        false,
+    );
+
+    assert_plan_failure(
+        fixture.verify_with_flow(&flow, &analysis),
+        LoweringPlanKind::StorageDisposition,
+        LoweringPlanFailureCause::Recovered,
+        Some(fixture.second),
+    );
+}
+
+#[test]
+fn fully_moved_storage_needs_no_cleanup_even_when_not_initialized() {
+    let fixture = ScopeExitFixture::new();
+
+    let flow = StorageFlow::try_new(
+        fixture.unit.unit(),
+        fixture.unit.key().kind(),
+        [],
+        [],
+        [StorageExitPoint::new(fixture.scope, fixture.exit)],
+        [StorageExitDecision::new(
+            fixture.scope,
+            fixture.exit,
+            [fixture.first, fixture.second],
+            [fixture.first],
+            [fixture.second_access],
+            [fixture.second],
+            [],
+            false,
+        )],
+        false,
+    )
+    .unwrap_or_else(|error| panic!("moved test flow must build: {error:?}"));
+
+    let analysis = fixture.analysis_with_requirements(
+        [
+            AsyncStorageRequirement::new(
+                fixture.first,
+                Some(fixture.scope),
+                false,
+                AsyncStorageCleanupRequirement::None,
+            ),
+            AsyncStorageRequirement::new(
+                fixture.second,
+                Some(fixture.scope),
+                false,
+                AsyncStorageCleanupRequirement::Cleanup(AsyncCleanupPhases::Lifecycle),
+            ),
+        ],
+        [fixture.plan_with_moved(
+            [
+                AsyncStorageExitDecision::new(fixture.second, AsyncStorageExitDisposition::Moved),
+                AsyncStorageExitDecision::new(
+                    fixture.first,
+                    AsyncStorageExitDisposition::NoCleanup,
+                ),
+            ],
+            [],
+            [],
+            [fixture.second_access],
+            false,
+        )],
+        false,
+    );
+
+    fixture
+        .verify_with_flow(&flow, &analysis)
+        .unwrap_or_else(|error| panic!("fully moved storage must verify: {error:?}"));
+}
+
+#[test]
+fn nontrivial_partially_moved_storage_cannot_reach_lowering() {
+    let fixture = ScopeExitFixture::new();
+
+    let flow = StorageFlow::try_new(
+        fixture.unit.unit(),
+        fixture.unit.key().kind(),
+        [],
+        [],
+        [StorageExitPoint::new(fixture.scope, fixture.exit)],
+        [StorageExitDecision::new(
+            fixture.scope,
+            fixture.exit,
+            [fixture.first, fixture.second],
+            [fixture.first, fixture.second],
+            [fixture.second_projected_access],
+            [],
+            [],
+            false,
+        )],
+        false,
+    )
+    .unwrap_or_else(|error| panic!("partial-move test flow must build: {error:?}"));
+
+    let analysis = fixture.analysis_with_requirements(
+        [
+            AsyncStorageRequirement::new(
+                fixture.first,
+                Some(fixture.scope),
+                false,
+                AsyncStorageCleanupRequirement::None,
+            ),
+            AsyncStorageRequirement::new(
+                fixture.second,
+                Some(fixture.scope),
+                false,
+                AsyncStorageCleanupRequirement::Cleanup(AsyncCleanupPhases::Lifecycle),
+            ),
+        ],
+        [fixture.plan_with_moved(
+            [
+                AsyncStorageExitDecision::new(
+                    fixture.second,
+                    AsyncStorageExitDisposition::Recovered(
+                        AsyncStorageExitRecoveryCause::UnavailablePartialCleanup,
+                    ),
+                ),
+                AsyncStorageExitDecision::new(
+                    fixture.first,
+                    AsyncStorageExitDisposition::NoCleanup,
+                ),
+            ],
+            [],
+            [],
+            [fixture.second_projected_access],
+            true,
+        )],
+        false,
+    );
+
+    assert_plan_failure(
+        fixture.verify_with_flow(&flow, &analysis),
+        LoweringPlanKind::StorageDisposition,
+        LoweringPlanFailureCause::Recovered,
+        Some(fixture.second),
+    );
 }
 
 #[test]

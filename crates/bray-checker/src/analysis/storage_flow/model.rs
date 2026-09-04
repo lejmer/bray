@@ -302,6 +302,11 @@ impl StorageFlowState {
             || memory_origins_changed
             || self.recovered != was_recovered
     }
+
+    pub(super) fn move_complete_storage(&mut self, storage: StorageIdentityId) {
+        self.fully_moved.insert(storage);
+        self.initialized.remove(&storage);
+    }
 }
 
 pub(super) struct StorageFlowDomain<'analysis, C>
@@ -534,6 +539,19 @@ mod tests {
 
         assert!(left.merge(&reachable_state()));
         assert!(left.fully_moved.is_empty());
+    }
+
+    #[test]
+    fn complete_moves_end_definite_initialization() {
+        let (identity, _) = storage_and_expressions(81);
+
+        let mut state = reachable_state();
+
+        state.initialized.insert(identity);
+        state.move_complete_storage(identity);
+
+        assert_eq!(state.fully_moved, [identity].into_iter().collect());
+        assert!(state.initialized.is_empty());
     }
 
     #[test]

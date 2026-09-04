@@ -8,6 +8,7 @@ use bray_symbols::TypeId;
 
 use super::LoweringError;
 use super::lowerer::Lowerer;
+use crate::plan::ScopeExitCleanupStatus;
 
 enum CleanupDestination {
     Goto(MirBlockId),
@@ -34,7 +35,7 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         exit: AnyBoundNodeId,
     ) -> Result<MirCleanupEdge, LoweringError> {
-        let plans = self.cleanup_plans(0, exit);
+        let plans = self.cleanup_plans(0, exit)?;
 
         let cancellation = self.builder.push_block(
             Self::retained_source(source),
@@ -90,7 +91,10 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         exit: AnyBoundNodeId,
     ) -> Result<MirBlockId, LoweringError> {
-        if !self.scope_has_cleanup(scope, exit)? {
+        if !matches!(
+            self.scope_cleanup_status(scope, exit)?,
+            ScopeExitCleanupStatus::Cleanup
+        ) {
             return Ok(current);
         }
 
@@ -287,7 +291,7 @@ impl Lowerer<'_> {
         value: Option<(MirOperand, TypeId)>,
         exit: AnyBoundNodeId,
     ) -> Result<(), LoweringError> {
-        let plans = self.cleanup_plans(scope_depth, exit);
+        let plans = self.cleanup_plans(scope_depth, exit)?;
 
         if plans.iter().all(|plan| {
             plan.cancellation_broadcast().is_empty() && plan.lifecycle_resolution().is_empty()
@@ -366,18 +370,22 @@ impl Lowerer<'_> {
         &self,
         scope_depth: usize,
         exit: AnyBoundNodeId,
-    ) -> Vec<bray_bound_tree::AsyncScopeExitPlan> {
+    ) -> Result<Vec<bray_bound_tree::AsyncScopeExitPlan>, LoweringError> {
         self.input
             .lowering_plans()
             .cleanup_plans(&self.active_scopes, scope_depth, exit)
+            .map_err(Into::into)
     }
 
-    fn scope_has_cleanup(
+    fn scope_cleanup_status(
         &self,
         scope: BoundBlockId,
         exit: AnyBoundNodeId,
-    ) -> Result<bool, LoweringError> {
-        Ok(self.input.lowering_plans().scope_has_cleanup(scope, exit))
+    ) -> Result<ScopeExitCleanupStatus, LoweringError> {
+        self.input
+            .lowering_plans()
+            .scope_cleanup_status(scope, exit)
+            .map_err(Into::into)
     }
 
     fn push_cleanup_operations(
