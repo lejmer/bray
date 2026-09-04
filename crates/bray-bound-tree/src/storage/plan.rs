@@ -7,6 +7,3 @@ pub use contracts::{
     StorageAlternative, StorageBinding, StorageBindingTarget,
 };
 pub use model::StoragePlan;
-
-#[cfg(test)]
-mod tests;

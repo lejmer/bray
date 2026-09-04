@@ -8,6 +8,3 @@ mod signature;
 pub(crate) use dispatch::{Query, execute};
 pub(crate) use error::QueryError;
 pub(super) use presentation::{lsp_range, source};
-
-#[cfg(test)]
-mod tests;
