@@ -43,6 +43,7 @@ pub(in crate::output::diagnostic::json) fn lowering_input_failure_context(
             scope,
             exit,
             storage,
+            access,
         } => {
             let mut context = vec![
                 text_field("cause", failure.as_str()),
@@ -55,6 +56,7 @@ pub(in crate::output::diagnostic::json) fn lowering_input_failure_context(
                 ("scope", scope),
                 ("exit", exit),
                 ("storage", storage),
+                ("storage_access", access),
             ];
 
             if let Some(identity) = identities.iter().find_map(|(_, identity)| *identity) {

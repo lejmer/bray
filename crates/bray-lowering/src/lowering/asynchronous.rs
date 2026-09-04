@@ -115,10 +115,7 @@ impl Lowerer<'_> {
         source: MirSourceAnchor,
         call: MirCall,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
-        let task_operation = self
-            .input
-            .lowering_plans()
-            .task_operation(expression);
+        let task_operation = self.input.lowering_plans().task_operation(expression);
 
         let operation = match task_operation {
             Some(AsyncTaskOperationKind::Start) => {
@@ -171,7 +168,7 @@ impl Lowerer<'_> {
     }
 
     pub(super) fn runtime_reference(&self, role: RuntimeAbiRole) -> MirRuntimeReference {
-        self.input.lowering_plans().runtime_reference(role)
+        MirRuntimeReference::new(role, self.input.target().runtime_abi())
     }
 
     pub(super) fn execution_lane_requirements(&self) -> Vec<ExecutionLaneRequirement> {

@@ -152,7 +152,11 @@ impl ToolOutput {
 }
 
 pub(crate) trait ToolExecutor {
-    fn identity(&self, tool: Tool, _working_directory: &Path) -> Result<[u8; 32], ToolIdentityError> {
+    fn identity(
+        &self,
+        tool: Tool,
+        _working_directory: &Path,
+    ) -> Result<[u8; 32], ToolIdentityError> {
         let mut identity = StableDigestHasher::new();
         identity.write(tool.executable_name().as_bytes());
 
@@ -200,7 +204,11 @@ pub(crate) enum ToolExecutionError {
 pub(crate) struct NativeToolExecutor;
 
 impl ToolExecutor for NativeToolExecutor {
-    fn identity(&self, tool: Tool, working_directory: &Path) -> Result<[u8; 32], ToolIdentityError> {
+    fn identity(
+        &self,
+        tool: Tool,
+        working_directory: &Path,
+    ) -> Result<[u8; 32], ToolIdentityError> {
         let path = resolved_tool_path(tool, working_directory)?;
 
         bray_emitter::path_digest(&path).map_err(|error| {
@@ -325,22 +333,22 @@ impl ToolExecutor for NativeToolExecutor {
 fn native_command(
     request: &ToolRequest,
 ) -> Result<(NativeProcessCommand, PathBuf), ToolExecutionError> {
-    let program = resolved_tool_path(request.tool, &request.working_directory).map_err(|error| {
-        ToolExecutionError::Platform {
-            program: error.path,
-            error: PlatformError::new(
-                PlatformOperation::ProcessSpawn,
-                PlatformErrorKind::Io(error.error.kind()),
-            ),
-        }
-    })?;
+    let program =
+        resolved_tool_path(request.tool, &request.working_directory).map_err(|error| {
+            ToolExecutionError::Platform {
+                program: error.path,
+                error: PlatformError::new(
+                    PlatformOperation::ProcessSpawn,
+                    PlatformErrorKind::Io(error.error.kind()),
+                ),
+            }
+        })?;
 
-    let mut command = NativeProcessCommand::new(&program).map_err(|error| {
-        ToolExecutionError::Platform {
+    let mut command =
+        NativeProcessCommand::new(&program).map_err(|error| ToolExecutionError::Platform {
             program: program.clone(),
             error,
-        }
-    })?;
+        })?;
 
     command.current_dir(&request.working_directory);
 
@@ -414,8 +422,9 @@ fn resolved_tool_path_from_selection(
 
     let current_directory = cfg!(windows).then(|| working_directory.join(&file_name));
 
-    let resolved = current_directory.into_iter().chain(std::env::split_paths(search)
-        .map(|directory| {
+    let resolved = current_directory
+        .into_iter()
+        .chain(std::env::split_paths(search).map(|directory| {
             let directory = if directory.is_absolute() {
                 directory
             } else {
@@ -509,12 +518,11 @@ mod tests {
         std::fs::write(&compiler, b"compiler")
             .unwrap_or_else(|error| panic!("compiler fixture should exist: {error}"));
 
-        let resolved = resolved_tool_path_from_selection(
-            selected,
-            OsStr::new(""),
-            workspace.path(),
-        )
-        .unwrap_or_else(|error| panic!("workspace-relative compiler should resolve: {error:?}"));
+        let resolved =
+            resolved_tool_path_from_selection(selected, OsStr::new(""), workspace.path())
+                .unwrap_or_else(|error| {
+                    panic!("workspace-relative compiler should resolve: {error:?}")
+                });
 
         let expected = std::fs::canonicalize(compiler)
             .unwrap_or_else(|error| panic!("compiler fixture should canonicalize: {error}"));

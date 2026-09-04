@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundBlockId, BoundExpressionId, StorageIdentityId,
+    AnyBoundNodeId, BoundBlockId, BoundExpressionId, StorageAccessId, StorageIdentityId,
 };
 
 /// The semantic plan category that failed lowering-readiness verification.
@@ -76,11 +76,20 @@ pub struct LoweringPlanFailure {
     scope: Option<BoundBlockId>,
     exit: Option<AnyBoundNodeId>,
     storage: Option<StorageIdentityId>,
+    access: Option<StorageAccessId>,
 }
 
 impl LoweringPlanFailure {
     pub(super) const fn analysis(cause: LoweringPlanFailureCause) -> Self {
-        Self::new(LoweringPlanKind::Analysis, cause, None, None, None, None)
+        Self::new(
+            LoweringPlanKind::Analysis,
+            cause,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
     }
 
     pub(super) const fn for_expression(
@@ -88,7 +97,7 @@ impl LoweringPlanFailure {
         cause: LoweringPlanFailureCause,
         expression: BoundExpressionId,
     ) -> Self {
-        Self::new(kind, cause, Some(expression), None, None, None)
+        Self::new(kind, cause, Some(expression), None, None, None, None)
     }
 
     pub(super) const fn scope_exit(
@@ -97,7 +106,7 @@ impl LoweringPlanFailure {
         scope: BoundBlockId,
         exit: AnyBoundNodeId,
     ) -> Self {
-        Self::new(kind, cause, None, Some(scope), Some(exit), None)
+        Self::new(kind, cause, None, Some(scope), Some(exit), None, None)
     }
 
     pub(super) const fn for_storage(
@@ -113,6 +122,25 @@ impl LoweringPlanFailure {
             Some(scope),
             Some(exit),
             Some(storage),
+            None,
+        )
+    }
+
+    pub(super) const fn for_access(
+        kind: LoweringPlanKind,
+        cause: LoweringPlanFailureCause,
+        scope: BoundBlockId,
+        exit: AnyBoundNodeId,
+        access: StorageAccessId,
+    ) -> Self {
+        Self::new(
+            kind,
+            cause,
+            None,
+            Some(scope),
+            Some(exit),
+            None,
+            Some(access),
         )
     }
 
@@ -123,6 +151,7 @@ impl LoweringPlanFailure {
         scope: Option<BoundBlockId>,
         exit: Option<AnyBoundNodeId>,
         storage: Option<StorageIdentityId>,
+        access: Option<StorageAccessId>,
     ) -> Self {
         Self {
             kind,
@@ -131,6 +160,7 @@ impl LoweringPlanFailure {
             scope,
             exit,
             storage,
+            access,
         }
     }
 
@@ -162,5 +192,10 @@ impl LoweringPlanFailure {
     /// Returns the affected storage identity, when available.
     pub const fn storage(self) -> Option<StorageIdentityId> {
         self.storage
+    }
+
+    /// Returns the affected storage access, when available.
+    pub const fn access(self) -> Option<StorageAccessId> {
+        self.access
     }
 }

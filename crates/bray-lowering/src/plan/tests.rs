@@ -1,16 +1,16 @@
 use bray_bound_tree::{
     AnyBoundNodeId, AsyncCleanupPhases, AsyncScopeExitPlan, AsyncStorageExitDecision,
-    AsyncStorageExitDisposition, AsyncStorageExitRecoveryCause, BoundBlock, BoundBlockId,
-    BoundBlockItem, BoundDependencyContract, BoundExpression, BoundExpressionId, BoundNodeOrigin,
-    BoundStructuredExpression, BoundStructuredExpressionKind, BoundTreeBuilder, BoundUnit,
-    CheckedAsync, CheckedDependencyContracts, CheckedExpressionTypes, CheckedSemanticSelections,
-    StorageAccess, StorageAccessId, StorageAccessRoot, StorageExitDecision, StorageFlow,
-    StorageIdentity, StorageIdentityId, StoragePlan, StoragePlanBuilder,
+    AsyncStorageExitDisposition, AsyncStorageExitRecoveryCause, BoundAwaitExpression, BoundBlock,
+    BoundBlockId, BoundBlockItem, BoundDependencyContract, BoundDependencySubject, BoundExpression,
+    BoundExpressionId, BoundNodeOrigin, BoundStructuredExpression, BoundStructuredExpressionKind,
+    BoundTreeBuilder, BoundUnit, CheckedAsync, CheckedDependencyContracts, CheckedExpressionTypes,
+    CheckedSemanticSelections, LiveAcrossSuspension, Liveness, StorageAccess, StorageAccessId,
+    StorageAccessRoot, StorageExitDecision, StorageFlow, StorageIdentity, StorageIdentityId,
+    StoragePlan, StoragePlanBuilder,
 };
-use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::testing::available_compiler_known_symbols;
 use bray_symbols::{SemanticValueStore, TypeData};
-use bray_testing::{test_mir_target, test_runtime_default_unit};
+use bray_testing::test_runtime_default_unit;
 
 use super::{
     LoweringPlanFailure, LoweringPlanFailureCause, LoweringPlanKind, VerifiedLoweringPlans,
@@ -21,6 +21,7 @@ struct ScopeExitFixture {
     scope: BoundBlockId,
     exit: AnyBoundNodeId,
     storage: StoragePlan,
+    liveness: Liveness,
     flow: StorageFlow,
     dependencies: CheckedDependencyContracts,
     selections: CheckedSemanticSelections,
@@ -53,17 +54,15 @@ impl ScopeExitFixture {
             expressions = Some([first, second]);
             scope = Some(block);
 
-            tree.push_expression(BoundExpression::Structured(
-                BoundStructuredExpression::new(
-                    origin,
-                    BoundStructuredExpressionKind::Unit,
-                    [],
-                    [block],
-                    [],
-                    None,
-                    false,
-                ),
-            ))
+            tree.push_expression(BoundExpression::Structured(BoundStructuredExpression::new(
+                origin,
+                BoundStructuredExpressionKind::Unit,
+                [],
+                [block],
+                [],
+                None,
+                false,
+            )))
             .unwrap_or_else(|error| panic!("test root expression must fit: {error:?}"))
         });
 
@@ -119,6 +118,9 @@ impl ScopeExitFixture {
         )
         .unwrap_or_else(|error| panic!("test storage flow must build: {error:?}"));
 
+        let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
+            .unwrap_or_else(|error| panic!("test liveness must build: {error:?}"));
+
         let expressions = unit
             .tree()
             .expressions()
@@ -149,6 +151,7 @@ impl ScopeExitFixture {
             scope,
             exit,
             storage,
+            liveness,
             flow,
             dependencies,
             selections,
@@ -206,17 +209,15 @@ impl ScopeExitFixture {
         flow: &'analysis StorageFlow,
         analysis: &'analysis CheckedAsync,
     ) -> Result<VerifiedLoweringPlans<'analysis>, LoweringPlanFailure> {
-        let target = test_mir_target();
-
         VerifiedLoweringPlans::try_new(
             &self.unit,
             &self.storage,
+            &self.liveness,
             flow,
             &self.dependencies,
             &self.selections,
             available_compiler_known_symbols(),
             analysis,
-            target.runtime_abi(),
         )
     }
 
@@ -229,7 +230,7 @@ impl ScopeExitFixture {
 }
 
 #[test]
-fn complete_scope_exit_plans_publish_direct_lookup_and_runtime_contracts() {
+fn complete_scope_exit_plans_publish_direct_lookup() {
     let fixture = ScopeExitFixture::new();
 
     let analysis = fixture.analysis(
@@ -241,13 +242,12 @@ fn complete_scope_exit_plans_publish_direct_lookup_and_runtime_contracts() {
         .verify(&analysis)
         .unwrap_or_else(|error| panic!("complete plans must verify: {error:?}"));
 
-    assert_eq!(plans.cleanup_plans(&[fixture.scope], 0, fixture.exit).len(), 1);
-    assert!(!plans.scope_has_cleanup(fixture.scope, fixture.exit));
-
     assert_eq!(
-        plans.runtime_reference(RuntimeAbiRole::TaskStart).abi_version(),
-        test_mir_target().runtime_abi()
+        plans.cleanup_plans(&[fixture.scope], 0, fixture.exit).len(),
+        1
     );
+
+    assert!(!plans.scope_has_cleanup(fixture.scope, fixture.exit));
 }
 
 #[test]
@@ -255,11 +255,174 @@ fn aggregate_recovery_flags_do_not_replace_component_verification() {
     let fixture = ScopeExitFixture::new();
 
     let analysis = fixture.analysis(
-        [fixture.plan(fixture.complete_decisions(), [], [], true)],
+        [fixture.plan(fixture.complete_decisions(), [], [], false)],
         true,
     );
 
     assert!(fixture.verify(&analysis).is_ok());
+}
+
+#[test]
+fn suspension_verification_rejects_an_omitted_live_subject() {
+    let mut expressions = None;
+
+    let unit = test_runtime_default_unit(94, |tree, origin| {
+        let operand = push_unit_expression(tree, origin);
+
+        let suspension = tree
+            .push_expression(BoundExpression::Await(BoundAwaitExpression::pending(
+                origin, operand, false,
+            )))
+            .unwrap_or_else(|error| panic!("test suspension must fit: {error:?}"));
+
+        expressions = Some((operand, suspension));
+
+        suspension
+    });
+
+    let (operand, suspension) =
+        expressions.unwrap_or_else(|| panic!("test suspension must be captured"));
+
+    let values = SemanticValueStore::try_new()
+        .unwrap_or_else(|error| panic!("test semantic values must initialize: {error:?}"));
+
+    let ty = values
+        .intern_type(TypeData::tuple([]))
+        .unwrap_or_else(|error| panic!("test type must intern: {error:?}"));
+
+    let mut storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+
+    let identity = storage
+        .push_identity(StorageIdentity::Temporary(operand))
+        .unwrap_or_else(|error| panic!("test identity must fit: {error:?}"));
+
+    let source = unit
+        .view()
+        .expression(operand)
+        .map(BoundExpression::origin)
+        .map(BoundNodeOrigin::source_anchor)
+        .unwrap_or_else(|| panic!("test source anchor must exist"));
+
+    let access = push_access(&mut storage, identity, ty, source);
+    let storage = storage.finish();
+
+    let contract = BoundDependencyContract::new([]);
+
+    let dependencies = CheckedDependencyContracts::try_new(
+        &unit,
+        &storage,
+        [(operand, contract.clone()), (suspension, contract.clone())],
+        [],
+        [(access, contract)],
+        [],
+        false,
+    )
+    .unwrap_or_else(|error| panic!("test dependencies must build: {error:?}"));
+
+    let liveness = Liveness::try_new(
+        unit.unit(),
+        unit.key().kind(),
+        [],
+        [],
+        [LiveAcrossSuspension::new(
+            suspension,
+            BoundDependencySubject::Storage(identity),
+        )],
+        [],
+        false,
+    )
+    .unwrap_or_else(|error| panic!("test liveness must build: {error:?}"));
+
+    let flow = StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+        .unwrap_or_else(|error| panic!("test flow must build: {error:?}"));
+
+    let types = CheckedExpressionTypes::new(unit.unit(), unit.key().kind(), []);
+
+    let selections = CheckedSemanticSelections::try_new(&unit, &types, [])
+        .unwrap_or_else(|error| panic!("test selections must build: {error:?}"));
+
+    let analysis = CheckedAsync::try_new(
+        unit.unit(),
+        unit.key().kind(),
+        [],
+        [bray_bound_tree::AsyncSuspensionPoint::new(
+            suspension,
+            bray_bound_tree::AsyncSuspensionKind::Await { operand },
+            None,
+            [],
+            [],
+            false,
+        )],
+        [],
+        [],
+        false,
+    )
+    .unwrap_or_else(|error| panic!("test async analysis must build: {error:?}"));
+
+    let result = VerifiedLoweringPlans::try_new(
+        &unit,
+        &storage,
+        &liveness,
+        &flow,
+        &dependencies,
+        &selections,
+        available_compiler_known_symbols(),
+        &analysis,
+    );
+
+    assert_plan_failure(
+        result,
+        LoweringPlanKind::Suspension,
+        LoweringPlanFailureCause::Contradictory,
+        None,
+    );
+}
+
+#[test]
+fn exact_recovered_scope_exit_inputs_are_rejected() {
+    let fixture = ScopeExitFixture::new();
+
+    let recovered_plan = fixture.analysis(
+        [fixture.plan(fixture.complete_decisions(), [], [], true)],
+        true,
+    );
+
+    assert_plan_failure(
+        fixture.verify(&recovered_plan),
+        LoweringPlanKind::ScopeExit,
+        LoweringPlanFailureCause::Recovered,
+        None,
+    );
+
+    let recovered_flow = StorageFlow::try_new(
+        fixture.unit.unit(),
+        fixture.unit.key().kind(),
+        [],
+        [],
+        [StorageExitDecision::new(
+            fixture.scope,
+            fixture.exit,
+            [fixture.first, fixture.second],
+            [],
+            [],
+            [],
+            true,
+        )],
+        true,
+    )
+    .unwrap_or_else(|error| panic!("recovered test flow must build: {error:?}"));
+
+    let complete = fixture.analysis(
+        [fixture.plan(fixture.complete_decisions(), [], [], false)],
+        true,
+    );
+
+    assert_plan_failure(
+        fixture.verify_with_flow(&recovered_flow, &complete),
+        LoweringPlanKind::ScopeExit,
+        LoweringPlanFailureCause::Recovered,
+        None,
+    );
 }
 
 #[test]
@@ -414,20 +577,18 @@ fn recovered_and_contradictory_storage_dispositions_are_rejected() {
         false,
     );
 
-    assert_plan_failure(
-        fixture.verify(&contradictory),
-        LoweringPlanKind::LifecyclePhase,
-        LoweringPlanFailureCause::Contradictory,
-        None,
-    );
+    let Err(error) = fixture.verify(&contradictory) else {
+        panic!("contradictory lifecycle phase must fail verification");
+    };
+
+    assert_eq!(error.kind(), LoweringPlanKind::LifecyclePhase);
+    assert_eq!(error.cause(), LoweringPlanFailureCause::Contradictory);
+    assert_eq!(error.access(), Some(fixture.first_access));
 
     let falsely_moved = fixture.analysis(
         [fixture.plan(
             [
-                AsyncStorageExitDecision::new(
-                    fixture.second,
-                    AsyncStorageExitDisposition::Moved,
-                ),
+                AsyncStorageExitDecision::new(fixture.second, AsyncStorageExitDisposition::Moved),
                 AsyncStorageExitDecision::new(
                     fixture.first,
                     AsyncStorageExitDisposition::NoCleanup,
@@ -506,10 +667,7 @@ fn assert_plan_failure(
     assert_eq!(error.storage(), storage);
 }
 
-fn push_unit_expression(
-    tree: &mut BoundTreeBuilder,
-    origin: BoundNodeOrigin,
-) -> BoundExpressionId {
+fn push_unit_expression(tree: &mut BoundTreeBuilder, origin: BoundNodeOrigin) -> BoundExpressionId {
     tree.push_expression(BoundExpression::Structured(BoundStructuredExpression::new(
         origin,
         BoundStructuredExpressionKind::Unit,

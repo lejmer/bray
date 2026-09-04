@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AsyncCleanupPhases, AsyncScopeExitPlan, AsyncStorageExitDecision,
-    AsyncStorageExitDisposition, AsyncStorageExitRecoveryCause, BoundUnitKind, StorageAccessId,
-    StorageFlow, StorageIdentity, StorageIdentityId, StoragePlan,
+    AsyncCleanupPhases, AsyncScopeExitPlan, AsyncStorageExitDecision, AsyncStorageExitDisposition,
+    AsyncStorageExitRecoveryCause, BoundUnitKind, StorageAccessId, StorageFlow, StorageIdentity,
+    StorageIdentityId, StoragePlan,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
@@ -256,9 +256,13 @@ where
             let access = storage.root_access(identity);
 
             let Some(access) = access else {
+                is_recovered = true;
+
                 dispositions.push(AsyncStorageExitDecision::new(
                     identity,
-                    AsyncStorageExitDisposition::NoCleanup,
+                    AsyncStorageExitDisposition::Recovered(
+                        AsyncStorageExitRecoveryCause::UnavailableRootAccess,
+                    ),
                 ));
 
                 continue;

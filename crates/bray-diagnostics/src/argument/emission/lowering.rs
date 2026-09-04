@@ -80,6 +80,8 @@ pub enum DiagnosticLoweringInputFailureKind {
         exit: Option<DiagnosticLoweringIdentity>,
         /// The affected storage identity, when available.
         storage: Option<DiagnosticLoweringIdentity>,
+        /// The affected storage access, when available.
+        access: Option<DiagnosticLoweringIdentity>,
     },
     /// An integer literal was checked for a different target width.
     LiteralTargetWidthMismatch { expected: u16, actual: u16 },

@@ -878,12 +878,12 @@ mod tests {
             let lowering_plans = VerifiedLoweringPlans::try_new(
                 &self.unit,
                 &self.storage,
+                &self.liveness,
                 &self.storage_flow,
                 &self.dependencies,
                 &self.selections,
                 available_compiler_known_symbols(),
                 &self.async_analysis,
-                target.runtime_abi(),
             )
             .unwrap_or_else(|error| panic!("test lowering plans must validate: {error:?}"));
 
@@ -893,7 +893,6 @@ mod tests {
                 &self.types,
                 &self.patterns,
                 &self.literals,
-                &self.liveness,
                 &self.refinements,
                 lowering_plans,
                 &self.behavior,

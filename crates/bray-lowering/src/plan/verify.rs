@@ -3,21 +3,20 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::{
     AnyBoundNodeId, AsyncScopeExitPlan, AsyncSuspensionPoint, AsyncTaskOperationKind, BoundBlockId,
     BoundDependencySubject, BoundExpressionId, BoundUnit, BoundUnitId, BoundUnitKind, CheckedAsync,
-    CheckedDependencyContracts, CheckedSemanticSelections, StorageFlow, StorageIdentityId,
-    StoragePlan,
+    CheckedDependencyContracts, CheckedSemanticSelections, Liveness, StorageFlow,
+    StorageIdentityId, StoragePlan,
 };
-use bray_ir::MirRuntimeReference;
-use bray_runtime_interface::{RuntimeAbiRole, RuntimeAbiVersion};
 use bray_symbols::AvailableCompilerKnownSymbols;
 
 use super::expression::{verify_suspensions, verify_task_operations};
 use super::scope::verify_scope_exits;
 use super::{LoweringPlanFailure, LoweringPlanFailureCause};
 
-/// Complete checked async, cleanup, task, and runtime plans safe for MIR lowering.
+/// Complete checked async, cleanup, and task plans safe for MIR lowering.
 #[derive(Clone)]
 pub struct VerifiedLoweringPlans<'unit> {
     storage: &'unit StoragePlan,
+    liveness: &'unit Liveness,
     flow: &'unit StorageFlow,
     dependencies: &'unit CheckedDependencyContracts,
     selections: &'unit CheckedSemanticSelections,
@@ -27,7 +26,6 @@ pub struct VerifiedLoweringPlans<'unit> {
     task_operations: BTreeMap<BoundExpressionId, AsyncTaskOperationKind>,
     scope_exits: BTreeMap<(BoundBlockId, AnyBoundNodeId), usize>,
     lifecycle_storage: BTreeSet<StorageIdentityId>,
-    runtime_abi: RuntimeAbiVersion,
 }
 
 impl<'unit> VerifiedLoweringPlans<'unit> {
@@ -39,15 +37,17 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
     pub fn try_new(
         unit: &BoundUnit,
         storage: &'unit StoragePlan,
+        liveness: &'unit Liveness,
         flow: &'unit StorageFlow,
         dependencies: &'unit CheckedDependencyContracts,
         selections: &'unit CheckedSemanticSelections,
         symbols: &'unit AvailableCompilerKnownSymbols,
         analysis: &'unit CheckedAsync,
-        runtime_abi: RuntimeAbiVersion,
     ) -> Result<Self, LoweringPlanFailure> {
         if storage.unit() != unit.unit()
             || storage.kind() != unit.key().kind()
+            || liveness.unit() != unit.unit()
+            || liveness.kind() != unit.key().kind()
             || flow.unit() != unit.unit()
             || flow.kind() != unit.key().kind()
             || dependencies.unit() != unit.unit()
@@ -81,6 +81,7 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
         let suspensions = verify_suspensions(
             unit,
             storage,
+            liveness,
             dependencies,
             selections,
             symbols,
@@ -89,10 +90,23 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
 
         let task_operations = verify_task_operations(unit, selections, symbols, analysis)?;
 
+        let retained = analysis
+            .suspensions()
+            .iter()
+            .flat_map(|suspension| suspension.retained_subjects().iter().copied())
+            .collect::<BTreeSet<_>>();
+
+        if !analysis.frame_dependencies().iter().copied().eq(retained) {
+            return Err(LoweringPlanFailure::analysis(
+                LoweringPlanFailureCause::Contradictory,
+            ));
+        }
+
         let (scope_exits, lifecycle_storage) = verify_scope_exits(unit, storage, flow, analysis)?;
 
         Ok(Self {
             storage,
+            liveness,
             flow,
             dependencies,
             selections,
@@ -102,7 +116,6 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
             task_operations,
             scope_exits,
             lifecycle_storage,
-            runtime_abi,
         })
     }
 
@@ -124,6 +137,10 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
         self.flow
     }
 
+    pub(crate) const fn liveness(&self) -> &'unit Liveness {
+        self.liveness
+    }
+
     pub(crate) const fn dependency_contracts(&self) -> &'unit CheckedDependencyContracts {
         self.dependencies
     }
@@ -136,11 +153,6 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
         &self,
     ) -> &'unit AvailableCompilerKnownSymbols {
         self.symbols
-    }
-
-    /// Returns the runtime ABI version used to verify runtime-role references.
-    pub const fn runtime_abi(&self) -> RuntimeAbiVersion {
-        self.runtime_abi
     }
 
     /// Returns frame dependencies after complete-plan verification.
@@ -156,10 +168,7 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
     }
 
     /// Returns the verified task operation for one selected call.
-    pub fn task_operation(
-        &self,
-        expression: BoundExpressionId,
-    ) -> Option<AsyncTaskOperationKind> {
+    pub fn task_operation(&self, expression: BoundExpressionId) -> Option<AsyncTaskOperationKind> {
         self.task_operations.get(&expression).copied()
     }
 
@@ -191,19 +200,13 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
             .get(&(scope, exit))
             .and_then(|index| self.analysis.scope_exits().get(*index))
             .is_some_and(|plan| {
-                !plan.cancellation_broadcast().is_empty()
-                    || !plan.lifecycle_resolution().is_empty()
+                !plan.cancellation_broadcast().is_empty() || !plan.lifecycle_resolution().is_empty()
             })
     }
 
     /// Returns whether one storage identity participates in any lifecycle phase.
     pub fn requires_lifecycle_storage(&self, storage: StorageIdentityId) -> bool {
         self.lifecycle_storage.contains(&storage)
-    }
-
-    /// Returns the verified private runtime reference for one closed ABI role.
-    pub const fn runtime_reference(&self, role: RuntimeAbiRole) -> MirRuntimeReference {
-        MirRuntimeReference::new(role, self.runtime_abi)
     }
 }
 
@@ -219,9 +222,7 @@ pub(crate) fn dependency_subject_exists(
             storage.borrow_capability(borrow).is_some()
         }
         BoundDependencySubject::ScopedCapability(capability) => capability.unit() == unit.unit(),
-        BoundDependencySubject::LifecycleObligation(obligation) => {
-            obligation.unit() == unit.unit()
-        }
+        BoundDependencySubject::LifecycleObligation(obligation) => obligation.unit() == unit.unit(),
         BoundDependencySubject::ImplementationWitness(_)
         | BoundDependencySubject::ProductStatic(_)
         | BoundDependencySubject::ExactThreadStatic(_) => true,

@@ -73,6 +73,9 @@ pub(super) fn lowering_input_failure(
             storage: error
                 .storage()
                 .map(|storage| bound_identity(storage.unit(), storage.ordinal())),
+            access: error
+                .access()
+                .map(|access| bound_identity(access.unit(), access.ordinal())),
         },
         LoweringInputError::LiteralTargetWidthMismatch { expected, actual } => {
             Kind::LiteralTargetWidthMismatch {
@@ -259,7 +262,6 @@ const fn lowering_input_kind(kind: bray_lowering::LoweringInputKind) -> &'static
         Kind::Patterns => "patterns",
         Kind::LiteralValues => "literal_values",
         Kind::ConstantReferences => "constant_references",
-        Kind::Liveness => "liveness",
         Kind::Refinements => "refinements",
         Kind::LoweringPlans => "lowering_plans",
         Kind::BodyBehavior => "body_behavior",

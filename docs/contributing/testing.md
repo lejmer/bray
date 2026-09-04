@@ -77,8 +77,13 @@ rejects missing, duplicate, placeholder, stale production, and non-executable te
 
 Changes to the pre-lowering plan boundary need focused tests in `bray-lowering` for missing, duplicate, recovered,
 foreign, contradictory, and out-of-order entries. Add cross-crate tests in `bray-compilation` when the behavior depends
-on real checker output, such as nested exits, propagation, cancellation, task operations, or generated runtime helpers.
-These tests establish that lowering receives a complete plan and does not recreate semantic decisions locally.
+on real checker output, such as nested exits, propagation, cancellation, task operations, or retained suspension
+dependencies. These tests establish that lowering receives a complete plan and does not recreate semantic decisions
+locally.
+
+Generated-helper tests belong at the completed MIR boundary because helper identity depends on final MIR operation
+shape. Test exhaustive operation-to-helper derivation in `bray-ir` and exact helper and runtime-symbol mapping coverage
+in `bray-codegen`.
 
 ## Diagnostic coverage
 

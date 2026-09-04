@@ -2,7 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AnyBoundNodeId, AsyncScopeExitPlan, AsyncStorageExitDisposition, BoundBlockId, BoundUnit,
-    CheckedAsync, StorageAccessId, StorageExitDecision, StorageFlow, StorageIdentityId, StoragePlan,
+    CheckedAsync, StorageAccessId, StorageExitDecision, StorageFlow, StorageIdentityId,
+    StoragePlan,
 };
 
 use super::{LoweringPlanFailure, LoweringPlanFailureCause, LoweringPlanKind};
@@ -39,6 +40,15 @@ pub(super) fn verify_scope_exits(
             .node_is_recovered(exit.exit())
             .is_some_and(|recovered| recovered)
         {
+            return Err(LoweringPlanFailure::scope_exit(
+                LoweringPlanKind::ScopeExit,
+                LoweringPlanFailureCause::Recovered,
+                exit.scope(),
+                exit.exit(),
+            ));
+        }
+
+        if exit.is_recovered() {
             return Err(LoweringPlanFailure::scope_exit(
                 LoweringPlanKind::ScopeExit,
                 LoweringPlanFailureCause::Recovered,
@@ -93,6 +103,15 @@ pub(super) fn verify_scope_exits(
         };
 
         verify_scope_exit_storage(storage, flow_exit, plan, &mut lifecycle_storage)?;
+
+        if plan.is_recovered() {
+            return Err(LoweringPlanFailure::scope_exit(
+                LoweringPlanKind::ScopeExit,
+                LoweringPlanFailureCause::Recovered,
+                plan.scope(),
+                plan.exit(),
+            ));
+        }
     }
 
     if let Some((&(scope, exit), _)) = expected.first_key_value() {
@@ -139,16 +158,17 @@ fn verify_scope_exit_storage(
         ));
     }
 
-    if flow.moved().iter().any(|access| {
+    if let Some(access) = flow.moved().iter().find(|access| {
         storage
-            .root_identity(*access)
+            .root_identity(**access)
             .is_none_or(|identity| !flow.initialized().contains(&identity))
     }) {
-        return Err(LoweringPlanFailure::scope_exit(
+        return Err(LoweringPlanFailure::for_access(
             LoweringPlanKind::StorageDisposition,
             LoweringPlanFailureCause::Unexpected,
             plan.scope(),
             plan.exit(),
+            *access,
         ));
     }
 
@@ -218,17 +238,18 @@ fn verify_scope_exit_storage(
         plan.lifecycle_resolution(),
     )?;
 
-    if plan.moved() != flow.moved()
-        || plan
-            .moved()
+    if let Some(access) = first_access_mismatch(flow.moved(), plan.moved()).or_else(|| {
+        plan.moved()
             .iter()
-            .any(|access| storage.access(*access).is_none())
-    {
-        return Err(LoweringPlanFailure::scope_exit(
+            .find(|access| storage.access(**access).is_none())
+            .copied()
+    }) {
+        return Err(LoweringPlanFailure::for_access(
             LoweringPlanKind::StorageDisposition,
             LoweringPlanFailureCause::Contradictory,
             plan.scope(),
             plan.exit(),
+            access,
         ));
     }
 
@@ -315,16 +336,29 @@ fn verify_phase(
     expected: &[StorageAccessId],
     actual: &[StorageAccessId],
 ) -> Result<(), LoweringPlanFailure> {
-    if expected != actual {
-        return Err(LoweringPlanFailure::scope_exit(
+    if let Some(access) = first_access_mismatch(expected, actual) {
+        return Err(LoweringPlanFailure::for_access(
             kind,
             LoweringPlanFailureCause::Contradictory,
             plan.scope(),
             plan.exit(),
+            access,
         ));
     }
 
     Ok(())
+}
+
+fn first_access_mismatch(
+    expected: &[StorageAccessId],
+    actual: &[StorageAccessId],
+) -> Option<StorageAccessId> {
+    actual
+        .iter()
+        .zip(expected)
+        .find_map(|(actual, expected)| (actual != expected).then_some(*actual))
+        .or_else(|| actual.get(expected.len()).copied())
+        .or_else(|| expected.get(actual.len()).copied())
 }
 
 fn storage_failure(

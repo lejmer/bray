@@ -16,7 +16,6 @@ use bray_diagnostics::{
 use bray_symbols::{AnyLocalSymbolId, CallableExecution, CallableSignatureQuery, TypeData};
 
 use super::cleanup::scope_exit_plans;
-use super::dependency::retained_suspension_subjects;
 use super::diagnostic::{add_unavailable_await_dependency_diagnostic, await_dependency_failure};
 
 use crate::analysis::{
@@ -200,8 +199,7 @@ where
                     }
                 };
 
-                let retained = retained_suspension_subjects(
-                    liveness,
+                let retained = liveness.retained_suspension_subjects(
                     dependencies,
                     storage,
                     expression,

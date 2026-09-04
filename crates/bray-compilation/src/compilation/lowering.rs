@@ -157,12 +157,12 @@ impl Compilation {
         let lowering_plans = VerifiedLoweringPlans::try_new(
             unit.result().value(),
             storage.result().value(),
+            body.result().value().liveness(),
             body.result().value().storage_flow(),
             body.result().value().dependencies(),
             expressions.result().value().selections(),
             self.available_compiler_known_symbols(),
             body.result().value().asynchronous(),
-            target.runtime_abi(),
         )
         .map_err(LoweringInputError::from);
 
@@ -174,7 +174,6 @@ impl Compilation {
                     expressions.result().value().types(),
                     patterns.result().value(),
                     expressions.result().value().literals(),
-                    body.result().value().liveness(),
                     body.result().value().refinements(),
                     lowering_plans,
                     behavior.result().value(),
@@ -183,12 +182,12 @@ impl Compilation {
                     target,
                 )
             })
-        .and_then(|input| input.with_constant_reference_values(&constant_reference_values))
-        .map_err(|error| {
-            let source = lowering_input_failure_source(&error, unit.result().value());
+            .and_then(|input| input.with_constant_reference_values(&constant_reference_values))
+            .map_err(|error| {
+                let source = lowering_input_failure_source(&error, unit.result().value());
 
-            FactQueryError::LoweringInput(LocatedLoweringFailure::new(error, source))
-        })?;
+                FactQueryError::LoweringInput(LocatedLoweringFailure::new(error, source))
+            })?;
 
         let input = input.with_native_static_templates(&native_static_templates);
 
@@ -3480,17 +3479,24 @@ func read(pos owner: &Owner) -> i32
 
         let mir = lowered_mir(&lowered);
 
-        let projections = mir.blocks().iter().find_map(|block| match block.terminator().kind() {
-            MirTerminatorKind::BeginCleanup(cleanup)
-            | MirTerminatorKind::ContinueCleanup(cleanup) => {
-                cleanup.edge().arguments().iter().find_map(|argument| match argument {
-                    MirOperand::Copy(place) => Some(place.projections()),
-                    _ => None,
-                })
-            }
-            MirTerminatorKind::Return(Some(MirOperand::Copy(place))) => Some(place.projections()),
-            _ => None,
-        });
+        let projections = mir
+            .blocks()
+            .iter()
+            .find_map(|block| match block.terminator().kind() {
+                MirTerminatorKind::BeginCleanup(cleanup)
+                | MirTerminatorKind::ContinueCleanup(cleanup) => cleanup
+                    .edge()
+                    .arguments()
+                    .iter()
+                    .find_map(|argument| match argument {
+                        MirOperand::Copy(place) => Some(place.projections()),
+                        _ => None,
+                    }),
+                MirTerminatorKind::Return(Some(MirOperand::Copy(place))) => {
+                    Some(place.projections())
+                }
+                _ => None,
+            });
 
         let Some(projections) = projections else {
             panic!("nested field read must return from a place: {mir:#?}");

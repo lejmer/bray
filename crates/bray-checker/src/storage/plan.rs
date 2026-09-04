@@ -9,8 +9,9 @@ use bray_bound_tree::{
     StorageBindingTarget, StorageIdentity, StoragePlan, StoragePlanBuilder,
 };
 use bray_symbols::{
-    AnySymbolId, BorrowKind, CallableSignatureQuery, CallableSymbolId, PredicateDefinitionSymbolId,
-    ReceiverMode, SymbolQueryRequest, TypeData, TypeExpressionTemplate, TypeId,
+    AnySymbolId, BorrowKind, CallableSignatureQuery, CallableSignatureTemplateError,
+    CallableSymbolId, PredicateDefinitionSymbolId, ReceiverMode, SymbolQueryRequest, TypeData,
+    TypeExpressionTemplate, TypeId,
 };
 
 use crate::{
@@ -23,6 +24,14 @@ use crate::{
 struct EntryStorage {
     ty: TypeId,
     borrow: Option<(BorrowKind, TypeId)>,
+}
+
+struct DeclaredCallableEntry {
+    parameter_types: BTreeMap<bray_symbols::CallableParameterSymbolId, TypeExpressionTemplate>,
+    receiver: Option<(
+        bray_symbols::ReceiverParameterSymbolId,
+        Option<(BorrowKind, TypeId)>,
+    )>,
 }
 
 pub(crate) fn plan_storage<C>(
@@ -56,22 +65,24 @@ where
         );
     }
 
+    let callable_entry = match declared_callable_entry(request) {
+        Ok(entry) => entry,
+        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Infrastructure(error)) => {
+            return CheckerOutcome::InfrastructureFailure(error);
+        }
+        Err(CheckerQueryError::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
+    };
+
     let mut planner = match Planner::new(
         request,
         declared_types,
         types,
         patterns,
         selections,
-        match receiver_entry(request) {
-            Ok(receiver) => receiver,
-            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Infrastructure(error)) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
-            Err(CheckerQueryError::Upstream(error)) => {
-                return CheckerOutcome::UpstreamFailure(error);
-            }
-        },
+        callable_entry,
     ) {
         Ok(planner) => planner,
         Err(error) => return CheckerOutcome::InfrastructureFailure(error),
@@ -106,6 +117,8 @@ where
         bray_symbols::ReceiverParameterSymbolId,
         Option<(BorrowKind, TypeId)>,
     )>,
+    parameter_type_templates:
+        BTreeMap<bray_symbols::CallableParameterSymbolId, TypeExpressionTemplate>,
 }
 
 pub(super) enum PlanError<Upstream = std::convert::Infallible> {
@@ -149,10 +162,7 @@ where
         types: &'view CheckedExpressionTypes,
         patterns: &'view CheckedPatterns,
         selections: &'view CheckedSemanticSelections,
-        receiver_entry: Option<(
-            bray_symbols::ReceiverParameterSymbolId,
-            Option<(BorrowKind, TypeId)>,
-        )>,
+        callable_entry: DeclaredCallableEntry,
     ) -> Result<Planner<'view, C>, CheckerInfrastructureError> {
         let unit = request.unit().unit();
         let root = request.unit().root().into();
@@ -197,7 +207,8 @@ where
             planned_patterns: BTreeSet::new(),
             alternative_pattern_bindings: BTreeMap::new(),
             result_storage,
-            receiver_entry,
+            receiver_entry: callable_entry.receiver,
+            parameter_type_templates: callable_entry.parameter_types,
         })
     }
 
@@ -310,12 +321,21 @@ where
                 let parameters = parameters.to_vec();
 
                 for parameter in parameters {
+                    let entry = {
+                        let template = self
+                            .parameter_type_templates
+                            .get(&parameter)
+                            .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+
+                        self.entry_storage_from_template(template)?
+                    };
+
                     let target = StorageBindingTarget::Parameter(parameter);
 
                     self.bind_entry(
                         target,
                         StorageIdentity::Parameter(parameter),
-                        self.entry_storage(BoundReferenceTarget::Surface(parameter.into()))?,
+                        entry,
                     )?;
                 }
 
@@ -445,7 +465,36 @@ where
                 .map_err(CheckerInfrastructureError::StoragePlan)?;
         }
 
+        let source = bray_bound_tree::BoundSourceAnchor::new(
+            self.request.unit().key().source().syntax(),
+            self.request.unit().key().source().source_version(),
+        );
+
+        let root_access = if let Some(entry) = entry {
+            let reached_type = entry
+                .borrow
+                .map(|(_, reached_type)| reached_type)
+                .unwrap_or(entry.ty);
+
+            let access = StorageAccess::new(
+                StorageAccessRoot::Storage(storage),
+                [],
+                reached_type,
+                source,
+                false,
+            );
+
+            Some(
+                self.builder_mut()?
+                    .push_access(access)
+                    .map_err(CheckerInfrastructureError::StoragePlan)?,
+            )
+        } else {
+            None
+        };
+
         let Some((kind, reached_type)) = entry.and_then(|entry| entry.borrow) else {
+
             self.builder_mut()?
                 .bind(target, StorageBinding::Identity(storage))
                 .map_err(CheckerInfrastructureError::StoragePlan)?;
@@ -453,23 +502,7 @@ where
             return Ok(());
         };
 
-        let source = bray_bound_tree::BoundSourceAnchor::new(
-            self.request.unit().key().source().syntax(),
-            self.request.unit().key().source().source_version(),
-        );
-
-        let borrowed = StorageAccess::new(
-            StorageAccessRoot::Storage(storage),
-            [],
-            reached_type,
-            source,
-            false,
-        );
-
-        let borrowed = self
-            .builder_mut()?
-            .push_access(borrowed)
-            .map_err(CheckerInfrastructureError::StoragePlan)?;
+        let borrowed = root_access.ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
 
         let capability = PlannedBorrowCapability::new(
             BorrowCapabilityOrigin::Entry(target),
@@ -517,75 +550,53 @@ where
             return Ok(None);
         };
 
-        match template {
-            TypeExpressionTemplate::Resolved(ty) => {
-                let data = self
-                    .request
-                    .semantic_values()
-                    .type_data(*ty)
-                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        self.entry_storage_from_template(template)
+    }
 
-                let borrow = match data.as_ref() {
-                    TypeData::Borrow { kind, target } => Some((*kind, *target)),
-                    _ => None,
-                };
+    fn entry_storage_from_template(
+        &self,
+        template: &TypeExpressionTemplate,
+    ) -> Result<Option<EntryStorage>, PlanError<C::UpstreamError>> {
+        let ty = match template {
+            TypeExpressionTemplate::Resolved(ty) => *ty,
+            _ => {
+                let terms = self.request.checked_constant_terms(template)?;
 
-                Ok(Some(EntryStorage { ty: *ty, borrow }))
-            }
-            TypeExpressionTemplate::Borrow { kind, target } => {
-                let terms = self.request.checked_constant_terms(target)?;
-
-                let reached_type = match resolve_type_expression_template(
+                let Some(ty) = resolve_type_expression_template(
                     self.request.semantic_values(),
-                    target,
+                    template,
                     terms.value(),
-                )? {
-                    Some(ty) => ty,
-                    None => self
-                        .request
-                        .semantic_values()
-                        .intern_type(TypeData::Error)
-                        .map_err(CheckerInfrastructureError::SemanticValueStore)?,
+                )?
+                else {
+                    return Ok(None);
                 };
 
-                let ty = self
-                    .request
-                    .semantic_values()
-                    .intern_type(TypeData::Borrow {
-                        kind: *kind,
-                        target: reached_type,
-                    })
-                    .map_err(CheckerInfrastructureError::SemanticValueStore)?;
-
-                Ok(Some(EntryStorage {
-                    ty,
-                    borrow: Some((*kind, reached_type)),
-                }))
+                ty
             }
-            TypeExpressionTemplate::CallableContract { .. }
-            | TypeExpressionTemplate::Named { .. }
-            | TypeExpressionTemplate::TypeValuedMemberProjection { .. }
-            | TypeExpressionTemplate::Tuple(_)
-            | TypeExpressionTemplate::Array { .. }
-            | TypeExpressionTemplate::FlexibleArray(_)
-            | TypeExpressionTemplate::Slice(_)
-            | TypeExpressionTemplate::Nullable(_)
-            | TypeExpressionTemplate::TraitView(_)
-            | TypeExpressionTemplate::OwnedIndirection { .. }
-            | TypeExpressionTemplate::Callable(_) => Ok(None),
-        }
+        };
+
+        let data = self
+            .request
+            .semantic_values()
+            .type_data(ty)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+        let borrow = match data.as_ref() {
+            TypeData::Borrow { kind, target } => Some((*kind, *target)),
+            _ => None,
+        };
+
+        Ok(Some(EntryStorage { ty, borrow }))
     }
 
     fn install_recovered_local_storage(&mut self) -> Result<(), PlanError<C::UpstreamError>> {
         let root = self.request.unit().root().into();
 
         let bindings = self
-            .request
-            .unit()
-            .local_symbols()
-            .bindings()
+            .patterns
+            .binding_types()
             .iter()
-            .map(|binding| binding.id())
+            .map(|binding| binding.binding())
             .collect::<Vec<_>>();
 
         for binding in bindings {
@@ -690,30 +701,40 @@ where
     }
 }
 
-#[expect(
-    clippy::type_complexity,
-    reason = "the tuple directly represents the receiver identity and optional borrow capability"
-)]
-fn receiver_entry<C>(
+fn declared_callable_entry<C>(
     request: CheckerUnitView<'_, C>,
-) -> Result<
-    Option<(
-        bray_symbols::ReceiverParameterSymbolId,
-        Option<(BorrowKind, TypeId)>,
-    )>,
-    CheckerQueryError<C::UpstreamError>,
->
+) -> Result<DeclaredCallableEntry, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
 {
     let Some(callable) = request.containing_callable() else {
-        return Ok(None);
+        return Ok(DeclaredCallableEntry {
+            parameter_types: BTreeMap::new(),
+            receiver: None,
+        });
     };
 
     let signature = request
         .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(callable))?;
 
-    Ok(signature.value().receiver().map(|receiver| {
+    let parameter_types = signature
+        .value()
+        .parameter_type_templates(request.semantic_values())
+        .map_err(storage_signature_error)?;
+
+    if signature.value().parameters().len() != parameter_types.len() {
+        return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
+    }
+
+    let parameter_types = signature
+        .value()
+        .parameters()
+        .iter()
+        .copied()
+        .zip(parameter_types)
+        .collect();
+
+    let receiver = signature.value().receiver().map(|receiver| {
         let borrow = match receiver.mode() {
             ReceiverMode::Shared => Some((BorrowKind::Shared, receiver.ty())),
             ReceiverMode::Mutable => Some((BorrowKind::Mutable, receiver.ty())),
@@ -721,13 +742,31 @@ where
         };
 
         (receiver.parameter(), borrow)
-    }))
+    });
+
+    Ok(DeclaredCallableEntry {
+        parameter_types,
+        receiver,
+    })
 }
 
 pub(super) fn invalid_node<Upstream>(
     id: impl Into<bray_bound_tree::AnyBoundNodeId>,
 ) -> PlanError<Upstream> {
     CheckerInfrastructureError::InvalidBoundNode { node: id.into() }.into()
+}
+
+fn storage_signature_error(error: CallableSignatureTemplateError) -> CheckerInfrastructureError {
+    match error {
+        CallableSignatureTemplateError::SemanticValue(error) => {
+            CheckerInfrastructureError::SemanticValueStore(error)
+        }
+        CallableSignatureTemplateError::InvalidCallableType
+        | CallableSignatureTemplateError::ParameterCountMismatch
+        | CallableSignatureTemplateError::ParameterIdentityMismatch => {
+            CheckerInfrastructureError::InvalidStoragePlan
+        }
+    }
 }
 
 pub(super) const fn iteration_purpose(

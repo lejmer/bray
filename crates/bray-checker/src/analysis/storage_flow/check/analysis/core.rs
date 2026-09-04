@@ -301,7 +301,11 @@ where
     pub(super) owners: &'analysis StorageScopeOwners,
     pub(super) statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
     pub(super) suspensions: Vec<StorageSuspensionState>,
-    exits: Vec<(bray_bound_tree::BoundBlockId, AnyBoundNodeId, StorageFlowState)>,
+    exits: Vec<(
+        bray_bound_tree::BoundBlockId,
+        AnyBoundNodeId,
+        StorageFlowState,
+    )>,
     exit_indices: BTreeMap<(bray_bound_tree::BoundBlockId, AnyBoundNodeId), usize>,
     pub(super) memory_decisions: BTreeMap<BoundExpressionId, MemoryOperationStatus>,
     pub(super) diagnostics: DiagnosticBag,
@@ -820,7 +824,6 @@ where
                     .is_none_or(|borrow| !ended.contains(&borrow))
             })
         });
-
     }
 
     fn end_scope(&self, state: &mut StorageFlowState, block: bray_bound_tree::BoundBlockId) {

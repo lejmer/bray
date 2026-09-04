@@ -707,8 +707,8 @@ mod tests {
 
         let identity = |ordinal| DiagnosticLoweringIdentity::new(13, ordinal);
 
-        let context = lowering_input_failure_context(
-            bray_diagnostics::DiagnosticLoweringInputFailure::new(
+        let context =
+            lowering_input_failure_context(bray_diagnostics::DiagnosticLoweringInputFailure::new(
                 bray_diagnostics::DiagnosticLoweringInputFailureKind::InvalidPlan {
                     plan: "storage_disposition",
                     cause: "contradictory",
@@ -716,6 +716,7 @@ mod tests {
                     scope: Some(identity(19)),
                     exit: Some(identity(23)),
                     storage: Some(identity(29)),
+                    access: Some(identity(31)),
                 },
                 bray_source::SourceSpan::new(
                     bray_source::SourceId::new(2),
@@ -724,8 +725,7 @@ mod tests {
                         bray_source::TextSize::new(4),
                     ),
                 ),
-            ),
-        );
+            ));
 
         let context = serde_json::to_value(context)
             .unwrap_or_else(|error| panic!("verified-plan context should serialize: {error:?}"));
@@ -748,6 +748,7 @@ mod tests {
                 "scope",
                 "exit",
                 "storage",
+                "storage_access",
             ]
         );
 
@@ -756,6 +757,7 @@ mod tests {
         assert_eq!(context[5]["value"]["value"], 19);
         assert_eq!(context[6]["value"]["value"], 23);
         assert_eq!(context[7]["value"]["value"], 29);
+        assert_eq!(context[8]["value"]["value"], 31);
     }
 
     #[test]

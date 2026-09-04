@@ -162,6 +162,8 @@ pub enum AsyncStorageExitDisposition {
 /// The exact missing analysis that prevented one storage disposition.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum AsyncStorageExitRecoveryCause {
+    /// Storage planning did not publish the identity's root access.
+    UnavailableRootAccess,
     /// Recovery prevented the checker from deciding the cleanup shape.
     UnavailableCleanupShape,
 }
@@ -324,17 +326,14 @@ impl CheckedAsync {
             || scope_exits.iter().any(|exit| {
                 exit.scope().unit() != unit
                     || exit.exit().unit() != unit
-                    || exit
-                        .storage()
-                        .iter()
-                        .any(|decision| {
-                            decision.identity().unit() != unit
-                                || matches!(
-                                    decision.disposition(),
-                                    AsyncStorageExitDisposition::Cleanup { access, .. }
-                                        if access.unit() != unit
-                                )
-                        })
+                    || exit.storage().iter().any(|decision| {
+                        decision.identity().unit() != unit
+                            || matches!(
+                                decision.disposition(),
+                                AsyncStorageExitDisposition::Cleanup { access, .. }
+                                    if access.unit() != unit
+                            )
+                    })
                     || exit
                         .cancellation_broadcast()
                         .iter()

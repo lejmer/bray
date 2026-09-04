@@ -219,9 +219,13 @@ Each storage disposition is retained by an outer scope, transferred by the exit,
 to explicit cancellation and lifecycle phases. The order is the reverse of the storage-flow initialization order.
 
 Before lowering, the compilation boundary verifies that every lowering-reachable suspension, task operation, scope
-exit, storage disposition, cleanup phase, dependency, and runtime role is complete and internally consistent. Partial
-recovery records remain available to checking and diagnostics but cannot satisfy this boundary. Lowering consumes the
-verified plan directly and does not rediscover live tasks from syntax or type recursion.
+exit, storage disposition, cleanup phase, and dependency is complete and internally consistent. Partial recovery
+records remain available to checking and diagnostics but cannot satisfy this boundary. Lowering consumes the verified
+plan directly and does not rediscover live tasks from syntax or type recursion.
+
+Lowering writes each required runtime role explicitly into MIR. Once MIR is complete, its operation kinds derive the
+exact generated-helper set and the runtime roles that realize those helpers. Code generation accepts only exact helper
+mappings and exact coverage of all demanded runtime references by selected runtime symbols.
 
 ---
 

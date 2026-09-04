@@ -220,8 +220,8 @@ For a source-backed unit, the input must borrow:
 - liveness and refinement lowering inputs,
 - ownership, movement, and borrowing decisions,
 - dependency contracts,
-- one verified plan set for frame dependencies, suspensions, task operations, scope exits, storage dispositions,
-  cleanup phases, and runtime roles,
+- one verified plan set for frame dependencies, suspensions, task operations, scope exits, storage dispositions, and
+  cleanup phases,
 - body behavior and lifecycle obligations,
 - target-available compiler-known identities,
 - selected MIR unit and target properties.
@@ -235,6 +235,11 @@ verification requires every expected suspension, task operation, and scope exit 
 identity at an exit has one ordered disposition: retained by an outer scope, transferred by the exit, moved, requiring
 no cleanup, or requiring explicit cancellation and lifecycle phases. Recovered, missing, duplicated, foreign,
 contradictory, or out-of-order entries cannot produce a lowering input.
+
+Runtime references are explicit in the MIR operations and terminators that require them. Their ABI version comes from
+the target already validated for the lowering request. Generated helper identities depend on the final MIR operation
+shape, so validated MIR derives the complete helper and runtime-reference demand set exhaustively. Code generation
+accepts that set only when operation-helper mappings and selected runtime symbols cover it exactly.
 
 The input contract should remain explicit. It must not be replaced with a generic lowering input map, an untyped bag, or
 a universal checked unit object.

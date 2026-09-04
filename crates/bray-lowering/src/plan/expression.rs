@@ -2,18 +2,18 @@ use std::collections::BTreeMap;
 
 use bray_bound_tree::{
     AsyncSuspensionKind, AsyncTaskOperationKind, BoundExpression, BoundExpressionId, BoundUnit,
-    CheckedAsync, CheckedDependencyContracts, CheckedSemanticSelections, SemanticSelection,
-    StoragePlan,
+    CheckedAsync, CheckedDependencyContracts, CheckedSemanticSelections, Liveness,
+    SemanticSelection, StoragePlan,
 };
 use bray_compiler_known::ImplementationHook;
 use bray_symbols::AvailableCompilerKnownSymbols;
 
-use super::verify::dependency_subject_exists;
 use super::{LoweringPlanFailure, LoweringPlanFailureCause, LoweringPlanKind};
 
 pub(super) fn verify_suspensions(
     unit: &BoundUnit,
     storage: &StoragePlan,
+    liveness: &Liveness,
     dependencies: &CheckedDependencyContracts,
     selections: &CheckedSemanticSelections,
     symbols: &AvailableCompilerKnownSymbols,
@@ -72,14 +72,18 @@ pub(super) fn verify_suspensions(
             ));
         }
 
+        let expected_retained = liveness.retained_suspension_subjects(
+            dependencies,
+            storage,
+            expression,
+            suspension.dependency_contract(),
+        );
+
         if suspension.kind() != kind
             || suspension
                 .dependency_contract()
                 .is_some_and(|contract| dependencies.contract(contract).is_none())
-            || !suspension
-                .retained_subjects()
-                .iter()
-                .all(|subject| dependency_subject_exists(unit, storage, *subject))
+            || suspension.retained_subjects() != expected_retained
         {
             return Err(LoweringPlanFailure::for_expression(
                 LoweringPlanKind::Suspension,

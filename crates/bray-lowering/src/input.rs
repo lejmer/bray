@@ -1,12 +1,9 @@
-// rust-style: allow(module-too-large, reason = "lowering inputs and their cross-input validation form one cohesive boundary contract")
-
 use bray_bound_tree::{
     BoundBlockId, BoundExpression, BoundExpressionId, BoundReferenceTarget,
     BoundStructuredExpressionKind, BoundUnit, BoundUnitId, BoundUnitKind, CheckedBodyBehavior,
-    CheckedControlFlow, CheckedDependencyContracts, CheckedExpressionTypes,
-    CheckedLiteralValues, CheckedPatterns, CheckedRefinements, CheckedSemanticSelections, Liveness,
-    RefinementKind, StorageAccessPlan, StorageAccessPurpose, StorageFlow, StorageOperationDecision,
-    StoragePlan,
+    CheckedControlFlow, CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues,
+    CheckedPatterns, CheckedRefinements, CheckedSemanticSelections, Liveness, RefinementKind,
+    StorageAccessPlan, StorageAccessPurpose, StorageFlow, StorageOperationDecision, StoragePlan,
 };
 use bray_ir::{MirTargetContract, MirUnitBuilder, MirUnitKind};
 use bray_symbols::{
@@ -30,7 +27,6 @@ pub struct LoweringInput<'unit> {
     expression_types: &'unit CheckedExpressionTypes,
     patterns: &'unit CheckedPatterns,
     literal_values: &'unit CheckedLiteralValues,
-    liveness: &'unit Liveness,
     refinements: &'unit CheckedRefinements,
     lowering_plans: VerifiedLoweringPlans<'unit>,
     body_behavior: &'unit CheckedBodyBehavior,
@@ -54,7 +50,6 @@ impl<'unit> LoweringInput<'unit> {
         expression_types: &'unit CheckedExpressionTypes,
         patterns: &'unit CheckedPatterns,
         literal_values: &'unit CheckedLiteralValues,
-        liveness: &'unit Liveness,
         refinements: &'unit CheckedRefinements,
         lowering_plans: VerifiedLoweringPlans<'unit>,
         body_behavior: &'unit CheckedBodyBehavior,
@@ -96,13 +91,6 @@ impl<'unit> LoweringInput<'unit> {
 
         validate_input_owner(
             unit,
-            liveness.unit(),
-            liveness.kind(),
-            LoweringInputKind::Liveness,
-        )?;
-
-        validate_input_owner(
-            unit,
             refinements.unit(),
             refinements.kind(),
             LoweringInputKind::Refinements,
@@ -128,6 +116,7 @@ impl<'unit> LoweringInput<'unit> {
         let semantic_selections = lowering_plans.semantic_selections();
         let storage_plan = lowering_plans.storage_plan();
         let storage_flow = lowering_plans.storage_flow();
+        let liveness = lowering_plans.liveness();
 
         validate_semantic_completeness(unit, expression_types, semantic_selections, storage_plan)?;
 
@@ -136,12 +125,6 @@ impl<'unit> LoweringInput<'unit> {
         validate_liveness(unit, storage_plan, liveness)?;
         validate_refinements(unit, storage_plan, refinements)?;
         validate_storage_analysis(unit, storage_plan, storage_flow)?;
-
-        if lowering_plans.runtime_abi() != target.runtime_abi() {
-            return Err(LoweringInputError::InvalidInputContents(
-                LoweringInputKind::LoweringPlans,
-            ));
-        }
 
         if matches!(unit_kind, MirUnitKind::ExecutableHost(_)) {
             return Err(LoweringInputError::ExecutableHostRequiresSyntheticInput);
@@ -153,7 +136,6 @@ impl<'unit> LoweringInput<'unit> {
             expression_types,
             patterns,
             literal_values,
-            liveness,
             refinements,
             lowering_plans,
             body_behavior,
@@ -203,7 +185,7 @@ impl<'unit> LoweringInput<'unit> {
 
     /// Returns durable last-use and lexical lifetime decisions.
     pub const fn liveness(&self) -> &'unit Liveness {
-        self.liveness
+        self.lowering_plans.liveness()
     }
 
     /// Returns flow-sensitive analysis available at checked operation occurrences.
@@ -336,8 +318,6 @@ pub enum LoweringInputKind {
     LiteralValues,
     /// Closed values reached through source constant references.
     ConstantReferences,
-    /// Last-use and lexical lifetime decisions.
-    Liveness,
     /// Flow-sensitive semantic refinements.
     Refinements,
     /// Verified async, task, cleanup, and runtime lowering plans.
@@ -589,7 +569,7 @@ fn validate_liveness(
 
     if !valid_last_uses || !valid_scopes || !valid_suspensions {
         return Err(LoweringInputError::InvalidInputContents(
-            LoweringInputKind::Liveness,
+            LoweringInputKind::LoweringPlans,
         ));
     }
 
@@ -836,9 +816,7 @@ mod tests {
     };
 
     use super::{LoweringInput, LoweringInputError, LoweringInputKind, validate_literal_values};
-    use crate::{
-        LoweringPlanFailureCause, LoweringPlanKind, VerifiedLoweringPlans,
-    };
+    use crate::{LoweringPlanFailureCause, LoweringPlanKind, VerifiedLoweringPlans};
 
     #[test]
     fn input_borrows_the_canonical_unit_and_matching_side_analysis() {
@@ -987,12 +965,12 @@ mod tests {
         let foreign_plans = VerifiedLoweringPlans::try_new(
             &foreign_unit,
             &foreign.storage,
+            &foreign.liveness,
             &foreign.storage_flow,
             &foreign.dependencies,
             &foreign.selections,
             available_compiler_known_symbols(),
             &foreign.async_analysis,
-            target.runtime_abi(),
         )
         .unwrap_or_else(|error| panic!("foreign lowering plans must verify: {error:?}"));
 
@@ -1006,7 +984,6 @@ mod tests {
                 &local.types,
                 &local.patterns,
                 &local.literals,
-                &local.liveness,
                 &local.refinements,
                 foreign_plans,
                 &local.behavior,
@@ -1170,7 +1147,7 @@ mod tests {
 
         assert_input_error(
             lowering_input(&unit, &control_flow, analysis),
-            LoweringInputError::InvalidInputContents(LoweringInputKind::Liveness),
+            LoweringInputError::InvalidInputContents(LoweringInputKind::LoweringPlans),
         );
     }
 
@@ -1257,17 +1234,18 @@ mod tests {
         let flow = StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
             .unwrap_or_else(|error| panic!("empty storage flow must build: {error:?}"));
 
-        let target = test_mir_target();
+        let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
+            .unwrap_or_else(|error| panic!("empty liveness must build: {error:?}"));
 
         let result = VerifiedLoweringPlans::try_new(
             &unit,
             &storage,
+            &liveness,
             &flow,
             &dependencies,
             &selections,
             available_compiler_known_symbols(),
             &async_analysis,
-            target.runtime_abi(),
         );
 
         let Err(error) = result else {
@@ -1373,18 +1351,19 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("empty dependencies must build: {error:?}"));
 
-        let target = test_mir_target();
+        let liveness = Liveness::try_new(unit.unit(), kind, [], [], [], [], false)
+            .unwrap_or_else(|error| panic!("empty liveness must build: {error:?}"));
 
         assert!(
             VerifiedLoweringPlans::try_new(
                 &unit,
                 &storage,
+                &liveness,
                 &storage_flow,
                 &dependencies,
                 &selections,
                 available_compiler_known_symbols(),
                 &matching,
-                target.runtime_abi(),
             )
             .is_ok()
         );
@@ -1392,12 +1371,12 @@ mod tests {
         let Err(error) = VerifiedLoweringPlans::try_new(
             &unit,
             &storage,
+            &liveness,
             &storage_flow,
             &dependencies,
             &selections,
             available_compiler_known_symbols(),
             &mismatched,
-            target.runtime_abi(),
         ) else {
             panic!("mismatched scope exit must fail plan verification");
         };
@@ -1756,12 +1735,12 @@ mod tests {
         let lowering_plans = VerifiedLoweringPlans::try_new(
             unit,
             analysis.storage,
+            analysis.liveness,
             analysis.storage_flow,
             analysis.dependencies,
             analysis.selections,
             available_compiler_known_symbols(),
             analysis.async_analysis,
-            target.runtime_abi(),
         )?;
 
         LoweringInput::try_new(
@@ -1770,7 +1749,6 @@ mod tests {
             analysis.types,
             analysis.patterns,
             analysis.literals,
-            analysis.liveness,
             analysis.refinements,
             lowering_plans,
             analysis.behavior,

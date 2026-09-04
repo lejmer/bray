@@ -377,10 +377,7 @@ impl Lowerer<'_> {
         scope: BoundBlockId,
         exit: AnyBoundNodeId,
     ) -> Result<bool, LoweringError> {
-        Ok(self
-            .input
-            .lowering_plans()
-            .scope_has_cleanup(scope, exit))
+        Ok(self.input.lowering_plans().scope_has_cleanup(scope, exit))
     }
 
     fn push_cleanup_operations(
