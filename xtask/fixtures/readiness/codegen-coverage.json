@@ -115,6 +115,14 @@
       }
     },
     {
+      "name": "NullableQuery",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
+        "symbol": "MirOperationKind::NullableQuery"
+      }
+    },
+    {
       "name": "PatternProjection",
       "disposition": "translated",
       "production": {
