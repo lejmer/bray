@@ -7,23 +7,24 @@ See [Repository tasks](xtask.md) for the complete development-command reference.
 
 Use [Compiler profiling](profiling.md) to diagnose compiler performance and compare compilation runs.
 
-## Native product tests
+## Testing Bray programs
 
-Use `bray test` for the normal native product test workflow. The command builds every selected test product, publishes
-its native host and catalog as one managed generation, and runs the selected entries:
+Use `bray test` to compile and run tests written in Bray. This workflow matters when developing the compiler because it
+exercises the complete path from Bray source to a runnable test executable. The command builds every selected Bray test
+target, records its executable and catalog as one retained generation, and runs the selected entries:
 
 ```text
 bray test [selection options]
 ```
 
-Use the same selection with `--no-build` when the test products have already been built and the purpose of the rerun is
-to exercise execution without compilation, emission, or linking:
+Use the same selection with `--no-build` when the Bray test targets have already been built. This reruns them without
+compilation, emission, or linking:
 
 ```text
 bray test --no-build [selection options]
 ```
 
-A no-build rerun succeeds only when every selected product has a current retained generation whose source, project,
+A no-build rerun succeeds only when every selected test target has a current retained generation whose source, project,
 compiler, toolchain, standard-library, runtime, and protocol identities still match. A mismatch identifies the stale
 identity category and requires a normal `bray test` invocation to publish a matching generation. JSON reports identify
 the retained generations and state whether compilation, emission, or linking occurred during the command.
