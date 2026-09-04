@@ -390,29 +390,31 @@ fn resolved_tool_path_from_selection(
         selected.clone()
     };
 
-    let selected_path = if executable.is_absolute() {
-        executable.clone()
-    } else {
-        working_directory.join(&executable)
-    };
+    if executable.is_absolute() || selected.components().count() > 1 {
+        let selected_path = if executable.is_absolute() {
+            executable
+        } else {
+            working_directory.join(executable)
+        };
 
-    if selected_path.is_file() {
+        if !selected_path.is_file() {
+            return Err(ToolIdentityError {
+                path: selected,
+                error: std::io::ErrorKind::NotFound.into(),
+            });
+        }
+
         return std::fs::canonicalize(&selected_path).map_err(|error| ToolIdentityError {
             path: selected,
             error,
         });
     }
 
-    if selected.components().count() > 1 {
-        return Err(ToolIdentityError {
-            path: selected,
-            error: std::io::ErrorKind::NotFound.into(),
-        });
-    }
-
     let file_name = executable;
 
-    let resolved = std::env::split_paths(search)
+    let current_directory = cfg!(windows).then(|| working_directory.join(&file_name));
+
+    let resolved = current_directory.into_iter().chain(std::env::split_paths(search)
         .map(|directory| {
             let directory = if directory.is_absolute() {
                 directory
@@ -421,8 +423,8 @@ fn resolved_tool_path_from_selection(
             };
 
             directory.join(&file_name)
-        })
-        .find(|candidate| candidate.is_file());
+        }))
+        .find(|candidate| is_executable_file(candidate));
 
     let Some(resolved) = resolved else {
         return Err(ToolIdentityError {
@@ -435,6 +437,28 @@ fn resolved_tool_path_from_selection(
         path: resolved,
         error,
     })
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+
+    if !metadata.is_file() {
+        return false;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        metadata.permissions().mode() & 0o111 != 0
+    }
+
+    #[cfg(not(unix))]
+    {
+        true
+    }
 }
 
 fn executable_file_name(name: &str) -> OsString {
@@ -496,5 +520,96 @@ mod tests {
             .unwrap_or_else(|error| panic!("compiler fixture should canonicalize: {error}"));
 
         assert_eq!(resolved, expected);
+    }
+
+    #[test]
+    fn bare_tool_name_uses_the_host_search_order() {
+        let workspace = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary workspace should exist: {error}"));
+
+        let search = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary search directory should exist: {error}"));
+
+        let file_name = executable_file_name("brayc");
+        let workspace_compiler = workspace.path().join(&file_name);
+        let search_compiler = search.path().join(&file_name);
+
+        std::fs::write(&workspace_compiler, b"workspace compiler")
+            .unwrap_or_else(|error| panic!("workspace compiler fixture should exist: {error}"));
+
+        std::fs::write(&search_compiler, b"search compiler")
+            .unwrap_or_else(|error| panic!("search compiler fixture should exist: {error}"));
+
+        make_executable(&workspace_compiler);
+        make_executable(&search_compiler);
+
+        let resolved = resolved_tool_path_from_selection(
+            PathBuf::from("brayc"),
+            search.path().as_os_str(),
+            workspace.path(),
+        )
+        .unwrap_or_else(|error| panic!("bare compiler name should resolve: {error:?}"));
+
+        let selected = if cfg!(windows) {
+            workspace_compiler
+        } else {
+            search_compiler
+        };
+
+        let expected = std::fs::canonicalize(selected)
+            .unwrap_or_else(|error| panic!("compiler fixture should canonicalize: {error}"));
+
+        assert_eq!(resolved, expected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bare_tool_name_skips_nonexecutable_search_candidates() {
+        let first = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("first search directory should exist: {error}"));
+
+        let second = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("second search directory should exist: {error}"));
+
+        let first_compiler = first.path().join("brayc");
+        let second_compiler = second.path().join("brayc");
+
+        std::fs::write(&first_compiler, b"nonexecutable compiler")
+            .unwrap_or_else(|error| panic!("first compiler fixture should exist: {error}"));
+
+        std::fs::write(&second_compiler, b"executable compiler")
+            .unwrap_or_else(|error| panic!("second compiler fixture should exist: {error}"));
+
+        make_executable(&second_compiler);
+
+        let search = std::env::join_paths([first.path(), second.path()])
+            .unwrap_or_else(|error| panic!("search path should join: {error}"));
+
+        let resolved = resolved_tool_path_from_selection(
+            PathBuf::from("brayc"),
+            &search,
+            Path::new("workspace"),
+        )
+        .unwrap_or_else(|error| panic!("executable compiler should resolve: {error:?}"));
+
+        let expected = std::fs::canonicalize(second_compiler)
+            .unwrap_or_else(|error| panic!("compiler fixture should canonicalize: {error}"));
+
+        assert_eq!(resolved, expected);
+    }
+
+    fn make_executable(path: &Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let permissions = std::fs::Permissions::from_mode(0o755);
+
+            std::fs::set_permissions(path, permissions)
+                .unwrap_or_else(|error| panic!("compiler fixture should be executable: {error}"));
+        }
+
+        #[cfg(not(unix))]
+        let _ = path;
     }
 }
