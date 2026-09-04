@@ -7,4 +7,5 @@ pub(super) use operations::{
     observation_with_status, prepare_thread_attachment,
 };
 pub(crate) use operations::{control, register_thread_static, thread_attachment_identity};
+pub(in crate::product) use model::initialize_thread_static_registry;
 pub(crate) use thread::drain_product_thread_statics;

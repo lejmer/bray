@@ -1272,6 +1272,49 @@ impl DiagnosticKind {
                 &[ArtifactKind, ArtifactOrdinal],
                 primary_components!(&[ArtifactKind, ArtifactOrdinal]),
             ),
+            Self::RetainedGenerationInvalid => Self::quality_artifact(
+                &[
+                    FilePath,
+                    crate::DiagnosticArgName::RetainedGenerationProblem,
+                ],
+                primary_components!(&[
+                    FilePath,
+                    crate::DiagnosticArgName::RetainedGenerationProblem
+                ]),
+            ),
+            Self::RetainedArtifactLengthMismatch => Self::quality_artifact(
+                &[FilePath, ExpectedByteCount, ActualByteCount],
+                primary_components!(&[FilePath, ExpectedByteCount, ActualByteCount]),
+            ),
+            Self::RetainedArtifactDigestMismatch => Self::quality_artifact(
+                &[FilePath, ExpectedArtifactDigest, ActualArtifactDigest],
+                primary_components!(&[FilePath, ExpectedArtifactDigest, ActualArtifactDigest]),
+            ),
+            Self::BuildStorageMetadataInvalid => Self::quality_artifact(
+                &[FilePath, DocumentParseKind],
+                primary_components!(&[FilePath, DocumentParseKind]),
+            ),
+            Self::BuildStorageRevisionMismatch => Self::quality_artifact(
+                &[FilePath, ExpectedRevision, ActualRevision],
+                primary_components!(&[FilePath, ExpectedRevision, ActualRevision]),
+            ),
+            Self::BuildStorageIoFailed => Self::quality_artifact(
+                &[
+                    FilePath,
+                    crate::DiagnosticArgName::StorageOperation,
+                    IoErrorKind,
+                ],
+                primary_components!(&[
+                    FilePath,
+                    crate::DiagnosticArgName::StorageOperation,
+                    IoErrorKind
+                ]),
+            ),
+            Self::BuildStorageUnsafePath
+            | Self::RetainedBuildStateUnavailable
+            | Self::BuildStorageCancelled => {
+                Self::quality_artifact(&[FilePath], primary_components!(&[FilePath]))
+            }
             Self::EmissionLinkedPlanMissing => Self::quality_artifact(
                 &[ActualProductIdentity, TargetTriple],
                 compiler_defect_components!(&[ActualProductIdentity, TargetTriple]),

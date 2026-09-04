@@ -66,6 +66,10 @@ pub(super) fn audit(
         ));
     }
 
+    let first_path = first.executable.path().to_owned();
+
+    drop(first);
+
     let repeated = emit_fixture(root, &output, toolchain, runtime, target, &fixture)?;
     let repeated_hits = profile_metric(&repeated.profile, "compiler.optimization.cache_hits");
     let repeated_misses = profile_metric(&repeated.profile, "compiler.optimization.cache_misses");
@@ -74,7 +78,7 @@ pub(super) fn audit(
     let repeated_reuse =
         profile_metric(&repeated.profile, "compiler.optimization.reused_partitions");
 
-    if repeated.executable != first.executable
+    if repeated.executable.path() != first_path
         || repeated_hits == 0
         || repeated_reuse != repeated_hits
         || repeated_misses != 0
@@ -84,12 +88,12 @@ pub(super) fn audit(
             "foreign interoperability",
             format!(
                 "the repeated native link did not reuse every optimized partition: executable_match={}, cache_hits={repeated_hits}, reused_partitions={repeated_reuse}, cache_misses={repeated_misses}, cache_writes={repeated_writes}",
-                repeated.executable == first.executable,
+                repeated.executable.path() == first_path,
             ),
         ));
     }
 
-    let mut command = Command::new(&first.executable);
+    let mut command = Command::new(repeated.executable.path());
 
     command.current_dir(&output);
 
@@ -407,8 +411,11 @@ fn emit_fixture(
     )
     .map_err(|error| BuildError::conformance("foreign interoperability", error))?;
 
+    let destination = crate::native_product::managed_destination(&native_output)
+        .map_err(|error| BuildError::conformance("foreign interoperability", error))?;
+
     let executable =
-        super::artifact::resolve_executable(&native_output, &product, "foreign interoperability")?;
+        super::artifact::resolve_executable(destination, &product, "foreign interoperability")?;
 
     let profile = compilation.profile_report().ok_or_else(|| {
         BuildError::conformance(
@@ -520,7 +527,7 @@ struct NativeFixture {
 }
 
 struct EmittedFixture {
-    executable: PathBuf,
+    executable: bray_emitter::PublishedArtifact,
     profile: CompilationProfileReport,
 }
 

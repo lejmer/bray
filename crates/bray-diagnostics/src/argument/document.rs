@@ -53,3 +53,14 @@ impl DiagnosticDocumentParseKind {
         }
     }
 }
+
+impl From<serde_json::error::Category> for DiagnosticDocumentParseKind {
+    fn from(category: serde_json::error::Category) -> Self {
+        match category {
+            serde_json::error::Category::Io => Self::Input,
+            serde_json::error::Category::Syntax => Self::Syntax,
+            serde_json::error::Category::Data => Self::Schema,
+            serde_json::error::Category::Eof => Self::UnexpectedEnd,
+        }
+    }
+}

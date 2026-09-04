@@ -1,4 +1,5 @@
 mod buffer;
+mod built_fixture;
 mod core;
 mod fixtures;
 mod hello;

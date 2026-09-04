@@ -10,5 +10,7 @@ bray-runtime-abi = { path = "../bray-runtime-abi" }
 bray-source = { path = "../bray-source" }
 bray-syntax = { path = "../bray-syntax" }
 
+serde_json = "1"
+
 [lints]
 workspace = true

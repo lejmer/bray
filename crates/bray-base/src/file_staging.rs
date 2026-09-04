@@ -2,9 +2,14 @@ use std::fs::Permissions;
 use std::io::{self, Write};
 use std::path::Path;
 
-use tempfile::{Builder, NamedTempFile, PathPersistError, TempPath};
+use tempfile::{Builder, NamedTempFile, TempPath};
 
 const STAGING_FILE_PREFIX: &str = ".bray-stage-";
+
+/// Returns whether a filename belongs to [`StagedFile`] private storage.
+pub fn is_staged_file_name(name: &str) -> bool {
+    name.starts_with(STAGING_FILE_PREFIX)
+}
 
 /// Publication behavior for a staged filesystem file.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -141,24 +146,9 @@ fn promote_exclusive(path: TempPath, destination: &Path) -> io::Result<()> {
 }
 
 fn promote_replacing(path: TempPath, destination: &Path) -> io::Result<()> {
-    let mut pending = Some(path);
+    let result = crate::retry_permission_denied(|| std::fs::rename(&path, destination));
 
-    let result = crate::retry_permission_denied(|| {
-        let Some(path) = pending.take() else {
-            return Err(io::Error::from(io::ErrorKind::NotFound));
-        };
-
-        match path.persist(destination) {
-            Ok(()) => Ok(()),
-            Err(PathPersistError { error, path }) => {
-                pending = Some(path);
-
-                Err(error)
-            }
-        }
-    });
-
-    drop(pending);
+    drop(path);
 
     result
 }
@@ -278,6 +268,48 @@ mod tests {
         }
 
         assert_eq!(file_bytes(&destination), b"published");
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn promotions_support_windows_paths_beyond_the_legacy_limit() {
+        let Ok(directory) = tempfile::tempdir() else {
+            panic!("test output directory must be created");
+        };
+
+        let staging_directory = directory
+            .path()
+            .join("private")
+            .join("a".repeat(120))
+            .join("b".repeat(120));
+
+        std::fs::create_dir_all(&staging_directory)
+            .unwrap_or_else(|error| panic!("long staging directory must be created: {error}"));
+
+        assert!(staging_directory.as_os_str().len() > 260);
+
+        for (name, replacement) in [
+            ("exclusive", FileReplacementMode::RequireAbsent),
+            ("replacing", FileReplacementMode::ReplaceExisting),
+        ] {
+            let destination = directory.path().join(name);
+
+            if replacement == FileReplacementMode::ReplaceExisting {
+                write(&destination, b"existing");
+            }
+
+            let mut staging =
+                StagedFile::create_in(&staging_directory, &destination, replacement, None)
+                    .unwrap_or_else(|error| panic!("long staging file must be created: {error}"));
+
+            write_staging(&mut staging, b"published");
+
+            finish(staging)
+                .promote(&destination)
+                .unwrap_or_else(|error| panic!("long staging file must be promoted: {error}"));
+
+            assert_eq!(file_bytes(&destination), b"published");
+        }
     }
 
     #[test]

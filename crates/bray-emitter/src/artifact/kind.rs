@@ -6,7 +6,10 @@ use bray_target::TargetOutputKind;
 use crate::{DependencyMetadataProducerId, LinkerProducerId};
 
 /// External or staging artifact categories understood by emission policy.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(
+    Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, serde::Deserialize, serde::Serialize,
+)]
+#[serde(rename_all = "snake_case")]
 pub enum ArtifactKind {
     /// Human-readable target assembly.
     Assembly,

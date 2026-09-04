@@ -10,7 +10,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     pop(&mut buffer);
 
-    let values: &[u8] = as_slice(&buffer);
+    let values: &[u8] = buffer.as_slice();
 
     assert(length(&buffer) == 2);
     assert(values[0] == 1);

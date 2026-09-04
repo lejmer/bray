@@ -6,9 +6,9 @@ use super::failure::{
     DiagnosticEmissionFieldJson, DiagnosticEmissionFieldValueJson, artifact_field, count_field,
     count_u64_field, digest_field, field, text_field,
 };
-use super::{checker_failure_context, lowering_failure_context, lowering_input_failure_context};
 use super::foreign_query::foreign_query_failure_context;
 use super::product_query::product_query_failure_context;
+use super::{checker_failure_context, lowering_failure_context, lowering_input_failure_context};
 
 pub(super) fn planning_failure_context(
     failure: &bray_diagnostics::DiagnosticEmissionPlanningFailure,
@@ -116,9 +116,7 @@ pub(super) fn package_interface_failure_context(
     use bray_diagnostics::DiagnosticPackageInterfaceFailure as Failure;
 
     match failure {
-        Failure::InvalidCompilationCause { context, .. } => {
-            diagnostic_failure_context(context)
-        }
+        Failure::InvalidCompilationCause { context, .. } => diagnostic_failure_context(context),
         Failure::SemanticValueStoreCreate => Vec::new(),
         Failure::SemanticValue(failure) => semantic_value_failure_context(*failure),
         Failure::RecoveredPublicSymbol(kind)
@@ -230,9 +228,7 @@ pub(super) fn evaluation_failure_context(
 
             context
         }
-        Failure::SemanticValue(failure) => {
-            semantic_value_failure_context(*failure)
-        }
+        Failure::SemanticValue(failure) => semantic_value_failure_context(*failure),
         Failure::Checker(failure) => checker_failure_context(*failure),
         Failure::Binding(failure) => match failure.semantic_value_failure() {
             Some(failure) => semantic_value_failure_context(failure),
@@ -515,8 +511,7 @@ pub(super) fn staging_failure_context(
         | Failure::InvalidContribution(artifact)
         | Failure::UnexpectedContribution(artifact)
         | Failure::UnsupportedOutput(artifact)
-        | Failure::InvalidPath(artifact)
-        | Failure::InvalidContent(artifact) => vec![artifact_field("artifact", *artifact)],
+        | Failure::InvalidPath(artifact) => vec![artifact_field("artifact", *artifact)],
         Failure::Incomplete => Vec::new(),
     }
 }
@@ -613,11 +608,11 @@ mod tests {
         DiagnosticPackageInterfaceFailure, DiagnosticSemanticValueFailure,
     };
 
+    use super::super::lowering_input_failure_context;
     use super::{
         diagnostic_failure_context, package_interface_failure_context,
         semantic_value_failure_context,
     };
-    use super::super::lowering_input_failure_context;
 
     fn package(name: &str) -> DiagnosticInterfaceSymbolIdentity {
         DiagnosticInterfaceSymbolIdentity::Package(name.to_owned())

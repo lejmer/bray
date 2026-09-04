@@ -17,7 +17,8 @@ feature, and dependency selections are therefore explicit and deterministic befo
   process. `--package <identity>` supplies the package identity explicitly. Otherwise, Bray Tack uses the directory
   name when it is a valid package identity.
 - `bray check` requests diagnostics for selected manifest products. Required dependency interfaces are produced through
-  `brayc` and retained in a deterministic workspace cache. Check does not publish product build outputs.
+  `brayc` and retained in owned operation storage until that command finishes. Check does not publish product build
+  outputs.
 - `bray build` traverses selected products and their declared dependency products in dependency order, then emits only
   the artifact categories selected by each manifest.
 - `bray run` selects exactly one executable product and target, builds it, and runs the published executable with the
@@ -26,6 +27,9 @@ feature, and dependency selections are therefore explicit and deterministic befo
   test hosts. Bray Tack owns cross-product filtering, resource budgets, scheduling, cancellation, and report
   aggregation. Each generated host owns entry invocation, per-test capture, timeout delivery, and cleanup completion
   through the shared [testing protocol](testing.md).
+- `bray storage` reports managed build storage, including retained products, active operations, shared content, and
+  optional caches.
+- `bray clean` removes selected managed state. `--dry-run` reports the same selection without removing files.
 - `bray fmt` resolves the selected formatter configuration and routes explicit files, standard input (`-`), or the
   sorted root-package source graph to `brayfmt`.
 - `bray inspect project` renders the immutable graph. Other inspection kinds select exactly one manifest product and
@@ -65,6 +69,55 @@ Structured build results report every complete stable artifact path directly. Pr
 stable product path as one field, while retaining the filename and directory fields used by terminal presentation. Run
 and test hold the product's shared publication lock for the lifetime of native execution so a concurrent build cannot
 expose a mixed companion set.
+
+## Build storage
+
+Bray applies retention automatically without project configuration. Each output root retains the current and previous
+distinct generation of a product. Publishing identical content again does not replace the previous distinct generation.
+Other history and abandoned staging become eligible for cleanup after their readers and writers release ownership.
+
+Product entries expire after 30 days without publication or a retained read. Expiration removes both their retained
+generations and stable public outputs. Distinct target and profile output directories retain their own product entries.
+Optional ThinLTO caches expire after seven days without use and have a combined default budget of 2 GiB per output root.
+Budget pressure evicts the least recently used eligible caches first. Cache eviction changes compilation cost without
+changing semantic results or artifact identities.
+
+Storage operations reconcile and reclaim at most 16 indexed entries per routine pass in a rotating deterministic order.
+Cache pressure can retire at most 16 additional entries. An entry's file traversal checks cancellation throughout. A
+large entry can take longer than smaller entries, and active builds can temporarily exceed the optional-cache budget.
+Subsequent operations resume interrupted cleanup and reclaim abandoned operation storage. Fixed coordination metadata
+remains after all products and caches have been cleaned.
+
+`bray storage` and `bray clean` accept `--product <package/product>`, `--target <workspace-name-or-identity>`,
+`--build-profile <profile>`, `--toolchain-revision <revision>`, and `--kind products|caches|intermediates`. Omitting
+filters selects all managed state under the workspace output root, including entries no longer present in the workspace
+graph. Normal build profiles are `debug` and `release`. Semantic check intermediates are independent of build profile
+and LLVM revision.
+
+Reports use each retained generation's recorded target, profile, and toolchain. Cleaning the selected current product
+removes its complete publication group, including older generations. Selecting only an older generation removes that
+history while preserving current outputs. Intermediates include abandoned product staging and completed operation
+directories. Dry runs report the full group that an actual clean would remove. Active ownership always prevents removal,
+including explicit clean, and appears as active work with an unknown byte count because a writer may still be changing
+the files.
+
+Text and JSON reports distinguish current public outputs, retained rerun files, retained history, active work, reusable
+caches, and reclaimable state. `bytes` is the sum of logical file lengths. `shared_bytes` counts content already
+encountered through another hard link earlier in deterministic report order. Subtract `shared_bytes` from `bytes`
+before summing unique file content. These totals omit fixed root coordination metadata and do not estimate filesystem
+allocation, compression, or sparse-file savings.
+
+Products, active generations, and cache users hold OS ownership locks. Process termination releases those locks without
+relying on process IDs or elapsed time. Cleanup touches only indexed Bray-owned directories and recorded public artifact
+paths, rejects links and unexpected file types, and reports the affected path and specific failure. Interrupted
+publication restores the committed public artifact set before another reader or publisher proceeds.
+
+The emitter's `PublishedArtifact` handle protects stable public files and their companions until it drops.
+`RetainedProductGeneration` instead pins an immutable generation while permitting later publication. A retained
+execution must keep its product and required dependency generation handles alive through execution. Compatible
+immutable artifacts may share hard-linked content across products. Public projections remain independent copies, and
+shared content survives until its last protected reference is released. An explicit retained read after expiration
+produces an unavailable-state diagnostic with a rebuild help note.
 
 ## Formatter Configuration
 

@@ -5,7 +5,8 @@ use bray_runtime_abi::{NativeProductHostObservation, NativeProductHostStatus};
 
 use super::host::{
     acquire_thread_attachment, discard_thread_attachment, drain_product_thread_statics,
-    mark_thread_attachment_acquired, observation_with_status, prepare_thread_attachment,
+    initialize_thread_static_registry, mark_thread_attachment_acquired, observation_with_status,
+    prepare_thread_attachment,
 };
 
 thread_local! {
@@ -28,6 +29,10 @@ impl ForeignAttachments {
 }
 
 pub(super) fn attach_current_thread(product: usize) -> NativeProductHostObservation {
+    // The attachment owns the runtime scope whose destructor drains thread statics. Initialize the
+    // registry first so it remains alive until that scope has finished during native thread exit.
+    initialize_thread_static_registry();
+
     let inserted = FOREIGN_ATTACHMENTS.with(|attachments| {
         let mut attachments = attachments.borrow_mut();
 

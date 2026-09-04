@@ -15,6 +15,18 @@ typedef struct RunOutcome {
     uintptr_t payload;
 } RunOutcome;
 
+typedef struct ProductHostObservation {
+    uint32_t status;
+    uint32_t state;
+    uintptr_t active_entries;
+    uintptr_t external_roots;
+    uintptr_t thread_attachments;
+    uintptr_t initialized_statics;
+    uintptr_t cleaned_statics;
+    uintptr_t cleanup_incidents;
+    uint8_t last_incident[32];
+} ProductHostObservation;
+
 typedef struct SourceAnchor {
     uint32_t present;
     uint32_t source;
@@ -75,6 +87,32 @@ uint32_t bray_runtime_substrate_shutdown(void) {
 
     substrate_initialized = 0;
     return 0;
+}
+
+ProductHostObservation bray_runtime_substrate_product_host_control(
+    void *descriptor,
+    uint32_t operation
+) {
+    (void)descriptor;
+    (void)operation;
+
+    ProductHostObservation observation = {0};
+    return observation;
+}
+
+extern uint64_t bray_runtime_thread_attachment_identity(void *descriptor);
+extern uint32_t bray_runtime_thread_static_cleanup_registration(void *registration);
+
+uint64_t bray_runtime_substrate_thread_attachment_identity(void *descriptor) {
+    (void)descriptor;
+    return bray_runtime_thread_attachment_identity(NULL);
+}
+
+uint32_t bray_runtime_substrate_thread_static_cleanup_registration(void *registration) {
+    CleanupRegistration bootstrap_registration = *(CleanupRegistration *)registration;
+    bootstrap_registration.product = NULL;
+
+    return bray_runtime_thread_static_cleanup_registration(&bootstrap_registration);
 }
 
 typedef void (*SynchronousCallback)(uintptr_t context, RunOutcome *outcome);
@@ -329,10 +367,6 @@ void bray_runtime_current_run_cancellation_propagation(void) {
 
 void bray_runtime_panic_propagation(uintptr_t report) {
     (void)report;
-    abort();
-}
-
-void bray_runtime_product_host_control(void) {
     abort();
 }
 

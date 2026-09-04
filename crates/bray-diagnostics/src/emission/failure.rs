@@ -256,7 +256,6 @@ pub enum DiagnosticEmissionStagingFailure {
     UnexpectedContribution(DiagnosticEmissionArtifact),
     UnsupportedOutput(DiagnosticEmissionArtifact),
     InvalidPath(DiagnosticEmissionArtifact),
-    InvalidContent(DiagnosticEmissionArtifact),
 }
 
 /// Exact native link-plan contract that rejected the staged product.
@@ -677,7 +676,6 @@ impl DiagnosticEmissionStagingFailure {
             Self::UnexpectedContribution(_) => "unexpected_contribution",
             Self::UnsupportedOutput(_) => "unsupported_output",
             Self::InvalidPath(_) => "invalid_path",
-            Self::InvalidContent(_) => "invalid_content",
         }
     }
 }

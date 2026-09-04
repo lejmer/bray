@@ -79,10 +79,10 @@ pub enum DiagnosticProjectOperation {
     /// Publication of a compiler inspection report to its selected output path.
     InspectionReportOutput,
     ProjectInspectionJson,
+    /// Serialization of a managed build-storage report.
+    StorageReportJson,
     CompilerJsonOutput,
     ProductOutputDirectory,
-    InterfaceCachePath,
-    InterfaceCacheDirectory,
     /// Creation of the persistent native ThinLTO cache directory.
     ThinLtoCacheDirectory,
     CompilerProcess,
@@ -524,10 +524,9 @@ impl DiagnosticProjectOperation {
             Self::Inspection => "inspection",
             Self::InspectionReportOutput => "inspection_report_output",
             Self::ProjectInspectionJson => "project_inspection_json",
+            Self::StorageReportJson => "storage_report_json",
             Self::CompilerJsonOutput => "compiler_json_output",
             Self::ProductOutputDirectory => "product_output_directory",
-            Self::InterfaceCachePath => "interface_cache_path",
-            Self::InterfaceCacheDirectory => "interface_cache_directory",
             Self::ThinLtoCacheDirectory => "thin_lto_cache_directory",
             Self::CompilerProcess => "compiler_process",
             Self::CompilerProfileOutputDirectory => "compiler_profile_output_directory",

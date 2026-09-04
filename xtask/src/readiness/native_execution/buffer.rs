@@ -1,3 +1,4 @@
+use super::built_fixture::BuiltFixture;
 use std::path::Path;
 
 use bray_compilation::{
@@ -7,7 +8,7 @@ use bray_symbols::{PackageIdentity, ProductIdentity, ProductKind};
 use bray_target::NativeTarget;
 use bray_tooling::{load_llvm_compilation, source_inputs_from_file_arguments};
 
-use super::core::{BuiltFixture, execute_product};
+use super::core::execute_product;
 use super::fixtures::{PRODUCT_NAME, STANDARD_MEMORY_FIXTURE};
 
 const STANDARD_BUFFER_FIXTURES: &[&str] = &[

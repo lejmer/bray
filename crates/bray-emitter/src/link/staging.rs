@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fs::OpenOptions;
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -15,12 +15,12 @@ use crate::{
     PlannedArtifact, PlannedArtifactDestination,
 };
 
-const COPY_BUFFER_LEN: usize = 64 * 1024;
 const LINK_TRANSACTION_PREFIX: &str = ".bray-link-transaction-";
 
 /// Transactional emitter-owned storage for one native link operation.
 pub struct LinkStaging {
     _transaction: TempDir,
+    _operation: Option<crate::ManagedOperation>,
     inputs: Arc<[StagedArtifact]>,
     outputs: Arc<[LinkOutputStaging]>,
 }
@@ -36,7 +36,7 @@ impl LinkStaging {
             return Err(LinkStagingError::Cancelled);
         }
 
-        let managed_metadata = managed_metadata_directory(plan)?;
+        let operation = managed_operation(plan, cancellation)?;
         let contributions = contributions_by_id(contributions)?;
 
         let transaction_owner = plan
@@ -44,8 +44,11 @@ impl LinkStaging {
             .first()
             .ok_or(LinkStagingError::MissingArtifacts)?;
 
-        let transaction =
-            transaction_directory(plan, transaction_owner, managed_metadata.as_deref())?;
+        let transaction = transaction_directory(
+            plan,
+            transaction_owner,
+            operation.as_ref().map(crate::ManagedOperation::directory),
+        )?;
 
         let mut inputs = Vec::new();
 
@@ -110,6 +113,7 @@ impl LinkStaging {
 
         Ok(Self {
             _transaction: transaction,
+            _operation: operation,
             inputs: inputs.into(),
             outputs: outputs.into(),
         })
@@ -139,6 +143,8 @@ impl std::fmt::Debug for LinkStaging {
 /// Failure to prepare private native-link staging.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum LinkStagingError {
+    /// Managed staging ownership or cleanup failed with a specific path and cause.
+    Storage(Box<crate::StorageError>),
     /// Cancellation was observed before staging completed.
     Cancelled,
     /// More than one contribution names the same planned artifact.
@@ -175,8 +181,6 @@ pub enum LinkStagingError {
         artifact: ArtifactId,
         kind: io::ErrorKind,
     },
-    /// Completed staged bytes did not satisfy the immutable contribution contract.
-    InvalidContent(ArtifactId),
 }
 
 fn contributions_by_id(
@@ -239,35 +243,23 @@ fn stage_input(
             kind,
         })?;
 
-    let mut buffer = [0_u8; COPY_BUFFER_LEN];
+    crate::artifact::content::copy_reader(&mut reader, &mut staging, cancellation).map_err(
+        |error| {
+            use crate::artifact::content::ContentCopyError;
 
-    loop {
-        if cancellation.is_cancelled() {
-            return Err(LinkStagingError::Cancelled);
-        }
-
-        let read = reader
-            .read(&mut buffer)
-            .map_err(|error| LinkStagingError::Read {
-                artifact: artifact.clone(),
-                kind: error.kind(),
-            })?;
-
-        if read == 0 {
-            break;
-        }
-
-        if cancellation.is_cancelled() {
-            return Err(LinkStagingError::Cancelled);
-        }
-
-        staging
-            .write_all(&buffer[..read])
-            .map_err(|error| LinkStagingError::Write {
-                artifact: artifact.clone(),
-                kind: error.kind(),
-            })?;
-    }
+            match error {
+                ContentCopyError::Cancelled => LinkStagingError::Cancelled,
+                ContentCopyError::Read(kind) => LinkStagingError::Read {
+                    artifact: artifact.clone(),
+                    kind,
+                },
+                ContentCopyError::Write(kind) => LinkStagingError::Write {
+                    artifact: artifact.clone(),
+                    kind,
+                },
+            }
+        },
+    )?;
 
     if cancellation.is_cancelled() {
         return Err(LinkStagingError::Cancelled);
@@ -284,7 +276,15 @@ fn stage_input(
         contribution.digest(),
         cancellation,
     )
-    .map_err(|_| LinkStagingError::InvalidContent(contribution.id().clone()))?;
+    .map_err(|error| {
+        let error = crate::StorageError::content(&path, error);
+
+        if matches!(error.kind(), crate::StorageErrorKind::Cancelled) {
+            LinkStagingError::Cancelled
+        } else {
+            LinkStagingError::Storage(Box::new(error))
+        }
+    })?;
 
     Ok(path)
 }
@@ -398,59 +398,31 @@ fn transaction_output_name(artifact: &ArtifactId, suffix: OsString) -> OsString 
     name
 }
 
-fn managed_metadata_directory(plan: &EmissionPlan) -> Result<Option<PathBuf>, LinkStagingError> {
-    let Some((root, artifact)) = plan.published_artifacts().find_map(|artifact| {
-        let PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem { root, .. }) =
-            artifact.destination()
-        else {
-            return None;
-        };
-
-        Some((root, artifact.id()))
-    }) else {
+fn managed_operation(
+    plan: &EmissionPlan,
+    cancellation: &dyn Cancellation,
+) -> Result<Option<crate::ManagedOperation>, LinkStagingError> {
+    let Some(root) = plan
+        .published_artifacts()
+        .find_map(|artifact| match artifact.destination() {
+            PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem { root, .. }) => {
+                Some(root)
+            }
+            _ => None,
+        })
+    else {
         return Ok(None);
     };
 
-    let metadata = root.join(".bray");
-
-    create_private_directory(root, &metadata, artifact)?;
-
-    Ok(Some(metadata))
-}
-
-fn create_private_directory(
-    parent: &Path,
-    path: &Path,
-    artifact: &ArtifactId,
-) -> Result<(), LinkStagingError> {
-    match std::fs::create_dir(path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-            let metadata =
-                std::fs::symlink_metadata(path).map_err(|error| LinkStagingError::Create {
-                    artifact: artifact.clone(),
-                    kind: error.kind(),
-                })?;
-
-            if !metadata.file_type().is_dir() {
-                return Err(LinkStagingError::Create {
-                    artifact: artifact.clone(),
-                    kind: io::ErrorKind::AlreadyExists,
-                });
+    crate::ManagedOperation::for_plan(root, plan, cancellation)
+        .map(Some)
+        .map_err(|error| {
+            if matches!(error.kind(), crate::StorageErrorKind::Cancelled) {
+                LinkStagingError::Cancelled
+            } else {
+                LinkStagingError::Storage(Box::new(error))
             }
-        }
-        Err(error) => {
-            return Err(LinkStagingError::Create {
-                artifact: artifact.clone(),
-                kind: error.kind(),
-            });
-        }
-    }
-
-    bray_base::sync_directory(parent).map_err(|error| LinkStagingError::Create {
-        artifact: artifact.clone(),
-        kind: error.kind(),
-    })
+        })
 }
 
 const fn linked_kind(kind: ArtifactKind) -> Option<LinkedArtifactKind> {
@@ -586,8 +558,9 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use bray_codegen::{
-        ArtifactContent, AssemblySyntaxKind, BackendSerializationOptions, DebugInformationMode,
-        DebugInformationOutputMode, LinkableArtifactKind,
+        ArtifactContent, ArtifactDigest, ArtifactDigestAlgorithm, AssemblySyntaxKind,
+        BackendSerializationOptions, DebugInformationMode, DebugInformationOutputMode,
+        LinkableArtifactKind,
     };
 
     use super::{LinkStaging, linked_kind};
@@ -637,7 +610,7 @@ mod tests {
 
         let private_metadata = directory.path().join(".bray");
 
-        assert_eq!(output_directory.parent(), Some(private_metadata.as_path()));
+        assert!(output_directory.starts_with(private_metadata.join("operations")));
         assert_eq!(input_path.parent(), Some(output_directory));
 
         let second = LinkStaging::prepare(&plan, [contribution], &never_cancelled)
@@ -729,12 +702,73 @@ mod tests {
             Err(super::LinkStagingError::Cancelled)
         ));
 
-        assert_eq!(
-            std::fs::read_dir(directory.path().join(".bray"))
-                .unwrap_or_else(|error| panic!("test output directory must be readable: {error:?}"))
-                .count(),
-            0
+        let selection = crate::StorageSelection {
+            kind: Some(crate::StorageKind::Intermediates),
+            ..crate::StorageSelection::default()
+        };
+
+        let rows = crate::inspect_storage(
+            directory.path(),
+            &selection,
+            crate::StoragePolicy::default(),
+            &never_cancelled,
+        )
+        .unwrap();
+
+        assert!(
+            rows.iter()
+                .all(|row| !row.active && row.category == crate::StorageCategory::Reclaimable)
         );
+
+        crate::clean_storage(directory.path(), &selection, false, &never_cancelled).unwrap();
+
+        assert!(
+            crate::inspect_storage(
+                directory.path(),
+                &selection,
+                crate::StoragePolicy::default(),
+                &never_cancelled
+            )
+            .unwrap()
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn staged_content_preserves_the_exact_digest_failure() {
+        let directory = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("test output directory must exist: {error:?}"));
+
+        let plan = linked_plan(directory.path().to_owned());
+
+        let planned = plan
+            .staged_artifacts()
+            .next()
+            .unwrap_or_else(|| panic!("linked test plan must stage one input"));
+
+        let content = ArtifactContent::try_memory(b"object bytes".as_slice())
+            .unwrap_or_else(|error| panic!("test contribution must be valid: {error:?}"));
+
+        let digest = ArtifactDigest::try_new(ArtifactDigestAlgorithm::Blake3, [0_u8; 32])
+            .unwrap_or_else(|| panic!("test digest must be valid"));
+
+        let contribution = ArtifactContribution::new(
+            planned.id().clone(),
+            planned.producer().clone(),
+            content,
+            Some(digest.clone()),
+        );
+
+        let error = LinkStaging::prepare(&plan, [contribution], &never_cancelled).unwrap_err();
+
+        let super::LinkStagingError::Storage(error) = error else {
+            panic!("invalid staged bytes must preserve a managed-storage failure");
+        };
+
+        assert!(matches!(
+            error.kind(),
+            crate::StorageErrorKind::ArtifactDigest { expected, .. } if expected == &digest
+        ));
     }
 
     fn linked_plan(destination: std::path::PathBuf) -> crate::EmissionPlan {

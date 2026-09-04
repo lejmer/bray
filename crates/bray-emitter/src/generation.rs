@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use bray_base::lowercase_hex;
 
+use crate::storage::StorageLease;
 use crate::{ArtifactId, EmittedArtifactSet, OutputSink};
 
 /// Stable content identity of one complete managed product generation.
@@ -33,6 +34,8 @@ pub struct PublishedProductGeneration {
     directory: PathBuf,
     reference: PathBuf,
     artifacts: EmittedArtifactSet,
+    _lease: StorageLease,
+    _entry_lease: StorageLease,
 }
 
 impl PublishedProductGeneration {
@@ -43,6 +46,8 @@ impl PublishedProductGeneration {
         directory: PathBuf,
         reference: PathBuf,
         artifacts: EmittedArtifactSet,
+        lease: StorageLease,
+        entry_lease: StorageLease,
     ) -> Self {
         Self {
             identity,
@@ -51,6 +56,8 @@ impl PublishedProductGeneration {
             directory,
             reference,
             artifacts,
+            _lease: lease,
+            _entry_lease: entry_lease,
         }
     }
 

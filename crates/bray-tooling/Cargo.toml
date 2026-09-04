@@ -8,7 +8,6 @@ rust-version.workspace = true
 [features]
 default = ["compiler"]
 analysis = [
-    "dep:bray-base",
     "dep:bray-bound-tree",
     "dep:bray-compilation",
     "dep:bray-declarations",
@@ -25,6 +24,7 @@ analysis = [
 compiler = [
     "analysis",
     "dep:bray-codegen",
+    "dep:bray-emitter",
     "dep:bray-codegen-llvm",
     "dep:bray-linker",
     "dep:tempfile",
@@ -32,12 +32,13 @@ compiler = [
 
 [dependencies]
 bray-bound-tree = { path = "../bray-bound-tree", optional = true }
-bray-base = { path = "../bray-base", optional = true }
+bray-base = { path = "../bray-base" }
 bray-codegen = { path = "../bray-codegen", optional = true }
 bray-codegen-llvm = { path = "../bray-codegen-llvm", optional = true }
 bray-compilation = { path = "../bray-compilation", optional = true }
 bray-declarations = { path = "../bray-declarations", optional = true }
 bray-diagnostics = { path = "../bray-diagnostics" }
+bray-emitter = { path = "../bray-emitter", optional = true }
 bray-ir = { path = "../bray-ir", optional = true }
 bray-linker = { path = "../bray-linker", optional = true }
 bray-lowering = { path = "../bray-lowering", optional = true }

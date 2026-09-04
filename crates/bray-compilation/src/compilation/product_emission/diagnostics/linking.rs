@@ -255,6 +255,13 @@ pub(super) fn staging_failure_diagnostics(
     target: &TargetIdentity,
 ) -> DiagnosticBag {
     let failure = match error {
+        LinkStagingError::Storage(error) => {
+            // The emission error retains its owned context after diagnostic rendering.
+            return DiagnosticBag::single(error.as_ref().clone().into_diagnostic(
+                bray_diagnostics::DiagnosticId::new(0),
+                bray_diagnostics::SeverityKind::Error,
+            ));
+        }
         LinkStagingError::DuplicateContribution(artifact) => {
             DiagnosticEmissionStagingFailure::DuplicateContribution(diagnostic_artifact(artifact))
         }
@@ -272,9 +279,6 @@ pub(super) fn staging_failure_diagnostics(
         }
         LinkStagingError::InvalidStagingPath(artifact) => {
             DiagnosticEmissionStagingFailure::InvalidPath(diagnostic_artifact(artifact))
-        }
-        LinkStagingError::InvalidContent(artifact) => {
-            DiagnosticEmissionStagingFailure::InvalidContent(diagnostic_artifact(artifact))
         }
         LinkStagingError::MissingArtifacts => DiagnosticEmissionStagingFailure::Incomplete,
         LinkStagingError::Create { artifact, kind } => {

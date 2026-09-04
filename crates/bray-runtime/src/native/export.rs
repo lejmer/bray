@@ -7,8 +7,8 @@ use bray_runtime_abi::{
     NativeProductHostOperation, NativeProtectedFrame, NativeProtectedFrameTransfer,
     NativeRootHandle, NativeRootStart, NativeRunOutcome, NativeRunResultLayout, NativeRunState,
     NativeRuntimeConfiguration, NativeRuntimeEventCallback, NativeRuntimeStatus,
-    NativeSourceAnchor, NativeStringView, NativeTaskAllocation, NativeTaskHandle,
-    NativeWakeCallback,
+    NativeSourceAnchor, NativeTaskAllocation, NativeTaskHandle,
+    NativeThreadStaticCleanupRegistration, NativeWakeCallback,
 };
 
 use crate::current_run_cancellation_requested;
@@ -47,6 +47,25 @@ native_export! {
                 0,
                 bray_runtime_abi::NativeStaticIdentity::new([0; 32]),
             ))
+    }
+}
+
+native_export! {
+    pub extern "C" fn bray_runtime_substrate_thread_attachment_identity(
+        descriptor: &'static NativeProductHostDescriptor,
+    ) -> u64 {
+        catch_unwind(AssertUnwindSafe(|| {
+            crate::product::thread_attachment_identity(descriptor)
+        }))
+        .unwrap_or(0)
+    }
+}
+
+native_export! {
+    pub extern "C" fn bray_runtime_substrate_thread_static_cleanup_registration(
+        registration: &NativeThreadStaticCleanupRegistration,
+    ) -> NativeRuntimeStatus {
+        contain_status(|| crate::product::register_thread_static(registration))
     }
 }
 
@@ -187,55 +206,6 @@ native_export! {
             NativeRuntimeStatus::SUCCESS
         })
     }
-}
-
-#[expect(
-    unsafe_code,
-    reason = "the construction role borrows the validated native string view for this call"
-)]
-pub(crate) extern "C" fn bray_runtime_panic_report_construction(
-    cause: NativePanicCause,
-    source_present: u32,
-    source_identity: u32,
-    source_start: u32,
-    source_end: u32,
-    source_version: u64,
-    message_data: *const u8,
-    message_length: usize,
-) -> usize {
-    catch_unwind(AssertUnwindSafe(|| {
-        let source = if source_present == 0 {
-            NativeSourceAnchor::unavailable()
-        } else {
-            NativeSourceAnchor::new(source_identity, source_start, source_end, source_version)
-        };
-
-        let message = NativeStringView::new(message_data, message_length);
-
-        if !cause.is_known()
-            || source_present > 1
-            || !source.is_valid()
-            || (message.length() != 0 && message.data().is_null())
-        {
-            return 0;
-        }
-
-        let bytes = if message.length() == 0 {
-            &[][..]
-        } else {
-            unsafe {
-                // The view is borrowed only for this construction call.
-                std::slice::from_raw_parts(message.data(), message.length())
-            }
-        };
-
-        Box::into_raw(Box::new(NativePanicReport {
-            cause,
-            source,
-            message: String::from_utf8_lossy(bytes).into_owned(),
-        })) as usize
-    }))
-    .unwrap_or(0)
 }
 
 native_export! {
@@ -1381,16 +1351,11 @@ mod tests {
     extern "C" fn propagate_test_panic(_: usize, outcome: &mut NativeRunOutcome) {
         const MESSAGE: &[u8] = b"synchronous root panic";
 
-        let report = super::bray_runtime_panic_report_construction(
-            NativePanicCause::MESSAGE,
-            1,
-            0,
-            0,
-            1,
-            0,
-            MESSAGE.as_ptr(),
-            MESSAGE.len(),
-        );
+        let report = Box::into_raw(Box::new(super::NativePanicReport {
+            cause: NativePanicCause::MESSAGE,
+            source: bray_runtime_abi::NativeSourceAnchor::new(0, 0, 1, 0),
+            message: String::from_utf8_lossy(MESSAGE).into_owned(),
+        })) as usize;
 
         *outcome = NativeRunOutcome::new(NativeRunState::PANICKED, report);
     }

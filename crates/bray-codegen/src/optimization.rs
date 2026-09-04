@@ -64,7 +64,7 @@ pub enum BackendBitcodeOptimizationOutcome {
 
 /// Compiler-host boundary for operations unavailable through the safe backend API.
 pub trait BackendBitcodeOptimizer: Send + Sync {
-    /// Adds the module summary required for LLVM ThinLTO import planning.
+    /// Adds the module summary required for thin link-time optimization import planning.
     fn add_thin_lto_summary(
         &self,
         bitcode: &ArtifactContent,

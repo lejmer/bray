@@ -6,8 +6,7 @@ use bray_base::{FileReplacementMode, StagedFile};
 use bray_compilation::ProductEmissionInputs;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticEmissionFailure, DiagnosticId,
-    DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticTestCatalogFailure,
-    SeverityKind,
+    DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticTestCatalogFailure, SeverityKind,
 };
 use bray_emitter::{
     ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ReplacementPolicy,
@@ -118,7 +117,7 @@ pub(crate) fn run_build_command(
             build,
             runtime,
             configuration.required_capabilities().iter().copied(),
-            linker.as_ref(),
+            linker.as_ref().map(bray_tooling::NativeLinker::linker),
         ) {
             Ok(native) => Some(native),
             Err(error) => {
@@ -152,7 +151,7 @@ pub(crate) fn run_build_command(
 
     match (native.as_ref(), linker.as_ref()) {
         (Some(native), Some(linker)) => {
-            inputs = inputs.with_native_product(native, linker);
+            inputs = inputs.with_native_product(native, linker.linker());
         }
         (Some(native), None) => {
             inputs = inputs.with_native_codegen(native);
@@ -221,11 +220,13 @@ fn publish_test_catalog(
         .test_discovery(product.clone())
         .map_err(|error| match error {
             bray_compilation::FactQueryError::Cancelled => TestCatalogPublicationError::Cancelled,
-            error => TestCatalogPublicationError::Diagnostic(test_discovery_failure(error, product)),
+            error => {
+                TestCatalogPublicationError::Diagnostic(test_discovery_failure(error, product))
+            }
         })?;
 
-    let (bytes, _) = bray_test_protocol::encode_test_catalog(discovery.value().catalog())
-        .map_err(|error| {
+    let (bytes, _) =
+        bray_test_protocol::encode_test_catalog(discovery.value().catalog()).map_err(|error| {
             TestCatalogPublicationError::Diagnostic(test_catalog_failure(error, product))
         })?;
 
@@ -238,15 +239,13 @@ fn publish_test_catalog(
         ))
     })?;
 
-    staging
-        .write_all(&bytes)
-        .map_err(|error| {
-            TestCatalogPublicationError::Diagnostic(artifact_write_failure(
-                DiagnosticId::new(0),
-                destination,
-                error.kind(),
-            ))
-        })?;
+    staging.write_all(&bytes).map_err(|error| {
+        TestCatalogPublicationError::Diagnostic(artifact_write_failure(
+            DiagnosticId::new(0),
+            destination,
+            error.kind(),
+        ))
+    })?;
 
     staging
         .finish()
@@ -289,9 +288,7 @@ fn test_catalog_failure(
 ) -> Diagnostic {
     let failure = match error {
         bray_test_protocol::TestProtocolError::Io => DiagnosticTestCatalogFailure::Io,
-        bray_test_protocol::TestProtocolError::Malformed => {
-            DiagnosticTestCatalogFailure::Malformed
-        }
+        bray_test_protocol::TestProtocolError::Malformed => DiagnosticTestCatalogFailure::Malformed,
         bray_test_protocol::TestProtocolError::UnsupportedVersion(version) => {
             DiagnosticTestCatalogFailure::UnsupportedVersion(version)
         }
@@ -430,6 +427,7 @@ fn emission_request(
         ReplacementPolicy::ReplaceExisting,
     )
     .unwrap_or_else(|error| panic!("validated build emission request must be valid: {error:?}"))
+    .with_storage_profile(configuration.build().as_str())
 }
 
 fn native_product_failure_result(
@@ -440,9 +438,9 @@ fn native_product_failure_result(
     error: &bray_compilation::NativeProductPlanningError,
 ) -> DriverRunResult {
     let diagnostics = match error {
-        bray_compilation::NativeProductPlanningError::StandardLibrary(error) => compilation
+        bray_compilation::NativeProductPlanningError::StandardLibrary { cause, .. } => compilation
             .check_diagnostics()
-            .merged(&compilation.standard_library_load_diagnostics(error)),
+            .merged(&compilation.standard_library_load_diagnostics(cause)),
         bray_compilation::NativeProductPlanningError::InvalidRuntimeSelection(selection_error) => {
             let runtime = runtime_selection_diagnostics(selection_error).unwrap_or_else(|| {
                 error.diagnostic(product, target).unwrap_or_else(|| {
@@ -472,8 +470,7 @@ mod tests {
     use std::process::ExitCode;
 
     use bray_diagnostics::{
-        DiagnosticArgValue, DiagnosticEmissionFailure, DiagnosticKind,
-        DiagnosticTestCatalogFailure,
+        DiagnosticArgValue, DiagnosticEmissionFailure, DiagnosticKind, DiagnosticTestCatalogFailure,
     };
     use bray_emitter::{ArtifactKind, ArtifactRequirement};
     use bray_symbols::ProductKind;
@@ -641,8 +638,8 @@ mod tests {
             let path = bray_emitter::resolve_published_artifact(&output, &product, kind, 0)
                 .unwrap_or_else(|error| panic!("published artifact must resolve: {error:?}"));
 
-            assert!(path.is_file(), "{}", path.display());
-            assert_eq!(path.parent(), Some(output.as_path()));
+            assert!(path.path().is_file(), "{}", path.path().display());
+            assert_eq!(path.path().parent(), Some(output.as_path()));
         }
 
         std::fs::remove_dir_all(&output)
@@ -691,7 +688,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("published interface must resolve: {error:?}"));
 
-        assert!(interface.is_file());
+        assert!(interface.path().is_file());
 
         assert_eq!(
             bray_emitter::resolve_published_artifact(
@@ -699,8 +696,9 @@ mod tests {
                 &product,
                 ArtifactKind::StaticLibrary,
                 0,
-            ),
-            Err(bray_emitter::PublishedGenerationReadError::ArtifactUnavailable)
+            )
+            .unwrap_err(),
+            bray_emitter::PublishedGenerationReadError::ArtifactUnavailable
         );
 
         std::fs::remove_dir_all(&output)
@@ -759,7 +757,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("published object must resolve: {error:?}"));
 
-        assert!(object.is_file());
+        assert!(object.path().is_file());
 
         std::fs::remove_dir_all(&output)
             .unwrap_or_else(|error| panic!("build output must be removed: {error:?}"));

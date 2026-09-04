@@ -14,6 +14,7 @@ pub(super) const ASYNC_ERROR_FIXTURE: &str =
 pub(super) const ASYNC_TASKS_FIXTURE: &str = "xtask/fixtures/native-execution/async_tasks.bray";
 pub(super) const STANDARD_RUN_SOURCE: &str = "standard-library/std/src/run.bray";
 pub(super) const STANDARD_TASK_SOURCE: &str = "standard-library/std/src/task.bray";
+pub(super) const STANDARD_TESTING_SOURCE: &str = "standard-library/std/src/testing.bray";
 pub(super) const SYNC_PANIC_FIXTURE: &str = "xtask/fixtures/native-execution/sync-panic.bray";
 pub(super) const SYNC_CATCH_PROPAGATION_FIXTURE: &str =
     "xtask/fixtures/native-execution/sync-catch-propagation.bray";

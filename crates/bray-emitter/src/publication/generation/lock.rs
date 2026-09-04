@@ -1,20 +1,16 @@
-use std::fs::{File, OpenOptions};
+use std::fs::File;
 use std::path::Path;
 
-use crate::publication::diagnostic::PublicationErrorKind;
-use crate::publication::operation::{ArtifactPublicationFailure, artifact_failure};
+use super::transaction::storage_failure;
+use crate::publication::operation::ArtifactPublicationFailure;
+use crate::storage::{StorageError, StorageOperation, open_lock};
 
 pub(super) struct ProductPublicationLock {
     _file: File,
 }
 
-pub(super) fn open_lock_file(metadata: &Path) -> std::io::Result<File> {
-    OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(metadata.join("publication.lock"))
+pub(super) fn open_lock_file(metadata: &Path) -> Result<File, StorageError> {
+    open_lock(&metadata.join("publication.lock"))
 }
 
 impl ProductPublicationLock {
@@ -22,11 +18,18 @@ impl ProductPublicationLock {
         metadata: &Path,
         planned: &crate::PlannedArtifact,
     ) -> Result<Self, ArtifactPublicationFailure> {
-        let file = open_lock_file(metadata)
-            .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
+        let file = open_lock_file(metadata).map_err(|error| storage_failure(planned, error))?;
 
-        file.lock()
-            .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
+        file.lock().map_err(|error| {
+            storage_failure(
+                planned,
+                StorageError::io(
+                    &metadata.join("publication.lock"),
+                    StorageOperation::Lock,
+                    error,
+                ),
+            )
+        })?;
 
         Ok(Self { _file: file })
     }
@@ -46,7 +49,7 @@ mod tests {
         };
 
         let writer = open_lock_file(root.path())
-            .unwrap_or_else(|error| panic!("writer lock file must open: {error}"));
+            .unwrap_or_else(|error| panic!("writer lock file must open: {error:?}"));
 
         writer
             .lock()
@@ -58,7 +61,7 @@ mod tests {
 
         let reader = std::thread::spawn(move || {
             let reader = open_lock_file(&path)
-                .unwrap_or_else(|error| panic!("reader lock file must open: {error}"));
+                .unwrap_or_else(|error| panic!("reader lock file must open: {error:?}"));
 
             reader
                 .lock_shared()

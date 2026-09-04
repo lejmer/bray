@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_binder::SymbolQueryProvider;
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_bound_tree::{BoundUnitKey, CheckedTemplateKind};
 use bray_package_interface::{
     InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
@@ -137,9 +137,11 @@ fn constant_callable_bodies(
             .map_err(super::super::invalid_compilation_binding_error)?;
 
         if signature.diagnostics().has_errors()
-            || signature.value().constness(values).map_err(|error| {
-                super::super::callable_signature_export_error(error)
-            })? != CallableConstness::Constant
+            || signature
+                .value()
+                .constness(values)
+                .map_err(|error| super::super::callable_signature_export_error(error))?
+                != CallableConstness::Constant
         {
             continue;
         }
@@ -148,12 +150,11 @@ fn constant_callable_bodies(
 
         let parameters = crate::compilation::binder::visible_generic_parameters(export.graph, symbol);
 
-        let owner = GenericOwnerId::try_new(symbol)
-            .ok_or_else(|| {
-                super::super::export_contract_error(
-                    super::super::PackageInterfaceExportContract::MissingGenericOwner,
-                )
-            })?;
+        let owner = GenericOwnerId::try_new(symbol).ok_or_else(|| {
+            super::super::export_contract_error(
+                super::super::PackageInterfaceExportContract::MissingGenericOwner,
+            )
+        })?;
 
         let substitution =
             crate::compilation::substitution::identity_substitution(values, owner, &parameters)
@@ -172,6 +173,10 @@ fn constant_callable_bodies(
         } else {
             result_type
         };
+
+        let result_type = values
+            .substitute_type(result_type, substitution)
+            .map_err(super::super::semantic_value_export_error)?;
 
         let declaration = exported_declaration_identity(export, symbol)?;
 
@@ -515,13 +520,11 @@ fn export_executable_template_family(
 
     let selected_target = compilation.selected_target().target();
 
-    let codegen_target = selected_target
-        .codegen_target()
-        .map_err(|cause| {
-            PackageInterfaceExportError::InvalidCompilationCause(
-                super::super::PackageInterfaceInvalidCompilationCause::CodegenTarget(cause),
-            )
-        })?;
+    let codegen_target = selected_target.codegen_target().map_err(|cause| {
+        PackageInterfaceExportError::InvalidCompilationCause(
+            super::super::PackageInterfaceInvalidCompilationCause::CodegenTarget(cause),
+        )
+    })?;
 
     let mut templates = Vec::with_capacity(family.len());
     let mut family_requirements = Vec::new();
@@ -682,13 +685,11 @@ fn executable_template_unit(
         return Ok(None);
     }
 
-    let owner = graph
-        .symbol_key(owner)
-        .ok_or_else(|| {
-            super::super::export_contract_error(
-                super::super::PackageInterfaceExportContract::MissingRuntimeDefaultOwnerKey,
-            )
-        })?;
+    let owner = graph.symbol_key(owner).ok_or_else(|| {
+        super::super::export_contract_error(
+            super::super::PackageInterfaceExportContract::MissingRuntimeDefaultOwnerKey,
+        )
+    })?;
 
     compilation
         .declared_unit_keys()

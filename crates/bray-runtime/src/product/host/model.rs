@@ -177,6 +177,10 @@ pub(super) fn product_hosts() -> &'static Mutex<BTreeMap<usize, ProductHost>> {
     PRODUCT_HOSTS.get_or_init(|| Mutex::new(BTreeMap::new()))
 }
 
+pub(in crate::product) fn initialize_thread_static_registry() {
+    THREAD_STATICS.with(|_| {});
+}
+
 pub(super) fn product_key(descriptor: &NativeProductHostDescriptor) -> usize {
     std::ptr::from_ref(descriptor) as usize
 }

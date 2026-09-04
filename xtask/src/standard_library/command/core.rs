@@ -8,8 +8,9 @@ use bray_compilation::{
     WorkerBudget,
 };
 use bray_emitter::{
-    ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, OutputSink,
-    ReplacementPolicy, RequestedArtifact, RequestedArtifactDestination,
+    ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus,
+    ManagedFilesystemDestination, ManagedOutputDirectory, OutputSink, ReplacementPolicy,
+    RequestedArtifact, RequestedArtifactDestination,
 };
 use bray_project::{ProjectGraph, ProjectProduct, load_standard_library_project_graph};
 use bray_standard_library::{
@@ -521,6 +522,11 @@ fn build_target(
     let root = workspace::root().map_err(BuildError::Workspace)?;
     let output = work.join(target.as_str());
 
+    let output_directory =
+        ManagedOutputDirectory::try_new(target.as_str()).ok_or(BuildError::InvalidIdentity)?;
+
+    let destination = ManagedFilesystemDestination::new(work, output_directory);
+
     fs::create_dir_all(&output).map_err(|error| BuildError::write(&output, error))?;
 
     let platform = crate::progress::run("Building platform providers", || {
@@ -546,7 +552,7 @@ fn build_target(
     let compilation = load_llvm_compilation(request).map_err(BuildError::CompilerUnavailable)?;
 
     let linker =
-        native_linker(native, None, &output).map_err(|error| BuildError::LinkerUnavailable {
+        native_linker(native, None, work).map_err(|error| BuildError::LinkerUnavailable {
             target: target.clone(),
             detail: format!("{error:?}"),
         })?;
@@ -558,7 +564,7 @@ fn build_target(
                 BuildConfiguration::ObjectRelease,
                 None,
                 [],
-                Some(&linker),
+                Some(linker.linker()),
             )
             .map_err(|error| {
                 let diagnostics = compilation.check_diagnostics();
@@ -587,7 +593,7 @@ fn build_target(
         ProductKind::Library,
         None,
         target.clone(),
-        RequestedArtifactDestination::FilesystemDirectory(output.into()),
+        RequestedArtifactDestination::FilesystemDirectory(destination),
         [
             RequestedArtifact::new(
                 ArtifactKind::PackageInterface,
@@ -602,10 +608,11 @@ fn build_target(
         ],
         ReplacementPolicy::RequireAbsent,
     )
-    .map_err(|error| BuildError::EmissionRequest(format!("{error:?}")))?;
+    .map_err(|error| BuildError::EmissionRequest(format!("{error:?}")))?
+    .with_storage_profile(BuildConfiguration::ObjectRelease.as_str());
 
-    let inputs =
-        ProductEmissionInputs::new(&output_description).with_native_product(&native_plan, &linker);
+    let inputs = ProductEmissionInputs::new(&output_description)
+        .with_native_product(&native_plan, linker.linker());
 
     let outcome = crate::progress::run("Emitting standard library artifacts", || {
         compilation.emit_product(request, inputs).map_err(|error| {

@@ -37,6 +37,10 @@ impl DiagnosticNote {
 /// Stable category for a diagnostic note.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticNoteKind {
+    /// Location reported by a structured-document parser.
+    DocumentFailureLocation,
+    /// Recover an expired or cleaned retained product.
+    RebuildRetainedProduct,
     /// Source file readability requirement.
     SourceFileMustBeReadable,
     /// Source UTF-8 requirement.
@@ -147,6 +151,8 @@ impl DiagnosticNoteKind {
     /// Returns the stable machine key for this note category.
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::DocumentFailureLocation => "document_failure_location",
+            Self::RebuildRetainedProduct => "rebuild_retained_product",
             Self::SourceFileMustBeReadable => "source_file_must_be_readable",
             Self::SourceMustBeUtf8 => "source_must_be_utf8",
             Self::SourceMustMatchFormatterOutput => "source_must_match_formatter_output",

@@ -476,7 +476,7 @@ component dependency. Artifact construction deduplicates archive members, produc
 dependency graphs, and audits exact exported symbols so these boundaries do not regress silently.
 
 The runtime artifact smoke proof links a C target adapter directly with the trusted Bray bootstrap archive. Its link map
-must contain the eight bootstrap roles and four thread-storage operations, and must contain no Rust execution-runtime
+must contain the bootstrap roles and four thread-storage operations, and must contain no Rust execution-runtime
 archive, Rust panic symbol, scheduler role, task role, or test-host role. The executable checks nested initialization,
 completed, cancelled, and panicked outcomes, report ownership, thread-exit cleanup order, cleanup-panic containment,
 dependency access during thread-static cleanup, attachment quiescence, attach-versus-shutdown races, and repeated

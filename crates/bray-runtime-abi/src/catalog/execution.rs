@@ -125,7 +125,7 @@ macro_rules! runtime_role_catalog {
                 native: (PRODUCT_HOST_CONTROL_RUNTIME_SYMBOL = "bray_runtime_product_host_control", [Pointer, U32] -> ProductObservation),
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Host, availability: All, bootstrap: (), host_control: false,
+                owner: Host, availability: All, bootstrap: ("product_host_control"), host_control: false,
                 capabilities: [],
                 effects: [ControlProductHost]
             }

@@ -21,7 +21,10 @@ mod related;
 mod result;
 mod severity;
 mod source_input;
+mod storage;
 mod suggestion;
+
+pub use storage::{DiagnosticRetainedGenerationProblem, DiagnosticStorageOperation};
 mod target_predicate;
 mod type_representation;
 
@@ -38,12 +41,11 @@ pub use argument::{
     DiagnosticLinkRequirementKind, DiagnosticLinkedArtifactKind, DiagnosticLinkedProductKind,
     DiagnosticLoweringFailure, DiagnosticLoweringFailureKind, DiagnosticLoweringIdentity,
     DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind, DiagnosticLoweringRoot,
-    DiagnosticMirUnitBuildFailure,
-    DiagnosticMirUnitBuildFailureContext, DiagnosticMirUnitBuildFailureKind,
-    DiagnosticMirUnitLocalIdentity, DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNamedType,
-    DiagnosticNativeLinkInputFailure, DiagnosticNativeProductFailureDetail,
-    DiagnosticNativeProductFailureKind, DiagnosticOutputSink, DiagnosticProductKind,
-    DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem,
+    DiagnosticMirUnitBuildFailure, DiagnosticMirUnitBuildFailureContext,
+    DiagnosticMirUnitBuildFailureKind, DiagnosticMirUnitLocalIdentity, DiagnosticModuleTrust,
+    DiagnosticNameKind, DiagnosticNamedType, DiagnosticNativeLinkInputFailure,
+    DiagnosticNativeProductFailureDetail, DiagnosticNativeProductFailureKind, DiagnosticOutputSink,
+    DiagnosticProductKind, DiagnosticRuntimeAbiVersion, DiagnosticRuntimeArtifactProblem,
     DiagnosticRuntimeArtifactPurpose, DiagnosticSelectionKind, DiagnosticSourceConstructKind,
     DiagnosticStandardLibraryManifestProblem, DiagnosticStandardLibraryOptimizationMetadataProblem,
     DiagnosticTargetRepresentation, DiagnosticType, DiagnosticTypeArgument, DiagnosticVisibility,
@@ -88,9 +90,8 @@ pub use emission::{
     DiagnosticEmissionStagingFailure, DiagnosticEvaluationFailureDetail,
     DiagnosticFactRuntimeFailure, DiagnosticFailureField, DiagnosticFailureValue,
     DiagnosticForeignQueryFailure, DiagnosticGenericSubstitutionFailure,
-    DiagnosticLivenessFailure, DiagnosticMemoryOperationsFailure,
-    DiagnosticHostEnvironmentVariable,
-    DiagnosticLiteralValueFailure, DiagnosticLlvmToolRole, DiagnosticPackageInterfaceFailure,
+    DiagnosticHostEnvironmentVariable, DiagnosticLiteralValueFailure, DiagnosticLivenessFailure,
+    DiagnosticLlvmToolRole, DiagnosticMemoryOperationsFailure, DiagnosticPackageInterfaceFailure,
     DiagnosticPatternInputFailure, DiagnosticProductQueryFailure, DiagnosticSemanticQueryFailure,
     DiagnosticSemanticSelectionFailure, DiagnosticSemanticSnapshotFailure,
     DiagnosticSemanticValueFailure, DiagnosticStorageFlowFailure, DiagnosticStoragePlanFailure,

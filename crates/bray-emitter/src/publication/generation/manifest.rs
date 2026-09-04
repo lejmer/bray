@@ -5,27 +5,22 @@ use bray_codegen::{ArtifactDigest, ArtifactDigestAlgorithm, BackendArtifactKind}
 use serde::{Deserialize, Serialize};
 
 use crate::publication::operation::PreparedArtifact;
+use crate::storage::{StorageContext, StorageProduct};
 use crate::{ArtifactKind, ArtifactProducer, ArtifactRequirement, ArtifactRole};
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct GenerationManifest {
     pub(super) revision: u32,
-    pub(super) product: ManifestProduct,
+    pub(super) product: StorageProduct,
+    pub(super) context: StorageContext,
     pub(super) artifacts: Vec<ManifestArtifact>,
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct ManifestProduct {
-    pub(super) package: String,
-    pub(super) name: String,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct ManifestArtifact {
-    pub(super) kind: String,
+    pub(super) kind: ArtifactKind,
     pub(super) ordinal: u32,
     pub(super) requirement: String,
     pub(super) role: String,
@@ -47,7 +42,7 @@ impl ManifestArtifact {
         permissions: ManifestPermissions,
     ) -> Self {
         Self {
-            kind: artifact.planned.id().kind().machine_key().to_owned(),
+            kind: artifact.planned.id().kind(),
             ordinal: artifact.planned.id().ordinal(),
             requirement: requirement_key(artifact.planned.requirement()).to_owned(),
             role: role_key(artifact.planned.role()).to_owned(),
@@ -67,6 +62,7 @@ impl ManifestArtifact {
 pub(super) struct ManifestPermissions {
     pub(super) logical: String,
     pub(super) unix_mode: Option<u32>,
+    pub(super) read_only: bool,
 }
 
 impl ManifestPermissions {
@@ -80,13 +76,44 @@ impl ManifestPermissions {
         Ok(Self {
             logical: permission_key(kind).to_owned(),
             unix_mode: unix_mode(&metadata.permissions()),
+            read_only: metadata.permissions().readonly(),
         })
     }
 
-    pub(super) fn matches(&self, path: &Path) -> std::io::Result<bool> {
-        let metadata = std::fs::symlink_metadata(path)?;
+    pub(super) fn validate(
+        &self,
+        path: &Path,
+        kind: ArtifactKind,
+    ) -> Result<(), crate::StorageError> {
+        use bray_diagnostics::DiagnosticRetainedGenerationProblem as Problem;
 
-        Ok(metadata.file_type().is_file() && self.unix_mode == unix_mode(&metadata.permissions()))
+        let actual = Self::read(path, kind).map_err(|error| {
+            crate::StorageError::io(path, crate::StorageOperation::Inspect, error)
+        })?;
+
+        let problem = if self.logical != actual.logical {
+            Some(Problem::LogicalPermission)
+        } else if self.read_only != actual.read_only {
+            Some(Problem::ReadOnly {
+                expected: self.read_only,
+                actual: actual.read_only,
+            })
+        } else if self.unix_mode != actual.unix_mode {
+            Some(Problem::UnixMode {
+                expected: self.unix_mode,
+                actual: actual.unix_mode,
+            })
+        } else {
+            None
+        };
+
+        match problem {
+            Some(problem) => Err(crate::StorageError::new(
+                path,
+                crate::StorageErrorKind::Generation(problem),
+            )),
+            None => Ok(()),
+        }
     }
 }
 
@@ -132,14 +159,6 @@ impl ManifestProducer {
             },
         }
     }
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct GenerationReference {
-    pub(super) revision: u32,
-    pub(super) locator: String,
-    pub(super) manifest_digest: String,
 }
 
 pub(super) const fn permission_key(kind: ArtifactKind) -> &'static str {

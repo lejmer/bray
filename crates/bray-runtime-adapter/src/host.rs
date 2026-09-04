@@ -2,6 +2,7 @@ use bray_runtime::native::implementation;
 use bray_runtime_abi::{
     NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostOperation,
     NativeRootHandle, NativeRunOutcome, NativeRuntimeStatus,
+    NativeThreadStaticCleanupRegistration,
 };
 
 native_adapter! {
@@ -14,11 +15,27 @@ native_adapter! {
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_product_host_control(
+    pub extern "C" fn bray_runtime_substrate_product_host_control(
         descriptor: &NativeProductHostDescriptor,
         operation: NativeProductHostOperation,
     ) -> NativeProductHostObservation {
         implementation::bray_runtime_product_host_control(descriptor, operation)
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_substrate_thread_attachment_identity(
+        descriptor: &'static NativeProductHostDescriptor,
+    ) -> u64 {
+        implementation::bray_runtime_substrate_thread_attachment_identity(descriptor)
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_substrate_thread_static_cleanup_registration(
+        registration: &NativeThreadStaticCleanupRegistration,
+    ) -> NativeRuntimeStatus {
+        implementation::bray_runtime_substrate_thread_static_cleanup_registration(registration)
     }
 }
 

@@ -49,6 +49,17 @@ pub enum BuildConfiguration {
 }
 
 impl BuildConfiguration {
+    /// Returns the stable build-profile name used in metadata and diagnostics.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Development => "debug",
+            Self::Release => "release",
+            Self::ObjectRelease => "object_release",
+            Self::ObservedRelease => "observed_release",
+            Self::TimedRelease { .. } => "timed_release",
+        }
+    }
+
     /// Returns whether linked debug information uses a companion artifact.
     pub const fn requires_linked_debug_companion(
         self,

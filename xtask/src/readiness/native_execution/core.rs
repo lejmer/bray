@@ -8,11 +8,13 @@ use super::buffer::{
     audit_standard_buffer, audit_standard_format, build_standard_library_fixtures,
     standard_library_compilation,
 };
+use super::built_fixture::BuiltFixture;
 use super::fixtures::{
     ABI_FIXTURE, ABI_HOST, ASYNC_ERROR_FIXTURE, ASYNC_I32_FIXTURE, ASYNC_TASKS_FIXTURE,
     ASYNC_UNIT_FIXTURE, ATOMIC_FIXTURE, ENTRY_RESULT_FIXTURE, MEMORY_FIXTURE,
     MEMORY_LAYOUT_FIXTURE, PATTERN_CONDITIONS_FIXTURE, PRODUCT_NAME, RANGE_FIXTURE,
     STANDARD_MEMORY_FIXTURE, STANDARD_RUN_SOURCE, STANDARD_TASK_SOURCE, STANDARD_TEXT_FIXTURE,
+    STANDARD_TESTING_SOURCE,
     STARTUP_FIXTURE, SYNC_CATCH_PROPAGATION_FIXTURE, SYNC_PANIC_FIXTURE, TEXT_CURSOR_FIXTURE,
 };
 use super::hello::audit_standard_hello_world;
@@ -20,86 +22,6 @@ use super::nullable::audit_nullable_state_queries;
 use super::rejection::audit_rejections;
 use super::repeatable::audit_repeatable_fixture;
 use super::static_storage::audit_static_storage;
-
-pub(super) struct BuiltFixture {
-    output: tempfile::TempDir,
-    executable: PathBuf,
-    objects: Vec<PathBuf>,
-}
-
-impl BuiltFixture {
-    pub(super) fn build_command_line(
-        prefix: &str,
-        target: NativeTarget,
-        build: impl FnOnce(&Path) -> Result<(), String>,
-    ) -> Result<Self, String> {
-        Self::build(prefix, target, "command.line", build)
-    }
-
-    pub(super) fn build_standard_library(
-        prefix: &str,
-        target: NativeTarget,
-        build: impl FnOnce(&Path) -> Result<(), String>,
-    ) -> Result<Self, String> {
-        Self::build(prefix, target, "std", build)
-    }
-
-    fn build(
-        prefix: &str,
-        target: NativeTarget,
-        package: &str,
-        build: impl FnOnce(&Path) -> Result<(), String>,
-    ) -> Result<Self, String> {
-        let output = native_output(prefix)?;
-
-        build(output.path())?;
-
-        let executable_name =
-            TargetOutputName::for_native(target.object_format(), TargetOutputKind::Executable)
-                .file_name(PRODUCT_NAME)
-                .ok_or_else(|| format!("{prefix} fixture executable name is invalid"))?;
-
-        let expected_executable = output.path().join(executable_name);
-
-        let generation_reference = output
-            .path()
-            .join(".bray")
-            .join(PRODUCT_NAME)
-            .join("published-generation.json");
-
-        let executable = executable_path(output.path(), package).map_err(|error| {
-            format!(
-                "could not resolve {prefix} fixture for package {package}, output {} exists {}, executable {} exists {}, generation reference {} exists {}: {error}",
-                output.path().display(),
-                output.path().exists(),
-                expected_executable.display(),
-                expected_executable.exists(),
-                generation_reference.display(),
-                generation_reference.exists(),
-            )
-        })?;
-
-        let objects = object_files(output.path(), target)?;
-
-        Ok(Self {
-            output,
-            executable,
-            objects,
-        })
-    }
-
-    pub(super) fn output(&self) -> &Path {
-        self.output.path()
-    }
-
-    pub(super) fn executable(&self) -> &Path {
-        &self.executable
-    }
-
-    pub(super) fn objects(&self) -> &[PathBuf] {
-        &self.objects
-    }
-}
 
 pub(crate) fn audit(root: &Path) -> Result<(), String> {
     let target = NativeTarget::current().ok_or_else(|| {
@@ -236,7 +158,11 @@ fn audit_atomic_operations(
     let first_objects = object_files(first.path(), target)?;
     let second_objects = object_files(second.path(), target)?;
 
-    require_equal_files(&first_executable, &second_executable, "atomic executable")?;
+    require_equal_files(
+        first_executable.path(),
+        second_executable.path(),
+        "atomic executable",
+    )?;
 
     require_equal_artifacts(&first_objects, &second_objects)?;
 
@@ -248,7 +174,7 @@ fn audit_atomic_operations(
     )?;
 
     execute_product(
-        &first_executable,
+        first_executable.path(),
         42,
         "executing compiler-provided atomic operations",
     )
@@ -506,7 +432,12 @@ fn build_host_fixture(
                 target,
                 runtime,
                 output,
-                &[STANDARD_RUN_SOURCE, STANDARD_TASK_SOURCE, fixture],
+                &[
+                    STANDARD_RUN_SOURCE,
+                    STANDARD_TASK_SOURCE,
+                    STANDARD_TESTING_SOURCE,
+                    fixture,
+                ],
             )
         })
     } else {
@@ -776,7 +707,10 @@ pub(super) fn product_output(executable: &Path, operation: &str) -> Result<Outpu
         .map_err(|error| format!("could not start {operation}: {error}"))
 }
 
-pub(super) fn executable_path(directory: &Path, package: &str) -> Result<PathBuf, String> {
+pub(super) fn executable_path(
+    destination: impl Into<bray_emitter::ManagedFilesystemDestination>,
+    package: &str,
+) -> Result<bray_emitter::PublishedArtifact, String> {
     let package = bray_symbols::PackageIdentity::try_new(package)
         .ok_or_else(|| "native fixture package identity is invalid".to_owned())?;
 
@@ -784,7 +718,7 @@ pub(super) fn executable_path(directory: &Path, package: &str) -> Result<PathBuf
         .ok_or_else(|| "native fixture product identity is invalid".to_owned())?;
 
     bray_emitter::resolve_published_artifact(
-        directory,
+        destination,
         &product,
         bray_emitter::ArtifactKind::Executable,
         0,
@@ -800,39 +734,4 @@ pub(super) fn output_contains(output: &Output, required: &str) -> bool {
 pub(super) fn llvm_tool(root: &Path, tool: bray_diagnostics::DiagnosticLlvmToolRole) -> PathBuf {
     bray_tooling::llvm_tool_path(tool)
         .unwrap_or_else(|_| bray_llvm_toolchain::tool_path(root, tool.executable_name()))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::BuiltFixture;
-
-    #[test]
-    fn built_fixture_owns_its_workspace_through_use_and_removes_it_on_drop() {
-        let output = tempfile::tempdir()
-            .unwrap_or_else(|error| panic!("test fixture output must exist: {error:?}"));
-
-        let directory = output.path().to_owned();
-        let executable = directory.join("application.exe");
-        let object = directory.join("application.obj");
-
-        std::fs::write(&executable, b"executable")
-            .unwrap_or_else(|error| panic!("test executable must write: {error:?}"));
-
-        std::fs::write(&object, b"object")
-            .unwrap_or_else(|error| panic!("test object must write: {error:?}"));
-
-        let fixture = BuiltFixture {
-            output,
-            executable,
-            objects: vec![object],
-        };
-
-        assert!(fixture.output().is_dir());
-        assert!(fixture.executable().is_file());
-        assert!(fixture.objects()[0].is_file());
-
-        drop(fixture);
-
-        assert!(!directory.exists());
-    }
 }

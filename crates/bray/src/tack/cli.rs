@@ -252,6 +252,10 @@ impl From<CliProfileMode> for TackProfileMode {
 
 #[derive(Debug, Subcommand)]
 enum CliCommand {
+    #[command(about = help::STORAGE)]
+    Storage(CliStorage),
+    #[command(about = help::CLEAN)]
+    Clean(CliClean),
     #[command(about = help::INIT)]
     Init(CliInit),
     #[command(about = help::CHECK)]
@@ -277,6 +281,18 @@ enum CliCommand {
 impl CliCommand {
     fn into_command(self) -> TackCommand {
         match self {
+            Self::Storage(options) => TackCommand::Storage {
+                options: options.into(),
+                action: crate::tack::model::TackStorageAction::Report,
+            },
+            Self::Clean(clean) => TackCommand::Storage {
+                options: clean.options.into(),
+                action: if clean.dry_run {
+                    crate::tack::model::TackStorageAction::PreviewClean
+                } else {
+                    crate::tack::model::TackStorageAction::Clean
+                },
+            },
             Self::Init(init) => TackCommand::Init {
                 directory: init.directory,
                 package: init.package,
@@ -634,6 +650,8 @@ mod tests {
             (vec!["init"], TackCommandKind::Init),
             (vec!["check"], TackCommandKind::Check),
             (vec!["build"], TackCommandKind::Build),
+            (vec!["storage"], TackCommandKind::Storage),
+            (vec!["clean"], TackCommandKind::Clean),
             (vec!["run"], TackCommandKind::Run),
             (vec!["test"], TackCommandKind::Test),
             (vec!["fmt"], TackCommandKind::Format),
@@ -681,6 +699,53 @@ mod tests {
 
         assert_eq!(invocation.workspace_root(), Path::new("project"));
         assert_eq!(invocation.command_kind(), TackCommandKind::Check);
+    }
+
+    #[test]
+    fn storage_filters_and_clean_preview_do_not_enable_compiler_profiling() {
+        use crate::tack::model::{TackStorageAction, TackStorageOptions};
+
+        for (arguments, expected_action) in [
+            (vec!["storage"], TackStorageAction::Report),
+            (vec!["clean"], TackStorageAction::Clean),
+            (vec!["clean", "--dry-run"], TackStorageAction::PreviewClean),
+        ] {
+            let invocation = TackInvocation::try_from_arguments(
+                std::iter::once("bray").chain(arguments).chain([
+                    "--product",
+                    "inactive.package/app",
+                    "--target",
+                    "x86_64-unknown-linux-gnu",
+                    "--build-profile",
+                    "release",
+                    "--toolchain-revision",
+                    "llvm-test",
+                    "--kind",
+                    "caches",
+                ]),
+            )
+            .unwrap();
+
+            let (_, _, _, _, _, profile, command) = invocation.into_parts();
+
+            let TackCommand::Storage { options, action } = command else {
+                panic!("expected storage command");
+            };
+
+            assert_eq!(profile, None);
+            assert_eq!(action, expected_action);
+
+            assert_eq!(
+                options,
+                TackStorageOptions {
+                    product: Some("inactive.package/app".to_owned()),
+                    target: Some("x86_64-unknown-linux-gnu".to_owned()),
+                    profile: Some("release".to_owned()),
+                    toolchain: Some("llvm-test".to_owned()),
+                    kind: Some(bray_emitter::StorageKind::Caches),
+                }
+            );
+        }
     }
 
     #[test]
@@ -902,5 +967,53 @@ mod tests {
         let result = TackInvocation::try_from_arguments(["bray", "--profile=trace", "build"]);
 
         assert!(result.is_err());
+    }
+}
+
+#[derive(Args, Debug)]
+struct CliStorage {
+    #[arg(long, value_name = "PACKAGE/PRODUCT", help = help::STORAGE_PRODUCT)]
+    product: Option<String>,
+    #[arg(long, value_name = "TARGET", help = help::STORAGE_TARGET)]
+    target: Option<String>,
+    #[arg(long = "build-profile", value_name = "PROFILE", help = help::STORAGE_PROFILE)]
+    build_profile: Option<String>,
+    #[arg(long = "toolchain-revision", value_name = "REVISION", help = help::STORAGE_TOOLCHAIN)]
+    toolchain: Option<String>,
+    #[arg(long, value_enum, help = help::STORAGE_KIND)]
+    kind: Option<CliStorageKind>,
+}
+
+#[derive(Args, Debug)]
+struct CliClean {
+    #[command(flatten)]
+    options: CliStorage,
+    #[arg(long, help = help::CLEAN_DRY_RUN)]
+    dry_run: bool,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum CliStorageKind {
+    #[value(help = help::STORAGE_PRODUCTS)]
+    Products,
+    #[value(help = help::STORAGE_CACHES)]
+    Caches,
+    #[value(help = help::STORAGE_INTERMEDIATES)]
+    Intermediates,
+}
+
+impl From<CliStorage> for crate::tack::model::TackStorageOptions {
+    fn from(value: CliStorage) -> Self {
+        Self {
+            product: value.product,
+            target: value.target,
+            profile: value.build_profile,
+            toolchain: value.toolchain,
+            kind: value.kind.map(|kind| match kind {
+                CliStorageKind::Products => bray_emitter::StorageKind::Products,
+                CliStorageKind::Caches => bray_emitter::StorageKind::Caches,
+                CliStorageKind::Intermediates => bray_emitter::StorageKind::Intermediates,
+            }),
+        }
     }
 }

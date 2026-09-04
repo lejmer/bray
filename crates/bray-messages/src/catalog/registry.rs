@@ -32,6 +32,15 @@ impl MessageCatalog {
         Self { locale }
     }
 
+    pub(crate) const fn storage_report_message(
+        self,
+        message: crate::StorageReportMessage,
+    ) -> &'static str {
+        match self.locale {
+            DiagnosticLocale::English => super::english::storage_report_message(message),
+        }
+    }
+
     pub(crate) const fn language_server_message(
         self,
         message: LanguageServerMessage,

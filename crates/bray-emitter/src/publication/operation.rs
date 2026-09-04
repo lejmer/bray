@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::io::{self, Read, Write};
+use std::io::{self, Write};
 
 use bray_base::Cancellation;
 use bray_codegen::{ArtifactContent, ArtifactDigest, ArtifactDigestAlgorithm};
@@ -24,8 +24,6 @@ use crate::{
     EmissionOutcome, EmissionPlan, EmittedArtifact, EmittedArtifactSet, IndirectOutputSink,
     OutputSink, OutputSinkResolver, PlannedArtifact, PlannedArtifactDestination, ReplacementPolicy,
 };
-
-const COPY_BUFFER_LEN: usize = 64 * 1024;
 
 /// Publishes validated artifact contributions to the immutable plan's external sinks.
 #[derive(Clone, Copy)]
@@ -401,31 +399,19 @@ pub(super) fn copy_content(
         .open()
         .map_err(|kind| artifact_failure(planned, PublicationErrorKind::Read(kind)))?;
 
-    let mut buffer = [0_u8; COPY_BUFFER_LEN];
+    crate::artifact::content::copy_reader(&mut reader, writer, cancellation).map_err(|error| {
+        use crate::artifact::content::ContentCopyError;
 
-    loop {
-        if cancellation.is_cancelled() {
-            return Err(ArtifactPublicationFailure::Cancelled);
+        match error {
+            ContentCopyError::Cancelled => ArtifactPublicationFailure::Cancelled,
+            ContentCopyError::Read(kind) => {
+                artifact_failure(planned, PublicationErrorKind::Read(kind))
+            }
+            ContentCopyError::Write(kind) => {
+                artifact_failure(planned, PublicationErrorKind::Write(kind))
+            }
         }
-
-        let read = reader
-            .read(&mut buffer)
-            .map_err(|error| artifact_failure(planned, PublicationErrorKind::Read(error.kind())))?;
-
-        if read == 0 {
-            break;
-        }
-
-        if cancellation.is_cancelled() {
-            return Err(ArtifactPublicationFailure::Cancelled);
-        }
-
-        writer.write_all(&buffer[..read]).map_err(|error| {
-            artifact_failure(planned, PublicationErrorKind::Write(error.kind()))
-        })?;
-    }
-
-    Ok(())
+    })
 }
 
 fn publication_set(
@@ -1022,7 +1008,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("published manifest must resolve: {error:?}"));
 
-        assert_eq!(resolved, published);
+        assert_eq!(resolved.path(), published);
     }
 
     #[test]
@@ -1061,7 +1047,7 @@ mod tests {
     }
 
     #[test]
-    fn managed_generation_retention_keeps_only_current_and_preceding_products() {
+    fn managed_generation_retention_keeps_current_and_preceding_unpinned_products() {
         let Ok(output) = tempfile::tempdir() else {
             panic!("test output directory must be created");
         };
@@ -1092,6 +1078,9 @@ mod tests {
             .and_then(|generation| generation.artifact_path(second.artifacts().artifacts()[0].id()))
             .unwrap_or_else(|| panic!("second private artifact path must resolve"));
 
+        drop(first);
+        drop(second);
+
         let third = ArtifactPublisher::new(&never_cancelled)
             .publish(&plan, [contribution(&plan, b"third", None)]);
 
@@ -1103,6 +1092,712 @@ mod tests {
             file_bytes(&output.path().join("application.brayd")),
             b"third"
         );
+    }
+
+    #[test]
+    fn pins_survive_replacement_and_repeated_content_preserves_distinct_history() {
+        let output = tempfile::tempdir().unwrap();
+        let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        let first = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"first", None)]);
+
+        let pin = first.generation().unwrap().clone();
+
+        let first_path = pin
+            .artifact_path(first.artifacts().artifacts()[0].id())
+            .unwrap();
+
+        drop(first);
+
+        let second = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"second", None)]);
+
+        let second_path = second
+            .generation()
+            .unwrap()
+            .artifact_path(second.artifacts().artifacts()[0].id())
+            .unwrap();
+
+        drop(second);
+
+        for _ in 0..3 {
+            let current = ArtifactPublisher::new(&never_cancelled)
+                .publish(&plan, [contribution(&plan, b"third", None)]);
+
+            assert_complete_artifact(&current, b"third");
+            assert_eq!(file_bytes(&first_path), b"first");
+            assert_eq!(file_bytes(&second_path), b"second");
+        }
+
+        drop(pin);
+
+        let current = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"third", None)]);
+
+        assert_complete_artifact(&current, b"third");
+        assert!(!first_path.exists());
+        assert_eq!(file_bytes(&second_path), b"second");
+    }
+
+    #[test]
+    fn products_share_immutable_content_until_the_last_retained_reference_is_removed() {
+        let output = tempfile::tempdir().unwrap();
+
+        let second_product =
+            bray_symbols::ProductIdentity::try_new(product_identity().package().clone(), "second")
+                .unwrap();
+
+        let first_plan = filesystem_artifact_plan([(
+            required_dependency_metadata_spec(),
+            output.path().join("first.brayd"),
+        )]);
+
+        let second_plan = filesystem_artifact_plan_for(
+            second_product,
+            [(
+                required_dependency_metadata_spec(),
+                output.path().join("second.brayd"),
+            )],
+        );
+
+        let bytes = b"shared immutable content";
+
+        let first = ArtifactPublisher::new(&never_cancelled)
+            .publish(&first_plan, [contribution(&first_plan, bytes, None)]);
+
+        let second = ArtifactPublisher::new(&never_cancelled)
+            .publish(&second_plan, [contribution(&second_plan, bytes, None)]);
+
+        assert_complete_artifact(&first, bytes);
+        assert_complete_artifact(&second, bytes);
+
+        let first_path = first
+            .generation()
+            .unwrap()
+            .artifact_path(first.artifacts().artifacts()[0].id())
+            .unwrap();
+
+        let second_path = second
+            .generation()
+            .unwrap()
+            .artifact_path(second.artifacts().artifacts()[0].id())
+            .unwrap();
+
+        assert_eq!(
+            file_id::get_file_id(&first_path).unwrap(),
+            file_id::get_file_id(&second_path).unwrap()
+        );
+
+        assert_ne!(
+            file_id::get_file_id(&second_path).unwrap(),
+            file_id::get_file_id(output.path().join("second.brayd")).unwrap()
+        );
+
+        drop(first);
+
+        let first_selection = crate::StorageSelection {
+            product: Some(first_plan.request().product().clone()),
+            ..crate::StorageSelection::default()
+        };
+
+        let clean =
+            crate::clean_storage(output.path(), &first_selection, false, &never_cancelled).unwrap();
+
+        assert!(clean.iter().all(|row| row.removed));
+        assert!(!first_path.exists());
+        assert_eq!(file_bytes(&second_path), bytes);
+
+        let first = ArtifactPublisher::new(&never_cancelled)
+            .publish(&first_plan, [contribution(&first_plan, bytes, None)]);
+
+        assert_complete_artifact(&first, bytes);
+
+        assert_eq!(
+            file_id::get_file_id(&first_path).unwrap(),
+            file_id::get_file_id(&second_path).unwrap()
+        );
+
+        drop(first);
+        drop(second);
+
+        let rows = crate::inspect_storage(
+            output.path(),
+            &crate::StorageSelection::default(),
+            crate::StoragePolicy::default(),
+            &never_cancelled,
+        )
+        .unwrap();
+
+        assert_eq!(
+            rows.iter().filter_map(|row| row.shared_bytes).sum::<u64>(),
+            u64::try_from(bytes.len()).unwrap()
+        );
+
+        crate::clean_storage(
+            output.path(),
+            &crate::StorageSelection::default(),
+            false,
+            &never_cancelled,
+        )
+        .unwrap();
+
+        assert!(!first_path.exists());
+        assert!(!second_path.exists());
+
+        let index: serde_json::Value =
+            serde_json::from_slice(&file_bytes(&output.path().join(".bray/storage-index.json")))
+                .unwrap();
+
+        assert!(index["content"].as_object().unwrap().is_empty());
+    }
+
+    #[test]
+    fn storage_clean_respects_live_pins_dry_runs_and_unmanaged_files() {
+        let output = tempfile::tempdir().unwrap();
+        let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        let current = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"current", None)]);
+
+        let public = output.path().join("application.brayd");
+        let unmanaged = output.path().join("keep-user-data.txt");
+        let selection = crate::StorageSelection::default();
+
+        std::fs::write(&unmanaged, b"user data").unwrap();
+
+        let active =
+            crate::clean_storage(output.path(), &selection, false, &never_cancelled).unwrap();
+
+        assert!(active.iter().any(|entry| entry.active));
+        assert!(active.iter().all(|entry| !entry.removed));
+        assert_eq!(file_bytes(&public), b"current");
+        drop(current);
+
+        let index = output.path().join(".bray/storage-index.json");
+        let before = file_bytes(&index);
+
+        let preview =
+            crate::clean_storage(output.path(), &selection, true, &never_cancelled).unwrap();
+
+        assert!(
+            preview
+                .iter()
+                .any(|entry| entry.category == crate::StorageCategory::CurrentOutputs)
+        );
+
+        assert!(
+            preview
+                .iter()
+                .any(|entry| entry.category == crate::StorageCategory::RetainedRerun)
+        );
+
+        assert!(preview.iter().all(|entry| !entry.removed && !entry.active));
+        assert_eq!(file_bytes(&index), before);
+        assert_eq!(file_bytes(&public), b"current");
+
+        let removed =
+            crate::clean_storage(output.path(), &selection, false, &never_cancelled).unwrap();
+
+        assert!(removed.iter().all(|entry| entry.removed));
+        assert!(!public.exists());
+        assert!(!test_generation_store(output.path()).exists());
+        assert_eq!(file_bytes(&unmanaged), b"user data");
+
+        let rebuilt = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"rebuilt", None)]);
+
+        assert_complete_artifact(&rebuilt, b"rebuilt");
+    }
+
+    #[test]
+    fn active_product_storage_respects_every_context_filter() {
+        let output = tempfile::tempdir().unwrap();
+        let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        let _active = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"active", None)]);
+
+        let selections = [
+            crate::StorageSelection {
+                target: Some(
+                    bray_target::TargetIdentity::try_new("aarch64-unknown-linux-gnu").unwrap(),
+                ),
+                ..Default::default()
+            },
+            crate::StorageSelection {
+                profile: Some("release".to_owned()),
+                ..Default::default()
+            },
+            crate::StorageSelection {
+                toolchain: Some("other-toolchain".to_owned()),
+                ..Default::default()
+            },
+        ];
+
+        for selection in selections {
+            let rows = crate::inspect_storage(
+                output.path(),
+                &selection,
+                crate::StoragePolicy::default(),
+                &never_cancelled,
+            )
+            .unwrap();
+
+            assert!(rows.is_empty());
+        }
+    }
+
+    #[test]
+    fn retained_reads_pin_every_companion_while_publication_and_cleanup_advance() {
+        let output = tempfile::tempdir().unwrap();
+
+        let first_plan = filesystem_artifact_plan([
+            (
+                package_interface_spec(),
+                output.path().join("application.brayi"),
+            ),
+            (
+                required_dependency_metadata_spec(),
+                output.path().join("application.brayd"),
+            ),
+        ]);
+
+        let first = ArtifactPublisher::new(&never_cancelled)
+            .publish(&first_plan, [contribution(&first_plan, b"first", None)]);
+
+        assert!(
+            matches!(first.status(), EmissionStatus::Complete),
+            "{first:?}"
+        );
+
+        let retained = crate::retain_published_generation(
+            output.path(),
+            first_plan.request().product(),
+            &never_cancelled,
+        )
+        .unwrap();
+
+        let paths: Vec<_> = retained
+            .artifacts()
+            .map(|(_, _, path)| path.to_owned())
+            .collect();
+
+        assert_eq!(paths.len(), 2);
+        assert_eq!(retained.identity(), first.generation().unwrap().identity());
+        drop(first);
+
+        let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        for bytes in [b"second".as_slice(), b"third", b"fourth"] {
+            let next = ArtifactPublisher::new(&never_cancelled)
+                .publish(&plan, [contribution(&plan, bytes, None)]);
+
+            assert_complete_artifact(&next, bytes);
+            assert!(paths.iter().all(|path| path.is_file()));
+        }
+
+        let rows = crate::clean_storage(
+            output.path(),
+            &crate::StorageSelection::default(),
+            false,
+            &never_cancelled,
+        )
+        .unwrap();
+
+        assert!(rows.iter().all(|row| row.active && !row.removed));
+
+        assert_eq!(
+            file_bytes(
+                retained
+                    .artifact_path(ArtifactKind::DependencyMetadata, 0)
+                    .unwrap()
+            ),
+            b"first"
+        );
+
+        drop(retained);
+
+        crate::clean_storage(
+            output.path(),
+            &crate::StorageSelection::default(),
+            false,
+            &never_cancelled,
+        )
+        .unwrap();
+
+        assert!(paths.iter().all(|path| !path.exists()));
+
+        let error = crate::retain_published_generation(
+            output.path(),
+            plan.request().product(),
+            &never_cancelled,
+        )
+        .unwrap_err()
+        .into_storage_error(output.path());
+
+        assert_eq!(error.kind(), &crate::StorageErrorKind::Unavailable);
+    }
+
+    #[test]
+    fn readers_recover_a_crashed_public_projection_before_consuming_files() {
+        let output = tempfile::tempdir().unwrap();
+        let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        let current = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"committed", None)]);
+
+        let store = current.generation().unwrap().store();
+        let public = output.path().join("application.brayd");
+        let extra = output.path().join("unfinished.brayd");
+        let unrelated = output.path().join("user.txt");
+        let journal = store.join("pending-publication.json");
+
+        std::fs::write(
+            &journal,
+            br#"{"revision":1,"paths":["application.brayd","unfinished.brayd"]}"#,
+        )
+        .unwrap();
+
+        std::fs::write(&public, b"uncommitted").unwrap();
+        std::fs::write(&extra, b"uncommitted companion").unwrap();
+        std::fs::write(&unrelated, b"user data").unwrap();
+
+        let resolved = crate::resolve_published_artifact(
+            output.path(),
+            plan.request().product(),
+            ArtifactKind::DependencyMetadata,
+            0,
+        )
+        .unwrap();
+
+        assert_eq!(file_bytes(resolved.path()), b"committed");
+        assert!(!extra.exists());
+        assert!(!journal.exists());
+        assert_eq!(file_bytes(&unrelated), b"user data");
+    }
+
+    #[test]
+    fn maintenance_removes_uncommitted_first_publication_and_abandoned_staging() {
+        let output = tempfile::tempdir().unwrap();
+        let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        let current = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"never committed", None)]);
+
+        let store = current.generation().unwrap().store().to_owned();
+        let public = output.path().join("application.brayd");
+        let journal = store.join("pending-publication.json");
+        let staging = store.join("staging/abandoned");
+
+        std::fs::write(&journal, br#"{"revision":1,"paths":["application.brayd"]}"#).unwrap();
+        std::fs::write(&staging, b"partial output").unwrap();
+        std::fs::remove_file(current.generation().unwrap().reference()).unwrap();
+        drop(current);
+
+        let operation = crate::ManagedOperation::begin(
+            output.path(),
+            plan.request().product(),
+            plan.request().target(),
+            &never_cancelled,
+        )
+        .unwrap();
+
+        assert!(operation.directory().is_dir());
+        assert!(!public.exists());
+        assert!(!journal.exists());
+        assert!(!staging.exists());
+
+        let rebuilt = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"committed", None)]);
+
+        assert_complete_artifact(&rebuilt, b"committed");
+    }
+
+    #[test]
+    fn a_committed_reference_wins_over_an_unfinished_journal() {
+        let output = tempfile::tempdir().unwrap();
+        let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        let current = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"committed", None)]);
+
+        let store = current.generation().unwrap().store();
+        let journal = store.join("pending-publication.json");
+
+        std::fs::write(&journal, br#"{"revision":1,"paths":["application.brayd"]}"#).unwrap();
+        std::fs::remove_file(output.path().join("application.brayd")).unwrap();
+
+        let resolved = crate::resolve_published_artifact(
+            output.path(),
+            plan.request().product(),
+            ArtifactKind::DependencyMetadata,
+            0,
+        )
+        .unwrap();
+
+        assert_eq!(file_bytes(resolved.path()), b"committed");
+        assert!(!journal.exists());
+    }
+
+    #[test]
+    fn selective_clean_removes_previous_profile_and_staging_without_current_outputs() {
+        let output = tempfile::tempdir().unwrap();
+        let base = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        let profile_plan = |profile| {
+            EmissionPlan::try_new(
+                base.request().clone().with_storage_profile(profile),
+                None,
+                None,
+                base.artifacts().iter().cloned(),
+                [],
+                None,
+            )
+            .unwrap()
+        };
+
+        let old_plan = profile_plan("debug");
+
+        let old = ArtifactPublisher::new(&never_cancelled)
+            .publish(&old_plan, [contribution(&old_plan, b"old", None)]);
+
+        let old_directory = old
+            .generation()
+            .unwrap()
+            .artifact_path(old_plan.artifacts()[0].id())
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_owned();
+
+        drop(old);
+        let plan = profile_plan("release");
+
+        let current = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"current", None)]);
+
+        let store = current.generation().unwrap().store().to_owned();
+
+        let current_directory = current
+            .generation()
+            .unwrap()
+            .artifact_path(plan.artifacts()[0].id())
+            .unwrap()
+            .parent()
+            .unwrap()
+            .to_owned();
+
+        let staging = store.join("staging/abandoned");
+
+        drop(current);
+        std::fs::write(&staging, b"temporary").unwrap();
+
+        let selection = crate::StorageSelection {
+            profile: Some("debug".into()),
+            ..Default::default()
+        };
+
+        let rows = crate::inspect_storage(
+            output.path(),
+            &selection,
+            crate::StoragePolicy::default(),
+            &never_cancelled,
+        )
+        .unwrap();
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].category, crate::StorageCategory::RetainedHistory);
+        assert_eq!(rows[0].profile.as_deref(), Some("debug"));
+        assert_eq!(rows[0].shared_bytes, Some(0));
+
+        let preview =
+            crate::clean_storage(output.path(), &selection, true, &never_cancelled).unwrap();
+
+        assert_eq!(preview, rows);
+        assert!(old_directory.exists());
+
+        let cleaned =
+            crate::clean_storage(output.path(), &selection, false, &never_cancelled).unwrap();
+
+        assert!(cleaned.iter().all(|row| row.removed));
+        assert!(!old_directory.exists());
+        assert!(current_directory.exists());
+        assert!(staging.exists());
+
+        assert_eq!(
+            file_bytes(&output.path().join("application.brayd")),
+            b"current"
+        );
+
+        let product_rows = crate::inspect_storage(
+            output.path(),
+            &crate::StorageSelection {
+                kind: Some(crate::StorageKind::Products),
+                ..Default::default()
+            },
+            crate::StoragePolicy::default(),
+            &never_cancelled,
+        )
+        .unwrap();
+
+        assert!(
+            product_rows
+                .iter()
+                .all(|row| row.path != store.join("staging"))
+        );
+
+        let selection = crate::StorageSelection {
+            kind: Some(crate::StorageKind::Intermediates),
+            ..Default::default()
+        };
+
+        let cleaned =
+            crate::clean_storage(output.path(), &selection, false, &never_cancelled).unwrap();
+
+        assert!(!cleaned.is_empty());
+        assert!(cleaned.iter().any(|row| row.path == store.join("staging")));
+        assert!(cleaned.iter().all(|row| row.removed));
+        assert!(!staging.exists());
+        assert!(current_directory.exists());
+
+        assert!(
+            crate::resolve_published_artifact(
+                output.path(),
+                plan.request().product(),
+                ArtifactKind::DependencyMetadata,
+                0
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn inactive_product_reclamation_removes_public_files_and_preserves_unmanaged_neighbors() {
+        let output = tempfile::tempdir().unwrap();
+        let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        let product = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"old", None)]);
+
+        let store = product.generation().unwrap().store().to_owned();
+        let public = output.path().join("application.brayd");
+        let unmanaged = output.path().join("notes.txt");
+
+        drop(product);
+        std::fs::write(&unmanaged, b"user data").unwrap();
+        let mut managed = crate::storage::ManagedStore::open(output.path()).unwrap();
+
+        managed
+            .maintain(
+                crate::StoragePolicy {
+                    inactive_product_age: std::time::Duration::ZERO,
+                    ..Default::default()
+                },
+                &never_cancelled,
+            )
+            .unwrap();
+
+        drop(managed);
+
+        assert!(!store.exists());
+        assert!(!public.exists());
+        assert_eq!(file_bytes(&unmanaged), b"user data");
+
+        let error = crate::retain_published_generation(
+            output.path(),
+            plan.request().product(),
+            &never_cancelled,
+        )
+        .unwrap_err()
+        .into_storage_error(&store);
+
+        assert_eq!(error.kind(), &crate::StorageErrorKind::Unavailable);
+    }
+
+    #[test]
+    fn interrupted_publication_recovery_restarts_before_removing_uncommitted_companions() {
+        let output = tempfile::tempdir().unwrap();
+        let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        let product = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"committed", None)]);
+
+        let store = product.generation().unwrap().store().to_owned();
+        let public = output.path().join("application.brayd");
+        let extra = output.path().join("unfinished.brayd");
+        let journal = store.join("pending-publication.json");
+
+        drop(product);
+
+        std::fs::write(
+            &journal,
+            br#"{"revision":1,"paths":["application.brayd","unfinished.brayd"]}"#,
+        )
+        .unwrap();
+
+        std::fs::write(&public, b"uncommitted").unwrap();
+        std::fs::write(&extra, b"unfinished").unwrap();
+        let mut managed = crate::storage::ManagedStore::open(output.path()).unwrap();
+        let cancelled = || std::fs::read(&public).is_ok_and(|bytes| bytes == b"committed");
+
+        let error = managed
+            .maintain(crate::StoragePolicy::default(), &cancelled)
+            .unwrap_err();
+
+        assert_eq!(error.kind(), &crate::StorageErrorKind::Cancelled);
+        assert!(journal.exists());
+        assert!(extra.exists());
+
+        managed
+            .maintain(crate::StoragePolicy::default(), &never_cancelled)
+            .unwrap();
+
+        assert!(!journal.exists());
+        assert!(!extra.exists());
+        assert_eq!(file_bytes(&public), b"committed");
+    }
+
+    #[test]
+    fn interrupted_storage_clean_resumes_after_public_output_removal() {
+        let output = tempfile::tempdir().unwrap();
+        let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
+
+        let current = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"current", None)]);
+
+        let public = output.path().join("application.brayd");
+
+        drop(current);
+
+        let selection = crate::StorageSelection::default();
+
+        let error = crate::clean_storage(output.path(), &selection, false, &|| !public.exists())
+            .unwrap_err();
+
+        assert_eq!(error.kind(), &crate::StorageErrorKind::Cancelled);
+        assert!(!public.exists());
+
+        let resumed =
+            crate::clean_storage(output.path(), &selection, false, &never_cancelled).unwrap();
+
+        assert!(resumed.iter().all(|entry| entry.removed));
+
+        assert!(
+            crate::inspect_storage(
+                output.path(),
+                &selection,
+                crate::StoragePolicy::default(),
+                &never_cancelled
+            )
+            .unwrap()
+            .is_empty()
+        );
+
+        let rebuilt = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"rebuilt", None)]);
+
+        assert_complete_artifact(&rebuilt, b"rebuilt");
     }
 
     #[test]
@@ -1207,11 +1902,11 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("visible generation must resolve: {error:?}"));
 
-        assert_eq!(file_bytes(&resolved), visible);
+        assert_eq!(file_bytes(resolved.path()), visible);
     }
 
     #[test]
-    fn corrupted_existing_generation_is_rejected_as_a_collision() {
+    fn corrupted_existing_generation_preserves_the_digest_failure() {
         let Ok(output) = tempfile::tempdir() else {
             panic!("test output directory must be created");
         };
@@ -1246,12 +1941,12 @@ mod tests {
 
         assert_eq!(
             bray_testing::diagnostic_at(outcome.diagnostics(), 0).kind(),
-            DiagnosticKind::EmissionGenerationCollision
+            DiagnosticKind::RetainedArtifactDigestMismatch
         );
 
         assert_goal_state_diagnostic_kind(
             outcome.diagnostics(),
-            DiagnosticKind::EmissionGenerationCollision,
+            DiagnosticKind::RetainedArtifactDigestMismatch,
         );
 
         assert!(outcome.artifacts().artifacts().is_empty());
@@ -1292,7 +1987,7 @@ mod tests {
 
         assert_eq!(
             bray_testing::diagnostic_at(outcome.diagnostics(), 0).kind(),
-            DiagnosticKind::EmissionGenerationCollision
+            DiagnosticKind::RetainedGenerationInvalid
         );
 
         assert!(matches!(
@@ -1387,9 +2082,8 @@ mod tests {
         assert!(outcome.generation().is_none());
 
         assert!(
-            !directory
-                .path()
-                .join(".bray/application/published-generation.json")
+            !test_generation_store(directory.path())
+                .join("published-generation.json")
                 .exists()
         );
     }
@@ -1425,9 +2119,8 @@ mod tests {
         assert!(outcome.generation().is_none());
 
         assert!(
-            !directory
-                .path()
-                .join(".bray/application/published-generation.json")
+            !test_generation_store(directory.path())
+                .join("published-generation.json")
                 .exists()
         );
     }
@@ -2243,6 +2936,13 @@ mod tests {
     fn filesystem_artifact_plan(
         artifacts: impl IntoIterator<Item = (TestArtifactSpec, PathBuf)>,
     ) -> EmissionPlan {
+        filesystem_artifact_plan_for(product_identity(), artifacts)
+    }
+
+    fn filesystem_artifact_plan_for(
+        product: bray_symbols::ProductIdentity,
+        artifacts: impl IntoIterator<Item = (TestArtifactSpec, PathBuf)>,
+    ) -> EmissionPlan {
         let artifacts: Vec<_> = artifacts.into_iter().collect();
 
         let package_interface = artifacts
@@ -2261,7 +2961,7 @@ mod tests {
             .to_owned();
 
         let Ok(request) = EmissionRequest::try_new(
-            product_identity(),
+            product,
             ProductKind::Library,
             None,
             target_identity(),
@@ -2499,7 +3199,11 @@ mod tests {
     }
 
     fn test_generation_store(root: &Path) -> PathBuf {
-        root.join(".bray/application")
+        crate::publication::generation::layout::product_store(
+            root,
+            Path::new(""),
+            &crate::test_support::product_identity(),
+        )
     }
 
     struct CapturingResolver {

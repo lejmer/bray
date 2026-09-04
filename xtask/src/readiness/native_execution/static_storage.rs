@@ -53,7 +53,14 @@ fn audit_archive_host(root: &Path, target: NativeTarget, runtime: &Path) -> Resu
 
     let control = report_symbol(&report, target, "bray_product_host_control_", None)?;
 
-    let executable = compile_archive_host(root, target, runtime, &archive, control, output.path())?;
+    let executable = compile_archive_host(
+        root,
+        target,
+        runtime,
+        archive.path(),
+        control,
+        output.path(),
+    )?;
 
     crate::command::require_success(
         Command::new(executable),
@@ -311,7 +318,10 @@ fn runtime_metadata(
     crate::native_toolchain::runtime_artifact_metadata(runtime)
 }
 
-fn shared_library_path(output: &Path, target: NativeTarget) -> Result<PathBuf, String> {
+fn shared_library_path(
+    output: &Path,
+    target: NativeTarget,
+) -> Result<bray_emitter::PublishedArtifact, String> {
     let path = published_library(output, bray_emitter::ArtifactKind::SharedLibrary)?;
 
     let expected =
@@ -319,7 +329,7 @@ fn shared_library_path(output: &Path, target: NativeTarget) -> Result<PathBuf, S
             .file_name(PRODUCT_NAME)
             .ok_or_else(|| "native static-host shared-library name is invalid".to_owned())?;
 
-    if path.file_name() != Some(expected.as_ref()) {
+    if path.path().file_name() != Some(expected.as_ref()) {
         return Err("native static-host shared-library name is inconsistent".to_owned());
     }
 
@@ -329,7 +339,7 @@ fn shared_library_path(output: &Path, target: NativeTarget) -> Result<PathBuf, S
 fn published_library(
     output: &Path,
     artifact: bray_emitter::ArtifactKind,
-) -> Result<PathBuf, String> {
+) -> Result<bray_emitter::PublishedArtifact, String> {
     let package = bray_symbols::PackageIdentity::try_new("command.line")
         .ok_or_else(|| "native static-host package identity is invalid".to_owned())?;
 

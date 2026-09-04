@@ -43,6 +43,24 @@ internal struct RunOutcome
     payload: usize;
 }
 
+@copy
+@layout(c)
+internal struct ProductHostObservation
+{
+    status: u32;
+    state: u32;
+    active_entries: usize;
+    external_roots: usize;
+    thread_attachments: usize;
+    initialized_statics: usize;
+    cleaned_statics: usize;
+    cleanup_incidents: usize;
+    last_incident_0: u64;
+    last_incident_1: u64;
+    last_incident_2: u64;
+    last_incident_3: u64;
+}
+
 internal callable SubstrateCleanup = @abi(c)
 trusted func();
 
@@ -266,9 +284,40 @@ extern trusted internal func substrate_initialization(
 extern trusted internal func substrate_shutdown() -> u32
     uses(foreign_call);
 
+@link(name = "bray_runtime_host", kind = system)
+@symbol(name = "bray_runtime_substrate_product_host_control")
+@abi(c)
+extern trusted internal func substrate_product_host_control(
+    pos descriptor: RawPointer<u8>,
+    pos operation: u32,
+) -> ProductHostObservation
+    uses(foreign_call);
+
+@abi(c)
+trusted internal func product_host_control(
+    pos descriptor: RawPointer<u8>,
+    pos operation: u32,
+) -> ProductHostObservation
+    uses(foreign_call)
+{
+    return trusted substrate_product_host_control(descriptor, operation = operation);
+}
+
+@link(name = "bray_runtime_host", kind = system)
+@symbol(name = "bray_runtime_substrate_thread_attachment_identity")
+@abi(c)
+extern trusted internal func substrate_thread_attachment_identity(pos descriptor: RawPointer<u8>) -> u64
+    uses(foreign_call);
+
 @abi(c)
 trusted internal func thread_attachment_identity(pos descriptor: RawPointer<u8>) -> u64
+    uses(foreign_call)
 {
+    if !std.memory.is_null<u8>(descriptor)
+    {
+        return trusted substrate_thread_attachment_identity(descriptor);
+    }
+
     let existing: RawPointer<AttachmentState> = trusted load_attachment();
     let state: RawPointer<AttachmentState> = if std.memory.is_null<AttachmentState>(existing)
     {

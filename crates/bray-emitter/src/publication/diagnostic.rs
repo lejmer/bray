@@ -100,6 +100,10 @@ impl PublicationError {
         id: DiagnosticId,
         severity: SeverityKind,
     ) -> (ArtifactId, Diagnostic) {
+        if let PublicationErrorKind::Storage(error) = self.kind {
+            return (self.artifact, error.into_diagnostic(id, severity));
+        }
+
         let diagnostic_kind = self.kind.diagnostic_kind();
         let io_error_kind = self.kind.io_error_kind();
         let artifact_kind = self.artifact.kind();
@@ -135,6 +139,7 @@ impl PublicationError {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) enum PublicationErrorKind {
+    Storage(Box<crate::StorageError>),
     MissingContribution,
     InvalidContribution,
     Read(io::ErrorKind),
@@ -156,6 +161,7 @@ impl PublicationErrorKind {
 
     const fn diagnostic_kind(&self) -> DiagnosticKind {
         match self {
+            Self::Storage(_) => DiagnosticKind::BuildStorageIoFailed,
             Self::MissingContribution => DiagnosticKind::EmissionMissingContribution,
             Self::InvalidContribution => DiagnosticKind::EmissionInvalidContribution,
             Self::Read(_) => DiagnosticKind::EmissionArtifactReadFailed,
@@ -180,7 +186,8 @@ impl PublicationErrorKind {
             | Self::Write(kind)
             | Self::Flush(kind)
             | Self::Commit(kind) => Some(DiagnosticIoErrorKind::from(*kind)),
-            Self::MissingContribution
+            Self::Storage(_)
+            | Self::MissingContribution
             | Self::InvalidContribution
             | Self::LengthMismatch { .. }
             | Self::DigestMismatch(_)
@@ -197,7 +204,8 @@ impl PublicationErrorKind {
             | Self::Read(_)
             | Self::LengthMismatch { .. }
             | Self::DigestMismatch(_) => PublicationFailureKind::InvalidContribution,
-            Self::Open(_)
+            Self::Storage(_)
+            | Self::Open(_)
             | Self::Write(_)
             | Self::Flush(_)
             | Self::Commit(_)
@@ -219,7 +227,8 @@ impl PublicationErrorKind {
                 .with_arg(DiagnosticArg::actual_artifact_digest(
                     mismatches.actual.diagnostic_digest(),
                 )),
-            Self::MissingContribution
+            Self::Storage(_)
+            | Self::MissingContribution
             | Self::InvalidContribution
             | Self::Read(_)
             | Self::Open(_)
@@ -341,6 +350,10 @@ mod tests {
                 DiagnosticKind::EmissionManagedPublicationUnsupported,
             ),
             (
+                PublicationErrorKind::GenerationCollision,
+                DiagnosticKind::EmissionGenerationCollision,
+            ),
+            (
                 PublicationErrorKind::InvalidGenerationManifest,
                 DiagnosticKind::EmissionGenerationManifestInvalid,
             ),
@@ -370,6 +383,12 @@ mod tests {
                     assert_goal_state_diagnostic_kind(
                         &DiagnosticBag::single(diagnostic),
                         DiagnosticKind::EmissionGenerationManifestInvalid,
+                    );
+                }
+                DiagnosticKind::EmissionGenerationCollision => {
+                    assert_goal_state_diagnostic_kind(
+                        &DiagnosticBag::single(diagnostic),
+                        DiagnosticKind::EmissionGenerationCollision,
                     );
                 }
                 _ => panic!("test case must remain a managed-publication failure"),

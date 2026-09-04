@@ -1,9 +1,10 @@
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use bray_compilation::{BuildConfiguration, Compilation, ProductEmissionInputs, SelectedTarget};
 use bray_emitter::{
-    ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ReplacementPolicy,
-    RequestedArtifact, RequestedArtifactDestination,
+    ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus,
+    ManagedFilesystemDestination, ManagedOutputDirectory, ReplacementPolicy, RequestedArtifact,
+    RequestedArtifactDestination,
 };
 use bray_linker::LinkSearchPath;
 use bray_symbols::{ProductIdentity, ProductKind};
@@ -36,10 +37,11 @@ pub(crate) fn emit_static_library(
     product: ProductIdentity,
     target: NativeTarget,
     output: &Path,
-) -> Result<PathBuf, String> {
+) -> Result<bray_emitter::PublishedArtifact, String> {
     let selected = SelectedTarget::for_native(target);
+    let destination = managed_destination(output)?;
 
-    let linker = native_linker(target, None, output).map_err(|error| {
+    let linker = native_linker(target, None, destination.root()).map_err(|error| {
         format!(
             "native linker is unavailable for {}: {error:?}",
             target.as_str()
@@ -52,7 +54,7 @@ pub(crate) fn emit_static_library(
             BuildConfiguration::ObjectRelease,
             None,
             [],
-            Some(&linker),
+            Some(linker.linker()),
         )
         .map_err(|error| {
             let detail = match error.as_ref() {
@@ -106,16 +108,17 @@ pub(crate) fn emit_static_library(
         ProductKind::Library,
         None,
         selected.profile().identity().clone(),
-        RequestedArtifactDestination::FilesystemDirectory(output.to_path_buf().into()),
+        RequestedArtifactDestination::FilesystemDirectory(destination.clone()),
         [RequestedArtifact::new(
             ArtifactKind::StaticLibrary,
             ArtifactRequirement::Required,
         )],
         ReplacementPolicy::ReplaceExisting,
     )
-    .map_err(|error| format!("native library emission request is invalid: {error:?}"))?;
+    .map_err(|error| format!("native library emission request is invalid: {error:?}"))?
+    .with_storage_profile(BuildConfiguration::ObjectRelease.as_str());
 
-    let inputs = ProductEmissionInputs::new(&outputs).with_native_product(&native, &linker);
+    let inputs = ProductEmissionInputs::new(&outputs).with_native_product(&native, linker.linker());
 
     let outcome = compilation
         .emit_product(request, inputs)
@@ -129,17 +132,20 @@ pub(crate) fn emit_static_library(
         ));
     }
 
-    outcome
+    let artifact = outcome
         .artifacts()
         .artifacts()
         .iter()
         .find(|artifact| artifact.id().kind() == ArtifactKind::StaticLibrary)
-        .and_then(|artifact| {
-            outcome
-                .generation()
-                .and_then(|generation| generation.artifact_path(artifact.id()))
-        })
-        .ok_or_else(|| "native library emission did not publish its static archive".to_owned())
+        .ok_or_else(|| "native library emission did not publish its static archive".to_owned())?;
+
+    bray_emitter::resolve_published_artifact(
+        destination,
+        artifact.id().product(),
+        ArtifactKind::StaticLibrary,
+        artifact.id().ordinal(),
+    )
+    .map_err(|error| format!("could not retain the published native archive: {error:?}"))
 }
 
 pub(crate) fn emit_executable_with_configuration(
@@ -153,9 +159,9 @@ pub(crate) fn emit_executable_with_configuration(
     configuration: BuildConfiguration,
 ) -> Result<(), String> {
     let selected = SelectedTarget::for_native(target);
-    let compiler_state_root = output.parent().unwrap_or(output);
+    let destination = managed_destination(output)?;
 
-    let linker = native_linker(target, map_output, compiler_state_root).map_err(|error| {
+    let linker = native_linker(target, map_output, destination.root()).map_err(|error| {
         format!(
             "native linker is unavailable for {}: {error:?}",
             target.as_str()
@@ -175,7 +181,7 @@ pub(crate) fn emit_executable_with_configuration(
             configuration,
             Some(runtime),
             [],
-            Some(&linker),
+            Some(linker.linker()),
         )
         .map_err(|error| format!("could not build native fixture product: {error:?}"))?;
 
@@ -197,7 +203,7 @@ pub(crate) fn emit_executable_with_configuration(
         ProductKind::Executable,
         native.executable_host().cloned(),
         selected.profile().identity().clone(),
-        RequestedArtifactDestination::FilesystemDirectory(output.to_path_buf().into()),
+        RequestedArtifactDestination::FilesystemDirectory(destination),
         [
             RequestedArtifact::new(ArtifactKind::Executable, ArtifactRequirement::Required),
             RequestedArtifact::new(
@@ -207,9 +213,10 @@ pub(crate) fn emit_executable_with_configuration(
         ],
         ReplacementPolicy::ReplaceExisting,
     )
-    .map_err(|error| format!("native fixture emission request is invalid: {error:?}"))?;
+    .map_err(|error| format!("native fixture emission request is invalid: {error:?}"))?
+    .with_storage_profile(configuration.as_str());
 
-    let inputs = ProductEmissionInputs::new(&outputs).with_native_product(&native, &linker);
+    let inputs = ProductEmissionInputs::new(&outputs).with_native_product(&native, linker.linker());
 
     let outcome = compilation
         .emit_product(request, inputs)
@@ -224,4 +231,37 @@ pub(crate) fn emit_executable_with_configuration(
         outcome.status(),
         outcome.diagnostics()
     ))
+}
+
+pub(crate) fn managed_destination(output: &Path) -> Result<ManagedFilesystemDestination, String> {
+    let root = output
+        .parent()
+        .filter(|root| !root.as_os_str().is_empty())
+        .ok_or_else(|| {
+            format!(
+                "native output directory has no storage root: {}",
+                output.display()
+            )
+        })?;
+
+    let directory = output
+        .file_name()
+        .and_then(|directory| directory.to_str())
+        .and_then(ManagedOutputDirectory::try_new)
+        .ok_or_else(|| format!("native output directory is invalid: {}", output.display()))?;
+
+    Ok(ManagedFilesystemDestination::new(root, directory))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    #[test]
+    fn native_outputs_share_storage_in_their_parent_build_directory() {
+        let destination = super::managed_destination(Path::new("build/native/release")).unwrap();
+
+        assert_eq!(destination.root(), Path::new("build/native"));
+        assert_eq!(destination.directory(), Path::new("build/native/release"));
+    }
 }

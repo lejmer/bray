@@ -6982,6 +6982,36 @@ func other()
     }
 
     #[test]
+    fn multi_variant_tagless_union_patterns_require_active_variant_facts() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "@layout(c, tag = none)\n",
+            "union Choice\n",
+            "{\n",
+            "    First;\n",
+            "    Second;\n",
+            "}\n",
+            "func inspect(value: Choice)\n",
+            "{\n",
+            "    match value\n",
+            "    {\n",
+            "        case .First {}\n",
+            "        case .Second {}\n",
+            "    }\n",
+            "}\n",
+        ));
+
+        let analysis = compilation
+            .patterns(source_callable_body_key(&compilation))
+            .unwrap_or_else(|error| panic!("tagless patterns must be available: {error:?}"));
+
+        assert_goal_state_diagnostic_kind(
+            analysis.diagnostics(),
+            DiagnosticKind::CheckingTaglessUnionPatternRequiresVariant,
+        );
+    }
+
+    #[test]
     fn late_typed_match_subjects_resolve_contextual_variants() {
         let compilation = compilation(concat!(
             "module app;\n",
