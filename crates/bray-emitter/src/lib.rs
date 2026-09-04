@@ -24,7 +24,10 @@ pub use artifact::{
 };
 pub use bray_runtime_interface::ExecutableHostContract;
 pub use bray_symbols::{ProductIdentity, ProductKind};
-pub use build_identity::{ProductBuildIdentity, ProductBuildIdentityPart};
+pub use build_identity::{
+    BuildInputDigestError, ProductBuildIdentity, ProductBuildIdentityPart, build_input_path_digest,
+    path_digest, toolchain_path_digest,
+};
 pub use generation::{ProductGenerationIdentity, PublishedProductGeneration};
 pub use link::{
     LinkOutputStaging, LinkOutputStagingBuildError, LinkPlanConstructionError, LinkStaging,

@@ -168,7 +168,7 @@ impl DriverProductConfiguration {
     }
 
     /// Returns whether the native test-host catalog is part of the product publication.
-    pub const fn test_catalog(&self) -> bool {
+    pub const fn publishes_test_catalog(&self) -> bool {
         self.test_catalog
     }
 

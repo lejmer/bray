@@ -41,7 +41,7 @@ use crate::{
 pub(super) const GENERATION_MANIFEST: &str = "manifest.json";
 pub(super) const PUBLISHED_REFERENCE: &str = "published-generation.json";
 const LOCATOR_ATTEMPTS: u32 = 256;
-pub(super) const MANIFEST_REVISION: u32 = 2;
+pub(super) const MANIFEST_REVISION: u32 = 1;
 
 pub(in crate::publication) struct ManagedGenerationPublication {
     pub(in crate::publication) artifacts: EmittedArtifactSet,

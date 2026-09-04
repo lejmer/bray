@@ -8,7 +8,6 @@ use std::process::ExitCode;
 use bray_diagnostics::{
     DiagnosticBag, DiagnosticDocumentParseKind, DiagnosticIoErrorKind,
     DiagnosticProjectCommandFailure, DiagnosticProjectOperation, DiagnosticProjectSelectionProblem,
-    DiagnosticReusableBuildIdentityPart,
 };
 use bray_project::ProjectGraph;
 use bray_test_protocol::{MAXIMUM_TEST_BATCH_REQUEST_BYTES, TestBatchRequest};
@@ -721,10 +720,7 @@ fn run_tests(
 
             hosts.push(host);
 
-            build_provenance.push(
-                product.product_identity(),
-                retained.identity().to_hex(),
-            );
+            build_provenance.push(product.product_identity(), retained.identity().to_hex());
 
             retained_generations.push(retained);
 
@@ -772,10 +768,7 @@ fn run_tests(
 
         hosts.push(host);
 
-        build_provenance.push(
-            product.product_identity(),
-            retained.identity().to_hex(),
-        );
+        build_provenance.push(product.product_identity(), retained.identity().to_hex());
 
         retained_generations.push(retained);
     }
@@ -846,11 +839,8 @@ fn retain_matching_test_product(
     };
 
     if let Some(part) = actual.mismatch(expected) {
-        return Err(selection_diagnostics(
-            DiagnosticProjectSelectionProblem::ReusableBuildIdentityMismatch {
-                product: identity,
-                part: diagnostic_build_identity_part(part),
-            },
+        return Err(bray_tooling::reusable_build_identity_mismatch_diagnostics(
+            identity, part,
         ));
     }
 
@@ -874,34 +864,6 @@ fn test_host_from_generation(
 
     BuiltTestHost::try_new(executable.to_path_buf(), test_catalog.to_path_buf())
         .ok_or_else(|| selection_diagnostics(DiagnosticProjectSelectionProblem::MissingTestHost))
-}
-
-const fn diagnostic_build_identity_part(
-    part: bray_emitter::ProductBuildIdentityPart,
-) -> DiagnosticReusableBuildIdentityPart {
-    match part {
-        bray_emitter::ProductBuildIdentityPart::Inputs => {
-            DiagnosticReusableBuildIdentityPart::Inputs
-        }
-        bray_emitter::ProductBuildIdentityPart::Compiler => {
-            DiagnosticReusableBuildIdentityPart::Compiler
-        }
-        bray_emitter::ProductBuildIdentityPart::Toolchain => {
-            DiagnosticReusableBuildIdentityPart::Toolchain
-        }
-        bray_emitter::ProductBuildIdentityPart::StandardLibrary => {
-            DiagnosticReusableBuildIdentityPart::StandardLibrary
-        }
-        bray_emitter::ProductBuildIdentityPart::Runtime => {
-            DiagnosticReusableBuildIdentityPart::Runtime
-        }
-        bray_emitter::ProductBuildIdentityPart::CatalogProtocol => {
-            DiagnosticReusableBuildIdentityPart::CatalogProtocol
-        }
-        bray_emitter::ProductBuildIdentityPart::RunnerProtocol => {
-            DiagnosticReusableBuildIdentityPart::RunnerProtocol
-        }
-    }
 }
 
 fn load_test_batch_request(path: &Path) -> Result<TestBatchRequest, DiagnosticBag> {

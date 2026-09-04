@@ -149,7 +149,7 @@ impl ToolOutput {
 }
 
 pub(crate) trait ToolExecutor {
-    fn identity(&self, tool: Tool) -> std::io::Result<[u8; 32]> {
+    fn identity(&self, tool: Tool) -> Result<[u8; 32], ToolIdentityError> {
         let mut identity = StableDigestHasher::new();
         identity.write(tool.executable_name().as_bytes());
 
@@ -164,6 +164,12 @@ pub(crate) trait ToolExecutor {
         input: Box<dyn Read + Send>,
         output: &mut dyn Write,
     ) -> Result<ToolOutput, ToolExecutionError>;
+}
+
+#[derive(Debug)]
+pub(crate) struct ToolIdentityError {
+    pub(crate) path: PathBuf,
+    pub(crate) error: std::io::Error,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -191,10 +197,14 @@ pub(crate) enum ToolExecutionError {
 pub(crate) struct NativeToolExecutor;
 
 impl ToolExecutor for NativeToolExecutor {
-    fn identity(&self, tool: Tool) -> std::io::Result<[u8; 32]> {
+    fn identity(&self, tool: Tool) -> Result<[u8; 32], ToolIdentityError> {
         let path = resolved_tool_path(tool)?;
 
-        super::identity::path_digest(&path)
+        bray_emitter::path_digest(&path).map_err(|error| {
+            let (path, error) = error.into_parts();
+
+            ToolIdentityError { path, error }
+        })
     }
 
     fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ToolExecutionError> {
@@ -350,18 +360,30 @@ fn tool_path(tool: Tool) -> OsString {
     }
 }
 
-fn resolved_tool_path(tool: Tool) -> std::io::Result<PathBuf> {
+fn resolved_tool_path(tool: Tool) -> Result<PathBuf, ToolIdentityError> {
     let selected = PathBuf::from(tool_path(tool));
+    let search = std::env::var_os("PATH").unwrap_or_default();
 
+    resolved_tool_path_from_selection(selected, &search)
+}
+
+fn resolved_tool_path_from_selection(
+    selected: PathBuf,
+    search: &std::ffi::OsStr,
+) -> Result<PathBuf, ToolIdentityError> {
     if selected.is_file() {
-        return std::fs::canonicalize(selected);
+        return std::fs::canonicalize(&selected).map_err(|error| ToolIdentityError {
+            path: selected,
+            error,
+        });
     }
 
     if selected.components().count() > 1 {
-        return Err(std::io::Error::from(std::io::ErrorKind::NotFound));
+        return Err(ToolIdentityError {
+            path: selected,
+            error: std::io::ErrorKind::NotFound.into(),
+        });
     }
-
-    let search = std::env::var_os("PATH").unwrap_or_default();
 
     let file_name = if cfg!(windows) && selected.extension().is_none() {
         selected.with_extension("exe")
@@ -369,12 +391,21 @@ fn resolved_tool_path(tool: Tool) -> std::io::Result<PathBuf> {
         selected
     };
 
-    std::env::split_paths(&search)
+    let resolved = std::env::split_paths(search)
         .map(|directory| directory.join(&file_name))
-        .find(|candidate| candidate.is_file())
-        .map(std::fs::canonicalize)
-        .transpose()?
-        .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))
+        .find(|candidate| candidate.is_file());
+
+    let Some(resolved) = resolved else {
+        return Err(ToolIdentityError {
+            path: file_name,
+            error: std::io::ErrorKind::NotFound.into(),
+        });
+    };
+
+    std::fs::canonicalize(&resolved).map_err(|error| ToolIdentityError {
+        path: resolved,
+        error,
+    })
 }
 
 fn executable_file_name(name: &str) -> OsString {
@@ -382,5 +413,24 @@ fn executable_file_name(name: &str) -> OsString {
         OsString::from(format!("{name}.exe"))
     } else {
         OsString::from(name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsStr;
+    use std::path::PathBuf;
+
+    use super::resolved_tool_path_from_selection;
+
+    #[test]
+    fn explicit_missing_tool_path_is_preserved_in_identity_failure() {
+        let selected = PathBuf::from("missing").join("custom-brayc");
+
+        let error = resolved_tool_path_from_selection(selected.clone(), OsStr::new(""))
+            .expect_err("missing explicit compiler path must fail");
+
+        assert_eq!(error.path, selected);
+        assert_eq!(error.error.kind(), std::io::ErrorKind::NotFound);
     }
 }

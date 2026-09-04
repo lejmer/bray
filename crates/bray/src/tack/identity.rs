@@ -1,5 +1,5 @@
-use std::hash::{Hash, Hasher};
-use std::io::Read;
+use std::collections::BTreeMap;
+use std::hash::Hash;
 use std::path::{Path, PathBuf};
 
 use bray_base::StableDigestHasher;
@@ -9,12 +9,28 @@ use bray_diagnostics::{
 };
 use bray_emitter::ProductBuildIdentity;
 use bray_project::{ProjectGraph, ProjectProduct};
+use bray_symbols::ProductIdentity;
 use bray_target::TargetIdentity;
 
 use super::error::operation_diagnostics;
 use super::model::TackBuildConfiguration;
 use super::tool::{Tool, ToolExecutor};
 use super::toolchain::Toolchain;
+
+pub(super) struct TestProductBuildEvidence {
+    identity: ProductBuildIdentity,
+    source_inputs: BTreeMap<ProductIdentity, [u8; 32]>,
+}
+
+impl TestProductBuildEvidence {
+    pub(super) const fn identity(&self) -> &ProductBuildIdentity {
+        &self.identity
+    }
+
+    pub(super) fn source_inputs(&self, product: &ProductIdentity) -> Option<[u8; 32]> {
+        self.source_inputs.get(product).copied()
+    }
+}
 
 pub(super) fn test_product_identity(
     workspace_root: &Path,
@@ -26,7 +42,30 @@ pub(super) fn test_product_identity(
     toolchain: &Toolchain,
     executor: &dyn ToolExecutor,
 ) -> Result<ProductBuildIdentity, DiagnosticBag> {
-    let inputs = input_digest(
+    Ok(test_product_build_evidence(
+        workspace_root,
+        graph,
+        products,
+        target,
+        configuration,
+        native_link_inputs,
+        toolchain,
+        executor,
+    )?
+    .identity)
+}
+
+pub(super) fn test_product_build_evidence(
+    workspace_root: &Path,
+    graph: &ProjectGraph,
+    products: &[ProjectProduct],
+    target: &TargetIdentity,
+    configuration: TackBuildConfiguration,
+    native_link_inputs: &[String],
+    toolchain: &Toolchain,
+    executor: &dyn ToolExecutor,
+) -> Result<TestProductBuildEvidence, DiagnosticBag> {
+    let (inputs, source_inputs) = input_digest(
         workspace_root,
         graph,
         products,
@@ -37,12 +76,12 @@ pub(super) fn test_product_identity(
 
     let compiler = executor
         .identity(Tool::Compiler)
-        .map_err(|error| identity_io_diagnostics(PathBuf::from("brayc"), error))?;
+        .map_err(|error| identity_io_diagnostics(error.path, error.error))?;
 
     let standard_library_root = toolchain.standard_library_root();
 
-    let standard_library = build_input_path_digest(&standard_library_root)
-        .map_err(|error| identity_io_diagnostics(standard_library_root, error))?;
+    let standard_library = bray_emitter::build_input_path_digest(&standard_library_root)
+        .map_err(identity_digest_diagnostics)?;
 
     let runtime_metadata = toolchain.runtime_metadata(target);
 
@@ -51,25 +90,28 @@ pub(super) fn test_product_identity(
         .map(Path::to_path_buf)
         .unwrap_or_else(|| runtime_metadata.clone());
 
-    let runtime = build_input_path_digest(&runtime_root)
-        .map_err(|error| identity_io_diagnostics(runtime_root, error))?;
+    let runtime = bray_emitter::build_input_path_digest(&runtime_root)
+        .map_err(identity_digest_diagnostics)?;
 
     let toolchain_root = toolchain.library_root();
 
-    let toolchain_identity = toolchain_path_digest(&toolchain_root)
-        .map_err(|error| identity_io_diagnostics(toolchain_root, error))?;
+    let toolchain_identity = bray_emitter::toolchain_path_digest(&toolchain_root)
+        .map_err(identity_digest_diagnostics)?;
 
     let protocol = bray_test_protocol::protocol_version();
 
-    Ok(ProductBuildIdentity::new(
-        inputs,
-        compiler,
-        toolchain_identity,
-        standard_library,
-        runtime,
-        protocol,
-        protocol,
-    ))
+    Ok(TestProductBuildEvidence {
+        identity: ProductBuildIdentity::new(
+            inputs,
+            compiler,
+            toolchain_identity,
+            standard_library,
+            runtime,
+            protocol,
+            protocol,
+        ),
+        source_inputs,
+    })
 }
 
 fn input_digest(
@@ -79,12 +121,13 @@ fn input_digest(
     target: &TargetIdentity,
     configuration: TackBuildConfiguration,
     native_link_inputs: &[String],
-) -> Result<[u8; 32], DiagnosticBag> {
+) -> Result<([u8; 32], BTreeMap<ProductIdentity, [u8; 32]>), DiagnosticBag> {
     let mut hasher = StableDigestHasher::new();
+    let mut source_inputs = BTreeMap::new();
 
     graph.source_authority().hash(&mut hasher);
     target.hash(&mut hasher);
-    hash_field(&mut hasher, configuration.directory_name().as_bytes());
+    configuration.directory_name().hash(&mut hasher);
 
     for input in native_link_inputs {
         input.hash(&mut hasher);
@@ -102,17 +145,28 @@ fn input_digest(
         package.enabled_features().hash(&mut hasher);
         product.hash(&mut hasher);
 
-        for source in product.sources() {
-            let path = source.beneath(workspace_root);
+        let digest = product_source_input_digest(workspace_root, product)?;
 
-            source.hash(&mut hasher);
-
-            hash_file_field(&mut hasher, &path)
-                .map_err(|error| identity_io_diagnostics(path.clone(), error))?;
-        }
+        digest.hash(&mut hasher);
+        source_inputs.insert(product.identity().clone(), digest);
     }
 
-    Ok(hasher.finalize())
+    Ok((hasher.finalize(), source_inputs))
+}
+
+fn product_source_input_digest(
+    workspace_root: &Path,
+    product: &ProjectProduct,
+) -> Result<[u8; 32], DiagnosticBag> {
+    let paths = product
+        .sources()
+        .iter()
+        .map(|source| source.beneath(workspace_root));
+
+    let sources = bray_tooling::source_inputs_from_file_arguments(paths)
+        .map_err(bray_tooling::SourceInputError::into_diagnostic_bag)?;
+
+    Ok(bray_tooling::source_input_digest(&sources))
 }
 
 fn identity_missing_product_diagnostics() -> DiagnosticBag {
@@ -121,144 +175,18 @@ fn identity_missing_product_diagnostics() -> DiagnosticBag {
     ))
 }
 
-pub(super) fn path_digest(path: &Path) -> std::io::Result<[u8; 32]> {
-    let mut files = Vec::new();
-
-    collect_files(path, path, &mut files)?;
-
-    digest_files(files)
-}
-
-fn toolchain_path_digest(path: &Path) -> std::io::Result<[u8; 32]> {
-    let mut files = Vec::new();
-
-    match std::fs::read_dir(path) {
-        Ok(entries) => {
-            let mut entries = entries.collect::<Result<Vec<_>, _>>()?;
-            entries.sort_unstable_by_key(std::fs::DirEntry::file_name);
-
-            for entry in entries {
-                if matches!(
-                    entry.file_name().to_str(),
-                    Some("runtime" | "standard-library")
-                ) {
-                    continue;
-                }
-
-                collect_files(path, &entry.path(), &mut files)?;
-            }
-        }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(missing_path_digest(path));
-        }
-        Err(error) => return Err(error),
-    }
-
-    digest_files(files)
-}
-
-fn digest_files(mut files: Vec<(PathBuf, PathBuf)>) -> std::io::Result<[u8; 32]> {
-    files.sort_unstable_by(|left, right| left.0.cmp(&right.0));
-
-    let mut hasher = StableDigestHasher::new();
-
-    for (relative, file) in files {
-        hash_field(&mut hasher, relative.to_string_lossy().as_bytes());
-        hash_file_field(&mut hasher, &file)?;
-    }
-
-    Ok(hasher.finalize())
-}
-
-fn build_input_path_digest(path: &Path) -> std::io::Result<[u8; 32]> {
-    match path_digest(path) {
-        Ok(digest) => Ok(digest),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(missing_path_digest(path)),
-        Err(error) => Err(error),
-    }
-}
-
-fn missing_path_digest(path: &Path) -> [u8; 32] {
-    let mut hasher = StableDigestHasher::new();
-
-    hash_field(&mut hasher, b"missing");
-    hash_field(&mut hasher, path.to_string_lossy().as_bytes());
-
-    hasher.finalize()
-}
-
-fn collect_files(
-    root: &Path,
-    path: &Path,
-    files: &mut Vec<(PathBuf, PathBuf)>,
-) -> std::io::Result<()> {
-    let metadata = std::fs::symlink_metadata(path)?;
-
-    if metadata.file_type().is_file() {
-        files.push((
-            path.strip_prefix(root).unwrap_or(path).to_path_buf(),
-            path.to_path_buf(),
-        ));
-
-        return Ok(());
-    }
-
-    if !metadata.file_type().is_dir() {
-        return Err(std::io::Error::from(std::io::ErrorKind::InvalidData));
-    }
-
-    let mut entries = std::fs::read_dir(path)?.collect::<Result<Vec<_>, _>>()?;
-    entries.sort_unstable_by_key(std::fs::DirEntry::file_name);
-
-    for entry in entries {
-        collect_files(root, &entry.path(), files)?;
-    }
-
-    Ok(())
-}
-
-fn hash_field(hasher: &mut StableDigestHasher, bytes: &[u8]) {
-    hasher.write_usize(bytes.len());
-    hasher.write(bytes);
-}
-
-fn hash_file_field(hasher: &mut StableDigestHasher, path: &Path) -> std::io::Result<()> {
-    let mut file = std::fs::File::open(path)?;
-    let expected_length = file.metadata()?.len();
-    let mut observed_length = 0_u64;
-    let mut buffer = [0; 64 * 1024];
-
-    hasher.write_u64(expected_length);
-
-    loop {
-        let length = file.read(&mut buffer)?;
-
-        if length == 0 {
-            break;
-        }
-
-        let length_u64 = u64::try_from(length).map_err(|_| std::io::ErrorKind::InvalidData)?;
-
-        observed_length = observed_length
-            .checked_add(length_u64)
-            .ok_or(std::io::ErrorKind::InvalidData)?;
-
-        hasher.write(&buffer[..length]);
-    }
-
-    if observed_length != expected_length {
-        return Err(std::io::ErrorKind::InvalidData.into());
-    }
-
-    Ok(())
-}
-
 fn identity_io_diagnostics(path: PathBuf, error: std::io::Error) -> DiagnosticBag {
     operation_diagnostics(DiagnosticProjectCommandFailure::Io {
         operation: DiagnosticProjectOperation::ReusableBuildIdentity,
         path,
         error: DiagnosticIoErrorKind::from(error.kind()),
     })
+}
+
+fn identity_digest_diagnostics(error: bray_emitter::BuildInputDigestError) -> DiagnosticBag {
+    let (path, cause) = error.into_parts();
+
+    identity_io_diagnostics(path, cause)
 }
 
 #[cfg(test)]
@@ -285,7 +213,7 @@ mod tests {
         fs::write(standard_library.join("std.bin"), b"first")
             .unwrap_or_else(|error| panic!("standard library fixture should exist: {error}"));
 
-        let baseline = super::toolchain_path_digest(directory.path())
+        let baseline = bray_emitter::toolchain_path_digest(directory.path())
             .unwrap_or_else(|error| panic!("toolchain should hash: {error}"));
 
         fs::write(runtime.join("runtime.bin"), b"second")
@@ -294,13 +222,13 @@ mod tests {
         fs::write(standard_library.join("std.bin"), b"second")
             .unwrap_or_else(|error| panic!("standard library fixture should update: {error}"));
 
-        let separated_inputs = super::toolchain_path_digest(directory.path())
+        let separated_inputs = bray_emitter::toolchain_path_digest(directory.path())
             .unwrap_or_else(|error| panic!("toolchain should hash: {error}"));
 
         fs::write(directory.path().join("toolchain.bin"), b"toolchain")
             .unwrap_or_else(|error| panic!("toolchain fixture should exist: {error}"));
 
-        let changed = super::toolchain_path_digest(directory.path())
+        let changed = bray_emitter::toolchain_path_digest(directory.path())
             .unwrap_or_else(|error| panic!("toolchain should hash: {error}"));
 
         assert_eq!(baseline, separated_inputs);

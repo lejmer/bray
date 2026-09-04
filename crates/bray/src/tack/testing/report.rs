@@ -308,7 +308,7 @@ impl<'report> JsonTestBatchReport<'report> {
         build: &'report TestBuildProvenance,
     ) -> Self {
         Self {
-            format: 2,
+            format: 1,
             build: build.into(),
             plans: reports
                 .iter()
@@ -335,7 +335,7 @@ impl<'report> JsonTestCommandReport<'report> {
         let counts = report.counts();
 
         Self {
-            format: 2,
+            format: 1,
             build: build.into(),
             selection: JsonTestSelectionSummary {
                 discovered: selection.discovered(),
@@ -744,7 +744,7 @@ mod tests {
         let report: serde_json::Value = serde_json::from_str(&rendered)
             .unwrap_or_else(|error| panic!("report must be valid JSON: {error}"));
 
-        assert_eq!(report["format"], 2);
+        assert_eq!(report["format"], 1);
         assert_eq!(report["build"]["reused"], false);
         assert_eq!(report["build"]["compilation"], true);
         assert_eq!(report["build"]["emission"], true);

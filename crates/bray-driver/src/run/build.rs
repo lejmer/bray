@@ -4,11 +4,13 @@ use std::process::ExitCode;
 use bray_compilation::ProductEmissionInputs;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticEmissionFailure, DiagnosticId,
-    DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticTestCatalogFailure, SeverityKind,
+    DiagnosticIoErrorKind, DiagnosticKind, DiagnosticNote, DiagnosticNoteKind,
+    DiagnosticProjectCommandFailure, DiagnosticProjectOperation, DiagnosticTestCatalogFailure,
+    SeverityKind,
 };
 use bray_emitter::{
-    ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ReplacementPolicy,
-    RequestedArtifact, RequestedArtifactDestination,
+    ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ProductBuildIdentity,
+    ProductBuildIdentityPart, ReplacementPolicy, RequestedArtifact, RequestedArtifactDestination,
 };
 use bray_symbols::{ProductIdentity, ProductKind};
 use bray_target::{TargetOutputDescription, TargetOutputKind};
@@ -18,7 +20,9 @@ use bray_tooling::{
 
 use super::execute::{DriverRunResult, compilation_request, driver_result_from_compilation};
 use super::runtime::{resolve_runtime, runtime_selection_diagnostics};
-use crate::command::{DriverBackend, DriverOptions, DriverProductConfiguration};
+use crate::command::{
+    DriverBackend, DriverOptions, DriverProductConfiguration, DriverRuntimeSelection,
+};
 
 pub(crate) fn run_build_command(
     options: &DriverOptions,
@@ -131,7 +135,7 @@ pub(crate) fn run_build_command(
         None
     };
 
-    let test_catalog = if configuration.test_catalog() {
+    let test_catalog = if configuration.publishes_test_catalog() {
         match encode_test_catalog(&compilation, &product) {
             Ok(catalog) => Some(catalog),
             Err(error) => {
@@ -153,6 +157,18 @@ pub(crate) fn run_build_command(
     } else {
         None
     };
+
+    if let Some(identity) = configuration.build_identity()
+        && let Err(diagnostics) =
+            verify_reusable_build_environment(options, &configuration, identity)
+    {
+        return driver_result_from_compilation(
+            compilation,
+            diagnostics,
+            output_format,
+            ExitCode::FAILURE,
+        );
+    }
 
     let target_outputs = target_outputs(native_target, &artifacts, &configuration);
 
@@ -321,7 +337,8 @@ fn required_artifacts(
         artifacts.push(TargetOutputKind::LinkedCompanion);
     }
 
-    if configuration.test_catalog() && !artifacts.contains(&TargetOutputKind::TestCatalog) {
+    if configuration.publishes_test_catalog() && !artifacts.contains(&TargetOutputKind::TestCatalog)
+    {
         artifacts.push(TargetOutputKind::TestCatalog);
     }
 
@@ -415,6 +432,132 @@ fn emission_request(
         Some(identity) => request.with_build_identity(identity),
         None => request,
     }
+}
+
+fn verify_reusable_build_environment(
+    options: &DriverOptions,
+    configuration: &DriverProductConfiguration,
+    expected: &ProductBuildIdentity,
+) -> Result<(), DiagnosticBag> {
+    let compiler_path = std::env::current_exe()
+        .map_err(|error| reusable_identity_io_diagnostics(PathBuf::from("brayc"), error))?;
+
+    let compiler =
+        bray_emitter::path_digest(&compiler_path).map_err(reusable_identity_digest_diagnostics)?;
+
+    if compiler != expected.compiler() {
+        return Err(reusable_identity_mismatch_diagnostics(
+            options,
+            ProductBuildIdentityPart::Compiler,
+        ));
+    }
+
+    let Some(standard_library_root) = options
+        .standard_library_root()
+        .or_else(|| options.standard_library_provider_root())
+        .map(bray_standard_library::StandardLibraryRoot::path)
+    else {
+        return Err(reusable_identity_mismatch_diagnostics(
+            options,
+            ProductBuildIdentityPart::StandardLibrary,
+        ));
+    };
+
+    let standard_library = bray_emitter::build_input_path_digest(standard_library_root)
+        .map_err(reusable_identity_digest_diagnostics)?;
+
+    let Some(toolchain_root) = standard_library_root.parent() else {
+        return Err(DiagnosticBag::single(
+            DiagnosticProjectCommandFailure::MissingParent {
+                operation: DiagnosticProjectOperation::ReusableBuildIdentity,
+                path: standard_library_root.to_path_buf(),
+            }
+            .diagnostic(DiagnosticId::new(0)),
+        ));
+    };
+
+    let toolchain = bray_emitter::toolchain_path_digest(toolchain_root)
+        .map_err(reusable_identity_digest_diagnostics)?;
+
+    if toolchain != expected.toolchain() {
+        return Err(reusable_identity_mismatch_diagnostics(
+            options,
+            ProductBuildIdentityPart::Toolchain,
+        ));
+    }
+
+    if standard_library != expected.standard_library() {
+        return Err(reusable_identity_mismatch_diagnostics(
+            options,
+            ProductBuildIdentityPart::StandardLibrary,
+        ));
+    }
+
+    let Some(DriverRuntimeSelection::Artifact(runtime_metadata)) = configuration.runtime() else {
+        return Err(reusable_identity_mismatch_diagnostics(
+            options,
+            ProductBuildIdentityPart::Runtime,
+        ));
+    };
+
+    let runtime_root = runtime_metadata.parent().unwrap_or(runtime_metadata);
+
+    let runtime = bray_emitter::build_input_path_digest(runtime_root)
+        .map_err(reusable_identity_digest_diagnostics)?;
+
+    if runtime != expected.runtime() {
+        return Err(reusable_identity_mismatch_diagnostics(
+            options,
+            ProductBuildIdentityPart::Runtime,
+        ));
+    }
+
+    let protocol = bray_test_protocol::protocol_version();
+
+    if protocol != expected.catalog_protocol() {
+        return Err(reusable_identity_mismatch_diagnostics(
+            options,
+            ProductBuildIdentityPart::CatalogProtocol,
+        ));
+    }
+
+    if protocol != expected.runner_protocol() {
+        return Err(reusable_identity_mismatch_diagnostics(
+            options,
+            ProductBuildIdentityPart::RunnerProtocol,
+        ));
+    }
+
+    Ok(())
+}
+
+fn reusable_identity_io_diagnostics(path: PathBuf, error: std::io::Error) -> DiagnosticBag {
+    DiagnosticBag::single(
+        DiagnosticProjectCommandFailure::Io {
+            operation: DiagnosticProjectOperation::ReusableBuildIdentity,
+            path,
+            error: DiagnosticIoErrorKind::from(error.kind()),
+        }
+        .diagnostic(DiagnosticId::new(0)),
+    )
+}
+
+fn reusable_identity_digest_diagnostics(
+    error: bray_emitter::BuildInputDigestError,
+) -> DiagnosticBag {
+    let (path, cause) = error.into_parts();
+
+    reusable_identity_io_diagnostics(path, cause)
+}
+
+fn reusable_identity_mismatch_diagnostics(
+    options: &DriverOptions,
+    part: ProductBuildIdentityPart,
+) -> DiagnosticBag {
+    let product = options.compilation().product();
+    let identity = format!("{}/{}", product.package().as_str(), product.name());
+
+    bray_tooling::reusable_build_identity_mismatch_diagnostics(identity, part)
 }
 
 fn native_product_failure_result(

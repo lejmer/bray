@@ -186,6 +186,13 @@ struct CliOptions {
     standard_library_provider_root: Option<PathBuf>,
     #[arg(long = "standard-library-source", global = true, hide = true)]
     standard_library_source: bool,
+    #[arg(
+        long = "expected-source-digest",
+        global = true,
+        value_parser = parse_source_digest,
+        hide = true
+    )]
+    expected_source_digest: Option<[u8; 32]>,
     #[arg(long, global = true, value_enum, value_name = "MODE", help = help::PROFILE)]
     profile: Option<CliProfileMode>,
     #[arg(
@@ -240,14 +247,23 @@ impl CliOptions {
             },
         );
 
-        Ok(match self.profile {
+        let options = match self.profile {
             Some(mode) => options.with_profile(
                 CompilationProfileConfiguration::new(mode.into()),
                 self.profile_output,
             ),
             None => options,
+        };
+
+        Ok(match self.expected_source_digest {
+            Some(digest) => options.with_expected_source_digest(digest),
+            None => options,
         })
     }
+}
+
+fn parse_source_digest(value: &str) -> Result<[u8; 32], String> {
+    serde_json::from_str(value).map_err(|error| error.to_string())
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]

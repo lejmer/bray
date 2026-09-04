@@ -19,6 +19,7 @@ pub struct DriverOptions {
     package_source_authority: PackageSourceAuthority,
     profile: Option<CompilationProfileConfiguration>,
     profile_output: Option<PathBuf>,
+    expected_source_digest: Option<[u8; 32]>,
 }
 
 impl DriverOptions {
@@ -40,6 +41,7 @@ impl DriverOptions {
             package_source_authority,
             profile: None,
             profile_output: None,
+            expected_source_digest: None,
         }
     }
 
@@ -51,6 +53,13 @@ impl DriverOptions {
     ) -> Self {
         self.profile = Some(profile);
         self.profile_output = output;
+
+        self
+    }
+
+    /// Requires the compiler-loaded source inputs to match one caller-provided identity.
+    pub const fn with_expected_source_digest(mut self, digest: [u8; 32]) -> Self {
+        self.expected_source_digest = Some(digest);
 
         self
     }
@@ -103,6 +112,11 @@ impl DriverOptions {
     /// Returns the selected machine-report destination.
     pub fn profile_output(&self) -> Option<&std::path::Path> {
         self.profile_output.as_deref()
+    }
+
+    /// Returns the expected source-input identity supplied by a build orchestrator.
+    pub const fn expected_source_digest(&self) -> Option<[u8; 32]> {
+        self.expected_source_digest
     }
 }
 

@@ -269,10 +269,30 @@ flattening them into strings:
 ```text
 TestCommandReport {
     format: 1,
+    build: TestBuildProvenance,
     selection: TestSelectionSummary,
     products: [TestProductReport],
     summary: TestOutcomeCounts,
     duration: VolatileDuration?,
+}
+
+TestBuildProvenance {
+    reused: bool,
+    compilation: bool,
+    emission: bool,
+    linking: bool,
+    products: [TestProductGeneration],
+}
+
+TestProductGeneration {
+    product: ProductIdentity,
+    generation: GenerationIdentity,
+}
+
+TestBatchReport {
+    format: 1,
+    build: TestBuildProvenance,
+    plans: [TestBatchPlanReport],
 }
 
 TestSelectionSummary {
@@ -345,9 +365,10 @@ produce a nonzero command status. An empty valid selection succeeds unless the u
 
 ## Publication And Validation
 
-The emitted native host and catalog are one publication unit. Publication validates matching package, product, target,
-configuration, host digest, runtime contract, and catalog version before making either artifact visible. Bray Tack
-rejects partial, stale, or mismatched output.
+The emitted native host, catalog, and reusable build identity are one publication unit. The identity covers every
+selected product's exact source inputs and project configuration, the compiler executable, toolchain, standard library,
+runtime, catalog protocol, and runner protocol. Publication verifies the compiler-loaded sources and environment against
+that identity before making any artifact visible. Bray Tack rejects partial, stale, or mismatched output.
 
 `bray test --no-build` resolves exactly one current managed generation for each selected test product. It validates the
 source and project inputs, compiler, toolchain, standard library, runtime, catalog protocol, runner protocol, native

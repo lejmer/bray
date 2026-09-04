@@ -643,7 +643,7 @@ fn require_product(report: &NativeTestReport, product: &str) -> Result<(), Build
         ));
     };
 
-    if report.format != 2
+    if report.format != 1
         || actual.package != PACKAGE_IDENTITY
         || actual.product != product
         || !is_lowercase_sha256(&actual.catalog_digest)
@@ -1151,7 +1151,7 @@ struct NativeTestBatchReport {
 
 impl NativeTestBatchReport {
     fn validate(&self, request: &TestBatchRequest) -> Result<(), BuildError> {
-        if self.format != 2 || self.plans.len() != request.plans().len() {
+        if self.format != 1 || self.plans.len() != request.plans().len() {
             return Err(BuildError::conformance(
                 "native test batch",
                 "the report header does not match the request",
@@ -1162,7 +1162,7 @@ impl NativeTestBatchReport {
             let report_succeeded = actual.report.summary.failed == 0;
 
             if actual.identity != expected.identity()
-                || actual.report.format != 2
+                || actual.report.format != 1
                 || actual.succeeded != report_succeeded
             {
                 return Err(BuildError::conformance(
@@ -1399,7 +1399,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("batch request must build: {error:?}"));
 
         let report = serde_json::from_value::<super::NativeTestBatchReport>(serde_json::json!({
-            "format": 2,
+            "format": 1,
             "build": {
                 "reused": false,
                 "compilation": true,
@@ -1433,7 +1433,7 @@ mod tests {
     #[test]
     fn focused_startup_report_requires_the_api_product_identity() {
         let report = super::NativeTestReport {
-            format: 2,
+            format: 1,
             _build: super::NativeTestBuildProvenance {
                 reused: false,
                 compilation: true,
