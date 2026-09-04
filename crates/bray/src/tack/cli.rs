@@ -623,6 +623,7 @@ struct CliVendorInstall {
 mod tests {
     use std::path::{Path, PathBuf};
 
+    use bray_diagnostics::DiagnosticKind;
     use bray_test_protocol::{
         TestCaptureLimits, TestCapturePolicy, TestDuration, TestTimeoutPolicy,
     };
@@ -977,6 +978,22 @@ mod tests {
 
         assert_eq!(profile.mode(), TackProfileMode::Trace);
         assert_eq!(profile.output_directory(), Some(Path::new("profiles")));
+    }
+
+    #[test]
+    fn profiling_rejects_a_no_build_test_rerun() {
+        let error = TackInvocation::try_from_arguments([
+            "bray",
+            "--profile=summary",
+            "test",
+            "--no-build",
+        ])
+        .expect_err("profiling should require compiler work");
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &error.into_diagnostics(),
+            DiagnosticKind::ProjectCommandSelectionInvalid,
+        );
     }
 
     #[test]

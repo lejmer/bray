@@ -31,11 +31,11 @@ pub(crate) struct ProjectCompiler<'project> {
     native_link_inputs: Vec<String>,
     executor: &'project dyn ToolExecutor,
     interfaces: BTreeMap<(ProductIdentity, TargetIdentity), CheckedInterface>,
-    checked: BTreeSet<(ProductIdentity, TargetIdentity)>,
 }
 
 struct CheckedInterface {
     path: PathBuf,
+    source_input_digest: Option<[u8; 32]>,
     _operation: bray_emitter::ManagedOperation,
 }
 
@@ -70,7 +70,6 @@ impl<'project> ProjectCompiler<'project> {
             native_link_inputs: Vec::new(),
             executor,
             interfaces: BTreeMap::new(),
-            checked: BTreeSet::new(),
         }
     }
 
@@ -120,22 +119,9 @@ impl<'project> ProjectCompiler<'project> {
         planned: &PlannedProduct,
         configuration: TackBuildConfiguration,
         progress: Option<&BuildProgressSession<'_>>,
+        evidence: &crate::tack::identity::TestProductBuildEvidence,
     ) -> Result<(ProductBuild, bray_emitter::ProductBuildIdentity), DiagnosticBag> {
-        let product = self.project_product(planned)?;
-        let products = self.reusable_test_products(product, planned.target())?;
-
-        let evidence = crate::tack::identity::test_product_build_evidence(
-            self.workspace_root,
-            self.graph,
-            &products,
-            planned.target(),
-            configuration,
-            &self.native_link_inputs,
-            self.toolchain,
-            self.executor,
-        )?;
-
-        let build = self.build_product(planned, configuration, progress, Some(&evidence))?;
+        let build = self.build_product(planned, configuration, progress, Some(evidence))?;
 
         Ok((build, evidence.identity().clone()))
     }
@@ -213,6 +199,49 @@ impl<'project> ProjectCompiler<'project> {
         planned: &PlannedProduct,
         configuration: TackBuildConfiguration,
     ) -> Result<BuildProgressPlan, DiagnosticBag> {
+        self.build_progress_plan_with_evidence(planned, configuration, None)
+    }
+
+    pub(crate) fn test_build_progress_plan(
+        &self,
+        planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
+    ) -> Result<
+        (
+            BuildProgressPlan,
+            crate::tack::identity::TestProductBuildEvidence,
+        ),
+        DiagnosticBag,
+    > {
+        let product = self.project_product(planned)?;
+        let products = self.reusable_test_products(product, planned.target())?;
+
+        let evidence = crate::tack::identity::test_product_build_evidence(
+            self.workspace_root,
+            self.graph,
+            &products,
+            planned.target(),
+            configuration,
+            &self.native_link_inputs,
+            self.toolchain,
+            self.executor,
+        )?;
+
+        let plan = self.build_progress_plan_with_evidence(
+            planned,
+            configuration,
+            Some(&evidence),
+        )?;
+
+        Ok((plan, evidence))
+    }
+
+    fn build_progress_plan_with_evidence(
+        &self,
+        planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
+        evidence: Option<&crate::tack::identity::TestProductBuildEvidence>,
+    ) -> Result<BuildProgressPlan, DiagnosticBag> {
         let product = self.project_product(planned)?;
         let dependencies = self.transitive_dependencies(product, planned.target())?;
 
@@ -227,7 +256,8 @@ impl<'project> ProjectCompiler<'project> {
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| product.identity().name().to_owned());
 
-        let packages = self.progress_packages(product, planned.target(), &dependencies)?;
+        let packages =
+            self.progress_packages(product, planned.target(), &dependencies, evidence)?;
 
         let product_identity = format!(
             "{}/{}",
@@ -329,9 +359,11 @@ impl<'project> ProjectCompiler<'project> {
     ) -> Result<bool, DiagnosticBag> {
         let key = (identity.clone(), target.clone());
 
-        if self.checked.contains(&key) {
+        if self.interface_matches(identity, target, evidence) {
             return Ok(true);
         }
+
+        let source_inputs = evidence.and_then(|evidence| evidence.source_inputs(identity));
 
         let product = self.project_product_by_identity(identity)?.clone();
 
@@ -365,8 +397,7 @@ impl<'project> ProjectCompiler<'project> {
             target,
             CompilerAction::Check {
                 interface: Some(interface.clone()),
-                expected_source_digest: evidence
-                    .and_then(|evidence| evidence.source_inputs(product.identity())),
+                expected_source_digest: source_inputs,
             },
             progress,
         )?;
@@ -377,14 +408,13 @@ impl<'project> ProjectCompiler<'project> {
 
         if success {
             self.interfaces.insert(
-                key.clone(),
+                key,
                 CheckedInterface {
                     path: interface,
+                    source_input_digest: source_inputs,
                     _operation: operation,
                 },
             );
-
-            self.checked.insert(key);
         }
 
         Ok(success)
@@ -614,6 +644,7 @@ impl<'project> ProjectCompiler<'project> {
         product: &ProjectProduct,
         target: &TargetIdentity,
         dependencies: &BTreeSet<ProductIdentity>,
+        evidence: Option<&crate::tack::identity::TestProductBuildEvidence>,
     ) -> Result<Vec<BuildProgressPackage>, DiagnosticBag> {
         let mut packages = Vec::new();
 
@@ -625,9 +656,7 @@ impl<'project> ProjectCompiler<'project> {
                 let is_root = candidate.identity() == product.identity();
 
                 let is_pending_dependency = dependencies.contains(candidate.identity())
-                    && !self
-                        .checked
-                        .contains(&(candidate.identity().clone(), target.clone()));
+                    && !self.interface_matches(candidate.identity(), target, evidence);
 
                 if !is_root && !is_pending_dependency {
                     continue;
@@ -657,6 +686,20 @@ impl<'project> ProjectCompiler<'project> {
         }
 
         Ok(packages)
+    }
+
+    fn interface_matches(
+        &self,
+        identity: &ProductIdentity,
+        target: &TargetIdentity,
+        evidence: Option<&crate::tack::identity::TestProductBuildEvidence>,
+    ) -> bool {
+        let key = (identity.clone(), target.clone());
+        let source_input_digest = evidence.and_then(|evidence| evidence.source_inputs(identity));
+
+        self.interfaces
+            .get(&key)
+            .is_some_and(|interface| interface.source_input_digest == source_input_digest)
     }
 
     fn dependencies(

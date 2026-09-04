@@ -75,7 +75,7 @@ pub(super) fn test_product_build_evidence(
     )?;
 
     let compiler = executor
-        .identity(Tool::Compiler)
+        .identity(Tool::Compiler, workspace_root)
         .map_err(|error| identity_io_diagnostics(error.path, error.error))?;
 
     let standard_library_root = toolchain.standard_library_root();
@@ -214,7 +214,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("standard library fixture should exist: {error}"));
 
         let baseline = bray_emitter::toolchain_path_digest(directory.path())
-            .unwrap_or_else(|error| panic!("toolchain should hash: {error}"));
+            .unwrap_or_else(|error| panic!("toolchain should hash: {error:?}"));
 
         fs::write(runtime.join("runtime.bin"), b"second")
             .unwrap_or_else(|error| panic!("runtime fixture should update: {error}"));
@@ -223,13 +223,13 @@ mod tests {
             .unwrap_or_else(|error| panic!("standard library fixture should update: {error}"));
 
         let separated_inputs = bray_emitter::toolchain_path_digest(directory.path())
-            .unwrap_or_else(|error| panic!("toolchain should hash: {error}"));
+            .unwrap_or_else(|error| panic!("toolchain should hash: {error:?}"));
 
         fs::write(directory.path().join("toolchain.bin"), b"toolchain")
             .unwrap_or_else(|error| panic!("toolchain fixture should exist: {error}"));
 
         let changed = bray_emitter::toolchain_path_digest(directory.path())
-            .unwrap_or_else(|error| panic!("toolchain should hash: {error}"));
+            .unwrap_or_else(|error| panic!("toolchain should hash: {error:?}"));
 
         assert_eq!(baseline, separated_inputs);
         assert_ne!(baseline, changed);

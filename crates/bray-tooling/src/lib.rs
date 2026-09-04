@@ -2,7 +2,7 @@
 
 #![forbid(unsafe_code)]
 
-#[cfg(feature = "compiler")]
+#[cfg(feature = "build-identity")]
 mod build_identity;
 #[cfg(feature = "analysis")]
 mod inspection;
@@ -22,7 +22,7 @@ mod test_support;
 #[cfg(feature = "compiler")]
 mod toolchain;
 
-#[cfg(feature = "compiler")]
+#[cfg(feature = "build-identity")]
 pub use build_identity::reusable_build_identity_mismatch_diagnostics;
 #[cfg(feature = "analysis")]
 pub use inspection::{

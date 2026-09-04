@@ -7,6 +7,7 @@ rust-version.workspace = true
 
 [features]
 default = ["compiler"]
+build-identity = ["dep:bray-emitter"]
 analysis = [
     "dep:bray-bound-tree",
     "dep:bray-compilation",
@@ -23,8 +24,8 @@ analysis = [
 ]
 compiler = [
     "analysis",
+    "build-identity",
     "dep:bray-codegen",
-    "dep:bray-emitter",
     "dep:bray-codegen-llvm",
     "dep:bray-linker",
     "dep:tempfile",

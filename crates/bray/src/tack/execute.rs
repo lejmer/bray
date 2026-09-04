@@ -727,21 +727,22 @@ fn run_tests(
             continue;
         }
 
-        let plan = match compiler.build_progress_plan(&product, configuration) {
+        let (plan, evidence) = match compiler.test_build_progress_plan(&product, configuration) {
             Ok(plan) => plan,
             Err(diagnostics) => return failure(diagnostics, output_format),
         };
 
         let session = progress.begin(plan);
 
-        let (build, expected) = match compiler.build_test(&product, configuration, Some(&session)) {
-            Ok(result) => result,
-            Err(diagnostics) => {
-                session.finish(false);
+        let (build, expected) =
+            match compiler.build_test(&product, configuration, Some(&session), &evidence) {
+                Ok(result) => result,
+                Err(diagnostics) => {
+                    session.finish(false);
 
-                return failure(diagnostics, output_format);
-            }
-        };
+                    return failure(diagnostics, output_format);
+                }
+            };
 
         let (product_outputs, _) = build.into_parts();
 
@@ -1192,6 +1193,7 @@ mod tests {
     use std::io::{Cursor, Read, Write};
     use std::path::{Path, PathBuf};
     use std::process::ExitCode;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Mutex;
 
     use bray_diagnostics::DiagnosticKind;
@@ -1211,12 +1213,42 @@ mod tests {
         input: Option<Vec<u8>>,
     }
 
+    impl RecordedRequest {
+        fn from_request(request: &ToolRequest) -> Self {
+            Self {
+                tool: request.tool(),
+                arguments: request.arguments().to_vec(),
+                working_directory: request.working_directory().to_path_buf(),
+                input: request.input_bytes().map(<[u8]>::to_vec),
+            }
+        }
+    }
+
+    fn take_requests(requests: &Mutex<Vec<RecordedRequest>>) -> Vec<RecordedRequest> {
+        let mut requests = requests.lock().unwrap_or_else(|error| error.into_inner());
+
+        std::mem::take(&mut *requests)
+    }
+
+    fn record_request(requests: &Mutex<Vec<RecordedRequest>>, request: &ToolRequest) {
+        requests
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push(RecordedRequest::from_request(request));
+    }
+
     #[derive(Default)]
     struct RecordingExecutor {
         requests: Mutex<Vec<RecordedRequest>>,
     }
 
     struct InvalidProtocolExecutor;
+
+    struct MutatingDependencyExecutor {
+        requests: Mutex<Vec<RecordedRequest>>,
+        source: PathBuf,
+        mutated: AtomicBool,
+    }
 
     impl ToolExecutor for InvalidProtocolExecutor {
         fn capture(&self, _request: ToolRequest) -> Result<ToolOutput, ToolExecutionError> {
@@ -1244,24 +1276,11 @@ mod tests {
 
     impl RecordingExecutor {
         fn requests(&self) -> Vec<RecordedRequest> {
-            let mut requests = self
-                .requests
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-
-            std::mem::take(&mut *requests)
+            take_requests(&self.requests)
         }
 
         fn record(&self, request: &ToolRequest) {
-            self.requests
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .push(RecordedRequest {
-                    tool: request.tool(),
-                    arguments: request.arguments().to_vec(),
-                    working_directory: request.working_directory().to_path_buf(),
-                    input: request.input_bytes().map(<[u8]>::to_vec),
-                });
+            record_request(&self.requests, request);
         }
 
         fn publish_compiler_outputs(&self, request: &ToolRequest) -> Result<(), ()> {
@@ -1283,6 +1302,24 @@ mod tests {
             std::fs::write(output.join(product), b"test executable").map_err(|_| ())?;
 
             Ok(())
+        }
+    }
+
+    impl MutatingDependencyExecutor {
+        fn new(source: PathBuf) -> Self {
+            Self {
+                requests: Mutex::new(Vec::new()),
+                source,
+                mutated: AtomicBool::new(false),
+            }
+        }
+
+        fn requests(&self) -> Vec<RecordedRequest> {
+            take_requests(&self.requests)
+        }
+
+        fn record(&self, request: &ToolRequest) {
+            record_request(&self.requests, request);
         }
     }
 
@@ -1324,6 +1361,40 @@ mod tests {
             })?;
 
             Ok(ToolOutput::new(true, String::new(), String::new()))
+        }
+    }
+
+    impl ToolExecutor for MutatingDependencyExecutor {
+        fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ToolExecutionError> {
+            let is_test_product = request.tool() == Tool::Compiler
+                && has_argument_pair(request.arguments(), "--artifact", "executable");
+
+            self.record(&request);
+
+            if is_test_product
+                && !self.mutated.swap(true, Ordering::SeqCst)
+            {
+                std::fs::write(&self.source, b"module math;\n\nfunc changed() {}\n")
+                    .map_err(|error| ToolExecutionError::StreamIo {
+                        stream: ToolStream::StandardOutput,
+                        error: error.kind(),
+                    })?;
+            }
+
+            Ok(ToolOutput::new(
+                !is_test_product,
+                String::new(),
+                String::new(),
+            ))
+        }
+
+        fn serve(
+            &self,
+            _: ToolRequest,
+            _: Box<dyn Read + Send>,
+            _: &mut dyn Write,
+        ) -> Result<ToolOutput, ToolExecutionError> {
+            panic!("mutating dependency executor does not serve streaming tools")
         }
     }
 
@@ -1677,6 +1748,76 @@ mod tests {
                 .iter()
                 .any(|argument| argument == "--dependency-interface")
         );
+    }
+
+    #[test]
+    fn test_products_recheck_shared_dependencies_when_source_evidence_changes() {
+        let workspace = ProjectWorkspace::with_vendor();
+        let dependency_source = workspace.path().join("vendor/math/src/math.bray");
+        let executor = MutatingDependencyExecutor::new(dependency_source);
+
+        workspace.write(
+            "app/bray-package.json",
+            r#"{
+                "format": 1,
+                "identity": "example.application",
+                "version": {"workspace": true},
+                "features": [],
+                "source_roots": [{"name": "tests", "path": "src"}],
+                "products": [
+                    {
+                        "name": "first-tests",
+                        "kind": "test",
+                        "source_roots": ["tests"],
+                        "targets": ["native"],
+                        "dependencies": [{"package": "example.math", "product": "math"}],
+                        "outputs": ["executable"]
+                    },
+                    {
+                        "name": "second-tests",
+                        "kind": "test",
+                        "source_roots": ["tests"],
+                        "targets": ["native"],
+                        "dependencies": [{"package": "example.math", "product": "math"}],
+                        "outputs": ["executable"]
+                    }
+                ]
+            }"#,
+        );
+
+        let result = run_tack_result_with_input(
+            [
+                "bray".into(),
+                "--workspace".into(),
+                workspace.path().as_os_str().to_os_string(),
+                "test".into(),
+                "--target".into(),
+                "native".into(),
+            ],
+            &executor,
+            Cursor::new(Vec::new()),
+        );
+
+        assert_eq!(result.exit_code(), ExitCode::FAILURE);
+
+        let requests = executor.requests();
+
+        let dependencies: Vec<_> = requests
+            .iter()
+            .filter(|request| has_argument_pair(&request.arguments, "--product", "math"))
+            .collect();
+
+        let [first, second] = dependencies.as_slice() else {
+            panic!("shared dependency should be checked against both snapshots: {requests:#?}");
+        };
+
+        let first_digest = argument_value(&first.arguments, "--expected-source-digest")
+            .unwrap_or_else(|| panic!("first dependency check should carry source evidence"));
+
+        let second_digest = argument_value(&second.arguments, "--expected-source-digest")
+            .unwrap_or_else(|| panic!("second dependency check should carry source evidence"));
+
+        assert_ne!(first_digest, second_digest);
     }
 
     #[test]

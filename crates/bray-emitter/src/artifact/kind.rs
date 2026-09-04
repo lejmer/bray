@@ -290,6 +290,7 @@ mod tests {
             TargetOutputKind::PackageInterface,
             TargetOutputKind::PackageImplementation,
             TargetOutputKind::DependencyMetadata,
+            TargetOutputKind::TestCatalog,
             TargetOutputKind::Executable,
             TargetOutputKind::StaticLibrary,
             TargetOutputKind::SharedLibrary,
