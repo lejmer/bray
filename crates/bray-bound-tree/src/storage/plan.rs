@@ -342,7 +342,9 @@ impl StoragePlan {
     pub fn is_recovered(&self) -> bool {
         self.identity_entries()
             .any(|(_, identity)| matches!(identity, StorageIdentity::Error(_)))
-            || self.access_entries().any(|(_, access)| access.is_recovered())
+            || self
+                .access_entries()
+                .any(|(_, access)| access.is_recovered())
             || self
                 .borrow_capability_entries()
                 .any(|(_, capability)| capability.is_recovered())

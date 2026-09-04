@@ -3,10 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::{
     AsyncSuspensionKind, AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind,
     BodyBehaviorCall, BodyBehaviorPhase, BoundBlock, BoundBlockItem, BoundCallResult,
-    BoundCallableTarget, BoundExpression, BoundExpressionId,
-    BoundUnitRoot, CheckedAsync, CheckedDependencyContracts, CheckedExpressionTypes,
-    CheckedRefinements, CheckedSemanticSelections, Liveness, SemanticSelection, StorageFlow,
-    StoragePlan,
+    BoundCallableTarget, BoundExpression, BoundExpressionId, BoundUnitRoot, CheckedAsync,
+    CheckedDependencyContracts, CheckedExpressionTypes, CheckedRefinements,
+    CheckedSemanticSelections, Liveness, SemanticSelection, StorageFlow, StoragePlan,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
@@ -279,14 +278,14 @@ where
 
     let (storage_requirements, scope_exits, cleanup_diagnostics) =
         match scope_exit_plans(request, storage, flow) {
-        Ok(plans) => plans,
-        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
-        Err(CheckerQueryError::Upstream(error)) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
+            Ok(plans) => plans,
+            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(CheckerQueryError::Infrastructure(error)) => {
+                return CheckerOutcome::InfrastructureFailure(error);
+            }
+            Err(CheckerQueryError::Upstream(error)) => {
+                return CheckerOutcome::UpstreamFailure(error);
+            }
         };
 
     is_recovered |= scope_exits.iter().any(|exit| exit.is_recovered());
@@ -1004,9 +1003,16 @@ mod tests {
         let suspension = include_suspension_state
             .then(|| StorageSuspensionState::new(expressions[1], [], [], [], []));
 
-        let flow =
-            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], suspension, [], [], false)
-            .unwrap_or_else(|error| panic!("test storage flow must validate: {error:?}"));
+        let flow = StorageFlow::try_new(
+            unit.unit(),
+            unit.key().kind(),
+            [],
+            suspension,
+            [],
+            [],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("test storage flow must validate: {error:?}"));
 
         check_async_analysis(
             request,

@@ -5,8 +5,8 @@ use bray_symbols::AnyLocalSymbolId;
 
 use crate::{
     BorrowCapabilityId, BoundBlockItem, BoundDependencyContract, BoundDependencyContractId,
-    BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitId, BoundUnitKind,
-    StorageAccessId, StoragePlan,
+    BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitId,
+    BoundUnitKind, StorageAccessId, StoragePlan,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

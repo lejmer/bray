@@ -312,23 +312,24 @@ impl StorageFlow {
             .iter()
             .any(|exit| exit.scope().unit() != unit || exit.exit().unit() != unit)
             || exits.iter().any(|exit| {
-            exit.scope().unit() != unit
-                || exit.exit().unit() != unit
-                || exit.live().iter().any(|storage| storage.unit() != unit)
-                || exit
-                    .initialized()
-                    .iter()
-                    .any(|storage| storage.unit() != unit)
-                || exit.moved().iter().any(|access| access.unit() != unit)
-                || exit
-                    .fully_moved()
-                    .iter()
-                    .any(|storage| storage.unit() != unit)
-                || exit
-                    .active_borrows()
-                    .iter()
-                    .any(|borrow| borrow.unit() != unit)
-        }) {
+                exit.scope().unit() != unit
+                    || exit.exit().unit() != unit
+                    || exit.live().iter().any(|storage| storage.unit() != unit)
+                    || exit
+                        .initialized()
+                        .iter()
+                        .any(|storage| storage.unit() != unit)
+                    || exit.moved().iter().any(|access| access.unit() != unit)
+                    || exit
+                        .fully_moved()
+                        .iter()
+                        .any(|storage| storage.unit() != unit)
+                    || exit
+                        .active_borrows()
+                        .iter()
+                        .any(|borrow| borrow.unit() != unit)
+            })
+        {
             return Err(StorageFlowBuildError::ForeignUnit);
         }
 
@@ -529,7 +530,15 @@ mod tests {
         );
 
         assert_eq!(
-            StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [decision], [], [], [], true,),
+            StorageFlow::try_new(
+                unit,
+                BoundUnitKind::CallableBody,
+                [decision],
+                [],
+                [],
+                [],
+                true,
+            ),
             Err(StorageFlowBuildError::ForeignUnit)
         );
     }

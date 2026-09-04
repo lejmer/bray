@@ -30,10 +30,10 @@ mod unit;
 mod view;
 
 pub use asynchronous::{
-    AsyncAnalysisBuildError, AsyncCleanupPhases, AsyncScopeExitPlan, AsyncStorageCleanupRequirement,
-    AsyncStorageExitDecision, AsyncStorageExitDisposition, AsyncStorageExitRecoveryCause,
-    AsyncStorageRequirement, AsyncSuspensionKind, AsyncSuspensionPoint, AsyncTaskOperation,
-    AsyncTaskOperationKind, CheckedAsync,
+    AsyncAnalysisBuildError, AsyncCleanupPhases, AsyncScopeExitPlan,
+    AsyncStorageCleanupRequirement, AsyncStorageExitDecision, AsyncStorageExitDisposition,
+    AsyncStorageExitRecoveryCause, AsyncStorageRequirement, AsyncSuspensionKind,
+    AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind, CheckedAsync,
 };
 pub use behavior::{
     BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, CheckedBodyBehavior,

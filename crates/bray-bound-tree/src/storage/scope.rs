@@ -121,8 +121,7 @@ impl StorageScopeOwners {
                     }
 
                     if expression.kind() == crate::BoundStructuredExpressionKind::Condition
-                        && let ([condition], [scope]) =
-                            (expression.operands(), expression.blocks())
+                        && let ([condition], [scope]) = (expression.operands(), expression.blocks())
                     {
                         assign_condition_bindings(unit.view(), *condition, *scope, &mut nodes)?;
                     }

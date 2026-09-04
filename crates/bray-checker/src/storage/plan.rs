@@ -332,11 +332,7 @@ where
 
                     let target = StorageBindingTarget::Parameter(parameter);
 
-                    self.bind_entry(
-                        target,
-                        StorageIdentity::Parameter(parameter),
-                        entry,
-                    )?;
+                    self.bind_entry(target, StorageIdentity::Parameter(parameter), entry)?;
                 }
 
                 if let Some(receiver) = receiver {
@@ -494,7 +490,6 @@ where
         };
 
         let Some((kind, reached_type)) = entry.and_then(|entry| entry.borrow) else {
-
             self.builder_mut()?
                 .bind(target, StorageBinding::Identity(storage))
                 .map_err(CheckerInfrastructureError::StoragePlan)?;
