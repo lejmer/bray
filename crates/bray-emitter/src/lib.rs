@@ -39,7 +39,7 @@ pub use plan::{
     BackendEmissionPolicy, EmissionBackend, EmissionBackendBuildError, EmissionPlan,
     EmissionPlanner, EmissionPlanningError, PlannedArtifact, PlannedArtifactDestination,
 };
-pub use publication::ArtifactPublisher;
+pub use publication::{ArtifactPublisher, PublicationValidator};
 pub use publication::{
     PublishedArtifact, PublishedGenerationReadError, PublishedProductReadGuard,
     RetainedProductGeneration, lock_published_product, resolve_published_artifact,

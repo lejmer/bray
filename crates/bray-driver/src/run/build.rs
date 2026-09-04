@@ -158,18 +158,6 @@ pub(crate) fn run_build_command(
         None
     };
 
-    if let Some(identity) = configuration.build_identity()
-        && let Err(diagnostics) =
-            verify_reusable_build_environment(options, &configuration, identity)
-    {
-        return driver_result_from_compilation(
-            compilation,
-            diagnostics,
-            output_format,
-            ExitCode::FAILURE,
-        );
-    }
-
     let target_outputs = target_outputs(native_target, &artifacts, &configuration);
 
     let request = emission_request(
@@ -187,6 +175,15 @@ pub(crate) fn run_build_command(
 
     if let Some(test_catalog) = test_catalog.as_deref() {
         inputs = inputs.with_test_catalog(test_catalog);
+    }
+
+    let validate_publication = || match configuration.build_identity() {
+        Some(identity) => verify_reusable_build_environment(options, &configuration, identity),
+        None => Ok(()),
+    };
+
+    if configuration.build_identity().is_some() {
+        inputs = inputs.with_publication_validation(&validate_publication);
     }
 
     match (native.as_ref(), linker.as_ref()) {

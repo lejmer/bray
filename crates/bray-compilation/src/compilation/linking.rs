@@ -1,5 +1,6 @@
 use bray_emitter::{
     ArtifactContribution, ArtifactPublisher, EmissionOutcome, EmissionPlan, OutputSinkResolver,
+    PublicationValidator,
 };
 use bray_linker::{LinkOutcome, LinkPlan, LinkStatus, Linker};
 
@@ -45,6 +46,27 @@ impl Compilation {
         resolver: Option<&dyn OutputSinkResolver>,
         cancellation: &CancellationToken,
     ) -> Result<EmissionOutcome, LinkedProductEmissionError> {
+        self.emit_linked_product_with_publication_validation(
+            linker,
+            emission,
+            link,
+            contributions,
+            resolver,
+            None,
+            cancellation,
+        )
+    }
+
+    pub(in crate::compilation) fn emit_linked_product_with_publication_validation(
+        &self,
+        linker: &Linker,
+        emission: &EmissionPlan,
+        link: &LinkPlan,
+        contributions: impl IntoIterator<Item = ArtifactContribution>,
+        resolver: Option<&dyn OutputSinkResolver>,
+        validation: Option<&dyn PublicationValidator>,
+        cancellation: &CancellationToken,
+    ) -> Result<EmissionOutcome, LinkedProductEmissionError> {
         let link_outcome = self
             .link_product_with_cancellation(linker, link, cancellation)
             .map_err(LinkedProductEmissionError::Query)?;
@@ -52,6 +74,11 @@ impl Compilation {
         let publisher = match resolver {
             Some(resolver) => ArtifactPublisher::with_sink_resolver(cancellation, resolver),
             None => ArtifactPublisher::new(cancellation),
+        };
+
+        let publisher = match validation {
+            Some(validation) => publisher.with_publication_validation(validation),
+            None => publisher,
         };
 
         let outcome = crate::profile::profile_operation(
@@ -196,7 +223,7 @@ pub(super) fn product_emission_error(
 #[cfg(test)]
 mod tests {
     use std::num::NonZeroU64;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::{Arc, Barrier, Mutex};
 
@@ -206,11 +233,11 @@ mod tests {
         AssemblySyntaxKind, BackendIdentity, BackendSerializationOptions, DebugInformationMode,
         DebugInformationOutputMode, LinkableArtifactKind,
     };
-    use bray_diagnostics::DiagnosticBag;
+    use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
     use bray_emitter::{
         ArtifactKind, ArtifactRequirement, BackendEmissionPolicy, EmissionBackend, EmissionPlan,
-        EmissionPlanner, EmissionRequest, EmissionStatus, ReplacementPolicy, RequestedArtifact,
-        RequestedArtifactDestination,
+        EmissionFailure, EmissionPlanner, EmissionRequest, EmissionStatus, ReplacementPolicy,
+        RequestedArtifact, RequestedArtifactDestination,
     };
     use bray_linker::{
         BinarySymbolName, DebugLinkPolicy, LinkCancellationCapability, LinkDeterminismCapability,
@@ -323,6 +350,69 @@ mod tests {
         assert!(!input.path().exists());
         assert!(!staging_path.exists());
         assert_eq!(driver.plans(), vec![link]);
+    }
+
+    #[test]
+    fn publication_validation_rejects_a_runtime_changed_during_linking() {
+        let runtime = TemporaryFile::write("runtime.a", b"runtime before link");
+
+        let directory = runtime
+            .path()
+            .parent()
+            .unwrap_or_else(|| panic!("test runtime must have a containing directory"));
+
+        let staging_path = directory.join("application.stage");
+        let emission = executable_emission_plan(directory);
+        let link = executable_plan_for_runtime(runtime.path(), &staging_path);
+
+        let expected = bray_emitter::path_digest(runtime.path())
+            .unwrap_or_else(|error| panic!("test runtime identity must be readable: {error:?}"));
+
+        let driver = Arc::new(RuntimeReplacingDriver::new(runtime.path()));
+        let linker = linker(driver as Arc<dyn LinkerDriver>);
+        let cancellation = CancellationToken::new();
+
+        let validate = || {
+            let actual = bray_emitter::path_digest(runtime.path()).unwrap_or_else(|error| {
+                panic!("changed test runtime identity must be readable: {error:?}")
+            });
+
+            if actual == expected {
+                Ok(())
+            } else {
+                Err(DiagnosticBag::single(Diagnostic::new(
+                    DiagnosticId::new(0),
+                    DiagnosticKind::CheckingCompilerDefect,
+                    SeverityKind::Error,
+                )))
+            }
+        };
+
+        let outcome = compilation(WorkerBudget::serial())
+            .emit_linked_product_with_publication_validation(
+                &linker,
+                &emission,
+                &link,
+                [],
+                None,
+                Some(&validate),
+                &cancellation,
+            )
+            .unwrap_or_else(|error| panic!("linked test emission must run: {error:?}"));
+
+        assert!(matches!(
+            outcome.status(),
+            EmissionStatus::Failed(EmissionFailure::IncompleteProduct)
+        ));
+
+        assert!(outcome.generation().is_none());
+        assert!(!staging_path.exists());
+
+        assert_eq!(
+            std::fs::read(runtime.path())
+                .unwrap_or_else(|error| panic!("changed test runtime must be readable: {error}")),
+            b"runtime after link"
+        );
     }
 
     #[test]
@@ -732,6 +822,38 @@ mod tests {
             .unwrap_or_else(|error| panic!("test executable plan must be valid: {error:?}"))
     }
 
+    fn executable_plan_for_runtime(input: &Path, output: &Path) -> LinkPlan {
+        let mut builder = plan_builder(LinkedProductKind::Executable, DebugLinkPolicy::None);
+        let runtime = runtime_artifact_id();
+
+        builder.push_input(
+            LinkInput::try_new(
+                LinkInputId::new(0),
+                LinkInputKind::RuntimeComponent,
+                LinkInputSource::file(input),
+                LinkInputProvenance::Runtime(runtime.clone()),
+                LinkInputMode::Ordinary,
+            )
+            .unwrap_or_else(|error| panic!("test runtime input must be valid: {error:?}")),
+        );
+
+        builder.push_output(planned_output_for(
+            0,
+            LinkedArtifactKind::Executable,
+            output,
+        ));
+
+        builder.set_executable_host(test_async_executable_host_contract_for(
+            product(),
+            link_target().identity().clone(),
+            runtime,
+        ));
+
+        builder
+            .finish()
+            .unwrap_or_else(|error| panic!("test executable plan must be valid: {error:?}"))
+    }
+
     fn executable_emission_plan(root: &Path) -> EmissionPlan {
         let backend = BackendIdentity::try_new("llvm", "bray-1", "llvm-22")
             .unwrap_or_else(|| panic!("test backend identity must be valid"));
@@ -991,6 +1113,38 @@ mod tests {
         plans: Mutex<Vec<LinkPlan>>,
         completes: bool,
         published_bytes: Option<&'static [u8]>,
+    }
+
+    struct RuntimeReplacingDriver {
+        capabilities: LinkerDriverCapabilities,
+        runtime: PathBuf,
+    }
+
+    impl RuntimeReplacingDriver {
+        fn new(runtime: &Path) -> Self {
+            Self {
+                capabilities: driver_capabilities(),
+                runtime: runtime.to_owned(),
+            }
+        }
+    }
+
+    impl LinkerDriver for RuntimeReplacingDriver {
+        fn capabilities(&self) -> &LinkerDriverCapabilities {
+            &self.capabilities
+        }
+
+        fn link(&self, plan: &LinkPlan, _cancellation: &dyn Cancellation) -> LinkOutcome {
+            for output in plan.outputs() {
+                std::fs::write(output.destination().path(), b"linked executable")
+                    .unwrap_or_else(|error| panic!("test linked staging must be written: {error}"));
+            }
+
+            std::fs::write(&self.runtime, b"runtime after link")
+                .unwrap_or_else(|error| panic!("test runtime must be replaced: {error}"));
+
+            complete_with_byte_len(plan, b"linked executable".len())
+        }
     }
 
     impl RecordingDriver {

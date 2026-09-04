@@ -14,6 +14,7 @@ use super::generation::publish_managed_generation;
 use super::link::{
     LinkStagingCleanup, LinkedPreparationError, PreparedLinkedArtifact, prepare_linked_artifacts,
 };
+use super::publisher::ArtifactPublisher;
 use super::staging::FilesystemStaging;
 use crate::artifact::content::{
     ContentReader, ContentValidationError, open_content, open_linked_staging, validate_content,
@@ -22,36 +23,10 @@ use crate::artifact::content::{
 use crate::{
     ArtifactContribution, ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement,
     EmissionOutcome, EmissionPlan, EmittedArtifact, EmittedArtifactSet, IndirectOutputSink,
-    OutputSink, OutputSinkResolver, PlannedArtifact, PlannedArtifactDestination, ReplacementPolicy,
+    OutputSink, PlannedArtifact, PlannedArtifactDestination, ReplacementPolicy,
 };
 
-/// Publishes validated artifact contributions to the immutable plan's external sinks.
-#[derive(Clone, Copy)]
-pub struct ArtifactPublisher<'host> {
-    cancellation: &'host dyn Cancellation,
-    resolver: Option<&'host dyn OutputSinkResolver>,
-}
-
 impl<'host> ArtifactPublisher<'host> {
-    /// Creates a publisher for filesystem-only plans.
-    pub const fn new(cancellation: &'host dyn Cancellation) -> Self {
-        Self {
-            cancellation,
-            resolver: None,
-        }
-    }
-
-    /// Creates a publisher that can resolve memory collectors and writable streams.
-    pub const fn with_sink_resolver(
-        cancellation: &'host dyn Cancellation,
-        resolver: &'host dyn OutputSinkResolver,
-    ) -> Self {
-        Self {
-            cancellation,
-            resolver: Some(resolver),
-        }
-    }
-
     /// Publishes the plan-owned package interface and supplied contributions in plan order.
     pub fn publish(
         &self,
@@ -68,6 +43,14 @@ impl<'host> ArtifactPublisher<'host> {
             Ok(prepared) => prepared,
             Err(error) => return diagnostics.failed(publication_set(plan, []), error),
         };
+
+        if let Err(validation) = self.validate_publication() {
+            return EmissionOutcome::failed(
+                crate::EmissionFailure::IncompleteProduct,
+                publication_set(plan, []),
+                validation,
+            );
+        }
 
         self.publish_prepared(plan, prepared, diagnostics)
     }
@@ -171,6 +154,16 @@ impl<'host> ArtifactPublisher<'host> {
                 return merge_link_diagnostics(outcome, link_diagnostics);
             }
         };
+
+        if let Err(validation) = self.validate_publication() {
+            let outcome = EmissionOutcome::failed(
+                crate::EmissionFailure::IncompleteProduct,
+                publication_set(plan, []),
+                validation,
+            );
+
+            return merge_link_diagnostics(outcome, link_diagnostics);
+        }
 
         let outcome = self.publish_prepared(plan, prepared, diagnostics);
 

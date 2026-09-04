@@ -1,7 +1,7 @@
 use bray_codegen::{ArtifactContent, CodegenUnit};
 use bray_emitter::{
     ArtifactContribution, ArtifactKind, ArtifactProducer, ArtifactPublisher, EmissionPlan,
-    OutputSinkResolver,
+    OutputSinkResolver, PublicationValidator,
 };
 use bray_runtime_interface::RootExecution;
 
@@ -107,9 +107,15 @@ pub(super) fn validate_executable_units(
 pub(super) fn publisher<'operation>(
     cancellation: &'operation CancellationToken,
     resolver: Option<&'operation dyn OutputSinkResolver>,
+    validation: Option<&'operation dyn PublicationValidator>,
 ) -> ArtifactPublisher<'operation> {
-    match resolver {
+    let publisher = match resolver {
         Some(resolver) => ArtifactPublisher::with_sink_resolver(cancellation, resolver),
         None => ArtifactPublisher::new(cancellation),
+    };
+
+    match validation {
+        Some(validation) => publisher.with_publication_validation(validation),
+        None => publisher,
     }
 }
