@@ -3,12 +3,13 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::{
     AsyncCleanupPhases, AsyncScopeExitPlan, AsyncStorageCleanupRequirement,
     AsyncStorageExitDecision, AsyncStorageExitDisposition, AsyncStorageExitRecoveryCause,
-    AsyncStorageRequirement, StorageExitDecision, StorageFlow, StoragePlan,
-    storage_identity_transfers_at_unit_exit,
+    AsyncStorageRequirement, StorageFlow, StoragePlan, storage_identity_transfers_at_unit_exit,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
-use bray_symbols::{DeclaredStorageShape, GenericArgument, TypeData, TypeExpressionTemplate, TypeId};
+use bray_symbols::{
+    DeclaredStorageShape, GenericArgument, TypeData, TypeExpressionTemplate, TypeId,
+};
 
 use crate::storage::storage_scope_owners;
 use crate::{
@@ -267,6 +268,7 @@ pub(super) fn scope_exit_plans<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     flow: &StorageFlow,
+    dependencies: &bray_bound_tree::CheckedDependencyContracts,
 ) -> Result<
     (
         Vec<AsyncStorageRequirement>,
@@ -310,7 +312,7 @@ where
                 continue;
             };
 
-            let disposition = storage_exit_disposition(storage, exit, requirement);
+            let disposition = requirement.exit_disposition(storage, exit);
 
             is_recovered |= matches!(disposition, AsyncStorageExitDisposition::Recovered(_));
             dispositions.push(AsyncStorageExitDecision::new(identity, disposition));
@@ -322,6 +324,24 @@ where
 
                 if phases.includes_lifecycle() {
                     lifecycle.push(access);
+                }
+            }
+        }
+
+        match dependencies.lifecycle_order(request.unit(), storage, &lifecycle) {
+            Ok(ordered) => lifecycle = ordered,
+            Err(access) => {
+                is_recovered = true;
+
+                for decision in &mut dispositions {
+                    if Some(decision.identity()) == storage.root_identity(access) {
+                        *decision = AsyncStorageExitDecision::new(
+                            decision.identity(),
+                            AsyncStorageExitDisposition::Recovered(
+                                AsyncStorageExitRecoveryCause::UnavailableCleanupOrder,
+                            ),
+                        );
+                    }
                 }
             }
         }
@@ -397,56 +417,5 @@ const fn cleanup_requirement(shape: CleanupShape) -> AsyncStorageCleanupRequirem
         (true, false) => AsyncStorageCleanupRequirement::Cleanup(AsyncCleanupPhases::Cancellation),
         (false, true) => AsyncStorageCleanupRequirement::Cleanup(AsyncCleanupPhases::Lifecycle),
         (false, false) => AsyncStorageCleanupRequirement::None,
-    }
-}
-
-fn storage_exit_disposition(
-    storage: &StoragePlan,
-    exit: &StorageExitDecision,
-    requirement: AsyncStorageRequirement,
-) -> AsyncStorageExitDisposition {
-    if requirement.owner() != Some(exit.scope()) {
-        return AsyncStorageExitDisposition::Retained;
-    }
-
-    if requirement.transfers() {
-        return AsyncStorageExitDisposition::Transferred;
-    }
-
-    if exit.fully_moved().contains(&requirement.identity()) {
-        return AsyncStorageExitDisposition::Moved;
-    }
-
-    let is_partial = !exit.initialized().contains(&requirement.identity())
-        || exit
-            .moved()
-            .iter()
-            .any(|access| storage.root_identity(*access) == Some(requirement.identity()));
-
-    if is_partial {
-        return match requirement.cleanup() {
-            AsyncStorageCleanupRequirement::None => AsyncStorageExitDisposition::NoCleanup,
-            AsyncStorageCleanupRequirement::Cleanup(_)
-            | AsyncStorageCleanupRequirement::Recovered(_) => {
-                AsyncStorageExitDisposition::Recovered(
-                    AsyncStorageExitRecoveryCause::UnavailablePartialCleanup,
-                )
-            }
-        };
-    }
-
-    match requirement.cleanup() {
-        AsyncStorageCleanupRequirement::None => AsyncStorageExitDisposition::NoCleanup,
-        AsyncStorageCleanupRequirement::Cleanup(phases) => {
-            match storage.root_access(requirement.identity()) {
-                Some(access) => AsyncStorageExitDisposition::Cleanup { access, phases },
-                None => AsyncStorageExitDisposition::Recovered(
-                    AsyncStorageExitRecoveryCause::UnavailableRootAccess,
-                ),
-            }
-        }
-        AsyncStorageCleanupRequirement::Recovered(cause) => {
-            AsyncStorageExitDisposition::Recovered(cause)
-        }
     }
 }

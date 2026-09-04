@@ -235,8 +235,10 @@ verification requires every expected suspension, task operation, and control-flo
 Every storage identity live on any path reaching an exit has one ordered disposition: retained by an outer scope,
 transferred by the exit, fully moved, requiring no cleanup, or requiring explicit cancellation and lifecycle phases.
 Path-dependent initialization and partial moves with nontrivial cleanup require an exact codegen-ready partial-cleanup
-representation; a recovered disposition cannot stand in for it. Verification derives ownership, transfer, cleanup, and
-await-dependency requirements independently of those dispositions. Recovered, missing, duplicated, foreign,
+representation. A recovered disposition cannot stand in for it. Verification derives ownership, transfer, cleanup, and
+await-dependency requirements independently of those dispositions. Lifecycle resolution must order consumers before
+their checked dependencies, with reverse initialization order breaking ties. Specific storage recovery causes survive
+verification, source-correlated diagnostics, and machine-readable output. Recovered, missing, duplicated, foreign,
 contradictory, unreachable, or out-of-order entries cannot produce a lowering input.
 
 Runtime references are explicit in the MIR operations and terminators that require them. Their ABI version comes from
@@ -384,10 +386,12 @@ semantic references. It must not need to invoke the checker again.
 Lowering does not invent recovery semantics for invalid source. Product emission should not request MIR for a unit whose
 required semantic lowering inputs are unavailable because of source errors.
 
-The verified plan set is the authority for cleanup lookup and lifecycle-storage classification. A missing lookup after
-verification means that the validated plan has no cleanup for that scope and exit. Every verified lifecycle storage is
-materialized before its cleanup path is lowered; a missing materialization is a lowering failure. Lowering does not
-scan partial checker tables, reconstruct cleanup from types, skip missing storage, or substitute a fallback plan.
+The verified plan set is the authority for cleanup lookup and lifecycle-storage classification. A present row with empty
+phases explicitly means no cleanup. An absent natural completion proven unreachable by checked control flow is
+unreachable. An absent reachable scope/exit row or an invalid active-scope depth is a lowering failure. Every verified
+lifecycle storage is materialized before its cleanup path is lowered. A missing materialization is a lowering failure.
+Lowering does not scan partial checker tables, reconstruct cleanup from types, skip missing storage, or substitute a
+fallback plan.
 
 ---
 

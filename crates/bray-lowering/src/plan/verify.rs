@@ -89,7 +89,6 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
             || liveness.is_recovered()
             || flow.is_recovered()
             || dependencies.is_recovered()
-            || analysis.is_recovered()
         {
             return Err(LoweringPlanFailure::analysis(
                 LoweringPlanFailureCause::Recovered,
@@ -136,7 +135,15 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
             ));
         }
 
-        let (scope_exits, lifecycle_storage) = verify_scope_exits(unit, storage, flow, analysis)?;
+        let (scope_exits, lifecycle_storage) =
+            verify_scope_exits(unit, storage, flow, dependencies, analysis)?;
+
+        // Detailed producer failures take precedence over the summary recovery bit.
+        if analysis.is_recovered() {
+            return Err(LoweringPlanFailure::analysis(
+                LoweringPlanFailureCause::Recovered,
+            ));
+        }
 
         Ok(Self {
             storage,

@@ -1,5 +1,6 @@
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundBlockId, BoundExpressionId, StorageAccessId, StorageIdentityId,
+    AnyBoundNodeId, AsyncStorageExitRecoveryCause, BoundBlockId, BoundExpressionId,
+    StorageAccessId, StorageIdentityId,
 };
 
 /// The semantic plan category that failed lowering-readiness verification.
@@ -47,6 +48,8 @@ pub enum LoweringPlanFailureCause {
     Unexpected,
     /// Earlier recovery prevented a complete decision.
     Recovered,
+    /// A storage producer could not establish this exact cleanup requirement.
+    StorageRecovery(AsyncStorageExitRecoveryCause),
     /// A decision disagrees with another checked input.
     Contradictory,
     /// Complete decisions appear in the wrong semantic order.
@@ -61,6 +64,18 @@ impl LoweringPlanFailureCause {
             Self::Duplicate => "duplicate",
             Self::Unexpected => "unexpected",
             Self::Recovered => "recovered",
+            Self::StorageRecovery(cause) => match cause {
+                AsyncStorageExitRecoveryCause::UnavailableRootAccess => "unavailable_root_access",
+                AsyncStorageExitRecoveryCause::UnavailableCleanupShape => {
+                    "unavailable_cleanup_shape"
+                }
+                AsyncStorageExitRecoveryCause::UnavailablePartialCleanup => {
+                    "unavailable_partial_cleanup"
+                }
+                AsyncStorageExitRecoveryCause::UnavailableCleanupOrder => {
+                    "unavailable_cleanup_order"
+                }
+            },
             Self::Contradictory => "contradictory",
             Self::OutOfOrder => "out_of_order",
         }

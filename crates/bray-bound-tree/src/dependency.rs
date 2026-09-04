@@ -358,6 +358,26 @@ pub struct BoundDependencyContract {
 }
 
 impl BoundDependencyContract {
+    /// Returns every direct and guarded subject required by this contract, including guards.
+    pub fn required_subjects(&self) -> std::collections::BTreeSet<BoundDependencySubject> {
+        let mut subjects = std::collections::BTreeSet::new();
+        let mut pending = self.requirements().iter().collect::<Vec<_>>();
+
+        while let Some(requirement) = pending.pop() {
+            match requirement {
+                BoundDependencyRequirement::Direct { subject, .. } => {
+                    subjects.insert(*subject);
+                }
+                BoundDependencyRequirement::Guarded(guarded) => {
+                    subjects.insert(guarded.guard().subject());
+                    pending.extend(guarded.requirements());
+                }
+            }
+        }
+
+        subjects
+    }
+
     /// Creates an instantiated contract after deterministic sorting and deduplication.
     pub fn new(requirements: impl IntoIterator<Item = BoundDependencyRequirement>) -> Self {
         Self {

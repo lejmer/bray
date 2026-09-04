@@ -2,8 +2,8 @@ use std::collections::BTreeSet;
 
 use super::{Liveness, StoragePlan};
 use crate::{
-    BoundDependencyContractId, BoundDependencyRequirement, BoundDependencySubject,
-    BoundExpressionId, CheckedDependencyContracts,
+    BoundDependencyContractId, BoundDependencySubject, BoundExpressionId,
+    CheckedDependencyContracts,
 };
 
 impl Liveness {
@@ -23,9 +23,7 @@ impl Liveness {
             .collect::<BTreeSet<_>>();
 
         if let Some(contract) = dependency_contract.and_then(|id| dependencies.contract(id)) {
-            for requirement in contract.requirements() {
-                collect_requirement_subjects(requirement, &mut retained);
-            }
+            retained.extend(contract.required_subjects());
         }
 
         retained
@@ -45,24 +43,5 @@ fn retained_subject_has_storage(storage: &StoragePlan, subject: BoundDependencyS
         | BoundDependencySubject::ProductStatic(_)
         | BoundDependencySubject::ExactThreadStatic(_)
         | BoundDependencySubject::LifecycleObligation(_) => true,
-    }
-}
-
-fn collect_requirement_subjects(
-    requirement: &BoundDependencyRequirement,
-    subjects: &mut BTreeSet<BoundDependencySubject>,
-) {
-    let mut pending = vec![requirement];
-
-    while let Some(requirement) = pending.pop() {
-        match requirement {
-            BoundDependencyRequirement::Direct { subject, .. } => {
-                subjects.insert(*subject);
-            }
-            BoundDependencyRequirement::Guarded(guarded) => {
-                subjects.insert(guarded.guard().subject());
-                pending.extend(guarded.requirements());
-            }
-        }
     }
 }

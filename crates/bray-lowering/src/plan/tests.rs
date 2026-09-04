@@ -33,6 +33,8 @@ struct ScopeExitFixture {
     first_access: StorageAccessId,
     second_access: StorageAccessId,
     second_projected_access: StorageAccessId,
+    intermediate: StorageIdentityId,
+    intermediate_access: StorageAccessId,
 }
 
 impl ScopeExitFixture {
@@ -113,6 +115,13 @@ impl ScopeExitFixture {
             ))
             .unwrap_or_else(|error| panic!("projected test access must fit: {error:?}"));
 
+        let intermediate_expression = unit.tree().expressions().last().unwrap().0;
+
+        let intermediate = storage
+            .push_identity(StorageIdentity::Temporary(intermediate_expression))
+            .unwrap();
+
+        let intermediate_access = push_access(&mut storage, intermediate, ty, source);
         let storage = storage.finish();
 
         let flow = StorageFlow::try_new(
@@ -177,6 +186,8 @@ impl ScopeExitFixture {
             first_access,
             second_access,
             second_projected_access,
+            intermediate,
+            intermediate_access,
         }
     }
 
@@ -331,6 +342,170 @@ fn complete_scope_exit_plans_publish_direct_lookup() {
         plans.scope_cleanup_status(fixture.scope, fixture.scope.into()),
         Ok(ScopeExitCleanupStatus::Unreachable)
     );
+}
+
+#[test]
+fn storage_recovery_causes_survive_summary_recovery() {
+    let fixture = ScopeExitFixture::new();
+
+    for cause in [
+        AsyncStorageExitRecoveryCause::UnavailableRootAccess,
+        AsyncStorageExitRecoveryCause::UnavailableCleanupShape,
+        AsyncStorageExitRecoveryCause::UnavailablePartialCleanup,
+        AsyncStorageExitRecoveryCause::UnavailableCleanupOrder,
+    ] {
+        let mut requirements = fixture.complete_requirements();
+
+        requirements[1] = AsyncStorageRequirement::new(
+            fixture.second,
+            Some(fixture.scope),
+            false,
+            AsyncStorageCleanupRequirement::Recovered(cause),
+        );
+
+        let analysis = fixture.analysis_with_requirements(
+            requirements,
+            [fixture.plan(fixture.complete_decisions(), [], [], true)],
+            true,
+        );
+
+        assert_plan_failure(
+            fixture.verify(&analysis),
+            LoweringPlanKind::StorageDisposition,
+            LoweringPlanFailureCause::StorageRecovery(cause),
+            Some(fixture.second),
+        );
+
+        let analysis = fixture.analysis(
+            [fixture.plan(
+                [
+                    AsyncStorageExitDecision::new(
+                        fixture.second,
+                        AsyncStorageExitDisposition::Recovered(cause),
+                    ),
+                    AsyncStorageExitDecision::new(
+                        fixture.first,
+                        AsyncStorageExitDisposition::NoCleanup,
+                    ),
+                ],
+                [],
+                [],
+                true,
+            )],
+            true,
+        );
+
+        assert_plan_failure(
+            fixture.verify(&analysis),
+            LoweringPlanKind::StorageDisposition,
+            LoweringPlanFailureCause::StorageRecovery(cause),
+            Some(fixture.second),
+        );
+    }
+}
+
+#[test]
+fn lifecycle_order_respects_guarded_dependencies_and_rejects_cycles() {
+    let mut fixture = ScopeExitFixture::new();
+
+    for cyclic in [false, true] {
+        fixture.dependencies = CheckedDependencyContracts::try_new(
+            &fixture.unit,
+            &fixture.storage,
+            fixture
+                .unit
+                .tree()
+                .expressions()
+                .map(|(id, _)| (id, BoundDependencyContract::new([]))),
+            [],
+            fixture.storage.access_entries().map(|(access, _)| {
+                let target = if access == fixture.first_access {
+                    Some(fixture.intermediate)
+                } else if access == fixture.intermediate_access {
+                    Some(fixture.second)
+                } else if cyclic && access == fixture.second_access {
+                    Some(fixture.first)
+                } else {
+                    None
+                };
+
+                let requirements = target.map(|identity| {
+                    BoundDependencyRequirement::guarded(
+                        bray_bound_tree::BoundDependencyGuard::NullablePresent(access),
+                        [BoundDependencyRequirement::direct(
+                            BoundDependencySubject::Storage(identity),
+                            BoundDependencyRequirementKind::StorageAlive,
+                        )],
+                    )
+                });
+
+                (access, BoundDependencyContract::new(requirements))
+            }),
+            [],
+            false,
+        )
+        .unwrap();
+
+        let requirements = [fixture.first, fixture.second].map(|identity| {
+            AsyncStorageRequirement::new(
+                identity,
+                Some(fixture.scope),
+                false,
+                AsyncStorageCleanupRequirement::Cleanup(
+                    AsyncCleanupPhases::CancellationThenLifecycle,
+                ),
+            )
+        });
+
+        let decisions = [
+            (fixture.second, fixture.second_access),
+            (fixture.first, fixture.first_access),
+        ]
+        .map(|(identity, access)| {
+            AsyncStorageExitDecision::new(
+                identity,
+                AsyncStorageExitDisposition::Cleanup {
+                    access,
+                    phases: AsyncCleanupPhases::CancellationThenLifecycle,
+                },
+            )
+        });
+
+        let reversed = fixture.analysis_with_requirements(
+            requirements,
+            [fixture.plan(
+                decisions,
+                [fixture.second_access, fixture.first_access],
+                [fixture.second_access, fixture.first_access],
+                false,
+            )],
+            false,
+        );
+
+        assert!(fixture.verify(&reversed).is_err());
+
+        let ordered = fixture.analysis_with_requirements(
+            requirements,
+            [fixture.plan(
+                decisions,
+                [fixture.second_access, fixture.first_access],
+                [fixture.first_access, fixture.second_access],
+                false,
+            )],
+            false,
+        );
+
+        if cyclic {
+            assert_plan_failure(
+                fixture.verify(&ordered),
+                LoweringPlanKind::LifecyclePhase,
+                LoweringPlanFailureCause::OutOfOrder,
+                None,
+            );
+        } else {
+            assert!(fixture.verify(&ordered).is_ok());
+        }
+    }
 }
 
 #[test]
@@ -756,7 +931,9 @@ fn recovered_and_contradictory_storage_dispositions_are_rejected() {
     assert_plan_failure(
         fixture.verify(&recovered),
         LoweringPlanKind::StorageDisposition,
-        LoweringPlanFailureCause::Recovered,
+        LoweringPlanFailureCause::StorageRecovery(
+            AsyncStorageExitRecoveryCause::UnavailableCleanupShape,
+        ),
         Some(fixture.second),
     );
 
@@ -988,7 +1165,9 @@ fn nontrivial_partially_initialized_storage_cannot_reach_lowering() {
     assert_plan_failure(
         fixture.verify_with_flow(&flow, &analysis),
         LoweringPlanKind::StorageDisposition,
-        LoweringPlanFailureCause::Recovered,
+        LoweringPlanFailureCause::StorageRecovery(
+            AsyncStorageExitRecoveryCause::UnavailablePartialCleanup,
+        ),
         Some(fixture.second),
     );
 }
@@ -1116,7 +1295,9 @@ fn nontrivial_partially_moved_storage_cannot_reach_lowering() {
     assert_plan_failure(
         fixture.verify_with_flow(&flow, &analysis),
         LoweringPlanKind::StorageDisposition,
-        LoweringPlanFailureCause::Recovered,
+        LoweringPlanFailureCause::StorageRecovery(
+            AsyncStorageExitRecoveryCause::UnavailablePartialCleanup,
+        ),
         Some(fixture.second),
     );
 }

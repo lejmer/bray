@@ -1,6 +1,47 @@
 use super::context::semantic_value_failure_context;
 use super::failure::{DiagnosticEmissionFieldJson, count_u64_field, count_usize_field, text_field};
 
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind};
+    use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
+
+    #[test]
+    fn storage_plan_recovery_causes_reach_json_output() {
+        for cause in [
+            "unavailable_root_access",
+            "unavailable_cleanup_shape",
+            "unavailable_partial_cleanup",
+            "unavailable_cleanup_order",
+        ] {
+            let failure = DiagnosticLoweringInputFailure::new(
+                DiagnosticLoweringInputFailureKind::InvalidPlan {
+                    plan: "storage_disposition",
+                    cause,
+                    expression: None,
+                    scope: None,
+                    exit: None,
+                    storage: None,
+                    access: None,
+                },
+                SourceSpan::new(
+                    SourceId::new(0),
+                    TextRange::new(TextSize::new(0), TextSize::new(0)),
+                ),
+            );
+
+            let output =
+                serde_json::to_value(super::lowering_input_failure_context(failure)).unwrap();
+
+            assert_eq!(
+                output[2],
+                serde_json::json!({"name": "plan_failure",
+                "value": {"kind": "text", "value": cause}})
+            );
+        }
+    }
+}
+
 pub(in crate::output::diagnostic::json) fn lowering_input_failure_context(
     failure: bray_diagnostics::DiagnosticLoweringInputFailure,
 ) -> Vec<DiagnosticEmissionFieldJson> {

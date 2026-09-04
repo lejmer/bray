@@ -18,6 +18,7 @@ pub(super) fn verify_scope_exits(
     unit: &BoundUnit,
     storage: &StoragePlan,
     flow: &StorageFlow,
+    dependencies: &bray_bound_tree::CheckedDependencyContracts,
     analysis: &CheckedAsync,
 ) -> Result<ScopeExitVerification, LoweringPlanFailure> {
     let requirements = verify_storage_requirements(unit, storage, flow, analysis)?;
@@ -131,7 +132,9 @@ pub(super) fn verify_scope_exits(
         };
 
         verify_scope_exit_storage(
+            unit,
             storage,
+            dependencies,
             flow_exit,
             plan,
             &requirements,
@@ -206,14 +209,11 @@ fn verify_storage_requirements(
             ));
         }
 
-        if matches!(
-            requirement.cleanup(),
-            AsyncStorageCleanupRequirement::Recovered(_)
-        ) {
+        if let AsyncStorageCleanupRequirement::Recovered(cause) = requirement.cleanup() {
             return Err(requirement_failure(
                 flow,
                 requirement,
-                LoweringPlanFailureCause::Recovered,
+                LoweringPlanFailureCause::StorageRecovery(cause),
             ));
         }
 
@@ -254,7 +254,9 @@ fn requirement_failure_for_identity(
 }
 
 fn verify_scope_exit_storage(
+    unit: &BoundUnit,
     storage: &StoragePlan,
+    dependencies: &bray_bound_tree::CheckedDependencyContracts,
     flow: &StorageExitDecision,
     plan: &AsyncScopeExitPlan,
     requirements: &BTreeMap<StorageIdentityId, AsyncStorageRequirement>,
@@ -349,24 +351,21 @@ fn verify_scope_exit_storage(
             ));
         };
 
-        let expected = expected_storage_disposition(storage, flow, requirement);
+        let expected = requirement.exit_disposition(storage, flow);
 
-        if matches!(
-            decision.disposition(),
-            AsyncStorageExitDisposition::Recovered(_)
-        ) {
+        if let AsyncStorageExitDisposition::Recovered(cause) = decision.disposition() {
             return Err(storage_failure(
                 plan,
                 identity,
-                LoweringPlanFailureCause::Recovered,
+                LoweringPlanFailureCause::StorageRecovery(cause),
             ));
         }
 
-        if matches!(expected, AsyncStorageExitDisposition::Recovered(_)) {
+        if let AsyncStorageExitDisposition::Recovered(cause) = expected {
             return Err(storage_failure(
                 plan,
                 identity,
-                LoweringPlanFailureCause::Recovered,
+                LoweringPlanFailureCause::StorageRecovery(cause),
             ));
         }
 
@@ -408,6 +407,18 @@ fn verify_scope_exit_storage(
         plan.cancellation_broadcast(),
     )?;
 
+    let lifecycle = dependencies
+        .lifecycle_order(unit, storage, &lifecycle)
+        .map_err(|access| {
+            LoweringPlanFailure::for_access(
+                LoweringPlanKind::LifecyclePhase,
+                LoweringPlanFailureCause::OutOfOrder,
+                plan.scope(),
+                plan.exit(),
+                access,
+            )
+        })?;
+
     verify_phase(
         plan,
         LoweringPlanKind::LifecyclePhase,
@@ -431,57 +442,6 @@ fn verify_scope_exit_storage(
     }
 
     Ok(())
-}
-
-fn expected_storage_disposition(
-    storage: &StoragePlan,
-    flow: &StorageExitDecision,
-    requirement: AsyncStorageRequirement,
-) -> AsyncStorageExitDisposition {
-    if requirement.owner() != Some(flow.scope()) {
-        return AsyncStorageExitDisposition::Retained;
-    }
-
-    if requirement.transfers() {
-        return AsyncStorageExitDisposition::Transferred;
-    }
-
-    if flow.fully_moved().contains(&requirement.identity()) {
-        return AsyncStorageExitDisposition::Moved;
-    }
-
-    let is_partial = !flow.initialized().contains(&requirement.identity())
-        || flow
-            .moved()
-            .iter()
-            .any(|access| storage.root_identity(*access) == Some(requirement.identity()));
-
-    if is_partial {
-        return match requirement.cleanup() {
-            AsyncStorageCleanupRequirement::None => AsyncStorageExitDisposition::NoCleanup,
-            AsyncStorageCleanupRequirement::Cleanup(_)
-            | AsyncStorageCleanupRequirement::Recovered(_) => {
-                AsyncStorageExitDisposition::Recovered(
-                    bray_bound_tree::AsyncStorageExitRecoveryCause::UnavailablePartialCleanup,
-                )
-            }
-        };
-    }
-
-    match requirement.cleanup() {
-        AsyncStorageCleanupRequirement::None => AsyncStorageExitDisposition::NoCleanup,
-        AsyncStorageCleanupRequirement::Cleanup(phases) => {
-            storage.root_access(requirement.identity()).map_or(
-                AsyncStorageExitDisposition::Recovered(
-                    bray_bound_tree::AsyncStorageExitRecoveryCause::UnavailableRootAccess,
-                ),
-                |access| AsyncStorageExitDisposition::Cleanup { access, phases },
-            )
-        }
-        AsyncStorageCleanupRequirement::Recovered(cause) => {
-            AsyncStorageExitDisposition::Recovered(cause)
-        }
-    }
 }
 
 fn verify_storage_order(

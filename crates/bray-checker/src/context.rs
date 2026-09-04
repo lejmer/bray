@@ -718,7 +718,7 @@ pub trait CheckerRequestContext: Sync {
         Ok(None)
     }
 
-    /// Returns whether a declared type has finalization or destruction behavior.
+    /// Returns whether a declared type has whole-value finalization, destruction, or scoped behavior.
     fn declared_type_has_lifecycle(
         &self,
         subject: NamedTypeSymbolId,

@@ -218,7 +218,10 @@ incomplete recovered disposition and cannot reach lowering.
 
 Each storage identity live on a path reaching the exit has one disposition: retained by an outer scope, transferred by
 the exit, fully moved, free of cleanup, tied to explicit cancellation and lifecycle phases, or recovered because an
-exact partial-cleanup representation is unavailable. The order is the reverse of the storage-flow initialization order.
+exact partial-cleanup representation is unavailable. Dispositions and cancellation broadcasts use reverse storage-flow
+initialization order. Lifecycle resolution places consumers before their dependencies, including dependencies reached
+through guarded requirements and values without their own cleanup. Independent values retain reverse initialization
+order. Cyclic lifecycle dependencies prevent publication of a complete plan.
 
 Before lowering, the compilation boundary verifies that every lowering-reachable suspension, task operation, scope
 exit, live-storage disposition, cleanup phase, and dependency is complete and internally consistent. Reachable exits

@@ -168,6 +168,8 @@ pub enum AsyncStorageExitRecoveryCause {
     UnavailableCleanupShape,
     /// Partial represented storage has no complete codegen-ready cleanup plan.
     UnavailablePartialCleanup,
+    /// Cleanup dependencies do not admit a complete lifecycle order.
+    UnavailableCleanupOrder,
 }
 
 /// Type-driven cleanup work required when an owned initialized identity leaves its scope.

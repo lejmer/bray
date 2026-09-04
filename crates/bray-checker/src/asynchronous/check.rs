@@ -277,7 +277,7 @@ where
     }
 
     let (storage_requirements, scope_exits, cleanup_diagnostics) =
-        match scope_exit_plans(request, storage, flow) {
+        match scope_exit_plans(request, storage, flow, dependencies) {
             Ok(plans) => plans,
             Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
             Err(CheckerQueryError::Infrastructure(error)) => {

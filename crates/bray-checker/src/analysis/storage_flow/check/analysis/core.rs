@@ -485,7 +485,7 @@ where
 
         if matches!(status, StorageOperationStatus::Valid) {
             if let Err(error) = self.apply_valid_operation(state, plan, purpose, borrow) {
-                self.infrastructure_failure = Some(CheckerQueryError::Infrastructure(error));
+                self.infrastructure_failure = Some(error);
 
                 return;
             }
@@ -607,7 +607,7 @@ where
         plan: StorageAccessPlan,
         purpose: StorageAccessPurpose,
         borrow: Option<BorrowCapabilityId>,
-    ) -> Result<(), CheckerInfrastructureError> {
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         match purpose {
             StorageAccessPurpose::Move => {
                 state.moved.insert(plan.access(), plan.expression());
@@ -699,7 +699,7 @@ where
     fn move_consumes_complete_storage(
         &self,
         access: StorageAccessId,
-    ) -> Result<bool, CheckerInfrastructureError> {
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
         let Some(access_record) = self.storage.access(access) else {
             return Ok(false);
         };
@@ -708,14 +708,46 @@ where
             return Ok(false);
         }
 
-        if self.storage.is_root_access(access) || self.move_consumes_complete_union_payload(access)
-        {
+        if self.storage.is_root_access(access) {
             return Ok(true);
         }
 
         let Some(projections) = self.storage.resolved_projections(access) else {
             return Ok(false);
         };
+
+        let Some(root_type) = self
+            .storage
+            .root_identity(access)
+            .and_then(|root| self.storage.storage_type(root))
+        else {
+            return Ok(false);
+        };
+
+        let data = self
+            .request
+            .semantic_values()
+            .type_data(root_type)
+            .map_err(|error| {
+                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
+            })?;
+
+        if let bray_symbols::TypeData::Named { definition, .. } = data.as_ref() {
+            let lifecycle = self.request.declared_type_has_lifecycle(*definition)?;
+
+            // A member transfer leaves the containing value's own lifecycle obligation behind.
+            if *lifecycle.value() || lifecycle.diagnostics().has_errors() {
+                return Ok(false);
+            }
+        } else if !matches!(data.as_ref(), bray_symbols::TypeData::Tuple(_)) {
+            return Ok(false);
+        }
+
+        if self.move_consumes_complete_union_payload(access) {
+            return Ok(true);
+        }
 
         if let [StorageProjection::ProductField(field)] = projections {
             let symbols = self.request.symbols();
@@ -731,20 +763,6 @@ where
         let [StorageProjection::TupleElement(element)] = projections else {
             return Ok(false);
         };
-
-        let Some(root) = self.storage.root_identity(access) else {
-            return Ok(false);
-        };
-
-        let Some(root_type) = self.storage.storage_type(root) else {
-            return Ok(false);
-        };
-
-        let data = self
-            .request
-            .semantic_values()
-            .type_data(root_type)
-            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
         Ok(matches!(
             data.as_ref(),
