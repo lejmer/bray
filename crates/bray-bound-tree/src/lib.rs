@@ -30,9 +30,10 @@ mod unit;
 mod view;
 
 pub use asynchronous::{
-    AsyncAnalysisBuildError, AsyncCleanupPhases, AsyncScopeExitPlan, AsyncStorageExitDecision,
-    AsyncStorageExitDisposition, AsyncStorageExitRecoveryCause, AsyncSuspensionKind,
-    AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind, CheckedAsync,
+    AsyncAnalysisBuildError, AsyncCleanupPhases, AsyncScopeExitPlan, AsyncStorageCleanupRequirement,
+    AsyncStorageExitDecision, AsyncStorageExitDisposition, AsyncStorageExitRecoveryCause,
+    AsyncStorageRequirement, AsyncSuspensionKind, AsyncSuspensionPoint, AsyncTaskOperation,
+    AsyncTaskOperationKind, CheckedAsync,
 };
 pub use behavior::{
     BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, CheckedBodyBehavior,
@@ -114,9 +115,11 @@ pub use storage::{
     Liveness, LivenessBuildError, OwnerRetention, PlannedBorrowCapability, StorageAccess,
     StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot,
     StorageAlternative, StorageAlternativeId, StorageBinding, StorageBindingTarget,
-    StorageExitDecision, StorageFlow, StorageFlowBuildError, StorageIdentity, StorageIdentityId,
-    StorageOperationDecision, StorageOperationStatus, StoragePlan, StoragePlanBuildError,
-    StoragePlanBuilder, StorageProjection, StorageRelationship, StorageSuspensionState,
+    StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError, StorageIdentity,
+    StorageIdentityId, StorageOperationDecision, StorageOperationStatus, StoragePlan,
+    StoragePlanBuildError, StoragePlanBuilder, StorageProjection, StorageRelationship,
+    StorageScopeBuildError, StorageScopeOwners, StorageSuspensionState,
+    storage_identity_transfers_at_unit_exit,
 };
 pub use template::{
     CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateBuildError, CheckedTemplateBuilder,

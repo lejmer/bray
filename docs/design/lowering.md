@@ -231,10 +231,12 @@ validates those ownership relationships and any cross-lowering input completenes
 
 Checker analyses remain independently useful while source recovery is in progress. Before constructing
 `LoweringInput`, the compilation boundary combines the lowering-reachable parts into `VerifiedLoweringPlans`. This
-verification requires every expected suspension, task operation, and scope exit exactly once. Every initialized storage
-identity at an exit has one ordered disposition: retained by an outer scope, transferred by the exit, moved, requiring
-no cleanup, or requiring explicit cancellation and lifecycle phases. Recovered, missing, duplicated, foreign,
-contradictory, or out-of-order entries cannot produce a lowering input.
+verification requires every expected suspension, task operation, and control-flow-reachable scope exit exactly once.
+Every storage identity live on any path reaching an exit has one ordered disposition: retained by an outer scope,
+transferred by the exit, moved, partially initialized, requiring no cleanup, or requiring explicit cancellation and
+lifecycle phases. Verification derives ownership, transfer, cleanup, and await-dependency requirements independently
+of those dispositions. Recovered, missing, duplicated, foreign, contradictory, unreachable, or out-of-order entries
+cannot produce a lowering input.
 
 Runtime references are explicit in the MIR operations and terminators that require them. Their ABI version comes from
 the target already validated for the lowering request. Generated helper identities depend on the final MIR operation
@@ -382,8 +384,9 @@ Lowering does not invent recovery semantics for invalid source. Product emission
 required semantic lowering inputs are unavailable because of source errors.
 
 The verified plan set is the authority for cleanup lookup and lifecycle-storage classification. A missing lookup after
-verification means that the validated plan has no cleanup for that scope and exit. Lowering does not scan partial
-checker tables, reconstruct cleanup from types, or substitute a fallback plan.
+verification means that the validated plan has no cleanup for that scope and exit. Every verified lifecycle storage is
+materialized before its cleanup path is lowered; a missing materialization is a lowering failure. Lowering does not
+scan partial checker tables, reconstruct cleanup from types, skip missing storage, or substitute a fallback plan.
 
 ---
 

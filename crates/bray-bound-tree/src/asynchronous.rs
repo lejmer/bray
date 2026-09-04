@@ -137,7 +137,7 @@ impl AsyncCleanupPhases {
     }
 }
 
-/// The exact outcome assigned to one initialized storage identity at a scope exit.
+/// The exact outcome assigned to one live storage identity at a scope exit.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum AsyncStorageExitDisposition {
     /// The identity remains owned by an enclosing lexical scope.
@@ -146,6 +146,8 @@ pub enum AsyncStorageExitDisposition {
     Transferred,
     /// The identity was moved in full before the exit.
     Moved,
+    /// The identity is initialized on only some paths reaching this exit.
+    PartiallyInitialized,
     /// The identity requires no cancellation or lifecycle operation.
     NoCleanup,
     /// The identity requires ordered cleanup through its root access.
@@ -168,7 +170,64 @@ pub enum AsyncStorageExitRecoveryCause {
     UnavailableCleanupShape,
 }
 
-/// One initialized storage identity and its scope-exit disposition.
+/// Type-driven cleanup work required when an owned initialized identity leaves its scope.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum AsyncStorageCleanupRequirement {
+    /// The stored type requires no cleanup phase.
+    None,
+    /// The stored type requires these ordered cleanup phases.
+    Cleanup(AsyncCleanupPhases),
+    /// Recovery prevented a complete cleanup requirement.
+    Recovered(AsyncStorageExitRecoveryCause),
+}
+
+/// Independently checked ownership, transfer, and cleanup facts for one live identity.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AsyncStorageRequirement {
+    identity: StorageIdentityId,
+    owner: Option<BoundBlockId>,
+    transfers: bool,
+    cleanup: AsyncStorageCleanupRequirement,
+}
+
+impl AsyncStorageRequirement {
+    /// Creates one checked storage requirement.
+    pub const fn new(
+        identity: StorageIdentityId,
+        owner: Option<BoundBlockId>,
+        transfers: bool,
+        cleanup: AsyncStorageCleanupRequirement,
+    ) -> Self {
+        Self {
+            identity,
+            owner,
+            transfers,
+            cleanup,
+        }
+    }
+
+    /// Returns the storage identity described by this requirement.
+    pub const fn identity(self) -> StorageIdentityId {
+        self.identity
+    }
+
+    /// Returns the lexical scope that owns the identity.
+    pub const fn owner(self) -> Option<BoundBlockId> {
+        self.owner
+    }
+
+    /// Returns whether this identity transfers through its unit boundary.
+    pub const fn transfers(self) -> bool {
+        self.transfers
+    }
+
+    /// Returns the type-driven cleanup requirement.
+    pub const fn cleanup(self) -> AsyncStorageCleanupRequirement {
+        self.cleanup
+    }
+}
+
+/// One live storage identity and its scope-exit disposition.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AsyncStorageExitDecision {
     identity: StorageIdentityId,
@@ -187,7 +246,7 @@ impl AsyncStorageExitDecision {
         }
     }
 
-    /// Returns the initialized storage identity being disposed.
+    /// Returns the live storage identity being disposed.
     pub const fn identity(self) -> StorageIdentityId {
         self.identity
     }
@@ -242,7 +301,7 @@ impl AsyncScopeExitPlan {
         self.exit
     }
 
-    /// Returns one disposition for every initialized identity at this exit.
+    /// Returns one disposition for every live identity at this exit.
     pub fn storage(&self) -> &[AsyncStorageExitDecision] {
         &self.storage
     }
@@ -283,6 +342,7 @@ pub struct CheckedAsync {
     frame_dependencies: Arc<[BoundDependencySubject]>,
     suspensions: Arc<[AsyncSuspensionPoint]>,
     task_operations: Arc<[AsyncTaskOperation]>,
+    storage_requirements: Arc<[AsyncStorageRequirement]>,
     scope_exits: Arc<[AsyncScopeExitPlan]>,
     is_recovered: bool,
 }
@@ -295,12 +355,14 @@ impl CheckedAsync {
         frame_dependencies: impl IntoIterator<Item = BoundDependencySubject>,
         suspensions: impl IntoIterator<Item = AsyncSuspensionPoint>,
         task_operations: impl IntoIterator<Item = AsyncTaskOperation>,
+        storage_requirements: impl IntoIterator<Item = AsyncStorageRequirement>,
         scope_exits: impl IntoIterator<Item = AsyncScopeExitPlan>,
         is_recovered: bool,
     ) -> Result<Self, AsyncAnalysisBuildError> {
         let frame_dependencies = sorted_unique_shared_slice(frame_dependencies);
         let suspensions = shared_slice(suspensions);
         let task_operations = shared_slice(task_operations);
+        let storage_requirements = shared_slice(storage_requirements);
         let scope_exits = shared_slice(scope_exits);
 
         if frame_dependencies
@@ -323,6 +385,10 @@ impl CheckedAsync {
             || task_operations
                 .iter()
                 .any(|operation| operation.expression().unit() != unit)
+            || storage_requirements.iter().any(|requirement| {
+                requirement.identity().unit() != unit
+                    || requirement.owner().is_some_and(|owner| owner.unit() != unit)
+            })
             || scope_exits.iter().any(|exit| {
                 exit.scope().unit() != unit
                     || exit.exit().unit() != unit
@@ -351,6 +417,7 @@ impl CheckedAsync {
             frame_dependencies,
             suspensions,
             task_operations,
+            storage_requirements,
             scope_exits,
             is_recovered,
         })
@@ -379,6 +446,11 @@ impl CheckedAsync {
     /// Returns task operations in evaluation order.
     pub fn task_operations(&self) -> &[AsyncTaskOperation] {
         &self.task_operations
+    }
+
+    /// Returns independently checked storage requirements in identity order.
+    pub fn storage_requirements(&self) -> &[AsyncStorageRequirement] {
+        &self.storage_requirements
     }
 
     /// Returns two-phase cleanup plans in control-flow order.
@@ -445,6 +517,7 @@ mod tests {
             [dependency, dependency],
             [suspension],
             [operation],
+            [],
             [cleanup],
             false,
         )

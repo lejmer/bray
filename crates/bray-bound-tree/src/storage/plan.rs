@@ -338,6 +338,16 @@ impl StoragePlan {
         self.kind
     }
 
+    /// Returns whether recovery contributed to any storage identity, access, or borrow.
+    pub fn is_recovered(&self) -> bool {
+        self.identity_entries()
+            .any(|(_, identity)| matches!(identity, StorageIdentity::Error(_)))
+            || self.access_entries().any(|(_, access)| access.is_recovered())
+            || self
+                .borrow_capability_entries()
+                .any(|(_, capability)| capability.is_recovered())
+    }
+
     /// Returns storage origins in deterministic allocation order.
     pub fn identities(&self) -> &[StorageIdentity] {
         &self.identities

@@ -6,9 +6,9 @@ use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpression, BoundExpressionId,
     CheckedMemoryOperations, CheckedRefinements, CheckedSemanticSelections, Liveness,
     MemoryOperationStatus, Refinement, StorageAccessId, StorageAccessPlan, StorageAccessPurpose,
-    StorageAccessRoot, StorageBinding, StorageExitDecision, StorageFlow, StorageIdentity,
-    StorageOperationDecision, StorageOperationStatus, StoragePlan, StorageProjection,
-    StorageRelationship, StorageSuspensionState,
+    StorageAccessRoot, StorageBinding, StorageExitDecision, StorageExitPoint, StorageFlow,
+    StorageIdentity, StorageOperationDecision, StorageOperationStatus, StoragePlan,
+    StorageProjection, StorageRelationship, StorageSuspensionState,
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
@@ -19,7 +19,7 @@ use bray_diagnostics::{
 use bray_symbols::{AnySymbolId, BorrowKind, CallableSignatureQuery};
 
 use crate::diagnostic::diagnostic_id;
-use crate::storage::StorageScopeOwners;
+use crate::storage::{StorageScopeOwners, storage_scope_owners};
 use crate::unit::storage_flow_input_failure;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
@@ -148,8 +148,7 @@ where
 
     let input = StorageFlowInput::new(request, storage, copyable_types, mutable_storage);
 
-    let owners =
-        match StorageScopeOwners::collect(request).map_err(CheckerQueryError::with_upstream) {
+    let owners = match storage_scope_owners(request).map_err(CheckerQueryError::with_upstream) {
             Ok(owners) => owners,
             Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
             Err(CheckerQueryError::Infrastructure(error)) => {
@@ -193,6 +192,8 @@ where
     collector.diagnostics.add_range(copyability_diagnostics);
     collector.diagnostics.add_range(authority_diagnostics);
 
+    let mut reachable_exits = BTreeSet::new();
+
     for block in graph.blocks() {
         // Publication evaluates operations against an independent final block-entry state.
         let Some(mut state) = result.state(block.id()).cloned() else {
@@ -207,6 +208,15 @@ where
             let Some(operation) = graph.operation(*operation) else {
                 continue;
             };
+
+            if let AnalysisOperationKind::ScopeExit {
+                block,
+                exit,
+                phase: AnalysisScopeExitPhase::LifecycleResolution,
+            } = operation.kind()
+            {
+                reachable_exits.insert(StorageExitPoint::new(block, exit));
+            }
 
             collector.apply_operation(&mut state, operation);
         }
@@ -231,6 +241,7 @@ where
         storage.kind(),
         decisions,
         collector.suspensions,
+        reachable_exits,
         exits,
         collector.is_recovered
             || storage_is_recovered(storage)
@@ -894,6 +905,7 @@ where
             StorageExitDecision::new(
                 *block,
                 *exit,
+                state.live.iter().copied(),
                 state.initialized.iter().copied(),
                 state.moved.keys().copied(),
                 state.fully_moved.iter().copied(),

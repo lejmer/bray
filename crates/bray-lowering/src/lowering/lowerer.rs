@@ -1374,7 +1374,8 @@ mod tests {
         let patterns = CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], []);
         let storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind()).finish();
 
-        let storage_flow = StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+        let storage_flow =
+            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
             .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
 
         let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
@@ -1398,7 +1399,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("empty dependencies must validate: {error:?}"));
 
         let async_analysis =
-            CheckedAsync::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
+            CheckedAsync::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
                 .unwrap_or_else(|error| panic!("empty async analysis must validate: {error:?}"));
 
         let behavior = CheckedBodyBehavior::new(

@@ -2265,7 +2265,7 @@ func both_bounds(pos values: Values) -> i32
     }
 
     #[test]
-    fn cleanup_does_not_materialize_unreached_temporary_storage() {
+    fn cleanup_materializes_every_verified_lifecycle_storage() {
         let compilation = compilation(concat!(
             "module app;\n",
             "struct Resource\n",
@@ -2318,7 +2318,7 @@ func both_bounds(pos values: Values) -> i32
             .map(|(storage, _)| *storage)
             .collect::<BTreeSet<_>>();
 
-        assert_eq!(cleanup_storages.len(), 2, "{cleanup_places:?}");
+        assert_eq!(cleanup_storages.len(), 3, "{cleanup_places:?}");
     }
 
     #[test]

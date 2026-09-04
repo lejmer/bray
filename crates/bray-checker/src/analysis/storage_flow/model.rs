@@ -202,7 +202,7 @@ impl StorageFlowState {
         let invalidated_allocation_count = self.invalidated_allocations.len();
         let was_recovered = self.recovered;
 
-        self.live.retain(|storage| incoming.live.contains(storage));
+        self.live.extend(incoming.live.iter().copied());
 
         self.initialized
             .retain(|storage| incoming.initialized.contains(storage));
@@ -534,6 +534,19 @@ mod tests {
 
         assert!(left.merge(&reachable_state()));
         assert!(left.fully_moved.is_empty());
+    }
+
+    #[test]
+    fn control_flow_joins_retain_maybe_live_storage_and_intersect_initialization() {
+        let (identity, _) = storage_and_expressions(80);
+
+        let mut initialized = reachable_state();
+        initialized.live.insert(identity);
+        initialized.initialized.insert(identity);
+
+        assert!(initialized.merge(&reachable_state()));
+        assert_eq!(initialized.live, [identity].into_iter().collect());
+        assert!(initialized.initialized.is_empty());
     }
 
     fn reachable_state() -> StorageFlowState {

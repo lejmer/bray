@@ -192,7 +192,8 @@ where
             .borrow_capability_entries()
             .find_map(|(id, capability)| {
                 (capability.kind() == kind
-                    && (capability.access() == access
+                    && (self.storage.relationship(capability.access(), access)
+                        == bray_bound_tree::StorageRelationship::Identical
                         || expression
                             .is_some_and(|expression| capability.expression() == Some(expression))))
                 .then_some(id)

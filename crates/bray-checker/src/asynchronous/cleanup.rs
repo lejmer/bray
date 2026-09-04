@@ -1,15 +1,16 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AsyncCleanupPhases, AsyncScopeExitPlan, AsyncStorageExitDecision, AsyncStorageExitDisposition,
-    AsyncStorageExitRecoveryCause, BoundUnitKind, StorageAccessId, StorageFlow, StorageIdentity,
-    StorageIdentityId, StoragePlan,
+    AsyncCleanupPhases, AsyncScopeExitPlan, AsyncStorageCleanupRequirement,
+    AsyncStorageExitDecision, AsyncStorageExitDisposition, AsyncStorageExitRecoveryCause,
+    AsyncStorageRequirement, StorageExitDecision, StorageFlow, StoragePlan,
+    storage_identity_transfers_at_unit_exit,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
-use bray_symbols::{CallableSymbolId, GenericArgument, TypeData, TypeId};
+use bray_symbols::{GenericArgument, TypeData, TypeId};
 
-use crate::storage::StorageScopeOwners;
+use crate::storage::storage_scope_owners;
 use crate::{
     CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
 };
@@ -220,12 +221,33 @@ pub(super) fn scope_exit_plans<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,
     flow: &StorageFlow,
-) -> Result<(Vec<AsyncScopeExitPlan>, DiagnosticBag), CheckerQueryError<C::UpstreamError>>
+) -> Result<
+    (
+        Vec<AsyncStorageRequirement>,
+        Vec<AsyncScopeExitPlan>,
+        DiagnosticBag,
+    ),
+    CheckerQueryError<C::UpstreamError>,
+>
 where
     C: CheckerRequestContext + ?Sized,
 {
     let mut cleanup_shapes = CleanupShapeResolver::new(request);
-    let owners = StorageScopeOwners::collect(request).map_err(CheckerQueryError::with_upstream)?;
+    let owners = storage_scope_owners(request).map_err(CheckerQueryError::with_upstream)?;
+
+    let requirements = storage_requirements(
+        request,
+        storage,
+        flow,
+        &owners,
+        &mut cleanup_shapes,
+    )?;
+
+    let requirements_by_identity = requirements
+        .iter()
+        .map(|requirement| (requirement.identity(), *requirement))
+        .collect::<BTreeMap<_, _>>();
+
     let mut plans = Vec::new();
 
     for exit in flow.exits() {
@@ -234,50 +256,8 @@ where
         let mut dispositions = Vec::new();
         let mut is_recovered = exit.is_recovered();
 
-        for identity in exit.initialized().iter().rev().copied() {
-            if owners.scope(storage.identity(identity)) != Some(exit.scope()) {
-                dispositions.push(AsyncStorageExitDecision::new(
-                    identity,
-                    AsyncStorageExitDisposition::Retained,
-                ));
-
-                continue;
-            }
-
-            if scope_exit_transfers_identity(request, storage, identity) {
-                dispositions.push(AsyncStorageExitDecision::new(
-                    identity,
-                    AsyncStorageExitDisposition::Transferred,
-                ));
-
-                continue;
-            }
-
-            let access = storage.root_access(identity);
-
-            let Some(access) = access else {
-                is_recovered = true;
-
-                dispositions.push(AsyncStorageExitDecision::new(
-                    identity,
-                    AsyncStorageExitDisposition::Recovered(
-                        AsyncStorageExitRecoveryCause::UnavailableRootAccess,
-                    ),
-                ));
-
-                continue;
-            };
-
-            if exit.fully_moved().contains(&identity) {
-                dispositions.push(AsyncStorageExitDecision::new(
-                    identity,
-                    AsyncStorageExitDisposition::Moved,
-                ));
-
-                continue;
-            }
-
-            let Some(ty) = storage.storage_type(identity) else {
+        for identity in exit.live().iter().rev().copied() {
+            let Some(requirement) = requirements_by_identity.get(&identity).copied() else {
                 is_recovered = true;
 
                 dispositions.push(AsyncStorageExitDecision::new(
@@ -290,8 +270,7 @@ where
                 continue;
             };
 
-            let shape = cleanup_shapes.resolve(ty)?;
-            let disposition = cleanup_disposition(access, shape);
+            let disposition = storage_exit_disposition(storage, exit, requirement);
 
             is_recovered |= matches!(disposition, AsyncStorageExitDisposition::Recovered(_));
             dispositions.push(AsyncStorageExitDecision::new(identity, disposition));
@@ -318,64 +297,99 @@ where
         ));
     }
 
-    Ok((plans, cleanup_shapes.into_diagnostics()))
+    Ok((requirements, plans, cleanup_shapes.into_diagnostics()))
 }
-const fn cleanup_disposition(
-    access: StorageAccessId,
-    shape: CleanupShape,
-) -> AsyncStorageExitDisposition {
+
+fn storage_requirements<C>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+    flow: &StorageFlow,
+    owners: &bray_bound_tree::StorageScopeOwners,
+    cleanup_shapes: &mut CleanupShapeResolver<'_, C>,
+) -> Result<Vec<AsyncStorageRequirement>, CheckerQueryError<C::UpstreamError>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let live = flow
+        .exits()
+        .iter()
+        .flat_map(|exit| exit.live().iter().copied())
+        .collect::<BTreeSet<_>>();
+
+    let mut requirements = Vec::with_capacity(live.len());
+
+    for identity in live {
+        let cleanup = match (storage.root_access(identity), storage.storage_type(identity)) {
+            (None, _) => AsyncStorageCleanupRequirement::Recovered(
+                AsyncStorageExitRecoveryCause::UnavailableRootAccess,
+            ),
+            (_, None) => AsyncStorageCleanupRequirement::Recovered(
+                AsyncStorageExitRecoveryCause::UnavailableCleanupShape,
+            ),
+            (Some(_), Some(ty)) => cleanup_requirement(cleanup_shapes.resolve(ty)?),
+        };
+
+        requirements.push(AsyncStorageRequirement::new(
+            identity,
+            owners.scope(storage.identity(identity)),
+            storage_identity_transfers_at_unit_exit(request.unit(), storage, identity),
+            cleanup,
+        ));
+    }
+
+    Ok(requirements)
+}
+
+const fn cleanup_requirement(shape: CleanupShape) -> AsyncStorageCleanupRequirement {
     if shape.recovered {
-        return AsyncStorageExitDisposition::Recovered(
+        return AsyncStorageCleanupRequirement::Recovered(
             AsyncStorageExitRecoveryCause::UnavailableCleanupShape,
         );
     }
 
-    let phases = match (shape.cancellation, shape.lifecycle) {
-        (true, true) => Some(AsyncCleanupPhases::CancellationThenLifecycle),
-        (true, false) => Some(AsyncCleanupPhases::Cancellation),
-        (false, true) => Some(AsyncCleanupPhases::Lifecycle),
-        (false, false) => None,
-    };
-
-    match phases {
-        Some(phases) => AsyncStorageExitDisposition::Cleanup { access, phases },
-        None => AsyncStorageExitDisposition::NoCleanup,
+    match (shape.cancellation, shape.lifecycle) {
+        (true, true) => {
+            AsyncStorageCleanupRequirement::Cleanup(AsyncCleanupPhases::CancellationThenLifecycle)
+        }
+        (true, false) => {
+            AsyncStorageCleanupRequirement::Cleanup(AsyncCleanupPhases::Cancellation)
+        }
+        (false, true) => AsyncStorageCleanupRequirement::Cleanup(AsyncCleanupPhases::Lifecycle),
+        (false, false) => AsyncStorageCleanupRequirement::None,
     }
 }
 
-fn scope_exit_transfers_identity<C>(
-    request: CheckerUnitView<'_, C>,
+fn storage_exit_disposition(
     storage: &StoragePlan,
-    identity: StorageIdentityId,
-) -> bool
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    match storage.identity(identity) {
-        Some(StorageIdentity::Result(_)) => true,
-        Some(StorageIdentity::Receiver(_)) => {
-            request.unit().key().kind() == BoundUnitKind::CallableBody
-                && matches!(
-                    request.containing_callable(),
-                    Some(CallableSymbolId::Destructor(_))
-                )
+    exit: &StorageExitDecision,
+    requirement: AsyncStorageRequirement,
+) -> AsyncStorageExitDisposition {
+    if requirement.owner() != Some(exit.scope()) {
+        return AsyncStorageExitDisposition::Retained;
+    }
+
+    if requirement.transfers() {
+        return AsyncStorageExitDisposition::Transferred;
+    }
+
+    if !exit.initialized().contains(&requirement.identity()) {
+        return AsyncStorageExitDisposition::PartiallyInitialized;
+    }
+
+    if exit.fully_moved().contains(&requirement.identity()) {
+        return AsyncStorageExitDisposition::Moved;
+    }
+
+    match requirement.cleanup() {
+        AsyncStorageCleanupRequirement::None => AsyncStorageExitDisposition::NoCleanup,
+        AsyncStorageCleanupRequirement::Cleanup(phases) => match storage.root_access(requirement.identity()) {
+            Some(access) => AsyncStorageExitDisposition::Cleanup { access, phases },
+            None => AsyncStorageExitDisposition::Recovered(
+                AsyncStorageExitRecoveryCause::UnavailableRootAccess,
+            ),
+        },
+        AsyncStorageCleanupRequirement::Recovered(cause) => {
+            AsyncStorageExitDisposition::Recovered(cause)
         }
-        Some(
-            StorageIdentity::LocalOwned(_)
-            | StorageIdentity::Static(_)
-            | StorageIdentity::Parameter(_)
-            | StorageIdentity::AnonymousParameter(_)
-            | StorageIdentity::PredicateParameter(_)
-            | StorageIdentity::PostconditionResult(_)
-            | StorageIdentity::Temporary(_)
-            | StorageIdentity::CustomIndexBorrow(_)
-            | StorageIdentity::IterationCursor(_)
-            | StorageIdentity::IterationElement(_)
-            | StorageIdentity::Allocation(_)
-            | StorageIdentity::CompilerCreated(_)
-            | StorageIdentity::Alternative { .. }
-            | StorageIdentity::Error(_),
-        )
-        | None => false,
     }
 }

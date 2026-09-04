@@ -72,17 +72,22 @@ pub(super) fn verify_suspensions(
             ));
         }
 
+        let expected_contract = match kind {
+            AsyncSuspensionKind::Await { operand } => {
+                dependencies.deferred_expression_through_bindings(unit, operand)
+            }
+            AsyncSuspensionKind::Yield => None,
+        };
+
         let expected_retained = liveness.retained_suspension_subjects(
             dependencies,
             storage,
             expression,
-            suspension.dependency_contract(),
+            expected_contract,
         );
 
         if suspension.kind() != kind
-            || suspension
-                .dependency_contract()
-                .is_some_and(|contract| dependencies.contract(contract).is_none())
+            || suspension.dependency_contract() != expected_contract
             || suspension.retained_subjects() != expected_retained
         {
             return Err(LoweringPlanFailure::for_expression(

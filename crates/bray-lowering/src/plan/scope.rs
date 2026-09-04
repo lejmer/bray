@@ -1,9 +1,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, AsyncScopeExitPlan, AsyncStorageExitDisposition, BoundBlockId, BoundUnit,
-    CheckedAsync, StorageAccessId, StorageExitDecision, StorageFlow, StorageIdentityId,
-    StoragePlan,
+    AnyBoundNodeId, AsyncScopeExitPlan, AsyncStorageCleanupRequirement,
+    AsyncStorageExitDisposition, AsyncStorageRequirement, BoundBlockId, BoundUnit, CheckedAsync,
+    StorageAccessId, StorageExitDecision, StorageExitPoint, StorageFlow, StorageIdentityId,
+    StoragePlan, StorageScopeOwners, storage_identity_transfers_at_unit_exit,
 };
 
 use super::{LoweringPlanFailure, LoweringPlanFailureCause, LoweringPlanKind};
@@ -19,10 +20,19 @@ pub(super) fn verify_scope_exits(
     flow: &StorageFlow,
     analysis: &CheckedAsync,
 ) -> Result<ScopeExitVerification, LoweringPlanFailure> {
+    let requirements = verify_storage_requirements(unit, storage, flow, analysis)?;
+
+    let mut reachable = flow
+        .reachable_exits()
+        .iter()
+        .copied()
+        .collect::<BTreeSet<_>>();
+
     let mut expected = BTreeMap::new();
 
     for exit in flow.exits() {
         let key = (exit.scope(), exit.exit());
+        let point = StorageExitPoint::new(exit.scope(), exit.exit());
 
         if unit.view().block(exit.scope()).is_none()
             || unit.view().node_is_recovered(exit.exit()).is_none()
@@ -57,6 +67,15 @@ pub(super) fn verify_scope_exits(
             ));
         }
 
+        if !reachable.remove(&point) {
+            return Err(LoweringPlanFailure::scope_exit(
+                LoweringPlanKind::ScopeExit,
+                LoweringPlanFailureCause::Unexpected,
+                exit.scope(),
+                exit.exit(),
+            ));
+        }
+
         if expected.insert(key, exit).is_some() {
             return Err(LoweringPlanFailure::scope_exit(
                 LoweringPlanKind::ScopeExit,
@@ -65,6 +84,15 @@ pub(super) fn verify_scope_exits(
                 exit.exit(),
             ));
         }
+    }
+
+    if let Some(point) = reachable.first().copied() {
+        return Err(LoweringPlanFailure::scope_exit(
+            LoweringPlanKind::ScopeExit,
+            LoweringPlanFailureCause::Missing,
+            point.scope(),
+            point.exit(),
+        ));
     }
 
     let mut verified = BTreeMap::new();
@@ -102,7 +130,13 @@ pub(super) fn verify_scope_exits(
             ));
         };
 
-        verify_scope_exit_storage(storage, flow_exit, plan, &mut lifecycle_storage)?;
+        verify_scope_exit_storage(
+            storage,
+            flow_exit,
+            plan,
+            &requirements,
+            &mut lifecycle_storage,
+        )?;
 
         if plan.is_recovered() {
             return Err(LoweringPlanFailure::scope_exit(
@@ -126,14 +160,109 @@ pub(super) fn verify_scope_exits(
     Ok((verified, lifecycle_storage))
 }
 
+fn verify_storage_requirements(
+    unit: &BoundUnit,
+    storage: &StoragePlan,
+    flow: &StorageFlow,
+    analysis: &CheckedAsync,
+) -> Result<BTreeMap<StorageIdentityId, AsyncStorageRequirement>, LoweringPlanFailure> {
+    let owners = StorageScopeOwners::collect(unit).map_err(|_| {
+        LoweringPlanFailure::analysis(LoweringPlanFailureCause::Unexpected)
+    })?;
+
+    let mut remaining = flow
+        .exits()
+        .iter()
+        .flat_map(|exit| exit.live().iter().copied())
+        .collect::<BTreeSet<_>>();
+
+    let mut verified = BTreeMap::new();
+
+    for requirement in analysis.storage_requirements().iter().copied() {
+        let identity = requirement.identity();
+        let expected_owner = owners.scope(storage.identity(identity));
+        let expected_transfer = storage_identity_transfers_at_unit_exit(unit, storage, identity);
+
+        if storage.identity(identity).is_none()
+            || requirement
+                .owner()
+                .is_some_and(|owner| unit.view().block(owner).is_none())
+            || !remaining.remove(&identity)
+        {
+            return Err(LoweringPlanFailure::storage_requirement(
+                if verified.contains_key(&identity) {
+                    LoweringPlanFailureCause::Duplicate
+                } else {
+                    LoweringPlanFailureCause::Unexpected
+                },
+                identity,
+            ));
+        }
+
+        if requirement.owner() != expected_owner || requirement.transfers() != expected_transfer {
+            return Err(requirement_failure(
+                flow,
+                requirement,
+                LoweringPlanFailureCause::Contradictory,
+            ));
+        }
+
+        if matches!(
+            requirement.cleanup(),
+            AsyncStorageCleanupRequirement::Recovered(_)
+        ) {
+            return Err(requirement_failure(
+                flow,
+                requirement,
+                LoweringPlanFailureCause::Recovered,
+            ));
+        }
+
+        verified.insert(identity, requirement);
+    }
+
+    if let Some(identity) = remaining.first().copied() {
+        return Err(requirement_failure_for_identity(
+            flow,
+            identity,
+            LoweringPlanFailureCause::Missing,
+        ));
+    }
+
+    Ok(verified)
+}
+
+fn requirement_failure(
+    flow: &StorageFlow,
+    requirement: AsyncStorageRequirement,
+    cause: LoweringPlanFailureCause,
+) -> LoweringPlanFailure {
+    requirement_failure_for_identity(flow, requirement.identity(), cause)
+}
+
+fn requirement_failure_for_identity(
+    flow: &StorageFlow,
+    identity: StorageIdentityId,
+    cause: LoweringPlanFailureCause,
+) -> LoweringPlanFailure {
+    flow.exits()
+        .iter()
+        .find(|exit| exit.live().contains(&identity))
+        .map_or_else(
+            || LoweringPlanFailure::storage_requirement(cause, identity),
+            |exit| LoweringPlanFailure::for_storage(cause, exit.scope(), exit.exit(), identity),
+        )
+}
+
 fn verify_scope_exit_storage(
     storage: &StoragePlan,
     flow: &StorageExitDecision,
     plan: &AsyncScopeExitPlan,
+    requirements: &BTreeMap<StorageIdentityId, AsyncStorageRequirement>,
     lifecycle_storage: &mut BTreeSet<StorageIdentityId>,
 ) -> Result<(), LoweringPlanFailure> {
     if let Some(identity) = flow
-        .initialized()
+        .live()
         .iter()
         .find(|identity| storage.identity(**identity).is_none())
         .copied()
@@ -146,9 +275,22 @@ fn verify_scope_exit_storage(
     }
 
     if let Some(identity) = flow
+        .initialized()
+        .iter()
+        .find(|identity| !flow.live().contains(identity))
+        .copied()
+    {
+        return Err(storage_failure(
+            plan,
+            identity,
+            LoweringPlanFailureCause::Unexpected,
+        ));
+    }
+
+    if let Some(identity) = flow
         .fully_moved()
         .iter()
-        .find(|identity| !flow.initialized().contains(identity))
+        .find(|identity| !flow.live().contains(identity))
         .copied()
     {
         return Err(storage_failure(
@@ -161,7 +303,7 @@ fn verify_scope_exit_storage(
     if let Some(access) = flow.moved().iter().find(|access| {
         storage
             .root_identity(**access)
-            .is_none_or(|identity| !flow.initialized().contains(&identity))
+            .is_none_or(|identity| !flow.live().contains(&identity))
     }) {
         return Err(LoweringPlanFailure::for_access(
             LoweringPlanKind::StorageDisposition,
@@ -172,7 +314,7 @@ fn verify_scope_exit_storage(
         ));
     }
 
-    let mut remaining = flow.initialized().iter().copied().collect::<BTreeSet<_>>();
+    let mut remaining = flow.live().iter().copied().collect::<BTreeSet<_>>();
     let mut order = Vec::new();
     let mut cancellation = Vec::new();
     let mut lifecycle = Vec::new();
@@ -180,7 +322,7 @@ fn verify_scope_exit_storage(
     for decision in plan.storage() {
         let identity = decision.identity();
 
-        if storage.identity(identity).is_none() || !flow.initialized().contains(&identity) {
+        if storage.identity(identity).is_none() || !flow.live().contains(&identity) {
             return Err(LoweringPlanFailure::for_storage(
                 LoweringPlanFailureCause::Unexpected,
                 plan.scope(),
@@ -199,7 +341,43 @@ fn verify_scope_exit_storage(
         }
 
         order.push(identity);
-        verify_storage_disposition(storage, flow, plan, decision.disposition(), identity)?;
+
+        let Some(requirement) = requirements.get(&identity).copied() else {
+            return Err(storage_failure(
+                plan,
+                identity,
+                LoweringPlanFailureCause::Missing,
+            ));
+        };
+
+        let expected = expected_storage_disposition(storage, flow, requirement);
+
+        if matches!(
+            decision.disposition(),
+            AsyncStorageExitDisposition::Recovered(_)
+        ) {
+            return Err(storage_failure(
+                plan,
+                identity,
+                LoweringPlanFailureCause::Recovered,
+            ));
+        }
+
+        if matches!(expected, AsyncStorageExitDisposition::Recovered(_)) {
+            return Err(storage_failure(
+                plan,
+                identity,
+                LoweringPlanFailureCause::Recovered,
+            ));
+        }
+
+        if decision.disposition() != expected {
+            return Err(storage_failure(
+                plan,
+                identity,
+                LoweringPlanFailureCause::Contradictory,
+            ));
+        }
 
         if let AsyncStorageExitDisposition::Cleanup { access, phases } = decision.disposition() {
             if phases.includes_cancellation() {
@@ -256,44 +434,41 @@ fn verify_scope_exit_storage(
     Ok(())
 }
 
-fn verify_storage_disposition(
+fn expected_storage_disposition(
     storage: &StoragePlan,
     flow: &StorageExitDecision,
-    plan: &AsyncScopeExitPlan,
-    disposition: AsyncStorageExitDisposition,
-    identity: StorageIdentityId,
-) -> Result<(), LoweringPlanFailure> {
-    if matches!(disposition, AsyncStorageExitDisposition::Recovered(_)) {
-        return Err(storage_failure(
-            plan,
-            identity,
-            LoweringPlanFailureCause::Recovered,
-        ));
+    requirement: AsyncStorageRequirement,
+) -> AsyncStorageExitDisposition {
+    if requirement.owner() != Some(flow.scope()) {
+        return AsyncStorageExitDisposition::Retained;
     }
 
-    let root = storage.root_access(identity);
+    if requirement.transfers() {
+        return AsyncStorageExitDisposition::Transferred;
+    }
 
-    let is_fully_moved = flow.fully_moved().contains(&identity);
+    if !flow.initialized().contains(&requirement.identity()) {
+        return AsyncStorageExitDisposition::PartiallyInitialized;
+    }
 
-    let is_consistent = match disposition {
-        AsyncStorageExitDisposition::Cleanup { access, .. } => {
-            root == Some(access) && !is_fully_moved
+    if flow.fully_moved().contains(&requirement.identity()) {
+        return AsyncStorageExitDisposition::Moved;
+    }
+
+    match requirement.cleanup() {
+        AsyncStorageCleanupRequirement::None => AsyncStorageExitDisposition::NoCleanup,
+        AsyncStorageCleanupRequirement::Cleanup(phases) => storage
+            .root_access(requirement.identity())
+            .map_or(
+                AsyncStorageExitDisposition::Recovered(
+                    bray_bound_tree::AsyncStorageExitRecoveryCause::UnavailableRootAccess,
+                ),
+                |access| AsyncStorageExitDisposition::Cleanup { access, phases },
+            ),
+        AsyncStorageCleanupRequirement::Recovered(cause) => {
+            AsyncStorageExitDisposition::Recovered(cause)
         }
-        AsyncStorageExitDisposition::Moved => is_fully_moved,
-        AsyncStorageExitDisposition::NoCleanup => !is_fully_moved,
-        AsyncStorageExitDisposition::Retained | AsyncStorageExitDisposition::Transferred => true,
-        AsyncStorageExitDisposition::Recovered(_) => false,
-    };
-
-    if !is_consistent {
-        return Err(storage_failure(
-            plan,
-            identity,
-            LoweringPlanFailureCause::Contradictory,
-        ));
     }
-
-    Ok(())
 }
 
 fn verify_storage_order(
@@ -304,14 +479,14 @@ fn verify_storage_order(
     if order
         .iter()
         .copied()
-        .eq(flow.initialized().iter().rev().copied())
+        .eq(flow.live().iter().rev().copied())
     {
         return Ok(());
     }
 
     if let Some(identity) = order
         .iter()
-        .zip(flow.initialized().iter().rev())
+        .zip(flow.live().iter().rev())
         .find_map(|(actual, expected)| (actual != expected).then_some(*actual))
         .or_else(|| order.first().copied())
     {

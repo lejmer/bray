@@ -215,13 +215,16 @@ conservative obligation when any reachable predecessor still owns it. Plans reta
 identities. Partial aggregates use moved access paths as masks so cleanup can traverse the remaining initialized state
 without treating the whole aggregate as moved.
 
-Each storage disposition is retained by an outer scope, transferred by the exit, fully moved, free of cleanup, or tied
-to explicit cancellation and lifecycle phases. The order is the reverse of the storage-flow initialization order.
+Each storage identity live on a path reaching the exit has one disposition: retained by an outer scope, transferred by
+the exit, fully moved, partially initialized, free of cleanup, or tied to explicit cancellation and lifecycle phases.
+The order is the reverse of the storage-flow initialization order.
 
 Before lowering, the compilation boundary verifies that every lowering-reachable suspension, task operation, scope
-exit, storage disposition, cleanup phase, and dependency is complete and internally consistent. Partial recovery
-records remain available to checking and diagnostics but cannot satisfy this boundary. Lowering consumes the verified
-plan directly and does not rediscover live tasks from syntax or type recursion.
+exit, live-storage disposition, cleanup phase, and dependency is complete and internally consistent. Reachable exits
+come from checked control flow. Ownership, transfer, cleanup, and await-dependency requirements are derived
+independently from the plans that must satisfy them. Partial recovery records remain available to checking and
+diagnostics but cannot satisfy this boundary. Lowering consumes the verified plan directly and does not rediscover live
+tasks from syntax or type recursion.
 
 Lowering writes each required runtime role explicitly into MIR. Once MIR is complete, its operation kinds derive the
 exact generated-helper set and the runtime roles that realize those helpers. Code generation accepts only exact helper

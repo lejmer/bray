@@ -62,6 +62,17 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
             ));
         }
 
+        if storage.is_recovered()
+            || liveness.is_recovered()
+            || flow.is_recovered()
+            || dependencies.is_recovered()
+            || analysis.is_recovered()
+        {
+            return Err(LoweringPlanFailure::analysis(
+                LoweringPlanFailureCause::Recovered,
+            ));
+        }
+
         if !dependencies.is_complete_for(unit, storage) {
             return Err(LoweringPlanFailure::analysis(
                 LoweringPlanFailureCause::Missing,

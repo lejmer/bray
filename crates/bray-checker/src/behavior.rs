@@ -362,6 +362,7 @@ mod tests {
             )],
             [],
             [],
+            [],
             false,
         )
         .unwrap_or_else(|error| panic!("test async analysis must validate: {error:?}"));

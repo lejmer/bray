@@ -803,7 +803,7 @@ mod tests {
         CheckedRefinements, CheckedSemanticSelections, ControlCompletion, ExpressionTypeEntry,
         ExpressionTypeResult, ExpressionTypeStatus, LastUse, Liveness, PlannedBorrowCapability,
         StorageAccess, StorageAccessId, StorageAccessPurpose, StorageAccessRoot,
-        StorageExitDecision, StorageFlow, StorageIdentity, StorageIdentityId,
+        StorageExitDecision, StorageExitPoint, StorageFlow, StorageIdentity, StorageIdentityId,
         StorageOperationDecision, StorageOperationStatus, StoragePlanBuilder,
     };
     use bray_symbols::testing::available_compiler_known_symbols;
@@ -1222,6 +1222,7 @@ mod tests {
             )],
             [],
             [],
+            [],
             false,
         )
         .unwrap_or_else(|error| panic!("same-unit async analysis must build: {error:?}"));
@@ -1231,7 +1232,7 @@ mod tests {
         let selections = CheckedSemanticSelections::try_new(&unit, &types, [])
             .unwrap_or_else(|error| panic!("empty selections must build: {error:?}"));
 
-        let flow = StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+        let flow = StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
             .unwrap_or_else(|error| panic!("empty storage flow must build: {error:?}"));
 
         let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
@@ -1297,7 +1298,8 @@ mod tests {
             kind,
             [],
             [],
-            [StorageExitDecision::new(scope, exit, [], [], [], [], false)],
+            [StorageExitPoint::new(scope, exit)],
+            [StorageExitDecision::new(scope, exit, [], [], [], [], [], false)],
             false,
         )
         .unwrap_or_else(|error| panic!("storage exit must build: {error:?}"));
@@ -1305,6 +1307,7 @@ mod tests {
         let matching = CheckedAsync::try_new(
             unit.unit(),
             kind,
+            [],
             [],
             [],
             [],
@@ -1316,6 +1319,7 @@ mod tests {
         let mismatched = CheckedAsync::try_new(
             unit.unit(),
             kind,
+            [],
             [],
             [],
             [],
@@ -1512,7 +1516,7 @@ mod tests {
         let storage = storage.finish();
 
         let incomplete_flow =
-            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
                 .unwrap_or_else(|error| panic!("incomplete test flow must validate: {error:?}"));
 
         assert_eq!(
@@ -1533,6 +1537,7 @@ mod tests {
                 None,
                 StorageOperationStatus::Valid,
             )],
+            [],
             [],
             [],
             false,
@@ -1597,6 +1602,7 @@ mod tests {
                 Some(wrong_capability),
                 StorageOperationStatus::Valid,
             )],
+            [],
             [],
             [],
             false,
@@ -1811,7 +1817,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("empty dependency contracts must validate: {error:?}"));
 
         let async_analysis =
-            CheckedAsync::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
+            CheckedAsync::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
                 .unwrap_or_else(|error| panic!("empty async analysis must validate: {error:?}"));
 
         let behavior = CheckedBodyBehavior::new(
@@ -1840,7 +1846,8 @@ mod tests {
     fn empty_storage_analysis(unit: &BoundUnit) -> (bray_bound_tree::StoragePlan, StorageFlow) {
         let storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind()).finish();
 
-        let storage_flow = StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+        let storage_flow =
+            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
             .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
 
         (storage, storage_flow)

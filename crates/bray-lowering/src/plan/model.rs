@@ -126,6 +126,21 @@ impl LoweringPlanFailure {
         )
     }
 
+    pub(super) const fn storage_requirement(
+        cause: LoweringPlanFailureCause,
+        storage: StorageIdentityId,
+    ) -> Self {
+        Self::new(
+            LoweringPlanKind::StorageDisposition,
+            cause,
+            None,
+            None,
+            None,
+            Some(storage),
+            None,
+        )
+    }
+
     pub(super) const fn for_access(
         kind: LoweringPlanKind,
         cause: LoweringPlanFailureCause,

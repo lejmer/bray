@@ -308,12 +308,13 @@ mod tests {
             [],
             [],
             [],
+            [],
             false,
         )
         .unwrap_or_else(|error| panic!("pinned async analysis must validate: {error:?}"));
 
         let movable =
-            CheckedAsync::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], false)
+            CheckedAsync::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], [], false)
                 .unwrap_or_else(|error| panic!("movable async analysis must validate: {error:?}"));
 
         assert_eq!(
