@@ -110,11 +110,7 @@ fn access_for_projection_prefix(
     root: bray_bound_tree::StorageIdentityId,
     projections: &[StorageProjection],
 ) -> Option<StorageAccessId> {
-    storage.access_entries().find_map(|(access, _)| {
-        (storage.root_identity(access) == Some(root)
-            && storage.resolved_projections(access) == Some(projections))
-        .then_some(access)
-    })
+    storage.access_at(root, projections)
 }
 
 fn access_borrow(

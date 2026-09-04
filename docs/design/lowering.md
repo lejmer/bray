@@ -220,13 +220,21 @@ For a source-backed unit, the input must borrow:
 - liveness and refinement lowering inputs,
 - ownership, movement, and borrowing decisions,
 - dependency contracts,
-- async frame, suspension, task, and cleanup lowering inputs,
+- one verified plan set for frame dependencies, suspensions, task operations, scope exits, storage dispositions,
+  cleanup phases, and runtime roles,
 - body behavior and lifecycle obligations,
 - target-available compiler-known identities,
 - selected MIR unit and target properties.
 
 Every lowering input must belong to the exact bound unit and semantic unit category being lowered. The constructor
 validates those ownership relationships and any cross-lowering input completeness required by lowering.
+
+Checker analyses remain independently useful while source recovery is in progress. Before constructing
+`LoweringInput`, the compilation boundary combines the lowering-reachable parts into `VerifiedLoweringPlans`. This
+verification requires every expected suspension, task operation, and scope exit exactly once. Every initialized storage
+identity at an exit has one ordered disposition: retained by an outer scope, transferred by the exit, moved, requiring
+no cleanup, or requiring explicit cancellation and lifecycle phases. Recovered, missing, duplicated, foreign,
+contradictory, or out-of-order entries cannot produce a lowering input.
 
 The input contract should remain explicit. It must not be replaced with a generic lowering input map, an untyped bag, or
 a universal checked unit object.
@@ -351,8 +359,8 @@ backend.
 
 Cleanup behavior must be explicit before code generation.
 
-Lowering consumes checked lifecycle, liveness, storage, dependency, panic, cancellation, and body-behavior lowering
-inputs to construct:
+Lowering consumes the verified lifecycle, storage, dependency, panic, cancellation, and body-behavior plans to
+construct:
 
 - normal scope exits,
 - early return and propagation exits,
@@ -367,6 +375,10 @@ semantic references. It must not need to invoke the checker again.
 
 Lowering does not invent recovery semantics for invalid source. Product emission should not request MIR for a unit whose
 required semantic lowering inputs are unavailable because of source errors.
+
+The verified plan set is the authority for cleanup lookup and lifecycle-storage classification. A missing lookup after
+verification means that the validated plan has no cleanup for that scope and exit. Lowering does not scan partial
+checker tables, reconstruct cleanup from types, or substitute a fallback plan.
 
 ---
 

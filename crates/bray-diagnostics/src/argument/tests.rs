@@ -173,7 +173,7 @@ fn native_product_failure_keys_are_unique_and_domain_named() {
             source,
         )),
         Kind::EvaluationLowering(DiagnosticLoweringFailure::new(
-            DiagnosticLoweringFailureKind::MissingCleanupPlan(
+            DiagnosticLoweringFailureKind::MissingStorageIdentity(
                 crate::DiagnosticLoweringIdentity::new(3, 5),
             ),
             source,

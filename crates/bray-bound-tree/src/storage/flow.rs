@@ -148,6 +148,7 @@ pub struct StorageExitDecision {
     exit: AnyBoundNodeId,
     initialized: Arc<[StorageIdentityId]>,
     moved: Arc<[StorageAccessId]>,
+    fully_moved: Arc<[StorageIdentityId]>,
     active_borrows: Arc<[BorrowCapabilityId]>,
     is_recovered: bool,
 }
@@ -159,6 +160,7 @@ impl StorageExitDecision {
         exit: AnyBoundNodeId,
         initialized: impl IntoIterator<Item = StorageIdentityId>,
         moved: impl IntoIterator<Item = StorageAccessId>,
+        fully_moved: impl IntoIterator<Item = StorageIdentityId>,
         active_borrows: impl IntoIterator<Item = BorrowCapabilityId>,
         is_recovered: bool,
     ) -> Self {
@@ -167,6 +169,7 @@ impl StorageExitDecision {
             exit,
             initialized: sorted_unique_shared_slice(initialized),
             moved: sorted_unique_shared_slice(moved),
+            fully_moved: sorted_unique_shared_slice(fully_moved),
             active_borrows: sorted_unique_shared_slice(active_borrows),
             is_recovered,
         }
@@ -190,6 +193,11 @@ impl StorageExitDecision {
     /// Returns storage accesses whose reached values were moved before this exit.
     pub fn moved(&self) -> &[StorageAccessId] {
         &self.moved
+    }
+
+    /// Returns storage identities known to be fully moved on every incoming path.
+    pub fn fully_moved(&self) -> &[StorageIdentityId] {
+        &self.fully_moved
     }
 
     /// Returns borrows still active at the exit.
@@ -273,6 +281,10 @@ impl StorageFlow {
                     .iter()
                     .any(|storage| storage.unit() != unit)
                 || exit.moved().iter().any(|access| access.unit() != unit)
+                || exit
+                    .fully_moved()
+                    .iter()
+                    .any(|storage| storage.unit() != unit)
                 || exit
                     .active_borrows()
                     .iter()
@@ -423,6 +435,7 @@ mod tests {
             scope.into(),
             [storage, storage],
             [access, access],
+            [storage, storage],
             [],
             false,
         );
@@ -451,6 +464,7 @@ mod tests {
 
         assert_eq!(storage_flow.exits()[0].initialized(), &[storage]);
         assert_eq!(storage_flow.exits()[0].moved(), &[access]);
+        assert_eq!(storage_flow.exits()[0].fully_moved(), &[storage]);
         assert!(!storage_flow.is_recovered());
     }
 

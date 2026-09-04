@@ -364,19 +364,6 @@ impl StoragePlan {
         self.identity_types.get(&identity).copied()
     }
 
-    /// Returns the checked type stored by one persistent storage origin.
-    pub fn storage_type(&self, identity: StorageIdentityId) -> Option<TypeId> {
-        self.identity_type(identity).or_else(|| {
-            self.access_entries().find_map(|(access, model)| {
-                (self.root_identity(access) == Some(identity)
-                    && self
-                        .resolved_projections(access)
-                        .is_some_and(<[_]>::is_empty))
-                .then_some(model.reached_type())
-            })
-        })
-    }
-
     /// Returns evaluated accesses in deterministic evaluation order.
     pub fn accesses(&self) -> &[StorageAccess] {
         &self.accesses

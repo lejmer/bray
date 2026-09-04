@@ -66,6 +66,10 @@ pub(crate) const USER_FACING_SOURCES: &[(&str, &str)] = &[
         include_str!("native/linking.rs"),
     ),
     (
+        "argument/native/lowering.rs",
+        include_str!("native/lowering.rs"),
+    ),
+    (
         "argument/native/product_failure.rs",
         include_str!("native/product_failure.rs"),
     ),

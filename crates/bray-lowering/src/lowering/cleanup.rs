@@ -34,7 +34,7 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         exit: AnyBoundNodeId,
     ) -> Result<MirCleanupEdge, LoweringError> {
-        let plans = self.cleanup_plans(0, exit)?;
+        let plans = self.cleanup_plans(0, exit);
 
         let cancellation = self.builder.push_block(
             Self::retained_source(source),
@@ -287,7 +287,7 @@ impl Lowerer<'_> {
         value: Option<(MirOperand, TypeId)>,
         exit: AnyBoundNodeId,
     ) -> Result<(), LoweringError> {
-        let plans = self.cleanup_plans(scope_depth, exit)?;
+        let plans = self.cleanup_plans(scope_depth, exit);
 
         if plans.iter().all(|plan| {
             plan.cancellation_broadcast().is_empty() && plan.lifecycle_resolution().is_empty()
@@ -366,34 +366,10 @@ impl Lowerer<'_> {
         &self,
         scope_depth: usize,
         exit: AnyBoundNodeId,
-    ) -> Result<Vec<bray_bound_tree::AsyncScopeExitPlan>, LoweringError> {
-        let mut plans = Vec::new();
-
-        for scope in self
-            .active_scopes
-            .get(scope_depth..)
-            .unwrap_or_default()
-            .iter()
-            .rev()
-        {
-            let Some(plan) = self
-                .input
-                .async_analysis()
-                .scope_exits()
-                .iter()
-                .find(|plan| plan.scope() == *scope && plan.exit() == exit)
-            else {
-                if self.scope_requires_cleanup_plan(*scope) {
-                    return Err(LoweringError::MissingCleanupPlan(*scope));
-                }
-
-                continue;
-            };
-
-            plans.push(plan.clone());
-        }
-
-        Ok(plans)
+    ) -> Vec<bray_bound_tree::AsyncScopeExitPlan> {
+        self.input
+            .lowering_plans()
+            .cleanup_plans(&self.active_scopes, scope_depth, exit)
     }
 
     fn scope_has_cleanup(
@@ -401,25 +377,10 @@ impl Lowerer<'_> {
         scope: BoundBlockId,
         exit: AnyBoundNodeId,
     ) -> Result<bool, LoweringError> {
-        let Some(plan) = self
+        Ok(self
             .input
-            .async_analysis()
-            .scope_exits()
-            .iter()
-            .find(|plan| plan.scope() == scope && plan.exit() == exit)
-        else {
-            return Ok(false);
-        };
-
-        Ok(!plan.cancellation_broadcast().is_empty() || !plan.lifecycle_resolution().is_empty())
-    }
-
-    fn scope_requires_cleanup_plan(&self, scope: BoundBlockId) -> bool {
-        self.input
-            .storage_flow()
-            .exits()
-            .iter()
-            .any(|exit| exit.scope() == scope)
+            .lowering_plans()
+            .scope_has_cleanup(scope, exit))
     }
 
     fn push_cleanup_operations(

@@ -36,6 +36,39 @@ pub(in crate::output::diagnostic::json) fn lowering_input_failure_context(
         Failure::InvalidStorageExit(identity) => {
             lowering_identity_context(failure.as_str(), "block", identity)
         }
+        Failure::InvalidPlan {
+            plan,
+            cause,
+            expression,
+            scope,
+            exit,
+            storage,
+        } => {
+            let mut context = vec![
+                text_field("cause", failure.as_str()),
+                text_field("plan", plan),
+                text_field("plan_failure", cause),
+            ];
+
+            let identities = [
+                ("expression", expression),
+                ("scope", scope),
+                ("exit", exit),
+                ("storage", storage),
+            ];
+
+            if let Some(identity) = identities.iter().find_map(|(_, identity)| *identity) {
+                context.push(count_u64_field("bound_unit", u64::from(identity.unit())));
+            }
+
+            for (name, identity) in identities {
+                if let Some(identity) = identity {
+                    context.push(count_u64_field(name, u64::from(identity.ordinal())));
+                }
+            }
+
+            context
+        }
         Failure::InvalidInputContents(input) => vec![
             text_field("cause", failure.as_str()),
             text_field("input", input),
@@ -112,9 +145,6 @@ pub(in crate::output::diagnostic::json) fn lowering_failure_context(
         | Failure::MissingStorageIdentity(identity)
         | Failure::UnsupportedStorageAccess(identity) => {
             lowering_identity_context(failure.as_str(), "storage_access", identity)
-        }
-        Failure::MissingCleanupPlan(identity) => {
-            lowering_identity_context(failure.as_str(), "block", identity)
         }
         Failure::MissingStorageIdentityRecord(identity) => {
             lowering_identity_context(failure.as_str(), "storage_identity", identity)

@@ -27,10 +27,8 @@ impl Lowerer<'_> {
 
         let suspension = self
             .input
-            .async_analysis()
-            .suspensions()
-            .iter()
-            .find(|suspension| suspension.expression() == id)
+            .lowering_plans()
+            .suspension(id)
             // Lowering mutates its builder while retaining this immutable checked decision.
             .cloned()
             .ok_or(LoweringError::MissingSuspensionPoint(id))?;
@@ -119,11 +117,8 @@ impl Lowerer<'_> {
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
         let task_operation = self
             .input
-            .async_analysis()
-            .task_operations()
-            .iter()
-            .find(|operation| operation.expression() == expression)
-            .map(|operation| operation.kind());
+            .lowering_plans()
+            .task_operation(expression);
 
         let operation = match task_operation {
             Some(AsyncTaskOperationKind::Start) => {
@@ -176,7 +171,7 @@ impl Lowerer<'_> {
     }
 
     pub(super) fn runtime_reference(&self, role: RuntimeAbiRole) -> MirRuntimeReference {
-        MirRuntimeReference::new(role, self.input.target().runtime_abi())
+        self.input.lowering_plans().runtime_reference(role)
     }
 
     pub(super) fn execution_lane_requirements(&self) -> Vec<ExecutionLaneRequirement> {
@@ -263,15 +258,14 @@ impl Lowerer<'_> {
     }
 
     pub(super) fn frame_affinity(&self) -> bray_runtime_interface::ProtectedFrameAffinity {
-        frame_affinity(self.input.async_analysis())
+        frame_affinity(self.input.lowering_plans().frame_dependencies())
     }
 }
 
 fn frame_affinity(
-    analysis: &bray_bound_tree::CheckedAsync,
+    dependencies: &[BoundDependencySubject],
 ) -> bray_runtime_interface::ProtectedFrameAffinity {
-    if analysis
-        .frame_dependencies()
+    if dependencies
         .iter()
         .any(|subject| matches!(subject, BoundDependencySubject::ExactThreadStatic(_)))
     {
@@ -326,10 +320,13 @@ mod tests {
                 .unwrap_or_else(|error| panic!("movable async analysis must validate: {error:?}"));
 
         assert_eq!(
-            frame_affinity(&pinned),
+            frame_affinity(pinned.frame_dependencies()),
             ProtectedFrameAffinity::OriginThread
         );
 
-        assert_eq!(frame_affinity(&movable), ProtectedFrameAffinity::Movable);
+        assert_eq!(
+            frame_affinity(movable.frame_dependencies()),
+            ProtectedFrameAffinity::Movable
+        );
     }
 }

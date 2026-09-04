@@ -1,8 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AsyncScopeExitPlan, BoundUnitKind, StorageAccessId, StorageFlow, StorageIdentity,
-    StorageIdentityId, StoragePlan,
+    AsyncCleanupPhases, AsyncScopeExitPlan, AsyncStorageExitDecision,
+    AsyncStorageExitDisposition, AsyncStorageExitRecoveryCause, BoundUnitKind, StorageAccessId,
+    StorageFlow, StorageIdentity, StorageIdentityId, StoragePlan,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
@@ -19,7 +20,6 @@ pub(super) struct CleanupShape {
     pub(super) lifecycle: bool,
     recovered: bool,
 }
-
 impl CleanupShape {
     const BOTH: Self = Self {
         cancellation: true,
@@ -231,53 +231,82 @@ where
     for exit in flow.exits() {
         let mut cancellation = Vec::new();
         let mut lifecycle = Vec::new();
+        let mut dispositions = Vec::new();
         let mut is_recovered = exit.is_recovered();
 
         for identity in exit.initialized().iter().rev().copied() {
             if owners.scope(storage.identity(identity)) != Some(exit.scope()) {
+                dispositions.push(AsyncStorageExitDecision::new(
+                    identity,
+                    AsyncStorageExitDisposition::Retained,
+                ));
+
                 continue;
             }
 
             if scope_exit_transfers_identity(request, storage, identity) {
+                dispositions.push(AsyncStorageExitDecision::new(
+                    identity,
+                    AsyncStorageExitDisposition::Transferred,
+                ));
+
                 continue;
             }
 
-            let Some(access) = root_access(storage, identity) else {
-                is_recovered = true;
+            let access = storage.root_access(identity);
+
+            let Some(access) = access else {
+                dispositions.push(AsyncStorageExitDecision::new(
+                    identity,
+                    AsyncStorageExitDisposition::NoCleanup,
+                ));
 
                 continue;
             };
 
-            if exit
-                .moved()
-                .iter()
-                .any(|moved| storage.access_contains(*moved, access))
-            {
+            if exit.fully_moved().contains(&identity) {
+                dispositions.push(AsyncStorageExitDecision::new(
+                    identity,
+                    AsyncStorageExitDisposition::Moved,
+                ));
+
                 continue;
             }
 
-            let Some(access_data) = storage.access(access) else {
+            let Some(ty) = storage.storage_type(identity) else {
                 is_recovered = true;
+
+                dispositions.push(AsyncStorageExitDecision::new(
+                    identity,
+                    AsyncStorageExitDisposition::Recovered(
+                        AsyncStorageExitRecoveryCause::UnavailableCleanupShape,
+                    ),
+                ));
 
                 continue;
             };
 
-            let shape = cleanup_shapes.resolve(access_data.reached_type())?;
+            let shape = cleanup_shapes.resolve(ty)?;
+            let disposition = cleanup_disposition(access, shape);
 
-            is_recovered |= shape.recovered;
+            is_recovered |= matches!(disposition, AsyncStorageExitDisposition::Recovered(_));
+            dispositions.push(AsyncStorageExitDecision::new(identity, disposition));
 
-            if shape.cancellation {
-                cancellation.push(access);
-            }
+            if let AsyncStorageExitDisposition::Cleanup { access, phases } = disposition {
+                if phases.includes_cancellation() {
+                    cancellation.push(access);
+                }
 
-            if shape.lifecycle {
-                lifecycle.push(access);
+                if phases.includes_lifecycle() {
+                    lifecycle.push(access);
+                }
             }
         }
 
         plans.push(AsyncScopeExitPlan::new(
             exit.scope(),
             exit.exit(),
+            dispositions,
             cancellation,
             lifecycle,
             exit.moved().iter().copied(),
@@ -286,6 +315,28 @@ where
     }
 
     Ok((plans, cleanup_shapes.into_diagnostics()))
+}
+const fn cleanup_disposition(
+    access: StorageAccessId,
+    shape: CleanupShape,
+) -> AsyncStorageExitDisposition {
+    if shape.recovered {
+        return AsyncStorageExitDisposition::Recovered(
+            AsyncStorageExitRecoveryCause::UnavailableCleanupShape,
+        );
+    }
+
+    let phases = match (shape.cancellation, shape.lifecycle) {
+        (true, true) => Some(AsyncCleanupPhases::CancellationThenLifecycle),
+        (true, false) => Some(AsyncCleanupPhases::Cancellation),
+        (false, true) => Some(AsyncCleanupPhases::Lifecycle),
+        (false, false) => None,
+    };
+
+    match phases {
+        Some(phases) => AsyncStorageExitDisposition::Cleanup { access, phases },
+        None => AsyncStorageExitDisposition::NoCleanup,
+    }
 }
 
 fn scope_exit_transfers_identity<C>(
@@ -323,11 +374,4 @@ where
         )
         | None => false,
     }
-}
-
-fn root_access(storage: &StoragePlan, identity: StorageIdentityId) -> Option<StorageAccessId> {
-    storage.access_entries().find_map(|(access, _)| {
-        (storage.root_identity(access) == Some(identity) && storage.is_root_access(access))
-            .then_some(access)
-    })
 }

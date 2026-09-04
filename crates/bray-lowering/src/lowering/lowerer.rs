@@ -296,7 +296,7 @@ mod tests {
     use bray_testing::{test_bound_unit, test_mir_target};
 
     use super::lower_unit;
-    use crate::LoweringInput;
+    use crate::{LoweringInput, VerifiedLoweringPlans};
 
     fn synchronous_callable_unit(
         template: &BoundUnit,
@@ -873,24 +873,33 @@ mod tests {
 
     impl LoweringFixture {
         fn input(&self) -> LoweringInput<'_> {
+            let target = test_mir_target();
+
+            let lowering_plans = VerifiedLoweringPlans::try_new(
+                &self.unit,
+                &self.storage,
+                &self.storage_flow,
+                &self.dependencies,
+                &self.selections,
+                available_compiler_known_symbols(),
+                &self.async_analysis,
+                target.runtime_abi(),
+            )
+            .unwrap_or_else(|error| panic!("test lowering plans must validate: {error:?}"));
+
             LoweringInput::try_new(
                 &self.unit,
                 &self.control_flow,
                 &self.types,
                 &self.patterns,
-                &self.selections,
                 &self.literals,
-                &self.storage,
                 &self.liveness,
                 &self.refinements,
-                &self.storage_flow,
-                &self.dependencies,
-                &self.async_analysis,
+                lowering_plans,
                 &self.behavior,
                 &self.values,
-                available_compiler_known_symbols(),
                 MirUnitKind::Synchronous,
-                test_mir_target(),
+                target,
             )
             .unwrap_or_else(|error| panic!("test lowering input must validate: {error:?}"))
         }

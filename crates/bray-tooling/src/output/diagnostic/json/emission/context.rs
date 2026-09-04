@@ -702,6 +702,63 @@ mod tests {
     }
 
     #[test]
+    fn verified_plan_failures_serialize_one_unit_with_each_exact_identity() {
+        use bray_diagnostics::DiagnosticLoweringIdentity;
+
+        let identity = |ordinal| DiagnosticLoweringIdentity::new(13, ordinal);
+
+        let context = lowering_input_failure_context(
+            bray_diagnostics::DiagnosticLoweringInputFailure::new(
+                bray_diagnostics::DiagnosticLoweringInputFailureKind::InvalidPlan {
+                    plan: "storage_disposition",
+                    cause: "contradictory",
+                    expression: Some(identity(17)),
+                    scope: Some(identity(19)),
+                    exit: Some(identity(23)),
+                    storage: Some(identity(29)),
+                },
+                bray_source::SourceSpan::new(
+                    bray_source::SourceId::new(2),
+                    bray_source::TextRange::new(
+                        bray_source::TextSize::new(3),
+                        bray_source::TextSize::new(4),
+                    ),
+                ),
+            ),
+        );
+
+        let context = serde_json::to_value(context)
+            .unwrap_or_else(|error| panic!("verified-plan context should serialize: {error:?}"));
+
+        let names = context
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|field| field["name"].as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            names,
+            [
+                "cause",
+                "plan",
+                "plan_failure",
+                "bound_unit",
+                "expression",
+                "scope",
+                "exit",
+                "storage",
+            ]
+        );
+
+        assert_eq!(context[3]["value"]["value"], 13);
+        assert_eq!(context[4]["value"]["value"], 17);
+        assert_eq!(context[5]["value"]["value"], 19);
+        assert_eq!(context[6]["value"]["value"], 23);
+        assert_eq!(context[7]["value"]["value"], 29);
+    }
+
+    #[test]
     fn nested_interface_validation_failures_serialize_their_exact_payload() {
         let context = diagnostic_failure_context(&[DiagnosticFailureField::new(
             "interface_validation_cause",

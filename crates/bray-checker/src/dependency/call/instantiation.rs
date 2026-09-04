@@ -299,13 +299,7 @@ pub(super) fn identity_access(
         .identity_entries()
         .find_map(|(id, candidate)| (candidate == identity).then_some(id))?;
 
-    storage.access_entries().find_map(|(id, _)| {
-        (storage.root_identity(id) == Some(identity)
-            && storage
-                .resolved_projections(id)
-                .is_some_and(<[_]>::is_empty))
-        .then_some(id)
-    })
+    storage.root_access(identity)
 }
 
 fn projected_access(

@@ -224,13 +224,14 @@ where
 
     let decisions = collector.decisions().collect::<Vec<_>>();
     let memory_decisions = collector.memory_decisions().collect::<Vec<_>>();
+    let exits = collector.exit_decisions().collect::<Vec<_>>();
 
     let analysis = match StorageFlow::try_new(
         storage.unit(),
         storage.kind(),
         decisions,
         collector.suspensions,
-        collector.exits,
+        exits,
         collector.is_recovered
             || storage_is_recovered(storage)
             || liveness.is_recovered()
@@ -300,7 +301,8 @@ where
     pub(super) owners: &'analysis StorageScopeOwners,
     pub(super) statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
     pub(super) suspensions: Vec<StorageSuspensionState>,
-    pub(super) exits: Vec<StorageExitDecision>,
+    exits: Vec<(bray_bound_tree::BoundBlockId, AnyBoundNodeId, StorageFlowState)>,
+    exit_indices: BTreeMap<(bray_bound_tree::BoundBlockId, AnyBoundNodeId), usize>,
     pub(super) memory_decisions: BTreeMap<BoundExpressionId, MemoryOperationStatus>,
     pub(super) diagnostics: DiagnosticBag,
     pub(super) reported_diagnostics: BTreeSet<(DiagnosticKind, StorageAccessId)>,
@@ -338,6 +340,7 @@ where
             statuses: BTreeMap::new(),
             suspensions: Vec::new(),
             exits: Vec::new(),
+            exit_indices: BTreeMap::new(),
             memory_decisions: BTreeMap::new(),
             diagnostics: DiagnosticBag::new(),
             reported_diagnostics: BTreeSet::new(),
@@ -588,13 +591,24 @@ where
             StorageAccessPurpose::Move => {
                 state.moved.insert(plan.access(), plan.expression());
 
+                if (self.storage.is_root_access(plan.access())
+                    || self.move_consumes_complete_union_payload(plan.access()))
+                    && let Some(root) = self.storage.root_identity(plan.access())
+                {
+                    state.fully_moved.insert(root);
+                }
+
                 if self.move_consumes_complete_union_payload(plan.access())
-                    && let Some(root) = self.root_access(plan.access())
+                    && let Some(root) = self.root_access_for(plan.access())
                 {
                     state.moved.insert(root, plan.expression());
                 }
             }
             StorageAccessPurpose::Initialize | StorageAccessPurpose::Assignment => {
+                if let Some(root) = self.storage.root_identity(plan.access()) {
+                    state.fully_moved.remove(&root);
+                }
+
                 if self.storage.is_root_access(plan.access())
                     && let Some(root) = self.storage.root_identity(plan.access())
                 {
@@ -662,14 +676,10 @@ where
             .is_some_and(|variant| variant.payload_fields().len() == 1)
     }
 
-    fn root_access(&self, access: StorageAccessId) -> Option<StorageAccessId> {
+    fn root_access_for(&self, access: StorageAccessId) -> Option<StorageAccessId> {
         let identity = self.storage.root_identity(access)?;
 
-        self.storage.access_entries().find_map(|(candidate, _)| {
-            (self.storage.root_identity(candidate) == Some(identity)
-                && self.storage.is_root_access(candidate))
-            .then_some(candidate)
-        })
+        self.storage.root_access(identity)
     }
 
     fn initialize_operation_storage(&self, state: &mut StorageFlowState, node: AnyBoundNodeId) {
@@ -680,6 +690,10 @@ where
                 .root_identity(*access)
                 .is_none_or(|storage| !definitions.contains(&storage))
         });
+
+        state
+            .fully_moved
+            .retain(|storage| !definitions.contains(storage));
 
         state.live.extend(definitions.iter().copied());
         state.initialized.extend(definitions.iter().copied());
@@ -806,6 +820,7 @@ where
                     .is_none_or(|borrow| !ended.contains(&borrow))
             })
         });
+
     }
 
     fn end_scope(&self, state: &mut StorageFlowState, block: bray_bound_tree::BoundBlockId) {
@@ -822,6 +837,10 @@ where
                 .root_identity(*access)
                 .is_some_and(|storage| state.live.contains(&storage))
         });
+
+        state
+            .fully_moved
+            .retain(|storage| state.live.contains(storage));
 
         state.active_borrows.retain(|borrow| {
             self.borrow_is_entry(*borrow)
@@ -854,14 +873,31 @@ where
             return;
         }
 
-        self.exits.push(StorageExitDecision::new(
-            block,
-            exit,
-            state.initialized.iter().copied(),
-            state.moved.keys().copied(),
-            state.active_borrows.iter().copied(),
-            state.recovered,
-        ));
+        let key = (block, exit);
+
+        if let Some(index) = self.exit_indices.get(&key).copied() {
+            self.exits[index].2.merge(state);
+            return;
+        }
+
+        self.exit_indices.insert(key, self.exits.len());
+
+        // Publication owns this snapshot so later operations can mutate their task-local state.
+        self.exits.push((block, exit, state.clone()));
+    }
+
+    pub(super) fn exit_decisions(&self) -> impl Iterator<Item = StorageExitDecision> + '_ {
+        self.exits.iter().map(|(block, exit, state)| {
+            StorageExitDecision::new(
+                *block,
+                *exit,
+                state.initialized.iter().copied(),
+                state.moved.keys().copied(),
+                state.fully_moved.iter().copied(),
+                state.active_borrows.iter().copied(),
+                state.recovered,
+            )
+        })
     }
 
     fn record_suspension(&mut self, state: &StorageFlowState, expression: BoundExpressionId) {

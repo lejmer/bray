@@ -135,11 +135,8 @@ impl Lowerer<'_> {
 
         let requires_lifecycle_storage = self
             .input
-            .async_analysis()
-            .scope_exits()
-            .iter()
-            .flat_map(bray_bound_tree::AsyncScopeExitPlan::lifecycle_resolution)
-            .any(|access| self.input.storage_plan().root_identity(*access) == Some(temporary));
+            .lowering_plans()
+            .requires_lifecycle_storage(temporary);
 
         if !required && !requires_lifecycle_storage {
             return Ok(LoweredExpression::continuing(

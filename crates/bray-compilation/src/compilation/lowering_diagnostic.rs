@@ -60,6 +60,20 @@ pub(super) fn lowering_input_failure(
         LoweringInputError::InvalidStorageExit(block) => {
             Kind::InvalidStorageExit(bound_identity(block.unit(), block.ordinal()))
         }
+        LoweringInputError::InvalidPlan(error) => Kind::InvalidPlan {
+            plan: error.kind().as_str(),
+            cause: error.cause().as_str(),
+            expression: error
+                .expression()
+                .map(|expression| bound_identity(expression.unit(), expression.ordinal())),
+            scope: error
+                .scope()
+                .map(|scope| bound_identity(scope.unit(), scope.ordinal())),
+            exit: error.exit().map(any_bound_identity),
+            storage: error
+                .storage()
+                .map(|storage| bound_identity(storage.unit(), storage.ordinal())),
+        },
         LoweringInputError::LiteralTargetWidthMismatch { expected, actual } => {
             Kind::LiteralTargetWidthMismatch {
                 expected: expected.get(),
@@ -129,9 +143,6 @@ pub(super) fn lowering_failure(
         }
         LoweringError::MissingStorageAccessRecord(access) => {
             Kind::MissingStorageAccessRecord(bound_identity(access.unit(), access.ordinal()))
-        }
-        LoweringError::MissingCleanupPlan(block) => {
-            Kind::MissingCleanupPlan(bound_identity(block.unit(), block.ordinal()))
         }
         LoweringError::MissingStorageIdentity(access) => {
             Kind::MissingStorageIdentity(bound_identity(access.unit(), access.ordinal()))
@@ -246,15 +257,11 @@ const fn lowering_input_kind(kind: bray_lowering::LoweringInputKind) -> &'static
         Kind::ControlFlow => "control_flow",
         Kind::ExpressionTypes => "expression_types",
         Kind::Patterns => "patterns",
-        Kind::SemanticSelections => "semantic_selections",
         Kind::LiteralValues => "literal_values",
         Kind::ConstantReferences => "constant_references",
-        Kind::StoragePlan => "storage_plan",
         Kind::Liveness => "liveness",
         Kind::Refinements => "refinements",
-        Kind::StorageFlow => "storage_flow",
-        Kind::DependencyContracts => "dependency_contracts",
-        Kind::Async => "async",
+        Kind::LoweringPlans => "lowering_plans",
         Kind::BodyBehavior => "body_behavior",
     }
 }
@@ -526,7 +533,7 @@ mod tests {
 
         let input = super::lowering_input_failure(&LocatedLoweringFailure::new(
             LoweringInputError::ForeignInput {
-                input: bray_lowering::LoweringInputKind::StoragePlan,
+                input: bray_lowering::LoweringInputKind::LoweringPlans,
                 expected: bray_bound_tree::BoundUnitId::new(7),
                 actual: bray_bound_tree::BoundUnitId::new(11),
             },
@@ -536,7 +543,7 @@ mod tests {
         assert_eq!(
             input.kind(),
             DiagnosticLoweringInputFailureKind::ForeignInput {
-                input: "storage_plan",
+                input: "lowering_plans",
                 expected_unit: 7,
                 actual_unit: 11,
             }

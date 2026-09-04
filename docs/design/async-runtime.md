@@ -184,10 +184,11 @@ runtime. Final executable or test product validation performs the closed-world r
 
 ## Structured scope-exit plans
 
-Composite storage flow owns task-obligation state and publishes the initialized roots, exact moved access paths, and
-active borrows at each async lexical block exit. Async checking combines that state with checked type representations
-and emits one cleanup plan containing:
+Composite storage flow owns task-obligation state and publishes the initialized roots, exact moved access paths,
+identities definitely moved on every incoming path, and active borrows at each async lexical block exit. Async checking
+combines that state with checked type representations and emits one cleanup plan containing:
 
+- one ordered disposition for every initialized storage identity,
 - every owned unresolved task access path at that exit, including tasks held in initialized hidden `Future<T>` frame
   state,
 - aggregate projections and active guards needed to find nested tasks,
@@ -214,7 +215,13 @@ conservative obligation when any reachable predecessor still owns it. Plans reta
 identities. Partial aggregates use moved access paths as masks so cleanup can traverse the remaining initialized state
 without treating the whole aggregate as moved.
 
-Lowering consumes only checked cleanup plans. It does not rediscover which tasks are live from syntax or type recursion.
+Each storage disposition is retained by an outer scope, transferred by the exit, fully moved, free of cleanup, or tied
+to explicit cancellation and lifecycle phases. The order is the reverse of the storage-flow initialization order.
+
+Before lowering, the compilation boundary verifies that every lowering-reachable suspension, task operation, scope
+exit, storage disposition, cleanup phase, dependency, and runtime role is complete and internally consistent. Partial
+recovery records remain available to checking and diagnostics but cannot satisfy this boundary. Lowering consumes the
+verified plan directly and does not rediscover live tasks from syntax or type recursion.
 
 ---
 

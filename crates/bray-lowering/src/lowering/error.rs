@@ -1,5 +1,5 @@
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundBlockId, BoundExpressionId, BoundOperator, BoundPatternId, BoundUnitRoot,
+    AnyBoundNodeId, BoundExpressionId, BoundOperator, BoundPatternId, BoundUnitRoot,
     StorageAccessId, StorageIdentityId,
 };
 use bray_compiler_known::RepresentationRole;
@@ -42,8 +42,6 @@ pub enum LoweringError {
     MissingStorageAccess(BoundExpressionId),
     /// A checked storage access is absent from the canonical plan.
     MissingStorageAccessRecord(StorageAccessId),
-    /// Checked storage flow names a lexical exit without a corresponding cleanup plan.
-    MissingCleanupPlan(BoundBlockId),
     /// A checked access reaches no persistent storage identity.
     MissingStorageIdentity(StorageAccessId),
     /// A persistent storage identity is absent from the canonical plan.

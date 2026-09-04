@@ -2,6 +2,7 @@ use super::super::source::{format_english_artifact_digest, format_english_artifa
 use super::checker::format_english_checker_failure;
 use super::foreign_query::format_english_foreign_query_failure;
 use super::linking::format_english_native_link_input_failure;
+use super::lowering::{lowering_plan_failure_state, lowering_plan_name};
 use super::product_failure::native_product_failure_is_internal;
 use super::product_query::format_english_product_query_failure;
 use bray_diagnostics::DiagnosticArtifactDigest;
@@ -384,6 +385,12 @@ fn format_english_lowering_input_failure(
         Failure::InvalidStorageExit(_) => {
             "generating cleanup code for the highlighted scope because the values it must release are unavailable".to_owned()
         }
+        Failure::InvalidPlan { plan, cause, .. } => {
+            let plan = lowering_plan_name(plan);
+            let state = lowering_plan_failure_state(cause);
+
+            format!("generating executable code because the checked {plan} plan is {state}")
+        }
         Failure::ExecutableHostRequiresSyntheticInput => {
             "generating program startup code because it was incorrectly associated with Bray source".to_owned()
         }
@@ -447,9 +454,6 @@ fn format_english_lowering_failure(failure: bray_diagnostics::DiagnosticLowering
         }
         Failure::MissingStorageAccessRecord(_) => {
             "generating ownership-safe code for the highlighted expression because its read, borrow, move, or write behavior is unavailable"
-        }
-        Failure::MissingCleanupPlan(_) => {
-            "generating cleanup code for the highlighted scope because the values it must release are unavailable"
         }
         Failure::MissingStorageIdentity(_) => {
             "generating ownership-safe code for the highlighted expression because the value it accesses is unavailable"

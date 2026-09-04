@@ -3,6 +3,7 @@ mod flow;
 mod liveness;
 mod model;
 mod plan;
+mod query;
 
 pub use builder::{StoragePlanBuildError, StoragePlanBuilder};
 pub use flow::{

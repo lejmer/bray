@@ -132,6 +132,7 @@ pub(super) struct StorageFlowState {
     pub(super) live: BTreeSet<StorageIdentityId>,
     pub(super) initialized: BTreeSet<StorageIdentityId>,
     pub(super) moved: BTreeMap<StorageAccessId, BoundExpressionId>,
+    pub(super) fully_moved: BTreeSet<StorageIdentityId>,
     pub(super) active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(super) definitely_active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(super) raw_initialized:
@@ -159,6 +160,7 @@ impl StorageFlowState {
             live: initialized.clone(),
             initialized,
             moved: BTreeMap::new(),
+            fully_moved: BTreeSet::new(),
             definitely_active_borrows: active_borrows.clone(),
             active_borrows,
             raw_initialized: BTreeMap::new(),
@@ -169,7 +171,7 @@ impl StorageFlowState {
         }
     }
 
-    fn merge(&mut self, incoming: &Self) -> bool {
+    pub(super) fn merge(&mut self, incoming: &Self) -> bool {
         if !incoming.reachable {
             return false;
         }
@@ -184,6 +186,7 @@ impl StorageFlowState {
         let live_count = self.live.len();
         let initialized_count = self.initialized.len();
         let moved_count = self.moved.len();
+        let fully_moved_count = self.fully_moved.len();
         let borrow_count = self.active_borrows.len();
         let definite_borrow_count = self.definitely_active_borrows.len();
         let raw_storage_count = self.raw_initialized.len();
@@ -219,6 +222,9 @@ impl StorageFlowState {
                 }
             }
         }
+
+        self.fully_moved
+            .retain(|storage| incoming.fully_moved.contains(storage));
 
         self.active_borrows
             .extend(incoming.active_borrows.iter().copied());
@@ -280,6 +286,7 @@ impl StorageFlowState {
             || self.initialized.len() != initialized_count
             || self.moved.len() != moved_count
             || moved_changed
+            || self.fully_moved.len() != fully_moved_count
             || self.active_borrows.len() != borrow_count
             || self.definitely_active_borrows.len() != definite_borrow_count
             || self.raw_initialized.len() != raw_storage_count
@@ -510,6 +517,23 @@ mod tests {
             merged.allocation_origins[&identity],
             [expressions[0], expressions[2]].into_iter().collect()
         );
+    }
+
+    #[test]
+    fn fully_moved_storage_survives_only_when_every_incoming_path_moves_it() {
+        let (identity, _) = storage_and_expressions(79);
+
+        let mut left = reachable_state();
+        let mut moved = reachable_state();
+
+        left.fully_moved.insert(identity);
+        moved.fully_moved.insert(identity);
+
+        assert!(!left.merge(&moved));
+        assert_eq!(left.fully_moved, [identity].into_iter().collect());
+
+        assert!(left.merge(&reachable_state()));
+        assert!(left.fully_moved.is_empty());
     }
 
     fn reachable_state() -> StorageFlowState {
