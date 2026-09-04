@@ -102,6 +102,7 @@ pub(super) const fn format_english_artifact_kind(kind: DiagnosticArtifactKind) -
         DiagnosticArtifactKind::PackageInterface => "package interface",
         DiagnosticArtifactKind::PackageImplementation => "package implementation",
         DiagnosticArtifactKind::DependencyMetadata => "dependency metadata",
+        DiagnosticArtifactKind::TestCatalog => "test catalog",
         DiagnosticArtifactKind::Executable => "executable",
         DiagnosticArtifactKind::StaticLibrary => "static library",
         DiagnosticArtifactKind::SharedLibrary => "shared library",

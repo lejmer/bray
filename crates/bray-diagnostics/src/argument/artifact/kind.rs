@@ -39,6 +39,8 @@ pub enum DiagnosticArtifactKind {
     PackageImplementation,
     /// Compiler-owned dependency metadata.
     DependencyMetadata,
+    /// Immutable native test-host catalog.
+    TestCatalog,
     /// Final executable product.
     Executable,
     /// Final static library product.
@@ -62,6 +64,7 @@ impl DiagnosticArtifactKind {
             Self::PackageInterface => "package_interface",
             Self::PackageImplementation => "package_implementation",
             Self::DependencyMetadata => "dependency_metadata",
+            Self::TestCatalog => "test_catalog",
             Self::Executable => "executable",
             Self::StaticLibrary => "static_library",
             Self::SharedLibrary => "shared_library",

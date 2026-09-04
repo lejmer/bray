@@ -55,12 +55,46 @@ pub enum DiagnosticProjectSelectionProblem {
     MissingTestCatalogOutput,
     /// A required published test host is absent.
     MissingTestHost,
+    /// A retained product predates reusable build identities.
+    MissingReusableBuildIdentity(String),
+    /// One exact identity in a retained product differs from the current inputs.
+    ReusableBuildIdentityMismatch {
+        product: String,
+        part: DiagnosticReusableBuildIdentityPart,
+    },
     /// The selected inspection command does not support the product category.
     UnsupportedInspectionProduct(String),
     /// A command requires an explicit target selection.
     TargetRequired,
     /// A test name filter is empty or otherwise violates the selection grammar.
     InvalidTestFilter(String),
+}
+
+/// Exact identity category that made a retained native product stale or incompatible.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticReusableBuildIdentityPart {
+    Inputs,
+    Compiler,
+    Toolchain,
+    StandardLibrary,
+    Runtime,
+    CatalogProtocol,
+    RunnerProtocol,
+}
+
+impl DiagnosticReusableBuildIdentityPart {
+    /// Returns the stable machine key for this identity category.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Inputs => "inputs",
+            Self::Compiler => "compiler",
+            Self::Toolchain => "toolchain",
+            Self::StandardLibrary => "standard_library",
+            Self::Runtime => "runtime",
+            Self::CatalogProtocol => "catalog_protocol",
+            Self::RunnerProtocol => "runner_protocol",
+        }
+    }
 }
 
 /// Exact internal project-command operation that could not complete.
@@ -104,6 +138,8 @@ pub enum DiagnosticProjectOperation {
     ExecutableOutputName,
     PublishedExecutable,
     TestSourcePackageIdentity,
+    /// Construction or validation of a retained product's reusable build identity.
+    ReusableBuildIdentity,
     ToolchainRoot,
     ToolchainExecutable,
     GitClone,
@@ -541,6 +577,7 @@ impl DiagnosticProjectOperation {
             Self::ExecutableOutputName => "executable_output_name",
             Self::PublishedExecutable => "published_executable",
             Self::TestSourcePackageIdentity => "test_source_package_identity",
+            Self::ReusableBuildIdentity => "reusable_build_identity",
             Self::ToolchainRoot => "toolchain_root",
             Self::ToolchainExecutable => "toolchain_executable",
             Self::GitClone => "git_clone",

@@ -1,7 +1,9 @@
 use std::ffi::OsString;
+use std::hash::Hasher;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
+use bray_base::StableDigestHasher;
 use bray_platform::{NativeChildProcess, NativeProcessCommand, NativeStdio, PlatformError};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -147,6 +149,13 @@ impl ToolOutput {
 }
 
 pub(crate) trait ToolExecutor {
+    fn identity(&self, tool: Tool) -> std::io::Result<[u8; 32]> {
+        let mut identity = StableDigestHasher::new();
+        identity.write(tool.executable_name().as_bytes());
+
+        Ok(identity.finalize())
+    }
+
     fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ToolExecutionError>;
 
     fn serve(
@@ -182,6 +191,12 @@ pub(crate) enum ToolExecutionError {
 pub(crate) struct NativeToolExecutor;
 
 impl ToolExecutor for NativeToolExecutor {
+    fn identity(&self, tool: Tool) -> std::io::Result<[u8; 32]> {
+        let path = resolved_tool_path(tool)?;
+
+        super::identity::path_digest(&path)
+    }
+
     fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ToolExecutionError> {
         let (command, program) = native_command(&request)?;
 
@@ -333,6 +348,33 @@ fn tool_path(tool: Tool) -> OsString {
         Some(path) if path.is_file() => path.into_os_string(),
         _ => OsString::from(tool.executable_name()),
     }
+}
+
+fn resolved_tool_path(tool: Tool) -> std::io::Result<PathBuf> {
+    let selected = PathBuf::from(tool_path(tool));
+
+    if selected.is_file() {
+        return std::fs::canonicalize(selected);
+    }
+
+    if selected.components().count() > 1 {
+        return Err(std::io::Error::from(std::io::ErrorKind::NotFound));
+    }
+
+    let search = std::env::var_os("PATH").unwrap_or_default();
+
+    let file_name = if cfg!(windows) && selected.extension().is_none() {
+        selected.with_extension("exe")
+    } else {
+        selected
+    };
+
+    std::env::split_paths(&search)
+        .map(|directory| directory.join(&file_name))
+        .find(|candidate| candidate.is_file())
+        .map(std::fs::canonicalize)
+        .transpose()?
+        .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound))
 }
 
 fn executable_file_name(name: &str) -> OsString {

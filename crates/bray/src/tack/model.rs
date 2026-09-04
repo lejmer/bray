@@ -180,6 +180,7 @@ pub(crate) enum TackCommand {
     Test {
         selection: TackSelection,
         configuration: TackBuildConfiguration,
+        no_build: bool,
         batch_request: Option<PathBuf>,
         native_link_inputs: Vec<String>,
         options: TackTestOptions,

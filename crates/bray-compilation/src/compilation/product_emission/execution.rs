@@ -10,7 +10,8 @@ use bray_package_interface::encode_package_interface;
 use bray_target::TargetOutputDescription;
 
 use super::publishing::{
-    package_implementation_contribution, publisher, validate_executable_units,
+    package_implementation_contribution, publisher, test_catalog_contribution,
+    validate_executable_units,
 };
 use super::{ProductEmissionError, ProductEmissionErrorKind};
 use crate::compilation::{
@@ -24,6 +25,7 @@ use crate::fact::{CancellationToken, FactQueryError};
 pub struct ProductEmissionInputs<'operation> {
     target_outputs: &'operation TargetOutputDescription,
     generation: ProductGenerationInputs<'operation>,
+    test_catalog: Option<&'operation [u8]>,
     sink_resolver: Option<&'operation dyn OutputSinkResolver>,
 }
 
@@ -33,8 +35,16 @@ impl<'operation> ProductEmissionInputs<'operation> {
         Self {
             target_outputs,
             generation: ProductGenerationInputs::None,
+            test_catalog: None,
             sink_resolver: None,
         }
+    }
+
+    /// Supplies an encoded immutable test catalog for transactional product publication.
+    pub const fn with_test_catalog(mut self, catalog: &'operation [u8]) -> Self {
+        self.test_catalog = Some(catalog);
+
+        self
     }
 
     /// Supplies selected backend, validated mappings, target, and generation policy.
@@ -285,6 +295,14 @@ impl Compilation {
                 ProductEmissionError::new(kind, planning_diagnostics.clone(), &product, &target)
             })?;
 
+        let test_catalog = inputs
+            .test_catalog
+            .map(|catalog| test_catalog_contribution(&plan, catalog))
+            .transpose()
+            .map_err(|kind| {
+                ProductEmissionError::new(kind, planning_diagnostics.clone(), &product, &target)
+            })?;
+
         let units = match inputs.generation.native() {
             Some(native) => native.units().to_vec(),
             None => self
@@ -343,6 +361,7 @@ impl Compilation {
                 &plan,
                 codegen.backend,
                 package_implementation,
+                test_catalog,
                 inputs.generation.linking(),
                 inputs.sink_resolver,
                 cancellation,
@@ -604,6 +623,7 @@ impl Compilation {
         plan: &EmissionPlan,
         backend: Option<BackendContributionSet>,
         package_implementation: Option<ArtifactContribution>,
+        test_catalog: Option<ArtifactContribution>,
         linking: Option<ProductLinkingInputs<'_>>,
         resolver: Option<&dyn OutputSinkResolver>,
         cancellation: &CancellationToken,
@@ -619,7 +639,8 @@ impl Compilation {
                     .iter()
                     .flat_map(|contributions| contributions.published(plan))
                     .cloned()
-                    .chain(package_implementation);
+                    .chain(package_implementation)
+                    .chain(test_catalog);
 
                 let publisher = publisher(cancellation, resolver);
 
@@ -632,7 +653,8 @@ impl Compilation {
                     .iter()
                     .flat_map(|contributions| contributions.published(plan))
                     .cloned()
-                    .chain(package_implementation);
+                    .chain(package_implementation)
+                    .chain(test_catalog);
 
                 let staged = backend
                     .iter()

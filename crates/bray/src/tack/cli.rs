@@ -338,6 +338,7 @@ impl CliCommand {
                 TackCommand::Test {
                     selection: test.selection.into(),
                     configuration,
+                    no_build: test.no_build,
                     batch_request: test.batch_request,
                     native_link_inputs: test.native_link_inputs,
                     options: crate::tack::model::TackTestOptions::new(
@@ -474,6 +475,8 @@ struct CliTest {
     selection: CliSelection,
     #[arg(long, help = help::RELEASE)]
     release: bool,
+    #[arg(long, help = help::TEST_NO_BUILD)]
+    no_build: bool,
     #[arg(long, conflicts_with = "jobs", help = help::TEST_SEQUENTIAL)]
     sequential: bool,
     #[arg(long, value_name = "N", help = help::TEST_JOBS)]
@@ -842,6 +845,20 @@ mod tests {
         let result = TackInvocation::try_from_arguments(["bray", "test", "--jobs", "0"]);
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_no_build_selection_is_explicit() {
+        let invocation = TackInvocation::try_from_arguments(["bray", "test", "--no-build"])
+            .unwrap_or_else(|error| panic!("no-build test selection should parse: {error:?}"));
+
+        let (_, _, _, _, _, _, command) = invocation.into_parts();
+
+        let TackCommand::Test { no_build, .. } = command else {
+            panic!("expected test command");
+        };
+
+        assert!(no_build);
     }
 
     #[test]

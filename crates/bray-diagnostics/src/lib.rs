@@ -135,8 +135,8 @@ pub use project::{
     DiagnosticProfileValidationProblem, DiagnosticProjectCommandFailure,
     DiagnosticProjectDependencyCycleMember, DiagnosticProjectManifestField,
     DiagnosticProjectOperation, DiagnosticProjectProcessFailure, DiagnosticProjectSelectionProblem,
-    DiagnosticTestExecutionPlanProblem, DiagnosticTestSchedulingProblem,
-    DiagnosticToolProtocolFailure, DiagnosticToolStream,
+    DiagnosticReusableBuildIdentityPart, DiagnosticTestExecutionPlanProblem,
+    DiagnosticTestSchedulingProblem, DiagnosticToolProtocolFailure, DiagnosticToolStream,
 };
 pub use quality::{DiagnosticQualityContract, DiagnosticQualityIssue};
 pub use related::{DiagnosticRelatedLocation, DiagnosticRelatedLocationKind};

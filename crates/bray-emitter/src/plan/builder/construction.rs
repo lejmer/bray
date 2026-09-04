@@ -211,6 +211,7 @@ impl<'planner> PlanBuilder<'planner> {
             ArtifactKind::DependencyMetadata => {
                 ArtifactProducer::DependencyMetadata(DependencyMetadataProducerId::new(0))
             }
+            ArtifactKind::TestCatalog => ArtifactProducer::TestCatalog,
             ArtifactKind::Executable
             | ArtifactKind::StaticLibrary
             | ArtifactKind::SharedLibrary
@@ -407,6 +408,7 @@ fn published_backend_role(kind: ArtifactKind) -> ArtifactRole {
         ArtifactKind::PackageInterface
         | ArtifactKind::PackageImplementation
         | ArtifactKind::DependencyMetadata
+        | ArtifactKind::TestCatalog
         | ArtifactKind::Executable
         | ArtifactKind::StaticLibrary
         | ArtifactKind::SharedLibrary
@@ -424,6 +426,7 @@ fn compiler_artifact_role(kind: ArtifactKind) -> ArtifactRole {
         | ArtifactKind::SharedLibrary => ArtifactRole::Product,
         ArtifactKind::PackageImplementation
         | ArtifactKind::DependencyMetadata
+        | ArtifactKind::TestCatalog
         | ArtifactKind::LinkedCompanion => ArtifactRole::Companion,
         ArtifactKind::Assembly
         | ArtifactKind::BackendIr

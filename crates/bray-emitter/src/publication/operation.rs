@@ -1440,6 +1440,70 @@ mod tests {
     }
 
     #[test]
+    fn retained_generations_expose_the_atomic_build_identity() {
+        let output = tempfile::tempdir().unwrap();
+
+        let identity =
+            crate::ProductBuildIdentity::new([1; 32], [2; 32], [3; 32], [4; 32], [5; 32], 6, 7);
+
+        let plan = filesystem_artifact_plan_with_identity(
+            [(
+                required_dependency_metadata_spec(),
+                output.path().join("application.brayd"),
+            )],
+            identity.clone(),
+        );
+
+        let outcome = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"metadata", None)]);
+
+        assert!(matches!(outcome.status(), EmissionStatus::Complete));
+
+        let first_generation = outcome
+            .generation()
+            .unwrap_or_else(|| panic!("first managed generation must exist"))
+            .identity();
+
+        let retained = crate::retain_published_generation(
+            output.path(),
+            plan.request().product(),
+            &never_cancelled,
+        )
+        .unwrap();
+
+        assert_eq!(retained.build_identity(), Some(&identity));
+
+        let replacement_identity = crate::ProductBuildIdentity::new(
+            [8; 32], [9; 32], [10; 32], [11; 32], [12; 32], 13, 14,
+        );
+
+        let replacement = filesystem_artifact_plan_with_identity(
+            [(
+                required_dependency_metadata_spec(),
+                output.path().join("application.brayd"),
+            )],
+            replacement_identity.clone(),
+        );
+
+        let outcome = ArtifactPublisher::new(&never_cancelled).publish(
+            &replacement,
+            [contribution(&replacement, b"metadata", None)],
+        );
+
+        assert!(matches!(outcome.status(), EmissionStatus::Complete));
+
+        let retained = crate::retain_published_generation(
+            output.path(),
+            replacement.request().product(),
+            &never_cancelled,
+        )
+        .unwrap();
+
+        assert_ne!(retained.identity(), first_generation);
+        assert_eq!(retained.build_identity(), Some(&replacement_identity));
+    }
+
+    #[test]
     fn readers_recover_a_crashed_public_projection_before_consuming_files() {
         let output = tempfile::tempdir().unwrap();
         let plan = filesystem_plan(output.path(), ReplacementPolicy::ReplaceExisting);
@@ -2943,6 +3007,25 @@ mod tests {
         product: bray_symbols::ProductIdentity,
         artifacts: impl IntoIterator<Item = (TestArtifactSpec, PathBuf)>,
     ) -> EmissionPlan {
+        filesystem_artifact_plan_with_product_and_identity(product, artifacts, None)
+    }
+
+    fn filesystem_artifact_plan_with_identity(
+        artifacts: impl IntoIterator<Item = (TestArtifactSpec, PathBuf)>,
+        identity: crate::ProductBuildIdentity,
+    ) -> EmissionPlan {
+        filesystem_artifact_plan_with_product_and_identity(
+            product_identity(),
+            artifacts,
+            Some(identity),
+        )
+    }
+
+    fn filesystem_artifact_plan_with_product_and_identity(
+        product: bray_symbols::ProductIdentity,
+        artifacts: impl IntoIterator<Item = (TestArtifactSpec, PathBuf)>,
+        identity: Option<crate::ProductBuildIdentity>,
+    ) -> EmissionPlan {
         let artifacts: Vec<_> = artifacts.into_iter().collect();
 
         let package_interface = artifacts
@@ -2970,6 +3053,11 @@ mod tests {
             ReplacementPolicy::ReplaceExisting,
         ) else {
             panic!("test filesystem publication request must be valid");
+        };
+
+        let request = match identity {
+            Some(identity) => request.with_build_identity(identity),
+            None => request,
         };
 
         let product = request.product().clone();

@@ -7,6 +7,11 @@ pub(super) const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
 pub(super) const MAX_COLLECTION_ITEMS: usize = 1_000_000;
 pub(super) const MAX_STRING_BYTES: usize = 1024 * 1024;
 
+/// Returns the wire revision shared by test catalogs and runner messages.
+pub const fn protocol_version() -> u32 {
+    PROTOCOL_VERSION
+}
+
 /// Failure to encode or decode a bounded test protocol record.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TestProtocolError {

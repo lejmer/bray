@@ -475,6 +475,9 @@ fn validate_producer(
         {
             Ok(())
         }
+        ArtifactProducer::TestCatalog if artifact.id().kind() == ArtifactKind::TestCatalog => {
+            Ok(())
+        }
         ArtifactProducer::Linker(_)
             if matches!(
                 artifact.id().kind(),
@@ -489,6 +492,7 @@ fn validate_producer(
         ArtifactProducer::PackageInterface
         | ArtifactProducer::PackageImplementation
         | ArtifactProducer::DependencyMetadata(_)
+        | ArtifactProducer::TestCatalog
         | ArtifactProducer::Linker(_) => {
             // Plan errors retain Arc-backed artifact identities after validation returns.
             Err(EmissionPlanBuildError::ProducerKindMismatch(

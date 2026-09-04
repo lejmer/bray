@@ -1,8 +1,6 @@
-use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use bray_base::{FileReplacementMode, StagedFile};
 use bray_compilation::ProductEmissionInputs;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticEmissionFailure, DiagnosticId,
@@ -18,7 +16,6 @@ use bray_tooling::{
     OutputFormat, exit_code_from_diagnostics, load_llvm_compilation, native_linker,
 };
 
-use super::diagnostic::artifact_write_failure;
 use super::execute::{DriverRunResult, compilation_request, driver_result_from_compilation};
 use super::runtime::{resolve_runtime, runtime_selection_diagnostics};
 use crate::command::{DriverBackend, DriverOptions, DriverProductConfiguration};
@@ -134,6 +131,29 @@ pub(crate) fn run_build_command(
         None
     };
 
+    let test_catalog = if configuration.test_catalog() {
+        match encode_test_catalog(&compilation, &product) {
+            Ok(catalog) => Some(catalog),
+            Err(error) => {
+                let diagnostics = match error {
+                    TestCatalogPublicationError::Cancelled => DiagnosticBag::new(),
+                    TestCatalogPublicationError::Diagnostic(diagnostic) => {
+                        DiagnosticBag::single(diagnostic)
+                    }
+                };
+
+                return driver_result_from_compilation(
+                    compilation,
+                    diagnostics,
+                    output_format,
+                    ExitCode::FAILURE,
+                );
+            }
+        }
+    } else {
+        None
+    };
+
     let target_outputs = target_outputs(native_target, &artifacts, &configuration);
 
     let request = emission_request(
@@ -148,6 +168,10 @@ pub(crate) fn run_build_command(
     );
 
     let mut inputs = ProductEmissionInputs::new(&target_outputs);
+
+    if let Some(test_catalog) = test_catalog.as_deref() {
+        inputs = inputs.with_test_catalog(test_catalog);
+    }
 
     match (native.as_ref(), linker.as_ref()) {
         (Some(native), Some(linker)) => {
@@ -180,25 +204,6 @@ pub(crate) fn run_build_command(
                 EmissionStatus::Failed(_) | EmissionStatus::Cancelled => ExitCode::FAILURE,
             };
 
-            if exit_code == ExitCode::SUCCESS
-                && let Some(destination) = configuration.test_catalog()
-                && let Err(error) = publish_test_catalog(&compilation, &product, destination)
-            {
-                let diagnostics = match error {
-                    TestCatalogPublicationError::Cancelled => DiagnosticBag::new(),
-                    TestCatalogPublicationError::Diagnostic(diagnostic) => {
-                        DiagnosticBag::single(diagnostic)
-                    }
-                };
-
-                return driver_result_from_compilation(
-                    compilation,
-                    diagnostics,
-                    output_format,
-                    ExitCode::FAILURE,
-                );
-            }
-
             driver_result_from_compilation(compilation, diagnostics, output_format, exit_code)
                 .with_published_artifacts(published_artifacts)
         }
@@ -211,11 +216,10 @@ pub(crate) fn run_build_command(
     }
 }
 
-fn publish_test_catalog(
+fn encode_test_catalog(
     compilation: &bray_compilation::Compilation,
     product: &ProductIdentity,
-    destination: &std::path::Path,
-) -> Result<(), TestCatalogPublicationError> {
+) -> Result<Vec<u8>, TestCatalogPublicationError> {
     let discovery = compilation
         .test_discovery(product.clone())
         .map_err(|error| match error {
@@ -230,33 +234,7 @@ fn publish_test_catalog(
             TestCatalogPublicationError::Diagnostic(test_catalog_failure(error, product))
         })?;
 
-    let mut staging = StagedFile::create(destination, FileReplacementMode::ReplaceExisting, None)
-        .map_err(|error| {
-        TestCatalogPublicationError::Diagnostic(artifact_write_failure(
-            DiagnosticId::new(0),
-            destination,
-            error.kind(),
-        ))
-    })?;
-
-    staging.write_all(&bytes).map_err(|error| {
-        TestCatalogPublicationError::Diagnostic(artifact_write_failure(
-            DiagnosticId::new(0),
-            destination,
-            error.kind(),
-        ))
-    })?;
-
-    staging
-        .finish()
-        .and_then(|staged| staged.promote(destination))
-        .map_err(|error| {
-            TestCatalogPublicationError::Diagnostic(artifact_write_failure(
-                DiagnosticId::new(0),
-                destination,
-                error.kind(),
-            ))
-        })
+    Ok(bytes)
 }
 
 enum TestCatalogPublicationError {
@@ -343,6 +321,10 @@ fn required_artifacts(
         artifacts.push(TargetOutputKind::LinkedCompanion);
     }
 
+    if configuration.test_catalog() && !artifacts.contains(&TargetOutputKind::TestCatalog) {
+        artifacts.push(TargetOutputKind::TestCatalog);
+    }
+
     artifacts
 }
 
@@ -417,7 +399,7 @@ fn emission_request(
         },
     );
 
-    EmissionRequest::try_new(
+    let request = EmissionRequest::try_new(
         product,
         product_kind,
         executable_host,
@@ -427,7 +409,12 @@ fn emission_request(
         ReplacementPolicy::ReplaceExisting,
     )
     .unwrap_or_else(|error| panic!("validated build emission request must be valid: {error:?}"))
-    .with_storage_profile(configuration.build().as_str())
+    .with_storage_profile(configuration.build().as_str());
+
+    match configuration.build_identity().cloned() {
+        Some(identity) => request.with_build_identity(identity),
+        None => request,
+    }
 }
 
 fn native_product_failure_result(
@@ -516,7 +503,7 @@ mod tests {
             None,
             vec![],
             "out".into(),
-            None,
+            false,
             vec![],
             vec![DriverInspectionArtifact::BackendIr],
         );
@@ -564,7 +551,7 @@ mod tests {
             None,
             vec![],
             "out".into(),
-            None,
+            false,
             vec![],
             vec![],
         );
@@ -596,6 +583,29 @@ mod tests {
                 bray_target::TargetOutputKind::LinkedCompanion,
             ]
         );
+    }
+
+    #[test]
+    fn test_catalogs_are_required_members_of_test_product_publications() {
+        let configuration = DriverProductConfiguration::new(
+            DriverBackend::Llvm,
+            bray_compilation::BuildConfiguration::Development,
+            None,
+            vec![],
+            "out".into(),
+            true,
+            vec![],
+            vec![],
+        );
+
+        let artifacts = required_artifacts(
+            ProductKind::Test,
+            bray_target::NativeTarget::X86_64LinuxGnu,
+            &configuration,
+        );
+
+        assert!(artifacts.contains(&bray_target::TargetOutputKind::Executable));
+        assert!(artifacts.contains(&bray_target::TargetOutputKind::TestCatalog));
     }
 
     #[test]

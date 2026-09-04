@@ -66,6 +66,9 @@ fn format_english_emission_planning_failure(
         Failure::MissingPackageInterfaceArtifact => {
             "the requested package interface has no completed artifact".to_owned()
         }
+        Failure::MissingTestCatalogArtifact => {
+            "the requested test catalog has no completed artifact".to_owned()
+        }
         Failure::UnexpectedPackageInterfaceArtifact => {
             "a package interface was completed without a matching request".to_owned()
         }

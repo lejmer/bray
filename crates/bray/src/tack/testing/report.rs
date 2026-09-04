@@ -53,20 +53,50 @@ pub(super) fn product_reports(
 
 pub(super) fn render_report(
     report: &TestCommandReport,
+    build: &TestBuildProvenance,
     output_format: OutputFormat,
     show_output: bool,
     interactive: bool,
 ) -> Result<String, DiagnosticBag> {
     match output_format {
         OutputFormat::Text => Ok(render_text_report(report, show_output, interactive)),
-        OutputFormat::Json => serialize_json_report(&JsonTestCommandReport::from(report)),
+        OutputFormat::Json => serialize_json_report(&JsonTestCommandReport::new(report, build)),
     }
 }
 
 pub(super) fn render_batch_report(
     reports: &[(String, TestCommandReport)],
+    build: &TestBuildProvenance,
 ) -> Result<String, DiagnosticBag> {
-    serialize_json_report(&JsonTestBatchReport::from(reports))
+    serialize_json_report(&JsonTestBatchReport::new(reports, build))
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub(crate) struct TestBuildProvenance {
+    reused: bool,
+    products: Vec<TestProductGeneration>,
+}
+
+impl TestBuildProvenance {
+    pub(crate) const fn new(reused: bool) -> Self {
+        Self {
+            reused,
+            products: Vec::new(),
+        }
+    }
+
+    pub(crate) fn push(&mut self, product: String, generation: String) {
+        self.products.push(TestProductGeneration {
+            product,
+            generation,
+        });
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+struct TestProductGeneration {
+    product: String,
+    generation: String,
 }
 
 fn serialize_json_report(report: &impl Serialize) -> Result<String, DiagnosticBag> {
@@ -258,6 +288,7 @@ pub(super) const fn report_outcome(outcome: &TestOutcome) -> TestReportOutcome {
 #[derive(Serialize)]
 struct JsonTestCommandReport<'report> {
     format: u32,
+    build: JsonTestBuildProvenance<'report>,
     selection: JsonTestSelectionSummary,
     products: Vec<JsonTestProductReport<'report>>,
     summary: JsonTestOutcomeCounts,
@@ -267,19 +298,24 @@ struct JsonTestCommandReport<'report> {
 #[derive(Serialize)]
 struct JsonTestBatchReport<'report> {
     format: u32,
+    build: JsonTestBuildProvenance<'report>,
     plans: Vec<JsonTestBatchPlanReport<'report>>,
 }
 
-impl<'report> From<&'report [(String, TestCommandReport)]> for JsonTestBatchReport<'report> {
-    fn from(reports: &'report [(String, TestCommandReport)]) -> Self {
+impl<'report> JsonTestBatchReport<'report> {
+    fn new(
+        reports: &'report [(String, TestCommandReport)],
+        build: &'report TestBuildProvenance,
+    ) -> Self {
         Self {
-            format: 1,
+            format: 2,
+            build: build.into(),
             plans: reports
                 .iter()
                 .map(|(identity, report)| JsonTestBatchPlanReport {
                     identity,
                     succeeded: report.succeeded(),
-                    report: JsonTestCommandReport::from(report),
+                    report: JsonTestCommandReport::new(report, build),
                 })
                 .collect(),
         }
@@ -293,13 +329,14 @@ struct JsonTestBatchPlanReport<'report> {
     report: JsonTestCommandReport<'report>,
 }
 
-impl<'report> From<&'report TestCommandReport> for JsonTestCommandReport<'report> {
-    fn from(report: &'report TestCommandReport) -> Self {
+impl<'report> JsonTestCommandReport<'report> {
+    fn new(report: &'report TestCommandReport, build: &'report TestBuildProvenance) -> Self {
         let selection = report.selection();
         let counts = report.counts();
 
         Self {
-            format: 1,
+            format: 2,
+            build: build.into(),
             selection: JsonTestSelectionSummary {
                 discovered: selection.discovered(),
                 selected: selection.selected(),
@@ -311,6 +348,27 @@ impl<'report> From<&'report TestCommandReport> for JsonTestCommandReport<'report
                 failed: counts.failed(),
             },
             duration_nanoseconds: report.duration().map(|duration| duration.nanoseconds()),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonTestBuildProvenance<'report> {
+    reused: bool,
+    compilation: bool,
+    emission: bool,
+    linking: bool,
+    products: &'report [TestProductGeneration],
+}
+
+impl<'report> From<&'report TestBuildProvenance> for JsonTestBuildProvenance<'report> {
+    fn from(build: &'report TestBuildProvenance) -> Self {
+        Self {
+            reused: build.reused,
+            compilation: !build.reused,
+            emission: !build.reused,
+            linking: !build.reused,
+            products: &build.products,
         }
     }
 }
@@ -597,7 +655,7 @@ mod tests {
     use bray_tooling::OutputFormat;
 
     use super::super::test_support::product;
-    use super::render_report;
+    use super::{TestBuildProvenance, render_report};
 
     #[test]
     fn text_reports_keep_result_order_and_show_failed_output() {
@@ -623,7 +681,9 @@ mod tests {
         )
         .with_duration(TestDuration::from_nanoseconds(9_000_000));
 
-        let rendered = render_report(&report, OutputFormat::Text, false, false)
+        let build = TestBuildProvenance::new(false);
+
+        let rendered = render_report(&report, &build, OutputFormat::Text, false, false)
             .unwrap_or_else(|diagnostics| panic!("report must render: {diagnostics:?}"));
 
         let first = rendered
@@ -675,13 +735,21 @@ mod tests {
         )
         .with_duration(TestDuration::from_nanoseconds(12_000_000));
 
-        let rendered = render_report(&report, OutputFormat::Json, false, false)
+        let mut build = TestBuildProvenance::new(false);
+        build.push("example/tests".to_owned(), "0123".to_owned());
+
+        let rendered = render_report(&report, &build, OutputFormat::Json, false, false)
             .unwrap_or_else(|diagnostics| panic!("report must render: {diagnostics:?}"));
 
         let report: serde_json::Value = serde_json::from_str(&rendered)
             .unwrap_or_else(|error| panic!("report must be valid JSON: {error}"));
 
-        assert_eq!(report["format"], 1);
+        assert_eq!(report["format"], 2);
+        assert_eq!(report["build"]["reused"], false);
+        assert_eq!(report["build"]["compilation"], true);
+        assert_eq!(report["build"]["emission"], true);
+        assert_eq!(report["build"]["linking"], true);
+        assert_eq!(report["build"]["products"][0]["generation"], "0123");
         assert_eq!(report["selection"]["filtered_out"], 2);
 
         assert_eq!(

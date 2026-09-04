@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod artifact;
+mod build_identity;
 mod generation;
 mod link;
 mod outcome;
@@ -23,6 +24,7 @@ pub use artifact::{
 };
 pub use bray_runtime_interface::ExecutableHostContract;
 pub use bray_symbols::{ProductIdentity, ProductKind};
+pub use build_identity::{ProductBuildIdentity, ProductBuildIdentityPart};
 pub use generation::{ProductGenerationIdentity, PublishedProductGeneration};
 pub use link::{
     LinkOutputStaging, LinkOutputStagingBuildError, LinkPlanConstructionError, LinkStaging,

@@ -42,12 +42,11 @@ struct CheckedInterface {
 pub(crate) struct ProductBuild {
     outputs: Vec<ToolOutput>,
     executable: Option<PathBuf>,
-    test_catalog: Option<PathBuf>,
 }
 
 impl ProductBuild {
-    pub(crate) fn into_parts(self) -> (Vec<ToolOutput>, Option<PathBuf>, Option<PathBuf>) {
-        (self.outputs, self.executable, self.test_catalog)
+    pub(crate) fn into_parts(self) -> (Vec<ToolOutput>, Option<PathBuf>) {
+        (self.outputs, self.executable)
     }
 }
 
@@ -110,6 +109,41 @@ impl<'project> ProjectCompiler<'project> {
         configuration: TackBuildConfiguration,
         progress: Option<&BuildProgressSession<'_>>,
     ) -> Result<ProductBuild, DiagnosticBag> {
+        self.build_product(planned, configuration, progress, None)
+    }
+
+    pub(crate) fn build_test(
+        &mut self,
+        planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
+        progress: Option<&BuildProgressSession<'_>>,
+    ) -> Result<(ProductBuild, bray_emitter::ProductBuildIdentity), DiagnosticBag> {
+        let product = self.project_product(planned)?;
+        let products = self.reusable_test_products(product, planned.target())?;
+
+        let identity = crate::tack::identity::test_product_identity(
+            self.workspace_root,
+            self.graph,
+            &products,
+            planned.target(),
+            configuration,
+            &self.native_link_inputs,
+            self.toolchain,
+            self.executor,
+        )?;
+
+        let build = self.build_product(planned, configuration, progress, Some(identity.clone()))?;
+
+        Ok((build, identity))
+    }
+
+    fn build_product(
+        &mut self,
+        planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
+        progress: Option<&BuildProgressSession<'_>>,
+        build_identity: Option<bray_emitter::ProductBuildIdentity>,
+    ) -> Result<ProductBuild, DiagnosticBag> {
         let product = self.project_product(planned)?.clone();
         let mut outputs = Vec::new();
 
@@ -117,7 +151,6 @@ impl<'project> ProjectCompiler<'project> {
             return Ok(ProductBuild {
                 outputs,
                 executable: None,
-                test_catalog: None,
             });
         }
 
@@ -139,8 +172,7 @@ impl<'project> ProjectCompiler<'project> {
             })
         })?;
 
-        let test_catalog = (product.kind() == ProductKind::Test)
-            .then(|| self.test_catalog_path(&output_directory, &product));
+        let test_catalog = product.kind() == ProductKind::Test;
 
         let output = self.run_compiler(
             &product,
@@ -149,7 +181,8 @@ impl<'project> ProjectCompiler<'project> {
                 output_root,
                 output_directory: relative_output_directory,
                 configuration,
-                test_catalog: test_catalog.clone(),
+                test_catalog,
+                build_identity,
             },
             progress,
         )?;
@@ -167,7 +200,6 @@ impl<'project> ProjectCompiler<'project> {
         Ok(ProductBuild {
             outputs,
             executable,
-            test_catalog,
         })
     }
 
@@ -209,6 +241,26 @@ impl<'project> ProjectCompiler<'project> {
                 .unwrap_or_else(|| display_path(&output_directory, self.workspace_root)),
             packages,
         ))
+    }
+
+    pub(crate) fn test_product_identity(
+        &self,
+        planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
+    ) -> Result<bray_emitter::ProductBuildIdentity, DiagnosticBag> {
+        let product = self.project_product(planned)?;
+        let products = self.reusable_test_products(product, planned.target())?;
+
+        crate::tack::identity::test_product_identity(
+            self.workspace_root,
+            self.graph,
+            &products,
+            planned.target(),
+            configuration,
+            &self.native_link_inputs,
+            self.toolchain,
+            self.executor,
+        )
     }
 
     pub(crate) fn inspect(
@@ -527,6 +579,20 @@ impl<'project> ProjectCompiler<'project> {
         Ok(dependencies)
     }
 
+    fn reusable_test_products(
+        &self,
+        product: &ProjectProduct,
+        target: &TargetIdentity,
+    ) -> Result<Vec<ProjectProduct>, DiagnosticBag> {
+        let mut identities = self.transitive_dependencies(product, target)?;
+        identities.insert(product.identity().clone());
+
+        identities
+            .iter()
+            .map(|identity| self.project_product_by_identity(identity).cloned())
+            .collect()
+    }
+
     fn progress_packages(
         &self,
         product: &ProjectProduct,
@@ -688,6 +754,35 @@ impl<'project> ProjectCompiler<'project> {
         configuration: TackBuildConfiguration,
     ) -> Result<bray_emitter::PublishedProductReadGuard, DiagnosticBag> {
         let product = self.project_product(planned)?;
+
+        let (destination, relative) = self.managed_destination(product, planned, configuration)?;
+
+        bray_emitter::lock_published_product(destination, product.identity()).map_err(|error| {
+            storage_diagnostics(error.into_storage_error(&PathBuf::from(relative)))
+        })
+    }
+
+    pub(crate) fn retain_test_product(
+        &self,
+        planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
+    ) -> Result<bray_emitter::RetainedProductGeneration, DiagnosticBag> {
+        let product = self.project_product(planned)?;
+
+        let (destination, relative) = self.managed_destination(product, planned, configuration)?;
+
+        bray_emitter::retain_published_generation(destination, product.identity(), &|| false)
+            .map_err(|error| {
+                storage_diagnostics(error.into_storage_error(&PathBuf::from(relative)))
+            })
+    }
+
+    fn managed_destination(
+        &self,
+        product: &ProjectProduct,
+        planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
+    ) -> Result<(bray_emitter::ManagedFilesystemDestination, String), DiagnosticBag> {
         let output_root = self.graph.output_root().beneath(self.workspace_root);
 
         let relative = self.relative_output_directory(
@@ -705,11 +800,10 @@ impl<'project> ProjectCompiler<'project> {
                 })
             })?;
 
-        bray_emitter::lock_published_product(
+        Ok((
             bray_emitter::ManagedFilesystemDestination::new(output_root, directory),
-            product.identity(),
-        )
-        .map_err(|error| storage_diagnostics(error.into_storage_error(&PathBuf::from(relative))))
+            relative,
+        ))
     }
 
     fn relative_output_directory(
@@ -754,9 +848,6 @@ impl<'project> ProjectCompiler<'project> {
         Ok(Some(output_directory.join(name)))
     }
 
-    fn test_catalog_path(&self, output_directory: &Path, product: &ProjectProduct) -> PathBuf {
-        output_directory.join(format!("{}.braytests", product.identity().name()))
-    }
 }
 
 fn source_package(product: &ProjectProduct) -> Result<PackageIdentity, DiagnosticBag> {
@@ -806,7 +897,8 @@ enum CompilerAction {
         output_root: PathBuf,
         output_directory: String,
         configuration: TackBuildConfiguration,
-        test_catalog: Option<PathBuf>,
+        test_catalog: bool,
+        build_identity: Option<bray_emitter::ProductBuildIdentity>,
     },
     Inspect {
         inspection: TackInspection,
@@ -851,6 +943,7 @@ impl CompilerAction {
                 output_directory,
                 configuration,
                 test_catalog,
+                build_identity,
             } => {
                 request
                     .arg("build")
@@ -869,10 +962,16 @@ impl CompilerAction {
                         .arg(runtime.into_os_string());
                 }
 
-                if let Some(test_catalog) = test_catalog {
-                    request
-                        .arg("--test-catalog")
-                        .arg(test_catalog.into_os_string());
+                if test_catalog {
+                    request.arg("--test-catalog");
+                }
+
+                if let Some(identity) = build_identity {
+                    let identity = serde_json::to_string(&identity).unwrap_or_else(|error| {
+                        panic!("reusable build identity must serialize: {error:?}")
+                    });
+
+                    request.arg("--build-identity").arg(identity);
                 }
 
                 for kind in product.outputs() {
@@ -925,6 +1024,7 @@ fn artifact_text(kind: TargetOutputKind) -> &'static str {
         TargetOutputKind::PackageInterface => "package-interface",
         TargetOutputKind::PackageImplementation => "package-implementation",
         TargetOutputKind::DependencyMetadata => "dependency-metadata",
+        TargetOutputKind::TestCatalog => "test-catalog",
         TargetOutputKind::Executable => "executable",
         TargetOutputKind::StaticLibrary => "static-library",
         TargetOutputKind::SharedLibrary => "shared-library",

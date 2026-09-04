@@ -42,6 +42,7 @@ const fn format_english_project_operation(
         Operation::ExecutableOutputName => "construct the executable output name",
         Operation::PublishedExecutable => "publish the executable",
         Operation::TestSourcePackageIdentity => "construct the test source-package identity",
+        Operation::ReusableBuildIdentity => "construct the reusable build identity",
         Operation::ToolchainRoot => "resolve the toolchain root",
         Operation::ToolchainExecutable => "locate the Bray executable",
         Operation::GitClone => "start the Git clone process",

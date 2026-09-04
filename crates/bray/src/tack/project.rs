@@ -36,6 +36,10 @@ impl PlannedProduct {
         &self.product_name
     }
 
+    pub(crate) fn product_identity(&self) -> String {
+        format!("{}/{}", self.package.as_str(), self.product_name)
+    }
+
     pub(crate) fn target_name(&self) -> &str {
         &self.target_name
     }

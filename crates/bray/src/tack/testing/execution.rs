@@ -92,12 +92,20 @@ pub(crate) fn execute(
     worker_count: usize,
     output_format: OutputFormat,
     interactive: bool,
+    build: &super::report::TestBuildProvenance,
 ) -> Result<(TestCommandReport, String), DiagnosticBag> {
     prepare_command_cancellation()?;
 
     let hosts = load_hosts(hosts)?;
     let report = execute_loaded(workspace_root, &hosts, options, worker_count, interactive)?;
-    let rendered = render_report(&report, output_format, options.show_output, interactive)?;
+
+    let rendered = render_report(
+        &report,
+        build,
+        output_format,
+        options.show_output,
+        interactive,
+    )?;
 
     Ok((report, rendered))
 }
@@ -108,6 +116,7 @@ pub(crate) fn execute_batch(
     request: &TestBatchRequest,
     worker_count: usize,
     interactive: bool,
+    build: &super::report::TestBuildProvenance,
 ) -> Result<(Vec<(String, TestCommandReport)>, String), DiagnosticBag> {
     prepare_command_cancellation()?;
 
@@ -128,7 +137,7 @@ pub(crate) fn execute_batch(
         reports.push((plan.identity().to_owned(), report));
     }
 
-    let rendered = render_batch_report(&reports)?;
+    let rendered = render_batch_report(&reports, build)?;
 
     Ok((reports, rendered))
 }
@@ -671,9 +680,15 @@ mod tests {
         let request = TestBatchRequest::try_new([first, second])
             .unwrap_or_else(|error| panic!("batch request should be valid: {error:?}"));
 
-        let (reports, rendered) =
-            super::execute_batch(directory.path(), vec![host], &request, 2, false)
-                .unwrap_or_else(|diagnostics| panic!("batch should execute: {diagnostics:?}"));
+        let (reports, rendered) = super::execute_batch(
+            directory.path(),
+            vec![host],
+            &request,
+            2,
+            false,
+            &crate::tack::testing::TestBuildProvenance::new(false),
+        )
+        .unwrap_or_else(|diagnostics| panic!("batch should execute: {diagnostics:?}"));
 
         assert_eq!(
             reports

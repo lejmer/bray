@@ -8,3 +8,4 @@ mod test_support;
 
 pub(super) use execution::{execute, execute_batch};
 pub(super) use model::BuiltTestHost;
+pub(super) use report::TestBuildProvenance;

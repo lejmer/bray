@@ -14,6 +14,8 @@ pub(super) struct GenerationManifest {
     pub(super) revision: u32,
     pub(super) product: StorageProduct,
     pub(super) context: StorageContext,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(super) build_identity: Option<crate::ProductBuildIdentity>,
     pub(super) artifacts: Vec<ManifestArtifact>,
 }
 
@@ -133,6 +135,7 @@ pub(super) enum ManifestProducer {
     DependencyMetadata {
         ordinal: u32,
     },
+    TestCatalog,
     Linker {
         ordinal: u32,
     },
@@ -154,6 +157,7 @@ impl ManifestProducer {
             ArtifactProducer::DependencyMetadata(identity) => Self::DependencyMetadata {
                 ordinal: identity.ordinal(),
             },
+            ArtifactProducer::TestCatalog => Self::TestCatalog,
             ArtifactProducer::Linker(identity) => Self::Linker {
                 ordinal: identity.ordinal(),
             },
@@ -172,6 +176,7 @@ pub(super) const fn permission_key(kind: ArtifactKind) -> &'static str {
         | ArtifactKind::PackageInterface
         | ArtifactKind::PackageImplementation
         | ArtifactKind::DependencyMetadata
+        | ArtifactKind::TestCatalog
         | ArtifactKind::StaticLibrary
         | ArtifactKind::SharedLibrary
         | ArtifactKind::LinkedCompanion => "data",

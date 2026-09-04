@@ -349,6 +349,16 @@ The emitted native host and catalog are one publication unit. Publication valida
 configuration, host digest, runtime contract, and catalog version before making either artifact visible. Bray Tack
 rejects partial, stale, or mismatched output.
 
+`bray test --no-build` resolves exactly one current managed generation for each selected test product. It validates the
+source and project inputs, compiler, toolchain, standard library, runtime, catalog protocol, runner protocol, native
+host, and catalog before executing. A missing identity or any mismatch fails with its exact category and never starts a
+replacement build. The retained generation remains pinned until every selected host has shut down, so concurrent
+cleanup cannot remove an active rerun.
+
+Ordinary and no-build test commands use the same filtering, scheduling, capture, outcome, and reporting path after host
+resolution. JSON reports record each selected generation and state separately whether compilation, emission, or linking
+occurred for the command.
+
 Conformance coverage must prove:
 
 - metadata-only discovery and filtering,
@@ -360,4 +370,6 @@ Conformance coverage must prove:
 - deterministic reports under deliberately varied completion order,
 - capture and protocol resource limits,
 - graceful and forced host shutdown,
-- equivalent human and JSON records without embedded English in machine data.
+- equivalent human and JSON records without embedded English in machine data,
+- successful no-build reruns after process restart without compiler, emitter, or linker work,
+- exact rejection of missing, partial, stale, incompatible, or concurrently reclaimed retained generations.

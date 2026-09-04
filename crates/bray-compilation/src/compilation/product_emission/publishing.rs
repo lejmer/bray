@@ -35,6 +35,26 @@ pub(super) fn package_implementation_contribution(
     ))
 }
 
+pub(super) fn test_catalog_contribution(
+    plan: &EmissionPlan,
+    catalog: &[u8],
+) -> Result<ArtifactContribution, ProductEmissionErrorKind> {
+    let planned = plan
+        .published_artifacts()
+        .find(|artifact| artifact.id().kind() == ArtifactKind::TestCatalog)
+        .ok_or(ProductEmissionErrorKind::MissingTestCatalogArtifact)?;
+
+    let content = ArtifactContent::try_memory(catalog)
+        .map_err(ProductEmissionErrorKind::TestCatalogContent)?;
+
+    Ok(ArtifactContribution::new(
+        planned.id().clone(),
+        ArtifactProducer::TestCatalog,
+        content,
+        None,
+    ))
+}
+
 pub(super) fn validate_executable_units(
     plan: &EmissionPlan,
     units: &[CodegenUnit],

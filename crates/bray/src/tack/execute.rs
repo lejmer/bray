@@ -8,6 +8,7 @@ use std::process::ExitCode;
 use bray_diagnostics::{
     DiagnosticBag, DiagnosticDocumentParseKind, DiagnosticIoErrorKind,
     DiagnosticProjectCommandFailure, DiagnosticProjectOperation, DiagnosticProjectSelectionProblem,
+    DiagnosticReusableBuildIdentityPart,
 };
 use bray_project::ProjectGraph;
 use bray_test_protocol::{MAXIMUM_TEST_BATCH_REQUEST_BYTES, TestBatchRequest};
@@ -27,10 +28,11 @@ use crate::tack::output::{
 use crate::tack::profile::run_profile_command;
 use crate::tack::progress::WorkflowProgress;
 use crate::tack::project::{
-    ProductSelectionKind, load_graph, root_source_files, select_products, select_target,
+    PlannedProduct, ProductSelectionKind, load_graph, root_source_files, select_products,
+    select_target,
 };
 use crate::tack::result::TackRunResult;
-use crate::tack::testing::BuiltTestHost;
+use crate::tack::testing::{BuiltTestHost, TestBuildProvenance};
 use crate::tack::tool::{
     NativeToolExecutor, Tool, ToolExecutionError, ToolExecutor, ToolOutput, ToolRequest, ToolStream,
 };
@@ -405,6 +407,7 @@ fn execute_invocation_with_progress(
         TackCommand::Test {
             selection,
             configuration,
+            no_build,
             batch_request,
             native_link_inputs,
             options,
@@ -415,6 +418,7 @@ fn execute_invocation_with_progress(
             worker_count,
             &selection,
             configuration,
+            no_build,
             batch_request.as_deref(),
             native_link_inputs,
             options,
@@ -547,7 +551,7 @@ fn run_build(
 
         match compiler.build(&product, configuration, Some(&session)) {
             Ok(build) => {
-                let (product_outputs, _, _) = build.into_parts();
+                let (product_outputs, _) = build.into_parts();
 
                 let success = product_outputs.iter().all(ToolOutput::success);
 
@@ -611,7 +615,7 @@ fn run_one(
 
     let session = progress.begin(plan);
 
-    let (outputs, executable, _) = match compiler.build(product, configuration, Some(&session)) {
+    let (outputs, executable) = match compiler.build(product, configuration, Some(&session)) {
         Ok(result) => result.into_parts(),
         Err(diagnostics) => {
             session.finish(false);
@@ -662,6 +666,7 @@ fn run_tests(
     worker_count: usize,
     selection: &TackSelection,
     configuration: crate::tack::model::TackBuildConfiguration,
+    no_build: bool,
     batch_request: Option<&Path>,
     native_link_inputs: Vec<String>,
     options: crate::tack::model::TackTestOptions,
@@ -693,9 +698,39 @@ fn run_tests(
 
     let mut outputs = Vec::new();
     let mut hosts = Vec::new();
-    let mut publication_guards = Vec::new();
+    let mut retained_generations = Vec::new();
+    let mut build_provenance = TestBuildProvenance::new(no_build);
 
     for product in products {
+        if no_build {
+            let expected = match compiler.test_product_identity(&product, configuration) {
+                Ok(identity) => identity,
+                Err(diagnostics) => return failure(diagnostics, output_format),
+            };
+
+            let retained =
+                match retain_matching_test_product(&compiler, &product, configuration, &expected) {
+                    Ok(retained) => retained,
+                    Err(diagnostics) => return failure(diagnostics, output_format),
+                };
+
+            let host = match test_host_from_generation(&retained) {
+                Ok(host) => host,
+                Err(diagnostics) => return failure(diagnostics, output_format),
+            };
+
+            hosts.push(host);
+
+            build_provenance.push(
+                product.product_identity(),
+                retained.identity().to_hex(),
+            );
+
+            retained_generations.push(retained);
+
+            continue;
+        }
+
         let plan = match compiler.build_progress_plan(&product, configuration) {
             Ok(plan) => plan,
             Err(diagnostics) => return failure(diagnostics, output_format),
@@ -703,15 +738,16 @@ fn run_tests(
 
         let session = progress.begin(plan);
 
-        let (product_outputs, executable, test_catalog) =
-            match compiler.build(&product, configuration, Some(&session)) {
-                Ok(result) => result.into_parts(),
-                Err(diagnostics) => {
-                    session.finish(false);
+        let (build, expected) = match compiler.build_test(&product, configuration, Some(&session)) {
+            Ok(result) => result,
+            Err(diagnostics) => {
+                session.finish(false);
 
-                    return failure(diagnostics, output_format);
-                }
-            };
+                return failure(diagnostics, output_format);
+            }
+        };
+
+        let (product_outputs, _) = build.into_parts();
 
         let compilation_succeeded = product_outputs.iter().all(ToolOutput::success);
 
@@ -723,37 +759,28 @@ fn run_tests(
             continue;
         }
 
-        let Some(executable) = executable else {
-            return failure(
-                selection_diagnostics(
-                    DiagnosticProjectSelectionProblem::MissingTestExecutableOutput,
-                ),
-                output_format,
-            );
-        };
+        let retained =
+            match retain_matching_test_product(&compiler, &product, configuration, &expected) {
+                Ok(retained) => retained,
+                Err(diagnostics) => return failure(diagnostics, output_format),
+            };
 
-        let Some(test_catalog) = test_catalog else {
-            return failure(
-                selection_diagnostics(DiagnosticProjectSelectionProblem::MissingTestCatalogOutput),
-                output_format,
-            );
-        };
-
-        let guard = match compiler.lock_published_product(&product, configuration) {
-            Ok(guard) => guard,
+        let host = match test_host_from_generation(&retained) {
+            Ok(host) => host,
             Err(diagnostics) => return failure(diagnostics, output_format),
         };
 
-        let Some(host) = BuiltTestHost::try_new(executable, test_catalog) else {
-            return failure(
-                selection_diagnostics(DiagnosticProjectSelectionProblem::MissingTestHost),
-                output_format,
-            );
-        };
-
         hosts.push(host);
-        publication_guards.push(guard);
+
+        build_provenance.push(
+            product.product_identity(),
+            retained.identity().to_hex(),
+        );
+
+        retained_generations.push(retained);
     }
+
+    let _retained_generations = retained_generations;
 
     let mut result = result_from_outputs(outputs, output_format);
 
@@ -768,6 +795,7 @@ fn run_tests(
             &batch_request,
             worker_count,
             progress.interactive(),
+            &build_provenance,
         ) {
             Ok(report) => report,
             Err(diagnostics) => return failure(diagnostics, output_format),
@@ -786,6 +814,7 @@ fn run_tests(
             worker_count,
             output_format,
             progress.interactive(),
+            &build_provenance,
         ) {
             Ok(report) => report,
             Err(diagnostics) => return failure(diagnostics, output_format),
@@ -799,6 +828,80 @@ fn run_tests(
     }
 
     result
+}
+
+fn retain_matching_test_product(
+    compiler: &ProjectCompiler<'_>,
+    product: &PlannedProduct,
+    configuration: crate::tack::model::TackBuildConfiguration,
+    expected: &bray_emitter::ProductBuildIdentity,
+) -> Result<bray_emitter::RetainedProductGeneration, DiagnosticBag> {
+    let retained = compiler.retain_test_product(product, configuration)?;
+    let identity = product.product_identity();
+
+    let Some(actual) = retained.build_identity() else {
+        return Err(selection_diagnostics(
+            DiagnosticProjectSelectionProblem::MissingReusableBuildIdentity(identity),
+        ));
+    };
+
+    if let Some(part) = actual.mismatch(expected) {
+        return Err(selection_diagnostics(
+            DiagnosticProjectSelectionProblem::ReusableBuildIdentityMismatch {
+                product: identity,
+                part: diagnostic_build_identity_part(part),
+            },
+        ));
+    }
+
+    Ok(retained)
+}
+
+fn test_host_from_generation(
+    retained: &bray_emitter::RetainedProductGeneration,
+) -> Result<BuiltTestHost, DiagnosticBag> {
+    let executable = retained
+        .artifact_path(bray_emitter::ArtifactKind::Executable, 0)
+        .ok_or_else(|| {
+            selection_diagnostics(DiagnosticProjectSelectionProblem::MissingTestExecutableOutput)
+        })?;
+
+    let test_catalog = retained
+        .artifact_path(bray_emitter::ArtifactKind::TestCatalog, 0)
+        .ok_or_else(|| {
+            selection_diagnostics(DiagnosticProjectSelectionProblem::MissingTestCatalogOutput)
+        })?;
+
+    BuiltTestHost::try_new(executable.to_path_buf(), test_catalog.to_path_buf())
+        .ok_or_else(|| selection_diagnostics(DiagnosticProjectSelectionProblem::MissingTestHost))
+}
+
+const fn diagnostic_build_identity_part(
+    part: bray_emitter::ProductBuildIdentityPart,
+) -> DiagnosticReusableBuildIdentityPart {
+    match part {
+        bray_emitter::ProductBuildIdentityPart::Inputs => {
+            DiagnosticReusableBuildIdentityPart::Inputs
+        }
+        bray_emitter::ProductBuildIdentityPart::Compiler => {
+            DiagnosticReusableBuildIdentityPart::Compiler
+        }
+        bray_emitter::ProductBuildIdentityPart::Toolchain => {
+            DiagnosticReusableBuildIdentityPart::Toolchain
+        }
+        bray_emitter::ProductBuildIdentityPart::StandardLibrary => {
+            DiagnosticReusableBuildIdentityPart::StandardLibrary
+        }
+        bray_emitter::ProductBuildIdentityPart::Runtime => {
+            DiagnosticReusableBuildIdentityPart::Runtime
+        }
+        bray_emitter::ProductBuildIdentityPart::CatalogProtocol => {
+            DiagnosticReusableBuildIdentityPart::CatalogProtocol
+        }
+        bray_emitter::ProductBuildIdentityPart::RunnerProtocol => {
+            DiagnosticReusableBuildIdentityPart::RunnerProtocol
+        }
+    }
 }
 
 fn load_test_batch_request(path: &Path) -> Result<TestBatchRequest, DiagnosticBag> {
@@ -1365,6 +1468,46 @@ mod tests {
         ));
 
         let _ = std::fs::remove_dir_all(parent);
+    }
+
+    #[test]
+    fn no_build_test_rejects_missing_retained_state_without_invoking_the_compiler() {
+        let workspace = ProjectWorkspace::basic();
+        let executor = RecordingExecutor::default();
+
+        workspace.write(
+            "app/bray-package.json",
+            r#"{
+                "format": 1,
+                "identity": "example.application",
+                "version": {"workspace": true},
+                "features": [],
+                "source_roots": [{"name": "main", "path": "src"}],
+                "products": [{
+                    "name": "tests",
+                    "kind": "test",
+                    "source_roots": ["main"],
+                    "targets": ["native"],
+                    "dependencies": [],
+                    "outputs": ["executable"]
+                }]
+            }"#,
+        );
+
+        let result = run_tack_result_with_input(
+            [
+                OsString::from("bray"),
+                OsString::from("--workspace"),
+                workspace.path().as_os_str().to_os_string(),
+                OsString::from("test"),
+                OsString::from("--no-build"),
+            ],
+            &executor,
+            Cursor::new(Vec::new()),
+        );
+
+        assert_eq!(result.exit_code(), ExitCode::FAILURE);
+        assert!(executor.requests().is_empty());
     }
 
     #[test]

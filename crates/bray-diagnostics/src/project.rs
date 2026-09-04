@@ -7,7 +7,7 @@ pub use command::{
     DiagnosticProfileComparisonProblem, DiagnosticProfileContext, DiagnosticProfileDescriptorKind,
     DiagnosticProfileValidationProblem, DiagnosticProjectCommandFailure,
     DiagnosticProjectOperation, DiagnosticProjectProcessFailure, DiagnosticProjectSelectionProblem,
-    DiagnosticTestExecutionPlanProblem, DiagnosticTestSchedulingProblem,
-    DiagnosticToolProtocolFailure, DiagnosticToolStream,
+    DiagnosticReusableBuildIdentityPart, DiagnosticTestExecutionPlanProblem,
+    DiagnosticTestSchedulingProblem, DiagnosticToolProtocolFailure, DiagnosticToolStream,
 };
 pub use manifest::{DiagnosticProjectDependencyCycleMember, DiagnosticProjectManifestField};
