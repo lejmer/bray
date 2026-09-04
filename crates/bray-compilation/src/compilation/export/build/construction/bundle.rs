@@ -10,6 +10,7 @@ use super::super::super::PackageInterfaceExportError;
 use super::surface::build_identity_surface;
 use crate::compilation::Compilation;
 use crate::fact::CompilationFactKey;
+
 impl Compilation {
     /// Returns the current library product's interface export, when configured.
     pub fn package_interface_export_bundle(
