@@ -6,8 +6,8 @@ use bray_package_interface::{
 };
 use bray_symbols::ProductKind;
 
-use super::surface::build_identity_surface;
 use super::super::super::PackageInterfaceExportError;
+use super::surface::build_identity_surface;
 use crate::compilation::Compilation;
 use crate::fact::CompilationFactKey;
 impl Compilation {
@@ -126,7 +126,9 @@ impl Compilation {
             .package_implementation_configuration(None)
             .map_err(|cause| {
                 PackageInterfaceExportError::InvalidCompilationCause(
-                    super::super::super::PackageInterfaceInvalidCompilationCause::CodegenTarget(cause),
+                    super::super::super::PackageInterfaceInvalidCompilationCause::CodegenTarget(
+                        cause,
+                    ),
                 )
             })?;
 

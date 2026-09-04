@@ -2,9 +2,7 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use bray_bound_tree::CheckedTemplateKind;
-use bray_compiler_known::{
-    CompilerKnownDeclarationKey, RecognizedStandardLibraryDeclarationKey,
-};
+use bray_compiler_known::{CompilerKnownDeclarationKey, RecognizedStandardLibraryDeclarationKey};
 use bray_ir::{MirOperationKind, MirProjectionKind};
 use bray_package_interface::{
     InterfaceCheckedTemplateOperation, InterfaceConstantValueKind, InterfaceLanguageRevision,
@@ -15,10 +13,10 @@ use bray_package_interface::{
 use bray_runtime_interface::{PlatformServiceBinding, PlatformServiceRole};
 use bray_source::{SourceIdentity, SourceInput, SourceVersion};
 use bray_symbols::{
-    AnySymbolId, CallableParameterDefaultValue, ExternalSymbolKey,
-    InherentImplementationSymbolId, IntegerConstant, MemberLookupResult, ModulePathKey,
-    PackageIdentity, ProductKind, RuntimeDefaultTemplateReference, StaticStorageDuration,
-    SymbolKey, SymbolKind, SymbolName, TypeCallableMemberSymbolId, TypeExpressionTemplate,
+    AnySymbolId, CallableParameterDefaultValue, ExternalSymbolKey, InherentImplementationSymbolId,
+    IntegerConstant, MemberLookupResult, ModulePathKey, PackageIdentity, ProductKind,
+    RuntimeDefaultTemplateReference, StaticStorageDuration, SymbolKey, SymbolKind, SymbolName,
+    TypeCallableMemberSymbolId, TypeExpressionTemplate,
 };
 use bray_syntax::{SyntaxWalkControl, SyntaxWalkEvent, walk_syntax_tree};
 use bray_testing::test_source_inputs;
@@ -28,8 +26,8 @@ use crate::test_support::{
 };
 use crate::{
     Compilation, CompilationOptions, CompilationProfileConfiguration, CompilationProfileMode,
-    CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest,
-    SelectedTarget, WorkerBudget,
+    CompilationRequest, DependencyInterfaceInput, PackageInterfaceExportRequest, SelectedTarget,
+    WorkerBudget,
 };
 
 #[test]
@@ -200,17 +198,14 @@ fn generic_trait_implementations_round_trip_through_package_interfaces() {
 
     let bundle = export(&compilation);
 
-    let artifact = encode_package_interface(bundle).unwrap_or_else(|error| {
-        panic!("generic implementation interface must encode: {error:?}")
-    });
+    let artifact = encode_package_interface(bundle)
+        .unwrap_or_else(|error| panic!("generic implementation interface must encode: {error:?}"));
 
     ValidatedPackageInterface::try_new(
         artifact.shared_bytes(),
         InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
     )
-    .unwrap_or_else(|error| {
-        panic!("generic implementation interface must validate: {error:?}")
-    });
+    .unwrap_or_else(|error| panic!("generic implementation interface must validate: {error:?}"));
 }
 
 #[test]
@@ -318,8 +313,7 @@ fn parallel_interface_discovery_preserves_encoded_identity() {
     let parallel_budget = WorkerBudget::new(4)
         .unwrap_or_else(|error| panic!("parallel worker budget must be valid: {error:?}"));
 
-    let parallel =
-        profiled_compilation_from_sources_with_worker_budget(sources, parallel_budget);
+    let parallel = profiled_compilation_from_sources_with_worker_budget(sources, parallel_budget);
 
     let serial_artifact = encode_package_interface(export(&serial))
         .unwrap_or_else(|error| panic!("serial interface must encode: {error:?}"));
@@ -399,9 +393,7 @@ fn public_static_initializers_round_trip_as_checked_source_templates() {
         semantics
             .checked_templates()
             .iter()
-            .filter(|template| {
-                template.kind() == CheckedTemplateKind::ProductStaticInitializer
-            })
+            .filter(|template| { template.kind() == CheckedTemplateKind::ProductStaticInitializer })
             .count(),
         4
     );
@@ -724,9 +716,7 @@ fn exported_callable_and_type_semantics_intern_without_provider_source() {
 
         let template = consumer
             .static_instance_template(declaration)
-            .unwrap_or_else(|error| {
-                panic!("imported {duration:?} static must resolve: {error:?}")
-            });
+            .unwrap_or_else(|error| panic!("imported {duration:?} static must resolve: {error:?}"));
 
         assert!(
             template.diagnostics().is_empty(),
@@ -926,6 +916,7 @@ fn generic_constant_type_members_export_forwarded_self_results() {
         "{:#?}",
         provider.check_diagnostics()
     );
+
     export(&provider);
 }
 
@@ -1053,9 +1044,7 @@ fn imported_generic_type_members_reuse_the_receiver_substitution() {
 
     let lowered = consumer
         .lowered_unit(source_function_body_key(&consumer, "run"))
-        .unwrap_or_else(|error| {
-            panic!("imported mutable generic access must lower: {error:?}")
-        });
+        .unwrap_or_else(|error| panic!("imported mutable generic access must lower: {error:?}"));
 
     assert!(lowered.value().is_some(), "{:#?}", lowered.diagnostics());
 }
@@ -1077,9 +1066,9 @@ fn standard_memory_surface_exports_uninitialized_storage() {
         source_graph.diagnostics()
     );
 
-    let product = compilation.product_semantics().unwrap_or_else(|error| {
-        panic!("standard memory product semantics must build: {error:?}")
-    });
+    let product = compilation
+        .product_semantics()
+        .unwrap_or_else(|error| panic!("standard memory product semantics must build: {error:?}"));
 
     assert!(
         product.diagnostics().is_empty(),
@@ -1096,11 +1085,12 @@ fn standard_memory_surface_exports_uninitialized_storage() {
         .symbol_graph()
         .unwrap_or_else(|error| panic!("standard memory symbol graph must build: {error:?}"));
 
-    let identity =
-        super::construction::build_identity_surface(&compilation, symbols, product.value().public_symbols())
-            .unwrap_or_else(|error| {
-                panic!("standard memory identity surface must build: {error:?}")
-            });
+    let identity = super::construction::build_identity_surface(
+        &compilation,
+        symbols,
+        product.value().public_symbols(),
+    )
+    .unwrap_or_else(|error| panic!("standard memory identity surface must build: {error:?}"));
 
     let request = compilation
         .package_interface_export_request()
@@ -1763,8 +1753,8 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
         MemberLookupResult::NotFound
     ));
 
-    let io_path = ModulePathKey::try_new(["io"])
-        .unwrap_or_else(|| panic!("io module path must be valid"));
+    let io_path =
+        ModulePathKey::try_new(["io"]).unwrap_or_else(|| panic!("io module path must be valid"));
 
     let io = skeleton
         .module_by_path(package.id(), &io_path)
@@ -1816,9 +1806,7 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
 
     let imported_instances = consumer
         .imported_codegen_instance_count_for_test()
-        .unwrap_or_else(|error| {
-            panic!("imported formatting reachability must close: {error:?}")
-        });
+        .unwrap_or_else(|error| panic!("imported formatting reachability must close: {error:?}"));
 
     assert!(imported_instances > 0);
 }
@@ -1877,8 +1865,7 @@ fn target_gated_contributions_do_not_invalidate_package_interface_export() {
 
     let module = ExternalSymbolKey::module(
         package,
-        ModulePathKey::try_new(["app"])
-            .unwrap_or_else(|| panic!("test module path must be valid")),
+        ModulePathKey::try_new(["app"]).unwrap_or_else(|| panic!("test module path must be valid")),
     )
     .unwrap_or_else(|| panic!("test module key must be valid"));
 
@@ -2060,9 +2047,7 @@ fn compilation_from_sources_for_product_with_platform_services<const N: usize>(
     )
 }
 
-fn compilation_from_sources_for_product_with_platform_services_and_worker_budget<
-    const N: usize,
->(
+fn compilation_from_sources_for_product_with_platform_services_and_worker_budget<const N: usize>(
     sources: [&str; N],
     product_kind: ProductKind,
     platform_services: impl IntoIterator<Item = PlatformServiceBinding>,
@@ -2084,13 +2069,11 @@ fn compilation_from_sources_for_product_with_platform_services_and_worker_budget
     )
     .unwrap_or_else(|| panic!("test export identity must be valid"));
 
-    let export =
-        PackageInterfaceExportRequest::new(identity, InterfaceLanguageRevision::new(0));
+    let export = PackageInterfaceExportRequest::new(identity, InterfaceLanguageRevision::new(0));
 
     let sources = test_source_inputs("test", sources);
 
-    let options =
-        CompilationOptions::new(worker_budget, product_kind, SelectedTarget::default());
+    let options = CompilationOptions::new(worker_budget, product_kind, SelectedTarget::default());
 
     let request = CompilationRequest::with_options(package, sources, options)
         .with_platform_services(platform_services)
@@ -2121,8 +2104,7 @@ fn standard_library_compilation<const N: usize>(sources: [&str; N]) -> Compilati
     )
     .unwrap_or_else(|| panic!("standard-library export identity must be valid"));
 
-    let export =
-        PackageInterfaceExportRequest::new(identity, InterfaceLanguageRevision::new(0));
+    let export = PackageInterfaceExportRequest::new(identity, InterfaceLanguageRevision::new(0));
 
     let sources = test_source_inputs("standard", sources);
 

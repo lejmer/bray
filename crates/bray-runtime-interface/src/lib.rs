@@ -22,8 +22,7 @@ pub use artifact::{
     RuntimeArtifactMetadataEncodeError, RuntimeArtifactPurpose, RuntimeArtifactSelection,
     RuntimeArtifactSelectionError,
 };
-pub use binding::{
-    SourceRoleBinding, };
+pub use binding::SourceRoleBinding;
 pub use bray_runtime_model::{
     BinarySymbolName, ExecutionLaneRequirement, PanicAbiIdentity, ProtectedAsyncFrameId,
     ProtectedFrameAbiOperation, ProtectedFrameAbiVersions, ProtectedFrameAffinity,

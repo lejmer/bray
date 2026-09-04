@@ -438,17 +438,18 @@ The role set and each role's semantic effect are closed compiler contracts. A ru
 runtime-owned roles but cannot publish replacement semantics for them. Compiler-lowering roles remain compiler-owned and
 cannot be claimed by a runtime artifact.
 
-The catalog under `crates/bray-runtime-abi/src/catalog` defines execution and platform-service roles. Each entry owns its
-textual identity, native symbol, callable shape, artifact family, availability, and compiler mapping inputs. Execution
-entries also define semantic effects, required capabilities, host-control membership, and trusted bootstrap bindings.
-Compile-time projections produce the representation-specific enums and mappings in their owning crates. There are no
-checked-in generated outputs to synchronize. Duplicate identities and symbols, invalid parameter kinds, and contradictory
-ownership or availability fail compilation. Runtime artifact metadata still validates the selected implementation's
-complete ownership and dependency graph before product linking.
+The catalog under `crates/bray-runtime-abi/src/catalog` defines execution and platform-service roles. Each entry owns
+its textual identity, native symbol, callable shape, artifact family, availability, and compiler mapping inputs.
+Execution entries also define semantic effects, required capabilities, host-control membership, and trusted bootstrap
+bindings. Compile-time projections produce the representation-specific enums and mappings in their owning crates.
+There are no checked-in generated outputs to synchronize. Duplicate identities and symbols, invalid parameter kinds,
+and contradictory ownership or availability fail compilation. Runtime artifact metadata still validates the selected
+implementation's complete ownership and dependency graph before product linking.
 
 Native signatures describe the C boundary. Compiler signatures describe MIR values, including operations whose native
 arguments come from generated host or frame state. LLVM derives native declarations, scalar extension, and aggregate
-passing from the native signature. Bootstrap source validation checks that same signature against the checked Bray declaration.
+passing from the native signature. Bootstrap source validation checks that same signature against the checked Bray
+declaration.
 Native Rust exports check their declared value kinds against the catalog. Native C++ providers compile against
 catalog-generated declarations. Before publication, each ordinary or optimization archive must define every role it
 owns exactly once and must not define another component's roles. Temporal and dynamic-library providers have separate

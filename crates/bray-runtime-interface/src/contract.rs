@@ -505,7 +505,8 @@ mod tests {
                 requirements,
                 Some(runtime_contract()),
                 base_bindings()
-            ).is_ok()
+            )
+            .is_ok()
         );
     }
 

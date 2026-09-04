@@ -7,11 +7,11 @@ mod semantic_context;
 mod semantic_diagnostic;
 mod target_diagnostic;
 
+pub use diagnostic::diagnostic_semantic_value_failure;
 pub(crate) use diagnostic::{
     diagnostic_binding_failure, diagnostic_checker_failure, diagnostic_cycle_failure,
     diagnostic_semantic_context_failure, diagnostic_symbol_graph_failure,
 };
-pub use diagnostic::diagnostic_semantic_value_failure;
 pub use model::{
     FactCycle, FactQueryError, ImportedExecutableTemplateMismatch, ImportedQueryFailure,
     LocatedLoweringFailure,

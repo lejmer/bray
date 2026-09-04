@@ -377,23 +377,36 @@ pub(super) fn declare_product_host<'context>(
     let mut arguments = Vec::new();
 
     if result.is_some() {
-        arguments.push(control.get_first_param()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?.into());
+        arguments.push(
+            control
+                .get_first_param()
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+                .into(),
+        );
     }
 
     arguments.push(descriptor.as_pointer_value().into());
     arguments.push(operation.into());
 
-    let call = builder.build_call(runtime, &arguments, "product.host.observation")
+    let call = builder
+        .build_call(runtime, &arguments, "product.host.observation")
         .map_err(CodegenFailure::backend_library)?;
 
     if let Some(result) = result {
-        call.add_attribute(AttributeLoc::Param(0), crate::native::indirect_result_attribute(context, result)?);
+        call.add_attribute(
+            AttributeLoc::Param(0),
+            crate::native::indirect_result_attribute(context, result)?,
+        );
     }
 
     let observation = call.try_as_basic_value().basic();
 
-    builder.build_return(observation.as_ref().map(|value| value as &dyn inkwell::values::BasicValue))
+    builder
+        .build_return(
+            observation
+                .as_ref()
+                .map(|value| value as &dyn inkwell::values::BasicValue),
+        )
         .map_err(CodegenFailure::backend_library)?;
 
     retain_globals(

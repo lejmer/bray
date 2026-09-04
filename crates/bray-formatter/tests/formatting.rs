@@ -199,7 +199,11 @@ fn spaces_flexible_array_ranges() {
 
     let output = formatted(source);
 
-    assert!(output.text().contains("bytes: [u8; ..];"), "{}", output.text());
+    assert!(
+        output.text().contains("bytes: [u8; ..];"),
+        "{}",
+        output.text()
+    );
 
     assert_valid_and_idempotent(&output);
 }
@@ -972,7 +976,12 @@ fn assert_valid_and_idempotent(output: &FormattedSource) {
     let snapshot = test_source_snapshot(output.text());
     let parsed = parse_source_unit(&snapshot);
 
-    assert!(parsed.diagnostics().is_empty(), "{:#?}", parsed.diagnostics());
+    assert!(
+        parsed.diagnostics().is_empty(),
+        "{:#?}",
+        parsed.diagnostics()
+    );
+
     assert!(!parsed.source_unit().is_recovered());
 
     let second = formatted(output.text());

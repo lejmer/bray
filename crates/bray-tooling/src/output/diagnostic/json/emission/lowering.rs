@@ -125,14 +125,16 @@ pub(in crate::output::diagnostic::json) fn lowering_failure_context(
         ],
         Failure::InvalidFrameDescriptor(problem) => vec![
             text_field("cause", failure.as_str()),
-            text_field("frame_descriptor_problem", frame_descriptor_failure(problem)),
+            text_field(
+                "frame_descriptor_problem",
+                frame_descriptor_failure(problem),
+            ),
         ],
         Failure::MemoryArgumentOrdinalUnrepresentable {
             expression,
             ordinal,
         } => {
-            let mut context =
-                lowering_identity_context(failure.as_str(), "expression", expression);
+            let mut context = lowering_identity_context(failure.as_str(), "expression", expression);
 
             context.push(count_u64_field("memory_argument_ordinal", ordinal));
 
@@ -142,15 +144,15 @@ pub(in crate::output::diagnostic::json) fn lowering_failure_context(
             expression,
             ordinal,
         } => {
-            let mut context =
-                lowering_identity_context(failure.as_str(), "expression", expression);
+            let mut context = lowering_identity_context(failure.as_str(), "expression", expression);
 
             context.push(text_field("match_arm_ordinal", ordinal.to_string()));
 
             context
         }
-        Failure::MissingCallableResultType
-        | Failure::SemanticValueUnavailable => vec![text_field("cause", failure.as_str())],
+        Failure::MissingCallableResultType | Failure::SemanticValueUnavailable => {
+            vec![text_field("cause", failure.as_str())]
+        }
     }
 }
 

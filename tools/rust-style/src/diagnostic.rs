@@ -42,9 +42,7 @@ pub(super) enum Rule {
 impl Rule {
     pub(super) fn from_identifier(identifier: &str) -> Option<Self> {
         match identifier {
-            "context-erasing-failure-conversion" => {
-                Some(Self::ContextErasingFailureConversion)
-            }
+            "context-erasing-failure-conversion" => Some(Self::ContextErasingFailureConversion),
             "function-too-large" => Some(Self::FunctionTooLarge),
             "legacy-mod-rs" => Some(Self::LegacyModRs),
             "module-too-large" => Some(Self::ModuleTooLarge),

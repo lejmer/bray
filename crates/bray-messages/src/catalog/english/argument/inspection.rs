@@ -142,9 +142,7 @@ const fn declaration_inspection_cause(
     }
 }
 
-fn symbol_inspection_cause(
-    cause: &bray_diagnostics::DiagnosticSymbolInspectionFailure,
-) -> String {
+fn symbol_inspection_cause(cause: &bray_diagnostics::DiagnosticSymbolInspectionFailure) -> String {
     use bray_diagnostics::DiagnosticSymbolInspectionFailure as Cause;
 
     match cause {
@@ -164,9 +162,7 @@ fn symbol_inspection_cause(
     .to_owned()
 }
 
-fn bound_inspection_cause(
-    cause: &bray_diagnostics::DiagnosticBoundInspectionFailure,
-) -> String {
+fn bound_inspection_cause(cause: &bray_diagnostics::DiagnosticBoundInspectionFailure) -> String {
     use bray_diagnostics::DiagnosticBoundInspectionFailure as Cause;
 
     match cause {

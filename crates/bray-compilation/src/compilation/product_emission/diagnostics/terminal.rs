@@ -1,8 +1,8 @@
 use bray_diagnostics::{
     Diagnostic, DiagnosticBag, DiagnosticEmissionCodegenFailure,
-    DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure, DiagnosticIoErrorKind,
-    DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote, DiagnosticNoteKind,
-    DiagnosticFailureField, DiagnosticFailureValue, DiagnosticPackageInterfaceFailure,
+    DiagnosticEmissionEvaluationFailure, DiagnosticEmissionFailure, DiagnosticFailureField,
+    DiagnosticFailureValue, DiagnosticIoErrorKind, DiagnosticLabel, DiagnosticLabelKind,
+    DiagnosticNote, DiagnosticNoteKind, DiagnosticPackageInterfaceFailure,
     DiagnosticRelatedLocation, DiagnosticRelatedLocationKind,
 };
 use bray_emitter::BackendContributionMergeErrorKind;
@@ -413,10 +413,7 @@ fn package_interface_invalid_compilation_cause(
                     "field",
                     DiagnosticFailureValue::Text((*field).to_owned()),
                 ),
-                DiagnosticFailureField::new(
-                    "actual",
-                    DiagnosticFailureValue::Text(actual.clone()),
-                ),
+                DiagnosticFailureField::new("actual", DiagnosticFailureValue::Text(actual.clone())),
             ]
             .into_boxed_slice(),
         ),

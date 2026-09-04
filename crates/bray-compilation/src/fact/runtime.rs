@@ -321,14 +321,14 @@ impl FactRuntime {
         &self,
         observer: FactEvaluationTestObserver,
     ) -> Result<(), FactQueryError> {
-        let mut current = self
-            .observer
-            .lock()
-            .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
-                component: SynchronizationComponent::RuntimeDependencies,
-                fact: None,
-                task: None,
-            })?;
+        let mut current =
+            self.observer
+                .lock()
+                .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
+                    component: SynchronizationComponent::RuntimeDependencies,
+                    fact: None,
+                    task: None,
+                })?;
 
         *current = Some(observer);
 

@@ -3,8 +3,7 @@ use std::borrow::Cow;
 
 use bray_diagnostics::DiagnosticBag;
 use bray_source::{
-    LineIndex, SourceLocation, SourceSnapshot, SourceSpan, SourceStore, TextRange,
-    TextSizeOverflow,
+    LineIndex, SourceLocation, SourceSnapshot, SourceSpan, SourceStore, TextRange, TextSizeOverflow,
 };
 use bray_symbols::{AnySymbolId, SymbolGraph};
 use bray_syntax::SyntaxTrivia;

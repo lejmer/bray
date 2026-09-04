@@ -32,10 +32,8 @@ pub(crate) fn render_token_inspection(
 
     let stdout = match output_format {
         OutputFormat::Text => render_text_report(&report),
-        OutputFormat::Json => {
-            render_pretty_json(&report)
-                .map_err(|error| TokenInspectionRenderError::Json(error.to_string()))?
-        }
+        OutputFormat::Json => render_pretty_json(&report)
+            .map_err(|error| TokenInspectionRenderError::Json(error.to_string()))?,
     };
 
     Ok(InspectionOutput::new(stdout, diagnostics))
@@ -98,9 +96,8 @@ impl TokenInspectionSource {
         snapshot: &SourceSnapshot,
         sources: &SourceStore,
     ) -> Result<(Self, DiagnosticBag), TokenInspectionRenderError> {
-        let line_index =
-            LineIndex::new(snapshot.text())
-                .map_err(TokenInspectionRenderError::SourceIndexOverflow)?;
+        let line_index = LineIndex::new(snapshot.text())
+            .map_err(TokenInspectionRenderError::SourceIndexOverflow)?;
 
         let lex_result = lex_source_unit(snapshot);
 

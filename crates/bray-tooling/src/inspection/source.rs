@@ -8,7 +8,10 @@ use crate::output::SourceOriginOutput;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum SourceInspectionRenderError {
-    Capacity { resource: &'static str, actual: usize },
+    Capacity {
+        resource: &'static str,
+        actual: usize,
+    },
     SourceIndex,
     SourceIndexOverflow(TextSizeOverflow),
     Json(String),
@@ -22,10 +25,8 @@ pub(crate) fn render_source_inspection(
 
     match output_format {
         OutputFormat::Text => Ok(render_text_report(&report)),
-        OutputFormat::Json => {
-            render_pretty_json(&report)
-                .map_err(|error| SourceInspectionRenderError::Json(error.to_string()))
-        }
+        OutputFormat::Json => render_pretty_json(&report)
+            .map_err(|error| SourceInspectionRenderError::Json(error.to_string())),
     }
 }
 

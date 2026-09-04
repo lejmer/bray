@@ -12,8 +12,8 @@ use bray_package_interface::{
 };
 use bray_project::{ProjectGraph, ProjectProduct};
 use bray_source::{
-    LineIndex, LspPosition, SourceEdit, SourceId, SourceIdentity, SourceInput, SourceOrigin,
-    SourceSnapshot, SourceVersion, SourceEditError, SourceUriError, TextSizeOverflow,
+    LineIndex, LspPosition, SourceEdit, SourceEditError, SourceId, SourceIdentity, SourceInput,
+    SourceOrigin, SourceSnapshot, SourceUriError, SourceVersion, TextSizeOverflow,
 };
 use bray_symbols::ProductIdentity;
 use bray_target::TargetIdentity;
@@ -92,16 +92,34 @@ pub(crate) enum WorkspaceError {
         current: u64,
     },
     DocumentNotFound,
-    InvalidDocumentUri { uri: String, cause: SourceUriError },
-    InvalidSourceOrigin { origin: SourceOrigin, cause: SourceUriError },
-    InvalidDocumentPath { path: PathBuf, cause: std::io::Error },
+    InvalidDocumentUri {
+        uri: String,
+        cause: SourceUriError,
+    },
+    InvalidSourceOrigin {
+        origin: SourceOrigin,
+        cause: SourceUriError,
+    },
+    InvalidDocumentPath {
+        path: PathBuf,
+        cause: std::io::Error,
+    },
     MissingDocumentUri,
     InvalidEdit,
     SourceEdit(SourceEditError),
-    InvalidVersion { actual: i64 },
-    NonIncreasingVersion { current: u64, actual: u64 },
-    VersionExhausted { current: u64 },
-    SourceIdentityExhausted { current: u32 },
+    InvalidVersion {
+        actual: i64,
+    },
+    NonIncreasingVersion {
+        current: u64,
+        actual: u64,
+    },
+    VersionExhausted {
+        current: u64,
+    },
+    SourceIdentityExhausted {
+        current: u32,
+    },
     ProductNotFound,
     SourceTooLarge(TextSizeOverflow),
     UnsupportedTarget,
@@ -710,9 +728,7 @@ impl Workspace {
                 let bundle = dependency
                     .compilation
                     .package_interface_export_bundle()
-                    .ok_or_else(|| {
-                        WorkspaceError::DependencyExportUnavailable(identity.clone())
-                    })?
+                    .ok_or_else(|| WorkspaceError::DependencyExportUnavailable(identity.clone()))?
                     .as_ref()
                     .map_err(|cause| WorkspaceError::DependencyExport {
                         product: identity.clone(),
@@ -769,12 +785,12 @@ impl Workspace {
     }
 
     fn next_generation(&mut self) -> Result<u64, WorkspaceError> {
-        self.next_generation = self
-            .next_generation
-            .checked_add(1)
-            .ok_or(WorkspaceError::GenerationExhausted {
-                current: self.next_generation,
-            })?;
+        self.next_generation =
+            self.next_generation
+                .checked_add(1)
+                .ok_or(WorkspaceError::GenerationExhausted {
+                    current: self.next_generation,
+                })?;
 
         Ok(self.next_generation)
     }
@@ -813,13 +829,12 @@ fn workspace_source(source: &SourceSnapshot) -> Result<WorkspaceSource, Workspac
         })?
         .ok_or(WorkspaceError::MissingDocumentUri)?;
 
-    let path = source
-        .origin()
-        .document_file_path()
-        .map_err(|cause| WorkspaceError::InvalidSourceOrigin {
+    let path = source.origin().document_file_path().map_err(|cause| {
+        WorkspaceError::InvalidSourceOrigin {
             origin: source.origin().clone(),
             cause,
-        })?;
+        }
+    })?;
 
     Ok(WorkspaceSource {
         identity: source.identity(),
@@ -923,8 +938,8 @@ fn apply_changes(
 }
 
 fn source_version(version: i64) -> Result<SourceVersion, WorkspaceError> {
-    let version = u64::try_from(version)
-        .map_err(|_| WorkspaceError::InvalidVersion { actual: version })?;
+    let version =
+        u64::try_from(version).map_err(|_| WorkspaceError::InvalidVersion { actual: version })?;
 
     Ok(SourceVersion::new(version))
 }

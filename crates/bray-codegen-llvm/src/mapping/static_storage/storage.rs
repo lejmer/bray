@@ -240,7 +240,10 @@ fn declare_static_accessor<'context>(
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let identity = crate::native::declare_runtime_function(
-            module, context, types.target(), bray_runtime_interface::RuntimeAbiRole::ThreadAttachmentIdentity,
+            module,
+            context,
+            types.target(),
+            bray_runtime_interface::RuntimeAbiRole::ThreadAttachmentIdentity,
         )?;
 
         let current = builder
@@ -317,7 +320,10 @@ fn declare_static_accessor<'context>(
             .map_err(CodegenFailure::backend_library)?;
 
         let register = crate::native::declare_runtime_function(
-            module, context, types.target(), bray_runtime_interface::RuntimeAbiRole::ThreadStaticCleanupRegistration,
+            module,
+            context,
+            types.target(),
+            bray_runtime_interface::RuntimeAbiRole::ThreadStaticCleanupRegistration,
         )?;
 
         let status = builder

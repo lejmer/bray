@@ -599,9 +599,7 @@ where
     let magnitude = match u64::try_from(length) {
         Ok(length) => length.to_be_bytes(),
         Err(_) => {
-            return Err(CheckerInfrastructureError::ConstantArrayLengthCapacityExceeded {
-                length,
-            });
+            return Err(CheckerInfrastructureError::ConstantArrayLengthCapacityExceeded { length });
         }
     };
 

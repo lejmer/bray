@@ -376,10 +376,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
             let destination = self.aggregate_element(fields, ordinal)?;
 
-            let destination = crate::conversion::resource_limit(
-                destination,
-                "assembly_destination_ordinal",
-            )?;
+            let destination =
+                crate::conversion::resource_limit(destination, "assembly_destination_ordinal")?;
 
             result = insert_value(&self.builder, result, value, destination)?;
         }

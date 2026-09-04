@@ -175,9 +175,7 @@ pub(super) fn runtime_default_input_type(
             let ty = signature
                 .value()
                 .parameter_type_template(parameter, ordinal, export.values)
-                .map_err(|error| {
-                    super::super::callable_signature_export_error(error)
-                })?;
+                .map_err(|error| super::super::callable_signature_export_error(error))?;
 
             export.resolve_type_template(symbol, &ty)
         }
@@ -209,9 +207,7 @@ pub(super) fn callable_template_inputs(
 
     let parameter_types = signature
         .parameter_type_templates(export.values)
-        .map_err(|error| {
-            super::super::callable_signature_export_error(error)
-        })?;
+        .map_err(|error| super::super::callable_signature_export_error(error))?;
 
     for (index, (parameter, ty)) in signature
         .parameters()
@@ -347,9 +343,7 @@ pub(super) fn callable_input_type(
     let parameter_types = signature
         .value()
         .parameter_type_templates(export.values)
-        .map_err(|error| {
-            super::super::callable_signature_export_error(error)
-        })?;
+        .map_err(|error| super::super::callable_signature_export_error(error))?;
 
     let template = parameter_types
         .get(usize::try_from(ordinal).map_err(|_| {

@@ -37,10 +37,8 @@ pub(crate) fn render_syntax_inspection(
 
     let stdout = match output_format {
         OutputFormat::Text => render_text_report(&report),
-        OutputFormat::Json => {
-            render_pretty_json(&report)
-                .map_err(|error| SyntaxInspectionRenderError::Json(error.to_string()))?
-        }
+        OutputFormat::Json => render_pretty_json(&report)
+            .map_err(|error| SyntaxInspectionRenderError::Json(error.to_string()))?,
     };
 
     Ok(InspectionOutput::new(stdout, diagnostics))

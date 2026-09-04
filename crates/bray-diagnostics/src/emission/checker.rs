@@ -49,14 +49,22 @@ pub enum DiagnosticCheckerFailure {
     ConstantInput(DiagnosticConstantInputFailure),
     ConstantEvaluation(DiagnosticConstantEvaluationFailure),
     ConstantOperation(DiagnosticCheckerConstantOperationFailure),
-    SelectionInputCapacityExceeded { count: usize },
-    SelectionInputOrdinalUnrepresentable { ordinal: u32 },
+    SelectionInputCapacityExceeded {
+        count: usize,
+    },
+    SelectionInputOrdinalUnrepresentable {
+        ordinal: u32,
+    },
     SelectionDiagnosticCapacityExceeded {
         kind: &'static str,
         count: usize,
     },
-    CallbackParameterOrdinalUnrepresentable { ordinal: usize },
-    ConstantArrayLengthCapacityExceeded { length: usize },
+    CallbackParameterOrdinalUnrepresentable {
+        ordinal: usize,
+    },
+    ConstantArrayLengthCapacityExceeded {
+        length: usize,
+    },
     InvalidSemanticSelectionInput,
     InvalidMemoryOperationInput {
         hook: &'static str,
@@ -395,12 +403,8 @@ impl DiagnosticCheckerFailure {
                 "checker_constant_array_length_capacity_exceeded"
             }
             Self::InvalidSemanticSelectionInput => "checker_invalid_semantic_selection_input",
-            Self::InvalidMemoryOperationInput { .. } => {
-                "checker_invalid_memory_operation_input"
-            }
-            Self::InvalidMemoryGenericArgument { .. } => {
-                "checker_invalid_memory_generic_argument"
-            }
+            Self::InvalidMemoryOperationInput { .. } => "checker_invalid_memory_operation_input",
+            Self::InvalidMemoryGenericArgument { .. } => "checker_invalid_memory_generic_argument",
             Self::InvalidCallbackSignatureInput { .. } => {
                 "checker_invalid_callback_signature_input"
             }

@@ -1,8 +1,7 @@
 use bray_runtime::native::implementation;
 use bray_runtime_abi::{
     NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostOperation,
-    NativeRootHandle, NativeRunOutcome, NativeRuntimeStatus,
-    NativeThreadStaticCleanupRegistration,
+    NativeRootHandle, NativeRunOutcome, NativeRuntimeStatus, NativeThreadStaticCleanupRegistration,
 };
 
 native_adapter! {

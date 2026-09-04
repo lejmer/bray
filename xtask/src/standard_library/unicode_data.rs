@@ -85,7 +85,11 @@ fn load_input(root: &Path, name: &'static str) -> Result<Input, String> {
 
     let digest = lowercase_hex(&Sha256::digest(contents.as_bytes()));
 
-    Ok(Input { name, contents, digest })
+    Ok(Input {
+        name,
+        contents,
+        digest,
+    })
 }
 
 fn property_ranges(contents: &str, properties: &[&str]) -> Result<Vec<(u32, u32)>, String> {
@@ -383,7 +387,9 @@ fn check_outputs(outputs: &[(PathBuf, Vec<u8>)]) -> Result<(), String> {
     let stale = outputs
         .iter()
         .filter_map(|(path, expected)| match std::fs::read(path) {
-            Ok(actual) if normalize_line_endings(&actual) == normalize_line_endings(expected) => None,
+            Ok(actual) if normalize_line_endings(&actual) == normalize_line_endings(expected) => {
+                None
+            }
             _ => Some(path.display().to_string()),
         })
         .collect::<Vec<_>>();

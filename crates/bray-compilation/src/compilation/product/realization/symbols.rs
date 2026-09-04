@@ -425,7 +425,8 @@ impl Compilation {
         if let MirUnitKey::Bound(_) = instance.template()
             && let Some(role) = crate::compilation::foreign::runtime::runtime_role(self, function)?
         {
-            let symbol = role.native_symbol()
+            let symbol = role
+                .native_symbol()
                 .ok_or(CodegenPreparationError::InvalidSymbolName)?;
 
             let name = BinarySymbolName::try_new(symbol)
@@ -449,10 +450,8 @@ impl Compilation {
         };
 
         if let Some(role) = platform_service {
-            let name = BinarySymbolName::try_new(
-                role.native_symbol(),
-            )
-            .ok_or(CodegenPreparationError::InvalidSymbolName)?;
+            let name = BinarySymbolName::try_new(role.native_symbol())
+                .ok_or(CodegenPreparationError::InvalidSymbolName)?;
 
             let linkage = if platform_overrides.contains(&role) {
                 CodegenLinkage::Import

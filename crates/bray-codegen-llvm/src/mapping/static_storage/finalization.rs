@@ -467,7 +467,10 @@ fn declare_static_incident_reporter<'context>(
     );
 
     let reporter = crate::native::declare_runtime_function(
-        module, context, types.target(), bray_runtime_interface::RuntimeAbiRole::EntryFailureReporting,
+        module,
+        context,
+        types.target(),
+        bray_runtime_interface::RuntimeAbiRole::EntryFailureReporting,
     )?;
 
     let builder = context.create_builder();

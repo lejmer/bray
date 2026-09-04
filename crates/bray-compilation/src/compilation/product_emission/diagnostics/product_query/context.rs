@@ -224,18 +224,14 @@ fn push_codegen_target(
         ),
         text_list_field(
             "target_scalar_layouts",
-            target
-                .data_layout()
-                .scalars()
-                .iter()
-                .map(|layout| {
-                    format!(
-                        "{}:{}:{}",
-                        target_scalar_kind(layout.kind()),
-                        layout.size_bytes(),
-                        layout.alignment_bytes(),
-                    )
-                }),
+            target.data_layout().scalars().iter().map(|layout| {
+                format!(
+                    "{}:{}:{}",
+                    target_scalar_kind(layout.kind()),
+                    layout.size_bytes(),
+                    layout.alignment_bytes(),
+                )
+            }),
         ),
         count_field(
             "target_aggregate_alignment_bytes",
@@ -262,8 +258,14 @@ fn push_codegen_target(
             }),
         ),
         text_field("target_panic_abi", target.panic_abi().as_str()),
-        text_field("target_global_symbol_prefix", target.symbols().global_prefix()),
-        text_field("target_private_symbol_prefix", target.symbols().private_prefix()),
+        text_field(
+            "target_global_symbol_prefix",
+            target.symbols().global_prefix(),
+        ),
+        text_field(
+            "target_private_symbol_prefix",
+            target.symbols().private_prefix(),
+        ),
         text_list_field(
             "target_supported_linkages",
             target
@@ -418,9 +420,8 @@ mod tests {
 
     #[test]
     fn target_context_preserves_machine_layout_abi_and_selection() {
-        let target = bray_codegen::CodegenTarget::for_native(
-            bray_target::NativeTarget::X86_64WindowsMsvc,
-        );
+        let target =
+            bray_codegen::CodegenTarget::for_native(bray_target::NativeTarget::X86_64WindowsMsvc);
 
         let fields = product_query_context(&ProductQueryContext::Target(target));
         let names: Vec<_> = fields.iter().map(|field| field.name()).collect();

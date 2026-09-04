@@ -99,21 +99,17 @@ impl bray_package_interface::ExecutableTemplateEncodeContext
         &mut self,
         key: &BoundUnitKey,
     ) -> Result<bray_ir::MirExecutableTemplateId, Self::Error> {
-        self.nested
-            .get(key)
-            .copied()
-            .ok_or_else(|| {
-                super::super::export_contract_error(
-                    super::super::PackageInterfaceExportContract::MissingNestedExecutableTemplate,
-                )
-            })
+        self.nested.get(key).copied().ok_or_else(|| {
+            super::super::export_contract_error(
+                super::super::PackageInterfaceExportContract::MissingNestedExecutableTemplate,
+            )
+        })
     }
 }
 
 pub(super) fn index(length: usize) -> Result<u32, PackageInterfaceExportError> {
-    u32::try_from(length).map_err(|_| {
-        super::super::capacity_export_error("semantic_template_node_count", length)
-    })
+    u32::try_from(length)
+        .map_err(|_| super::super::capacity_export_error("semantic_template_node_count", length))
 }
 
 pub(super) fn checked_constraint_expression(
@@ -126,21 +122,15 @@ pub(super) fn checked_constraint_expression(
 
     let key = compilation
         .constraint_unit_key(expression.owner(), unit)
-        .map_err(|error| {
-            super::super::fact_query_export_error(error)
-        })?;
+        .map_err(|error| super::super::fact_query_export_error(error))?;
 
     let bound = compilation
         .bound_unit_with_cancellation(key.clone(), cancellation)
-        .map_err(|error| {
-            super::super::fact_query_export_error(error)
-        })?;
+        .map_err(|error| super::super::fact_query_export_error(error))?;
 
     let semantics = compilation
         .expression_semantics_with_cancellation(key.clone(), cancellation)
-        .map_err(|error| {
-            super::super::fact_query_export_error(error)
-        })?;
+        .map_err(|error| super::super::fact_query_export_error(error))?;
 
     let diagnostics = DiagnosticBag::merged_all([
         bound.result().diagnostics(),
@@ -157,18 +147,16 @@ pub(super) fn checked_constraint_expression(
     )
     .ok_or_else(|| incomplete(expression.owner()))?;
 
-    let values = compilation.semantic_value_store().map_err(|error| {
-        super::super::fact_query_export_error(error)
-    })?;
+    let values = compilation
+        .semantic_value_store()
+        .map_err(|error| super::super::fact_query_export_error(error))?;
 
     let substitution = crate::compilation::substitution::identity_substitution(
         values,
         generic.owner(),
         generic.parameters(),
     )
-    .map_err(|error| {
-        super::super::fact_query_export_error(error)
-    })?;
+    .map_err(|error| super::super::fact_query_export_error(error))?;
 
     let (references, reference_diagnostics) = compilation
         .concrete_call_references(
@@ -180,9 +168,7 @@ pub(super) fn checked_constraint_expression(
             ConstantEvaluationLimits::default(),
             cancellation,
         )
-        .map_err(|error| {
-            super::super::fact_query_export_error(error)
-        })?;
+        .map_err(|error| super::super::fact_query_export_error(error))?;
 
     if reference_diagnostics.has_errors() {
         return Err(incomplete(expression.owner()));
@@ -191,9 +177,7 @@ pub(super) fn checked_constraint_expression(
     let context = CompilationCheckerContext::new(
         compilation
             .binding_context_for(bound.result().value().key(), cancellation)
-            .map_err(|error| {
-                super::super::fact_query_export_error(error)
-            })?,
+            .map_err(|error| super::super::fact_query_export_error(error))?,
     );
 
     let semantic_context = semantic_unit_context_for(context.symbols(), bound.result().value())
@@ -219,9 +203,7 @@ pub(super) fn checked_constraint_expression(
     );
 
     let checked = checker_result(DefaultConstantChecker.check_constant_term(request, &input))
-        .map_err(|error| {
-            super::super::fact_query_export_error(error)
-        })?;
+        .map_err(|error| super::super::fact_query_export_error(error))?;
 
     if checked.diagnostics().has_errors() {
         return Err(incomplete(expression.owner()));

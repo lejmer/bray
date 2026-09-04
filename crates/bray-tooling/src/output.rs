@@ -7,9 +7,9 @@ mod path;
 mod style;
 
 #[cfg(feature = "analysis")]
-pub(crate) use diagnostic::{DiagnosticJson, diagnostic_jsons};
-#[cfg(feature = "analysis")]
 pub use diagnostic::diagnostic_evaluation_failure_json;
+#[cfg(feature = "analysis")]
+pub(crate) use diagnostic::{DiagnosticJson, diagnostic_jsons};
 pub use diagnostic::{write_diagnostic_groups, write_diagnostics};
 pub(crate) use location::SourceLocationOutput;
 #[cfg(feature = "analysis")]

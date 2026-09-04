@@ -47,10 +47,10 @@ pub use constant::{
     resolve_trait_application_template, resolve_type_expression_template,
 };
 pub use context::{
-    CheckerConstantEvaluationFailure, CheckerConstantInputFailure,
-    CheckerConstantOperationFailure, CheckerInfrastructureError, CheckerInputKind,
-    CheckerLiteralValueFailure, CheckerPatternInputFailure, CheckerQueryError, CheckerQueryResult,
-    CheckerRequestContext, CheckerSemanticQueryProvider, CheckerSource, CheckerStorageFlowFailure,
+    CheckerConstantEvaluationFailure, CheckerConstantInputFailure, CheckerConstantOperationFailure,
+    CheckerInfrastructureError, CheckerInputKind, CheckerLiteralValueFailure,
+    CheckerPatternInputFailure, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
+    CheckerSemanticQueryProvider, CheckerSource, CheckerStorageFlowFailure,
     ImplementationHookResolution, StorageFlowInputKind,
 };
 pub use diagnostic::diagnostic_type;

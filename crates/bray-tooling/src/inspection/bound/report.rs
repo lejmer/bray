@@ -36,7 +36,10 @@ pub(crate) enum BoundInspectionRenderError {
     Symbol,
     Type(TypeInspectionError),
     Selection(SelectionInspectionError),
-    Capacity { resource: &'static str, actual: usize },
+    Capacity {
+        resource: &'static str,
+        actual: usize,
+    },
 }
 
 impl From<InspectionSourceError> for BoundInspectionRenderError {
@@ -159,10 +162,8 @@ fn render_report(
 ) -> Result<InspectionOutput, BoundInspectionRenderError> {
     let stdout = match output_format {
         OutputFormat::Text => render_text_report(&report),
-        OutputFormat::Json => {
-            render_pretty_json(&report)
-                .map_err(|error| BoundInspectionRenderError::Json(error.to_string()))?
-        }
+        OutputFormat::Json => render_pretty_json(&report)
+            .map_err(|error| BoundInspectionRenderError::Json(error.to_string()))?,
     };
 
     Ok(InspectionOutput::new(stdout, diagnostics))

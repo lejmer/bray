@@ -165,7 +165,10 @@ pub(crate) fn push_semantic_type_data(
             identity_field("actual_projection_member", member),
         ]),
         Type::Tuple(elements) => {
-            context.push(identity_list_field("actual_tuple_elements", elements.iter()));
+            context.push(identity_list_field(
+                "actual_tuple_elements",
+                elements.iter(),
+            ));
         }
         Type::Array { element, length } => context.extend([
             identity_field("actual_array_element", element),
@@ -195,7 +198,10 @@ pub(crate) fn push_semantic_type_data(
             identity_field("actual_owned_target", target),
         ]),
         Type::Callable(callable) => context.extend([
-            natural_field("actual_callable_parameter_count", callable.parameters().len()),
+            natural_field(
+                "actual_callable_parameter_count",
+                callable.parameters().len(),
+            ),
             boolean_field("actual_callable_variadic", callable.is_variadic()),
             identity_field("actual_callable_result", &callable.result()),
             identity_field("actual_callable_contract", callable),
@@ -248,7 +254,10 @@ pub(crate) fn push_type_template_data(
             identity_field("actual_projection_member", member),
         ]),
         Template::Tuple(elements) => {
-            context.push(identity_list_field("actual_tuple_elements", elements.iter()));
+            context.push(identity_list_field(
+                "actual_tuple_elements",
+                elements.iter(),
+            ));
         }
         Template::Array { element, length } => context.extend([
             identity_field("actual_array_element", element),
@@ -275,7 +284,10 @@ pub(crate) fn push_type_template_data(
             identity_field("actual_owned_target", target),
         ]),
         Template::Callable(callable) => context.extend([
-            natural_field("actual_callable_parameter_count", callable.parameters().len()),
+            natural_field(
+                "actual_callable_parameter_count",
+                callable.parameters().len(),
+            ),
             boolean_field("actual_callable_variadic", callable.is_variadic()),
             identity_field("actual_callable_result", callable.result()),
             identity_field("actual_callable_contract", callable),
@@ -347,9 +359,8 @@ mod tests {
 
         let mut template_fields = Vec::new();
 
-        let template = bray_symbols::TypeExpressionTemplate::Tuple(
-            Vec::new().into_boxed_slice().into(),
-        );
+        let template =
+            bray_symbols::TypeExpressionTemplate::Tuple(Vec::new().into_boxed_slice().into());
 
         super::push_type_template_data(&mut template_fields, &template);
 

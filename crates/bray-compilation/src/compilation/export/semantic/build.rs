@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_binder::{BindingQueryContext, SymbolQueryProvider};
+use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{BoundUnitKey, CheckedTemplateKind};
 use bray_package_interface::{
     InterfaceConstantCallableBody, InterfaceExecutableTemplate, InterfaceNativeBoundary,
@@ -148,7 +148,8 @@ fn constant_callable_bodies(
 
         let arguments = callable_argument_ordinals(signature.value())?;
 
-        let parameters = crate::compilation::binder::visible_generic_parameters(export.graph, symbol);
+        let parameters =
+            crate::compilation::binder::visible_generic_parameters(export.graph, symbol);
 
         let owner = GenericOwnerId::try_new(symbol).ok_or_else(|| {
             super::super::export_contract_error(
@@ -165,10 +166,12 @@ fn constant_callable_bodies(
         let result_type = if let Some(context @ bray_symbols::SelfTypeContext::NamedType(_)) =
             crate::compilation::binder::self_type_context(export.graph, symbol)
         {
-            let replacement = crate::compilation::substitution::contextual_self_type(binder, context)
-                .map_err(super::super::invalid_compilation_fact_error)?;
+            let replacement =
+                crate::compilation::substitution::contextual_self_type(binder, context)
+                    .map_err(super::super::invalid_compilation_fact_error)?;
 
-            values.substitute_contextual_self(result_type, context, replacement)
+            values
+                .substitute_contextual_self(result_type, context, replacement)
                 .map_err(super::super::semantic_value_export_error)?
         } else {
             result_type

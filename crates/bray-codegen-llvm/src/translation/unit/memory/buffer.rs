@@ -258,10 +258,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "memory.buffer.relocate.bytes",
         ))?;
 
-        let alignment = crate::conversion::target_value(
-            layout.alignment().get(),
-            "memory_buffer_alignment",
-        )?;
+        let alignment =
+            crate::conversion::target_value(layout.alignment().get(), "memory_buffer_alignment")?;
 
         llvm(self.builder.build_memcpy(
             destination_pointer,

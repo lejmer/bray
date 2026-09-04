@@ -1322,6 +1322,7 @@ mod tests {
         let observed = control(descriptor, NativeProductHostOperation::OBSERVE);
 
         assert_eq!(observed.thread_attachments(), 0);
+
         assert_eq!(
             control(descriptor, NativeProductHostOperation::CLOSE).state(),
             NativeProductHostState::CLOSED

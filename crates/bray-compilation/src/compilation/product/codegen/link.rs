@@ -42,10 +42,8 @@ pub(super) fn runtime_platform_symbols(
 fn platform_symbol(
     role: bray_runtime_interface::PlatformServiceRole,
 ) -> Result<bray_runtime_interface::BinarySymbolName, NativeProductPlanningError> {
-    bray_runtime_interface::BinarySymbolName::try_new(
-        role.native_symbol(),
-    )
-    .ok_or(NativeProductPlanningError::InvalidSymbolName)
+    bray_runtime_interface::BinarySymbolName::try_new(role.native_symbol())
+        .ok_or(NativeProductPlanningError::InvalidSymbolName)
 }
 
 impl Compilation {
@@ -650,9 +648,7 @@ pub(super) fn platform_services_for_imported_symbols<'symbol>(
     available_services
         .iter()
         .copied()
-        .filter(|role| {
-            imported_symbols.contains(role.native_symbol())
-        })
+        .filter(|role| imported_symbols.contains(role.native_symbol()))
         .collect()
 }
 

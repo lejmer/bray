@@ -63,11 +63,23 @@ fn push_codegen_mappings(
         identity_list_field("codegen_constant_term_mappings", mappings.constant_terms()),
         identity_list_field("codegen_callable_mappings", mappings.callables()),
         identity_list_field("codegen_operation_mappings", mappings.operations()),
-        identity_list_field("codegen_static_storage_mappings", mappings.static_storages()),
-        identity_list_field("codegen_native_storage_mappings", mappings.native_storages()),
+        identity_list_field(
+            "codegen_static_storage_mappings",
+            mappings.static_storages(),
+        ),
+        identity_list_field(
+            "codegen_native_storage_mappings",
+            mappings.native_storages(),
+        ),
         identity_list_field("codegen_terminator_mappings", mappings.terminators()),
-        identity_list_field("codegen_debug_location_mappings", mappings.debug_locations()),
-        boolean_field("codegen_product_host_present", mappings.product_host().is_some()),
+        identity_list_field(
+            "codegen_debug_location_mappings",
+            mappings.debug_locations(),
+        ),
+        boolean_field(
+            "codegen_product_host_present",
+            mappings.product_host().is_some(),
+        ),
     ]);
 
     if let Some(product_host) = mappings.product_host() {
@@ -209,9 +221,7 @@ const fn backend_artifact_requirement(
     }
 }
 
-const fn debug_information_output(
-    value: bray_codegen::DebugInformationOutputMode,
-) -> &'static str {
+const fn debug_information_output(value: bray_codegen::DebugInformationOutputMode) -> &'static str {
     match value {
         bray_codegen::DebugInformationOutputMode::Omit => "omit",
         bray_codegen::DebugInformationOutputMode::Embedded => "embedded",
