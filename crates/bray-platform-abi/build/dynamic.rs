@@ -1,4 +1,4 @@
 mod contract;
-mod core;
+mod main;
 
-pub(super) use core::build;
+pub(super) use main::build;
