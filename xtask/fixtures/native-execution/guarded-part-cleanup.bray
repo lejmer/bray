@@ -4,6 +4,8 @@ internal static RELEASES: core.atomic.Atomic<usize> = core.atomic.initialize<usi
 
 internal static CLEANUP_ORDER: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 
+internal static CONSTRUCTION_OPTIONS: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
 struct Counter
 {
     mut value: i32;
@@ -40,8 +42,12 @@ struct PairStorage
 
 impl PairStorage(Storage<Pair>)
 {
-    trusted static func create(pos value: Pair) -> Self
+    trusted static func create(pos value: Pair, options: usize = 7) -> Self
     {
+        let previous = core.atomic.load<usize, 1>(&CONSTRUCTION_OPTIONS);
+
+        core.atomic.store<usize, 4>(&CONSTRUCTION_OPTIONS, previous + options);
+
         let mut storage: Uninit<Pair> = core.memory.uninit<Pair>();
         let _: &mut Pair = core.memory.uninit_write<Pair>(&mut storage, value);
 
@@ -580,7 +586,8 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
                 {
                     counter = &mut second
                 }
-            }
+            },
+            options = 9
         );
 
         boxed(owned);
@@ -700,6 +707,11 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
             core.atomic.load<usize, 1>(&CLEANUP_ORDER) != 123
         {
             return 21;
+        }
+
+        if core.atomic.load<usize, 1>(&CONSTRUCTION_OPTIONS) != 37
+        {
+            return 22;
         }
 
         return 0;

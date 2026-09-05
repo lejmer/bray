@@ -220,6 +220,53 @@ mod tests {
     }
 
     #[test]
+    fn custom_box_construction_checks_policy_arguments_and_defaults() {
+        for (parameter, arguments, valid) in [
+            ("storage: i32", "42, storage = 1", true),
+            ("storage: i32 = 7", "42", true),
+            ("storage: i32 = 7", "42, storage = 1", true),
+            ("pos storage: i32", "42, 1", true),
+            ("pos storage: i32", "42, storage = 1", true),
+            ("storage: i32", "42", false),
+            ("storage: i32", "42, 1", false),
+            ("storage: i32", "42, unknown = 1", false),
+            ("storage: i32", "42, storage = 1, storage = 2", false),
+            ("storage: i32", "42, storage = true", false),
+        ] {
+            let source = format!(
+                "module app; struct Policy {{}} \
+                 impl Policy(Storage<i32>) {{ \
+                 trusted static func create(pos value: i32, {parameter}) -> Self {{ loop {{}} }} \
+                 static func borrow(pos storage: &Self) -> &i32 {{ loop {{}} }} \
+                 static func borrow_mut(pos storage: &mut Self) -> &mut i32 {{ loop {{}} }} \
+                 trusted static func destroy(pos storage: &mut Self) {{ loop {{}} }} \
+                 trusted static func release(pos storage: Self) {{ loop {{}} }} }} \
+                 func make() {{ let value = box[Policy]({arguments}); }}"
+            );
+
+            let compilation = crate::test_support::compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                valid,
+                "{source}: {diagnostics:?}"
+            );
+
+            if !valid {
+                assert!(
+                    diagnostics.iter().any(|diagnostic| {
+                        diagnostic.kind()
+                            == bray_diagnostics::DiagnosticKind::CheckingIncompatibleCandidate
+                            && diagnostic.primary_span().is_some()
+                    }),
+                    "{source}: {diagnostics:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn heap_policy_cannot_be_constructed_from_source_fields() {
         let compilation = crate::test_support::compilation(
             "module app; func forged() -> Heap { return Heap {}; }",

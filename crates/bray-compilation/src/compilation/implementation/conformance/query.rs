@@ -1575,6 +1575,35 @@ mod tests {
     }
 
     #[test]
+    fn ordinary_trait_constructors_cannot_add_policy_parameters() {
+        for name in ["Storage", "Provides"] {
+            let source = format!(
+                "module app; struct Policy {{}} \
+                 trait {name}<T> {{ trusted static func create(pos value: T) -> Self; }} \
+                 impl Policy(app.{name}<i32>) {{ \
+                 trusted static func create(pos value: i32, storage: i32 = 0) -> Self {{ loop {{}} }} }}"
+            );
+
+            let compilation = compilation(&source);
+
+            let result = compilation
+                .trait_implementation_conformance(source_implementation(&compilation))
+                .unwrap();
+
+            assert!(!result.value().is_valid());
+
+            assert!(
+                result.diagnostics().iter().any(|diagnostic| {
+                    diagnostic.kind() == DiagnosticKind::CheckingIncompatibleTraitFulfillment
+                        && diagnostic.primary_span().is_some()
+                }),
+                "{source}: {:?}",
+                result.diagnostics()
+            );
+        }
+    }
+
+    #[test]
     fn static_fulfillments_resolve_self_in_parameters_and_results() {
         for (required, provided, valid) in [
             ("Self", "Self", true),

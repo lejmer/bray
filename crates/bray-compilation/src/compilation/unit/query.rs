@@ -4386,8 +4386,8 @@ func tupled(pos flag: bool, pos pair: (Guard, Guard)) -> i32
             })
             .unwrap();
 
-        let [operand] = operands else {
-            panic!("fixture must construct one boxed value")
+        let [operand, ..] = operands else {
+            panic!("fixture must provide a boxed value")
         };
 
         assert!(

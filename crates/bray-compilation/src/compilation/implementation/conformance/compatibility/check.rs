@@ -286,7 +286,22 @@ fn callable_is_compatible(
         }));
     }
 
-    if requirement_type.parameters().len() != fulfillment_type.parameters().len() {
+    let storage_constructor =
+        bray_compiler_known::CompilerKnownDeclarationKey::try_new("StorageCreate")
+            .and_then(|key| {
+                binding_context
+                    .compilation()
+                    .available_compiler_known_symbols()
+                    .declaration_symbol::<bray_symbols::TraitCallableMemberSymbolId>(&key)
+            })
+            .is_some_and(|member| requirement == member.into());
+
+    // Storage construction retains the required value prefix and declares policy-specific
+    // arguments on the fulfillment. Ordinary trait callables still require identical arity.
+    if requirement_type.parameters().len() != fulfillment_type.parameters().len()
+        && (!storage_constructor
+            || fulfillment_type.parameters().len() < requirement_type.parameters().len())
+    {
         return Ok(Some(TraitFulfillmentMismatch::CallableParameterCount {
             required: requirement_type.parameters().len(),
             provided: fulfillment_type.parameters().len(),
@@ -361,7 +376,16 @@ fn callable_is_compatible(
         symbols,
         imported,
         requirement_signature.value().parameters(),
-        fulfillment_signature.value().parameters(),
+        fulfillment_signature
+            .value()
+            .parameters()
+            .get(..requirement_signature.value().parameters().len())
+            .ok_or_else(|| {
+                callable_signature_error(
+                    fulfillment.into_any(),
+                    bray_symbols::CallableSignatureTemplateError::InvalidCallableType,
+                )
+            })?,
     )? {
         return Ok(Some(mismatch));
     }
