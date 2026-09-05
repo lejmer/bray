@@ -10,10 +10,10 @@ pub use backend::{
 };
 pub use lowering::{
     DiagnosticFrameDescriptorFailure, DiagnosticLoweringFailure, DiagnosticLoweringFailureKind,
-    DiagnosticLoweringIdentity, DiagnosticLoweringInputFailure,
-    DiagnosticLoweringInputFailureKind, DiagnosticLoweringRoot, DiagnosticMirUnitBuildFailure,
-    DiagnosticMirUnitBuildFailureContext, DiagnosticMirUnitBuildFailureKind,
-    DiagnosticMirUnitLocalIdentity, DiagnosticSourceConstructKind,
+    DiagnosticLoweringIdentity, DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind,
+    DiagnosticLoweringRoot, DiagnosticMirUnitBuildFailure, DiagnosticMirUnitBuildFailureContext,
+    DiagnosticMirUnitBuildFailureKind, DiagnosticMirUnitLocalIdentity,
+    DiagnosticSourceConstructKind,
 };
 pub use product::{
     DiagnosticNativeLinkInputFailure, DiagnosticNativeProductFailureDetail,

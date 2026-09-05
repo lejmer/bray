@@ -71,10 +71,7 @@ pub(crate) fn push_mir_target_contract(
         text_field(names[0], target.identity().as_str()),
         text_field(names[1], machine.architecture().as_str()),
         text_field(names[2], machine.object_format().as_str()),
-        text_field(
-            names[3],
-            target_endianness(machine.endianness()),
-        ),
+        text_field(names[3], target_endianness(machine.endianness())),
         count_field(names[4], u64::from(machine.pointer_width_bits().get())),
         count_field(names[5], u64::from(machine.pointer_alignment_bytes().get())),
         count_field(names[6], u64::from(machine.stack_alignment_bytes().get())),

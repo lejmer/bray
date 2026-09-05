@@ -302,19 +302,36 @@ fn run_workload(
         .profile_report()
         .ok_or_else(|| format!("workload {} produced no compiler profile", workload.id))?;
 
-    let executable =
-        resolve_published_artifact(&output, &product, EmittedArtifactKind::Executable, 0).map_err(
-            |error| {
-                format!(
-                    "could not resolve workload {} executable: {error:?}",
-                    workload.id
-                )
-            },
-        )?;
+    let destination = crate::native_product::managed_destination(&output)?;
 
-    let object =
-        resolve_published_artifact(&output, &product, EmittedArtifactKind::RelocatableObject, 0)
-            .ok();
+    let executable = resolve_published_artifact(
+        destination.clone(),
+        &product,
+        EmittedArtifactKind::Executable,
+        0,
+    )
+    .map_err(|error| {
+        format!(
+            "could not resolve workload {} executable: {error:?}",
+            workload.id
+        )
+    })?;
+
+    let object = match resolve_published_artifact(
+        destination,
+        &product,
+        EmittedArtifactKind::RelocatableObject,
+        0,
+    ) {
+        Ok(artifact) => Some(artifact),
+        Err(bray_emitter::PublishedGenerationReadError::ArtifactUnavailable) => None,
+        Err(error) => {
+            return Err(format!(
+                "could not resolve workload {} object: {error:?}",
+                workload.id
+            ));
+        }
+    };
 
     super::super::observation::require_production_symbols_absent(&map)?;
 
@@ -327,14 +344,14 @@ fn run_workload(
         observation_runtime,
         &output,
         workload,
-        &executable,
+        executable.path(),
         &output_digest,
     )?;
 
     let mut implementations = vec![ImplementationTarget {
         key: ImplementationKey::Bray,
-        executable: &executable,
-        timed_executable: &controlled.timed_executable,
+        executable: executable.path(),
+        timed_executable: controlled.timed_executable.path(),
         timing_map: Some(&controlled.timing_map),
     }];
 
@@ -378,7 +395,7 @@ fn run_workload(
         )?;
 
         super::super::observation::measure_storage(
-            &storage_executable,
+            storage_executable.path(),
             &storage_map,
             &storage_output,
             &storage_output,
@@ -397,14 +414,14 @@ fn run_workload(
 
     let mut artifacts = vec![retention::inspect(
         ArtifactKind::Executable,
-        &executable,
+        executable.path(),
         Some(linker_map),
     )?];
 
     if let Some(object) = object {
         artifacts.push(retention::inspect(
             ArtifactKind::RelocatableObject,
-            &object,
+            object.path(),
             None,
         )?);
     }
@@ -436,7 +453,7 @@ fn run_workload(
 struct ControlledArtifacts {
     inner_iterations: NonZeroU64,
     batching: WorkloadBatching,
-    timed_executable: PathBuf,
+    timed_executable: bray_emitter::PublishedArtifact,
     timing_map: PathBuf,
     peers: Vec<super::super::peer::BuiltPeer>,
 }
@@ -507,7 +524,7 @@ fn prepare_controlled_artifacts(
     let mut calibration_targets = vec![ImplementationTarget {
         key: ImplementationKey::Bray,
         executable: production_executable,
-        timed_executable: &initial_executable,
+        timed_executable: initial_executable.path(),
         timing_map: Some(&initial_map),
     }];
 
@@ -592,7 +609,7 @@ fn emit_observed_executable(
     output: &Path,
     configuration: BuildConfiguration,
     workload: &str,
-) -> Result<(PathBuf, PathBuf), String> {
+) -> Result<(bray_emitter::PublishedArtifact, PathBuf), String> {
     fs::create_dir_all(output)
         .map_err(|error| format!("could not create {}: {error}", output.display()))?;
 
@@ -616,10 +633,13 @@ fn emit_observed_executable(
         configuration,
     )?;
 
+    let destination = crate::native_product::managed_destination(output)?;
+
     let executable =
-        resolve_published_artifact(output, &product, EmittedArtifactKind::Executable, 0).map_err(
-            |error| format!("could not resolve observed workload {workload} executable: {error:?}"),
-        )?;
+        resolve_published_artifact(destination, &product, EmittedArtifactKind::Executable, 0)
+            .map_err(|error| {
+                format!("could not resolve observed workload {workload} executable: {error:?}")
+            })?;
 
     Ok((executable, map))
 }

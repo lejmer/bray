@@ -120,12 +120,7 @@ impl Renderer<'_> {
         }
     }
 
-    fn begin_block_item(
-        &mut self,
-        item: usize,
-        previous: Option<usize>,
-        category_boundary: bool,
-    ) {
+    fn begin_block_item(&mut self, item: usize, previous: Option<usize>, category_boundary: bool) {
         let previous_multiline = previous.is_some_and(|previous| {
             self.multiline_block_items
                 .get(previous)

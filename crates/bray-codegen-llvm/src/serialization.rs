@@ -34,10 +34,9 @@ fn artifact_serialization_failure(
     failure: CodegenFailure,
 ) -> CodegenFailure {
     match failure {
-        CodegenFailure::BackendLibrary { report } => CodegenFailure::ArtifactSerialization {
-            artifact,
-            report,
-        },
+        CodegenFailure::BackendLibrary { report } => {
+            CodegenFailure::ArtifactSerialization { artifact, report }
+        }
         failure => failure,
     }
 }

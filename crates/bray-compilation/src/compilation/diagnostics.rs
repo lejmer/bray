@@ -1262,15 +1262,30 @@ mod tests {
         CallableContractClauseKind, ConstantTermData, PackageIdentity, ProductKind,
     };
     use bray_target::NativeTarget;
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use crate::fact::FactCellTestEvent;
     use crate::test_support::{
         FactTestGate, compilation, compilation_with_sources_and_worker_budget, diagnostic_kinds,
-        source_input,
+        source_callable_body_key, source_input,
     };
     use crate::{
         Compilation, CompilationOptions, CompilationRequest, SelectedTarget, WorkerBudget,
     };
+
+    #[test]
+    fn checker_infrastructure_failures_publish_the_compiler_defect_diagnostic() {
+        let compilation = compilation("module app; func main() {}");
+        let key = source_callable_body_key(&compilation);
+
+        let diagnostics = super::checker_failure_diagnostics(
+            &key,
+            None,
+            bray_checker::CheckerInfrastructureError::SemanticValueUnavailable,
+        );
+
+        assert_goal_state_diagnostic_kind(&diagnostics, DiagnosticKind::CheckingCompilerDefect);
+    }
 
     #[test]
     fn package_semantic_diagnostics_request_all_declared_unit_categories() {

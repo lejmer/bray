@@ -9,8 +9,11 @@ mod label;
 mod language_server;
 mod profile;
 mod related;
+mod storage_report;
 mod suggestion;
 mod test_report;
+
+pub(crate) use storage_report::message as storage_report_message;
 #[cfg(test)]
 mod tests;
 

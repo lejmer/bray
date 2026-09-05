@@ -1,6 +1,7 @@
 use super::core::UnitTranslator;
 use super::support::{
-    extract_value, float_predicate, int_value, integer_predicate, llvm, nonzero_integer, pointer_value,
+    extract_value, float_predicate, int_value, integer_predicate, llvm, nonzero_integer,
+    pointer_value,
 };
 use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenTypeKind, IntrinsicCall};
 use bray_ir::{MirBinaryOperator, MirOperand, MirUnaryOperator};

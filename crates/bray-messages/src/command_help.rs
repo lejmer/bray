@@ -244,3 +244,29 @@ pub const CAPABILITY_COMPUTE_LANES: &str = "Execution lanes for compute-bound wo
 pub const CAPABILITY_MAIN_THREAD: &str = "Execution constrained to the process main thread";
 /// Describes reactor support.
 pub const CAPABILITY_REACTOR: &str = "Event-reactor integration";
+
+/// Describes managed build-storage inspection.
+pub const STORAGE: &str =
+    "Report managed build storage across all retained products, targets, and profiles";
+/// Describes managed build-storage cleanup.
+pub const CLEAN: &str = "Remove selected build state while preserving active readers and builds";
+/// Describes cleanup preview.
+pub const CLEAN_DRY_RUN: &str = "Report what cleanup would remove without changing artifacts";
+/// Describes a storage product selector.
+pub const STORAGE_PRODUCT: &str =
+    "Select the retained PACKAGE/PRODUCT identity, including inactive products";
+/// Describes a storage target selector.
+pub const STORAGE_TARGET: &str = "Select a project target name or recorded target identity";
+/// Describes a storage profile selector.
+pub const STORAGE_PROFILE: &str =
+    "Select the recorded build profile, such as development or release";
+/// Describes a storage toolchain selector.
+pub const STORAGE_TOOLCHAIN: &str = "Select the recorded toolchain revision";
+/// Describes a storage ownership selector.
+pub const STORAGE_KIND: &str = "Select products, optional caches, or operation intermediates";
+/// Describes published product cleanup.
+pub const STORAGE_PRODUCTS: &str = "Published outputs and retained product generations";
+/// Describes optional cache cleanup.
+pub const STORAGE_CACHES: &str = "Reusable compiler and toolchain caches";
+/// Describes operation staging cleanup.
+pub const STORAGE_INTERMEDIATES: &str = "Completed or abandoned operation intermediates";

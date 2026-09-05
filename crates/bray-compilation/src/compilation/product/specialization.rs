@@ -573,7 +573,11 @@ impl Compilation {
         if let Some(template) = template.value() {
             let platform_service = match template.key() {
                 MirUnitKey::ImportedExecutable(key) => key.platform_service(),
-                _ => None,
+                MirUnitKey::Bound(_)
+                | MirUnitKey::ExternalCallable(_)
+                | MirUnitKey::ExternalRuntimeDefault(_)
+                | MirUnitKey::ExecutableHost(_)
+                | MirUnitKey::GeneratedLifecycle(_) => None,
             };
 
             let expected_key = MirUnitKey::ImportedExecutable(

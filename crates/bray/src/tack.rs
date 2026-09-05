@@ -13,6 +13,7 @@ mod profile;
 mod progress;
 mod project;
 mod result;
+mod storage;
 mod testing;
 mod tool;
 mod toolchain;

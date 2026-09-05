@@ -1,14 +1,15 @@
 //! Artifact content validation and external publication.
 
 mod diagnostic;
-mod generation;
+pub(crate) mod generation;
 mod link;
 mod operation;
 mod staging;
 
 pub use generation::{
-    PublishedGenerationReadError, PublishedProductReadGuard, lock_published_product,
-    resolve_published_artifact,
+    PublishedArtifact, PublishedGenerationReadError, PublishedProductReadGuard,
+    RetainedProductGeneration, lock_published_product, resolve_published_artifact,
+    retain_published_generation,
 };
 
 pub use operation::ArtifactPublisher;

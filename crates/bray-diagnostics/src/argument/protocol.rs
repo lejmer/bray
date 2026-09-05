@@ -114,6 +114,10 @@ pub enum DiagnosticArgName {
     EmissionFailure,
     /// Exact artifact operation that failed during emission.
     EmissionArtifactOperation,
+    /// Operation attempted on managed build state.
+    StorageOperation,
+    /// Exact retained-generation validation failure.
+    RetainedGenerationProblem,
     /// Stable ordinal of one native link input.
     LinkInputOrdinal,
     /// Stable ordinal of one linked output staging destination.
@@ -339,6 +343,8 @@ impl DiagnosticArgName {
             Self::NativeProductFailureKind => "native_product_failure_kind",
             Self::EmissionFailure => "emission_failure",
             Self::EmissionArtifactOperation => "emission_artifact_operation",
+            Self::StorageOperation => "storage_operation",
+            Self::RetainedGenerationProblem => "retained_generation_problem",
             Self::LinkInputOrdinal => "link_input_ordinal",
             Self::LinkOutputOrdinal => "link_output_ordinal",
             Self::ConflictingLinkOutputOrdinal => "conflicting_link_output_ordinal",
@@ -502,6 +508,10 @@ pub enum DiagnosticArgValue {
     EmissionFailure(crate::DiagnosticEmissionFailure),
     /// Exact artifact operation that failed during emission.
     EmissionArtifactOperation(DiagnosticEmissionArtifactOperation),
+    /// Operation attempted on managed build state.
+    StorageOperation(crate::DiagnosticStorageOperation),
+    /// Exact retained-generation validation failure.
+    RetainedGenerationProblem(crate::DiagnosticRetainedGenerationProblem),
     /// Native link input category.
     LinkInputKind(DiagnosticLinkInputKind),
     /// Linked artifact category.

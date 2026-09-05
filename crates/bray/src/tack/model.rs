@@ -7,6 +7,10 @@ use bray_tooling::OutputFormat;
 /// Stable category for one Bray Tack command.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum TackCommandKind {
+    /// Reports managed build storage.
+    Storage,
+    /// Cleans selected managed build storage.
+    Clean,
     /// Initializes a Bray workspace and root package.
     Init,
     /// Checks selected project products.
@@ -155,6 +159,10 @@ impl TackInspection {
 
 #[derive(Debug, Eq, PartialEq)]
 pub(crate) enum TackCommand {
+    Storage {
+        options: TackStorageOptions,
+        action: TackStorageAction,
+    },
     Init {
         directory: Option<PathBuf>,
         package: Option<String>,
@@ -207,6 +215,12 @@ pub(crate) enum TackCommand {
 impl TackCommand {
     pub(crate) const fn kind(&self) -> TackCommandKind {
         match self {
+            Self::Storage { action, .. } => match action {
+                TackStorageAction::Report => TackCommandKind::Storage,
+                TackStorageAction::PreviewClean | TackStorageAction::Clean => {
+                    TackCommandKind::Clean
+                }
+            },
             Self::Init { .. } => TackCommandKind::Init,
             Self::Check(_) => TackCommandKind::Check,
             Self::Build { .. } => TackCommandKind::Build,
@@ -224,7 +238,8 @@ impl TackCommand {
         match self {
             Self::Check(_) | Self::Build { .. } | Self::Run { .. } | Self::Test { .. } => true,
             Self::Inspect { inspection, .. } => !matches!(inspection, TackInspection::Project),
-            Self::Init { .. }
+            Self::Storage { .. }
+            | Self::Init { .. }
             | Self::Format { .. }
             | Self::ProfileShow { .. }
             | Self::ProfileCompare { .. }
@@ -321,4 +336,20 @@ impl TackInvocation {
             self.command,
         )
     }
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct TackStorageOptions {
+    pub(crate) product: Option<String>,
+    pub(crate) target: Option<String>,
+    pub(crate) profile: Option<String>,
+    pub(crate) toolchain: Option<String>,
+    pub(crate) kind: Option<bray_emitter::StorageKind>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TackStorageAction {
+    Report,
+    PreviewClean,
+    Clean,
 }

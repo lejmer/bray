@@ -49,12 +49,7 @@ pub(crate) fn load_configuration(
     let file = serde_json::from_slice::<ConfigurationFile>(&bytes).map_err(|error| {
         ConfigurationError::Malformed {
             path: path.to_path_buf(),
-            parse_kind: match error.classify() {
-                serde_json::error::Category::Io => DiagnosticDocumentParseKind::Input,
-                serde_json::error::Category::Syntax => DiagnosticDocumentParseKind::Syntax,
-                serde_json::error::Category::Data => DiagnosticDocumentParseKind::Schema,
-                serde_json::error::Category::Eof => DiagnosticDocumentParseKind::UnexpectedEnd,
-            },
+            parse_kind: DiagnosticDocumentParseKind::from(error.classify()),
             line: u64::try_from(error.line()).unwrap_or(u64::MAX),
             column: u64::try_from(error.column()).unwrap_or(u64::MAX),
         }

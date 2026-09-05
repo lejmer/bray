@@ -30,6 +30,34 @@ pub enum DiagnosticIoErrorKind {
     NotDirectory,
     /// A path or resource was not found.
     NotFound,
+    /// Storage is full.
+    StorageFull,
+    /// Storage quota exceeded.
+    QuotaExceeded,
+    /// File exceeds the supported size.
+    FileTooLarge,
+    /// Filesystem is read-only.
+    ReadOnlyFilesystem,
+    /// Resource is busy.
+    ResourceBusy,
+    /// Executable file is in use.
+    ExecutableFileBusy,
+    /// Operation crosses filesystem devices.
+    CrossesDevices,
+    /// File has too many hard links.
+    TooManyLinks,
+    /// Filename violates filesystem requirements.
+    InvalidFilename,
+    /// The write made no progress.
+    WriteZero,
+    /// Host memory is exhausted.
+    OutOfMemory,
+    /// Resource does not support seeking.
+    NotSeekable,
+    /// Directory is not empty.
+    DirectoryNotEmpty,
+    /// Filesystem does not support the operation.
+    Unsupported,
     /// Any I/O error category not yet modeled explicitly.
     Other,
     /// The host denied access to the resource.
@@ -53,6 +81,20 @@ impl DiagnosticIoErrorKind {
             Self::Interrupted => "interrupted",
             Self::NotDirectory => "not_directory",
             Self::NotFound => "not_found",
+            Self::StorageFull => "storage_full",
+            Self::QuotaExceeded => "quota_exceeded",
+            Self::FileTooLarge => "file_too_large",
+            Self::ReadOnlyFilesystem => "read_only_filesystem",
+            Self::ResourceBusy => "resource_busy",
+            Self::ExecutableFileBusy => "executable_file_busy",
+            Self::CrossesDevices => "crosses_devices",
+            Self::TooManyLinks => "too_many_links",
+            Self::InvalidFilename => "invalid_filename",
+            Self::WriteZero => "write_zero",
+            Self::OutOfMemory => "out_of_memory",
+            Self::NotSeekable => "not_seekable",
+            Self::DirectoryNotEmpty => "directory_not_empty",
+            Self::Unsupported => "unsupported",
             Self::Other => "other",
             Self::PermissionDenied => "permission_denied",
             Self::TimedOut => "timed_out",
@@ -76,6 +118,20 @@ impl From<std::io::ErrorKind> for DiagnosticIoErrorKind {
             std::io::ErrorKind::TimedOut => Self::TimedOut,
             std::io::ErrorKind::UnexpectedEof => Self::UnexpectedEof,
             std::io::ErrorKind::WouldBlock => Self::WouldBlock,
+            std::io::ErrorKind::StorageFull => Self::StorageFull,
+            std::io::ErrorKind::QuotaExceeded => Self::QuotaExceeded,
+            std::io::ErrorKind::FileTooLarge => Self::FileTooLarge,
+            std::io::ErrorKind::ReadOnlyFilesystem => Self::ReadOnlyFilesystem,
+            std::io::ErrorKind::ResourceBusy => Self::ResourceBusy,
+            std::io::ErrorKind::ExecutableFileBusy => Self::ExecutableFileBusy,
+            std::io::ErrorKind::CrossesDevices => Self::CrossesDevices,
+            std::io::ErrorKind::TooManyLinks => Self::TooManyLinks,
+            std::io::ErrorKind::InvalidFilename => Self::InvalidFilename,
+            std::io::ErrorKind::WriteZero => Self::WriteZero,
+            std::io::ErrorKind::OutOfMemory => Self::OutOfMemory,
+            std::io::ErrorKind::NotSeekable => Self::NotSeekable,
+            std::io::ErrorKind::DirectoryNotEmpty => Self::DirectoryNotEmpty,
+            std::io::ErrorKind::Unsupported => Self::Unsupported,
             _ => Self::Other,
         }
     }

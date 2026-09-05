@@ -243,9 +243,9 @@ where
 
         let normalized = GenericSubstitutionData::try_new(data.owner(), parameters, arguments)
             .map_err(|error| {
-                CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::GenericSubstitution(error),
-                )
+                CheckerQueryError::Infrastructure(CheckerInfrastructureError::GenericSubstitution(
+                    error,
+                ))
             })?;
 
         self.request

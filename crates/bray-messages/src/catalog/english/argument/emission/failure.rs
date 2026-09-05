@@ -600,10 +600,6 @@ fn format_english_emission_staging_failure(
         Failure::InvalidPath(artifact) => {
             ("the private staging path is not representable", artifact)
         }
-        Failure::InvalidContent(artifact) => (
-            "the staged bytes do not match the generated-content contract",
-            artifact,
-        ),
     };
 
     format_artifact_failure(message, *artifact)

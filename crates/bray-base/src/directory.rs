@@ -3,6 +3,8 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::io;
 use std::path::Path;
+#[cfg(windows)]
+use std::path::PathBuf;
 use std::time::Duration;
 
 const PERMISSION_RETRIES: usize = if cfg!(windows) { 100 } else { 0 };
@@ -10,7 +12,40 @@ const PERMISSION_RETRY_INTERVAL: Duration = Duration::from_millis(50);
 
 /// Atomically renames one file or directory without replacing an existing destination.
 pub fn atomic_rename_exclusive(source: &Path, destination: &Path) -> io::Result<()> {
-    retry_permission_denied(|| renamore::rename_exclusive(source, destination))
+    #[cfg(windows)]
+    let (source, destination) = (
+        windows_extended_path(source)?,
+        windows_extended_path(destination)?,
+    );
+
+    retry_permission_denied(|| renamore::rename_exclusive(&source, &destination))
+}
+
+#[cfg(windows)]
+fn windows_extended_path(path: &Path) -> io::Result<PathBuf> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+    const SEPARATOR: u16 = b'\\' as u16;
+
+    let absolute = std::path::absolute(path)?;
+    let path: Vec<_> = absolute.as_os_str().encode_wide().collect();
+    let verbatim = [SEPARATOR, SEPARATOR, b'?' as u16, SEPARATOR];
+
+    if path.starts_with(&verbatim) {
+        return Ok(absolute);
+    }
+
+    let mut extended = verbatim.to_vec();
+
+    if path.starts_with(&[SEPARATOR, SEPARATOR]) {
+        extended.extend("UNC\\".encode_utf16());
+        extended.extend_from_slice(&path[2..]);
+    } else {
+        extended.extend(path);
+    }
+
+    Ok(OsString::from_wide(&extended).into())
 }
 
 /// Retries a filesystem operation when the host temporarily denies access.

@@ -8,7 +8,7 @@ use bray_bound_tree::{
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticDependencySubjectKind, DiagnosticId,
-    DiagnosticKind, DiagnosticResult, SeverityKind,
+    DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind, DiagnosticResult, SeverityKind,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -128,6 +128,10 @@ fn bind_static_instance_template(
                 SeverityKind::Error,
             )
             .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::InvalidDeclaration,
+                span,
+            ))
             .with_arg(DiagnosticArg::target_triple(
                 context
                     .compilation()
@@ -399,6 +403,10 @@ fn validate_static_dependency_duration(
             SeverityKind::Error,
         )
         .with_primary_span(span)
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::InvalidConstantExpression,
+            span,
+        ))
         .with_arg(DiagnosticArg::dependency_subject_kind(
             DiagnosticDependencySubjectKind::ExactThreadStatic,
         )),
@@ -783,6 +791,10 @@ fn static_source_diagnostic(key: &BoundUnitKey, kind: DiagnosticKind) -> Diagnos
         SeverityKind::Error,
     )
     .with_primary_span(span)
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::InvalidConstantExpression,
+        span,
+    ))
 }
 
 #[cfg(test)]
@@ -790,7 +802,7 @@ mod tests {
     use bray_bound_tree::SemanticSelection;
     use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{DependencyRequirement, DependencySubjectRoot, StaticStorageDuration};
-    use bray_testing::diagnostics_of_kind;
+    use bray_testing::{assert_goal_state_diagnostic_kind, diagnostics_of_kind};
 
     use super::super::test_support::{source_id, symbol_graph};
     use crate::test_support::{compilation, compilation_with_target_operations};
@@ -885,6 +897,11 @@ mod tests {
             )
             .len(),
             1
+        );
+
+        assert_goal_state_diagnostic_kind(
+            template.diagnostics(),
+            DiagnosticKind::CheckingThreadLocalStaticUnavailable,
         );
     }
 
@@ -995,6 +1012,11 @@ mod tests {
             )
             .len(),
             1
+        );
+
+        assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingStaticDependencyOutlivesOwner,
         );
     }
 
@@ -1274,6 +1296,11 @@ mod tests {
             .len(),
             1
         );
+
+        assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingStaticConstraintUnsatisfied,
+        );
     }
 
     #[test]
@@ -1292,6 +1319,11 @@ mod tests {
             .len(),
             2
         );
+
+        assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingStaticLifecycleCycle,
+        );
     }
 
     #[test]
@@ -1308,6 +1340,11 @@ mod tests {
             )
             .len(),
             1
+        );
+
+        assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingStaticSpecializationDivergence,
         );
     }
 }

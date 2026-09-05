@@ -144,6 +144,7 @@ pub struct EmissionRequest {
     destination: RequestedArtifactDestination,
     artifacts: Arc<[RequestedArtifact]>,
     replacement: ReplacementPolicy,
+    storage_profile: Option<Arc<str>>,
 }
 
 impl EmissionRequest {
@@ -201,7 +202,20 @@ impl EmissionRequest {
             destination,
             artifacts: artifacts.into(),
             replacement,
+            storage_profile: None,
         })
+    }
+
+    /// Records the host-selected build profile for retention and storage accounting.
+    pub fn with_storage_profile(mut self, profile: impl Into<Arc<str>>) -> Self {
+        self.storage_profile = Some(profile.into());
+
+        self
+    }
+
+    /// Returns the host-selected profile identity used for storage retention and accounting.
+    pub fn storage_profile(&self) -> Option<&str> {
+        self.storage_profile.as_deref()
     }
 
     /// Returns the selected product identity.

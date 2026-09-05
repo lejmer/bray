@@ -1,18 +1,17 @@
 use std::collections::BTreeSet;
-use std::fs::File;
 use std::path::{Path, PathBuf};
 
-use bray_base::{
-    Cancellation, CompletedStagedFile, FileReplacementMode, StagedFile, sync_directory,
-};
+use bray_base::{Cancellation, CompletedStagedFile, FileReplacementMode, sync_directory};
 
 use super::locator::GenerationLocator;
 use super::transaction::ManagedLayout;
+use super::transaction::storage_failure;
 use crate::publication::diagnostic::PublicationErrorKind;
 use crate::publication::operation::{
     ArtifactPublicationFailure, PreparedArtifact, artifact_failure,
 };
 use crate::publication::staging::replacement_mode;
+use crate::storage::stage_owned_copy;
 use crate::{OutputSink, PlannedArtifactDestination, ReplacementPolicy};
 
 pub(super) struct CommittedPublicProjection {
@@ -64,21 +63,16 @@ pub(super) fn prepare_public_projections<'plan>(
 
         let source = generation.join(relative.to_path_buf());
 
-        let permissions = std::fs::metadata(&source)
-            .map_err(|error| {
-                artifact_failure(artifact.planned, PublicationErrorKind::Read(error.kind()))
-            })?
-            .permissions();
-
-        let backup = prepare_public_backup(&layout.staging, published, artifact.planned)?;
+        let backup =
+            prepare_public_backup(&layout.staging, published, artifact.planned, cancellation)?;
 
         let staged = copy_public_projection(
             &source,
             &layout.staging,
             published,
             replacement_mode(replacement),
-            Some(permissions),
             artifact.planned,
+            cancellation,
         )?;
 
         projections.push(PreparedPublicProjection {
@@ -90,7 +84,12 @@ pub(super) fn prepare_public_projections<'plan>(
     }
 
     for destination in stale_paths {
-        let backup = prepare_public_backup(&layout.staging, &destination, prepared[0].planned)?;
+        let backup = prepare_public_backup(
+            &layout.staging,
+            &destination,
+            prepared[0].planned,
+            cancellation,
+        )?;
 
         if backup.is_some() {
             projections.push(PreparedPublicProjection {
@@ -179,6 +178,7 @@ fn prepare_public_backup(
     staging_directory: &Path,
     destination: &Path,
     planned: &crate::PlannedArtifact,
+    cancellation: &dyn Cancellation,
 ) -> Result<Option<CompletedStagedFile>, ArtifactPublicationFailure> {
     match std::fs::symlink_metadata(destination) {
         Ok(metadata) if metadata.file_type().is_file() => copy_public_projection(
@@ -186,8 +186,8 @@ fn prepare_public_backup(
             staging_directory,
             destination,
             FileReplacementMode::ReplaceExisting,
-            Some(metadata.permissions()),
             planned,
+            cancellation,
         )
         .map(Some),
         Ok(_) => Err(artifact_failure(
@@ -207,22 +207,17 @@ fn copy_public_projection(
     staging_directory: &Path,
     destination: &Path,
     replacement: FileReplacementMode,
-    permissions: Option<std::fs::Permissions>,
     planned: &crate::PlannedArtifact,
+    cancellation: &dyn Cancellation,
 ) -> Result<CompletedStagedFile, ArtifactPublicationFailure> {
-    let mut source = File::open(source)
-        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Read(error.kind())))?;
-
-    let mut staged =
-        StagedFile::create_in(staging_directory, destination, replacement, permissions)
-            .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
-
-    std::io::copy(&mut source, &mut staged)
-        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Write(error.kind())))?;
-
-    staged
-        .finish()
-        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Flush(error.kind())))
+    stage_owned_copy(
+        source,
+        staging_directory,
+        destination,
+        replacement,
+        cancellation,
+    )
+    .map_err(|error| storage_failure(planned, error))
 }
 
 fn public_projection_directories(projections: &[CommittedPublicProjection]) -> BTreeSet<PathBuf> {

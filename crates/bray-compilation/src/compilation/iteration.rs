@@ -97,17 +97,15 @@ impl Compilation {
 
         let (source, mode) = iteration_source(bound.result().value(), key.expression())?;
 
-        let source_type = types
-            .expression(source)
-            .ok_or_else(|| {
-                SemanticQueryFailure::contract(
-                    SemanticQueryContext::Expression {
-                        unit: key.unit().clone(),
-                        expression: source,
-                    },
-                    SemanticQueryViolation::Missing(SemanticDataKind::Type),
-                )
-            })?;
+        let source_type = types.expression(source).ok_or_else(|| {
+            SemanticQueryFailure::contract(
+                SemanticQueryContext::Expression {
+                    unit: key.unit().clone(),
+                    expression: source,
+                },
+                SemanticQueryViolation::Missing(SemanticDataKind::Type),
+            )
+        })?;
 
         if source_type.is_recovered() {
             return Ok(DiagnosticResult::new(None, diagnostics));

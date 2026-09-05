@@ -1987,6 +1987,8 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::LinkPlanContext
         | DiagnosticNoteKind::AwaitDependencyUnavailable
         | DiagnosticNoteKind::ReportCompilerDefect => RenderedDiagnosticNoteKind::Note,
+        DiagnosticNoteKind::RebuildRetainedProduct => RenderedDiagnosticNoteKind::Help,
+        DiagnosticNoteKind::DocumentFailureLocation => RenderedDiagnosticNoteKind::Note,
         DiagnosticNoteKind::SourceFileMustBeReadable
         | DiagnosticNoteKind::SourceMustBeUtf8
         | DiagnosticNoteKind::SourceMustMatchFormatterOutput
@@ -2716,6 +2718,71 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::EmissionGenerationManifestInvalid => {
             MessageTemplate::new(EMISSION_GENERATION_MANIFEST_INVALID)
         }
+        DiagnosticKind::RetainedArtifactLengthMismatch => MessageTemplate::new(&[
+            MessageTemplatePart::Text("Retained build file "),
+            MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+            MessageTemplatePart::Text(" contains "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ActualByteCount),
+            MessageTemplatePart::Text(" bytes, but its manifest requires "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ExpectedByteCount),
+            MessageTemplatePart::Text(" bytes"),
+        ]),
+        DiagnosticKind::RetainedArtifactDigestMismatch => MessageTemplate::new(&[
+            MessageTemplatePart::Text("Retained build file "),
+            MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+            MessageTemplatePart::Text(" has digest "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ActualArtifactDigest),
+            MessageTemplatePart::Text(", but its manifest requires "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ExpectedArtifactDigest),
+        ]),
+        DiagnosticKind::RetainedGenerationInvalid => MessageTemplate::new(&[
+            MessageTemplatePart::Text("Retained product state at "),
+            MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+            MessageTemplatePart::Text(" failed validation: "),
+            MessageTemplatePart::Arg(DiagnosticArgName::RetainedGenerationProblem),
+        ]),
+        DiagnosticKind::BuildStorageMetadataInvalid => MessageTemplate::new(&[
+            MessageTemplatePart::Text("Cannot decode managed build metadata at "),
+            MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+            MessageTemplatePart::Text(": found "),
+            MessageTemplatePart::Arg(DiagnosticArgName::DocumentParseKind),
+        ]),
+        DiagnosticKind::BuildStorageRevisionMismatch => MessageTemplate::new(&[
+            MessageTemplatePart::Text("Managed build metadata at "),
+            MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+            MessageTemplatePart::Text(" uses revision "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ActualRevision),
+            MessageTemplatePart::Text(", but this compiler requires revision "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ExpectedRevision),
+        ]),
+        DiagnosticKind::BuildStorageIoFailed => MessageTemplate::new(&[
+            MessageTemplatePart::Text("Cannot "),
+            MessageTemplatePart::Arg(DiagnosticArgName::StorageOperation),
+            MessageTemplatePart::Text(" managed build state at "),
+            MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+            MessageTemplatePart::Text(": "),
+            MessageTemplatePart::Arg(DiagnosticArgName::IoErrorKind),
+            MessageTemplatePart::Text("."),
+        ]),
+        DiagnosticKind::BuildStorageUnsafePath => MessageTemplate::new(&[
+            MessageTemplatePart::Text("Managed build state at "),
+            MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+            MessageTemplatePart::Text(
+                " contains a link, traversal, or an unexpected file type. Cleanup left it untouched.",
+            ),
+        ]),
+        DiagnosticKind::RetainedBuildStateUnavailable => MessageTemplate::new(&[
+            MessageTemplatePart::Text("Retained build state at "),
+            MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+            MessageTemplatePart::Text(
+                " is unavailable because its retained files no longer exist.",
+            ),
+        ]),
+        DiagnosticKind::BuildStorageCancelled => MessageTemplate::new(&[
+            MessageTemplatePart::Text("Build-storage maintenance at "),
+            MessageTemplatePart::Arg(DiagnosticArgName::FilePath),
+            MessageTemplatePart::Text(" was cancelled. A subsequent operation can resume cleanup."),
+        ]),
         DiagnosticKind::EmissionLinkedPlanMissing => {
             MessageTemplate::new(EMISSION_LINKED_PLAN_MISSING)
         }
@@ -2993,6 +3060,17 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         }
         DiagnosticNoteKind::PublicDependencyRequired => {
             MessageTemplate::new(NOTE_PUBLIC_DEPENDENCY_REQUIRED)
+        }
+        DiagnosticNoteKind::DocumentFailureLocation => MessageTemplate::new(&[
+            MessageTemplatePart::Text("the document parser reported line "),
+            MessageTemplatePart::Arg(DiagnosticArgName::DocumentLine),
+            MessageTemplatePart::Text(", column "),
+            MessageTemplatePart::Arg(DiagnosticArgName::DocumentColumn),
+        ]),
+        DiagnosticNoteKind::RebuildRetainedProduct => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "build the selected product again before requesting a no-build run",
+            )])
         }
         DiagnosticNoteKind::ReportCompilerDefect => {
             MessageTemplate::new(NOTE_REPORT_COMPILER_DEFECT)

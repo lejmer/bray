@@ -1,5 +1,5 @@
 use std::fs::File;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::Path;
 
 use bray_base::Cancellation;
@@ -9,6 +9,43 @@ use sha2::{Digest as _, Sha256};
 const COPY_BUFFER_LEN: usize = 64 * 1024;
 
 pub(crate) use bray_codegen::ArtifactContentReader as ContentReader;
+
+#[derive(Debug)]
+pub(crate) enum ContentCopyError {
+    Cancelled,
+    Read(io::ErrorKind),
+    Write(io::ErrorKind),
+}
+
+pub(crate) fn copy_reader(
+    reader: &mut impl Read,
+    writer: &mut (impl Write + ?Sized),
+    cancellation: &dyn Cancellation,
+) -> Result<(), ContentCopyError> {
+    let mut buffer = [0_u8; COPY_BUFFER_LEN];
+
+    loop {
+        if cancellation.is_cancelled() {
+            return Err(ContentCopyError::Cancelled);
+        }
+
+        let count = reader
+            .read(&mut buffer)
+            .map_err(|error| ContentCopyError::Read(error.kind()))?;
+
+        if count == 0 {
+            return Ok(());
+        }
+
+        if cancellation.is_cancelled() {
+            return Err(ContentCopyError::Cancelled);
+        }
+
+        writer
+            .write_all(&buffer[..count])
+            .map_err(|error| ContentCopyError::Write(error.kind()))?;
+    }
+}
 
 pub(crate) fn open_content(content: &ArtifactContent) -> Result<ContentReader<'_>, io::ErrorKind> {
     content

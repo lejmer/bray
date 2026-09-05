@@ -178,11 +178,10 @@ impl Compilation {
         }
 
         let symbol = match (platform_role, runtime_role, symbol_directive) {
-            (Some(role), _, _) => NonEmptySharedStr::try_new(
-                role.native_symbol(),
-            )
-            .map(NativeSymbolContract::required_name),
-            (None, Some(role), _) => role.native_symbol()
+            (Some(role), _, _) => NonEmptySharedStr::try_new(role.native_symbol())
+                .map(NativeSymbolContract::required_name),
+            (None, Some(role), _) => role
+                .native_symbol()
                 .and_then(NonEmptySharedStr::try_new)
                 .map(NativeSymbolContract::required_name),
             (None, None, Some(directive)) => {

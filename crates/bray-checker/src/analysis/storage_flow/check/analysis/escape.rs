@@ -1,8 +1,9 @@
 use bray_bound_tree::{AnyBoundNodeId, BoundDependencySubject};
 use bray_diagnostics::{
-    Diagnostic, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote,
+    Diagnostic, DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind, DiagnosticNote,
     DiagnosticNoteKind, DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, SeverityKind,
 };
+use bray_source::SourceSpan;
 
 use super::core::StorageFlowCollector;
 use crate::analysis::storage_flow::model::StorageFlowState;
@@ -80,25 +81,11 @@ where
                 }
             };
 
-            self.diagnostics.add(
-                Diagnostic::new(
-                    diagnostic_id(self.diagnostics.len()),
-                    DiagnosticKind::CheckingEscapingStorageDependency,
-                    SeverityKind::Error,
-                )
-                .with_primary_span(primary)
-                .with_label(DiagnosticLabel::primary(
-                    DiagnosticLabelKind::EscapingStorageDependency,
-                    primary,
-                ))
-                .with_related_location(DiagnosticRelatedLocation::new(
-                    DiagnosticRelatedLocationKind::DependencyStorageOrigin,
-                    dependency,
-                ))
-                .with_note(DiagnosticNote::new(
-                    DiagnosticNoteKind::EscapingStorageDependencyResolution,
-                )),
-            );
+            self.diagnostics.add(escaping_storage_dependency_diagnostic(
+                diagnostic_id(self.diagnostics.len()),
+                primary,
+                dependency,
+            ));
         }
     }
 
@@ -130,5 +117,58 @@ where
         };
 
         target != block.origin().source_anchor().syntax()
+    }
+}
+
+fn escaping_storage_dependency_diagnostic(
+    id: DiagnosticId,
+    primary: SourceSpan,
+    dependency: SourceSpan,
+) -> Diagnostic {
+    Diagnostic::new(
+        id,
+        DiagnosticKind::CheckingEscapingStorageDependency,
+        SeverityKind::Error,
+    )
+    .with_primary_span(primary)
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::EscapingStorageDependency,
+        primary,
+    ))
+    .with_related_location(DiagnosticRelatedLocation::new(
+        DiagnosticRelatedLocationKind::DependencyStorageOrigin,
+        dependency,
+    ))
+    .with_note(DiagnosticNote::new(
+        DiagnosticNoteKind::EscapingStorageDependencyResolution,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{DiagnosticBag, DiagnosticId, DiagnosticKind};
+    use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
+    use bray_testing::assert_goal_state_diagnostic_kind;
+
+    use super::escaping_storage_dependency_diagnostic;
+
+    #[test]
+    fn escaping_storage_dependencies_publish_the_exact_goal_state_diagnostic() {
+        let source = SourceId::new(0);
+        let primary = SourceSpan::new(source, TextRange::new(TextSize::new(8), TextSize::new(16)));
+
+        let dependency =
+            SourceSpan::new(source, TextRange::new(TextSize::new(2), TextSize::new(7)));
+
+        let diagnostics = DiagnosticBag::single(escaping_storage_dependency_diagnostic(
+            DiagnosticId::new(0),
+            primary,
+            dependency,
+        ));
+
+        assert_goal_state_diagnostic_kind(
+            &diagnostics,
+            DiagnosticKind::CheckingEscapingStorageDependency,
+        );
     }
 }

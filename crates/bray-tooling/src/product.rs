@@ -226,13 +226,28 @@ pub fn project_interface_path(
     )
 }
 
+/// Native linker drivers together with the persistent cache ownership required by their work.
+#[cfg(feature = "compiler")]
+pub struct NativeLinker {
+    linker: Linker,
+    _cache: Option<bray_emitter::ManagedCache>,
+}
+
+#[cfg(feature = "compiler")]
+impl NativeLinker {
+    /// Borrows the linker while its native cache remains protected from eviction.
+    pub const fn linker(&self) -> &Linker {
+        &self.linker
+    }
+}
+
 /// Creates the linker composition for one native target and optional linker-map destination.
 #[cfg(feature = "compiler")]
 pub fn native_linker(
     target: NativeTarget,
     map_output: Option<bray_linker::SystemLinkerMapOutput>,
     compiler_state_root: &Path,
-) -> Result<Linker, NativeLinkerBuildError> {
+) -> Result<NativeLinker, NativeLinkerBuildError> {
     let archive =
         llvm_tool_path(DiagnosticLlvmToolRole::Archiver).map_err(NativeLinkerBuildError::Tool)?;
 
@@ -256,6 +271,7 @@ pub fn native_linker(
     .map_err(NativeLinkerBuildError::ArchiveDriver)?;
 
     let mut drivers = vec![Arc::new(archive) as Arc<dyn LinkerDriver>];
+    let mut cache = None;
 
     if let Some((family, program, environment)) = system_linker_configuration(target)? {
         let system_identity = LinkerDriverIdentity::try_new(
@@ -283,11 +299,13 @@ pub fn native_linker(
         }
 
         if family != SystemLinkerFamily::WslGnuCompiler {
-            let cache_root = prepare_thin_lto_cache_root(compiler_state_root, target)?;
+            let owned = prepare_thin_lto_cache(compiler_state_root, target)?;
 
             configuration = configuration
-                .try_with_thin_lto_cache(cache_root)
+                .try_with_thin_lto_cache(owned.directory().to_owned())
                 .map_err(NativeLinkerBuildError::SystemConfiguration)?;
+
+            cache = Some(owned);
         }
 
         let system = SystemLinkerDriver::try_new(
@@ -300,7 +318,12 @@ pub fn native_linker(
         drivers.push(Arc::new(system) as Arc<dyn LinkerDriver>);
     }
 
-    Linker::try_new(drivers).map_err(NativeLinkerBuildError::Linker)
+    Linker::try_new(drivers)
+        .map(|linker| NativeLinker {
+            linker,
+            _cache: cache,
+        })
+        .map_err(NativeLinkerBuildError::Linker)
 }
 
 /// Exact failure while composing the native linker and archiver available to the compiler host.
@@ -323,13 +346,8 @@ pub enum NativeLinkerBuildError {
     SystemDriver(SystemLinkerDriverBuildError),
     /// The complete compiler-host driver registry is invalid.
     Linker(LinkerBuildError),
-    /// The persistent ThinLTO cache directory could not be created.
-    ThinLtoCacheDirectory {
-        /// Exact cache directory selected for this target and LLVM revision.
-        path: PathBuf,
-        /// Stable host I/O failure category.
-        error: DiagnosticIoErrorKind,
-    },
+    /// The native cache could not be prepared or pinned.
+    Storage(bray_emitter::StorageError),
     /// A required host environment variable is absent.
     MissingEnvironment(DiagnosticHostEnvironmentVariable),
 }
@@ -371,12 +389,8 @@ impl NativeLinkerBuildError {
                 target,
                 DiagnosticUnsupportedEmissionReason::MissingHostEnvironment(variable),
             ),
-            Self::ThinLtoCacheDirectory { path, error } => {
-                project_command_diagnostic(DiagnosticProjectCommandFailure::Io {
-                    operation: DiagnosticProjectOperation::ThinLtoCacheDirectory,
-                    path,
-                    error,
-                })
+            Self::Storage(error) => {
+                error.into_diagnostic(DiagnosticId::new(0), bray_diagnostics::SeverityKind::Error)
             }
             Self::ArchiveIdentity => native_linker_defect_diagnostic(
                 target,
@@ -535,34 +549,18 @@ fn project_command_diagnostic(failure: DiagnosticProjectCommandFailure) -> Diagn
     failure.diagnostic(DiagnosticId::new(0))
 }
 
-/// Returns the persistent cache root for one exact native ThinLTO toolchain contract.
 #[cfg(feature = "compiler")]
-pub fn thin_lto_cache_root(compiler_state_root: &Path, target: NativeTarget) -> PathBuf {
-    compiler_state_root
-        .join("cache")
-        .join("thin_lto")
-        .join(target.as_str())
-        .join(format!(
-            "llvm-{}",
-            bray_codegen_llvm::LlvmCodeGenerator::llvm_toolchain_identity()
-        ))
-}
-
-#[cfg(feature = "compiler")]
-fn prepare_thin_lto_cache_root(
-    compiler_state_root: &Path,
+fn prepare_thin_lto_cache(
+    root: &Path,
     target: NativeTarget,
-) -> Result<PathBuf, NativeLinkerBuildError> {
-    let path = thin_lto_cache_root(compiler_state_root, target);
-
-    std::fs::create_dir_all(&path).map_err(|error| {
-        NativeLinkerBuildError::ThinLtoCacheDirectory {
-            path: path.clone(),
-            error: DiagnosticIoErrorKind::from(error.kind()),
-        }
-    })?;
-
-    Ok(path)
+) -> Result<bray_emitter::ManagedCache, NativeLinkerBuildError> {
+    bray_emitter::ManagedCache::thin_lto(
+        root,
+        &target.identity(),
+        bray_codegen_llvm::LlvmCodeGenerator::llvm_toolchain_identity(),
+        &|| false,
+    )
+    .map_err(NativeLinkerBuildError::Storage)
 }
 
 #[cfg(feature = "compiler")]
@@ -662,9 +660,7 @@ mod tests {
     use bray_messages::DiagnosticRenderer;
     use bray_testing::assert_goal_state_diagnostic_kind;
 
-    use super::{
-        LlvmToolPathError, NativeLinkerBuildError, prepare_thin_lto_cache_root, thin_lto_cache_root,
-    };
+    use super::{LlvmToolPathError, NativeLinkerBuildError, prepare_thin_lto_cache};
 
     #[test]
     fn thin_lto_cache_roots_are_created_before_linker_invocation() {
@@ -673,21 +669,25 @@ mod tests {
 
         let target = bray_target::NativeTarget::X86_64WindowsMsvc;
 
-        let path = prepare_thin_lto_cache_root(directory.path(), target)
+        let path = prepare_thin_lto_cache(directory.path(), target)
             .unwrap_or_else(|error| panic!("test cache root must be creatable: {error:?}"));
 
-        assert_eq!(path, thin_lto_cache_root(directory.path(), target));
-        assert!(path.is_dir());
+        assert!(
+            path.directory()
+                .starts_with(directory.path().join(".bray/cache"))
+        );
+
+        assert!(path.directory().is_dir());
 
         let blocked = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("blocked test directory must be available: {error}"));
 
-        std::fs::write(blocked.path().join("cache"), b"file")
+        std::fs::write(blocked.path().join(".bray"), b"file")
             .unwrap_or_else(|error| panic!("cache parent fixture must be writable: {error}"));
 
         assert!(matches!(
-            prepare_thin_lto_cache_root(blocked.path(), target),
-            Err(NativeLinkerBuildError::ThinLtoCacheDirectory { .. })
+            prepare_thin_lto_cache(blocked.path(), target),
+            Err(NativeLinkerBuildError::Storage(_))
         ));
     }
 

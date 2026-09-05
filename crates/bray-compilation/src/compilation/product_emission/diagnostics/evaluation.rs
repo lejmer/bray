@@ -340,9 +340,7 @@ mod tests {
         DiagnosticInterfaceValidationFailure,
     };
     use bray_package_interface::InterfaceSemanticRecordKind;
-    use bray_symbols::{
-        ImportedInterfaceId, InterfaceSymbolId, PackageIdentity, ProductIdentity,
-    };
+    use bray_symbols::{ImportedInterfaceId, InterfaceSymbolId, PackageIdentity, ProductIdentity};
 
     use super::{diagnostic_evaluation_failure, diagnostic_imported_query_failure};
     use crate::fact::{

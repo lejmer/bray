@@ -19,10 +19,10 @@ pub use compilation::{
     EmissionCodegenErrorKind, ExpressionTypesView, ForeignQueryError, ForeignQueryErrorKind,
     LinkedProductEmissionError, LiteralValuesView, LivenessView, NativeProductPlan,
     NativeProductPlanningError, PackageInterfaceExportContract, PackageInterfaceExportError,
-    PackageInterfaceInvalidCompilationCause, ProductEmissionError,
-    ProductEmissionErrorKind, ProductEmissionInputs, ProductQueryError, ProductQueryErrorKind,
-    ProductSourceGraph, RefinementsView, SemanticAvailability, SemanticQueryError,
-    SemanticQueryErrorKind, SemanticSelectionsView, StorageFlowView, TestDiscovery,
+    PackageInterfaceInvalidCompilationCause, ProductEmissionError, ProductEmissionErrorKind,
+    ProductEmissionInputs, ProductQueryError, ProductQueryErrorKind, ProductSourceGraph,
+    RefinementsView, SemanticAvailability, SemanticQueryError, SemanticQueryErrorKind,
+    SemanticSelectionsView, StorageFlowView, TestDiscovery,
 };
 pub use compiler_known::{
     CompilerKnownCatalogCheckError, CompilerKnownCatalogCheckReport, check_compiler_known_catalog,

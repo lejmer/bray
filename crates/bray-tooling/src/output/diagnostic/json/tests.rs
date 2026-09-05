@@ -10,15 +10,17 @@ use bray_diagnostics::{
     DiagnosticDependencySubjectKind, DiagnosticEmissionEvaluationFailure,
     DiagnosticEmissionFailure, DiagnosticFactRuntimeFailure, DiagnosticFailureField,
     DiagnosticFailureValue, DiagnosticGenericParameterCategory, DiagnosticId,
-    DiagnosticInterfaceDeclarationIdentity, DiagnosticInterfaceLimit, DiagnosticInterfaceSection,
-    DiagnosticInterfaceSemanticProblem, DiagnosticInterfaceSymbolIdentity,
-    DiagnosticInterfaceSymbolKind, DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind,
-    DiagnosticLayoutOption, DiagnosticLayoutProblem, DiagnosticLoweringFailure,
-    DiagnosticLoweringFailureKind, DiagnosticLoweringInputFailure,
-    DiagnosticLoweringInputFailureKind, DiagnosticMemoryOperation, DiagnosticModuleTrust,
-    DiagnosticNameKind, DiagnosticNamedType, DiagnosticNativeProductFailureDetail,
-    DiagnosticNativeProductFailureKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticOutputSink,
-    DiagnosticPatternCoverage, DiagnosticPatternMissingCase, DiagnosticProductQueryFailure,
+    DiagnosticInspectionFailure, DiagnosticInspectionFailureDetail,
+    DiagnosticInspectionOutputFormat, DiagnosticInterfaceDeclarationIdentity,
+    DiagnosticInterfaceLimit, DiagnosticInterfaceSection, DiagnosticInterfaceSemanticProblem,
+    DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolKind,
+    DiagnosticInterfaceSynthesizedIdentity, DiagnosticKind, DiagnosticLayoutOption,
+    DiagnosticLayoutProblem, DiagnosticLoweringFailure, DiagnosticLoweringFailureKind,
+    DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind, DiagnosticMemoryOperation,
+    DiagnosticModuleTrust, DiagnosticNameKind, DiagnosticNamedType,
+    DiagnosticNativeProductFailureDetail, DiagnosticNativeProductFailureKind, DiagnosticNote,
+    DiagnosticNoteKind, DiagnosticOutputSink, DiagnosticPatternCoverage,
+    DiagnosticPatternMissingCase, DiagnosticProductQueryFailure, DiagnosticProjectCommandFailure,
     DiagnosticProjectManifestField, DiagnosticPropagationProblem, DiagnosticRefinementCapacity,
     DiagnosticRefinementCapacitySurface, DiagnosticRejectedSelectionCandidate,
     DiagnosticRelatedLocation, DiagnosticRelatedLocationKind, DiagnosticRuntimeAbiVersion,
@@ -27,14 +29,11 @@ use bray_diagnostics::{
     DiagnosticSelectionCandidates, DiagnosticSelectionKind, DiagnosticSelectionRejectionReason,
     DiagnosticSelectionRejections, DiagnosticSemanticContentProblem,
     DiagnosticSemanticQueryFailure, DiagnosticSemanticValueFailure, DiagnosticSourceEdit,
-    DiagnosticStorageAccess, DiagnosticStorageAccessPurpose, DiagnosticStorageProjection,
-    DiagnosticStorageRoot, DiagnosticSuggestion, DiagnosticSuggestionApplicability,
-    DiagnosticSuggestionKind, DiagnosticTargetPredicateValueKind,
-    DiagnosticTraitFulfillmentMismatch, DiagnosticType, DiagnosticTypeArgument,
-    DiagnosticVisibility, DiagnosticYieldCardinality, SeverityKind,
-    DiagnosticInspectionFailure, DiagnosticInspectionFailureDetail,
-    DiagnosticInspectionOutputFormat, DiagnosticProjectCommandFailure,
-    DiagnosticSourceInspectionFailure,
+    DiagnosticSourceInspectionFailure, DiagnosticStorageAccess, DiagnosticStorageAccessPurpose,
+    DiagnosticStorageProjection, DiagnosticStorageRoot, DiagnosticSuggestion,
+    DiagnosticSuggestionApplicability, DiagnosticSuggestionKind,
+    DiagnosticTargetPredicateValueKind, DiagnosticTraitFulfillmentMismatch, DiagnosticType,
+    DiagnosticTypeArgument, DiagnosticVisibility, DiagnosticYieldCardinality, SeverityKind,
 };
 use bray_source::{SourceSpan, TextRange, TextSize};
 use bray_syntax::SyntaxKind;
@@ -225,19 +224,17 @@ fn unsupported_emission_reasons_keep_exact_json_payloads() {
 fn inspection_failures_keep_exact_leaf_context_in_json() {
     let failure = DiagnosticInspectionFailure::Source {
         format: DiagnosticInspectionOutputFormat::Json,
-        cause: DiagnosticSourceInspectionFailure::Detail(
-            DiagnosticInspectionFailureDetail::new(
-                "source_inspection_json",
-                [DiagnosticFailureField::new(
-                    "report",
-                    DiagnosticFailureValue::Text("invalid map key".to_owned()),
-                )],
-            ),
-        ),
+        cause: DiagnosticSourceInspectionFailure::Detail(DiagnosticInspectionFailureDetail::new(
+            "source_inspection_json",
+            [DiagnosticFailureField::new(
+                "report",
+                DiagnosticFailureValue::Text("invalid map key".to_owned()),
+            )],
+        )),
     };
 
-    let diagnostic = DiagnosticProjectCommandFailure::Inspection(failure)
-        .diagnostic(DiagnosticId::new(0));
+    let diagnostic =
+        DiagnosticProjectCommandFailure::Inspection(failure).diagnostic(DiagnosticId::new(0));
 
     let mut output = Vec::new();
 
@@ -397,22 +394,13 @@ fn imported_template_mismatches_preserve_exact_context_in_emission_and_native_js
         "imported_query",
         "imported_query_executable_template_mismatch",
         [
-            DiagnosticFailureField::new(
-                "interface",
-                DiagnosticFailureValue::Count(7),
-            ),
+            DiagnosticFailureField::new("interface", DiagnosticFailureValue::Count(7)),
             DiagnosticFailureField::new("symbol", DiagnosticFailureValue::Count(11)),
             DiagnosticFailureField::new("template", DiagnosticFailureValue::Count(0)),
             DiagnosticFailureField::new("expected_unit", DiagnosticFailureValue::Count(17)),
             DiagnosticFailureField::new("actual_unit", DiagnosticFailureValue::Count(29)),
-            DiagnosticFailureField::new(
-                "expected_key",
-                DiagnosticFailureValue::Identity([5; 32]),
-            ),
-            DiagnosticFailureField::new(
-                "actual_key",
-                DiagnosticFailureValue::Identity([7; 32]),
-            ),
+            DiagnosticFailureField::new("expected_key", DiagnosticFailureValue::Identity([5; 32])),
+            DiagnosticFailureField::new("actual_key", DiagnosticFailureValue::Identity([7; 32])),
             DiagnosticFailureField::new(
                 "expected_target_identity",
                 DiagnosticFailureValue::Text("x86_64-unknown-linux-gnu".to_owned()),
@@ -1886,4 +1874,64 @@ fn json_output_serializes_resolved_source_locations() {
 
     assert_eq!(location["lsp_end"]["line"], 1);
     assert_eq!(location["lsp_end"]["character"], 1);
+}
+
+#[test]
+fn json_storage_failures_preserve_revision_and_permission_details() {
+    use bray_diagnostics::DiagnosticRetainedGenerationProblem as Problem;
+
+    let cases = [
+        (
+            Problem::ReferenceRevision {
+                expected: 1,
+                actual: 7,
+            },
+            "reference_revision",
+            "expected_revision",
+            serde_json::json!(1),
+            "actual_revision",
+            serde_json::json!(7),
+        ),
+        (
+            Problem::ReadOnly {
+                expected: false,
+                actual: true,
+            },
+            "read_only",
+            "expected_read_only",
+            serde_json::json!(false),
+            "actual_read_only",
+            serde_json::json!(true),
+        ),
+        (
+            Problem::UnixMode {
+                expected: Some(0o755),
+                actual: Some(0o644),
+            },
+            "unix_mode",
+            "expected_unix_mode",
+            serde_json::json!(0o755),
+            "actual_unix_mode",
+            serde_json::json!(0o644),
+        ),
+    ];
+
+    for (problem, key, expected_key, expected, actual_key, actual) in cases {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::RetainedGenerationInvalid,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::file_path("build/application"))
+        .with_arg(DiagnosticArg::retained_generation_problem(problem));
+
+        let mut bytes = Vec::new();
+        write_json_diagnostics(&DiagnosticBag::single(diagnostic), None, &mut bytes).unwrap();
+        let output: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let value = &output["diagnostics"][0]["args"][1]["value"]["value"];
+
+        assert_eq!(value["problem"], key);
+        assert_eq!(value[expected_key], expected);
+        assert_eq!(value[actual_key], actual);
+    }
 }

@@ -51,9 +51,9 @@ pub(in crate::compilation) fn native_product_preparation_diagnostic(
     if let Some(source) = source {
         crate::compilation::diagnostics::with_compiler_defect_source(diagnostic, source)
     } else if add_recovery_note {
-        diagnostic.with_note(
-            DiagnosticNote::new(DiagnosticNoteKind::NativeProductPreparationRecovery),
-        )
+        diagnostic.with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::NativeProductPreparationRecovery,
+        ))
     } else {
         diagnostic
     }
@@ -153,7 +153,7 @@ pub(super) fn native_product_failure_kind(
         NativeProductPlanningError::InvalidLinkTarget(LinkTargetBuildError::EmptyTriple) => {
             Kind::LinkTargetEmptyTriple
         }
-        NativeProductPlanningError::StandardLibrary(_) => Kind::StandardLibraryUnavailable,
+        NativeProductPlanningError::StandardLibrary { .. } => Kind::StandardLibraryUnavailable,
         NativeProductPlanningError::Codegen(error) => codegen_preparation_failure_kind(error)?,
     })
 }

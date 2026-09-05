@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
-use crate::{BinarySymbolName, RuntimeRoleArtifact, RuntimeAbiType, RuntimeNativeSignature, RuntimeCapability};
+use crate::{
+    BinarySymbolName, RuntimeAbiType, RuntimeCapability, RuntimeNativeSignature,
+    RuntimeRoleArtifact,
+};
 
 macro_rules! define_runtime_roles {
     ($( $role:ident {
@@ -342,7 +345,11 @@ mod tests {
             assert!(names.insert(role.as_str()), "{role:?}");
             assert_eq!(RuntimeAbiRole::from_name(role.as_str()), Some(role));
             assert_eq!(role.contract().role(), role);
-            assert_eq!(role.native_symbol().is_some(), role.native_signature().is_some());
+
+            assert_eq!(
+                role.native_symbol().is_some(),
+                role.native_signature().is_some()
+            );
 
             if let Some(symbol) = role.native_symbol() {
                 assert!(symbols.insert(symbol), "{role:?}");
@@ -358,7 +365,10 @@ mod tests {
     fn role_catalog_carries_bootstrap_availability_and_capability_requirements() {
         assert_eq!(
             RuntimeAbiRole::MainThreadLaneStartup.required_capabilities(),
-            [crate::RuntimeCapability::CooperativeExecution, crate::RuntimeCapability::MainThreadLane],
+            [
+                crate::RuntimeCapability::CooperativeExecution,
+                crate::RuntimeCapability::MainThreadLane
+            ],
         );
 
         assert_eq!(
@@ -367,7 +377,11 @@ mod tests {
         );
 
         assert!(!RuntimeAbiRole::TestEntrySelection.available_to_product());
-        assert_eq!(RuntimeAbiRole::GeneratorBegin.implementation(), super::RuntimeRoleImplementation::CompilerLowering);
+
+        assert_eq!(
+            RuntimeAbiRole::GeneratorBegin.implementation(),
+            super::RuntimeRoleImplementation::CompilerLowering
+        );
     }
 
     #[test]

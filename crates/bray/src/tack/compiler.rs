@@ -30,8 +30,13 @@ pub(crate) struct ProjectCompiler<'project> {
     profile: Option<&'project TackProfileConfiguration>,
     native_link_inputs: Vec<String>,
     executor: &'project dyn ToolExecutor,
-    interfaces: BTreeMap<(ProductIdentity, TargetIdentity), PathBuf>,
+    interfaces: BTreeMap<(ProductIdentity, TargetIdentity), CheckedInterface>,
     checked: BTreeSet<(ProductIdentity, TargetIdentity)>,
+}
+
+struct CheckedInterface {
+    path: PathBuf,
+    _operation: bray_emitter::ManagedOperation,
 }
 
 pub(crate) struct ProductBuild {
@@ -284,24 +289,17 @@ impl<'project> ProjectCompiler<'project> {
             return Ok(false);
         }
 
-        let interface = self.cache_interface_path(identity, target);
+        let operation = bray_emitter::ManagedOperation::begin(
+            &self.graph.output_root().beneath(self.workspace_root),
+            identity,
+            target,
+            &|| false,
+        )
+        .map_err(storage_diagnostics)?;
 
-        let Some(parent) = interface.parent() else {
-            return Err(operation_diagnostics(
-                DiagnosticProjectCommandFailure::MissingParent {
-                    operation: DiagnosticProjectOperation::InterfaceCachePath,
-                    path: interface,
-                },
-            ));
-        };
-
-        std::fs::create_dir_all(parent).map_err(|error| {
-            operation_diagnostics(DiagnosticProjectCommandFailure::Io {
-                operation: DiagnosticProjectOperation::InterfaceCacheDirectory,
-                path: parent.to_owned(),
-                error: DiagnosticIoErrorKind::from(error.kind()),
-            })
-        })?;
+        let interface = operation
+            .directory()
+            .join(format!("{}.brayi", identity.name()));
 
         let output = self.run_compiler(
             &product,
@@ -317,7 +315,14 @@ impl<'project> ProjectCompiler<'project> {
         outputs.push(output);
 
         if success {
-            self.interfaces.insert(key.clone(), interface);
+            self.interfaces.insert(
+                key.clone(),
+                CheckedInterface {
+                    path: interface,
+                    _operation: operation,
+                },
+            );
+
             self.checked.insert(key);
         }
 
@@ -590,8 +595,8 @@ impl<'project> ProjectCompiler<'project> {
 
                 Ok(DependencyArtifact {
                     identity,
-                    interface: path.clone(),
-                    implementation: path.with_extension("brayimpl"),
+                    interface: path.path.clone(),
+                    implementation: path.path.with_extension("brayimpl"),
                 })
             })
             .collect()
@@ -704,13 +709,7 @@ impl<'project> ProjectCompiler<'project> {
             bray_emitter::ManagedFilesystemDestination::new(output_root, directory),
             product.identity(),
         )
-        .map_err(|_| {
-            operation_diagnostics(DiagnosticProjectCommandFailure::Io {
-                operation: DiagnosticProjectOperation::ProductOutputDirectory,
-                path: PathBuf::from(relative),
-                error: DiagnosticIoErrorKind::Other,
-            })
-        })
+        .map_err(|error| storage_diagnostics(error.into_storage_error(&PathBuf::from(relative))))
     }
 
     fn relative_output_directory(
@@ -725,18 +724,6 @@ impl<'project> ProjectCompiler<'project> {
             configuration.directory_name(),
             product.package().as_str()
         )
-    }
-
-    fn cache_interface_path(&self, product: &ProductIdentity, target: &TargetIdentity) -> PathBuf {
-        self.graph
-            .output_root()
-            .beneath(self.workspace_root)
-            .join(".bray")
-            .join("cache")
-            .join("interfaces")
-            .join(target.as_str())
-            .join(product.package().as_str())
-            .join(format!("{}.brayi", product.name()))
     }
 
     fn executable_path(
@@ -943,4 +930,11 @@ fn artifact_text(kind: TargetOutputKind) -> &'static str {
         TargetOutputKind::SharedLibrary => "shared-library",
         TargetOutputKind::LinkedCompanion => "linked-companion",
     }
+}
+
+fn storage_diagnostics(error: bray_emitter::StorageError) -> DiagnosticBag {
+    DiagnosticBag::single(error.into_diagnostic(
+        bray_diagnostics::DiagnosticId::new(0),
+        bray_diagnostics::SeverityKind::Error,
+    ))
 }

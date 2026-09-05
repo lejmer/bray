@@ -47,8 +47,7 @@ impl Policy {
         let categories = sources
             .iter()
             .flat_map(|source| {
-                let file =
-                    SourceFile::parse(source, ra_ap_syntax::Edition::Edition2024).tree();
+                let file = SourceFile::parse(source, ra_ap_syntax::Edition::Edition2024).tree();
 
                 valid_categories(source, &file)
             })
@@ -132,8 +131,7 @@ pub(super) fn check(
             &path.syntax().text().to_string(),
             &aliases,
             enclosing_self_type(path_expression.syntax()).as_deref(),
-        )
-        else {
+        ) else {
             continue;
         };
 
@@ -151,7 +149,11 @@ pub(super) fn check(
         );
     }
 
-    for record in file.syntax().descendants().filter_map(ast::RecordExpr::cast) {
+    for record in file
+        .syntax()
+        .descendants()
+        .filter_map(ast::RecordExpr::cast)
+    {
         let Some(path) = record.path() else {
             continue;
         };
@@ -160,8 +162,7 @@ pub(super) fn check(
             &path.syntax().text().to_string(),
             &aliases,
             enclosing_self_type(record.syntax()).as_deref(),
-        )
-        else {
+        ) else {
             continue;
         };
 
@@ -242,8 +243,8 @@ fn push_constructor_diagnostic(
     let preserves_bindings = conversion.as_ref().is_some_and(|bindings| {
         !bindings.is_empty()
             && bindings
-            .iter()
-            .all(|binding| references_name(constructor, binding))
+                .iter()
+                .all(|binding| references_name(constructor, binding))
     });
 
     if has_payload && (conversion.is_none() || preserves_bindings) {
@@ -398,20 +399,17 @@ fn conversion_bindings(policy: &Policy, constructor: &SyntaxNode) -> Option<Vec<
     None
 }
 
-fn function_conversion_bindings(
-    policy: &Policy,
-    function: &ast::Fn,
-) -> Option<Vec<String>> {
+fn function_conversion_bindings(policy: &Policy, function: &ast::Fn) -> Option<Vec<String>> {
     let is_from = function.name().is_some_and(|name| name.text() == "from")
         && function
-        .syntax()
-        .ancestors()
-        .find_map(ast::Impl::cast)
-        .is_some_and(|implementation| {
-            implementation
-                .trait_()
-                .is_some_and(|trait_type| trait_type.syntax().text().to_string().contains("From"))
-        });
+            .syntax()
+            .ancestors()
+            .find_map(ast::Impl::cast)
+            .is_some_and(|implementation| {
+                implementation.trait_().is_some_and(|trait_type| {
+                    trait_type.syntax().text().to_string().contains("From")
+                })
+            });
 
     let returns_broad_failure = function.ret_type().is_some_and(|return_type| {
         policy.contains_return_type(&return_type.syntax().text().to_string())
@@ -428,10 +426,7 @@ fn function_conversion_bindings(
         .filter_map(|parameter| {
             let is_failure_type = parameter.ty().is_some_and(type_is_failure);
 
-            let bindings = parameter
-                .pat()
-                .map(pattern_bindings)?
-                .collect::<Vec<_>>();
+            let bindings = parameter.pat().map(pattern_bindings)?.collect::<Vec<_>>();
 
             Some((bindings, is_failure_type))
         })
@@ -446,11 +441,9 @@ fn function_conversion_bindings(
         );
     }
 
-    let has_failure_input = parameters
-        .iter()
-        .any(|(bindings, is_failure_type)| {
-            *is_failure_type || bindings.iter().any(|binding| is_failure_binding(binding))
-        });
+    let has_failure_input = parameters.iter().any(|(bindings, is_failure_type)| {
+        *is_failure_type || bindings.iter().any(|binding| is_failure_binding(binding))
+    });
 
     if !has_failure_input {
         return None;
@@ -484,7 +477,12 @@ fn type_is_failure(ty: ast::Type) -> bool {
     }
 
     let direct = direct.split('<').next().unwrap_or(direct);
-    let name = direct.rsplit("::").next().unwrap_or(direct).to_ascii_lowercase();
+
+    let name = direct
+        .rsplit("::")
+        .next()
+        .unwrap_or(direct)
+        .to_ascii_lowercase();
 
     ["cause", "error", "failure"]
         .iter()
@@ -521,7 +519,7 @@ fn name_has_role(binding: &str, roles: &[&str]) -> bool {
 
     roles
         .iter()
-    .any(|part| binding == *part || binding.ends_with(&format!("_{part}")))
+        .any(|part| binding == *part || binding.ends_with(&format!("_{part}")))
 }
 
 fn pattern_bindings(pattern: ast::Pat) -> impl Iterator<Item = String> {
@@ -744,10 +742,7 @@ fn missing() -> Failure {
 
         assert_eq!(diagnostics.len(), 1);
 
-        assert_eq!(
-            diagnostics[0].rule,
-            Rule::ContextErasingFailureConversion
-        );
+        assert_eq!(diagnostics[0].rule, Rule::ContextErasingFailureConversion);
     }
 
     #[test]
@@ -778,10 +773,7 @@ impl FirstFailure {
 
         assert_eq!(diagnostics.len(), 1);
 
-        assert_eq!(
-            diagnostics[0].rule,
-            Rule::ContextErasingFailureConversion
-        );
+        assert_eq!(diagnostics[0].rule, Rule::ContextErasingFailureConversion);
     }
 
     #[test]
@@ -936,12 +928,7 @@ enum BroadFailure {
         let policy = Policy::from_sources(&[malformed]);
         let file = SourceFile::parse(malformed, Edition::Edition2024).tree();
 
-        let diagnostics = check(
-            Path::new("src/example.rs"),
-            malformed,
-            &file,
-            &policy,
-        );
+        let diagnostics = check(Path::new("src/example.rs"), malformed, &file, &policy);
 
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].rule, Rule::InvalidFailureCategory);
@@ -959,15 +946,7 @@ mod tests {
         let policy = Policy::from_sources(&[test_marker]);
         let file = SourceFile::parse(test_marker, Edition::Edition2024).tree();
 
-        assert!(
-            check(
-                Path::new("src/example.rs"),
-                test_marker,
-                &file,
-                &policy,
-            )
-            .is_empty()
-        );
+        assert!(check(Path::new("src/example.rs"), test_marker, &file, &policy,).is_empty());
 
         let test_only = r#"
 #[cfg(test)]

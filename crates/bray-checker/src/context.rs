@@ -14,13 +14,13 @@ use bray_diagnostics::DiagnosticResult;
 use bray_source::{SourceId, SourceSpan, SourceVersion, TextRange, TextSize};
 use bray_symbols::{
     AnyLocalSymbolId, AnySymbolId, AvailableCompilerKnownSymbols, ConstantTermId,
-    DeclaredTypeRepresentation, GenericConstraintObligationKey, ImplementationRequirementKey,
-    GenericArgumentKind, GenericSubstitutionShapeError, ImplementationSelection, LocalBindingSymbolId,
-    MemberLookupResult, NamedTypeSymbolId,
-    ProofOutcome, SemanticValueStore, StructSymbol, StructSymbolId, SymbolGraph, SymbolKey,
-    SymbolName, SymbolQueryContract, SymbolQueryKind, SymbolQueryRequest, TraitApplicationId,
-    TraitTypeMemberSymbolId, TypeId, UnionPayloadFieldSymbol, UnionPayloadFieldSymbolId,
-    UnionSymbol, UnionSymbolId, UnionVariantSymbol, UnionVariantSymbolId,
+    DeclaredTypeRepresentation, GenericArgumentKind, GenericConstraintObligationKey,
+    GenericSubstitutionShapeError, ImplementationRequirementKey, ImplementationSelection,
+    LocalBindingSymbolId, MemberLookupResult, NamedTypeSymbolId, ProofOutcome, SemanticValueStore,
+    StructSymbol, StructSymbolId, SymbolGraph, SymbolKey, SymbolName, SymbolQueryContract,
+    SymbolQueryKind, SymbolQueryRequest, TraitApplicationId, TraitTypeMemberSymbolId, TypeId,
+    UnionPayloadFieldSymbol, UnionPayloadFieldSymbolId, UnionSymbol, UnionSymbolId,
+    UnionVariantSymbol, UnionVariantSymbolId,
 };
 use bray_target::TargetProfile;
 

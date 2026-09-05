@@ -421,8 +421,10 @@ mod tests {
             [RuntimeCapability::CooperativeExecution],
             [RuntimeRoleBinding::new(
                 RuntimeAbiRole::MainThreadLaneStartup,
-                BinarySymbolName::try_new(bray_runtime_abi::symbols::MAIN_THREAD_LANE_STARTUP_SYMBOL)
-                    .unwrap_or_else(|| panic!("runtime symbol must be valid")),
+                BinarySymbolName::try_new(
+                    bray_runtime_abi::symbols::MAIN_THREAD_LANE_STARTUP_SYMBOL,
+                )
+                .unwrap_or_else(|| panic!("runtime symbol must be valid")),
                 RuntimeRoleImplementation::BrayRuntime,
             )],
         )

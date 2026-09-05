@@ -111,6 +111,10 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
             format_english_native_product_failure(kind)
         }
         DiagnosticArgValue::EmissionFailure(failure) => format_english_emission_failure(failure),
+        DiagnosticArgValue::RetainedGenerationProblem(problem) => {
+            format_retained_generation_problem(problem)
+        }
+        DiagnosticArgValue::StorageOperation(operation) => format_storage_operation(*operation),
         DiagnosticArgValue::EmissionArtifactOperation(kind) => {
             format_english_emission_artifact_operation(*kind).to_owned()
         }
@@ -281,5 +285,72 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         DiagnosticArgValue::PatternUnreachability(reason) => {
             format_english_pattern_unreachability(*reason).to_owned()
         }
+    }
+}
+
+fn format_retained_generation_problem(
+    problem: &bray_diagnostics::DiagnosticRetainedGenerationProblem,
+) -> String {
+    use bray_diagnostics::DiagnosticRetainedGenerationProblem as Problem;
+
+    match problem {
+        Problem::ReferenceRevision { expected, actual } => format!(
+            "the publication reference requires revision {expected}, but records revision {actual}"
+        ),
+        Problem::ReferenceIdentity => {
+            "the publication reference contains a malformed locator or content digest".to_owned()
+        }
+        Problem::ManifestRevision { expected, actual } => format!(
+            "the product manifest requires revision {expected}, but records revision {actual}"
+        ),
+        Problem::ProductIdentity => {
+            "the product manifest names a different package or product".to_owned()
+        }
+        Problem::ArtifactSelection => {
+            "the requested artifact is absent or appears more than once".to_owned()
+        }
+        Problem::DigestAlgorithm => {
+            "the manifest records an unsupported artifact digest algorithm".to_owned()
+        }
+        Problem::DigestEncoding => {
+            "the manifest artifact digest is not a lowercase 32-byte hexadecimal value".to_owned()
+        }
+        Problem::LogicalPermission => {
+            "the manifest permission kind disagrees with its artifact kind".to_owned()
+        }
+        Problem::ReadOnly { expected, actual } => format!(
+            "the manifest records read-only status {expected}, but the file has read-only status {actual}"
+        ),
+        Problem::UnixMode { expected, actual } => format!(
+            "the manifest records Unix permissions {}, but the file has Unix permissions {}",
+            format_unix_permissions(*expected),
+            format_unix_permissions(*actual)
+        ),
+        Problem::ArtifactContract => {
+            "an artifact violates its recorded path or identity contract".to_owned()
+        }
+    }
+}
+
+fn format_storage_operation(operation: bray_diagnostics::DiagnosticStorageOperation) -> String {
+    use bray_diagnostics::DiagnosticStorageOperation as Operation;
+
+    match operation {
+        Operation::Inspect => "inspect",
+        Operation::Create => "create",
+        Operation::Read => "read",
+        Operation::Write => "write",
+        Operation::Flush => "flush",
+        Operation::Lock => "lock",
+        Operation::Rename => "rename",
+        Operation::Remove => "remove",
+    }
+    .to_owned()
+}
+
+fn format_unix_permissions(mode: Option<u32>) -> String {
+    match mode {
+        Some(mode) => format!("{mode:#05o}"),
+        None => "unavailable on this filesystem".to_owned(),
     }
 }

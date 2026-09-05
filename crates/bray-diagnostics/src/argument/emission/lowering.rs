@@ -234,7 +234,9 @@ impl DiagnosticLoweringFailureKind {
             Self::UnsupportedPattern(_) => "code_production_pattern_unsupported",
             Self::UnsupportedOperator { .. } => "code_production_operator_unsupported",
             Self::MissingStorageAccess(_) => "code_production_value_access_unavailable",
-            Self::MissingStorageAccessRecord(_) => "code_production_value_access_record_unavailable",
+            Self::MissingStorageAccessRecord(_) => {
+                "code_production_value_access_record_unavailable"
+            }
             Self::MissingCleanupPlan(_) => "code_production_scope_cleanup_unavailable",
             Self::MissingStorageIdentity(_) => "code_production_accessed_value_unavailable",
             Self::MissingStorageIdentityRecord(_) => "code_production_value_record_unavailable",

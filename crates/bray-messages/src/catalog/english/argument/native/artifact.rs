@@ -439,7 +439,9 @@ fn format_english_lowering_failure(failure: bray_diagnostics::DiagnosticLowering
             "generating executable code for the highlighted expression"
         }
         Failure::UnsupportedPattern(_) => "generating executable code for the highlighted pattern",
-        Failure::UnsupportedOperator { .. } => "generating executable code for the highlighted operator",
+        Failure::UnsupportedOperator { .. } => {
+            "generating executable code for the highlighted operator"
+        }
         Failure::MissingStorageAccess(_) => {
             "generating ownership-safe code for the highlighted expression because its value-access behavior is unavailable"
         }
@@ -471,7 +473,9 @@ fn format_english_lowering_failure(failure: bray_diagnostics::DiagnosticLowering
             "generating executable code for the highlighted declaration because a required type or constant value is unavailable"
         }
         Failure::GenericSubstitution(failure) => {
-            return super::format_internal_compiler_error(super::checker::format_generic_substitution_failure(failure));
+            return super::format_internal_compiler_error(
+                super::checker::format_generic_substitution_failure(failure),
+            );
         }
         Failure::SemanticValue(failure) => {
             return format_english_semantic_value_failure(failure);

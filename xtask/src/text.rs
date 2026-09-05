@@ -32,6 +32,9 @@ mod tests {
             normalize_line_endings(b"first\r\nsecond\r\n"),
         );
 
-        assert_eq!(normalize_line_endings(b"first\rsecond").as_ref(), b"first\rsecond");
+        assert_eq!(
+            normalize_line_endings(b"first\rsecond").as_ref(),
+            b"first\rsecond"
+        );
     }
 }

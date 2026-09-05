@@ -10,6 +10,7 @@ mod plan;
 mod publication;
 mod request;
 mod sink;
+mod storage;
 
 #[cfg(test)]
 mod test_support;
@@ -35,8 +36,9 @@ pub use plan::{
 };
 pub use publication::ArtifactPublisher;
 pub use publication::{
-    PublishedGenerationReadError, PublishedProductReadGuard, lock_published_product,
-    resolve_published_artifact,
+    PublishedArtifact, PublishedGenerationReadError, PublishedProductReadGuard,
+    RetainedProductGeneration, lock_published_product, resolve_published_artifact,
+    retain_published_generation,
 };
 pub use request::{
     EmissionRequest, EmissionRequestBuildError, ManagedFilesystemDestination,
@@ -46,3 +48,9 @@ pub use sink::{
     IndirectOutputSink, ManagedArtifactPath, OutputSink, OutputSinkId, OutputSinkResolver,
     OutputSinkTransaction, ReplacementPolicy,
 };
+pub use storage::{ManagedCache, ManagedOperation};
+pub use storage::{
+    StorageCategory, StorageEntryReport, StorageKind, StorageSelection, clean_storage,
+    inspect_storage,
+};
+pub use storage::{StorageError, StorageErrorKind, StorageOperation, StoragePolicy};

@@ -327,6 +327,14 @@
   ],
   "host_operations": [
     {
+      "name": "MaterializeStatic",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/host.rs",
+        "symbol": "MirHostOperation::MaterializeStatic"
+      }
+    },
+    {
       "name": "SelectTestEntry",
       "disposition": "translated",
       "production": {
@@ -356,6 +364,14 @@
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/effect/host.rs",
         "symbol": "MirHostOperation::ResolveRootTerminal"
+      }
+    },
+    {
+      "name": "BeginStaticCleanup",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/effect/host.rs",
+        "symbol": "MirHostOperation::BeginStaticCleanup"
       }
     },
     {
@@ -409,6 +425,14 @@
       }
     },
     {
+      "name": "RangeIterate",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::RangeIterate"
+      }
+    },
+    {
       "name": "Switch",
       "disposition": "translated",
       "production": {
@@ -454,6 +478,14 @@
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
         "symbol": "MirTerminatorKind::ForwardRunResult"
+      }
+    },
+    {
+      "name": "CheckCallPanic",
+      "disposition": "translated",
+      "production": {
+        "path": "crates/bray-codegen-llvm/src/translation/unit/control.rs",
+        "symbol": "MirTerminatorKind::CheckCallPanic"
       }
     },
     {
@@ -532,7 +564,7 @@
     },
     {
       "name": "ConversionTarget",
-      "variants": ["Identity", "BuiltInScalar", "Composite", "Trait", "TraitConstraint"],
+      "variants": ["Identity", "BuiltInScalar", "CVariadicPromotion", "Composite", "NullablePresent", "Trait", "TraitConstraint"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
         "symbol": "conversion.target()"
@@ -540,7 +572,7 @@
     },
     {
       "name": "MirAggregateKind",
-      "variants": ["Tuple", "Array", "RepeatedArray", "NullablePresent"],
+      "variants": ["Tuple", "Array", "RepeatedArray", "NullablePresent", "Range"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/construction.rs",
         "symbol": "aggregate.kind()"
@@ -564,7 +596,7 @@
     },
     {
       "name": "MirCallTarget",
-      "variants": ["Direct", "Indirect"],
+      "variants": ["Direct", "Indirect", "Runtime"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/call.rs",
         "symbol": "call.target()"

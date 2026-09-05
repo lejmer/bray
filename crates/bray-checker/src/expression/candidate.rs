@@ -1562,9 +1562,7 @@ where
 
             let index = usize::try_from(ordinal).map_err(|_| {
                 CheckerQueryError::Infrastructure(
-                    CheckerInfrastructureError::SelectionInputOrdinalUnrepresentable {
-                        ordinal,
-                    },
+                    CheckerInfrastructureError::SelectionInputOrdinalUnrepresentable { ordinal },
                 )
             })?;
 

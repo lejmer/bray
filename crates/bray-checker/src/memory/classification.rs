@@ -5,7 +5,10 @@ use bray_bound_tree::{
     MemoryLayoutQueryKind, MemoryOffsetUnit, MemoryReadKind,
 };
 use bray_compiler_known::ImplementationHook;
-use bray_diagnostics::{Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, SeverityKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    SeverityKind,
+};
 use bray_symbols::{GenericArgument, TypeId};
 
 use crate::{
@@ -445,6 +448,10 @@ where
             SeverityKind::Error,
         )
         .with_primary_span(span)
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::MemoryOperationFailure,
+            span,
+        ))
         .with_arg(DiagnosticArg::memory_operation(operation)),
     );
 
@@ -498,7 +505,11 @@ where
         },
         SeverityKind::Error,
     )
-    .with_primary_span(span);
+    .with_primary_span(span)
+    .with_label(DiagnosticLabel::primary(
+        DiagnosticLabelKind::MemoryOperationFailure,
+        span,
+    ));
 
     if kind != MemoryLayoutQueryKind::Trailing {
         let operation =
@@ -569,7 +580,11 @@ where
                 DiagnosticKind::CheckingCallableAddressTypeUnsupported,
                 SeverityKind::Error,
             )
-            .with_primary_span(span),
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::MemoryOperationFailure,
+                span,
+            )),
         );
 
         return Ok(false);
@@ -755,6 +770,7 @@ mod tests {
     use bray_compiler_known::ImplementationHook;
     use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
     use bray_symbols::{GenericArgument, GenericTypeParameterSymbolId, SymbolId, TypeData};
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::classify_operation;
     use crate::CheckerUnitView;
@@ -1029,6 +1045,74 @@ mod tests {
                     })
                     .count(),
                 1
+            );
+
+            assert_goal_state_diagnostic_kind(
+                &diagnostics,
+                DiagnosticKind::CheckingMemoryPointeeTypeUnsupported,
+            );
+        });
+    }
+
+    #[test]
+    fn invalid_layout_and_callable_address_types_publish_exact_diagnostics() {
+        with_request(|request| {
+            let element = error_type();
+
+            let unsupported = semantic_values()
+                .intern_type(TypeData::Slice(element))
+                .unwrap_or_else(|error| panic!("slice type must intern: {error:?}"));
+
+            let mut read_kinds = BTreeMap::new();
+            let mut diagnostics = DiagnosticBag::new();
+            let expression = first_expression(request);
+
+            let fixed = classify_operation(
+                request,
+                ImplementationHook::MemorySizeOf,
+                &[GenericArgument::Type(unsupported)],
+                expression,
+                &mut read_kinds,
+                &mut diagnostics,
+            );
+
+            assert_eq!(fixed, Ok(None));
+
+            assert_goal_state_diagnostic_kind(
+                &diagnostics,
+                DiagnosticKind::CheckingFixedLayoutQueryTypeUnsupported,
+            );
+
+            let trailing = classify_operation(
+                request,
+                ImplementationHook::MemoryTrailingLayoutOf,
+                &[GenericArgument::Type(unsupported)],
+                expression,
+                &mut read_kinds,
+                &mut diagnostics,
+            );
+
+            assert_eq!(trailing, Ok(None));
+
+            assert_goal_state_diagnostic_kind(
+                &diagnostics,
+                DiagnosticKind::CheckingTrailingLayoutQueryTypeUnsupported,
+            );
+
+            let callable = classify_operation(
+                request,
+                ImplementationHook::PointerFromCallable,
+                &[GenericArgument::Type(unsupported)],
+                expression,
+                &mut read_kinds,
+                &mut diagnostics,
+            );
+
+            assert_eq!(callable, Ok(None));
+
+            assert_goal_state_diagnostic_kind(
+                &diagnostics,
+                DiagnosticKind::CheckingCallableAddressTypeUnsupported,
             );
         });
     }

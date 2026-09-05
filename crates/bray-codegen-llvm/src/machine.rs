@@ -41,8 +41,8 @@ impl LlvmTargetMachine {
 
         let triple = TargetTriple::create(target.triple());
 
-        let llvm_target = Target::from_triple(&triple)
-            .map_err(CodegenFailure::unsupported_target_report)?;
+        let llvm_target =
+            Target::from_triple(&triple).map_err(CodegenFailure::unsupported_target_report)?;
 
         let relocation = relocation_model(target.relocation_model());
         let code_model = code_model(target.code_model())?;

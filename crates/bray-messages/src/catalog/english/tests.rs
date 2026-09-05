@@ -14,6 +14,7 @@ const OTHER_USER_FACING_CATALOG_SOURCES: &[(&str, &str)] = &[
     ("related.rs", include_str!("related.rs")),
     ("suggestion.rs", include_str!("suggestion.rs")),
     ("test_report.rs", include_str!("test_report.rs")),
+    ("storage_report.rs", include_str!("storage_report.rs")),
     ("../command_help.rs", include_str!("../../command_help.rs")),
 ];
 

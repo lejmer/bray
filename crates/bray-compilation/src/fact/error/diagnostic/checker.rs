@@ -1,7 +1,7 @@
 use bray_checker::CheckerInfrastructureError;
 use bray_diagnostics::{
-    DiagnosticCheckerConstantOperationFailure, DiagnosticCheckerFailure,
-    DiagnosticLivenessFailure, DiagnosticMemoryOperationsFailure, DiagnosticSemanticSelectionFailure,
+    DiagnosticCheckerConstantOperationFailure, DiagnosticCheckerFailure, DiagnosticLivenessFailure,
+    DiagnosticMemoryOperationsFailure, DiagnosticSemanticSelectionFailure,
     DiagnosticSemanticSnapshotFailure, DiagnosticStoragePlanFailure,
 };
 use bray_source::SourceSpan;
@@ -57,12 +57,10 @@ pub(crate) fn diagnostic_checker_failure(
         Error::InvalidAtomicOperationInput {
             hook,
             argument_count,
-        } => {
-            DiagnosticCheckerFailure::InvalidAtomicOperationInput {
-                hook: hook.as_str(),
-                argument_count,
-            }
-        }
+        } => DiagnosticCheckerFailure::InvalidAtomicOperationInput {
+            hook: hook.as_str(),
+            argument_count,
+        },
         Error::UninitInitializerResultUnavailable => {
             DiagnosticCheckerFailure::UninitInitializerResultUnavailable
         }
@@ -221,9 +219,7 @@ const fn diagnostic_constant_operation_failure(
     match failure {
         Failure::Invalid => DiagnosticCheckerConstantOperationFailure::Invalid,
         Failure::DivisionByZero => DiagnosticCheckerConstantOperationFailure::DivisionByZero,
-        Failure::NotRepresentable => {
-            DiagnosticCheckerConstantOperationFailure::NotRepresentable
-        }
+        Failure::NotRepresentable => DiagnosticCheckerConstantOperationFailure::NotRepresentable,
         Failure::ResourceLimitExceeded { actual, maximum } => {
             DiagnosticCheckerConstantOperationFailure::ResourceLimitExceeded { actual, maximum }
         }
@@ -240,13 +236,9 @@ const fn diagnostic_storage_plan_failure(
         Failure::CapacityExceeded => DiagnosticStoragePlanFailure::CapacityExceeded,
         Failure::MissingIdentity => DiagnosticStoragePlanFailure::MissingIdentity,
         Failure::MissingAccess => DiagnosticStoragePlanFailure::MissingAccess,
-        Failure::MissingBorrowCapability => {
-            DiagnosticStoragePlanFailure::MissingBorrowCapability
-        }
+        Failure::MissingBorrowCapability => DiagnosticStoragePlanFailure::MissingBorrowCapability,
         Failure::DuplicateBinding => DiagnosticStoragePlanFailure::DuplicateBinding,
-        Failure::BindingIdentityMismatch => {
-            DiagnosticStoragePlanFailure::BindingIdentityMismatch
-        }
+        Failure::BindingIdentityMismatch => DiagnosticStoragePlanFailure::BindingIdentityMismatch,
     }
 }
 

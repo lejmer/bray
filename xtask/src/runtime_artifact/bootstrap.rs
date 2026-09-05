@@ -132,20 +132,29 @@ fn source_paths(root: &Path) -> Result<Vec<PathBuf>, String> {
 }
 
 fn platform_bindings() -> Result<Vec<PlatformServiceBinding>, String> {
-    PlatformServiceRole::ALL.iter().copied()
-        .filter_map(|role| role.bootstrap_declaration().map(|declaration| (role, declaration)))
+    PlatformServiceRole::ALL
+        .iter()
+        .copied()
+        .filter_map(|role| {
+            role.bootstrap_declaration()
+                .map(|declaration| (role, declaration))
+        })
         .map(|(role, declaration)| {
             let path = format!("{MODULE}.{declaration}");
 
             PlatformServiceBinding::try_new(role, &path)
                 .ok_or_else(|| format!("bootstrap platform binding is invalid: {path}"))
-        }).collect()
+        })
+        .collect()
 }
 
 fn runtime_bindings() -> Result<Vec<RuntimeRoleSourceBinding>, String> {
     RuntimeAbiRole::ALL
         .into_iter()
-        .filter_map(|role| role.bootstrap_declaration().map(|declaration| (role, declaration)))
+        .filter_map(|role| {
+            role.bootstrap_declaration()
+                .map(|declaration| (role, declaration))
+        })
         .map(|(role, declaration)| {
             let path = format!("{MODULE}.{declaration}");
 

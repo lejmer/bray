@@ -296,13 +296,70 @@ fn native_static_type_is_incomplete(
 
 #[cfg(test)]
 mod tests {
-    use bray_diagnostics::DiagnosticKind;
+    use bray_diagnostics::{DiagnosticBag, DiagnosticKind};
     use bray_symbols::{StaticSymbolId, SymbolId, SymbolOrigin};
     use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::super::{ForeignDataKind, ForeignQueryContext, ForeignQueryFailure};
     use crate::fact::FactQueryError;
     use crate::test_support::compilation;
+
+    fn foreign_static_diagnostics(source: &str) -> DiagnosticBag {
+        let compilation = compilation(source);
+
+        let symbols = compilation
+            .symbol_graph()
+            .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
+
+        let declaration = symbols
+            .statics()
+            .iter()
+            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+            .map(bray_symbols::StaticSymbol::id)
+            .unwrap_or_else(|| panic!("test package must declare one source static"));
+
+        compilation
+            .foreign_static_contract(declaration)
+            .unwrap_or_else(|error| panic!("foreign static contract must be available: {error:?}"))
+            .diagnostics()
+            .clone()
+    }
+
+    #[test]
+    fn invalid_foreign_static_surfaces_publish_exact_diagnostics() {
+        let imported = foreign_static_diagnostics(concat!(
+            "module app;\n",
+            "@symbol(name = \"foreign_value\")\n",
+            "extern static FOREIGN_VALUE: i32;\n",
+        ));
+
+        assert_goal_state_diagnostic_kind(
+            &imported,
+            DiagnosticKind::CheckingExternStaticSurfaceUnsupported,
+        );
+
+        let exported = foreign_static_diagnostics(concat!(
+            "module app;\n",
+            "@symbol(name = \"exported_value\")\n",
+            "static EXPORTED_VALUE<T>: i32 = 0;\n",
+        ));
+
+        assert_goal_state_diagnostic_kind(
+            &exported,
+            DiagnosticKind::CheckingExportedStaticSurfaceUnsupported,
+        );
+
+        let unsupported_type = foreign_static_diagnostics(concat!(
+            "module app;\n",
+            "@symbol(name = \"callback\")\n",
+            "extern trusted static CALLBACK: func() -> i32;\n",
+        ));
+
+        assert_goal_state_diagnostic_kind(
+            &unsupported_type,
+            DiagnosticKind::CheckingNativeStaticTypeUnsupported,
+        );
+    }
 
     #[test]
     fn missing_static_records_retain_the_requested_declaration() {

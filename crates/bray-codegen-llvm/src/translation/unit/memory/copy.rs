@@ -49,10 +49,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "memory.copy.bytes",
         ))?;
 
-        let alignment = crate::conversion::target_value(
-            layout.alignment().get(),
-            "memory_copy_alignment",
-        )?;
+        let alignment =
+            crate::conversion::target_value(layout.alignment().get(), "memory_copy_alignment")?;
 
         match kind {
             MemoryCopyKind::NonOverlapping => {

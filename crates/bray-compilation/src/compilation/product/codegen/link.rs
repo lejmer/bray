@@ -42,10 +42,8 @@ pub(super) fn runtime_platform_symbols(
 fn platform_symbol(
     role: bray_runtime_interface::PlatformServiceRole,
 ) -> Result<bray_runtime_interface::BinarySymbolName, NativeProductPlanningError> {
-    bray_runtime_interface::BinarySymbolName::try_new(
-        role.native_symbol(),
-    )
-    .ok_or(NativeProductPlanningError::InvalidSymbolName)
+    bray_runtime_interface::BinarySymbolName::try_new(role.native_symbol())
+        .ok_or(NativeProductPlanningError::InvalidSymbolName)
 }
 
 impl Compilation {
@@ -298,9 +296,17 @@ impl Compilation {
 
         let selected = self.requested_target();
 
+        let standard_library_manifest = resolver
+            .root()
+            .path()
+            .join(bray_standard_library::STANDARD_LIBRARY_MANIFEST_FILE_NAME);
+
         let available_services = resolver
             .target_platform_services(selected.profile().identity(), selected.runtime_abi())
-            .map_err(NativeProductPlanningError::StandardLibrary)?;
+            .map_err(|cause| NativeProductPlanningError::StandardLibrary {
+                artifact_path: standard_library_manifest.clone(),
+                cause,
+            })?;
 
         let platform_services = platform_services_for_imported_symbols(
             &available_services,
@@ -315,7 +321,10 @@ impl Compilation {
         let artifacts = if configuration.uses_thin_lto() {
             let artifacts = resolver
                 .target_artifacts(selected.profile().identity(), selected.runtime_abi())
-                .map_err(NativeProductPlanningError::StandardLibrary)?;
+                .map_err(|cause| NativeProductPlanningError::StandardLibrary {
+                    artifact_path: standard_library_manifest.clone(),
+                    cause,
+                })?;
 
             let codegen = self
                 .state
@@ -326,12 +335,12 @@ impl Compilation {
             let compatibility = codegen
                 .selected_bitcode_target_contract(target)
                 .map_err(NativeProductPlanningError::BitcodeTargetContract)?
-                .ok_or_else(|| {
-                    NativeProductPlanningError::StandardLibrary(
+                .ok_or_else(|| NativeProductPlanningError::StandardLibrary {
+                    artifact_path: standard_library_manifest.clone(),
+                    cause:
                         bray_standard_library::StandardLibraryLoadError::OptimizationUnavailable {
                             target: target.identity().clone(),
                         },
-                    )
                 })?;
 
             select_optimization_artifacts(
@@ -339,6 +348,7 @@ impl Compilation {
                 &compatibility,
                 selected.runtime_abi(),
                 codegen.selected(),
+                &standard_library_manifest,
             )?
         } else {
             resolver
@@ -347,7 +357,10 @@ impl Compilation {
                     selected.runtime_abi(),
                     &provider_services,
                 )
-                .map_err(NativeProductPlanningError::StandardLibrary)?
+                .map_err(|cause| NativeProductPlanningError::StandardLibrary {
+                    artifact_path: standard_library_manifest.clone(),
+                    cause,
+                })?
                 .iter()
                 .cloned()
                 .collect()
@@ -489,6 +502,7 @@ fn select_optimization_artifacts(
     compatibility: &bray_codegen::BackendBitcodeTargetContract,
     runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
     backend: &bray_codegen::BackendIdentity,
+    standard_library_manifest: &std::path::Path,
 ) -> Result<Vec<bray_standard_library::ResolvedStandardLibraryArtifact>, NativeProductPlanningError>
 {
     let metadata = artifacts
@@ -496,14 +510,19 @@ fn select_optimization_artifacts(
         .map(bray_standard_library::ResolvedStandardLibraryArtifact::metadata)
         .collect::<Vec<_>>();
 
-    select_optimization_artifact_indices(&metadata, compatibility, runtime_abi, backend).map(
-        |indices| {
-            indices
-                .into_iter()
-                .map(|index| artifacts[index].clone())
-                .collect()
-        },
+    select_optimization_artifact_indices(
+        &metadata,
+        compatibility,
+        runtime_abi,
+        backend,
+        standard_library_manifest,
     )
+    .map(|indices| {
+        indices
+            .into_iter()
+            .map(|index| artifacts[index].clone())
+            .collect()
+    })
 }
 
 fn select_optimization_artifact_indices(
@@ -511,6 +530,7 @@ fn select_optimization_artifact_indices(
     compatibility: &bray_codegen::BackendBitcodeTargetContract,
     runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
     backend: &bray_codegen::BackendIdentity,
+    standard_library_manifest: &std::path::Path,
 ) -> Result<Vec<usize>, NativeProductPlanningError> {
     let compatible_optimization = artifacts
         .iter()
@@ -550,11 +570,12 @@ fn select_optimization_artifact_indices(
             .optimization()
             .is_some_and(|metadata| metadata.partition() == "std")
     }) {
-        return Err(NativeProductPlanningError::StandardLibrary(
-            bray_standard_library::StandardLibraryLoadError::OptimizationUnavailable {
+        return Err(NativeProductPlanningError::StandardLibrary {
+            artifact_path: standard_library_manifest.to_path_buf(),
+            cause: bray_standard_library::StandardLibraryLoadError::OptimizationUnavailable {
                 target: compatibility.target().clone(),
             },
-        ));
+        });
     }
 
     Ok(selected)
@@ -627,9 +648,7 @@ pub(super) fn platform_services_for_imported_symbols<'symbol>(
     available_services
         .iter()
         .copied()
-        .filter(|role| {
-            imported_symbols.contains(role.native_symbol())
-        })
+        .filter(|role| imported_symbols.contains(role.native_symbol()))
         .collect()
 }
 
@@ -782,6 +801,7 @@ mod tests {
             &contract,
             RuntimeAbiVersion::new(1, 0),
             &backend,
+            std::path::Path::new("standard-library.json"),
         )
         .unwrap_or_else(|error| panic!("test optimization selection must be valid: {error:?}"));
 

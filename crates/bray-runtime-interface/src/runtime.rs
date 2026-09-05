@@ -43,11 +43,10 @@ impl RuntimeContract {
         let role_bindings = canonical_role_bindings(role_bindings)
             .map_err(RuntimeContractBuildError::DuplicateRole)?;
 
-        if let Some(binding) = role_bindings
-            .iter()
-            .find(|binding| binding.implementation() == RuntimeRoleImplementation::CompilerLowering
-                || binding.role().native_symbol().is_none())
-        {
+        if let Some(binding) = role_bindings.iter().find(|binding| {
+            binding.implementation() == RuntimeRoleImplementation::CompilerLowering
+                || binding.role().native_symbol().is_none()
+        }) {
             return Err(RuntimeContractBuildError::CompilerOwnedRole(binding.role()));
         }
 
@@ -231,7 +230,9 @@ mod tests {
     fn runtime_contracts_reject_duplicate_and_compiler_owned_roles() {
         assert_eq!(
             runtime([runtime_binding(RuntimeAbiRole::FrameResume)]),
-            Err(RuntimeContractBuildError::CompilerOwnedRole(RuntimeAbiRole::FrameResume)),
+            Err(RuntimeContractBuildError::CompilerOwnedRole(
+                RuntimeAbiRole::FrameResume
+            )),
         );
 
         let role = runtime_binding(RuntimeAbiRole::TaskStart);

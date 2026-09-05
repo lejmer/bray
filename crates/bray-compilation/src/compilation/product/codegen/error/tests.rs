@@ -311,17 +311,23 @@ fn standard_library_failures_preserve_product_target_and_exact_cause() {
     let target = bray_target::TargetIdentity::try_new("x86_64-pc-windows-msvc")
         .unwrap_or_else(|| panic!("test target identity must be valid"));
 
-    let diagnostics = NativeProductPlanningError::StandardLibrary(
-        bray_standard_library::StandardLibraryLoadError::OptimizationUnavailable {
+    let diagnostics = NativeProductPlanningError::StandardLibrary {
+        artifact_path: std::path::PathBuf::from("standard-library.json"),
+        cause: bray_standard_library::StandardLibraryLoadError::OptimizationUnavailable {
             target: target.clone(),
         },
-    )
+    }
     .diagnostic(&product, target.as_str())
     .unwrap_or_else(|| panic!("standard-library planning failure must diagnose"));
 
     assert!(diagnostics.iter().any(|diagnostic| {
         diagnostic.kind() == DiagnosticKind::StandardLibraryOptimizationUnavailable
     }));
+
+    assert_goal_state_diagnostic_kind(
+        &diagnostics,
+        DiagnosticKind::StandardLibraryOptimizationUnavailable,
+    );
 
     let outer = diagnostics
         .iter()
@@ -339,11 +345,12 @@ fn standard_library_failures_preserve_product_target_and_exact_cause() {
 
     let artifact_path = std::path::PathBuf::from("targets/test/libstd.a");
 
-    let infrastructure = NativeProductPlanningError::StandardLibrary(
-        bray_standard_library::StandardLibraryLoadError::Infrastructure {
+    let infrastructure = NativeProductPlanningError::StandardLibrary {
+        artifact_path: std::path::PathBuf::from("standard-library.json"),
+        cause: bray_standard_library::StandardLibraryLoadError::Infrastructure {
             path: artifact_path.clone(),
         },
-    )
+    }
     .diagnostic(&product, target.as_str())
     .unwrap_or_else(|| panic!("standard-library infrastructure failure must diagnose"));
 

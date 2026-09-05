@@ -62,6 +62,7 @@ impl DiagnosticEmissionFailureJson {
     }
 }
 
+#[cfg(feature = "analysis")]
 pub fn diagnostic_evaluation_failure_json(
     failure: &bray_diagnostics::DiagnosticEmissionEvaluationFailure,
 ) -> Result<serde_json::Value, serde_json::Error> {

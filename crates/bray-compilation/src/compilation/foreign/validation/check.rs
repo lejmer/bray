@@ -1063,14 +1063,30 @@ const fn foreign_representation(role: RepresentationRole) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use bray_diagnostics::DiagnosticKind;
     use bray_symbols::{
         CallableSignatureTemplate, CallableSignatureTemplateError, TypeData, TypeExpressionTemplate,
     };
+    use bray_testing::assert_goal_state_diagnostic_kind;
 
     use super::callable_surface;
     use crate::compilation::ForeignQueryFailure;
     use crate::fact::FactQueryError;
     use crate::test_support::{compilation, source_function};
+
+    #[test]
+    fn invalid_variadic_foreign_callables_publish_the_exact_contract_diagnostic() {
+        let compilation = compilation(concat!(
+            "module app;\n",
+            "@abi(c)\n",
+            "func variadic(value: i32, ...) {}\n",
+        ));
+
+        assert_goal_state_diagnostic_kind(
+            compilation.check_diagnostics(),
+            DiagnosticKind::CheckingVariadicCallableContractUnsupported,
+        );
+    }
 
     #[test]
     fn source_callable_surface_failure_retains_function_and_signature_cause() {

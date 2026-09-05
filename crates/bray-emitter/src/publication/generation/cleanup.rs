@@ -3,28 +3,20 @@ use std::path::{Path, PathBuf};
 
 use bray_base::sync_directory;
 
-use super::locator::GenerationLocator;
 use super::manifest::GenerationManifest;
-use super::transaction::{GENERATION_MANIFEST, ManagedLayout};
+use super::reference::{GenerationReference, GenerationReferenceEntry};
+use super::transaction::{ManagedLayout, storage_failure};
 use crate::publication::diagnostic::{PublicationError, PublicationErrorKind};
 use crate::publication::operation::{ArtifactPublicationFailure, artifact_failure, planned_error};
 
 pub(super) fn generation_public_paths(
     root: &Path,
     layout: &ManagedLayout,
-    locator: GenerationLocator,
+    reference: &GenerationReferenceEntry,
     planned: &crate::PlannedArtifact,
 ) -> Result<BTreeSet<PathBuf>, ArtifactPublicationFailure> {
-    let bytes = std::fs::read(
-        layout
-            .metadata
-            .join(locator.to_hex())
-            .join(GENERATION_MANIFEST),
-    )
-    .map_err(|error| artifact_failure(planned, PublicationErrorKind::Read(error.kind())))?;
-
-    let manifest = serde_json::from_slice::<GenerationManifest>(&bytes)
-        .map_err(|_| artifact_failure(planned, PublicationErrorKind::InvalidGenerationManifest))?;
+    let manifest = super::retention::read_manifest(&layout.metadata, reference)
+        .map_err(|error| storage_failure(planned, error))?;
 
     manifest
         .artifacts
@@ -58,48 +50,31 @@ pub(super) fn stale_public_paths(
 }
 
 pub(super) fn retain_recent_generations(
+    root: &Path,
     layout: &ManagedLayout,
-    current: GenerationLocator,
-    preceding: Option<GenerationLocator>,
+    reference: &GenerationReference,
     planned: &crate::PlannedArtifact,
+    cancellation: &dyn bray_base::Cancellation,
 ) -> Result<(), PublicationError> {
-    let entries = std::fs::read_dir(&layout.metadata)
-        .map_err(|error| planned_error(planned, PublicationErrorKind::Commit(error.kind())))?;
+    let mut managed = crate::storage::ManagedStore::open(root)
+        .map_err(|error| planned_error(planned, PublicationErrorKind::Storage(Box::new(error))))?;
 
-    let mut obsolete = Vec::new();
+    super::retention::prune_generations(
+        &mut managed,
+        &layout.metadata,
+        Some(reference),
+        cancellation,
+    )
+    .map_err(|error| planned_error(planned, PublicationErrorKind::Storage(Box::new(error))))?;
 
-    for entry in entries {
-        let entry = entry
-            .map_err(|error| planned_error(planned, PublicationErrorKind::Commit(error.kind())))?;
-
-        let file_type = entry
-            .file_type()
-            .map_err(|error| planned_error(planned, PublicationErrorKind::Commit(error.kind())))?;
-
-        if !file_type.is_dir() {
-            continue;
-        }
-
-        let Some(name) = entry.file_name().to_str().map(str::to_owned) else {
-            continue;
-        };
-
-        let Some(locator) = GenerationLocator::try_from_hex(&name) else {
-            continue;
-        };
-
-        if locator != current && Some(locator) != preceding {
-            obsolete.push(entry.path());
-        }
-    }
-
-    obsolete.sort();
-
-    for path in obsolete {
-        std::fs::remove_dir_all(path)
-            .map_err(|error| planned_error(planned, PublicationErrorKind::Commit(error.kind())))?;
-    }
-
-    sync_directory(&layout.metadata)
-        .map_err(|error| planned_error(planned, PublicationErrorKind::Commit(error.kind())))
+    sync_directory(&layout.metadata).map_err(|error| {
+        planned_error(
+            planned,
+            PublicationErrorKind::Storage(Box::new(crate::StorageError::io(
+                &layout.metadata,
+                crate::StorageOperation::Flush,
+                error,
+            ))),
+        )
+    })
 }

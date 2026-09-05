@@ -11,7 +11,10 @@ mod locale;
 mod profile;
 mod rendered_diagnostic;
 mod renderer;
+mod storage_report;
 mod test_report;
+
+pub use storage_report::{StorageReportMessage, StorageReportMessageRenderer};
 
 pub use build_progress::{
     BuildProgressAction, BuildProgressConfiguration, BuildProgressLineKind,

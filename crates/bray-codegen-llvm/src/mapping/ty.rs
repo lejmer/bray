@@ -267,8 +267,7 @@ impl<'context, 'mappings> LlvmTypeMappings<'context, 'mappings> {
 
             let field_type = self.map(field.ty())?;
 
-            let element =
-                crate::conversion::target_value(elements.len(), "aggregate_field_count")?;
+            let element = crate::conversion::target_value(elements.len(), "aggregate_field_count")?;
 
             elements.push(field_type);
             field_elements.push((element, field.offset_bytes()));

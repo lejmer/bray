@@ -84,7 +84,12 @@ pub enum NativeProductPlanningError {
     /// The selected linker target is invalid.
     InvalidLinkTarget(LinkTargetBuildError),
     /// The configured standard library cannot supply a required native artifact.
-    StandardLibrary(bray_standard_library::StandardLibraryLoadError),
+    StandardLibrary {
+        /// Exact standard-library artifact or manifest that supplied planning context.
+        artifact_path: std::path::PathBuf,
+        /// Exact standard-library resolution failure.
+        cause: bray_standard_library::StandardLibraryLoadError,
+    },
     /// One code generation plan is unavailable.
     Codegen(crate::compilation::CodegenPreparationError),
 }
@@ -146,7 +151,10 @@ impl NativeProductPlanningError {
         ));
 
         match self {
-            Self::StandardLibrary(error) => {
+            Self::StandardLibrary {
+                artifact_path: context_path,
+                cause: error,
+            } => {
                 let (cause, artifact_path) =
                     crate::compilation::imported::standard_library_failure_diagnostic(
                         // The nested diagnostic conversion owns the standard-library failure
@@ -154,15 +162,13 @@ impl NativeProductPlanningError {
                         error.clone(),
                     );
 
-                let cause = if let Some(artifact_path) = artifact_path.as_deref() {
-                    crate::compilation::imported::with_standard_library_product_context(
-                        cause,
-                        product,
-                        artifact_path,
-                    )
-                } else {
-                    cause
-                };
+                let artifact_path = artifact_path.as_deref().unwrap_or(context_path);
+
+                let cause = crate::compilation::imported::with_standard_library_product_context(
+                    cause,
+                    product,
+                    artifact_path,
+                );
 
                 Some(DiagnosticBag::single(cause).merged(&outer))
             }

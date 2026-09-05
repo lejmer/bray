@@ -1298,6 +1298,38 @@ mod tests {
     }
 
     #[test]
+    fn foreign_thread_exit_releases_implicit_attachment() {
+        let descriptor: &'static NativeProductHostDescriptor =
+            Box::leak(Box::new(NativeProductHostDescriptor::new(
+                NativeProductIdentity::new([53; 32]),
+                delayed_entry,
+                0,
+            )));
+
+        std::thread::spawn(move || {
+            assert_eq!(
+                control(
+                    descriptor,
+                    NativeProductHostOperation::ATTACH_CURRENT_THREAD,
+                )
+                .status(),
+                NativeProductHostStatus::SUCCESS
+            );
+        })
+        .join()
+        .unwrap_or_else(|_| panic!("foreign thread exit must complete without a TLS panic"));
+
+        let observed = control(descriptor, NativeProductHostOperation::OBSERVE);
+
+        assert_eq!(observed.thread_attachments(), 0);
+
+        assert_eq!(
+            control(descriptor, NativeProductHostOperation::CLOSE).state(),
+            NativeProductHostState::CLOSED
+        );
+    }
+
+    #[test]
     fn foreign_attachment_retains_product_before_thread_static_access() {
         let descriptor = NativeProductHostDescriptor::new(
             NativeProductIdentity::new([61; 32]),

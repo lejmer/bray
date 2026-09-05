@@ -76,6 +76,14 @@ internal struct CleanupRecord
     detach: RawPointer<u8>;
 }
 
+@link(name = "bray_runtime_host", kind = system)
+@symbol(name = "bray_runtime_substrate_thread_static_cleanup_registration")
+@abi(c)
+extern trusted internal func substrate_thread_static_cleanup_registration(
+    pos registration: RawPointer<u8>,
+) -> u32
+    uses(foreign_call);
+
 internal static BOOTSTRAP_PROBE_CLEANUP_ORDER: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
 
 internal static BOOTSTRAP_PROBE_CLEANUP_DEPENDENCIES: core.atomic.Atomic<u64> = core.atomic.initialize<u64>(0);
@@ -155,11 +163,20 @@ trusted internal func register_thread_cleanup(pos registration: RawPointer<u8>) 
             pointer = trusted std.memory.reinterpret<CleanupRegistration, u8>(registration)
         ),
     )
-    uses(layout_reinterpret)
+    uses(foreign_call, layout_reinterpret)
 {
     if std.memory.is_null<u8>(registration)
     {
         return STATUS_INVALID_ARGUMENT;
+    }
+
+    let registration_value: CleanupRegistration = trusted read_opaque<CleanupRegistration>(
+        trusted std.memory.reinterpret<CleanupRegistration, u8>(registration)
+    );
+
+    if !std.memory.is_null<u8>(registration_value.product)
+    {
+        return trusted substrate_thread_static_cleanup_registration(registration);
     }
 
     let state: RawPointer<AttachmentState> = trusted load_attachment();
@@ -175,10 +192,6 @@ trusted internal func register_thread_cleanup(pos registration: RawPointer<u8>) 
     {
         return STATUS_NOT_INITIALIZED;
     }
-
-    let registration_value: CleanupRegistration = trusted read_opaque<CleanupRegistration>(
-        trusted std.memory.reinterpret<CleanupRegistration, u8>(registration)
-    );
 
     if std.memory.is_null<u8>(registration_value.prepare)
         || std.memory.is_null<u8>(registration_value.destroy)

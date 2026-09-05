@@ -162,7 +162,7 @@ pub enum BackendBitcodeSemantics {
     /// Preserve backend bitcode without a cross-artifact import summary.
     #[default]
     Plain,
-    /// Include the module summary required for LLVM ThinLTO planning.
+    /// Include the module summary required for thin link-time optimization planning.
     ThinLto,
 }
 

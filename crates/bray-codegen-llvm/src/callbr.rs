@@ -15,7 +15,10 @@ pub(crate) enum CallBrError {
     ContextMismatch,
     DestinationOutsideFunction,
     InvalidArguments,
-    InvalidName { name: String, nul_position: usize },
+    InvalidName {
+        name: String,
+        nul_position: usize,
+    },
     MissingInstruction,
     ResourceLimit {
         resource: &'static str,
@@ -180,19 +183,17 @@ fn validate_callbr<'context>(
         return Err(CallBrError::InvalidArguments);
     }
 
-    let destination_count = u32::try_from(indirect_destinations.len()).map_err(|_| {
-        CallBrError::ResourceLimit {
+    let destination_count =
+        u32::try_from(indirect_destinations.len()).map_err(|_| CallBrError::ResourceLimit {
             resource: "callbr_indirect_destination_count",
             actual: indirect_destinations.len(),
-        }
-    })?;
+        })?;
 
-    let argument_count = u32::try_from(arguments.len()).map_err(|_| {
-        CallBrError::ResourceLimit {
+    let argument_count =
+        u32::try_from(arguments.len()).map_err(|_| CallBrError::ResourceLimit {
             resource: "callbr_argument_count",
             actual: arguments.len(),
-        }
-    })?;
+        })?;
 
     Ok((insertion_block, destination_count, argument_count))
 }

@@ -295,16 +295,7 @@ where
 }
 
 fn parse_manifest_error(path: &Path, error: &serde_json::Error) -> ProjectLoadError {
-    let kind = match error.classify() {
-        serde_json::error::Category::Io => bray_diagnostics::DiagnosticDocumentParseKind::Input,
-        serde_json::error::Category::Syntax => {
-            bray_diagnostics::DiagnosticDocumentParseKind::Syntax
-        }
-        serde_json::error::Category::Data => bray_diagnostics::DiagnosticDocumentParseKind::Schema,
-        serde_json::error::Category::Eof => {
-            bray_diagnostics::DiagnosticDocumentParseKind::UnexpectedEnd
-        }
-    };
+    let kind = bray_diagnostics::DiagnosticDocumentParseKind::from(error.classify());
 
     ProjectLoadError::ParseManifest {
         path: path.to_path_buf(),

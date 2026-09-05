@@ -312,13 +312,11 @@ impl<'export, 'values, 'unit> SourceTemplateBuilder<'export, 'values, 'unit> {
 
                 Ok(InterfaceCheckedTemplateOperation::Convert {
                     value,
-                    target: self
-                        .export
-                        .type_id(
-                            conversion
-                                .target_type()
-                                .ok_or_else(|| incomplete("missing_conversion_target_type"))?,
-                        )?,
+                    target: self.export.type_id(
+                        conversion
+                            .target_type()
+                            .ok_or_else(|| incomplete("missing_conversion_target_type"))?,
+                    )?,
                 })
             }
             BoundExpression::Structured(expression) => match expression.kind() {

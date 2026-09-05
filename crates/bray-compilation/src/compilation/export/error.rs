@@ -17,10 +17,7 @@ pub enum PackageInterfaceInvalidCompilationCause {
     /// The selected target could not form its backend-neutral code generation contract.
     CodegenTarget(bray_codegen::CodegenTargetBuildError),
     /// One compact package-interface field cannot represent the requested value.
-    Capacity {
-        field: &'static str,
-        actual: String,
-    },
+    Capacity { field: &'static str, actual: String },
     /// Runtime requirements selected by executable templates are mutually incompatible.
     RuntimeRequirements(bray_runtime_interface::RuntimeRequirementsMergeError),
     /// Checked-template export violated one exact internal semantic contract.
@@ -73,9 +70,7 @@ impl PackageInterfaceExportContract {
             Self::MissingExportedDeclaration => "missing_exported_declaration",
             Self::NonLocalNativeBoundary => "non_local_native_boundary",
             Self::NonLocalExecutableTemplate => "non_local_executable_template",
-            Self::MissingCompilerKnownTargetProperty => {
-                "missing_compiler_known_target_property"
-            }
+            Self::MissingCompilerKnownTargetProperty => "missing_compiler_known_target_property",
             Self::MissingNestedExecutableTemplate => "missing_nested_executable_template",
             Self::MissingRuntimeDefaultOwnerKey => "missing_runtime_default_owner_key",
         }
@@ -279,37 +274,23 @@ mod tests {
             CheckerInfrastructureError::SemanticValueStore(semantic),
         );
 
-        assert_eq!(
-            fact_query_export_error(checker.clone()),
-            expected(checker)
-        );
+        assert_eq!(fact_query_export_error(checker.clone()), expected(checker));
 
         let binding = FactQueryError::Binding(BoundUnitBindingError::SemanticValue(semantic));
 
-        assert_eq!(
-            fact_query_export_error(binding.clone()),
-            expected(binding)
-        );
+        assert_eq!(fact_query_export_error(binding.clone()), expected(binding));
 
-        let nested = FactQueryError::Binding(
-            BoundUnitBindingError::CheckerInfrastructure(
-                CheckerInfrastructureError::SemanticValueStore(semantic),
-            ),
-        );
+        let nested = FactQueryError::Binding(BoundUnitBindingError::CheckerInfrastructure(
+            CheckerInfrastructureError::SemanticValueStore(semantic),
+        ));
 
-        assert_eq!(
-            fact_query_export_error(nested.clone()),
-            expected(nested)
-        );
+        assert_eq!(fact_query_export_error(nested.clone()), expected(nested));
 
         let create = FactQueryError::SemanticValueStoreCreate(
             SemanticValueStoreCreateError::IdentitySpaceExhausted,
         );
 
-        assert_eq!(
-            fact_query_export_error(create.clone()),
-            expected(create)
-        );
+        assert_eq!(fact_query_export_error(create.clone()), expected(create));
     }
 
     #[test]

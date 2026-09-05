@@ -279,9 +279,7 @@ fn push_export_bundle_failure(
         Error::Validation(cause) => {
             fields.push(DiagnosticFailureField::new(
                 "interface_validation_cause",
-                DiagnosticFailureValue::InterfaceValidationFailure(
-                    cause.diagnostic_failure(),
-                ),
+                DiagnosticFailureValue::InterfaceValidationFailure(cause.diagnostic_failure()),
             ));
 
             "validation"

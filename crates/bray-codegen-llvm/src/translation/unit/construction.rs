@@ -232,12 +232,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | MirConstructionInput::Default { input, .. }) = construction_input;
 
             let input_value = inputs
-                .get(
-                    crate::conversion::resource_limit::<usize, _>(
-                        construction_input.ordinal(),
-                        "construction_input_ordinal",
-                    )?,
-                )
+                .get(crate::conversion::resource_limit::<usize, _>(
+                    construction_input.ordinal(),
+                    "construction_input_ordinal",
+                )?)
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
             let ConstructionInputId::StructField(field) = input else {
@@ -301,12 +299,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             | MirConstructionInput::Default { input, .. }) = construction_input;
 
             let input_value = inputs
-                .get(
-                    crate::conversion::resource_limit::<usize, _>(
-                        construction_input.ordinal(),
-                        "construction_input_ordinal",
-                    )?,
-                )
+                .get(crate::conversion::resource_limit::<usize, _>(
+                    construction_input.ordinal(),
+                    "construction_input_ordinal",
+                )?)
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
             let ConstructionInputId::UnionPayloadField(field) = input else {

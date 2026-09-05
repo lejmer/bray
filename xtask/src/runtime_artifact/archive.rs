@@ -89,6 +89,9 @@ pub(super) fn support_exports(kind: RuntimeArchiveKind) -> impl Iterator<Item = 
     )
     .then_some([
         "bray_runtime_substrate_initialization",
+        "bray_runtime_substrate_product_host_control",
+        "bray_runtime_substrate_thread_attachment_identity",
+        "bray_runtime_substrate_thread_static_cleanup_registration",
         "bray_runtime_substrate_shutdown",
     ])
     .into_iter()

@@ -547,6 +547,25 @@ define_diagnostic_kinds! {
     EmissionGenerationCollision,
     /// A product generation manifest could not be encoded or validated.
     EmissionGenerationManifestInvalid,
+    /// Managed build-storage build_storage_io_failed.
+    BuildStorageIoFailed,
+    /// Managed build-storage build_storage_unsafe_path.
+    BuildStorageUnsafePath,
+    /// Managed build-storage retained_build_state_unavailable.
+    RetainedBuildStateUnavailable,
+    /// Managed build-storage build_storage_cancelled.
+    BuildStorageCancelled,
+    /// A managed build-storage document cannot be decoded.
+    BuildStorageMetadataInvalid,
+    /// A managed build-storage document has an incompatible schema revision.
+    BuildStorageRevisionMismatch,
+    /// A retained product failed its publication or artifact contract.
+    RetainedGenerationInvalid,
+    /// A retained artifact has a different length than its recorded manifest.
+    RetainedArtifactLengthMismatch,
+    /// A retained artifact has different bytes than its recorded digest.
+    RetainedArtifactDigestMismatch,
+
     /// A completed link result cannot be related to a linked emission plan.
     EmissionLinkedPlanMissing,
     /// Product emission reached an unsuccessful terminal phase.
@@ -905,6 +924,15 @@ impl DiagnosticKind {
             Self::EmissionManagedPublicationUnsupported => 9010,
             Self::EmissionGenerationCollision => 9011,
             Self::EmissionGenerationManifestInvalid => 9012,
+            Self::BuildStorageIoFailed => 9020,
+            Self::BuildStorageUnsafePath => 9021,
+            Self::RetainedBuildStateUnavailable => 9022,
+            Self::BuildStorageCancelled => 9023,
+            Self::BuildStorageMetadataInvalid => 9024,
+            Self::BuildStorageRevisionMismatch => 9025,
+            Self::RetainedGenerationInvalid => 9026,
+            Self::RetainedArtifactLengthMismatch => 9027,
+            Self::RetainedArtifactDigestMismatch => 9028,
             Self::EmissionLinkedPlanMissing => 9013,
             Self::EmissionFailed => 9014,
             Self::EmissionTargetMismatch => 9016,
@@ -1355,6 +1383,15 @@ impl DiagnosticKind {
             }
             Self::EmissionGenerationCollision => "emission_generation_collision",
             Self::EmissionGenerationManifestInvalid => "emission_generation_manifest_invalid",
+            Self::BuildStorageIoFailed => "build_storage_io_failed",
+            Self::BuildStorageUnsafePath => "build_storage_unsafe_path",
+            Self::RetainedBuildStateUnavailable => "retained_build_state_unavailable",
+            Self::BuildStorageCancelled => "build_storage_cancelled",
+            Self::BuildStorageMetadataInvalid => "build_storage_metadata_invalid",
+            Self::BuildStorageRevisionMismatch => "build_storage_revision_mismatch",
+            Self::RetainedGenerationInvalid => "retained_generation_invalid",
+            Self::RetainedArtifactLengthMismatch => "retained_artifact_length_mismatch",
+            Self::RetainedArtifactDigestMismatch => "retained_artifact_digest_mismatch",
             Self::EmissionLinkedPlanMissing => "emission_linked_plan_missing",
             Self::EmissionFailed => "emission_failed",
             Self::EmissionTargetMismatch => "emission_target_mismatch",

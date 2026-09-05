@@ -5,19 +5,22 @@ use std::path::{Path, PathBuf};
 
 use bray_base::{
     Cancellation, StagedFile, atomic_rename_exclusive, atomic_rename_exclusive_is_supported,
-    lowercase_hex, sync_directory,
+    sync_directory,
 };
 use bray_codegen::ArtifactDigest;
 use tempfile::{Builder, TempDir};
 
 use super::cleanup::{generation_public_paths, retain_recent_generations, stale_public_paths};
-use super::layout::{STAGING_DIRECTORY, product_store_relative};
+use super::layout::{PRIVATE_GENERATION_PREFIX, STAGING_DIRECTORY, product_store_relative};
 use super::locator::GenerationLocator;
 use super::lock::ProductPublicationLock;
-use super::manifest::{
-    GenerationManifest, GenerationReference, ManifestArtifact, ManifestPermissions,
-    ManifestProduct, permission_key,
+use super::manifest::{GenerationManifest, ManifestArtifact, ManifestPermissions};
+use super::reference::{GenerationReference, GenerationReferenceEntry};
+use crate::storage::{
+    ManagedStore, StorageContext, StorageLease, StorageProduct, create_managed_path,
+    require_directory,
 };
+
 use super::projection::{
     commit_public_projections, prepare_public_projections, rollback_public_projections,
     sync_public_projections,
@@ -37,7 +40,6 @@ use crate::{
 
 pub(super) const GENERATION_MANIFEST: &str = "manifest.json";
 pub(super) const PUBLISHED_REFERENCE: &str = "published-generation.json";
-const PRIVATE_GENERATION_PREFIX: &str = ".bray-generation-";
 const LOCATOR_ATTEMPTS: u32 = 256;
 pub(super) const MANIFEST_REVISION: u32 = 1;
 
@@ -65,20 +67,35 @@ pub(in crate::publication) fn publish_managed_generation(
         return Err(ArtifactPublicationFailure::Cancelled);
     }
 
-    let layout = create_layout(root, first.planned)?;
-    let _publication_lock = ProductPublicationLock::acquire(&layout.metadata, first.planned)?;
-    let preceding_generation = referenced_generation(&layout);
+    let (layout, entry_lease) = create_layout(root, plan, first.planned, cancellation)?;
 
-    let preceding_public_paths = preceding_generation
-        .map(|locator| generation_public_paths(root, &layout, locator, first.planned))
+    let _publication_lock = ProductPublicationLock::acquire(&layout.metadata, first.planned)?;
+
+    super::recovery::recover_publication(root, &layout.metadata, cancellation)
+        .map_err(|error| storage_failure(first.planned, error))?;
+
+    let prior_reference = GenerationReference::read(&layout.reference)
+        .map_err(|error| reference_failure(first.planned, &layout.reference, error))?;
+
+    let preceding_public_paths = prior_reference
+        .as_ref()
+        .map(|reference| generation_public_paths(root, &layout, &reference.current, first.planned))
         .transpose()?
         .unwrap_or_default();
 
     let private = create_private_generation(&layout, first.planned)?;
 
-    let (manifest, emitted) = stage_generation(root, &private, &prepared, cancellation)?;
+    let (manifest, emitted) = stage_generation(root, plan, &private, &prepared, cancellation)?;
 
-    let manifest_bytes = encode_manifest(&manifest, first.planned)?;
+    super::sharing::share_generation(root, private.path(), &manifest, cancellation)
+        .map_err(|error| storage_failure(first.planned, error))?;
+
+    let manifest_bytes = encode_manifest(
+        &manifest,
+        &private.path().join(GENERATION_MANIFEST),
+        first.planned,
+    )?;
+
     let manifest_digest = *blake3::hash(&manifest_bytes).as_bytes();
     let identity = ProductGenerationIdentity::new(manifest_digest);
 
@@ -95,7 +112,6 @@ pub(in crate::publication) fn publish_managed_generation(
         identity,
         &manifest_bytes,
         &manifest,
-        &emitted,
         first.planned,
         cancellation,
     )?;
@@ -113,6 +129,12 @@ pub(in crate::publication) fn publish_managed_generation(
         cancellation,
     )?;
 
+    super::sharing::record_generation(root, &layout.metadata.join(locator.to_hex()), &manifest)
+        .map_err(|error| storage_failure(first.planned, error))?;
+
+    super::recovery::record_publication(&layout.metadata, &manifest)
+        .map_err(|error| storage_failure(first.planned, error))?;
+
     let committed = commit_public_projections(projections, cancellation)?;
 
     if let Err(error) = sync_public_projections(&committed, first.planned) {
@@ -121,7 +143,20 @@ pub(in crate::publication) fn publish_managed_generation(
         return Err(error);
     }
 
-    let reference_bytes = encode_reference(locator, identity, first.planned)?;
+    let reference = GenerationReference::publish(
+        GenerationReferenceEntry::new(locator, identity),
+        prior_reference,
+    );
+
+    let reference_bytes = serde_json::to_vec(&reference).map_err(|_| {
+        artifact_failure(
+            first.planned,
+            PublicationErrorKind::InvalidGenerationManifest,
+        )
+    })?;
+
+    let lease = StorageLease::acquire(&layout.metadata.join(locator.to_hex()).join("lease.lock"))
+        .map_err(|error| storage_failure(first.planned, error))?;
 
     let reference_warning = match commit_reference(
         &layout,
@@ -138,10 +173,24 @@ pub(in crate::publication) fn publish_managed_generation(
         }
     };
 
-    let retention_warning =
-        retain_recent_generations(&layout, locator, preceding_generation, first.planned).err();
+    let journal_warning = super::recovery::complete_publication(&layout.metadata)
+        .err()
+        .map(|error| {
+            planned_error(
+                first.planned,
+                PublicationErrorKind::Storage(Box::new(error)),
+            )
+        });
 
-    let warning = reference_warning.or(retention_warning);
+    drop(committed);
+
+    let retention_warning = if cancellation.is_cancelled() || journal_warning.is_some() {
+        None
+    } else {
+        retain_recent_generations(root, &layout, &reference, first.planned, cancellation).err()
+    };
+
+    let warning = reference_warning.or(journal_warning).or(retention_warning);
 
     let artifacts = EmittedArtifactSet::from_publication(plan, emitted);
 
@@ -153,6 +202,8 @@ pub(in crate::publication) fn publish_managed_generation(
         layout.reference,
         // The generation and outcome share immutable Arc-backed artifact records.
         artifacts.clone(),
+        lease,
+        entry_lease,
     );
 
     Ok(ManagedGenerationPublication {
@@ -192,8 +243,10 @@ fn managed_root<'prepared>(
 
 fn create_layout(
     root: &Path,
+    plan: &EmissionPlan,
     planned: &crate::PlannedArtifact,
-) -> Result<ManagedLayout, ArtifactPublicationFailure> {
+    cancellation: &dyn Cancellation,
+) -> Result<(ManagedLayout, StorageLease), ArtifactPublicationFailure> {
     let PlannedArtifactDestination::Publish(OutputSink::ManagedFilesystem { published, .. }) =
         planned.destination()
     else {
@@ -214,19 +267,33 @@ fn create_layout(
         .strip_prefix(root)
         .map_err(|_| artifact_failure(planned, PublicationErrorKind::InvalidContribution))?;
 
-    require_directory(root, planned)?;
+    let mut store = ManagedStore::open(root).map_err(|error| storage_failure(planned, error))?;
 
-    create_managed_path(root, relative_public_directory, planned)?;
+    store
+        .maintain(crate::StoragePolicy::default(), cancellation)
+        .map_err(|error| storage_failure(planned, error))?;
+
+    let entry_lease = store
+        .register_product(
+            &product_store_relative(relative_public_directory, planned.id().product()),
+            plan,
+            cancellation,
+        )
+        .map_err(|error| storage_failure(planned, error))?;
+
+    require_directory(root).map_err(|error| storage_failure(planned, error))?;
+
+    create_managed_path(root, relative_public_directory)
+        .map_err(|error| storage_failure(planned, error))?;
 
     let metadata = create_managed_path(
         root,
         &product_store_relative(relative_public_directory, planned.id().product()),
-        planned,
-    )?;
+    )
+    .map_err(|error| storage_failure(planned, error))?;
 
-    let staging = metadata.join(STAGING_DIRECTORY);
-
-    create_managed_directory(&metadata, &staging, planned)?;
+    let staging = create_managed_path(&metadata, Path::new(STAGING_DIRECTORY))
+        .map_err(|error| storage_failure(planned, error))?;
 
     let supported = atomic_rename_exclusive_is_supported(&metadata)
         .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
@@ -241,75 +308,33 @@ fn create_layout(
     sync_directory(&metadata)
         .map_err(|error| artifact_failure(planned, PublicationErrorKind::Flush(error.kind())))?;
 
-    Ok(ManagedLayout {
-        reference: metadata.join(PUBLISHED_REFERENCE),
-        metadata,
-        staging,
-    })
+    Ok((
+        ManagedLayout {
+            reference: metadata.join(PUBLISHED_REFERENCE),
+            metadata,
+            staging,
+        },
+        entry_lease,
+    ))
 }
 
-fn create_managed_path(
-    root: &Path,
-    relative: &Path,
+pub(super) fn storage_failure(
     planned: &crate::PlannedArtifact,
-) -> Result<PathBuf, ArtifactPublicationFailure> {
-    let mut path = root.to_owned();
-
-    for component in relative.components() {
-        let std::path::Component::Normal(component) = component else {
-            return Err(artifact_failure(
-                planned,
-                PublicationErrorKind::InvalidContribution,
-            ));
-        };
-
-        let child = path.join(component);
-
-        create_managed_directory(&path, &child, planned)?;
-
-        path = child;
+    error: crate::StorageError,
+) -> ArtifactPublicationFailure {
+    if matches!(error.kind(), crate::StorageErrorKind::Cancelled) {
+        return ArtifactPublicationFailure::Cancelled;
     }
 
-    Ok(path)
+    artifact_failure(planned, PublicationErrorKind::Storage(Box::new(error)))
 }
 
-fn create_managed_directory(
-    parent: &Path,
+fn reference_failure(
+    planned: &crate::PlannedArtifact,
     path: &Path,
-    planned: &crate::PlannedArtifact,
-) -> Result<(), ArtifactPublicationFailure> {
-    match std::fs::create_dir(path) {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-            require_directory(path, planned)?;
-        }
-        Err(error) => {
-            return Err(artifact_failure(
-                planned,
-                PublicationErrorKind::Open(error.kind()),
-            ));
-        }
-    }
-
-    sync_directory(parent)
-        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Flush(error.kind())))
-}
-
-fn require_directory(
-    path: &Path,
-    planned: &crate::PlannedArtifact,
-) -> Result<(), ArtifactPublicationFailure> {
-    let metadata = std::fs::symlink_metadata(path)
-        .map_err(|error| artifact_failure(planned, PublicationErrorKind::Open(error.kind())))?;
-
-    if !metadata.file_type().is_dir() {
-        return Err(artifact_failure(
-            planned,
-            PublicationErrorKind::InvalidContribution,
-        ));
-    }
-
-    Ok(())
+    error: super::reader::PublishedGenerationReadError,
+) -> ArtifactPublicationFailure {
+    storage_failure(planned, error.into_storage_error(path))
 }
 
 fn create_private_generation(
@@ -324,6 +349,7 @@ fn create_private_generation(
 
 fn stage_generation(
     root: &Path,
+    plan: &EmissionPlan,
     private: &TempDir,
     prepared: &[PreparedArtifact<'_, '_>],
     cancellation: &dyn Cancellation,
@@ -418,21 +444,12 @@ fn stage_generation(
 
     let manifest = GenerationManifest {
         revision: MANIFEST_REVISION,
-        product: ManifestProduct {
-            package: product.package().as_str().to_owned(),
-            name: product.name().to_owned(),
-        },
+        product: StorageProduct::new(product),
+        context: StorageContext::for_plan(plan),
         artifacts: manifest_artifacts,
     };
 
     Ok((manifest, emitted))
-}
-
-fn referenced_generation(layout: &ManagedLayout) -> Option<GenerationLocator> {
-    let bytes = std::fs::read(&layout.reference).ok()?;
-    let reference = serde_json::from_slice::<GenerationReference>(&bytes).ok()?;
-
-    GenerationLocator::try_from_hex(&reference.locator)
 }
 
 fn portable_path(path: &Path) -> Option<String> {
@@ -504,10 +521,11 @@ fn sync_created_directories(
 
 fn encode_manifest(
     manifest: &GenerationManifest,
+    path: &Path,
     planned: &crate::PlannedArtifact,
 ) -> Result<Vec<u8>, ArtifactPublicationFailure> {
     serde_json::to_vec(manifest)
-        .map_err(|_| artifact_failure(planned, PublicationErrorKind::InvalidGenerationManifest))
+        .map_err(|error| storage_failure(planned, crate::StorageError::json(path, error)))
 }
 
 fn write_manifest(
@@ -553,7 +571,6 @@ fn commit_generation(
     identity: ProductGenerationIdentity,
     manifest_bytes: &[u8],
     manifest: &GenerationManifest,
-    artifacts: &[EmittedArtifact],
     planned: &crate::PlannedArtifact,
     cancellation: &dyn Cancellation,
 ) -> Result<GenerationLocator, ArtifactPublicationFailure> {
@@ -570,22 +587,17 @@ fn commit_generation(
                 Ok(locator)
             }
             Err(_) if destination.exists() => {
-                let existing_manifest = std::fs::read(destination.join(GENERATION_MANIFEST))
-                    .map_err(|_| {
-                        artifact_failure(planned, PublicationErrorKind::GenerationCollision)
-                    })?;
+                require_directory(&destination).map_err(|error| storage_failure(planned, error))?;
+
+                let existing_manifest =
+                    crate::storage::read_owned_file(&destination.join(GENERATION_MANIFEST))
+                        .map_err(|error| storage_failure(planned, error))?;
 
                 if existing_manifest != manifest_bytes {
                     continue;
                 }
 
-                validate_existing_generation(
-                    &destination,
-                    manifest,
-                    artifacts,
-                    planned,
-                    cancellation,
-                )?;
+                validate_existing_generation(&destination, manifest, planned, cancellation)?;
 
                 Ok(locator)
             }
@@ -605,67 +617,18 @@ fn commit_generation(
 fn validate_existing_generation(
     destination: &Path,
     manifest: &GenerationManifest,
-    artifacts: &[EmittedArtifact],
     planned: &crate::PlannedArtifact,
     cancellation: &dyn Cancellation,
 ) -> Result<(), ArtifactPublicationFailure> {
-    if manifest.artifacts.len() != artifacts.len() {
-        return Err(artifact_failure(
-            planned,
-            PublicationErrorKind::GenerationCollision,
-        ));
-    }
+    for artifact in &manifest.artifacts {
+        let path = super::validation::artifact_path(destination, &artifact.path)
+            .map_err(|error| storage_failure(planned, error))?;
 
-    for (artifact, expected) in artifacts.iter().zip(&manifest.artifacts) {
-        if cancellation.is_cancelled() {
-            return Err(ArtifactPublicationFailure::Cancelled);
-        }
-
-        let OutputSink::ManagedFilesystem {
-            artifact: relative, ..
-        } = artifact.sink()
-        else {
-            return Err(artifact_failure(
-                planned,
-                PublicationErrorKind::GenerationCollision,
-            ));
-        };
-
-        let path = destination.join(relative.to_path_buf());
-
-        if expected.path != relative.as_str()
-            || expected.permissions.logical != permission_key(artifact.id().kind())
-            || !expected.permissions.matches(&path).unwrap_or(false)
-        {
-            return Err(artifact_failure(
-                planned,
-                PublicationErrorKind::GenerationCollision,
-            ));
-        }
-
-        validate_staged_content(
-            &path,
-            artifact.byte_len(),
-            Some(artifact.digest()),
-            cancellation,
-        )
-        .map_err(|_| artifact_failure(planned, PublicationErrorKind::GenerationCollision))?;
+        super::validation::validate_artifact_file(&path, artifact, cancellation)
+            .map_err(|error| storage_failure(planned, error))?;
     }
 
     Ok(())
-}
-
-fn encode_reference(
-    locator: GenerationLocator,
-    identity: ProductGenerationIdentity,
-    planned: &crate::PlannedArtifact,
-) -> Result<Vec<u8>, ArtifactPublicationFailure> {
-    serde_json::to_vec(&GenerationReference {
-        revision: MANIFEST_REVISION,
-        locator: locator.to_hex(),
-        manifest_digest: lowercase_hex(&identity.as_bytes()),
-    })
-    .map_err(|_| artifact_failure(planned, PublicationErrorKind::InvalidGenerationManifest))
 }
 
 fn commit_reference(

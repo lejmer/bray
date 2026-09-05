@@ -124,17 +124,12 @@ fn push_fact_context(
 
             push_syntax_anchor(fields, source.syntax());
 
-            fields.push(count_field(
-                "source_version",
-                source.source_version().raw(),
-            ));
+            fields.push(count_field("source_version", source.source_version().raw()));
 
             fields.push(text_field(
                 "target_requirement_kind",
                 match request.requirement() {
-                    bray_checker::TargetValidityRequirement::Representation(_) => {
-                        "representation"
-                    }
+                    bray_checker::TargetValidityRequirement::Representation(_) => "representation",
                     bray_checker::TargetValidityRequirement::CallableAbi(_) => "callable_abi",
                     bray_checker::TargetValidityRequirement::Layout(_) => "layout",
                 },
@@ -327,12 +322,18 @@ fn push_fact_context(
         }
         Fact::DiscoverySymbolGraph => "discovery_symbol_graph",
         Fact::DependencyInterface(interface) => {
-            fields.push(count_field("imported_interface", u64::from(interface.raw())));
+            fields.push(count_field(
+                "imported_interface",
+                u64::from(interface.raw()),
+            ));
 
             "dependency_interface"
         }
         Fact::DependencyImplementation(interface) => {
-            fields.push(count_field("imported_interface", u64::from(interface.raw())));
+            fields.push(count_field(
+                "imported_interface",
+                u64::from(interface.raw()),
+            ));
 
             "dependency_implementation"
         }
@@ -356,7 +357,10 @@ fn push_fact_context(
         Fact::GenericConstraintSatisfaction(obligation) => {
             fields.extend([
                 identity_field("generic_constraint_owner", &obligation.owner()),
-                identity_field("generic_constraint_substitution", &obligation.substitution()),
+                identity_field(
+                    "generic_constraint_substitution",
+                    &obligation.substitution(),
+                ),
             ]);
 
             "generic_constraint_satisfaction"
@@ -379,7 +383,10 @@ fn push_fact_context(
             "operation_selection"
         }
         Fact::ImportedSemanticGraph(interface) => {
-            fields.push(count_field("imported_interface", u64::from(interface.raw())));
+            fields.push(count_field(
+                "imported_interface",
+                u64::from(interface.raw()),
+            ));
 
             "imported_semantic_graph"
         }
@@ -536,24 +543,14 @@ fn push_build_configuration(
     fields: &mut Vec<DiagnosticFailureField>,
     configuration: crate::BuildConfiguration,
 ) {
-    use crate::BuildConfiguration as Configuration;
+    if let crate::BuildConfiguration::TimedRelease { inner_iterations } = configuration {
+        fields.push(count_field(
+            "build_inner_iterations",
+            inner_iterations.get(),
+        ));
+    }
 
-    let kind = match configuration {
-        Configuration::Development => "development",
-        Configuration::Release => "release",
-        Configuration::ObjectRelease => "object_release",
-        Configuration::ObservedRelease => "observed_release",
-        Configuration::TimedRelease { inner_iterations } => {
-            fields.push(count_field(
-                "build_inner_iterations",
-                inner_iterations.get(),
-            ));
-
-            "timed_release"
-        }
-    };
-
-    fields.push(text_field("build_configuration", kind));
+    fields.push(text_field("build_configuration", configuration.as_str()));
 }
 
 fn push_runtime_components(
@@ -579,9 +576,7 @@ fn push_runtime_components(
         ),
         text_list_field(
             "runtime_component_purposes",
-            runtime
-                .iter()
-                .map(|component| component.purpose().as_str()),
+            runtime.iter().map(|component| component.purpose().as_str()),
         ),
         text_list_field(
             "runtime_component_digests",
@@ -615,10 +610,7 @@ fn push_syntax_anchor(
             "source_start",
             u64::from(syntax.full_range().start().bytes()),
         ),
-        count_field(
-            "source_end",
-            u64::from(syntax.full_range().end().bytes()),
-        ),
+        count_field("source_end", u64::from(syntax.full_range().end().bytes())),
         boolean_field("source_recovered", syntax.is_recovered()),
     ]);
 }
@@ -660,9 +652,10 @@ mod tests {
 
     #[test]
     fn fact_context_preserves_variant_and_typed_component() {
-        let fields = super::semantic_query_context(&crate::compilation::SemanticQueryContext::Fact(
-            crate::fact::CompilationFactKey::SourceUnitSyntax(bray_source::SourceId::new(17)),
-        ));
+        let fields =
+            super::semantic_query_context(&crate::compilation::SemanticQueryContext::Fact(
+                crate::fact::CompilationFactKey::SourceUnitSyntax(bray_source::SourceId::new(17)),
+            ));
 
         assert_eq!(fields[0].name(), "context_kind");
         assert_eq!(fields[1].name(), "fact_kind");
@@ -711,9 +704,10 @@ mod tests {
             [linker],
         );
 
-        let fields = super::semantic_query_context(&crate::compilation::SemanticQueryContext::Fact(
-            crate::fact::CompilationFactKey::NativeProduct(key),
-        ));
+        let fields =
+            super::semantic_query_context(&crate::compilation::SemanticQueryContext::Fact(
+                crate::fact::CompilationFactKey::NativeProduct(key),
+            ));
 
         let names: Vec<_> = fields.iter().map(|field| field.name()).collect();
 
@@ -734,7 +728,10 @@ mod tests {
             "linker_driver_capability_revisions",
             "linker_driver_toolchain_revisions",
         ] {
-            assert!(names.contains(&expected), "missing native-product field {expected}");
+            assert!(
+                names.contains(&expected),
+                "missing native-product field {expected}"
+            );
         }
     }
 }

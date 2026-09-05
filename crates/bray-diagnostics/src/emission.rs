@@ -9,10 +9,9 @@ pub use checker::{
     DiagnosticCheckerConstantOperationFailure, DiagnosticCheckerFailure, DiagnosticCheckerLocal,
     DiagnosticCheckerNode, DiagnosticCheckerSymbol, DiagnosticConstantEvaluationFailure,
     DiagnosticConstantInputFailure, DiagnosticGenericSubstitutionFailure,
-    DiagnosticLiteralValueFailure, DiagnosticPatternInputFailure,
-    DiagnosticLivenessFailure, DiagnosticMemoryOperationsFailure,
-    DiagnosticSemanticSelectionFailure, DiagnosticSemanticSnapshotFailure,
-    DiagnosticStorageFlowFailure, DiagnosticStoragePlanFailure,
+    DiagnosticLiteralValueFailure, DiagnosticLivenessFailure, DiagnosticMemoryOperationsFailure,
+    DiagnosticPatternInputFailure, DiagnosticSemanticSelectionFailure,
+    DiagnosticSemanticSnapshotFailure, DiagnosticStorageFlowFailure, DiagnosticStoragePlanFailure,
 };
 pub use failure::{
     DiagnosticBindingFailure, DiagnosticEmissionArtifact, DiagnosticEmissionCodegenFailure,

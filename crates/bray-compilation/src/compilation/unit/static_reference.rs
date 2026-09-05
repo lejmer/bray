@@ -4,7 +4,10 @@ use bray_bound_tree::{
     BoundWalkOutcome, walk_bound_unit_view,
 };
 use bray_checker::NestedCallableEvidence;
-use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
+use bray_diagnostics::{
+    Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+    SeverityKind,
+};
 use bray_source::SourceSpan;
 use bray_symbols::{
     CheckedConstraintKind, GenericConstraintObligationKey, GenericConstraintsQuery, GenericOwnerId,
@@ -102,7 +105,11 @@ impl Compilation {
                     DiagnosticKind::CheckingStaticConstraintUnsatisfied,
                     SeverityKind::Error,
                 )
-                .with_primary_span(span),
+                .with_primary_span(span)
+                .with_label(DiagnosticLabel::primary(
+                    DiagnosticLabelKind::InvalidConstantExpression,
+                    span,
+                )),
             );
         }
 

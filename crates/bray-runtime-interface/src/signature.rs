@@ -43,16 +43,16 @@ pub struct RuntimeNativeSignature {
 }
 
 impl RuntimeNativeSignature {
-    pub(crate) const fn new(
-        parameters: &'static [RuntimeAbiType],
-        result: RuntimeAbiType,
-    ) -> Self {
+    pub(crate) const fn new(parameters: &'static [RuntimeAbiType], result: RuntimeAbiType) -> Self {
         // Catalog signatures are immutable compiler contracts, so malformed entries fail the build.
         let mut index = 0;
 
         while index < parameters.len() {
             assert!(
-                !matches!(parameters[index], RuntimeAbiType::Void | RuntimeAbiType::Never),
+                !matches!(
+                    parameters[index],
+                    RuntimeAbiType::Void | RuntimeAbiType::Never
+                ),
                 "runtime parameter must have a value type"
             );
 

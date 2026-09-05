@@ -1,7 +1,5 @@
 use super::context::semantic_value_failure_context;
-use super::failure::{
-    DiagnosticEmissionFieldJson, count_field, count_u64_field, text_field,
-};
+use super::failure::{DiagnosticEmissionFieldJson, count_field, count_u64_field, text_field};
 
 pub(in crate::output::diagnostic::json) fn checker_failure_context(
     failure: bray_diagnostics::DiagnosticCheckerFailure,
@@ -87,7 +85,10 @@ pub(in crate::output::diagnostic::json) fn checker_failure_context(
             text_field("selection_diagnostic_count", count.to_string()),
         ]),
         Failure::CallbackParameterOrdinalUnrepresentable { ordinal } => {
-            fields.push(text_field("callback_parameter_ordinal", ordinal.to_string()));
+            fields.push(text_field(
+                "callback_parameter_ordinal",
+                ordinal.to_string(),
+            ));
         }
         Failure::ConstantArrayLengthCapacityExceeded { length } => {
             fields.push(text_field("array_length", length.to_string()));
@@ -104,14 +105,15 @@ pub(in crate::output::diagnostic::json) fn checker_failure_context(
         }
         Failure::StorageFlow(failure) => push_storage_flow_failure(&mut fields, failure),
         Failure::StoragePlan(failure) => {
-            fields.push(text_field("storage_plan_problem", storage_plan_failure(failure)));
+            fields.push(text_field(
+                "storage_plan_problem",
+                storage_plan_failure(failure),
+            ));
         }
         Failure::MemoryOperations(failure) => fields.push(text_field(
             "memory_operations_problem",
             match failure {
-                bray_diagnostics::DiagnosticMemoryOperationsFailure::ForeignUnit => {
-                    "foreign_unit"
-                }
+                bray_diagnostics::DiagnosticMemoryOperationsFailure::ForeignUnit => "foreign_unit",
                 bray_diagnostics::DiagnosticMemoryOperationsFailure::DuplicateExpression => {
                     "duplicate_expression"
                 }
@@ -487,7 +489,13 @@ fn push_storage_flow_failure(
             push_node(fields, "block", block);
         }
         Failure::MissingStorageAccess { unit, access } => {
-            push_storage_identity(fields, "missing_storage_access", unit, "storage_access", access);
+            push_storage_identity(
+                fields,
+                "missing_storage_access",
+                unit,
+                "storage_access",
+                access,
+            );
         }
         Failure::MissingStorageIdentity { unit, identity } => push_storage_identity(
             fields,
@@ -622,13 +630,12 @@ mod tests {
 
     #[test]
     fn nested_checker_failures_retain_leaf_category_and_identity() {
-        let fields = checker_failure_context(
-            bray_diagnostics::DiagnosticCheckerFailure::PatternInput(
+        let fields =
+            checker_failure_context(bray_diagnostics::DiagnosticCheckerFailure::PatternInput(
                 bray_diagnostics::DiagnosticPatternInputFailure::ConflictingGuard(
                     bray_diagnostics::DiagnosticCheckerNode::new("expression", 13, 21),
                 ),
-            ),
-        );
+            ));
 
         let json = serde_json::to_value(fields)
             .unwrap_or_else(|error| panic!("checker context should serialize: {error:?}"));

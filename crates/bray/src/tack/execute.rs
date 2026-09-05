@@ -282,6 +282,20 @@ fn execute_invocation_with_progress(
     };
 
     match command {
+        TackCommand::Storage { options, action } => {
+            let graph = match load_graph(&workspace_root, standard_library_source) {
+                Ok(graph) => graph,
+                Err(diagnostics) => return failure(diagnostics, output_format),
+            };
+
+            return crate::tack::storage::run_storage_command(
+                &workspace_root,
+                &graph,
+                options,
+                action,
+                output_format,
+            );
+        }
         TackCommand::Init { directory, package } => {
             let directory = directory.unwrap_or(workspace_root);
 
@@ -439,7 +453,8 @@ fn execute_invocation_with_progress(
             stdin,
             protocol_output,
         ),
-        TackCommand::Init { .. }
+        TackCommand::Storage { .. }
+        | TackCommand::Init { .. }
         | TackCommand::Format { .. }
         | TackCommand::ProfileShow { .. }
         | TackCommand::ProfileCompare { .. }
@@ -790,12 +805,7 @@ fn load_test_batch_request(path: &Path) -> Result<TestBatchRequest, DiagnosticBa
     let bytes = read_test_batch_request(path)?;
 
     let request = serde_json::from_slice::<TestBatchRequest>(&bytes).map_err(|error| {
-        let problem = match error.classify() {
-            serde_json::error::Category::Io => DiagnosticDocumentParseKind::Input,
-            serde_json::error::Category::Syntax => DiagnosticDocumentParseKind::Syntax,
-            serde_json::error::Category::Data => DiagnosticDocumentParseKind::Schema,
-            serde_json::error::Category::Eof => DiagnosticDocumentParseKind::UnexpectedEnd,
-        };
+        let problem = DiagnosticDocumentParseKind::from(error.classify());
 
         test_batch_document_diagnostics(path, problem)
     })?;
@@ -1355,6 +1365,64 @@ mod tests {
         ));
 
         let _ = std::fs::remove_dir_all(parent);
+    }
+
+    #[test]
+    fn storage_and_clean_use_managed_state_without_invoking_a_toolchain() {
+        let workspace = ProjectWorkspace::basic();
+        let executor = RecordingExecutor::default();
+        let root = workspace.path().join("build");
+        let target = bray_target::TargetIdentity::try_new("x86_64-unknown-linux-gnu").unwrap();
+
+        let cache =
+            bray_emitter::ManagedCache::thin_lto(&root, &target, "test-llvm", &|| false).unwrap();
+
+        let file = cache.directory().join("content");
+
+        std::fs::write(&file, b"optional cache").unwrap();
+        drop(cache);
+
+        for (command, dry_run, remains) in [
+            ("storage", false, true),
+            ("clean", true, true),
+            ("clean", false, false),
+        ] {
+            let mut arguments = vec![
+                "bray".into(),
+                "--workspace".into(),
+                workspace.path().as_os_str().to_owned(),
+                "--format".into(),
+                "json".into(),
+                "--toolchain-root".into(),
+                workspace.path().join("absent-toolchain").into_os_string(),
+                command.into(),
+                "--kind".into(),
+                "caches".into(),
+                "--target".into(),
+                "native".into(),
+                "--toolchain-revision".into(),
+                "test-llvm".into(),
+            ];
+
+            if dry_run {
+                arguments.push("--dry-run".into());
+            }
+
+            let result = run_tack_result_with_input(arguments, &executor, Cursor::new(Vec::new()));
+            assert_eq!(result.exit_code(), ExitCode::SUCCESS, "{result:#?}");
+            let report: serde_json::Value = serde_json::from_str(result.stdout()).unwrap();
+            assert_eq!(report["kind"], "storage_report");
+            assert_eq!(report["clean"], command == "clean");
+            assert_eq!(report["dry_run"], dry_run);
+            let row = &report["entries"][0];
+            assert_eq!(row["bytes"], 14);
+            assert_eq!(row["shared_bytes"], 0);
+            assert_eq!(row["target"], target.as_str());
+            assert_eq!(row["removed"], !remains);
+            assert_eq!(file.exists(), remains);
+        }
+
+        assert!(executor.requests().is_empty());
     }
 
     #[test]

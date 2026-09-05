@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use crate::{
-    RuntimeArtifactComponentMetadata, RuntimeArtifactMetadataBuildError,
-    RuntimeArtifactPurpose, RuntimeContract,
+    RuntimeArtifactComponentMetadata, RuntimeArtifactMetadataBuildError, RuntimeArtifactPurpose,
+    RuntimeContract,
 };
 
 pub(crate) fn validate(
@@ -94,8 +94,7 @@ fn validate_role_owners(
     for binding in contract.role_bindings() {
         let role = binding.role();
 
-        if purpose == RuntimeArtifactPurpose::Product && !role.available_to_product()
-        {
+        if purpose == RuntimeArtifactPurpose::Product && !role.available_to_product() {
             continue;
         }
 

@@ -11,7 +11,7 @@ func main() -> Result<unit, std.memory.MemoryLayoutError>
 
     try append(bytes = &extra[..], buffer = &mut buffer);
 
-    let values: &[u8] = as_slice(&buffer);
+    let values: &[u8] = buffer.as_slice();
 
     assert(length(&buffer) == 6);
     assert(values[0] == 1);

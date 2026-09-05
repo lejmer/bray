@@ -4,8 +4,8 @@ use serde::Serialize;
 use super::emission::{
     DiagnosticEmissionFieldJson, checker_failure_context, diagnostic_failure_context,
     fact_runtime_failure_context, foreign_query_failure_context, lowering_failure_context,
-    lowering_input_failure_context, native_link_input_failure_context, product_query_failure_context,
-    semantic_value_failure_context, text_field,
+    lowering_input_failure_context, native_link_input_failure_context,
+    product_query_failure_context, semantic_value_failure_context, text_field,
 };
 use super::{
     DiagnosticArtifactDigestJson, DiagnosticCallableOverloadProblemJson,
@@ -53,6 +53,16 @@ pub(in crate::output::diagnostic::json) enum DiagnosticArgValueJson {
     NativeProductFailureKind(DiagnosticNativeProductFailureJson),
     EmissionFailure(DiagnosticEmissionFailureJson),
     EmissionArtifactOperation(&'static str),
+    StorageOperation(&'static str),
+    RetainedGenerationProblem {
+        problem: &'static str,
+        expected_revision: Option<u32>,
+        actual_revision: Option<u32>,
+        expected_read_only: Option<bool>,
+        actual_read_only: Option<bool>,
+        expected_unix_mode: Option<u32>,
+        actual_unix_mode: Option<u32>,
+    },
     LinkInputKind(&'static str),
     LinkedArtifactKind(&'static str),
     LinkedProductKind(&'static str),
@@ -177,6 +187,12 @@ impl DiagnosticArgValueJson {
             }
             DiagnosticArgValue::EmissionFailure(failure) => {
                 Self::EmissionFailure(DiagnosticEmissionFailureJson::from_failure(failure))
+            }
+            DiagnosticArgValue::RetainedGenerationProblem(problem) => {
+                retained_generation_problem_json(problem)
+            }
+            DiagnosticArgValue::StorageOperation(operation) => {
+                Self::StorageOperation(operation.as_str())
             }
             DiagnosticArgValue::EmissionArtifactOperation(kind) => {
                 Self::EmissionArtifactOperation((*kind).as_str())
@@ -373,6 +389,32 @@ impl DiagnosticArgValueJson {
                 Self::PatternUnreachability(reason.as_str())
             }
         }
+    }
+}
+
+fn retained_generation_problem_json(
+    problem: &bray_diagnostics::DiagnosticRetainedGenerationProblem,
+) -> DiagnosticArgValueJson {
+    use bray_diagnostics::DiagnosticRetainedGenerationProblem as Problem;
+
+    let (expected_read_only, actual_read_only) = match problem {
+        Problem::ReadOnly { expected, actual } => (Some(*expected), Some(*actual)),
+        _ => (None, None),
+    };
+
+    let (expected_unix_mode, actual_unix_mode) = match problem {
+        Problem::UnixMode { expected, actual } => (*expected, *actual),
+        _ => (None, None),
+    };
+
+    DiagnosticArgValueJson::RetainedGenerationProblem {
+        problem: problem.as_str(),
+        expected_revision: problem.revisions().map(|(expected, _)| expected),
+        actual_revision: problem.revisions().map(|(_, actual)| actual),
+        expected_read_only,
+        actual_read_only,
+        expected_unix_mode,
+        actual_unix_mode,
     }
 }
 

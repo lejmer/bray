@@ -258,9 +258,9 @@ fn format_contextual_checker_failure(
         Failure::InvalidMemoryOperationInput { hook } => {
             format!("hook '{hook}' is outside the memory operation catalog")
         }
-        Failure::InvalidMemoryGenericArgument { ordinal, actual } => format!(
-            "memory operation generic argument {ordinal} was {actual} instead of type",
-        ),
+        Failure::InvalidMemoryGenericArgument { ordinal, actual } => {
+            format!("memory operation generic argument {ordinal} was {actual} instead of type",)
+        }
         Failure::InvalidCallbackSignatureInput { actual } => {
             format!("callback signature had {actual} type syntax instead of a callable")
         }
@@ -295,9 +295,9 @@ pub(super) fn format_generic_substitution_failure(
         Failure::ArgumentCountMismatch {
             parameter_count,
             argument_count,
-        } => format!(
-            "received {argument_count} generic arguments for {parameter_count} parameters",
-        ),
+        } => {
+            format!("received {argument_count} generic arguments for {parameter_count} parameters",)
+        }
         Failure::ArgumentKindMismatch {
             ordinal,
             expected,
@@ -317,8 +317,12 @@ fn format_constant_operation_failure(
     use bray_diagnostics::DiagnosticCheckerConstantOperationFailure as Failure;
 
     match failure {
-        Failure::Invalid => "received incompatible constant values for equality comparison".to_owned(),
-        Failure::DivisionByZero => "encountered division by zero while comparing constants".to_owned(),
+        Failure::Invalid => {
+            "received incompatible constant values for equality comparison".to_owned()
+        }
+        Failure::DivisionByZero => {
+            "encountered division by zero while comparing constants".to_owned()
+        }
         Failure::NotRepresentable => {
             "could not represent the result of a constant comparison".to_owned()
         }

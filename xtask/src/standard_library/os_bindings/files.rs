@@ -229,7 +229,9 @@ fn check_files(files: &[GeneratedFile]) -> Result<(), String> {
 
     for file in files {
         match std::fs::read(&file.path) {
-            Ok(actual) if normalize_line_endings(&actual) == normalize_line_endings(file.contents.as_bytes()) => {}
+            Ok(actual)
+                if normalize_line_endings(&actual)
+                    == normalize_line_endings(file.contents.as_bytes()) => {}
             Ok(_) => stale.push(file.path.display().to_string()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 stale.push(file.path.display().to_string());
@@ -319,9 +321,7 @@ fn obsolete_managed_files(files: &[GeneratedFile]) -> Result<Vec<PathBuf>, Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        GeneratedFile, check_files, read_description, read_input, synchronize_files,
-    };
+    use super::{GeneratedFile, check_files, read_description, read_input, synchronize_files};
 
     #[test]
     fn checked_in_description_covers_every_native_target() {

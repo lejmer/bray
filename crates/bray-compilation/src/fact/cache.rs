@@ -634,15 +634,13 @@ impl<T> FactCell<T> {
         &self,
         observer: FactCellTestObserver,
     ) -> Result<(), FactQueryError> {
-        let mut current = self
-            .storage
-            .observer
-            .lock()
-            .map_err(|_| FactRuntimeFailure::SynchronizationPoisoned {
+        let mut current = self.storage.observer.lock().map_err(|_| {
+            FactRuntimeFailure::SynchronizationPoisoned {
                 component: SynchronizationComponent::FactCell,
                 fact: None,
                 task: None,
-            })?;
+            }
+        })?;
 
         *current = Some(observer);
 

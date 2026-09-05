@@ -691,9 +691,9 @@ mod tests {
     use crate::test_support::{link_plan, linked_artifact};
     use crate::{
         DeadStripPolicy, DebugLinkPolicy, LinkInputKind, LinkInputMode, LinkModel, LinkRuntimeMode,
-        LinkSearchPathKind, LinkStartupMode, LinkSubsystem, LinkSymbolRequirement, LinkedArtifact,
-        LinkedArtifactKind, LinkedProductKind, SectionGarbageCollectionPolicy,
-        StagingDestinationId, UnsupportedLinkRequirement,
+        LinkSearchPathKind, LinkStartupMode, LinkSubsystem, LinkSymbolRequirement,
+        LinkTimeOptimizationKind, LinkedArtifact, LinkedArtifactKind, LinkedProductKind,
+        SectionGarbageCollectionPolicy, StagingDestinationId, UnsupportedLinkRequirement,
     };
     use bray_platform::{PlatformError, PlatformErrorKind, PlatformOperation};
     use bray_testing::{assert_goal_state_diagnostic_kind, assert_goal_state_diagnostics};
@@ -866,6 +866,10 @@ mod tests {
                 UnsupportedLinkRequirement::Runtime(LinkRuntimeMode::ExplicitInput),
                 DiagnosticKind::LinkerUnsupportedRuntime,
             ),
+            (
+                UnsupportedLinkRequirement::Optimization(LinkTimeOptimizationKind::ThinLto),
+                DiagnosticKind::LinkerUnsupportedOptimization,
+            ),
         ];
 
         for (requirement, expected) in cases {
@@ -934,6 +938,12 @@ mod tests {
                     &diagnostics,
                     DiagnosticKind::LinkerUnsupportedRuntime,
                 ),
+                DiagnosticKind::LinkerUnsupportedOptimization => {
+                    assert_goal_state_diagnostic_kind(
+                        &diagnostics,
+                        DiagnosticKind::LinkerUnsupportedOptimization,
+                    );
+                }
                 _ => panic!("test case must remain an unsupported-link requirement"),
             }
         }

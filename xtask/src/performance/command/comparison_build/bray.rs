@@ -119,7 +119,7 @@ pub(super) fn build(
 
             let artifact = crate::performance::retention::inspect_physical(
                 ArtifactKind::Executable,
-                &executable,
+                executable.path(),
                 &linker_map_path,
             )?;
 

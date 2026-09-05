@@ -39,10 +39,12 @@ impl OptimizationCatalog {
                     .preservation_roots()
                     .iter()
                     .map(|symbol| symbol.as_str().to_owned())
-                    .chain(optimization.platform_services().iter().map(|role| {
-                        role.native_symbol()
-                            .to_owned()
-                    }))
+                    .chain(
+                        optimization
+                            .platform_services()
+                            .iter()
+                            .map(|role| role.native_symbol().to_owned()),
+                    )
                     .collect();
 
                 Ok(OptimizationEntry {
