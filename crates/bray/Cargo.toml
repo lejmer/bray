@@ -18,7 +18,7 @@ bray-standard-library = { path = "../bray-standard-library" }
 bray-symbols = { path = "../bray-symbols" }
 bray-target = { path = "../bray-target" }
 bray-test-protocol = { path = "../bray-test-protocol", features = ["serialization"] }
-bray-tooling = { path = "../bray-tooling", default-features = false }
+bray-tooling = { path = "../bray-tooling", default-features = false, features = ["analysis", "build-identity"] }
 
 # `std` supports process arguments and paths, `derive` keeps the typed CLI
 # shape colocated with the Tack boundary, `error-context` identifies invalid

@@ -1,8 +1,13 @@
 use std::ffi::OsString;
+use std::hash::Hasher;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-use bray_platform::{NativeChildProcess, NativeProcessCommand, NativeStdio, PlatformError};
+use bray_base::StableDigestHasher;
+use bray_platform::{
+    NativeChildProcess, NativeProcessCommand, NativeStdio, PlatformError, PlatformErrorKind,
+    PlatformOperation,
+};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Tool {
@@ -147,6 +152,13 @@ impl ToolOutput {
 }
 
 pub(crate) trait ToolExecutor {
+    fn identity(&self, tool: Tool, _working_directory: &Path) -> Result<[u8; 32], ToolIdentityError> {
+        let mut identity = StableDigestHasher::new();
+        identity.write(tool.executable_name().as_bytes());
+
+        Ok(identity.finalize())
+    }
+
     fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ToolExecutionError>;
 
     fn serve(
@@ -155,6 +167,12 @@ pub(crate) trait ToolExecutor {
         input: Box<dyn Read + Send>,
         output: &mut dyn Write,
     ) -> Result<ToolOutput, ToolExecutionError>;
+}
+
+#[derive(Debug)]
+pub(crate) struct ToolIdentityError {
+    pub(crate) path: PathBuf,
+    pub(crate) error: std::io::Error,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -182,6 +200,16 @@ pub(crate) enum ToolExecutionError {
 pub(crate) struct NativeToolExecutor;
 
 impl ToolExecutor for NativeToolExecutor {
+    fn identity(&self, tool: Tool, working_directory: &Path) -> Result<[u8; 32], ToolIdentityError> {
+        let path = resolved_tool_path(tool, working_directory)?;
+
+        bray_emitter::path_digest(&path).map_err(|error| {
+            let (path, error) = error.into_parts();
+
+            ToolIdentityError { path, error }
+        })
+    }
+
     fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ToolExecutionError> {
         let (command, program) = native_command(&request)?;
 
@@ -297,13 +325,22 @@ impl ToolExecutor for NativeToolExecutor {
 fn native_command(
     request: &ToolRequest,
 ) -> Result<(NativeProcessCommand, PathBuf), ToolExecutionError> {
-    let program = tool_path(request.tool);
+    let program = resolved_tool_path(request.tool, &request.working_directory).map_err(|error| {
+        ToolExecutionError::Platform {
+            program: error.path,
+            error: PlatformError::new(
+                PlatformOperation::ProcessSpawn,
+                PlatformErrorKind::Io(error.error.kind()),
+            ),
+        }
+    })?;
 
-    let mut command =
-        NativeProcessCommand::new(&program).map_err(|error| ToolExecutionError::Platform {
-            program: PathBuf::from(&program),
+    let mut command = NativeProcessCommand::new(&program).map_err(|error| {
+        ToolExecutionError::Platform {
+            program: program.clone(),
             error,
-        })?;
+        }
+    })?;
 
     command.current_dir(&request.working_directory);
 
@@ -311,7 +348,7 @@ fn native_command(
         command.arg(argument);
     }
 
-    Ok((command, PathBuf::from(program)))
+    Ok((command, program))
 }
 
 fn cleanup_child(child: &mut NativeChildProcess) {
@@ -335,10 +372,244 @@ fn tool_path(tool: Tool) -> OsString {
     }
 }
 
+fn resolved_tool_path(tool: Tool, working_directory: &Path) -> Result<PathBuf, ToolIdentityError> {
+    let selected = PathBuf::from(tool_path(tool));
+    let search = std::env::var_os("PATH").unwrap_or_default();
+
+    resolved_tool_path_from_selection(selected, &search, working_directory)
+}
+
+fn resolved_tool_path_from_selection(
+    selected: PathBuf,
+    search: &std::ffi::OsStr,
+    working_directory: &Path,
+) -> Result<PathBuf, ToolIdentityError> {
+    let executable = if cfg!(windows) && selected.extension().is_none() {
+        selected.with_extension("exe")
+    } else {
+        selected.clone()
+    };
+
+    if executable.is_absolute() || selected.components().count() > 1 {
+        let selected_path = if executable.is_absolute() {
+            executable
+        } else {
+            working_directory.join(executable)
+        };
+
+        if !selected_path.is_file() {
+            return Err(ToolIdentityError {
+                path: selected,
+                error: std::io::ErrorKind::NotFound.into(),
+            });
+        }
+
+        return std::fs::canonicalize(&selected_path).map_err(|error| ToolIdentityError {
+            path: selected,
+            error,
+        });
+    }
+
+    let file_name = executable;
+
+    let current_directory = cfg!(windows).then(|| working_directory.join(&file_name));
+
+    let resolved = current_directory.into_iter().chain(std::env::split_paths(search)
+        .map(|directory| {
+            let directory = if directory.is_absolute() {
+                directory
+            } else {
+                working_directory.join(directory)
+            };
+
+            directory.join(&file_name)
+        }))
+        .find(|candidate| is_executable_file(candidate));
+
+    let Some(resolved) = resolved else {
+        return Err(ToolIdentityError {
+            path: file_name,
+            error: std::io::ErrorKind::NotFound.into(),
+        });
+    };
+
+    std::fs::canonicalize(&resolved).map_err(|error| ToolIdentityError {
+        path: resolved,
+        error,
+    })
+}
+
+fn is_executable_file(path: &Path) -> bool {
+    let Ok(metadata) = std::fs::metadata(path) else {
+        return false;
+    };
+
+    if !metadata.is_file() {
+        return false;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        metadata.permissions().mode() & 0o111 != 0
+    }
+
+    #[cfg(not(unix))]
+    {
+        true
+    }
+}
+
 fn executable_file_name(name: &str) -> OsString {
     if cfg!(windows) {
         OsString::from(format!("{name}.exe"))
     } else {
         OsString::from(name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsStr;
+    use std::path::{Path, PathBuf};
+
+    use super::{executable_file_name, resolved_tool_path_from_selection};
+
+    #[test]
+    fn explicit_missing_tool_path_is_preserved_in_identity_failure() {
+        let selected = PathBuf::from("missing").join("custom-brayc");
+
+        let error = resolved_tool_path_from_selection(
+            selected.clone(),
+            OsStr::new(""),
+            Path::new("workspace"),
+        )
+        .expect_err("missing explicit compiler path must fail");
+
+        assert_eq!(error.path, selected);
+        assert_eq!(error.error.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    #[test]
+    fn relative_tool_path_is_resolved_from_the_request_working_directory() {
+        let workspace = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary workspace should exist: {error}"));
+
+        let selected = PathBuf::from("tools").join(executable_file_name("brayc"));
+        let compiler = workspace.path().join(&selected);
+
+        std::fs::create_dir_all(
+            compiler
+                .parent()
+                .unwrap_or_else(|| panic!("compiler fixture should have a parent")),
+        )
+        .unwrap_or_else(|error| panic!("compiler fixture directory should exist: {error}"));
+
+        std::fs::write(&compiler, b"compiler")
+            .unwrap_or_else(|error| panic!("compiler fixture should exist: {error}"));
+
+        let resolved = resolved_tool_path_from_selection(
+            selected,
+            OsStr::new(""),
+            workspace.path(),
+        )
+        .unwrap_or_else(|error| panic!("workspace-relative compiler should resolve: {error:?}"));
+
+        let expected = std::fs::canonicalize(compiler)
+            .unwrap_or_else(|error| panic!("compiler fixture should canonicalize: {error}"));
+
+        assert_eq!(resolved, expected);
+    }
+
+    #[test]
+    fn bare_tool_name_uses_the_host_search_order() {
+        let workspace = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary workspace should exist: {error}"));
+
+        let search = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("temporary search directory should exist: {error}"));
+
+        let file_name = executable_file_name("brayc");
+        let workspace_compiler = workspace.path().join(&file_name);
+        let search_compiler = search.path().join(&file_name);
+
+        std::fs::write(&workspace_compiler, b"workspace compiler")
+            .unwrap_or_else(|error| panic!("workspace compiler fixture should exist: {error}"));
+
+        std::fs::write(&search_compiler, b"search compiler")
+            .unwrap_or_else(|error| panic!("search compiler fixture should exist: {error}"));
+
+        make_executable(&workspace_compiler);
+        make_executable(&search_compiler);
+
+        let resolved = resolved_tool_path_from_selection(
+            PathBuf::from("brayc"),
+            search.path().as_os_str(),
+            workspace.path(),
+        )
+        .unwrap_or_else(|error| panic!("bare compiler name should resolve: {error:?}"));
+
+        let selected = if cfg!(windows) {
+            workspace_compiler
+        } else {
+            search_compiler
+        };
+
+        let expected = std::fs::canonicalize(selected)
+            .unwrap_or_else(|error| panic!("compiler fixture should canonicalize: {error}"));
+
+        assert_eq!(resolved, expected);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn bare_tool_name_skips_nonexecutable_search_candidates() {
+        let first = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("first search directory should exist: {error}"));
+
+        let second = tempfile::tempdir()
+            .unwrap_or_else(|error| panic!("second search directory should exist: {error}"));
+
+        let first_compiler = first.path().join("brayc");
+        let second_compiler = second.path().join("brayc");
+
+        std::fs::write(&first_compiler, b"nonexecutable compiler")
+            .unwrap_or_else(|error| panic!("first compiler fixture should exist: {error}"));
+
+        std::fs::write(&second_compiler, b"executable compiler")
+            .unwrap_or_else(|error| panic!("second compiler fixture should exist: {error}"));
+
+        make_executable(&second_compiler);
+
+        let search = std::env::join_paths([first.path(), second.path()])
+            .unwrap_or_else(|error| panic!("search path should join: {error}"));
+
+        let resolved = resolved_tool_path_from_selection(
+            PathBuf::from("brayc"),
+            &search,
+            Path::new("workspace"),
+        )
+        .unwrap_or_else(|error| panic!("executable compiler should resolve: {error:?}"));
+
+        let expected = std::fs::canonicalize(second_compiler)
+            .unwrap_or_else(|error| panic!("compiler fixture should canonicalize: {error}"));
+
+        assert_eq!(resolved, expected);
+    }
+
+    fn make_executable(path: &Path) {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let permissions = std::fs::Permissions::from_mode(0o755);
+
+            std::fs::set_permissions(path, permissions)
+                .unwrap_or_else(|error| panic!("compiler fixture should be executable: {error}"));
+        }
+
+        #[cfg(not(unix))]
+        let _ = path;
     }
 }

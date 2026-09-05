@@ -74,6 +74,7 @@ pub const PROGRAM_ARGUMENT: &str =
     "Pass ARG to the executed program. Arguments after the command are not parsed by Bray";
 /// Describes sequential tests.
 pub const TEST_SEQUENTIAL: &str = "Run one test at a time";
+pub const TEST_NO_BUILD: &str = "Run an exactly matching retained test product without building";
 /// Describes test concurrency.
 pub const TEST_JOBS: &str = "Run at most N tests concurrently";
 /// Describes test timeout.
@@ -172,7 +173,7 @@ pub const LINKER_MAP_OUTPUT_INVALID: &str = "linker-map output path must not be 
 pub const MANAGED_OUTPUT_DIRECTORY_INVALID: &str =
     "managed output directory must be a normalized relative path";
 /// Describes test catalog output.
-pub const TEST_CATALOG: &str = "Write the emitted test catalog to PATH";
+pub const TEST_CATALOG: &str = "Publish the emitted test catalog with the native host";
 /// Describes requested build artifacts.
 pub const ARTIFACT: &str = "Emit ARTIFACT. Repeat to request multiple artifact kinds";
 /// Describes backend inspection artifacts.

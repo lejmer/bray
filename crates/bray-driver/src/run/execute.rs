@@ -488,6 +488,19 @@ pub(super) fn compilation_request(
         options.compilation_options(),
     )?;
 
+    if options
+        .expected_source_digest()
+        .is_some_and(|expected| request.source_input_digest() != expected)
+    {
+        let product = configuration.product();
+        let identity = format!("{}/{}", product.package().as_str(), product.name());
+
+        return Err(bray_tooling::reusable_build_identity_mismatch_diagnostics(
+            identity,
+            bray_emitter::ProductBuildIdentityPart::Inputs,
+        ));
+    }
+
     if options.package_source_authority().is_standard_library() {
         request = request.with_standard_library_source_authority();
     }
@@ -629,6 +642,29 @@ mod tests {
         ]);
 
         assert!(result.profile().is_none());
+    }
+
+    #[test]
+    fn expected_source_identity_rejects_different_loaded_inputs() {
+        let file = TemporaryFile::write("main.bray", b"module app;\n");
+
+        let expected = serde_json::to_string(&[0_u8; 32])
+            .unwrap_or_else(|error| panic!("source identity should serialize: {error:?}"));
+
+        let result = run_result([
+            OsString::from("brayc"),
+            OsString::from("--expected-source-digest"),
+            OsString::from(expected),
+            OsString::from("check"),
+            file.path().as_os_str().to_os_string(),
+        ]);
+
+        assert_eq!(result.exit_code(), ExitCode::FAILURE);
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            result.diagnostics(),
+            DiagnosticKind::ProjectCommandSelectionInvalid,
+        );
     }
 
     #[test]

@@ -79,6 +79,10 @@ pub enum ProductEmissionErrorKind {
     PackageImplementation(bray_package_interface::PackageImplementationArtifactBuildError),
     /// The implementation companion cannot be represented as artifact content.
     PackageImplementationContent(bray_codegen::ArtifactContentBuildError),
+    /// A requested test catalog has no matching planned artifact.
+    MissingTestCatalogArtifact,
+    /// The encoded test catalog cannot be represented as artifact content.
+    TestCatalogContent(bray_codegen::ArtifactContentBuildError),
     /// Immutable emitter planning rejected the selected request and producer inputs.
     Planning(EmissionPlanningError),
     /// An executable plan does not request its generated host-stub codegen unit.

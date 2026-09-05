@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod artifact;
+mod build_identity;
 mod generation;
 mod link;
 mod outcome;
@@ -23,6 +24,10 @@ pub use artifact::{
 };
 pub use bray_runtime_interface::ExecutableHostContract;
 pub use bray_symbols::{ProductIdentity, ProductKind};
+pub use build_identity::{
+    BuildInputDigestError, ProductBuildIdentity, ProductBuildIdentityPart, build_input_path_digest,
+    path_digest, toolchain_path_digest,
+};
 pub use generation::{ProductGenerationIdentity, PublishedProductGeneration};
 pub use link::{
     LinkOutputStaging, LinkOutputStagingBuildError, LinkPlanConstructionError, LinkStaging,
@@ -34,7 +39,7 @@ pub use plan::{
     BackendEmissionPolicy, EmissionBackend, EmissionBackendBuildError, EmissionPlan,
     EmissionPlanner, EmissionPlanningError, PlannedArtifact, PlannedArtifactDestination,
 };
-pub use publication::ArtifactPublisher;
+pub use publication::{ArtifactPublisher, PublicationValidator};
 pub use publication::{
     PublishedArtifact, PublishedGenerationReadError, PublishedProductReadGuard,
     RetainedProductGeneration, lock_published_product, resolve_published_artifact,

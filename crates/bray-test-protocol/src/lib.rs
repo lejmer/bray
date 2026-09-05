@@ -28,8 +28,8 @@ pub use capture::{
 pub use catalog::{TestCatalog, TestCatalogBuildError, TestEntryMetadata};
 pub use codec::{
     TestCatalogDigest, TestProtocolError, decode_test_catalog, encode_test_catalog,
-    read_host_command, read_host_control, read_host_result, write_host_command, write_host_control,
-    write_host_result,
+    protocol_version, read_host_command, read_host_control, read_host_result, write_host_command,
+    write_host_control, write_host_result,
 };
 pub use event::{TestHostEvent, TestHostEventKind, TestHostEventSequence};
 pub use execution::{

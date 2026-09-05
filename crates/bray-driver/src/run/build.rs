@@ -1,16 +1,16 @@
-use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use bray_base::{FileReplacementMode, StagedFile};
 use bray_compilation::ProductEmissionInputs;
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticEmissionFailure, DiagnosticId,
-    DiagnosticKind, DiagnosticNote, DiagnosticNoteKind, DiagnosticTestCatalogFailure, SeverityKind,
+    DiagnosticIoErrorKind, DiagnosticKind, DiagnosticNote, DiagnosticNoteKind,
+    DiagnosticProjectCommandFailure, DiagnosticProjectOperation, DiagnosticTestCatalogFailure,
+    SeverityKind,
 };
 use bray_emitter::{
-    ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ReplacementPolicy,
-    RequestedArtifact, RequestedArtifactDestination,
+    ArtifactKind, ArtifactRequirement, EmissionRequest, EmissionStatus, ProductBuildIdentity,
+    ProductBuildIdentityPart, ReplacementPolicy, RequestedArtifact, RequestedArtifactDestination,
 };
 use bray_symbols::{ProductIdentity, ProductKind};
 use bray_target::{TargetOutputDescription, TargetOutputKind};
@@ -18,10 +18,11 @@ use bray_tooling::{
     OutputFormat, exit_code_from_diagnostics, load_llvm_compilation, native_linker,
 };
 
-use super::diagnostic::artifact_write_failure;
 use super::execute::{DriverRunResult, compilation_request, driver_result_from_compilation};
 use super::runtime::{resolve_runtime, runtime_selection_diagnostics};
-use crate::command::{DriverBackend, DriverOptions, DriverProductConfiguration};
+use crate::command::{
+    DriverBackend, DriverOptions, DriverProductConfiguration, DriverRuntimeSelection,
+};
 
 pub(crate) fn run_build_command(
     options: &DriverOptions,
@@ -134,6 +135,29 @@ pub(crate) fn run_build_command(
         None
     };
 
+    let test_catalog = if configuration.publishes_test_catalog() {
+        match encode_test_catalog(&compilation, &product) {
+            Ok(catalog) => Some(catalog),
+            Err(error) => {
+                let diagnostics = match error {
+                    TestCatalogPublicationError::Cancelled => DiagnosticBag::new(),
+                    TestCatalogPublicationError::Diagnostic(diagnostic) => {
+                        DiagnosticBag::single(diagnostic)
+                    }
+                };
+
+                return driver_result_from_compilation(
+                    compilation,
+                    diagnostics,
+                    output_format,
+                    ExitCode::FAILURE,
+                );
+            }
+        }
+    } else {
+        None
+    };
+
     let target_outputs = target_outputs(native_target, &artifacts, &configuration);
 
     let request = emission_request(
@@ -148,6 +172,19 @@ pub(crate) fn run_build_command(
     );
 
     let mut inputs = ProductEmissionInputs::new(&target_outputs);
+
+    if let Some(test_catalog) = test_catalog.as_deref() {
+        inputs = inputs.with_test_catalog(test_catalog);
+    }
+
+    let validate_publication = || match configuration.build_identity() {
+        Some(identity) => verify_reusable_build_environment(options, &configuration, identity),
+        None => Ok(()),
+    };
+
+    if configuration.build_identity().is_some() {
+        inputs = inputs.with_publication_validation(&validate_publication);
+    }
 
     match (native.as_ref(), linker.as_ref()) {
         (Some(native), Some(linker)) => {
@@ -180,25 +217,6 @@ pub(crate) fn run_build_command(
                 EmissionStatus::Failed(_) | EmissionStatus::Cancelled => ExitCode::FAILURE,
             };
 
-            if exit_code == ExitCode::SUCCESS
-                && let Some(destination) = configuration.test_catalog()
-                && let Err(error) = publish_test_catalog(&compilation, &product, destination)
-            {
-                let diagnostics = match error {
-                    TestCatalogPublicationError::Cancelled => DiagnosticBag::new(),
-                    TestCatalogPublicationError::Diagnostic(diagnostic) => {
-                        DiagnosticBag::single(diagnostic)
-                    }
-                };
-
-                return driver_result_from_compilation(
-                    compilation,
-                    diagnostics,
-                    output_format,
-                    ExitCode::FAILURE,
-                );
-            }
-
             driver_result_from_compilation(compilation, diagnostics, output_format, exit_code)
                 .with_published_artifacts(published_artifacts)
         }
@@ -211,11 +229,10 @@ pub(crate) fn run_build_command(
     }
 }
 
-fn publish_test_catalog(
+fn encode_test_catalog(
     compilation: &bray_compilation::Compilation,
     product: &ProductIdentity,
-    destination: &std::path::Path,
-) -> Result<(), TestCatalogPublicationError> {
+) -> Result<Vec<u8>, TestCatalogPublicationError> {
     let discovery = compilation
         .test_discovery(product.clone())
         .map_err(|error| match error {
@@ -230,33 +247,7 @@ fn publish_test_catalog(
             TestCatalogPublicationError::Diagnostic(test_catalog_failure(error, product))
         })?;
 
-    let mut staging = StagedFile::create(destination, FileReplacementMode::ReplaceExisting, None)
-        .map_err(|error| {
-        TestCatalogPublicationError::Diagnostic(artifact_write_failure(
-            DiagnosticId::new(0),
-            destination,
-            error.kind(),
-        ))
-    })?;
-
-    staging.write_all(&bytes).map_err(|error| {
-        TestCatalogPublicationError::Diagnostic(artifact_write_failure(
-            DiagnosticId::new(0),
-            destination,
-            error.kind(),
-        ))
-    })?;
-
-    staging
-        .finish()
-        .and_then(|staged| staged.promote(destination))
-        .map_err(|error| {
-            TestCatalogPublicationError::Diagnostic(artifact_write_failure(
-                DiagnosticId::new(0),
-                destination,
-                error.kind(),
-            ))
-        })
+    Ok(bytes)
 }
 
 enum TestCatalogPublicationError {
@@ -343,6 +334,11 @@ fn required_artifacts(
         artifacts.push(TargetOutputKind::LinkedCompanion);
     }
 
+    if configuration.publishes_test_catalog() && !artifacts.contains(&TargetOutputKind::TestCatalog)
+    {
+        artifacts.push(TargetOutputKind::TestCatalog);
+    }
+
     artifacts
 }
 
@@ -417,7 +413,7 @@ fn emission_request(
         },
     );
 
-    EmissionRequest::try_new(
+    let request = EmissionRequest::try_new(
         product,
         product_kind,
         executable_host,
@@ -427,7 +423,138 @@ fn emission_request(
         ReplacementPolicy::ReplaceExisting,
     )
     .unwrap_or_else(|error| panic!("validated build emission request must be valid: {error:?}"))
-    .with_storage_profile(configuration.build().as_str())
+    .with_storage_profile(configuration.build().as_str());
+
+    match configuration.build_identity().cloned() {
+        Some(identity) => request.with_build_identity(identity),
+        None => request,
+    }
+}
+
+fn verify_reusable_build_environment(
+    options: &DriverOptions,
+    configuration: &DriverProductConfiguration,
+    expected: &ProductBuildIdentity,
+) -> Result<(), DiagnosticBag> {
+    let compiler_path = std::env::current_exe()
+        .map_err(|error| reusable_identity_io_diagnostics(PathBuf::from("brayc"), error))?;
+
+    let compiler =
+        bray_emitter::path_digest(&compiler_path).map_err(reusable_identity_digest_diagnostics)?;
+
+    if compiler != expected.compiler() {
+        return Err(reusable_identity_mismatch_diagnostics(
+            options,
+            ProductBuildIdentityPart::Compiler,
+        ));
+    }
+
+    let Some(standard_library_root) = options
+        .standard_library_root()
+        .or_else(|| options.standard_library_provider_root())
+        .map(bray_standard_library::StandardLibraryRoot::path)
+    else {
+        return Err(reusable_identity_mismatch_diagnostics(
+            options,
+            ProductBuildIdentityPart::StandardLibrary,
+        ));
+    };
+
+    let standard_library = bray_emitter::build_input_path_digest(standard_library_root)
+        .map_err(reusable_identity_digest_diagnostics)?;
+
+    let Some(toolchain_root) = standard_library_root.parent() else {
+        return Err(DiagnosticBag::single(
+            DiagnosticProjectCommandFailure::MissingParent {
+                operation: DiagnosticProjectOperation::ReusableBuildIdentity,
+                path: standard_library_root.to_path_buf(),
+            }
+            .diagnostic(DiagnosticId::new(0)),
+        ));
+    };
+
+    let toolchain = bray_emitter::toolchain_path_digest(toolchain_root)
+        .map_err(reusable_identity_digest_diagnostics)?;
+
+    if toolchain != expected.toolchain() {
+        return Err(reusable_identity_mismatch_diagnostics(
+            options,
+            ProductBuildIdentityPart::Toolchain,
+        ));
+    }
+
+    if standard_library != expected.standard_library() {
+        return Err(reusable_identity_mismatch_diagnostics(
+            options,
+            ProductBuildIdentityPart::StandardLibrary,
+        ));
+    }
+
+    let Some(DriverRuntimeSelection::Artifact(runtime_metadata)) = configuration.runtime() else {
+        return Err(reusable_identity_mismatch_diagnostics(
+            options,
+            ProductBuildIdentityPart::Runtime,
+        ));
+    };
+
+    let runtime_root = runtime_metadata.parent().unwrap_or(runtime_metadata);
+
+    let runtime = bray_emitter::build_input_path_digest(runtime_root)
+        .map_err(reusable_identity_digest_diagnostics)?;
+
+    if runtime != expected.runtime() {
+        return Err(reusable_identity_mismatch_diagnostics(
+            options,
+            ProductBuildIdentityPart::Runtime,
+        ));
+    }
+
+    let protocol = bray_test_protocol::protocol_version();
+
+    if protocol != expected.catalog_protocol() {
+        return Err(reusable_identity_mismatch_diagnostics(
+            options,
+            ProductBuildIdentityPart::CatalogProtocol,
+        ));
+    }
+
+    if protocol != expected.runner_protocol() {
+        return Err(reusable_identity_mismatch_diagnostics(
+            options,
+            ProductBuildIdentityPart::RunnerProtocol,
+        ));
+    }
+
+    Ok(())
+}
+
+fn reusable_identity_io_diagnostics(path: PathBuf, error: std::io::Error) -> DiagnosticBag {
+    DiagnosticBag::single(
+        DiagnosticProjectCommandFailure::Io {
+            operation: DiagnosticProjectOperation::ReusableBuildIdentity,
+            path,
+            error: DiagnosticIoErrorKind::from(error.kind()),
+        }
+        .diagnostic(DiagnosticId::new(0)),
+    )
+}
+
+fn reusable_identity_digest_diagnostics(
+    error: bray_emitter::BuildInputDigestError,
+) -> DiagnosticBag {
+    let (path, cause) = error.into_parts();
+
+    reusable_identity_io_diagnostics(path, cause)
+}
+
+fn reusable_identity_mismatch_diagnostics(
+    options: &DriverOptions,
+    part: ProductBuildIdentityPart,
+) -> DiagnosticBag {
+    let product = options.compilation().product();
+    let identity = format!("{}/{}", product.package().as_str(), product.name());
+
+    bray_tooling::reusable_build_identity_mismatch_diagnostics(identity, part)
 }
 
 fn native_product_failure_result(
@@ -516,7 +643,7 @@ mod tests {
             None,
             vec![],
             "out".into(),
-            None,
+            false,
             vec![],
             vec![DriverInspectionArtifact::BackendIr],
         );
@@ -564,7 +691,7 @@ mod tests {
             None,
             vec![],
             "out".into(),
-            None,
+            false,
             vec![],
             vec![],
         );
@@ -596,6 +723,29 @@ mod tests {
                 bray_target::TargetOutputKind::LinkedCompanion,
             ]
         );
+    }
+
+    #[test]
+    fn test_catalogs_are_required_members_of_test_product_publications() {
+        let configuration = DriverProductConfiguration::new(
+            DriverBackend::Llvm,
+            bray_compilation::BuildConfiguration::Development,
+            None,
+            vec![],
+            "out".into(),
+            true,
+            vec![],
+            vec![],
+        );
+
+        let artifacts = required_artifacts(
+            ProductKind::Test,
+            bray_target::NativeTarget::X86_64LinuxGnu,
+            &configuration,
+        );
+
+        assert!(artifacts.contains(&bray_target::TargetOutputKind::Executable));
+        assert!(artifacts.contains(&bray_target::TargetOutputKind::TestCatalog));
     }
 
     #[test]

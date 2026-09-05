@@ -6,7 +6,7 @@ use std::process::{Command, Output};
 
 use bray_base::is_lowercase_hex;
 use bray_symbols::TestExecutionConstraint;
-use bray_target::NativeTarget;
+use bray_target::{NativeTarget, TargetOutputKind, TargetOutputName};
 use bray_test_protocol::{TestBatchPlan, TestBatchRequest, decode_test_catalog};
 use serde::Deserialize;
 
@@ -290,6 +290,7 @@ fn audit_api(
         &request,
         profile_output,
         "api",
+        false,
     )?;
 
     require_success("native API batch", &output)?;
@@ -357,7 +358,58 @@ fn audit_api(
         CONCURRENCY_STRESS_TEST_COUNT,
     )?;
 
+    audit_no_build_rerun(root, workspace, toolchain, target)?;
+
     Ok(())
+}
+
+fn audit_no_build_rerun(
+    root: &Path,
+    workspace: &Path,
+    toolchain: &Path,
+    target: NativeTarget,
+) -> Result<(), BuildError> {
+    let request = test_batch_request([test_batch_plan(
+        "no-build",
+        ["byte_buffer_mutation"],
+        1,
+        Some(1000),
+    )?])?;
+
+    let output = run_test_batch(
+        root,
+        workspace,
+        toolchain,
+        target,
+        API_PRODUCT,
+        &request,
+        None,
+        "no-build",
+        true,
+    )?;
+
+    require_success("native no-build rerun", &output)?;
+
+    let batch = parse_batch_report("native no-build rerun", &output, &request)?;
+
+    if !batch.build.reused
+        || batch.build.compilation
+        || batch.build.emission
+        || batch.build.linking
+        || batch.build.products.len() != 1
+    {
+        return Err(BuildError::conformance(
+            "native no-build rerun",
+            "the no-build report did not identify one fully reused retained generation",
+        ));
+    }
+
+    require_startup_report(
+        "no-build",
+        batch.report("no-build")?,
+        "byte_buffer_mutation",
+        &[],
+    )
 }
 
 fn require_concurrency_selection(
@@ -431,6 +483,7 @@ fn audit_outcomes(
         &request,
         profile_output,
         "outcomes",
+        false,
     )?;
 
     if output.status.success() {
@@ -783,6 +836,7 @@ fn run_test_batch(
     request: &TestBatchRequest,
     profile_output: Option<&Path>,
     profile_identity: &str,
+    no_build: bool,
 ) -> Result<Output, BuildError> {
     let request_path = workspace.join(format!(".{product}-test-batch.json"));
 
@@ -816,6 +870,10 @@ fn run_test_batch(
     }
 
     command.args(["--format", "json", "test"]);
+
+    if no_build {
+        command.arg("--no-build");
+    }
 
     let target_identity = target.identity();
 
@@ -887,7 +945,11 @@ fn product_catalog(
 ) -> Result<PathBuf, BuildError> {
     let destination = native_product_destination(workspace, target)?;
 
-    Ok(destination.directory().join(format!("{product}.braytests")))
+    let name = TargetOutputName::for_native(target.object_format(), TargetOutputKind::TestCatalog)
+        .file_name(product)
+        .ok_or_else(|| BuildError::conformance("native test catalog", "invalid product name"))?;
+
+    Ok(destination.directory().join(name))
 }
 
 fn native_product_destination(
@@ -1083,6 +1145,7 @@ impl OutcomeExpectation {
 #[derive(Deserialize)]
 struct NativeTestBatchReport {
     format: u32,
+    build: NativeTestBuildProvenance,
     plans: Vec<NativeTestBatchPlanReport>,
 }
 
@@ -1136,9 +1199,28 @@ struct NativeTestBatchPlanReport {
 #[derive(Deserialize)]
 struct NativeTestReport {
     format: u32,
+    #[serde(rename = "build")]
+    _build: NativeTestBuildProvenance,
     selection: NativeSelection,
     products: Vec<NativeProductReport>,
     summary: NativeSummary,
+}
+
+#[derive(Deserialize)]
+struct NativeTestBuildProvenance {
+    reused: bool,
+    compilation: bool,
+    emission: bool,
+    linking: bool,
+    products: Vec<NativeTestProductGeneration>,
+}
+
+#[derive(Deserialize)]
+struct NativeTestProductGeneration {
+    #[serde(rename = "product")]
+    _product: String,
+    #[serde(rename = "generation")]
+    _generation: String,
 }
 
 #[derive(Deserialize)]
@@ -1318,11 +1400,25 @@ mod tests {
 
         let report = serde_json::from_value::<super::NativeTestBatchReport>(serde_json::json!({
             "format": 1,
+            "build": {
+                "reused": false,
+                "compilation": true,
+                "emission": true,
+                "linking": true,
+                "products": []
+            },
             "plans": [{
                 "identity": "plan",
                 "succeeded": true,
                 "report": {
-                    "format": 2,
+                    "format": 3,
+                    "build": {
+                        "reused": false,
+                        "compilation": true,
+                        "emission": true,
+                        "linking": true,
+                        "products": []
+                    },
                     "selection": { "discovered": 0, "selected": 0, "filtered_out": 0 },
                     "products": [],
                     "summary": { "passed": 0, "failed": 0 }
@@ -1338,6 +1434,13 @@ mod tests {
     fn focused_startup_report_requires_the_api_product_identity() {
         let report = super::NativeTestReport {
             format: 1,
+            _build: super::NativeTestBuildProvenance {
+                reused: false,
+                compilation: true,
+                emission: true,
+                linking: true,
+                products: Vec::new(),
+            },
             selection: super::NativeSelection {
                 discovered: super::API_TEST_COUNT,
                 selected: 1,

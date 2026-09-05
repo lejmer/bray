@@ -25,6 +25,8 @@ pub enum TargetOutputKind {
     PackageImplementation,
     /// Compiler-owned dependency metadata.
     DependencyMetadata,
+    /// Immutable native test-host catalog.
+    TestCatalog,
     /// Final executable product.
     Executable,
     /// Final static library product.
@@ -226,6 +228,7 @@ const fn native_name_fragments(
         TargetOutputKind::PackageInterface => ("", ".brayi"),
         TargetOutputKind::PackageImplementation => ("", ".brayimpl"),
         TargetOutputKind::DependencyMetadata => ("", ".brayd"),
+        TargetOutputKind::TestCatalog => ("", ".braytests"),
         TargetOutputKind::Executable => match format {
             ObjectFormat::Coff => ("", ".exe"),
             ObjectFormat::Elf | ObjectFormat::MachO => ("", ""),

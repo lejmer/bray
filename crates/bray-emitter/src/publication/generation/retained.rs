@@ -22,6 +22,7 @@ use crate::{
 #[derive(Debug)]
 pub struct RetainedProductGeneration {
     identity: ProductGenerationIdentity,
+    build_identity: Option<crate::ProductBuildIdentity>,
     artifacts: BTreeMap<(ArtifactKind, u32), PathBuf>,
     _lease: StorageLease,
     _entry_lease: StorageLease,
@@ -31,6 +32,11 @@ impl RetainedProductGeneration {
     /// Returns the verified content identity of this complete product generation.
     pub const fn identity(&self) -> ProductGenerationIdentity {
         self.identity
+    }
+
+    /// Returns the complete build identity recorded for explicit product reuse.
+    pub const fn build_identity(&self) -> Option<&crate::ProductBuildIdentity> {
+        self.build_identity.as_ref()
     }
 
     /// Borrows a validated immutable artifact path while the entire generation remains pinned.
@@ -79,6 +85,8 @@ pub fn retain_published_generation(
 
     let mut artifacts = BTreeMap::new();
 
+    let build_identity = manifest.build_identity;
+
     for artifact in manifest.artifacts {
         let path = artifact_path(&directory, &artifact.path)
             .map_err(|error| PublishedGenerationReadError::Storage(Box::new(error)))?;
@@ -98,6 +106,7 @@ pub fn retain_published_generation(
 
     Ok(RetainedProductGeneration {
         identity,
+        build_identity,
         artifacts,
         _lease: lease,
         _entry_lease: entry_lease,

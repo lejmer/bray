@@ -662,6 +662,7 @@ const fn output_kind_name(kind: TargetOutputKind) -> &'static str {
         TargetOutputKind::PackageInterface => "package_interface",
         TargetOutputKind::PackageImplementation => "package_implementation",
         TargetOutputKind::DependencyMetadata => "dependency_metadata",
+        TargetOutputKind::TestCatalog => "test_catalog",
         TargetOutputKind::Executable => "executable",
         TargetOutputKind::StaticLibrary => "static_library",
         TargetOutputKind::SharedLibrary => "shared_library",

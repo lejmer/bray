@@ -180,6 +180,7 @@ pub(crate) enum TackCommand {
     Test {
         selection: TackSelection,
         configuration: TackBuildConfiguration,
+        no_build: bool,
         batch_request: Option<PathBuf>,
         native_link_inputs: Vec<String>,
         options: TackTestOptions,
@@ -236,7 +237,11 @@ impl TackCommand {
 
     pub(crate) const fn invokes_compiler(&self) -> bool {
         match self {
-            Self::Check(_) | Self::Build { .. } | Self::Run { .. } | Self::Test { .. } => true,
+            Self::Check(_) | Self::Build { .. } | Self::Run { .. } => true,
+            Self::Test {
+                no_build: false, ..
+            } => true,
+            Self::Test { no_build: true, .. } => false,
             Self::Inspect { inspection, .. } => !matches!(inspection, TackInspection::Project),
             Self::Storage { .. }
             | Self::Init { .. }

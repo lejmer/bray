@@ -2,6 +2,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::PathBuf;
 
+pub use bray_compilation::source_input_digest;
 use bray_compilation::{CompilationOptions, CompilationRequest};
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticIoErrorKind, DiagnosticKind,

@@ -446,6 +446,7 @@ fn stage_generation(
         revision: MANIFEST_REVISION,
         product: StorageProduct::new(product),
         context: StorageContext::for_plan(plan),
+        build_identity: plan.request().build_identity().cloned(),
         artifacts: manifest_artifacts,
     };
 

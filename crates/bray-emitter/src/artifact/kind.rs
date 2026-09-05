@@ -29,6 +29,8 @@ pub enum ArtifactKind {
     PackageImplementation,
     /// Compiler-owned dependency metadata.
     DependencyMetadata,
+    /// Immutable native test-host catalog.
+    TestCatalog,
     /// Final executable product.
     Executable,
     /// Final static library product.
@@ -56,6 +58,7 @@ impl ArtifactKind {
             Self::PackageInterface => DiagnosticArtifactKind::PackageInterface,
             Self::PackageImplementation => DiagnosticArtifactKind::PackageImplementation,
             Self::DependencyMetadata => DiagnosticArtifactKind::DependencyMetadata,
+            Self::TestCatalog => DiagnosticArtifactKind::TestCatalog,
             Self::Executable => DiagnosticArtifactKind::Executable,
             Self::StaticLibrary => DiagnosticArtifactKind::StaticLibrary,
             Self::SharedLibrary => DiagnosticArtifactKind::SharedLibrary,
@@ -75,6 +78,7 @@ impl ArtifactKind {
             Self::PackageInterface
             | Self::PackageImplementation
             | Self::DependencyMetadata
+            | Self::TestCatalog
             | Self::Executable
             | Self::StaticLibrary
             | Self::SharedLibrary
@@ -93,6 +97,7 @@ impl ArtifactKind {
             Self::PackageInterface => TargetOutputKind::PackageInterface,
             Self::PackageImplementation => TargetOutputKind::PackageImplementation,
             Self::DependencyMetadata => TargetOutputKind::DependencyMetadata,
+            Self::TestCatalog => TargetOutputKind::TestCatalog,
             Self::Executable => TargetOutputKind::Executable,
             Self::StaticLibrary => TargetOutputKind::StaticLibrary,
             Self::SharedLibrary => TargetOutputKind::SharedLibrary,
@@ -114,6 +119,7 @@ impl ArtifactKind {
             Self::DebugCompanion
             | Self::PackageImplementation
             | Self::DependencyMetadata
+            | Self::TestCatalog
             | Self::LinkedCompanion => {
                 matches!(role, ArtifactRole::Companion)
             }
@@ -139,7 +145,8 @@ impl ArtifactKind {
             | Self::DebugCompanion
             | Self::PackageInterface
             | Self::PackageImplementation
-            | Self::DependencyMetadata => false,
+            | Self::DependencyMetadata
+            | Self::TestCatalog => false,
         }
     }
 }
@@ -169,6 +176,7 @@ impl From<TargetOutputKind> for ArtifactKind {
             TargetOutputKind::PackageInterface => Self::PackageInterface,
             TargetOutputKind::PackageImplementation => Self::PackageImplementation,
             TargetOutputKind::DependencyMetadata => Self::DependencyMetadata,
+            TargetOutputKind::TestCatalog => Self::TestCatalog,
             TargetOutputKind::Executable => Self::Executable,
             TargetOutputKind::StaticLibrary => Self::StaticLibrary,
             TargetOutputKind::SharedLibrary => Self::SharedLibrary,
@@ -224,6 +232,8 @@ pub enum ArtifactProducer {
     PackageImplementation,
     /// Compiler-owned dependency metadata record.
     DependencyMetadata(DependencyMetadataProducerId),
+    /// Compiler-owned native test-host catalog.
+    TestCatalog,
     /// Native linker output.
     Linker(LinkerProducerId),
 }
@@ -236,6 +246,7 @@ impl ArtifactProducer {
             Self::PackageInterface
             | Self::PackageImplementation
             | Self::DependencyMetadata(_)
+            | Self::TestCatalog
             | Self::Linker(_) => None,
         }
     }
@@ -279,6 +290,7 @@ mod tests {
             TargetOutputKind::PackageInterface,
             TargetOutputKind::PackageImplementation,
             TargetOutputKind::DependencyMetadata,
+            TargetOutputKind::TestCatalog,
             TargetOutputKind::Executable,
             TargetOutputKind::StaticLibrary,
             TargetOutputKind::SharedLibrary,

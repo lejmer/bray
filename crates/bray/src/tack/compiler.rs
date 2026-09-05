@@ -31,23 +31,22 @@ pub(crate) struct ProjectCompiler<'project> {
     native_link_inputs: Vec<String>,
     executor: &'project dyn ToolExecutor,
     interfaces: BTreeMap<(ProductIdentity, TargetIdentity), CheckedInterface>,
-    checked: BTreeSet<(ProductIdentity, TargetIdentity)>,
 }
 
 struct CheckedInterface {
     path: PathBuf,
+    source_input_digest: Option<[u8; 32]>,
     _operation: bray_emitter::ManagedOperation,
 }
 
 pub(crate) struct ProductBuild {
     outputs: Vec<ToolOutput>,
     executable: Option<PathBuf>,
-    test_catalog: Option<PathBuf>,
 }
 
 impl ProductBuild {
-    pub(crate) fn into_parts(self) -> (Vec<ToolOutput>, Option<PathBuf>, Option<PathBuf>) {
-        (self.outputs, self.executable, self.test_catalog)
+    pub(crate) fn into_parts(self) -> (Vec<ToolOutput>, Option<PathBuf>) {
+        (self.outputs, self.executable)
     }
 }
 
@@ -71,12 +70,11 @@ impl<'project> ProjectCompiler<'project> {
             native_link_inputs: Vec::new(),
             executor,
             interfaces: BTreeMap::new(),
-            checked: BTreeSet::new(),
         }
     }
 
     pub(crate) fn with_native_link_inputs(mut self, native_link_inputs: Vec<String>) -> Self {
-        self.native_link_inputs = native_link_inputs;
+        self.native_link_inputs = canonical_native_link_inputs(native_link_inputs);
 
         self
     }
@@ -88,14 +86,17 @@ impl<'project> ProjectCompiler<'project> {
         let product = self.project_product(planned)?.clone();
         let mut outputs = Vec::new();
 
-        if !self.check_dependencies(&product, planned.target(), &mut outputs, None)? {
+        if !self.check_dependencies(&product, planned.target(), &mut outputs, None, None)? {
             return Ok(outputs);
         }
 
         let output = self.run_compiler(
             &product,
             planned.target(),
-            CompilerAction::Check { interface: None },
+            CompilerAction::Check {
+                interface: None,
+                expected_source_digest: None,
+            },
             None,
         )?;
 
@@ -110,14 +111,35 @@ impl<'project> ProjectCompiler<'project> {
         configuration: TackBuildConfiguration,
         progress: Option<&BuildProgressSession<'_>>,
     ) -> Result<ProductBuild, DiagnosticBag> {
+        self.build_product(planned, configuration, progress, None)
+    }
+
+    pub(crate) fn build_test(
+        &mut self,
+        planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
+        progress: Option<&BuildProgressSession<'_>>,
+        evidence: &crate::tack::identity::TestProductBuildEvidence,
+    ) -> Result<(ProductBuild, bray_emitter::ProductBuildIdentity), DiagnosticBag> {
+        let build = self.build_product(planned, configuration, progress, Some(evidence))?;
+
+        Ok((build, evidence.identity().clone()))
+    }
+
+    fn build_product(
+        &mut self,
+        planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
+        progress: Option<&BuildProgressSession<'_>>,
+        evidence: Option<&crate::tack::identity::TestProductBuildEvidence>,
+    ) -> Result<ProductBuild, DiagnosticBag> {
         let product = self.project_product(planned)?.clone();
         let mut outputs = Vec::new();
 
-        if !self.check_dependencies(&product, planned.target(), &mut outputs, progress)? {
+        if !self.check_dependencies(&product, planned.target(), &mut outputs, progress, evidence)? {
             return Ok(ProductBuild {
                 outputs,
                 executable: None,
-                test_catalog: None,
             });
         }
 
@@ -139,8 +161,7 @@ impl<'project> ProjectCompiler<'project> {
             })
         })?;
 
-        let test_catalog = (product.kind() == ProductKind::Test)
-            .then(|| self.test_catalog_path(&output_directory, &product));
+        let test_catalog = product.kind() == ProductKind::Test;
 
         let output = self.run_compiler(
             &product,
@@ -149,7 +170,10 @@ impl<'project> ProjectCompiler<'project> {
                 output_root,
                 output_directory: relative_output_directory,
                 configuration,
-                test_catalog: test_catalog.clone(),
+                test_catalog,
+                build_identity: evidence.map(|evidence| evidence.identity().clone()),
+                expected_source_digest: evidence
+                    .and_then(|evidence| evidence.source_inputs(product.identity())),
             },
             progress,
         )?;
@@ -167,7 +191,6 @@ impl<'project> ProjectCompiler<'project> {
         Ok(ProductBuild {
             outputs,
             executable,
-            test_catalog,
         })
     }
 
@@ -175,6 +198,49 @@ impl<'project> ProjectCompiler<'project> {
         &self,
         planned: &PlannedProduct,
         configuration: TackBuildConfiguration,
+    ) -> Result<BuildProgressPlan, DiagnosticBag> {
+        self.build_progress_plan_with_evidence(planned, configuration, None)
+    }
+
+    pub(crate) fn test_build_progress_plan(
+        &self,
+        planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
+    ) -> Result<
+        (
+            BuildProgressPlan,
+            crate::tack::identity::TestProductBuildEvidence,
+        ),
+        DiagnosticBag,
+    > {
+        let product = self.project_product(planned)?;
+        let products = self.reusable_test_products(product, planned.target())?;
+
+        let evidence = crate::tack::identity::test_product_build_evidence(
+            self.workspace_root,
+            self.graph,
+            &products,
+            planned.target(),
+            configuration,
+            &self.native_link_inputs,
+            self.toolchain,
+            self.executor,
+        )?;
+
+        let plan = self.build_progress_plan_with_evidence(
+            planned,
+            configuration,
+            Some(&evidence),
+        )?;
+
+        Ok((plan, evidence))
+    }
+
+    fn build_progress_plan_with_evidence(
+        &self,
+        planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
+        evidence: Option<&crate::tack::identity::TestProductBuildEvidence>,
     ) -> Result<BuildProgressPlan, DiagnosticBag> {
         let product = self.project_product(planned)?;
         let dependencies = self.transitive_dependencies(product, planned.target())?;
@@ -190,7 +256,8 @@ impl<'project> ProjectCompiler<'project> {
             .map(|name| name.to_string_lossy().into_owned())
             .unwrap_or_else(|| product.identity().name().to_owned());
 
-        let packages = self.progress_packages(product, planned.target(), &dependencies)?;
+        let packages =
+            self.progress_packages(product, planned.target(), &dependencies, evidence)?;
 
         let product_identity = format!(
             "{}/{}",
@@ -211,6 +278,26 @@ impl<'project> ProjectCompiler<'project> {
         ))
     }
 
+    pub(crate) fn test_product_identity(
+        &self,
+        planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
+    ) -> Result<bray_emitter::ProductBuildIdentity, DiagnosticBag> {
+        let product = self.project_product(planned)?;
+        let products = self.reusable_test_products(product, planned.target())?;
+
+        crate::tack::identity::test_product_identity(
+            self.workspace_root,
+            self.graph,
+            &products,
+            planned.target(),
+            configuration,
+            &self.native_link_inputs,
+            self.toolchain,
+            self.executor,
+        )
+    }
+
     pub(crate) fn inspect(
         &mut self,
         planned: &PlannedProduct,
@@ -222,7 +309,7 @@ impl<'project> ProjectCompiler<'project> {
         let product = self.project_product(planned)?.clone();
         let mut outputs = Vec::new();
 
-        if !self.check_dependencies(&product, planned.target(), &mut outputs, None)? {
+        if !self.check_dependencies(&product, planned.target(), &mut outputs, None, None)? {
             return Ok(outputs);
         }
 
@@ -249,11 +336,12 @@ impl<'project> ProjectCompiler<'project> {
         target: &TargetIdentity,
         outputs: &mut Vec<ToolOutput>,
         progress: Option<&BuildProgressSession<'_>>,
+        evidence: Option<&crate::tack::identity::TestProductBuildEvidence>,
     ) -> Result<bool, DiagnosticBag> {
         let dependencies = self.direct_dependencies(product, target)?;
 
         for dependency in dependencies {
-            if !self.ensure_dependency(&dependency, target, outputs, progress)? {
+            if !self.ensure_dependency(&dependency, target, outputs, progress, evidence)? {
                 return Ok(false);
             }
         }
@@ -267,12 +355,15 @@ impl<'project> ProjectCompiler<'project> {
         target: &TargetIdentity,
         outputs: &mut Vec<ToolOutput>,
         progress: Option<&BuildProgressSession<'_>>,
+        evidence: Option<&crate::tack::identity::TestProductBuildEvidence>,
     ) -> Result<bool, DiagnosticBag> {
         let key = (identity.clone(), target.clone());
 
-        if self.checked.contains(&key) {
+        if self.interface_matches(identity, target, evidence) {
             return Ok(true);
         }
+
+        let source_inputs = evidence.and_then(|evidence| evidence.source_inputs(identity));
 
         let product = self.project_product_by_identity(identity)?.clone();
 
@@ -285,7 +376,7 @@ impl<'project> ProjectCompiler<'project> {
             ));
         }
 
-        if !self.check_dependencies(&product, target, outputs, progress)? {
+        if !self.check_dependencies(&product, target, outputs, progress, evidence)? {
             return Ok(false);
         }
 
@@ -306,6 +397,7 @@ impl<'project> ProjectCompiler<'project> {
             target,
             CompilerAction::Check {
                 interface: Some(interface.clone()),
+                expected_source_digest: source_inputs,
             },
             progress,
         )?;
@@ -316,14 +408,13 @@ impl<'project> ProjectCompiler<'project> {
 
         if success {
             self.interfaces.insert(
-                key.clone(),
+                key,
                 CheckedInterface {
                     path: interface,
+                    source_input_digest: source_inputs,
                     _operation: operation,
                 },
             );
-
-            self.checked.insert(key);
         }
 
         Ok(success)
@@ -428,6 +519,13 @@ impl<'project> ProjectCompiler<'project> {
                 .arg(dependency.implementation.into_os_string());
         }
 
+        if let Some(digest) = action.expected_source_digest() {
+            let digest = serde_json::to_string(&digest)
+                .unwrap_or_else(|error| panic!("source input digest must serialize: {error:?}"));
+
+            request.arg("--expected-source-digest").arg(digest);
+        }
+
         action.add_arguments(&mut request, product, runtime);
 
         request.args(
@@ -527,11 +625,26 @@ impl<'project> ProjectCompiler<'project> {
         Ok(dependencies)
     }
 
+    fn reusable_test_products(
+        &self,
+        product: &ProjectProduct,
+        target: &TargetIdentity,
+    ) -> Result<Vec<ProjectProduct>, DiagnosticBag> {
+        let mut identities = self.transitive_dependencies(product, target)?;
+        identities.insert(product.identity().clone());
+
+        identities
+            .iter()
+            .map(|identity| self.project_product_by_identity(identity).cloned())
+            .collect()
+    }
+
     fn progress_packages(
         &self,
         product: &ProjectProduct,
         target: &TargetIdentity,
         dependencies: &BTreeSet<ProductIdentity>,
+        evidence: Option<&crate::tack::identity::TestProductBuildEvidence>,
     ) -> Result<Vec<BuildProgressPackage>, DiagnosticBag> {
         let mut packages = Vec::new();
 
@@ -543,9 +656,7 @@ impl<'project> ProjectCompiler<'project> {
                 let is_root = candidate.identity() == product.identity();
 
                 let is_pending_dependency = dependencies.contains(candidate.identity())
-                    && !self
-                        .checked
-                        .contains(&(candidate.identity().clone(), target.clone()));
+                    && !self.interface_matches(candidate.identity(), target, evidence);
 
                 if !is_root && !is_pending_dependency {
                     continue;
@@ -575,6 +686,20 @@ impl<'project> ProjectCompiler<'project> {
         }
 
         Ok(packages)
+    }
+
+    fn interface_matches(
+        &self,
+        identity: &ProductIdentity,
+        target: &TargetIdentity,
+        evidence: Option<&crate::tack::identity::TestProductBuildEvidence>,
+    ) -> bool {
+        let key = (identity.clone(), target.clone());
+        let source_input_digest = evidence.and_then(|evidence| evidence.source_inputs(identity));
+
+        self.interfaces
+            .get(&key)
+            .is_some_and(|interface| interface.source_input_digest == source_input_digest)
     }
 
     fn dependencies(
@@ -688,6 +813,35 @@ impl<'project> ProjectCompiler<'project> {
         configuration: TackBuildConfiguration,
     ) -> Result<bray_emitter::PublishedProductReadGuard, DiagnosticBag> {
         let product = self.project_product(planned)?;
+
+        let (destination, relative) = self.managed_destination(product, planned, configuration)?;
+
+        bray_emitter::lock_published_product(destination, product.identity()).map_err(|error| {
+            storage_diagnostics(error.into_storage_error(&PathBuf::from(relative)))
+        })
+    }
+
+    pub(crate) fn retain_test_product(
+        &self,
+        planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
+    ) -> Result<bray_emitter::RetainedProductGeneration, DiagnosticBag> {
+        let product = self.project_product(planned)?;
+
+        let (destination, relative) = self.managed_destination(product, planned, configuration)?;
+
+        bray_emitter::retain_published_generation(destination, product.identity(), &|| false)
+            .map_err(|error| {
+                storage_diagnostics(error.into_storage_error(&PathBuf::from(relative)))
+            })
+    }
+
+    fn managed_destination(
+        &self,
+        product: &ProjectProduct,
+        planned: &PlannedProduct,
+        configuration: TackBuildConfiguration,
+    ) -> Result<(bray_emitter::ManagedFilesystemDestination, String), DiagnosticBag> {
         let output_root = self.graph.output_root().beneath(self.workspace_root);
 
         let relative = self.relative_output_directory(
@@ -705,11 +859,10 @@ impl<'project> ProjectCompiler<'project> {
                 })
             })?;
 
-        bray_emitter::lock_published_product(
+        Ok((
             bray_emitter::ManagedFilesystemDestination::new(output_root, directory),
-            product.identity(),
-        )
-        .map_err(|error| storage_diagnostics(error.into_storage_error(&PathBuf::from(relative))))
+            relative,
+        ))
     }
 
     fn relative_output_directory(
@@ -753,9 +906,28 @@ impl<'project> ProjectCompiler<'project> {
 
         Ok(Some(output_directory.join(name)))
     }
+}
 
-    fn test_catalog_path(&self, output_directory: &Path, product: &ProjectProduct) -> PathBuf {
-        output_directory.join(format!("{}.braytests", product.identity().name()))
+fn canonical_native_link_inputs(mut inputs: Vec<String>) -> Vec<String> {
+    inputs.sort_unstable();
+    inputs.dedup();
+
+    inputs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_native_link_inputs;
+
+    #[test]
+    fn native_link_inputs_are_canonicalized_before_use() {
+        let inputs = canonical_native_link_inputs(vec![
+            "B=system".to_owned(),
+            "A=system".to_owned(),
+            "B=system".to_owned(),
+        ]);
+
+        assert_eq!(inputs, ["A=system", "B=system"]);
     }
 }
 
@@ -801,12 +973,15 @@ struct DependencyArtifact {
 enum CompilerAction {
     Check {
         interface: Option<PathBuf>,
+        expected_source_digest: Option<[u8; 32]>,
     },
     Build {
         output_root: PathBuf,
         output_directory: String,
         configuration: TackBuildConfiguration,
-        test_catalog: Option<PathBuf>,
+        test_catalog: bool,
+        build_identity: Option<bray_emitter::ProductBuildIdentity>,
+        expected_source_digest: Option<[u8; 32]>,
     },
     Inspect {
         inspection: TackInspection,
@@ -830,6 +1005,20 @@ impl CompilerAction {
             && matches!(product_kind, ProductKind::Executable | ProductKind::Test)
     }
 
+    const fn expected_source_digest(&self) -> Option<[u8; 32]> {
+        match self {
+            Self::Check {
+                expected_source_digest,
+                ..
+            }
+            | Self::Build {
+                expected_source_digest,
+                ..
+            } => *expected_source_digest,
+            Self::Inspect { .. } => None,
+        }
+    }
+
     fn add_arguments(
         self,
         request: &mut ToolRequest,
@@ -837,7 +1026,7 @@ impl CompilerAction {
         runtime: Option<PathBuf>,
     ) {
         match self {
-            Self::Check { interface } => {
+            Self::Check { interface, .. } => {
                 request.arg("check");
 
                 if let Some(interface) = interface {
@@ -851,6 +1040,8 @@ impl CompilerAction {
                 output_directory,
                 configuration,
                 test_catalog,
+                build_identity,
+                expected_source_digest: _,
             } => {
                 request
                     .arg("build")
@@ -869,10 +1060,16 @@ impl CompilerAction {
                         .arg(runtime.into_os_string());
                 }
 
-                if let Some(test_catalog) = test_catalog {
-                    request
-                        .arg("--test-catalog")
-                        .arg(test_catalog.into_os_string());
+                if test_catalog {
+                    request.arg("--test-catalog");
+                }
+
+                if let Some(identity) = build_identity {
+                    let identity = serde_json::to_string(&identity).unwrap_or_else(|error| {
+                        panic!("reusable build identity must serialize: {error:?}")
+                    });
+
+                    request.arg("--build-identity").arg(identity);
                 }
 
                 for kind in product.outputs() {
@@ -925,6 +1122,7 @@ fn artifact_text(kind: TargetOutputKind) -> &'static str {
         TargetOutputKind::PackageInterface => "package-interface",
         TargetOutputKind::PackageImplementation => "package-implementation",
         TargetOutputKind::DependencyMetadata => "dependency-metadata",
+        TargetOutputKind::TestCatalog => "test-catalog",
         TargetOutputKind::Executable => "executable",
         TargetOutputKind::StaticLibrary => "static-library",
         TargetOutputKind::SharedLibrary => "shared-library",

@@ -3,14 +3,16 @@ use bray_diagnostics::DiagnosticBag;
 use bray_emitter::{
     ArtifactContribution, ArtifactKind, ArtifactProducer, BackendContributionSet, EmissionBackend,
     EmissionOutcome, EmissionPlan, EmissionPlanner, EmissionRequest, EmissionStatus, LinkStaging,
-    LinkStagingError, OutputSinkResolver, ProductLinkInputs, construct_link_plan,
+    LinkStagingError, OutputSinkResolver, ProductLinkInputs, PublicationValidator,
+    construct_link_plan,
 };
 use bray_linker::Linker;
 use bray_package_interface::encode_package_interface;
 use bray_target::TargetOutputDescription;
 
 use super::publishing::{
-    package_implementation_contribution, publisher, validate_executable_units,
+    package_implementation_contribution, publisher, test_catalog_contribution,
+    validate_executable_units,
 };
 use super::{ProductEmissionError, ProductEmissionErrorKind};
 use crate::compilation::{
@@ -24,7 +26,9 @@ use crate::fact::{CancellationToken, FactQueryError};
 pub struct ProductEmissionInputs<'operation> {
     target_outputs: &'operation TargetOutputDescription,
     generation: ProductGenerationInputs<'operation>,
+    test_catalog: Option<&'operation [u8]>,
     sink_resolver: Option<&'operation dyn OutputSinkResolver>,
+    publication_validation: Option<&'operation dyn PublicationValidator>,
 }
 
 impl<'operation> ProductEmissionInputs<'operation> {
@@ -33,8 +37,17 @@ impl<'operation> ProductEmissionInputs<'operation> {
         Self {
             target_outputs,
             generation: ProductGenerationInputs::None,
+            test_catalog: None,
             sink_resolver: None,
+            publication_validation: None,
         }
+    }
+
+    /// Supplies an encoded immutable test catalog for transactional product publication.
+    pub const fn with_test_catalog(mut self, catalog: &'operation [u8]) -> Self {
+        self.test_catalog = Some(catalog);
+
+        self
     }
 
     /// Supplies selected backend, validated mappings, target, and generation policy.
@@ -114,6 +127,16 @@ impl<'operation> ProductEmissionInputs<'operation> {
         resolver: &'operation dyn OutputSinkResolver,
     ) -> Self {
         self.sink_resolver = Some(resolver);
+
+        self
+    }
+
+    /// Requires one final host validation after generation and before publication.
+    pub const fn with_publication_validation(
+        mut self,
+        validation: &'operation dyn PublicationValidator,
+    ) -> Self {
+        self.publication_validation = Some(validation);
 
         self
     }
@@ -285,6 +308,14 @@ impl Compilation {
                 ProductEmissionError::new(kind, planning_diagnostics.clone(), &product, &target)
             })?;
 
+        let test_catalog = inputs
+            .test_catalog
+            .map(|catalog| test_catalog_contribution(&plan, catalog))
+            .transpose()
+            .map_err(|kind| {
+                ProductEmissionError::new(kind, planning_diagnostics.clone(), &product, &target)
+            })?;
+
         let units = match inputs.generation.native() {
             Some(native) => native.units().to_vec(),
             None => self
@@ -343,8 +374,10 @@ impl Compilation {
                 &plan,
                 codegen.backend,
                 package_implementation,
+                test_catalog,
                 inputs.generation.linking(),
                 inputs.sink_resolver,
+                inputs.publication_validation,
                 cancellation,
             )
             .map_err(|kind| {
@@ -604,8 +637,10 @@ impl Compilation {
         plan: &EmissionPlan,
         backend: Option<BackendContributionSet>,
         package_implementation: Option<ArtifactContribution>,
+        test_catalog: Option<ArtifactContribution>,
         linking: Option<ProductLinkingInputs<'_>>,
         resolver: Option<&dyn OutputSinkResolver>,
+        validation: Option<&dyn PublicationValidator>,
         cancellation: &CancellationToken,
     ) -> Result<EmissionOutcome, ProductEmissionErrorKind> {
         let requires_linking = plan
@@ -619,9 +654,10 @@ impl Compilation {
                     .iter()
                     .flat_map(|contributions| contributions.published(plan))
                     .cloned()
-                    .chain(package_implementation);
+                    .chain(package_implementation)
+                    .chain(test_catalog);
 
-                let publisher = publisher(cancellation, resolver);
+                let publisher = publisher(cancellation, resolver, validation);
 
                 Ok(publisher.publish(plan, contributions))
             }
@@ -632,7 +668,8 @@ impl Compilation {
                     .iter()
                     .flat_map(|contributions| contributions.published(plan))
                     .cloned()
-                    .chain(package_implementation);
+                    .chain(package_implementation)
+                    .chain(test_catalog);
 
                 let staged = backend
                     .iter()
@@ -660,12 +697,13 @@ impl Compilation {
                     self.state.fact_runtime.profile(),
                     crate::profile::ProfileOperation::EmissionLinking,
                     || {
-                        self.emit_linked_product_with_cancellation(
+                        self.emit_linked_product_with_publication_validation(
                             linking.linker,
                             plan,
                             &link_plan,
                             published,
                             resolver,
+                            validation,
                             cancellation,
                         )
                     },

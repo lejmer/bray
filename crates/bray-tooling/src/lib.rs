@@ -2,6 +2,8 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(feature = "build-identity")]
+mod build_identity;
 #[cfg(feature = "analysis")]
 mod inspection;
 mod model;
@@ -20,6 +22,8 @@ mod test_support;
 #[cfg(feature = "compiler")]
 mod toolchain;
 
+#[cfg(feature = "build-identity")]
+pub use build_identity::reusable_build_identity_mismatch_diagnostics;
 #[cfg(feature = "analysis")]
 pub use inspection::{
     InspectionError, InspectionOutput, format_semantic_type, render_bound_inspection,
@@ -44,7 +48,8 @@ pub use product::{
 pub use runtime::{RuntimeArtifactLoadError, load_runtime_artifact};
 #[cfg(feature = "analysis")]
 pub use source::{
-    SourceInputError, compilation_request_from_file_arguments, source_inputs_from_file_arguments,
+    SourceInputError, compilation_request_from_file_arguments, source_input_digest,
+    source_inputs_from_file_arguments,
 };
 pub use status::exit_code_from_diagnostics;
 #[cfg(feature = "compiler")]

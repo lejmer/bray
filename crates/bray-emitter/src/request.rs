@@ -145,6 +145,7 @@ pub struct EmissionRequest {
     artifacts: Arc<[RequestedArtifact]>,
     replacement: ReplacementPolicy,
     storage_profile: Option<Arc<str>>,
+    build_identity: Option<crate::ProductBuildIdentity>,
 }
 
 impl EmissionRequest {
@@ -203,6 +204,7 @@ impl EmissionRequest {
             artifacts: artifacts.into(),
             replacement,
             storage_profile: None,
+            build_identity: None,
         })
     }
 
@@ -211,6 +213,18 @@ impl EmissionRequest {
         self.storage_profile = Some(profile.into());
 
         self
+    }
+
+    /// Records the complete identity chain used by explicit no-build consumers.
+    pub fn with_build_identity(mut self, identity: crate::ProductBuildIdentity) -> Self {
+        self.build_identity = Some(identity);
+
+        self
+    }
+
+    /// Returns the identity chain required to reuse this product generation.
+    pub const fn build_identity(&self) -> Option<&crate::ProductBuildIdentity> {
+        self.build_identity.as_ref()
     }
 
     /// Returns the host-selected profile identity used for storage retention and accounting.

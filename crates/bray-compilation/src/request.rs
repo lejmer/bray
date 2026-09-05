@@ -1,7 +1,8 @@
+use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bray_base::shared_slice;
+use bray_base::{StableDigestHasher, shared_slice};
 use bray_package_interface::{
     InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceValidationPolicy,
     PackageInterfaceIdentity,
@@ -145,6 +146,15 @@ pub struct CompilationRequest {
     package_interface_export: Option<PackageInterfaceExportRequest>,
     profile: Option<CompilationProfileConfiguration>,
     profile_product: Option<bray_symbols::ProductIdentity>,
+}
+
+/// Returns a stable digest of source inputs exactly as supplied to compilation loading.
+pub fn source_input_digest(sources: &[SourceInput]) -> [u8; 32] {
+    let mut hasher = StableDigestHasher::new();
+
+    sources.hash(&mut hasher);
+
+    hasher.finalize()
 }
 
 /// Package-layer identity inputs for the current library product's interface export.
@@ -392,6 +402,11 @@ impl CompilationRequest {
         }
     }
 
+    /// Returns the stable identity of the immutable source inputs this request will load.
+    pub fn source_input_digest(&self) -> [u8; 32] {
+        source_input_digest(&self.sources)
+    }
+
     /// Returns a copy authorized to compile toolchain-owned standard library source.
     ///
     /// This authority permits reserved package identities. It does not bypass parsing,
@@ -595,7 +610,32 @@ mod tests {
     use super::{
         CompilationOptions, CompilationRequest, DependencyInterfaceInput,
         PackageInterfaceExportRequest, PackageSourceAuthority, SemanticAnalysisLimits,
+        source_input_digest,
     };
+
+    #[test]
+    fn source_input_identity_covers_exact_input_content_and_order() {
+        let source = |identity, name, text| {
+            SourceInput::virtual_text(
+                SourceIdentity::new(identity),
+                name,
+                SourceVersion::new(1),
+                text,
+            )
+        };
+
+        let baseline =
+            source_input_digest(&[source(1, "first", "one"), source(2, "second", "two")]);
+
+        let changed_content =
+            source_input_digest(&[source(1, "first", "one"), source(2, "second", "changed")]);
+
+        let changed_order =
+            source_input_digest(&[source(2, "second", "two"), source(1, "first", "one")]);
+
+        assert_ne!(baseline, changed_content);
+        assert_ne!(baseline, changed_order);
+    }
 
     #[test]
     fn compilation_requests_hold_sources_and_options() {

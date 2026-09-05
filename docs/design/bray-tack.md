@@ -26,7 +26,8 @@ feature, and dependency selections are therefore explicit and deterministic befo
 - `bray test` builds selected test products, discovers entries from their published test catalogs, and runs their native
   test hosts. Bray Tack owns cross-product filtering, resource budgets, scheduling, cancellation, and report
   aggregation. Each generated host owns entry invocation, per-test capture, timeout delivery, and cleanup completion
-  through the shared [testing protocol](testing.md).
+  through the shared [testing protocol](testing.md). `bray test --no-build` requires a verified retained generation for
+  every selected test product and runs those generations without invoking compilation, emission, or linking.
 - `bray storage` reports managed build storage, including retained products, active operations, shared content, and
   optional caches.
 - `bray clean` removes selected managed state. `--dry-run` reports the same selection without removing files.
@@ -75,6 +76,11 @@ expose a mixed companion set.
 Bray applies retention automatically without project configuration. Each output root retains the current and previous
 distinct generation of a product. Publishing identical content again does not replace the previous distinct generation.
 Other history and abandoned staging become eligible for cleanup after their readers and writers release ownership.
+
+Each reusable test generation records a complete build identity covering exact source inputs and project configuration,
+the compiler executable, toolchain, standard library, runtime, catalog protocol, and runner protocol. A no-build test
+command recomputes that identity, selects the current matching generation, validates its host and catalog, and pins the
+generation through host shutdown. Missing or mismatched evidence fails the command without starting a replacement build.
 
 Product entries expire after 30 days without publication or a retained read. Expiration removes both their retained
 generations and stable public outputs. Distinct target and profile output directories retain their own product entries.

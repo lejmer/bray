@@ -338,6 +338,7 @@ impl CliCommand {
                 TackCommand::Test {
                     selection: test.selection.into(),
                     configuration,
+                    no_build: test.no_build,
                     batch_request: test.batch_request,
                     native_link_inputs: test.native_link_inputs,
                     options: crate::tack::model::TackTestOptions::new(
@@ -474,6 +475,8 @@ struct CliTest {
     selection: CliSelection,
     #[arg(long, help = help::RELEASE)]
     release: bool,
+    #[arg(long, help = help::TEST_NO_BUILD)]
+    no_build: bool,
     #[arg(long, conflicts_with = "jobs", help = help::TEST_SEQUENTIAL)]
     sequential: bool,
     #[arg(long, value_name = "N", help = help::TEST_JOBS)]
@@ -620,6 +623,7 @@ struct CliVendorInstall {
 mod tests {
     use std::path::{Path, PathBuf};
 
+    use bray_diagnostics::DiagnosticKind;
     use bray_test_protocol::{
         TestCaptureLimits, TestCapturePolicy, TestDuration, TestTimeoutPolicy,
     };
@@ -845,6 +849,20 @@ mod tests {
     }
 
     #[test]
+    fn test_no_build_selection_is_explicit() {
+        let invocation = TackInvocation::try_from_arguments(["bray", "test", "--no-build"])
+            .unwrap_or_else(|error| panic!("no-build test selection should parse: {error:?}"));
+
+        let (_, _, _, _, _, _, command) = invocation.into_parts();
+
+        let TackCommand::Test { no_build, .. } = command else {
+            panic!("expected test command");
+        };
+
+        assert!(no_build);
+    }
+
+    #[test]
     fn unexpected_argument_error_names_the_argument() {
         let error = TackInvocation::try_from_arguments(["bray", "--release", "test"]).unwrap_err();
 
@@ -960,6 +978,22 @@ mod tests {
 
         assert_eq!(profile.mode(), TackProfileMode::Trace);
         assert_eq!(profile.output_directory(), Some(Path::new("profiles")));
+    }
+
+    #[test]
+    fn profiling_rejects_a_no_build_test_rerun() {
+        let error = TackInvocation::try_from_arguments([
+            "bray",
+            "--profile=summary",
+            "test",
+            "--no-build",
+        ])
+        .expect_err("profiling should require compiler work");
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            &error.into_diagnostics(),
+            DiagnosticKind::ProjectCommandSelectionInvalid,
+        );
     }
 
     #[test]

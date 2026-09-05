@@ -439,7 +439,8 @@ const fn linked_kind(kind: ArtifactKind) -> Option<LinkedArtifactKind> {
         | ArtifactKind::DebugCompanion
         | ArtifactKind::PackageInterface
         | ArtifactKind::PackageImplementation
-        | ArtifactKind::DependencyMetadata => None,
+        | ArtifactKind::DependencyMetadata
+        | ArtifactKind::TestCatalog => None,
     }
 }
 

@@ -48,7 +48,7 @@ impl Toolchain {
             .join(RUNTIME_METADATA_FILE_NAME)
     }
 
-    fn library_root(&self) -> PathBuf {
+    pub(super) fn library_root(&self) -> PathBuf {
         self.root.join("lib").join("bray")
     }
 }

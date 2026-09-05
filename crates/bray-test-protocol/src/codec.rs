@@ -9,4 +9,4 @@ pub use host::{
     read_host_command, read_host_control, read_host_result, write_host_command, write_host_control,
     write_host_result,
 };
-pub use support::TestProtocolError;
+pub use support::{TestProtocolError, protocol_version};

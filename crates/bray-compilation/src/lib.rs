@@ -47,6 +47,7 @@ pub use profile::{
 pub use request::{
     CompilationOptions, CompilationRequest, DependencyInterfaceInput,
     PackageInterfaceExportRequest, PackageSourceAuthority, SemanticAnalysisLimits,
+    source_input_digest,
 };
 pub use target::{SelectedTarget, SelectedTargetContext};
 pub use worker::{WorkerBudget, WorkerBudgetError};

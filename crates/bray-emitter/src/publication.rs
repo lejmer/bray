@@ -4,6 +4,7 @@ mod diagnostic;
 pub(crate) mod generation;
 mod link;
 mod operation;
+mod publisher;
 mod staging;
 
 pub use generation::{
@@ -12,4 +13,4 @@ pub use generation::{
     retain_published_generation,
 };
 
-pub use operation::ArtifactPublisher;
+pub use publisher::{ArtifactPublisher, PublicationValidator};

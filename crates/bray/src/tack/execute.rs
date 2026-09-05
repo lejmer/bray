@@ -27,10 +27,11 @@ use crate::tack::output::{
 use crate::tack::profile::run_profile_command;
 use crate::tack::progress::WorkflowProgress;
 use crate::tack::project::{
-    ProductSelectionKind, load_graph, root_source_files, select_products, select_target,
+    PlannedProduct, ProductSelectionKind, load_graph, root_source_files, select_products,
+    select_target,
 };
 use crate::tack::result::TackRunResult;
-use crate::tack::testing::BuiltTestHost;
+use crate::tack::testing::{BuiltTestHost, TestBuildProvenance};
 use crate::tack::tool::{
     NativeToolExecutor, Tool, ToolExecutionError, ToolExecutor, ToolOutput, ToolRequest, ToolStream,
 };
@@ -405,6 +406,7 @@ fn execute_invocation_with_progress(
         TackCommand::Test {
             selection,
             configuration,
+            no_build,
             batch_request,
             native_link_inputs,
             options,
@@ -415,6 +417,7 @@ fn execute_invocation_with_progress(
             worker_count,
             &selection,
             configuration,
+            no_build,
             batch_request.as_deref(),
             native_link_inputs,
             options,
@@ -547,7 +550,7 @@ fn run_build(
 
         match compiler.build(&product, configuration, Some(&session)) {
             Ok(build) => {
-                let (product_outputs, _, _) = build.into_parts();
+                let (product_outputs, _) = build.into_parts();
 
                 let success = product_outputs.iter().all(ToolOutput::success);
 
@@ -611,7 +614,7 @@ fn run_one(
 
     let session = progress.begin(plan);
 
-    let (outputs, executable, _) = match compiler.build(product, configuration, Some(&session)) {
+    let (outputs, executable) = match compiler.build(product, configuration, Some(&session)) {
         Ok(result) => result.into_parts(),
         Err(diagnostics) => {
             session.finish(false);
@@ -662,6 +665,7 @@ fn run_tests(
     worker_count: usize,
     selection: &TackSelection,
     configuration: crate::tack::model::TackBuildConfiguration,
+    no_build: bool,
     batch_request: Option<&Path>,
     native_link_inputs: Vec<String>,
     options: crate::tack::model::TackTestOptions,
@@ -693,25 +697,54 @@ fn run_tests(
 
     let mut outputs = Vec::new();
     let mut hosts = Vec::new();
-    let mut publication_guards = Vec::new();
+    let mut retained_generations = Vec::new();
+    let mut build_provenance = TestBuildProvenance::new(no_build);
 
     for product in products {
-        let plan = match compiler.build_progress_plan(&product, configuration) {
+        if no_build {
+            let expected = match compiler.test_product_identity(&product, configuration) {
+                Ok(identity) => identity,
+                Err(diagnostics) => return failure(diagnostics, output_format),
+            };
+
+            let retained =
+                match retain_matching_test_product(&compiler, &product, configuration, &expected) {
+                    Ok(retained) => retained,
+                    Err(diagnostics) => return failure(diagnostics, output_format),
+                };
+
+            let host = match test_host_from_generation(&retained) {
+                Ok(host) => host,
+                Err(diagnostics) => return failure(diagnostics, output_format),
+            };
+
+            hosts.push(host);
+
+            build_provenance.push(product.product_identity(), retained.identity().to_hex());
+
+            retained_generations.push(retained);
+
+            continue;
+        }
+
+        let (plan, evidence) = match compiler.test_build_progress_plan(&product, configuration) {
             Ok(plan) => plan,
             Err(diagnostics) => return failure(diagnostics, output_format),
         };
 
         let session = progress.begin(plan);
 
-        let (product_outputs, executable, test_catalog) =
-            match compiler.build(&product, configuration, Some(&session)) {
-                Ok(result) => result.into_parts(),
+        let (build, expected) =
+            match compiler.build_test(&product, configuration, Some(&session), &evidence) {
+                Ok(result) => result,
                 Err(diagnostics) => {
                     session.finish(false);
 
                     return failure(diagnostics, output_format);
                 }
             };
+
+        let (product_outputs, _) = build.into_parts();
 
         let compilation_succeeded = product_outputs.iter().all(ToolOutput::success);
 
@@ -723,37 +756,25 @@ fn run_tests(
             continue;
         }
 
-        let Some(executable) = executable else {
-            return failure(
-                selection_diagnostics(
-                    DiagnosticProjectSelectionProblem::MissingTestExecutableOutput,
-                ),
-                output_format,
-            );
-        };
+        let retained =
+            match retain_matching_test_product(&compiler, &product, configuration, &expected) {
+                Ok(retained) => retained,
+                Err(diagnostics) => return failure(diagnostics, output_format),
+            };
 
-        let Some(test_catalog) = test_catalog else {
-            return failure(
-                selection_diagnostics(DiagnosticProjectSelectionProblem::MissingTestCatalogOutput),
-                output_format,
-            );
-        };
-
-        let guard = match compiler.lock_published_product(&product, configuration) {
-            Ok(guard) => guard,
+        let host = match test_host_from_generation(&retained) {
+            Ok(host) => host,
             Err(diagnostics) => return failure(diagnostics, output_format),
         };
 
-        let Some(host) = BuiltTestHost::try_new(executable, test_catalog) else {
-            return failure(
-                selection_diagnostics(DiagnosticProjectSelectionProblem::MissingTestHost),
-                output_format,
-            );
-        };
-
         hosts.push(host);
-        publication_guards.push(guard);
+
+        build_provenance.push(product.product_identity(), retained.identity().to_hex());
+
+        retained_generations.push(retained);
     }
+
+    let _retained_generations = retained_generations;
 
     let mut result = result_from_outputs(outputs, output_format);
 
@@ -768,6 +789,7 @@ fn run_tests(
             &batch_request,
             worker_count,
             progress.interactive(),
+            &build_provenance,
         ) {
             Ok(report) => report,
             Err(diagnostics) => return failure(diagnostics, output_format),
@@ -786,6 +808,7 @@ fn run_tests(
             worker_count,
             output_format,
             progress.interactive(),
+            &build_provenance,
         ) {
             Ok(report) => report,
             Err(diagnostics) => return failure(diagnostics, output_format),
@@ -799,6 +822,49 @@ fn run_tests(
     }
 
     result
+}
+
+fn retain_matching_test_product(
+    compiler: &ProjectCompiler<'_>,
+    product: &PlannedProduct,
+    configuration: crate::tack::model::TackBuildConfiguration,
+    expected: &bray_emitter::ProductBuildIdentity,
+) -> Result<bray_emitter::RetainedProductGeneration, DiagnosticBag> {
+    let retained = compiler.retain_test_product(product, configuration)?;
+    let identity = product.product_identity();
+
+    let Some(actual) = retained.build_identity() else {
+        return Err(selection_diagnostics(
+            DiagnosticProjectSelectionProblem::MissingReusableBuildIdentity(identity),
+        ));
+    };
+
+    if let Some(part) = actual.mismatch(expected) {
+        return Err(bray_tooling::reusable_build_identity_mismatch_diagnostics(
+            identity, part,
+        ));
+    }
+
+    Ok(retained)
+}
+
+fn test_host_from_generation(
+    retained: &bray_emitter::RetainedProductGeneration,
+) -> Result<BuiltTestHost, DiagnosticBag> {
+    let executable = retained
+        .artifact_path(bray_emitter::ArtifactKind::Executable, 0)
+        .ok_or_else(|| {
+            selection_diagnostics(DiagnosticProjectSelectionProblem::MissingTestExecutableOutput)
+        })?;
+
+    let test_catalog = retained
+        .artifact_path(bray_emitter::ArtifactKind::TestCatalog, 0)
+        .ok_or_else(|| {
+            selection_diagnostics(DiagnosticProjectSelectionProblem::MissingTestCatalogOutput)
+        })?;
+
+    BuiltTestHost::try_new(executable.to_path_buf(), test_catalog.to_path_buf())
+        .ok_or_else(|| selection_diagnostics(DiagnosticProjectSelectionProblem::MissingTestHost))
 }
 
 fn load_test_batch_request(path: &Path) -> Result<TestBatchRequest, DiagnosticBag> {
@@ -1127,6 +1193,7 @@ mod tests {
     use std::io::{Cursor, Read, Write};
     use std::path::{Path, PathBuf};
     use std::process::ExitCode;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Mutex;
 
     use bray_diagnostics::DiagnosticKind;
@@ -1146,12 +1213,42 @@ mod tests {
         input: Option<Vec<u8>>,
     }
 
+    impl RecordedRequest {
+        fn from_request(request: &ToolRequest) -> Self {
+            Self {
+                tool: request.tool(),
+                arguments: request.arguments().to_vec(),
+                working_directory: request.working_directory().to_path_buf(),
+                input: request.input_bytes().map(<[u8]>::to_vec),
+            }
+        }
+    }
+
+    fn take_requests(requests: &Mutex<Vec<RecordedRequest>>) -> Vec<RecordedRequest> {
+        let mut requests = requests.lock().unwrap_or_else(|error| error.into_inner());
+
+        std::mem::take(&mut *requests)
+    }
+
+    fn record_request(requests: &Mutex<Vec<RecordedRequest>>, request: &ToolRequest) {
+        requests
+            .lock()
+            .unwrap_or_else(|error| error.into_inner())
+            .push(RecordedRequest::from_request(request));
+    }
+
     #[derive(Default)]
     struct RecordingExecutor {
         requests: Mutex<Vec<RecordedRequest>>,
     }
 
     struct InvalidProtocolExecutor;
+
+    struct MutatingDependencyExecutor {
+        requests: Mutex<Vec<RecordedRequest>>,
+        source: PathBuf,
+        mutated: AtomicBool,
+    }
 
     impl ToolExecutor for InvalidProtocolExecutor {
         fn capture(&self, _request: ToolRequest) -> Result<ToolOutput, ToolExecutionError> {
@@ -1179,24 +1276,11 @@ mod tests {
 
     impl RecordingExecutor {
         fn requests(&self) -> Vec<RecordedRequest> {
-            let mut requests = self
-                .requests
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-
-            std::mem::take(&mut *requests)
+            take_requests(&self.requests)
         }
 
         fn record(&self, request: &ToolRequest) {
-            self.requests
-                .lock()
-                .unwrap_or_else(|error| error.into_inner())
-                .push(RecordedRequest {
-                    tool: request.tool(),
-                    arguments: request.arguments().to_vec(),
-                    working_directory: request.working_directory().to_path_buf(),
-                    input: request.input_bytes().map(<[u8]>::to_vec),
-                });
+            record_request(&self.requests, request);
         }
 
         fn publish_compiler_outputs(&self, request: &ToolRequest) -> Result<(), ()> {
@@ -1218,6 +1302,24 @@ mod tests {
             std::fs::write(output.join(product), b"test executable").map_err(|_| ())?;
 
             Ok(())
+        }
+    }
+
+    impl MutatingDependencyExecutor {
+        fn new(source: PathBuf) -> Self {
+            Self {
+                requests: Mutex::new(Vec::new()),
+                source,
+                mutated: AtomicBool::new(false),
+            }
+        }
+
+        fn requests(&self) -> Vec<RecordedRequest> {
+            take_requests(&self.requests)
+        }
+
+        fn record(&self, request: &ToolRequest) {
+            record_request(&self.requests, request);
         }
     }
 
@@ -1259,6 +1361,40 @@ mod tests {
             })?;
 
             Ok(ToolOutput::new(true, String::new(), String::new()))
+        }
+    }
+
+    impl ToolExecutor for MutatingDependencyExecutor {
+        fn capture(&self, request: ToolRequest) -> Result<ToolOutput, ToolExecutionError> {
+            let is_test_product = request.tool() == Tool::Compiler
+                && has_argument_pair(request.arguments(), "--artifact", "executable");
+
+            self.record(&request);
+
+            if is_test_product
+                && !self.mutated.swap(true, Ordering::SeqCst)
+            {
+                std::fs::write(&self.source, b"module math;\n\nfunc changed() {}\n")
+                    .map_err(|error| ToolExecutionError::StreamIo {
+                        stream: ToolStream::StandardOutput,
+                        error: error.kind(),
+                    })?;
+            }
+
+            Ok(ToolOutput::new(
+                !is_test_product,
+                String::new(),
+                String::new(),
+            ))
+        }
+
+        fn serve(
+            &self,
+            _: ToolRequest,
+            _: Box<dyn Read + Send>,
+            _: &mut dyn Write,
+        ) -> Result<ToolOutput, ToolExecutionError> {
+            panic!("mutating dependency executor does not serve streaming tools")
         }
     }
 
@@ -1365,6 +1501,46 @@ mod tests {
         ));
 
         let _ = std::fs::remove_dir_all(parent);
+    }
+
+    #[test]
+    fn no_build_test_rejects_missing_retained_state_without_invoking_the_compiler() {
+        let workspace = ProjectWorkspace::basic();
+        let executor = RecordingExecutor::default();
+
+        workspace.write(
+            "app/bray-package.json",
+            r#"{
+                "format": 1,
+                "identity": "example.application",
+                "version": {"workspace": true},
+                "features": [],
+                "source_roots": [{"name": "main", "path": "src"}],
+                "products": [{
+                    "name": "tests",
+                    "kind": "test",
+                    "source_roots": ["main"],
+                    "targets": ["native"],
+                    "dependencies": [],
+                    "outputs": ["executable"]
+                }]
+            }"#,
+        );
+
+        let result = run_tack_result_with_input(
+            [
+                OsString::from("bray"),
+                OsString::from("--workspace"),
+                workspace.path().as_os_str().to_os_string(),
+                OsString::from("test"),
+                OsString::from("--no-build"),
+            ],
+            &executor,
+            Cursor::new(Vec::new()),
+        );
+
+        assert_eq!(result.exit_code(), ExitCode::FAILURE);
+        assert!(executor.requests().is_empty());
     }
 
     #[test]
@@ -1572,6 +1748,76 @@ mod tests {
                 .iter()
                 .any(|argument| argument == "--dependency-interface")
         );
+    }
+
+    #[test]
+    fn test_products_recheck_shared_dependencies_when_source_evidence_changes() {
+        let workspace = ProjectWorkspace::with_vendor();
+        let dependency_source = workspace.path().join("vendor/math/src/math.bray");
+        let executor = MutatingDependencyExecutor::new(dependency_source);
+
+        workspace.write(
+            "app/bray-package.json",
+            r#"{
+                "format": 1,
+                "identity": "example.application",
+                "version": {"workspace": true},
+                "features": [],
+                "source_roots": [{"name": "tests", "path": "src"}],
+                "products": [
+                    {
+                        "name": "first-tests",
+                        "kind": "test",
+                        "source_roots": ["tests"],
+                        "targets": ["native"],
+                        "dependencies": [{"package": "example.math", "product": "math"}],
+                        "outputs": ["executable"]
+                    },
+                    {
+                        "name": "second-tests",
+                        "kind": "test",
+                        "source_roots": ["tests"],
+                        "targets": ["native"],
+                        "dependencies": [{"package": "example.math", "product": "math"}],
+                        "outputs": ["executable"]
+                    }
+                ]
+            }"#,
+        );
+
+        let result = run_tack_result_with_input(
+            [
+                "bray".into(),
+                "--workspace".into(),
+                workspace.path().as_os_str().to_os_string(),
+                "test".into(),
+                "--target".into(),
+                "native".into(),
+            ],
+            &executor,
+            Cursor::new(Vec::new()),
+        );
+
+        assert_eq!(result.exit_code(), ExitCode::FAILURE);
+
+        let requests = executor.requests();
+
+        let dependencies: Vec<_> = requests
+            .iter()
+            .filter(|request| has_argument_pair(&request.arguments, "--product", "math"))
+            .collect();
+
+        let [first, second] = dependencies.as_slice() else {
+            panic!("shared dependency should be checked against both snapshots: {requests:#?}");
+        };
+
+        let first_digest = argument_value(&first.arguments, "--expected-source-digest")
+            .unwrap_or_else(|| panic!("first dependency check should carry source evidence"));
+
+        let second_digest = argument_value(&second.arguments, "--expected-source-digest")
+            .unwrap_or_else(|| panic!("second dependency check should carry source evidence"));
+
+        assert_ne!(first_digest, second_digest);
     }
 
     #[test]

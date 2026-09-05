@@ -1,7 +1,8 @@
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
     DiagnosticBag, DiagnosticEmissionFailure, DiagnosticEmissionLinkPlanFailure,
-    DiagnosticEmissionPlanningFailure, DiagnosticId, DiagnosticKind, SeverityKind,
+    DiagnosticEmissionPlanningFailure, DiagnosticId, DiagnosticKind, DiagnosticTestCatalogFailure,
+    SeverityKind,
 };
 use bray_package_interface::{
     InterfaceValidationError, PackageImplementationArtifactBuildError,
@@ -92,6 +93,18 @@ pub(super) fn product_emission_failure_diagnostics(
             DiagnosticEmissionFailure::Planning(
                 DiagnosticEmissionPlanningFailure::MissingExecutableHost,
             ),
+            product,
+            target,
+        ),
+        ProductEmissionErrorKind::MissingTestCatalogArtifact => emission_failure_diagnostics(
+            DiagnosticEmissionFailure::Planning(
+                DiagnosticEmissionPlanningFailure::MissingTestCatalogArtifact,
+            ),
+            product,
+            target,
+        ),
+        ProductEmissionErrorKind::TestCatalogContent(_) => emission_failure_diagnostics(
+            DiagnosticEmissionFailure::TestCatalog(DiagnosticTestCatalogFailure::ResourceLimit),
             product,
             target,
         ),

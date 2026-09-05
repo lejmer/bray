@@ -14,6 +14,7 @@ use super::generation::publish_managed_generation;
 use super::link::{
     LinkStagingCleanup, LinkedPreparationError, PreparedLinkedArtifact, prepare_linked_artifacts,
 };
+use super::publisher::ArtifactPublisher;
 use super::staging::FilesystemStaging;
 use crate::artifact::content::{
     ContentReader, ContentValidationError, open_content, open_linked_staging, validate_content,
@@ -22,36 +23,10 @@ use crate::artifact::content::{
 use crate::{
     ArtifactContribution, ArtifactId, ArtifactKind, ArtifactProducer, ArtifactRequirement,
     EmissionOutcome, EmissionPlan, EmittedArtifact, EmittedArtifactSet, IndirectOutputSink,
-    OutputSink, OutputSinkResolver, PlannedArtifact, PlannedArtifactDestination, ReplacementPolicy,
+    OutputSink, PlannedArtifact, PlannedArtifactDestination, ReplacementPolicy,
 };
 
-/// Publishes validated artifact contributions to the immutable plan's external sinks.
-#[derive(Clone, Copy)]
-pub struct ArtifactPublisher<'host> {
-    cancellation: &'host dyn Cancellation,
-    resolver: Option<&'host dyn OutputSinkResolver>,
-}
-
 impl<'host> ArtifactPublisher<'host> {
-    /// Creates a publisher for filesystem-only plans.
-    pub const fn new(cancellation: &'host dyn Cancellation) -> Self {
-        Self {
-            cancellation,
-            resolver: None,
-        }
-    }
-
-    /// Creates a publisher that can resolve memory collectors and writable streams.
-    pub const fn with_sink_resolver(
-        cancellation: &'host dyn Cancellation,
-        resolver: &'host dyn OutputSinkResolver,
-    ) -> Self {
-        Self {
-            cancellation,
-            resolver: Some(resolver),
-        }
-    }
-
     /// Publishes the plan-owned package interface and supplied contributions in plan order.
     pub fn publish(
         &self,
@@ -68,6 +43,14 @@ impl<'host> ArtifactPublisher<'host> {
             Ok(prepared) => prepared,
             Err(error) => return diagnostics.failed(publication_set(plan, []), error),
         };
+
+        if let Err(validation) = self.validate_publication() {
+            return EmissionOutcome::failed(
+                crate::EmissionFailure::IncompleteProduct,
+                publication_set(plan, []),
+                validation,
+            );
+        }
 
         self.publish_prepared(plan, prepared, diagnostics)
     }
@@ -171,6 +154,16 @@ impl<'host> ArtifactPublisher<'host> {
                 return merge_link_diagnostics(outcome, link_diagnostics);
             }
         };
+
+        if let Err(validation) = self.validate_publication() {
+            let outcome = EmissionOutcome::failed(
+                crate::EmissionFailure::IncompleteProduct,
+                publication_set(plan, []),
+                validation,
+            );
+
+            return merge_link_diagnostics(outcome, link_diagnostics);
+        }
 
         let outcome = self.publish_prepared(plan, prepared, diagnostics);
 
@@ -1437,6 +1430,70 @@ mod tests {
         .into_storage_error(output.path());
 
         assert_eq!(error.kind(), &crate::StorageErrorKind::Unavailable);
+    }
+
+    #[test]
+    fn retained_generations_expose_the_atomic_build_identity() {
+        let output = tempfile::tempdir().unwrap();
+
+        let identity =
+            crate::ProductBuildIdentity::new([1; 32], [2; 32], [3; 32], [4; 32], [5; 32], 6, 7);
+
+        let plan = filesystem_artifact_plan_with_identity(
+            [(
+                required_dependency_metadata_spec(),
+                output.path().join("application.brayd"),
+            )],
+            identity.clone(),
+        );
+
+        let outcome = ArtifactPublisher::new(&never_cancelled)
+            .publish(&plan, [contribution(&plan, b"metadata", None)]);
+
+        assert!(matches!(outcome.status(), EmissionStatus::Complete));
+
+        let first_generation = outcome
+            .generation()
+            .unwrap_or_else(|| panic!("first managed generation must exist"))
+            .identity();
+
+        let retained = crate::retain_published_generation(
+            output.path(),
+            plan.request().product(),
+            &never_cancelled,
+        )
+        .unwrap();
+
+        assert_eq!(retained.build_identity(), Some(&identity));
+
+        let replacement_identity = crate::ProductBuildIdentity::new(
+            [8; 32], [9; 32], [10; 32], [11; 32], [12; 32], 13, 14,
+        );
+
+        let replacement = filesystem_artifact_plan_with_identity(
+            [(
+                required_dependency_metadata_spec(),
+                output.path().join("application.brayd"),
+            )],
+            replacement_identity.clone(),
+        );
+
+        let outcome = ArtifactPublisher::new(&never_cancelled).publish(
+            &replacement,
+            [contribution(&replacement, b"metadata", None)],
+        );
+
+        assert!(matches!(outcome.status(), EmissionStatus::Complete));
+
+        let retained = crate::retain_published_generation(
+            output.path(),
+            replacement.request().product(),
+            &never_cancelled,
+        )
+        .unwrap();
+
+        assert_ne!(retained.identity(), first_generation);
+        assert_eq!(retained.build_identity(), Some(&replacement_identity));
     }
 
     #[test]
@@ -2943,6 +3000,25 @@ mod tests {
         product: bray_symbols::ProductIdentity,
         artifacts: impl IntoIterator<Item = (TestArtifactSpec, PathBuf)>,
     ) -> EmissionPlan {
+        filesystem_artifact_plan_with_product_and_identity(product, artifacts, None)
+    }
+
+    fn filesystem_artifact_plan_with_identity(
+        artifacts: impl IntoIterator<Item = (TestArtifactSpec, PathBuf)>,
+        identity: crate::ProductBuildIdentity,
+    ) -> EmissionPlan {
+        filesystem_artifact_plan_with_product_and_identity(
+            product_identity(),
+            artifacts,
+            Some(identity),
+        )
+    }
+
+    fn filesystem_artifact_plan_with_product_and_identity(
+        product: bray_symbols::ProductIdentity,
+        artifacts: impl IntoIterator<Item = (TestArtifactSpec, PathBuf)>,
+        identity: Option<crate::ProductBuildIdentity>,
+    ) -> EmissionPlan {
         let artifacts: Vec<_> = artifacts.into_iter().collect();
 
         let package_interface = artifacts
@@ -2970,6 +3046,11 @@ mod tests {
             ReplacementPolicy::ReplaceExisting,
         ) else {
             panic!("test filesystem publication request must be valid");
+        };
+
+        let request = match identity {
+            Some(identity) => request.with_build_identity(identity),
+            None => request,
         };
 
         let product = request.product().clone();

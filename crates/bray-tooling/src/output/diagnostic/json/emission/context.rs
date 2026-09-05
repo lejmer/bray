@@ -86,6 +86,7 @@ pub(super) fn planning_failure_context(
         ],
         Failure::Incomplete
         | Failure::MissingPackageInterfaceArtifact
+        | Failure::MissingTestCatalogArtifact
         | Failure::UnexpectedPackageInterfaceArtifact
         | Failure::MissingLinkedProduct
         | Failure::MultipleLinkedProducts

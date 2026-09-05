@@ -88,6 +88,15 @@ pub(crate) fn format_english_project_selection_problem(
         Problem::MissingTestHost => {
             "the completed test build did not publish its test host".to_owned()
         }
+        Problem::MissingReusableBuildIdentity(product) => format!(
+            "the retained test product {} has no reusable build identity",
+            format_english_quoted_text(product),
+        ),
+        Problem::ReusableBuildIdentityMismatch { product, part } => format!(
+            "the retained test product {} has a mismatched {} identity",
+            format_english_quoted_text(product),
+            part.as_str().replace('_', " ")
+        ),
         Problem::UnsupportedInspectionProduct(value) => format!(
             "inspection is unavailable for product {}",
             format_english_quoted_text(value)

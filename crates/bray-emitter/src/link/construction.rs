@@ -493,6 +493,7 @@ const fn linked_product_kind(kind: ArtifactKind) -> Option<LinkedProductKind> {
         | ArtifactKind::PackageInterface
         | ArtifactKind::PackageImplementation
         | ArtifactKind::DependencyMetadata
+        | ArtifactKind::TestCatalog
         | ArtifactKind::LinkedCompanion => None,
     }
 }

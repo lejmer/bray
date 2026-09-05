@@ -84,6 +84,7 @@ pub enum DiagnosticEmissionPlanningFailure {
         artifact: DiagnosticArtifactKind,
     },
     MissingPackageInterfaceArtifact,
+    MissingTestCatalogArtifact,
     UnexpectedPackageInterfaceArtifact,
     PackageInterfaceProductMismatch {
         expected: String,
@@ -527,6 +528,7 @@ impl DiagnosticEmissionPlanningFailure {
             Self::Incomplete => "incomplete",
             Self::ProductArtifactMismatch { .. } => "product_artifact_mismatch",
             Self::MissingPackageInterfaceArtifact => "missing_package_interface_artifact",
+            Self::MissingTestCatalogArtifact => "missing_test_catalog_artifact",
             Self::UnexpectedPackageInterfaceArtifact => "unexpected_package_interface_artifact",
             Self::PackageInterfaceProductMismatch { .. } => "package_interface_product_mismatch",
             Self::MissingLinkedProduct => "missing_linked_product",

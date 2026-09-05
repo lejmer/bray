@@ -332,6 +332,7 @@ const fn artifact_matches_product(kind: ArtifactKind, product: ProductKind) -> b
         | ArtifactKind::SharedLibrary
         | ArtifactKind::PackageInterface
         | ArtifactKind::PackageImplementation => matches!(product, ProductKind::Library),
+        ArtifactKind::TestCatalog => matches!(product, ProductKind::Test),
         ArtifactKind::Assembly
         | ArtifactKind::BackendIr
         | ArtifactKind::BackendBitcode
