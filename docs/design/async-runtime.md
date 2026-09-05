@@ -184,10 +184,11 @@ runtime. Final executable or test product validation performs the closed-world r
 
 ## Structured scope-exit plans
 
-Composite storage flow owns task-obligation state and publishes the initialized roots, exact moved access paths, and
-active borrows at each async lexical block exit. Async checking combines that state with checked type representations
-and emits one cleanup plan containing:
+Composite storage flow owns task-obligation state and publishes the initialized roots, exact moved access paths,
+identities definitely moved on every incoming path, and active borrows at each async lexical block exit. Async checking
+combines that state with checked type representations and emits one cleanup plan containing:
 
+- one ordered disposition for every initialized storage identity,
 - every owned unresolved task access path at that exit, including tasks held in initialized hidden `Future<T>` frame
   state,
 - aggregate projections and active guards needed to find nested tasks,
@@ -211,10 +212,27 @@ new phase-one task while phase two is running.
 
 This is one composite plan, not independently recomputed task and lifecycle passes. Control-flow merge preserves a
 conservative obligation when any reachable predecessor still owns it. Plans retain exact root and projected access
-identities. Partial aggregates use moved access paths as masks so cleanup can traverse the remaining initialized state
-without treating the whole aggregate as moved.
+identities. Partial aggregates require moved access paths as masks so cleanup can traverse the remaining initialized
+state without treating the whole aggregate as moved. A partial state without an exact codegen-ready mask is an
+incomplete recovered disposition and cannot reach lowering.
 
-Lowering consumes only checked cleanup plans. It does not rediscover which tasks are live from syntax or type recursion.
+Each storage identity live on a path reaching the exit has one disposition: retained by an outer scope, transferred by
+the exit, fully moved, free of cleanup, tied to explicit cancellation and lifecycle phases, or recovered because an
+exact partial-cleanup representation is unavailable. Dispositions and cancellation broadcasts use reverse storage-flow
+initialization order. Lifecycle resolution places consumers before their dependencies, including dependencies reached
+through guarded requirements and values without their own cleanup. Independent values retain reverse initialization
+order. Cyclic lifecycle dependencies prevent publication of a complete plan.
+
+Before lowering, the compilation boundary verifies that every lowering-reachable suspension, task operation, scope
+exit, live-storage disposition, cleanup phase, and dependency is complete and internally consistent. Reachable exits
+come from checked control flow. Ownership, transfer, cleanup, and await-dependency requirements are derived
+independently from the plans that must satisfy them. Partial recovery records remain available to checking and
+diagnostics but cannot satisfy this boundary. Lowering consumes the verified plan directly and does not rediscover live
+tasks from syntax or type recursion.
+
+Lowering writes each required runtime role explicitly into MIR. Once MIR is complete, its operation kinds derive the
+exact generated-helper set and the runtime roles that realize those helpers. Code generation accepts only exact helper
+mappings and exact coverage of all demanded runtime references by selected runtime symbols.
 
 ---
 

@@ -235,8 +235,8 @@ mod tests {
     };
     use bray_diagnostics::{Diagnostic, DiagnosticBag, DiagnosticId, DiagnosticKind, SeverityKind};
     use bray_emitter::{
-        ArtifactKind, ArtifactRequirement, BackendEmissionPolicy, EmissionBackend, EmissionPlan,
-        EmissionFailure, EmissionPlanner, EmissionRequest, EmissionStatus, ReplacementPolicy,
+        ArtifactKind, ArtifactRequirement, BackendEmissionPolicy, EmissionBackend, EmissionFailure,
+        EmissionPlan, EmissionPlanner, EmissionRequest, EmissionStatus, ReplacementPolicy,
         RequestedArtifact, RequestedArtifactDestination,
     };
     use bray_linker::{

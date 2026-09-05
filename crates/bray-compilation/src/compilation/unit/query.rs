@@ -7928,7 +7928,7 @@ func other()
     }
 
     #[test]
-    fn pattern_conditions_native_fixture_checks_and_lowers() {
+    fn pattern_conditions_reject_unrepresented_partial_cleanup_before_lowering() {
         let compilation = compilation(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../xtask/fixtures/native-execution/pattern-conditions.bray"
@@ -7940,12 +7940,101 @@ func other()
             compilation.check_diagnostics()
         );
 
-        for name in ["main", "next_value", "probe_return"] {
+        for name in ["next_value", "probe_return"] {
             let lowered = compilation
                 .lowered_unit(source_function_body_key(&compilation, name))
                 .unwrap();
 
             assert!(lowered.value().is_some(), "{name}: {lowered:?}");
+        }
+
+        let error = compilation
+            .lowered_unit(source_function_body_key(&compilation, "main"))
+            .expect_err("guarded partial cleanup must not satisfy the lowering boundary");
+
+        assert!(matches!(
+            error,
+            FactQueryError::LoweringInput(failure)
+                if matches!(
+                    failure.cause(),
+                    bray_lowering::LoweringInputError::InvalidPlan(plan)
+                        if plan.kind() == bray_lowering::LoweringPlanKind::StorageDisposition
+                            && plan.cause() == bray_lowering::LoweringPlanFailureCause::StorageRecovery(
+                                bray_bound_tree::AsyncStorageExitRecoveryCause::UnavailablePartialCleanup)
+                )
+        ));
+    }
+
+    #[test]
+    fn singleton_member_moves_preserve_containing_lifecycle_obligations() {
+        for lifecycle in [
+            "",
+            "destruct() {}",
+            "finalize() {}",
+            "consume enter() -> bool { return true; } exit(pos lease: bool) {}",
+        ] {
+            for (declaration, body) in [
+                (
+                    format!("struct Wrapper {{ value: Item; {lifecycle} }}"),
+                    "return wrapper.value;",
+                ),
+                (
+                    format!("union Wrapper {{ Only(value: Item); {lifecycle} }}"),
+                    "match wrapper { case Only(value = item) { return item; } }",
+                ),
+            ] {
+                let source = format!(
+                    "module app; struct Item {{}} {declaration}
+                    func unpack(pos wrapper: Wrapper) -> Item {{ {body} }}"
+                );
+
+                let compilation = compilation(&source);
+                let key = source_function_body_key(&compilation, "unpack");
+                let storage = compilation.storage_plan(key.clone()).unwrap();
+                let flow = compilation.storage_flow(key.clone()).unwrap();
+
+                assert!(
+                    !flow.diagnostics().has_errors(),
+                    "{source}: {:?}",
+                    flow.diagnostics()
+                );
+
+                let root = storage
+                    .value()
+                    .identity_entries()
+                    .find_map(|(id, identity)| {
+                        matches!(identity, bray_bound_tree::StorageIdentity::Parameter(_))
+                            .then_some(id)
+                    })
+                    .unwrap();
+
+                assert!(
+                    flow.value().exits().iter().any(|exit| exit
+                        .moved()
+                        .iter()
+                        .any(|access| storage.value().root_identity(*access) == Some(root))),
+                    "{source}"
+                );
+
+                assert_eq!(
+                    flow.value()
+                        .exits()
+                        .iter()
+                        .any(|exit| exit.fully_moved().contains(&root)),
+                    lifecycle.is_empty(),
+                    "{source}"
+                );
+
+                if !lifecycle.is_empty() {
+                    let analysis = compilation.async_analysis(key).unwrap();
+
+                    assert!(analysis.value().scope_exits().iter().flat_map(|exit| exit.storage()).any(|decision|
+                        decision.identity() == root && decision.disposition() ==
+                            bray_bound_tree::AsyncStorageExitDisposition::Recovered(
+                                bray_bound_tree::AsyncStorageExitRecoveryCause::UnavailablePartialCleanup)),
+                        "{source}: {:?}", analysis.value());
+                }
+            }
         }
     }
 

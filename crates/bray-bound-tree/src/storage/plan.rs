@@ -338,6 +338,18 @@ impl StoragePlan {
         self.kind
     }
 
+    /// Returns whether recovery contributed to any storage identity, access, or borrow.
+    pub fn is_recovered(&self) -> bool {
+        self.identity_entries()
+            .any(|(_, identity)| matches!(identity, StorageIdentity::Error(_)))
+            || self
+                .access_entries()
+                .any(|(_, access)| access.is_recovered())
+            || self
+                .borrow_capability_entries()
+                .any(|(_, capability)| capability.is_recovered())
+    }
+
     /// Returns storage origins in deterministic allocation order.
     pub fn identities(&self) -> &[StorageIdentity] {
         &self.identities
@@ -362,19 +374,6 @@ impl StoragePlan {
     /// Returns the checked type stored by one persistent storage origin, when recorded.
     pub fn identity_type(&self, identity: StorageIdentityId) -> Option<TypeId> {
         self.identity_types.get(&identity).copied()
-    }
-
-    /// Returns the checked type stored by one persistent storage origin.
-    pub fn storage_type(&self, identity: StorageIdentityId) -> Option<TypeId> {
-        self.identity_type(identity).or_else(|| {
-            self.access_entries().find_map(|(access, model)| {
-                (self.root_identity(access) == Some(identity)
-                    && self
-                        .resolved_projections(access)
-                        .is_some_and(<[_]>::is_empty))
-                .then_some(model.reached_type())
-            })
-        })
     }
 
     /// Returns evaluated accesses in deterministic evaluation order.

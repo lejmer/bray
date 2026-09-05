@@ -1,21 +1,10 @@
 use bray_bound_tree::{
-    PatternPredicate, Refinement, RefinementKind, StorageAccessId, StorageIdentity, StoragePlan,
-    StorageProjection, StorageRelationship,
+    PatternPredicate, Refinement, RefinementKind, StorageAccessId, StoragePlan, StorageProjection,
+    StorageRelationship,
 };
 
 pub(super) fn storage_is_recovered(storage: &StoragePlan) -> bool {
-    storage
-        .identities()
-        .iter()
-        .any(|identity| matches!(identity, StorageIdentity::Error(_)))
-        || storage
-            .accesses()
-            .iter()
-            .any(|access| access.is_recovered())
-        || storage
-            .borrow_capabilities()
-            .iter()
-            .any(|capability| capability.is_recovered())
+    storage.is_recovered()
 }
 
 pub(super) fn projection_is_available(

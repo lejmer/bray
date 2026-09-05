@@ -132,6 +132,7 @@ pub(super) struct StorageFlowState {
     pub(super) live: BTreeSet<StorageIdentityId>,
     pub(super) initialized: BTreeSet<StorageIdentityId>,
     pub(super) moved: BTreeMap<StorageAccessId, BoundExpressionId>,
+    pub(super) fully_moved: BTreeSet<StorageIdentityId>,
     pub(super) active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(super) definitely_active_borrows: BTreeSet<BorrowCapabilityId>,
     pub(super) raw_initialized:
@@ -159,6 +160,7 @@ impl StorageFlowState {
             live: initialized.clone(),
             initialized,
             moved: BTreeMap::new(),
+            fully_moved: BTreeSet::new(),
             definitely_active_borrows: active_borrows.clone(),
             active_borrows,
             raw_initialized: BTreeMap::new(),
@@ -169,7 +171,7 @@ impl StorageFlowState {
         }
     }
 
-    fn merge(&mut self, incoming: &Self) -> bool {
+    pub(super) fn merge(&mut self, incoming: &Self) -> bool {
         if !incoming.reachable {
             return false;
         }
@@ -184,6 +186,7 @@ impl StorageFlowState {
         let live_count = self.live.len();
         let initialized_count = self.initialized.len();
         let moved_count = self.moved.len();
+        let fully_moved_count = self.fully_moved.len();
         let borrow_count = self.active_borrows.len();
         let definite_borrow_count = self.definitely_active_borrows.len();
         let raw_storage_count = self.raw_initialized.len();
@@ -199,7 +202,7 @@ impl StorageFlowState {
         let invalidated_allocation_count = self.invalidated_allocations.len();
         let was_recovered = self.recovered;
 
-        self.live.retain(|storage| incoming.live.contains(storage));
+        self.live.extend(incoming.live.iter().copied());
 
         self.initialized
             .retain(|storage| incoming.initialized.contains(storage));
@@ -219,6 +222,9 @@ impl StorageFlowState {
                 }
             }
         }
+
+        self.fully_moved
+            .retain(|storage| incoming.fully_moved.contains(storage));
 
         self.active_borrows
             .extend(incoming.active_borrows.iter().copied());
@@ -280,6 +286,7 @@ impl StorageFlowState {
             || self.initialized.len() != initialized_count
             || self.moved.len() != moved_count
             || moved_changed
+            || self.fully_moved.len() != fully_moved_count
             || self.active_borrows.len() != borrow_count
             || self.definitely_active_borrows.len() != definite_borrow_count
             || self.raw_initialized.len() != raw_storage_count
@@ -294,6 +301,11 @@ impl StorageFlowState {
             || self.invalidated_allocations.len() != invalidated_allocation_count
             || memory_origins_changed
             || self.recovered != was_recovered
+    }
+
+    pub(super) fn move_complete_storage(&mut self, storage: StorageIdentityId) {
+        self.fully_moved.insert(storage);
+        self.initialized.remove(&storage);
     }
 }
 
@@ -510,6 +522,49 @@ mod tests {
             merged.allocation_origins[&identity],
             [expressions[0], expressions[2]].into_iter().collect()
         );
+    }
+
+    #[test]
+    fn fully_moved_storage_survives_only_when_every_incoming_path_moves_it() {
+        let (identity, _) = storage_and_expressions(79);
+
+        let mut left = reachable_state();
+        let mut moved = reachable_state();
+
+        left.fully_moved.insert(identity);
+        moved.fully_moved.insert(identity);
+
+        assert!(!left.merge(&moved));
+        assert_eq!(left.fully_moved, [identity].into_iter().collect());
+
+        assert!(left.merge(&reachable_state()));
+        assert!(left.fully_moved.is_empty());
+    }
+
+    #[test]
+    fn complete_moves_end_definite_initialization() {
+        let (identity, _) = storage_and_expressions(81);
+
+        let mut state = reachable_state();
+
+        state.initialized.insert(identity);
+        state.move_complete_storage(identity);
+
+        assert_eq!(state.fully_moved, [identity].into_iter().collect());
+        assert!(state.initialized.is_empty());
+    }
+
+    #[test]
+    fn control_flow_joins_retain_maybe_live_storage_and_intersect_initialization() {
+        let (identity, _) = storage_and_expressions(80);
+
+        let mut initialized = reachable_state();
+        initialized.live.insert(identity);
+        initialized.initialized.insert(identity);
+
+        assert!(initialized.merge(&reachable_state()));
+        assert_eq!(initialized.live, [identity].into_iter().collect());
+        assert!(initialized.initialized.is_empty());
     }
 
     fn reachable_state() -> StorageFlowState {

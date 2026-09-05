@@ -66,6 +66,23 @@ pub enum DiagnosticLoweringInputFailureKind {
     StorageOperationCountMismatch { expected: u64, actual: u64 },
     /// A block has an invalid storage exit.
     InvalidStorageExit(DiagnosticLoweringIdentity),
+    /// Checked semantic plans cannot form one complete lowering-ready plan set.
+    InvalidPlan {
+        /// The failed semantic plan category.
+        plan: &'static str,
+        /// The exact verification failure.
+        cause: &'static str,
+        /// The affected expression, when available.
+        expression: Option<DiagnosticLoweringIdentity>,
+        /// The affected lexical scope, when available.
+        scope: Option<DiagnosticLoweringIdentity>,
+        /// The affected exit occurrence, when available.
+        exit: Option<DiagnosticLoweringIdentity>,
+        /// The affected storage identity, when available.
+        storage: Option<DiagnosticLoweringIdentity>,
+        /// The affected storage access, when available.
+        access: Option<DiagnosticLoweringIdentity>,
+    },
     /// An integer literal was checked for a different target width.
     LiteralTargetWidthMismatch { expected: u16, actual: u16 },
     /// Executable-host lowering received a source-owned input.
@@ -90,6 +107,7 @@ impl DiagnosticLoweringInputFailureKind {
                 "code_production_input_value_access_count_mismatch"
             }
             Self::InvalidStorageExit(_) => "code_production_input_invalid_scope_cleanup",
+            Self::InvalidPlan { .. } => "code_production_input_invalid_verified_plan",
             Self::LiteralTargetWidthMismatch { .. } => {
                 "code_production_input_integer_target_width_mismatch"
             }
@@ -161,6 +179,22 @@ pub enum DiagnosticLoweringFailureKind {
     InvalidTaskOperation(DiagnosticLoweringIdentity),
     /// The lowered callable has no result type.
     MissingCallableResultType,
+    /// Active lexical scopes do not contain the requested cleanup depth.
+    InvalidCleanupScopeDepth {
+        /// First active scope position that must be cleaned.
+        scope_depth: usize,
+        /// Number of lexical scopes active at the exit.
+        active_scope_count: usize,
+        /// The source occurrence initiating cleanup.
+        exit: DiagnosticLoweringIdentity,
+    },
+    /// A verified lifecycle plan has no decision for one scope and exit.
+    MissingScopeExitPlan {
+        /// The lexical scope whose decision is absent.
+        scope: DiagnosticLoweringIdentity,
+        /// The source occurrence initiating cleanup.
+        exit: DiagnosticLoweringIdentity,
+    },
     /// A literal expression has no checked value.
     MissingLiteralValue(DiagnosticLoweringIdentity),
     /// An expression has no selected semantic behavior.
@@ -180,8 +214,6 @@ pub enum DiagnosticLoweringFailureKind {
     MissingStorageAccess(DiagnosticLoweringIdentity),
     /// A selected storage access has no checked record.
     MissingStorageAccessRecord(DiagnosticLoweringIdentity),
-    /// A block has no checked cleanup plan.
-    MissingCleanupPlan(DiagnosticLoweringIdentity),
     /// A storage access has no selected storage identity.
     MissingStorageIdentity(DiagnosticLoweringIdentity),
     /// A selected storage identity has no checked record.
@@ -228,6 +260,8 @@ impl DiagnosticLoweringFailureKind {
             Self::MissingSuspensionPoint(_) => "code_production_await_resume_path_unavailable",
             Self::InvalidTaskOperation(_) => "code_production_task_call_type_mismatch",
             Self::MissingCallableResultType => "code_production_callable_result_type_unavailable",
+            Self::InvalidCleanupScopeDepth { .. } => "code_production_cleanup_scope_depth_invalid",
+            Self::MissingScopeExitPlan { .. } => "code_production_scope_exit_plan_unavailable",
             Self::MissingLiteralValue(_) => "code_production_literal_value_unavailable",
             Self::MissingSemanticSelection(_) => "code_production_expression_behavior_unavailable",
             Self::UnsupportedExpression(_) => "code_production_expression_unsupported",
@@ -237,7 +271,6 @@ impl DiagnosticLoweringFailureKind {
             Self::MissingStorageAccessRecord(_) => {
                 "code_production_value_access_record_unavailable"
             }
-            Self::MissingCleanupPlan(_) => "code_production_scope_cleanup_unavailable",
             Self::MissingStorageIdentity(_) => "code_production_accessed_value_unavailable",
             Self::MissingStorageIdentityRecord(_) => "code_production_value_record_unavailable",
             Self::MissingIterationStorage(_) => "code_production_iteration_state_unavailable",

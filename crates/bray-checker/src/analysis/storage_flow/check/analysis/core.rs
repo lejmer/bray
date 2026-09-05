@@ -6,9 +6,9 @@ use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpression, BoundExpressionId,
     CheckedMemoryOperations, CheckedRefinements, CheckedSemanticSelections, Liveness,
     MemoryOperationStatus, Refinement, StorageAccessId, StorageAccessPlan, StorageAccessPurpose,
-    StorageAccessRoot, StorageBinding, StorageExitDecision, StorageFlow, StorageIdentity,
-    StorageOperationDecision, StorageOperationStatus, StoragePlan, StorageProjection,
-    StorageRelationship, StorageSuspensionState,
+    StorageAccessRoot, StorageBinding, StorageExitDecision, StorageExitPoint, StorageFlow,
+    StorageIdentity, StorageOperationDecision, StorageOperationStatus, StoragePlan,
+    StorageProjection, StorageRelationship, StorageSuspensionState,
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
@@ -19,7 +19,7 @@ use bray_diagnostics::{
 use bray_symbols::{AnySymbolId, BorrowKind, CallableSignatureQuery};
 
 use crate::diagnostic::diagnostic_id;
-use crate::storage::StorageScopeOwners;
+use crate::storage::{StorageScopeOwners, storage_scope_owners};
 use crate::unit::storage_flow_input_failure;
 use crate::{
     CheckerInfrastructureError, CheckerOutcome, CheckerQueryError, CheckerRequestContext,
@@ -148,17 +148,16 @@ where
 
     let input = StorageFlowInput::new(request, storage, copyable_types, mutable_storage);
 
-    let owners =
-        match StorageScopeOwners::collect(request).map_err(CheckerQueryError::with_upstream) {
-            Ok(owners) => owners,
-            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Infrastructure(error)) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
-            Err(CheckerQueryError::Upstream(error)) => {
-                return CheckerOutcome::UpstreamFailure(error);
-            }
-        };
+    let owners = match storage_scope_owners(request).map_err(CheckerQueryError::with_upstream) {
+        Ok(owners) => owners,
+        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Infrastructure(error)) => {
+            return CheckerOutcome::InfrastructureFailure(error);
+        }
+        Err(CheckerQueryError::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
+    };
 
     let domain = StorageFlowDomain::new(
         &graph,
@@ -193,6 +192,8 @@ where
     collector.diagnostics.add_range(copyability_diagnostics);
     collector.diagnostics.add_range(authority_diagnostics);
 
+    let mut reachable_exits = BTreeSet::new();
+
     for block in graph.blocks() {
         // Publication evaluates operations against an independent final block-entry state.
         let Some(mut state) = result.state(block.id()).cloned() else {
@@ -207,6 +208,15 @@ where
             let Some(operation) = graph.operation(*operation) else {
                 continue;
             };
+
+            if let AnalysisOperationKind::ScopeExit {
+                block,
+                exit,
+                phase: AnalysisScopeExitPhase::LifecycleResolution,
+            } = operation.kind()
+            {
+                reachable_exits.insert(StorageExitPoint::new(block, exit));
+            }
 
             collector.apply_operation(&mut state, operation);
         }
@@ -224,13 +234,15 @@ where
 
     let decisions = collector.decisions().collect::<Vec<_>>();
     let memory_decisions = collector.memory_decisions().collect::<Vec<_>>();
+    let exits = collector.exit_decisions().collect::<Vec<_>>();
 
     let analysis = match StorageFlow::try_new(
         storage.unit(),
         storage.kind(),
         decisions,
         collector.suspensions,
-        collector.exits,
+        reachable_exits,
+        exits,
         collector.is_recovered
             || storage_is_recovered(storage)
             || liveness.is_recovered()
@@ -300,7 +312,12 @@ where
     pub(super) owners: &'analysis StorageScopeOwners,
     pub(super) statuses: BTreeMap<StorageAccessPlan, StorageOperationStatus>,
     pub(super) suspensions: Vec<StorageSuspensionState>,
-    pub(super) exits: Vec<StorageExitDecision>,
+    exits: Vec<(
+        bray_bound_tree::BoundBlockId,
+        AnyBoundNodeId,
+        StorageFlowState,
+    )>,
+    exit_indices: BTreeMap<(bray_bound_tree::BoundBlockId, AnyBoundNodeId), usize>,
     pub(super) memory_decisions: BTreeMap<BoundExpressionId, MemoryOperationStatus>,
     pub(super) diagnostics: DiagnosticBag,
     pub(super) reported_diagnostics: BTreeSet<(DiagnosticKind, StorageAccessId)>,
@@ -338,6 +355,7 @@ where
             statuses: BTreeMap::new(),
             suspensions: Vec::new(),
             exits: Vec::new(),
+            exit_indices: BTreeMap::new(),
             memory_decisions: BTreeMap::new(),
             diagnostics: DiagnosticBag::new(),
             reported_diagnostics: BTreeSet::new(),
@@ -466,7 +484,11 @@ where
         }
 
         if matches!(status, StorageOperationStatus::Valid) {
-            self.apply_valid_operation(state, plan, purpose, borrow);
+            if let Err(error) = self.apply_valid_operation(state, plan, purpose, borrow) {
+                self.infrastructure_failure = Some(error);
+
+                return;
+            }
         } else if matches!(status, StorageOperationStatus::Recovered) {
             self.is_recovered = true;
         }
@@ -526,18 +548,20 @@ where
                 | StorageAccessPurpose::Borrow(_)
         );
 
-        if requires_value && !state.initialized.contains(&root) {
-            return Ok(StorageOperationOutcome::status(
-                StorageOperationStatus::Uninitialized,
-            ));
-        }
+        let pattern_establishes_projection = self.pattern_establishes_projection(plan.access());
 
-        if requires_value && !self.pattern_establishes_projection(plan.access()) {
+        if requires_value && !pattern_establishes_projection {
             let origins = self.moved_origins(state, plan.access());
 
             if !origins.is_empty() {
                 return Ok(StorageOperationOutcome::moved(origins));
             }
+        }
+
+        if requires_value && !pattern_establishes_projection && !state.initialized.contains(&root) {
+            return Ok(StorageOperationOutcome::status(
+                StorageOperationStatus::Uninitialized,
+            ));
         }
 
         let operation_access = self.operation_access(plan, purpose);
@@ -583,18 +607,28 @@ where
         plan: StorageAccessPlan,
         purpose: StorageAccessPurpose,
         borrow: Option<BorrowCapabilityId>,
-    ) {
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
         match purpose {
             StorageAccessPurpose::Move => {
                 state.moved.insert(plan.access(), plan.expression());
 
+                if self.move_consumes_complete_storage(plan.access())?
+                    && let Some(root) = self.storage.root_identity(plan.access())
+                {
+                    state.move_complete_storage(root);
+                }
+
                 if self.move_consumes_complete_union_payload(plan.access())
-                    && let Some(root) = self.root_access(plan.access())
+                    && let Some(root) = self.root_access_for(plan.access())
                 {
                     state.moved.insert(root, plan.expression());
                 }
             }
             StorageAccessPurpose::Initialize | StorageAccessPurpose::Assignment => {
+                if let Some(root) = self.storage.root_identity(plan.access()) {
+                    state.fully_moved.remove(&root);
+                }
+
                 if self.storage.is_root_access(plan.access())
                     && let Some(root) = self.storage.root_identity(plan.access())
                 {
@@ -621,6 +655,8 @@ where
             | StorageAccessPurpose::Slice
             | StorageAccessPurpose::Projection => {}
         }
+
+        Ok(())
     }
 
     fn pattern_establishes_projection(&self, access: StorageAccessId) -> bool {
@@ -648,10 +684,8 @@ where
     }
 
     fn move_consumes_complete_union_payload(&self, access: StorageAccessId) -> bool {
-        let Some(StorageProjection::ActiveUnionPayloadField { variant, .. }) = self
-            .storage
-            .resolved_projections(access)
-            .and_then(|projections| projections.last())
+        let Some([StorageProjection::ActiveUnionPayloadField { variant, .. }]) =
+            self.storage.resolved_projections(access)
         else {
             return false;
         };
@@ -662,14 +696,85 @@ where
             .is_some_and(|variant| variant.payload_fields().len() == 1)
     }
 
-    fn root_access(&self, access: StorageAccessId) -> Option<StorageAccessId> {
+    fn move_consumes_complete_storage(
+        &self,
+        access: StorageAccessId,
+    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
+        let Some(access_record) = self.storage.access(access) else {
+            return Ok(false);
+        };
+
+        if access_record.root().borrow_capability().is_some() {
+            return Ok(false);
+        }
+
+        if self.storage.is_root_access(access) {
+            return Ok(true);
+        }
+
+        let Some(projections) = self.storage.resolved_projections(access) else {
+            return Ok(false);
+        };
+
+        let Some(root_type) = self
+            .storage
+            .root_identity(access)
+            .and_then(|root| self.storage.storage_type(root))
+        else {
+            return Ok(false);
+        };
+
+        let data = self
+            .request
+            .semantic_values()
+            .type_data(root_type)
+            .map_err(|error| {
+                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    error,
+                ))
+            })?;
+
+        if let bray_symbols::TypeData::Named { definition, .. } = data.as_ref() {
+            let lifecycle = self.request.declared_type_has_lifecycle(*definition)?;
+
+            // A member transfer leaves the containing value's own lifecycle obligation behind.
+            if *lifecycle.value() || lifecycle.diagnostics().has_errors() {
+                return Ok(false);
+            }
+        } else if !matches!(data.as_ref(), bray_symbols::TypeData::Tuple(_)) {
+            return Ok(false);
+        }
+
+        if self.move_consumes_complete_union_payload(access) {
+            return Ok(true);
+        }
+
+        if let [StorageProjection::ProductField(field)] = projections {
+            let symbols = self.request.symbols();
+
+            let consumes_complete_product = symbols
+                .struct_field(*field)
+                .and_then(|field| symbols.structure(field.structure()))
+                .is_some_and(|structure| structure.fields().len() == 1);
+
+            return Ok(consumes_complete_product);
+        }
+
+        let [StorageProjection::TupleElement(element)] = projections else {
+            return Ok(false);
+        };
+
+        Ok(matches!(
+            data.as_ref(),
+            bray_symbols::TypeData::Tuple(elements)
+                if elements.len() == 1 && element.raw() == 0
+        ))
+    }
+
+    fn root_access_for(&self, access: StorageAccessId) -> Option<StorageAccessId> {
         let identity = self.storage.root_identity(access)?;
 
-        self.storage.access_entries().find_map(|(candidate, _)| {
-            (self.storage.root_identity(candidate) == Some(identity)
-                && self.storage.is_root_access(candidate))
-            .then_some(candidate)
-        })
+        self.storage.root_access(identity)
     }
 
     fn initialize_operation_storage(&self, state: &mut StorageFlowState, node: AnyBoundNodeId) {
@@ -680,6 +785,10 @@ where
                 .root_identity(*access)
                 .is_none_or(|storage| !definitions.contains(&storage))
         });
+
+        state
+            .fully_moved
+            .retain(|storage| !definitions.contains(storage));
 
         state.live.extend(definitions.iter().copied());
         state.initialized.extend(definitions.iter().copied());
@@ -823,6 +932,10 @@ where
                 .is_some_and(|storage| state.live.contains(&storage))
         });
 
+        state
+            .fully_moved
+            .retain(|storage| state.live.contains(storage));
+
         state.active_borrows.retain(|borrow| {
             self.borrow_is_entry(*borrow)
                 || self
@@ -854,14 +967,32 @@ where
             return;
         }
 
-        self.exits.push(StorageExitDecision::new(
-            block,
-            exit,
-            state.initialized.iter().copied(),
-            state.moved.keys().copied(),
-            state.active_borrows.iter().copied(),
-            state.recovered,
-        ));
+        let key = (block, exit);
+
+        if let Some(index) = self.exit_indices.get(&key).copied() {
+            self.exits[index].2.merge(state);
+            return;
+        }
+
+        self.exit_indices.insert(key, self.exits.len());
+
+        // Publication owns this snapshot so later operations can mutate their task-local state.
+        self.exits.push((block, exit, state.clone()));
+    }
+
+    pub(super) fn exit_decisions(&self) -> impl Iterator<Item = StorageExitDecision> + '_ {
+        self.exits.iter().map(|(block, exit, state)| {
+            StorageExitDecision::new(
+                *block,
+                *exit,
+                state.live.iter().copied(),
+                state.initialized.iter().copied(),
+                state.moved.keys().copied(),
+                state.fully_moved.iter().copied(),
+                state.active_borrows.iter().copied(),
+                state.recovered,
+            )
+        })
     }
 
     fn record_suspension(&mut self, state: &StorageFlowState, expression: BoundExpressionId) {

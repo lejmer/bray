@@ -119,13 +119,10 @@ impl Lowerer<'_> {
 
                 let suspension = self
                     .input
-                    .async_analysis()
-                    .suspensions()
-                    .iter()
-                    .find(|suspension| {
-                        suspension.expression() == expression
-                            && suspension.kind() == AsyncSuspensionKind::Yield
-                    })
+                    .lowering_plans()
+                    .suspension(expression)
+                    .filter(|suspension| suspension.kind() == AsyncSuspensionKind::Yield)
+                    .cloned()
                     .ok_or(LoweringError::MissingSuspensionPoint(expression))?;
 
                 self.builder.set_terminator(

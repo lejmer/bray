@@ -11,7 +11,7 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_ir::MirTargetContract;
 use bray_lowering::{
     CompileTimeUnit, LoweredUnit, LoweringError, LoweringInput, LoweringInputError,
-    executable_unit_kind, lower_unit,
+    VerifiedLoweringPlans, executable_unit_kind, lower_unit,
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
@@ -152,31 +152,42 @@ impl Compilation {
         let native_static_templates =
             self.native_static_templates(expressions.result().value().selections(), cancellation)?;
 
-        let input = LoweringInput::try_new(
+        let semantic_values = self.semantic_value_store()?;
+
+        let lowering_plans = VerifiedLoweringPlans::try_new(
             unit.result().value(),
-            control_flow.result().value(),
-            expressions.result().value().types(),
-            patterns.result().value(),
-            expressions.result().value().selections(),
-            expressions.result().value().literals(),
             storage.result().value(),
             body.result().value().liveness(),
-            body.result().value().refinements(),
             body.result().value().storage_flow(),
             body.result().value().dependencies(),
-            body.result().value().asynchronous(),
-            behavior.result().value(),
-            self.semantic_value_store()?,
+            expressions.result().value().selections(),
             self.available_compiler_known_symbols(),
-            unit_kind,
-            target,
+            body.result().value().asynchronous(),
         )
-        .and_then(|input| input.with_constant_reference_values(&constant_reference_values))
-        .map_err(|error| {
-            let source = lowering_input_failure_source(&error, unit.result().value());
+        .map_err(LoweringInputError::from);
 
-            FactQueryError::LoweringInput(LocatedLoweringFailure::new(error, source))
-        })?;
+        let input = lowering_plans
+            .and_then(|lowering_plans| {
+                LoweringInput::try_new(
+                    unit.result().value(),
+                    control_flow.result().value(),
+                    expressions.result().value().types(),
+                    patterns.result().value(),
+                    expressions.result().value().literals(),
+                    body.result().value().refinements(),
+                    lowering_plans,
+                    behavior.result().value(),
+                    semantic_values,
+                    unit_kind,
+                    target,
+                )
+            })
+            .and_then(|input| input.with_constant_reference_values(&constant_reference_values))
+            .map_err(|error| {
+                let source = lowering_input_failure_source(&error, unit.result().value());
+
+                FactQueryError::LoweringInput(LocatedLoweringFailure::new(error, source))
+            })?;
 
         let input = input.with_native_static_templates(&native_static_templates);
 
@@ -396,6 +407,16 @@ fn lowering_input_failure_source(error: &LoweringInputError, unit: &BoundUnit) -
         LoweringInputError::InvalidStorageExit(block) => {
             node_source(unit, (*block).into()).unwrap_or_else(|| unit_source(unit))
         }
+        LoweringInputError::InvalidPlan(failure) => failure
+            .expression()
+            .map(|expression| expression_source(unit, expression))
+            .or_else(|| failure.exit().and_then(|exit| node_source(unit, exit)))
+            .or_else(|| {
+                failure
+                    .scope()
+                    .and_then(|scope| node_source(unit, scope.into()))
+            })
+            .unwrap_or_else(|| unit_source(unit)),
         LoweringInputError::ForeignInput { .. }
         | LoweringInputError::InputKindMismatch { .. }
         | LoweringInputError::InvalidPatternInput
@@ -438,9 +459,6 @@ fn lowering_failure_source(
         LoweringError::UnsupportedPattern(pattern) => {
             node_source(unit, (*pattern).into()).unwrap_or_else(|| unit_source(unit))
         }
-        LoweringError::MissingCleanupPlan(block) => {
-            node_source(unit, (*block).into()).unwrap_or_else(|| unit_source(unit))
-        }
         LoweringError::MissingStorageAccessRecord(access)
         | LoweringError::MissingStorageIdentity(access)
         | LoweringError::UnsupportedStorageAccess(access) => {
@@ -456,6 +474,12 @@ fn lowering_failure_source(
         | LoweringError::SemanticValue(_)
         | LoweringError::InvalidFrameDescriptor(_)
         | LoweringError::Mir(_) => unit_source(unit),
+        LoweringError::InvalidCleanupScopeDepth { exit, .. } => {
+            node_source(unit, *exit).unwrap_or_else(|| unit_source(unit))
+        }
+        LoweringError::MissingScopeExitPlan { scope, exit } => node_source(unit, *exit)
+            .or_else(|| node_source(unit, (*scope).into()))
+            .unwrap_or_else(|| unit_source(unit)),
     }
 }
 
@@ -2247,7 +2271,7 @@ func both_bounds(pos values: Values) -> i32
     }
 
     #[test]
-    fn cleanup_does_not_materialize_unreached_temporary_storage() {
+    fn cleanup_materializes_every_verified_lifecycle_storage() {
         let compilation = compilation(concat!(
             "module app;\n",
             "struct Resource\n",
@@ -2300,7 +2324,7 @@ func both_bounds(pos values: Values) -> i32
             .map(|(storage, _)| *storage)
             .collect::<BTreeSet<_>>();
 
-        assert_eq!(cleanup_storages.len(), 2, "{cleanup_places:?}");
+        assert_eq!(cleanup_storages.len(), 3, "{cleanup_places:?}");
     }
 
     #[test]
@@ -3461,18 +3485,24 @@ func read(pos owner: &Owner) -> i32
 
         let mir = lowered_mir(&lowered);
 
-        let projections = mir.blocks().iter().find_map(|block| {
-            let edge = match block.terminator().kind() {
+        let projections = mir
+            .blocks()
+            .iter()
+            .find_map(|block| match block.terminator().kind() {
                 MirTerminatorKind::BeginCleanup(cleanup)
-                | MirTerminatorKind::ContinueCleanup(cleanup) => cleanup.edge(),
-                _ => return None,
-            };
-
-            edge.arguments().iter().find_map(|argument| match argument {
-                MirOperand::Copy(place) => Some(place.projections()),
+                | MirTerminatorKind::ContinueCleanup(cleanup) => cleanup
+                    .edge()
+                    .arguments()
+                    .iter()
+                    .find_map(|argument| match argument {
+                        MirOperand::Copy(place) => Some(place.projections()),
+                        _ => None,
+                    }),
+                MirTerminatorKind::Return(Some(MirOperand::Copy(place))) => {
+                    Some(place.projections())
+                }
                 _ => None,
-            })
-        });
+            });
 
         let Some(projections) = projections else {
             panic!("nested field read must return from a place: {mir:#?}");

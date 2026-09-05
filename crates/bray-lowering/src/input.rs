@@ -1,12 +1,9 @@
-// rust-style: allow(module-too-large, reason = "lowering inputs and their cross-input validation form one cohesive boundary contract")
-
 use bray_bound_tree::{
-    BoundBlockId, BoundDependencySubject, BoundExpression, BoundExpressionId, BoundReferenceTarget,
-    BoundStructuredExpressionKind, BoundUnit, BoundUnitId, BoundUnitKind, CheckedAsync,
-    CheckedBodyBehavior, CheckedControlFlow, CheckedDependencyContracts, CheckedExpressionTypes,
-    CheckedLiteralValues, CheckedPatterns, CheckedRefinements, CheckedSemanticSelections, Liveness,
-    RefinementKind, StorageAccessPlan, StorageAccessPurpose, StorageFlow, StorageOperationDecision,
-    StoragePlan,
+    BoundBlockId, BoundExpression, BoundExpressionId, BoundReferenceTarget,
+    BoundStructuredExpressionKind, BoundUnit, BoundUnitId, BoundUnitKind, CheckedBodyBehavior,
+    CheckedControlFlow, CheckedDependencyContracts, CheckedExpressionTypes, CheckedLiteralValues,
+    CheckedPatterns, CheckedRefinements, CheckedSemanticSelections, Liveness, RefinementKind,
+    StorageAccessPlan, StorageAccessPurpose, StorageFlow, StorageOperationDecision, StoragePlan,
 };
 use bray_ir::{MirTargetContract, MirUnitBuilder, MirUnitKind};
 use bray_symbols::{
@@ -14,7 +11,9 @@ use bray_symbols::{
     SemanticValueStoreError,
 };
 
+use crate::plan::dependency_subject_exists;
 use crate::result::requires_mir;
+use crate::{LoweringPlanFailure, VerifiedLoweringPlans};
 
 /// A validated borrowed view of the completed checked HIR required by lowering.
 ///
@@ -27,17 +26,11 @@ pub struct LoweringInput<'unit> {
     control_flow: &'unit CheckedControlFlow,
     expression_types: &'unit CheckedExpressionTypes,
     patterns: &'unit CheckedPatterns,
-    semantic_selections: &'unit CheckedSemanticSelections,
     literal_values: &'unit CheckedLiteralValues,
-    storage_plan: &'unit StoragePlan,
-    liveness: &'unit Liveness,
     refinements: &'unit CheckedRefinements,
-    storage_flow: &'unit StorageFlow,
-    dependency_contracts: &'unit CheckedDependencyContracts,
-    async_analysis: &'unit CheckedAsync,
+    lowering_plans: VerifiedLoweringPlans<'unit>,
     body_behavior: &'unit CheckedBodyBehavior,
     semantic_values: &'unit SemanticValueStore,
-    available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
     constant_reference_values: &'unit [(BoundExpressionId, ConstantValueId)],
     native_static_templates: &'unit [bray_symbols::StaticInstanceTemplateId],
     static_owner: Option<(bray_symbols::StaticReferenceSelection, bray_symbols::TypeId)>,
@@ -56,17 +49,11 @@ impl<'unit> LoweringInput<'unit> {
         control_flow: &'unit CheckedControlFlow,
         expression_types: &'unit CheckedExpressionTypes,
         patterns: &'unit CheckedPatterns,
-        semantic_selections: &'unit CheckedSemanticSelections,
         literal_values: &'unit CheckedLiteralValues,
-        storage_plan: &'unit StoragePlan,
-        liveness: &'unit Liveness,
         refinements: &'unit CheckedRefinements,
-        storage_flow: &'unit StorageFlow,
-        dependency_contracts: &'unit CheckedDependencyContracts,
-        async_analysis: &'unit CheckedAsync,
+        lowering_plans: VerifiedLoweringPlans<'unit>,
         body_behavior: &'unit CheckedBodyBehavior,
         semantic_values: &'unit SemanticValueStore,
-        available_compiler_known_symbols: &'unit AvailableCompilerKnownSymbols,
         unit_kind: MirUnitKind,
         target: MirTargetContract,
     ) -> Result<Self, LoweringInputError> {
@@ -97,30 +84,9 @@ impl<'unit> LoweringInput<'unit> {
 
         validate_input_owner(
             unit,
-            semantic_selections.unit(),
-            semantic_selections.kind(),
-            LoweringInputKind::SemanticSelections,
-        )?;
-
-        validate_input_owner(
-            unit,
             literal_values.unit(),
             literal_values.kind(),
             LoweringInputKind::LiteralValues,
-        )?;
-
-        validate_input_owner(
-            unit,
-            storage_plan.unit(),
-            storage_plan.kind(),
-            LoweringInputKind::StoragePlan,
-        )?;
-
-        validate_input_owner(
-            unit,
-            liveness.unit(),
-            liveness.kind(),
-            LoweringInputKind::Liveness,
         )?;
 
         validate_input_owner(
@@ -132,23 +98,9 @@ impl<'unit> LoweringInput<'unit> {
 
         validate_input_owner(
             unit,
-            storage_flow.unit(),
-            storage_flow.kind(),
-            LoweringInputKind::StorageFlow,
-        )?;
-
-        validate_input_owner(
-            unit,
-            dependency_contracts.unit(),
-            dependency_contracts.kind(),
-            LoweringInputKind::DependencyContracts,
-        )?;
-
-        validate_input_owner(
-            unit,
-            async_analysis.unit(),
-            async_analysis.kind(),
-            LoweringInputKind::Async,
+            lowering_plans.unit(),
+            lowering_plans.kind(),
+            LoweringInputKind::LoweringPlans,
         )?;
 
         validate_input_owner(
@@ -161,6 +113,11 @@ impl<'unit> LoweringInput<'unit> {
         validate_literal_target(literal_values, &target)?;
         validate_literal_values(literal_values, semantic_values)?;
 
+        let semantic_selections = lowering_plans.semantic_selections();
+        let storage_plan = lowering_plans.storage_plan();
+        let storage_flow = lowering_plans.storage_flow();
+        let liveness = lowering_plans.liveness();
+
         validate_semantic_completeness(unit, expression_types, semantic_selections, storage_plan)?;
 
         validate_pattern_completeness(unit, patterns)?;
@@ -168,20 +125,6 @@ impl<'unit> LoweringInput<'unit> {
         validate_liveness(unit, storage_plan, liveness)?;
         validate_refinements(unit, storage_plan, refinements)?;
         validate_storage_analysis(unit, storage_plan, storage_flow)?;
-
-        if !dependency_contracts.is_complete_for(unit, storage_plan) {
-            return Err(LoweringInputError::InvalidInputContents(
-                LoweringInputKind::DependencyContracts,
-            ));
-        }
-
-        validate_async_analysis(
-            unit,
-            storage_plan,
-            storage_flow,
-            dependency_contracts,
-            async_analysis,
-        )?;
 
         if matches!(unit_kind, MirUnitKind::ExecutableHost(_)) {
             return Err(LoweringInputError::ExecutableHostRequiresSyntheticInput);
@@ -192,17 +135,11 @@ impl<'unit> LoweringInput<'unit> {
             control_flow,
             expression_types,
             patterns,
-            semantic_selections,
             literal_values,
-            storage_plan,
-            liveness,
             refinements,
-            storage_flow,
-            dependency_contracts,
-            async_analysis,
+            lowering_plans,
             body_behavior,
             semantic_values,
-            available_compiler_known_symbols,
             constant_reference_values: &[],
             native_static_templates: &[],
             static_owner: None,
@@ -233,7 +170,7 @@ impl<'unit> LoweringInput<'unit> {
 
     /// Returns exact semantic choices for the unit.
     pub const fn semantic_selections(&self) -> &'unit CheckedSemanticSelections {
-        self.semantic_selections
+        self.lowering_plans.semantic_selections()
     }
 
     /// Returns source literals adapted to their final checked types.
@@ -243,12 +180,12 @@ impl<'unit> LoweringInput<'unit> {
 
     /// Returns exact storage identities, relationships, and evaluated accesses.
     pub const fn storage_plan(&self) -> &'unit StoragePlan {
-        self.storage_plan
+        self.lowering_plans.storage_plan()
     }
 
     /// Returns durable last-use and lexical lifetime decisions.
     pub const fn liveness(&self) -> &'unit Liveness {
-        self.liveness
+        self.lowering_plans.liveness()
     }
 
     /// Returns flow-sensitive analysis available at checked operation occurrences.
@@ -258,17 +195,17 @@ impl<'unit> LoweringInput<'unit> {
 
     /// Returns checked ownership, movement, and borrow decisions.
     pub const fn storage_flow(&self) -> &'unit StorageFlow {
-        self.storage_flow
+        self.lowering_plans.storage_flow()
     }
 
     /// Returns normalized dependency contracts for unit-local semantic occurrences.
     pub const fn dependency_contracts(&self) -> &'unit CheckedDependencyContracts {
-        self.dependency_contracts
+        self.lowering_plans.dependency_contracts()
     }
 
-    /// Returns async frame, suspension, task, and cleanup decisions.
-    pub const fn async_analysis(&self) -> &'unit CheckedAsync {
-        self.async_analysis
+    /// Returns complete checked plans verified for direct lowering consumption.
+    pub const fn lowering_plans(&self) -> &VerifiedLoweringPlans<'unit> {
+        &self.lowering_plans
     }
 
     /// Returns normalized effects, capabilities, and lifecycle obligations.
@@ -283,7 +220,7 @@ impl<'unit> LoweringInput<'unit> {
 
     /// Returns target-available compiler-known identities and behavior roles.
     pub const fn available_compiler_known_symbols(&self) -> &'unit AvailableCompilerKnownSymbols {
-        self.available_compiler_known_symbols
+        self.lowering_plans.available_compiler_known_symbols()
     }
 
     /// Adds closed constant values reached through source references.
@@ -377,30 +314,20 @@ pub enum LoweringInputKind {
     ExpressionTypes,
     /// Pattern operations, binding types, and match coverage.
     Patterns,
-    /// Selected callable and operation targets.
-    SemanticSelections,
     /// Source-literal values.
     LiteralValues,
     /// Closed values reached through source constant references.
     ConstantReferences,
-    /// Storage identities and occurrence-specific access plans.
-    StoragePlan,
-    /// Last-use and lexical lifetime decisions.
-    Liveness,
     /// Flow-sensitive semantic refinements.
     Refinements,
-    /// Checked storage-operation decisions.
-    StorageFlow,
-    /// Instantiated dependency contracts.
-    DependencyContracts,
-    /// Async frame, suspension, task, and cleanup decisions.
-    Async,
+    /// Verified async, task, cleanup, and runtime lowering plans.
+    LoweringPlans,
     /// Effects, capabilities, execution requirements, and lifecycle obligations.
     BodyBehavior,
 }
 
 /// A contract violation that prevents a bound unit from entering lowering.
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum LoweringInputError {
     /// A required semantic input belongs to another bound unit.
     ForeignInput {
@@ -424,7 +351,7 @@ pub enum LoweringInputError {
     MissingSemanticSelection(BoundExpressionId),
     /// A bound expression has no final checked type.
     MissingExpressionType(BoundExpressionId),
-    /// Pattern analysis do not cover the bound patterns, bindings, and matches exactly.
+    /// Pattern analysis does not cover the bound patterns, bindings, and matches exactly.
     InvalidPatternInput,
     /// One input contains identities absent from its exact bound unit or dependent input.
     InvalidInputContents(LoweringInputKind),
@@ -441,6 +368,8 @@ pub enum LoweringInputError {
     },
     /// A scope-exit storage decision references an unknown scope, identity, access, or borrow.
     InvalidStorageExit(BoundBlockId),
+    /// Async, cleanup, task, or runtime analyses cannot form one complete lowering plan.
+    InvalidPlan(Box<LoweringPlanFailure>),
     /// Literal adaptation used a machine-sized integer width from another target.
     LiteralTargetWidthMismatch {
         /// The width required by the lowering target.
@@ -457,6 +386,12 @@ pub enum LoweringInputError {
 impl From<SemanticValueStoreError> for LoweringInputError {
     fn from(error: SemanticValueStoreError) -> Self {
         Self::SemanticValue(error)
+    }
+}
+
+impl From<LoweringPlanFailure> for LoweringInputError {
+    fn from(error: LoweringPlanFailure) -> Self {
+        Self::InvalidPlan(Box::new(error))
     }
 }
 
@@ -634,7 +569,7 @@ fn validate_liveness(
 
     if !valid_last_uses || !valid_scopes || !valid_suspensions {
         return Err(LoweringInputError::InvalidInputContents(
-            LoweringInputKind::Liveness,
+            LoweringInputKind::LoweringPlans,
         ));
     }
 
@@ -687,91 +622,6 @@ fn refinement_kind_exists(unit: &BoundUnit, storage: &StoragePlan, kind: Refinem
                 Some(bray_bound_tree::StorageBinding::Access(original))
                     if storage.relationship(original, access) == bray_bound_tree::StorageRelationship::Identical)
         }
-    }
-}
-
-fn validate_async_analysis(
-    unit: &BoundUnit,
-    storage: &StoragePlan,
-    storage_flow: &StorageFlow,
-    dependencies: &CheckedDependencyContracts,
-    analysis: &CheckedAsync,
-) -> Result<(), LoweringInputError> {
-    let valid_frame = analysis
-        .frame_dependencies()
-        .iter()
-        .all(|subject| dependency_subject_exists(unit, storage, *subject));
-
-    let valid_suspensions = analysis.suspensions().iter().all(|suspension| {
-        unit.view().expression(suspension.expression()).is_some()
-            && match suspension.kind() {
-                bray_bound_tree::AsyncSuspensionKind::Await { operand } => {
-                    unit.view().expression(operand).is_some()
-                }
-                bray_bound_tree::AsyncSuspensionKind::Yield => true,
-            }
-            && suspension
-                .dependency_contract()
-                .is_none_or(|contract| dependencies.contract(contract).is_some())
-            && suspension
-                .retained_subjects()
-                .iter()
-                .all(|subject| dependency_subject_exists(unit, storage, *subject))
-    });
-
-    let valid_tasks = analysis
-        .task_operations()
-        .iter()
-        .all(|operation| unit.view().expression(operation.expression()).is_some());
-
-    let valid_exits = analysis.scope_exits().iter().all(|exit| {
-        unit.view().block(exit.scope()).is_some()
-            && exit
-                .cancellation_broadcast()
-                .iter()
-                .chain(exit.lifecycle_resolution())
-                .chain(exit.moved())
-                .all(|access| storage.access(*access).is_some())
-    });
-
-    let complete_exits = scope_exit_plans_are_complete(storage_flow, analysis);
-
-    if !valid_frame || !valid_suspensions || !valid_tasks || !valid_exits || !complete_exits {
-        return Err(LoweringInputError::InvalidInputContents(
-            LoweringInputKind::Async,
-        ));
-    }
-
-    Ok(())
-}
-
-fn scope_exit_plans_are_complete(storage_flow: &StorageFlow, analysis: &CheckedAsync) -> bool {
-    storage_flow.exits().len() == analysis.scope_exits().len()
-        && storage_flow.exits().iter().zip(analysis.scope_exits()).all(
-            |(storage_exit, async_exit)| {
-                async_exit.scope() == storage_exit.scope()
-                    && async_exit.exit() == storage_exit.exit()
-                    && async_exit.moved() == storage_exit.moved()
-            },
-        )
-}
-
-fn dependency_subject_exists(
-    unit: &BoundUnit,
-    storage: &StoragePlan,
-    subject: BoundDependencySubject,
-) -> bool {
-    match subject {
-        BoundDependencySubject::Storage(identity) => storage.identity(identity).is_some(),
-        BoundDependencySubject::StorageAccess(access) => storage.access(access).is_some(),
-        BoundDependencySubject::BorrowCapability(capability) => {
-            storage.borrow_capability(capability).is_some()
-        }
-        BoundDependencySubject::ScopedCapability(capability) => capability.unit() == unit.unit(),
-        BoundDependencySubject::LifecycleObligation(obligation) => obligation.unit() == unit.unit(),
-        BoundDependencySubject::ImplementationWitness(_)
-        | BoundDependencySubject::ProductStatic(_)
-        | BoundDependencySubject::ExactThreadStatic(_) => true,
     }
 }
 
@@ -953,7 +803,7 @@ mod tests {
         CheckedRefinements, CheckedSemanticSelections, ControlCompletion, ExpressionTypeEntry,
         ExpressionTypeResult, ExpressionTypeStatus, LastUse, Liveness, PlannedBorrowCapability,
         StorageAccess, StorageAccessId, StorageAccessPurpose, StorageAccessRoot,
-        StorageExitDecision, StorageFlow, StorageIdentity, StorageIdentityId,
+        StorageExitDecision, StorageExitPoint, StorageFlow, StorageIdentity, StorageIdentityId,
         StorageOperationDecision, StorageOperationStatus, StoragePlanBuilder,
     };
     use bray_symbols::testing::available_compiler_known_symbols;
@@ -966,6 +816,7 @@ mod tests {
     };
 
     use super::{LoweringInput, LoweringInputError, LoweringInputKind, validate_literal_values};
+    use crate::{LoweringPlanFailureCause, LoweringPlanKind, VerifiedLoweringPlans};
 
     #[test]
     fn input_borrows_the_canonical_unit_and_matching_side_analysis() {
@@ -1002,10 +853,7 @@ mod tests {
             &analysis.dependencies
         ));
 
-        assert!(std::ptr::eq(
-            input.async_analysis(),
-            &analysis.async_analysis
-        ));
+        assert!(input.lowering_plans().frame_dependencies().is_empty());
 
         assert!(std::ptr::eq(input.body_behavior(), &analysis.behavior));
         assert!(std::ptr::eq(input.semantic_values(), &analysis.values));
@@ -1100,6 +948,51 @@ mod tests {
             lowering_input(&unit, &control_flow, foreign_patterns),
             LoweringInputError::ForeignInput {
                 input: LoweringInputKind::Patterns,
+                expected: unit.unit(),
+                actual: foreign_unit.unit(),
+            },
+        );
+    }
+
+    #[test]
+    fn input_rejects_verified_plans_for_another_unit() {
+        let unit = test_bound_unit(6);
+        let foreign_unit = test_bound_unit(7);
+        let local = empty_expression_inputs(&unit);
+        let foreign = empty_expression_inputs(&foreign_unit);
+        let target = test_mir_target();
+
+        let foreign_plans = VerifiedLoweringPlans::try_new(
+            &foreign_unit,
+            &foreign.storage,
+            &foreign.liveness,
+            &foreign.storage_flow,
+            &foreign.dependencies,
+            &foreign.selections,
+            available_compiler_known_symbols(),
+            &foreign.async_analysis,
+        )
+        .unwrap_or_else(|error| panic!("foreign lowering plans must verify: {error:?}"));
+
+        let control_flow =
+            CheckedControlFlow::new(unit.unit(), unit.key().kind(), ControlCompletion::default());
+
+        assert_input_error(
+            LoweringInput::try_new(
+                &unit,
+                &control_flow,
+                &local.types,
+                &local.patterns,
+                &local.literals,
+                &local.refinements,
+                foreign_plans,
+                &local.behavior,
+                &local.values,
+                bray_ir::MirUnitKind::Synchronous,
+                target,
+            ),
+            LoweringInputError::ForeignInput {
+                input: LoweringInputKind::LoweringPlans,
                 expected: unit.unit(),
                 actual: foreign_unit.unit(),
             },
@@ -1254,12 +1147,12 @@ mod tests {
 
         assert_input_error(
             lowering_input(&unit, &control_flow, analysis),
-            LoweringInputError::InvalidInputContents(LoweringInputKind::Liveness),
+            LoweringInputError::InvalidInputContents(LoweringInputKind::LoweringPlans),
         );
     }
 
     #[test]
-    fn async_validation_rejects_a_contract_from_another_same_unit_table() {
+    fn verified_plans_reject_an_unexpected_suspension() {
         let (unit, expression, reached_type) = storage_expression_unit(10);
 
         let Some(bound) = unit.view().expression(expression) else {
@@ -1329,23 +1222,40 @@ mod tests {
             )],
             [],
             [],
+            [],
             false,
         )
         .unwrap_or_else(|error| panic!("same-unit async analysis must build: {error:?}"));
 
-        assert_eq!(
-            super::validate_async_analysis(
-                &unit,
-                &storage,
-                &StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
-                    .unwrap_or_else(|error| panic!("empty storage flow must build: {error:?}")),
-                &dependencies,
-                &async_analysis,
-            ),
-            Err(LoweringInputError::InvalidInputContents(
-                LoweringInputKind::Async
-            ))
+        let types = CheckedExpressionTypes::new(unit.unit(), unit.key().kind(), []);
+
+        let selections = CheckedSemanticSelections::try_new(&unit, &types, [])
+            .unwrap_or_else(|error| panic!("empty selections must build: {error:?}"));
+
+        let flow = StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
+            .unwrap_or_else(|error| panic!("empty storage flow must build: {error:?}"));
+
+        let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
+            .unwrap_or_else(|error| panic!("empty liveness must build: {error:?}"));
+
+        let result = VerifiedLoweringPlans::try_new(
+            &unit,
+            &storage,
+            &liveness,
+            &flow,
+            &dependencies,
+            &selections,
+            available_compiler_known_symbols(),
+            &async_analysis,
         );
+
+        let Err(error) = result else {
+            panic!("unexpected suspension must fail plan verification");
+        };
+
+        assert_eq!(error.kind(), LoweringPlanKind::Suspension);
+        assert_eq!(error.cause(), LoweringPlanFailureCause::Unexpected);
+        assert_eq!(error.expression(), Some(expression));
     }
 
     #[test]
@@ -1388,7 +1298,17 @@ mod tests {
             kind,
             [],
             [],
-            [StorageExitDecision::new(scope, exit, [], [], [], false)],
+            [StorageExitPoint::new(scope, exit)],
+            [StorageExitDecision::new(
+                scope,
+                exit,
+                [],
+                [],
+                [],
+                [],
+                [],
+                false,
+            )],
             false,
         )
         .unwrap_or_else(|error| panic!("storage exit must build: {error:?}"));
@@ -1399,7 +1319,8 @@ mod tests {
             [],
             [],
             [],
-            [AsyncScopeExitPlan::new(scope, exit, [], [], [], false)],
+            [],
+            [AsyncScopeExitPlan::new(scope, exit, [], [], [], [], false)],
             false,
         )
         .unwrap_or_else(|error| panic!("matching async exit must build: {error:?}"));
@@ -1410,9 +1331,11 @@ mod tests {
             [],
             [],
             [],
+            [],
             [AsyncScopeExitPlan::new(
                 scope,
                 other_exit,
+                [],
                 [],
                 [],
                 [],
@@ -1422,15 +1345,57 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("mismatched async exit must build: {error:?}"));
 
-        assert!(super::scope_exit_plans_are_complete(
-            &storage_flow,
-            &matching
-        ));
+        let storage = StoragePlanBuilder::new(unit.unit(), kind).finish();
+        let types = CheckedExpressionTypes::new(unit.unit(), kind, []);
 
-        assert!(!super::scope_exit_plans_are_complete(
+        let selections = CheckedSemanticSelections::try_new(&unit, &types, [])
+            .unwrap_or_else(|error| panic!("empty selections must build: {error:?}"));
+
+        let dependencies = CheckedDependencyContracts::try_new(
+            &unit,
+            &storage,
+            unit.tree()
+                .expressions()
+                .map(|(expression, _)| (expression, BoundDependencyContract::new([]))),
+            [],
+            [],
+            [],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("empty dependencies must build: {error:?}"));
+
+        let liveness = Liveness::try_new(unit.unit(), kind, [], [], [], [], false)
+            .unwrap_or_else(|error| panic!("empty liveness must build: {error:?}"));
+
+        assert!(
+            VerifiedLoweringPlans::try_new(
+                &unit,
+                &storage,
+                &liveness,
+                &storage_flow,
+                &dependencies,
+                &selections,
+                available_compiler_known_symbols(),
+                &matching,
+            )
+            .is_ok()
+        );
+
+        let Err(error) = VerifiedLoweringPlans::try_new(
+            &unit,
+            &storage,
+            &liveness,
             &storage_flow,
-            &mismatched
-        ));
+            &dependencies,
+            &selections,
+            available_compiler_known_symbols(),
+            &mismatched,
+        ) else {
+            panic!("mismatched scope exit must fail plan verification");
+        };
+
+        assert_eq!(error.kind(), LoweringPlanKind::ScopeExit);
+        assert_eq!(error.cause(), LoweringPlanFailureCause::Unexpected);
     }
 
     #[test]
@@ -1560,7 +1525,7 @@ mod tests {
         let storage = storage.finish();
 
         let incomplete_flow =
-            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
+            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
                 .unwrap_or_else(|error| panic!("incomplete test flow must validate: {error:?}"));
 
         assert_eq!(
@@ -1581,6 +1546,7 @@ mod tests {
                 None,
                 StorageOperationStatus::Valid,
             )],
+            [],
             [],
             [],
             false,
@@ -1645,6 +1611,7 @@ mod tests {
                 Some(wrong_capability),
                 StorageOperationStatus::Valid,
             )],
+            [],
             [],
             [],
             false,
@@ -1778,24 +1745,31 @@ mod tests {
         control_flow: &'inputs CheckedControlFlow,
         analysis: ExpressionInputReferences<'inputs>,
     ) -> Result<LoweringInput<'inputs>, LoweringInputError> {
+        let target = test_mir_target();
+
+        let lowering_plans = VerifiedLoweringPlans::try_new(
+            unit,
+            analysis.storage,
+            analysis.liveness,
+            analysis.storage_flow,
+            analysis.dependencies,
+            analysis.selections,
+            available_compiler_known_symbols(),
+            analysis.async_analysis,
+        )?;
+
         LoweringInput::try_new(
             unit,
             control_flow,
             analysis.types,
             analysis.patterns,
-            analysis.selections,
             analysis.literals,
-            analysis.storage,
-            analysis.liveness,
             analysis.refinements,
-            analysis.storage_flow,
-            analysis.dependencies,
-            analysis.async_analysis,
+            lowering_plans,
             analysis.behavior,
             analysis.values,
-            available_compiler_known_symbols(),
             bray_ir::MirUnitKind::Synchronous,
-            test_mir_target(),
+            target,
         )
     }
 
@@ -1852,7 +1826,7 @@ mod tests {
         .unwrap_or_else(|error| panic!("empty dependency contracts must validate: {error:?}"));
 
         let async_analysis =
-            CheckedAsync::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
+            CheckedAsync::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
                 .unwrap_or_else(|error| panic!("empty async analysis must validate: {error:?}"));
 
         let behavior = CheckedBodyBehavior::new(
@@ -1881,8 +1855,9 @@ mod tests {
     fn empty_storage_analysis(unit: &BoundUnit) -> (bray_bound_tree::StoragePlan, StorageFlow) {
         let storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind()).finish();
 
-        let storage_flow = StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
-            .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
+        let storage_flow =
+            StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
+                .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
 
         (storage, storage_flow)
     }

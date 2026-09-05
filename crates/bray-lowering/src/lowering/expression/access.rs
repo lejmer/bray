@@ -670,12 +670,9 @@ impl Lowerer<'_> {
     ) -> Result<TypeId, LoweringError> {
         let plan = self.input.storage_plan();
 
-        plan.access_entries()
-            .find_map(|(access, model)| {
-                (plan.root_identity(access) == Some(identity)
-                    && plan.resolved_projections(access) == Some(projections))
-                .then_some(model.reached_type())
-            })
+        plan.access_at(identity, projections)
+            .and_then(|access| plan.access(access))
+            .map(bray_bound_tree::StorageAccess::reached_type)
             .ok_or(LoweringError::MissingStorageIdentityRecord(identity))
     }
 

@@ -192,7 +192,8 @@ where
             .borrow_capability_entries()
             .find_map(|(id, capability)| {
                 (capability.kind() == kind
-                    && (capability.access() == access
+                    && (self.storage.relationship(capability.access(), access)
+                        == bray_bound_tree::StorageRelationship::Identical
                         || expression
                             .is_some_and(|expression| capability.expression() == Some(expression))))
                 .then_some(id)
@@ -299,13 +300,7 @@ pub(super) fn identity_access(
         .identity_entries()
         .find_map(|(id, candidate)| (candidate == identity).then_some(id))?;
 
-    storage.access_entries().find_map(|(id, _)| {
-        (storage.root_identity(id) == Some(identity)
-            && storage
-                .resolved_projections(id)
-                .is_some_and(<[_]>::is_empty))
-        .then_some(id)
-    })
+    storage.root_access(identity)
 }
 
 fn projected_access(

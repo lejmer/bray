@@ -177,10 +177,10 @@ Checker-owned semantic rules remain in focused checker services.
 
 ### Typed Semantic Queries
 
-The public semantic model is the set of typed lazy accessors exposed by `Compilation` and symbol views. A caller requests
-the semantics it needs and receives a stable immutable value view and diagnostics. Examples include expression types,
-selected calls, selected operations, control-completion analyses, storage-access plans, effect summaries, and constant
-values.
+The public semantic model is the set of typed lazy accessors exposed by `Compilation` and symbol views. A caller
+requests the semantics it needs and receives a stable immutable value view and diagnostics. Examples include expression
+types, selected calls, selected operations, control-completion analyses, storage-access plans, effect summaries, and
+constant values.
 
 Correlated semantics can share one immutable owning stage when they require the same traversal, fixed point, or
 intermediate representation. Focused accessors return borrowed views backed by that stage and do not republish cloned
@@ -188,21 +188,25 @@ tables or diagnostics. The owning stage key is the identity used for caching and
 recording, single-flight evaluation, scheduling, waiting, and cancellation remain private mechanics.
 
 Each stage declares only the prerequisites needed to establish its own contract. A focused view can require its owning
-stage, but no ordinary request implies a closed checker schedule or completion of later stages. Control-flow analysis for
-an enclosing callable does not require control-flow analysis for nested callable units. Call selection does not require
-storage or behavior analysis merely because those outputs may later be needed by lowering.
+stage, but no ordinary request implies a closed checker schedule or completion of later stages. Control-flow analysis
+for an enclosing callable does not require control-flow analysis for nested callable units. Call selection does not
+require storage or behavior analysis merely because those outputs may later be needed by lowering.
 
 The semantic unit category selects contextual inputs, not a list of analyses:
 
-| Bound unit kind       | Semantic context                                                                                                             |
-|-----------------------|------------------------------------------------------------------------------------------------------------------------------|
-| `CallableBody`        | Receiver, parameters, generic constraints, callable requirements, declared capabilities, and lifecycle context               |
-| `AnonymousCallable`   | Anonymous parameters, generic and expected callable context, and the capture-free local boundary                             |
-| `RuntimeDefault`      | Permitted receiver, earlier parameters, generic values, selected implementations, and declaration context                    |
-| `ConstantTemplate`    | Declared expected type, symbolic generic and trait context, and selected target properties                                   |
-| `PredicateDefinition` | Predicate parameters, symbolic generic context, and declared trusted relation context                                        |
-| `Constraint`          | Generic parameters and propositions available before the constraint being defined                                            |
-| `ContractClause`      | Callable parameters and clause-specific propositions, with `result` present only for a value-producing `ensures(...)` clause |
+- `CallableBody` receives its receiver, parameters, generic constraints, callable requirements, declared capabilities,
+  and lifecycle context.
+- `AnonymousCallable` receives anonymous parameters, generic and expected callable context, and the capture-free local
+  boundary.
+- `RuntimeDefault` receives its permitted receiver, earlier parameters, generic values, selected implementations, and
+  declaration context.
+- `ConstantTemplate` receives its declared expected type, symbolic generic and trait context, and selected target
+  properties.
+- `PredicateDefinition` receives predicate parameters, symbolic generic context, and declared trusted relation
+  context.
+- `Constraint` receives generic parameters and propositions available before the constraint being defined.
+- `ContractClause` receives callable parameters and clause-specific propositions. `result` is present only for a
+  value-producing `ensures(...)` clause.
 
 Runtime defaults record requirements without imposing them on calls or constructions that supply an explicit value.
 Constant templates are validated symbolically. Only a closed constant instance is evaluated, keyed by its exact
@@ -865,17 +869,23 @@ cancellation-aware operations. This is panic-like implicit abnormal-control meta
 modifier or an overload/assignment discriminator. Constant, predicate, and other effect-free contexts reject it.
 Exported checked declaration metadata preserves it for diagnostics, lowering, and inspection.
 
-For each async lexical scope exit, composite storage flow publishes the exact initialized roots, moved access paths, and
-active borrows. Async checking combines that state with checked type representations to emit one two-phase cleanup plan
-over exact storage access paths: all owned unresolved tasks receive cancellation before any task is awaited, then normal
+For each async lexical scope exit, composite storage flow publishes the exact initialized roots, moved access paths,
+identities definitely moved on every incoming path, and active borrows. Async checking combines that state with checked
+type representations to emit one two-phase cleanup plan over exact storage access paths. Each initialized root has one
+disposition in reverse initialization order: retained, transferred, moved, no cleanup, or cleanup with cancellation,
+lifecycle, or both phases. All owned unresolved tasks receive cancellation before any task is awaited, then normal
 reverse lifecycle resolution proceeds with dependency ordering. Partial moves remain explicit masks rather than being
-collapsed into whole-root state. Lowering consumes this plan without repeating flow or type analysis. Ordinary
-standard-library `Thread<T>` and `Process<T>` lifecycle obligations participate through their checked declaration
-contracts rather than compiler name recognition. The plan names separate descriptor broadcast visitors and
-lifecycle-resolution operations for concrete and erased state. It rejects implicit thread cleanup when a possible
-completion payload cannot be resolved synchronously and infallibly. Because the ordinary process finalizer returns
-`Result<unit, ProcessError>`, it always rejects an unresolved `Process<T>` on normal exit and requires explicit
-consuming observation. Abnormal cleanup can record its failure as an incident.
+collapsed into whole-root state. A partial state whose cleanup mask is unavailable remains recovered and cannot satisfy
+the lowering boundary. Ordinary standard-library `Thread<T>` and `Process<T>` lifecycle obligations participate through
+their checked declaration contracts rather than compiler name recognition. The plan names separate descriptor
+broadcast visitors and lifecycle-resolution operations for concrete and erased state. It rejects implicit thread
+cleanup when a possible completion payload cannot be resolved synchronously and infallibly. Because the ordinary
+process finalizer returns `Result<unit, ProcessError>`, it always rejects an unresolved `Process<T>` on normal exit and
+requires explicit consuming observation. Abnormal cleanup can record its failure as an incident.
+
+Recovered plans remain durable checker output for diagnostics and adjacent checks. The compilation boundary verifies
+the lowering-reachable closed set before MIR construction, so a recovered disposition or incomplete plan never serves
+as proof that cleanup is absent.
 
 The complete implementation contract is defined in `docs/design/async-runtime.md`.
 

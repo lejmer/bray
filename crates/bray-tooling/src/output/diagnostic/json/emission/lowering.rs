@@ -1,5 +1,46 @@
 use super::context::semantic_value_failure_context;
-use super::failure::{DiagnosticEmissionFieldJson, count_u64_field, text_field};
+use super::failure::{DiagnosticEmissionFieldJson, count_u64_field, count_usize_field, text_field};
+
+#[cfg(test)]
+mod tests {
+    use bray_diagnostics::{DiagnosticLoweringInputFailure, DiagnosticLoweringInputFailureKind};
+    use bray_source::{SourceId, SourceSpan, TextRange, TextSize};
+
+    #[test]
+    fn storage_plan_recovery_causes_reach_json_output() {
+        for cause in [
+            "unavailable_root_access",
+            "unavailable_cleanup_shape",
+            "unavailable_partial_cleanup",
+            "unavailable_cleanup_order",
+        ] {
+            let failure = DiagnosticLoweringInputFailure::new(
+                DiagnosticLoweringInputFailureKind::InvalidPlan {
+                    plan: "storage_disposition",
+                    cause,
+                    expression: None,
+                    scope: None,
+                    exit: None,
+                    storage: None,
+                    access: None,
+                },
+                SourceSpan::new(
+                    SourceId::new(0),
+                    TextRange::new(TextSize::new(0), TextSize::new(0)),
+                ),
+            );
+
+            let output =
+                serde_json::to_value(super::lowering_input_failure_context(failure)).unwrap();
+
+            assert_eq!(
+                output[2],
+                serde_json::json!({"name": "plan_failure",
+                "value": {"kind": "text", "value": cause}})
+            );
+        }
+    }
+}
 
 pub(in crate::output::diagnostic::json) fn lowering_input_failure_context(
     failure: bray_diagnostics::DiagnosticLoweringInputFailure,
@@ -35,6 +76,41 @@ pub(in crate::output::diagnostic::json) fn lowering_input_failure_context(
         }
         Failure::InvalidStorageExit(identity) => {
             lowering_identity_context(failure.as_str(), "block", identity)
+        }
+        Failure::InvalidPlan {
+            plan,
+            cause,
+            expression,
+            scope,
+            exit,
+            storage,
+            access,
+        } => {
+            let mut context = vec![
+                text_field("cause", failure.as_str()),
+                text_field("plan", plan),
+                text_field("plan_failure", cause),
+            ];
+
+            let identities = [
+                ("expression", expression),
+                ("scope", scope),
+                ("exit", exit),
+                ("storage", storage),
+                ("storage_access", access),
+            ];
+
+            if let Some(identity) = identities.iter().find_map(|(_, identity)| *identity) {
+                context.push(count_u64_field("bound_unit", u64::from(identity.unit())));
+            }
+
+            for (name, identity) in identities {
+                if let Some(identity) = identity {
+                    context.push(count_u64_field(name, u64::from(identity.ordinal())));
+                }
+            }
+
+            context
         }
         Failure::InvalidInputContents(input) => vec![
             text_field("cause", failure.as_str()),
@@ -113,11 +189,25 @@ pub(in crate::output::diagnostic::json) fn lowering_failure_context(
         | Failure::UnsupportedStorageAccess(identity) => {
             lowering_identity_context(failure.as_str(), "storage_access", identity)
         }
-        Failure::MissingCleanupPlan(identity) => {
-            lowering_identity_context(failure.as_str(), "block", identity)
-        }
         Failure::MissingStorageIdentityRecord(identity) => {
             lowering_identity_context(failure.as_str(), "storage_identity", identity)
+        }
+        Failure::InvalidCleanupScopeDepth {
+            scope_depth,
+            active_scope_count,
+            exit,
+        } => {
+            let mut context = lowering_identity_context(failure.as_str(), "exit", exit);
+            context.push(count_usize_field("scope_depth", scope_depth));
+            context.push(count_usize_field("active_scope_count", active_scope_count));
+
+            context
+        }
+        Failure::MissingScopeExitPlan { scope, exit } => {
+            let mut context = lowering_identity_context(failure.as_str(), "scope", scope);
+            context.push(count_u64_field("exit", u64::from(exit.ordinal())));
+
+            context
         }
         Failure::MissingRepresentation(role) => vec![
             text_field("cause", failure.as_str()),

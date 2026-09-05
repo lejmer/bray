@@ -1,71 +1,12 @@
 use std::collections::BTreeSet;
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundDependencyContract, BoundDependencyContractId, BoundDependencyGuard,
-    BoundDependencyRequirement, BoundDependencyRequirementKind, BoundDependencySubject,
-    BoundExpressionId, CheckedDependencyContracts, CheckedRefinements, Liveness, PatternPredicate,
-    Refinement, RefinementKind, StorageAccessId, StoragePlan, StorageRelationship,
-    StorageSuspensionState,
+    AnyBoundNodeId, BoundDependencyContract, BoundDependencyGuard, BoundDependencyRequirement,
+    BoundDependencyRequirementKind, BoundDependencySubject, BoundExpressionId, CheckedRefinements,
+    PatternPredicate, Refinement, RefinementKind, StorageAccessId, StoragePlan,
+    StorageRelationship, StorageSuspensionState,
 };
 use bray_symbols::{BorrowKind, SemanticValueStore, TypeData};
-
-pub(super) fn retained_suspension_subjects(
-    liveness: &Liveness,
-    dependencies: &CheckedDependencyContracts,
-    storage: &StoragePlan,
-    await_expression: BoundExpressionId,
-    dependency_contract: Option<BoundDependencyContractId>,
-) -> Vec<BoundDependencySubject> {
-    let mut retained = liveness
-        .live_across_suspensions()
-        .iter()
-        .filter(|entry| entry.await_expression() == await_expression)
-        .map(|entry| entry.subject())
-        .collect::<BTreeSet<_>>();
-
-    if let Some(contract) = dependency_contract.and_then(|id| dependencies.contract(id)) {
-        for requirement in contract.requirements() {
-            collect_requirement_subjects(requirement, &mut retained);
-        }
-    }
-
-    retained
-        .into_iter()
-        .filter(|subject| retained_subject_has_storage(storage, *subject))
-        .collect()
-}
-
-fn retained_subject_has_storage(storage: &StoragePlan, subject: BoundDependencySubject) -> bool {
-    match subject {
-        BoundDependencySubject::StorageAccess(access) => storage.root_identity(access).is_some(),
-        BoundDependencySubject::Storage(_)
-        | BoundDependencySubject::BorrowCapability(_)
-        | BoundDependencySubject::ScopedCapability(_)
-        | BoundDependencySubject::ImplementationWitness(_)
-        | BoundDependencySubject::ProductStatic(_)
-        | BoundDependencySubject::ExactThreadStatic(_)
-        | BoundDependencySubject::LifecycleObligation(_) => true,
-    }
-}
-
-fn collect_requirement_subjects(
-    requirement: &BoundDependencyRequirement,
-    subjects: &mut BTreeSet<BoundDependencySubject>,
-) {
-    let mut pending = vec![requirement];
-
-    while let Some(requirement) = pending.pop() {
-        match requirement {
-            BoundDependencyRequirement::Direct { subject, .. } => {
-                subjects.insert(*subject);
-            }
-            BoundDependencyRequirement::Guarded(guarded) => {
-                subjects.insert(guarded.guard().subject());
-                pending.extend(guarded.requirements());
-            }
-        }
-    }
-}
 
 pub(super) fn unsatisfied_dependency_subjects(
     values: &SemanticValueStore,
@@ -410,73 +351,16 @@ fn refinement_guard_value(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
-
     use bray_bound_tree::{
-        BorrowCapabilityOrigin, BoundDependencyRequirement, BoundDependencyRequirementKind,
-        BoundDependencySubject, BoundErrorExpression, BoundExpression, BoundNodeOrigin,
-        BoundTreeBuilder, BoundUnitId, BoundUnitKind, PlannedBorrowCapability, StorageAccess,
-        StorageAccessRoot, StorageIdentity, StoragePlanBuilder, StorageSuspensionState,
+        BorrowCapabilityOrigin, BoundDependencySubject, BoundErrorExpression, BoundExpression,
+        BoundNodeOrigin, BoundTreeBuilder, BoundUnitId, BoundUnitKind, PlannedBorrowCapability,
+        StorageAccess, StorageAccessRoot, StorageIdentity, StoragePlanBuilder,
+        StorageSuspensionState,
     };
-    use bray_symbols::{BorrowKind, TypeData, testing::implementation_instance};
+    use bray_symbols::{BorrowKind, TypeData};
 
-    use super::{
-        collect_requirement_subjects, dependency_subject_has_exclusive_access,
-        retained_subject_has_storage,
-    };
+    use super::dependency_subject_has_exclusive_access;
     use crate::test_support::{error_type, push_expression, semantic_values, test_source_origins};
-
-    #[test]
-    fn deferred_contracts_retain_non_storage_frame_subjects() {
-        let witness = implementation_instance(semantic_values(), 72);
-        let subject = BoundDependencySubject::ImplementationWitness(witness);
-
-        let requirement = BoundDependencyRequirement::direct(
-            subject,
-            BoundDependencyRequirementKind::StorageAlive,
-        );
-
-        let mut subjects = BTreeSet::new();
-
-        collect_requirement_subjects(&requirement, &mut subjects);
-
-        assert_eq!(subjects, BTreeSet::from([subject]));
-    }
-
-    #[test]
-    fn frame_retention_requires_a_resolved_storage_root_for_access_subjects() {
-        let unit = BoundUnitId::new(74);
-        let source = test_source_origins()[0].source_anchor();
-        let mut builder = StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
-
-        let identity = builder
-            .push_identity(StorageIdentity::CompilerCreated(BoundNodeOrigin::source(
-                source,
-            )))
-            .unwrap_or_else(|error| panic!("test storage identity must build: {error:?}"));
-
-        let access = builder
-            .push_access(StorageAccess::new(
-                StorageAccessRoot::Recovery(identity),
-                [],
-                error_type(),
-                source,
-                false,
-            ))
-            .unwrap_or_else(|error| panic!("test storage access must build: {error:?}"));
-
-        let storage = builder.finish();
-
-        assert!(!retained_subject_has_storage(
-            &storage,
-            BoundDependencySubject::StorageAccess(access),
-        ));
-
-        assert!(retained_subject_has_storage(
-            &storage,
-            BoundDependencySubject::Storage(identity),
-        ));
-    }
 
     #[test]
     fn mutable_borrows_supply_their_own_exclusive_authority() {

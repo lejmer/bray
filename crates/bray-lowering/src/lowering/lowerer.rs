@@ -265,11 +265,12 @@ const fn is_parameter_identity(identity: StorageIdentity) -> bool {
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{
-        BoundArgument, BoundBinaryExpression, BoundBlock, BoundBlockItem, BoundCallExpression,
-        BoundCallResult, BoundCallableBody, BoundCallableTarget, BoundControlTransferExpression,
-        BoundControlTransferKind, BoundDependencyContract, BoundErrorExpression, BoundExpression,
-        BoundExpressionId, BoundLiteralExpression, BoundLiteralKind, BoundNameExpression,
-        BoundOperator, BoundReferenceTarget, BoundResolvedCall, BoundStructuredExpression,
+        AnyBoundNodeId, AsyncScopeExitPlan, BoundArgument, BoundBinaryExpression, BoundBlock,
+        BoundBlockItem, BoundCallExpression, BoundCallResult, BoundCallableBody,
+        BoundCallableTarget, BoundControlTransferExpression, BoundControlTransferKind,
+        BoundDependencyContract, BoundErrorExpression, BoundExpression, BoundExpressionId,
+        BoundLiteralExpression, BoundLiteralKind, BoundNameExpression, BoundOperator,
+        BoundReferenceTarget, BoundResolvedCall, BoundStructuredExpression,
         BoundStructuredExpressionKind, BoundTreeBuilder, BoundUnit, BoundUnitId, BoundUnitRoot,
         CheckedAsync, CheckedBodyBehavior, CheckedControlFlow, CheckedDependencyContracts,
         CheckedExpressionTypes, CheckedLiteralValueEntry, CheckedLiteralValues,
@@ -280,7 +281,8 @@ mod tests {
         MemoryOffsetUnit, MemoryOperationDecision, MemoryOperationStatus, MemoryOrder,
         MemoryReadKind, OperatorTarget, SelectedArgument, SelectedCall, SelectedConversion,
         SelectedOperation, SelectedPropagation, SelectedPropagationBoundary, SemanticSelection,
-        SemanticSelectionEntry, StorageFlow, StoragePlanBuilder, VolatileAddressSpace,
+        SemanticSelectionEntry, StorageExitDecision, StorageExitPoint, StorageFlow,
+        StoragePlanBuilder, VolatileAddressSpace,
     };
     use bray_ir::{
         MirBinaryOperator, MirCallArgument, MirOperationKind, MirTerminatorKind, MirUnitKind,
@@ -296,7 +298,7 @@ mod tests {
     use bray_testing::{test_bound_unit, test_mir_target};
 
     use super::lower_unit;
-    use crate::LoweringInput;
+    use crate::{LoweringInput, VerifiedLoweringPlans};
 
     fn synchronous_callable_unit(
         template: &BoundUnit,
@@ -873,24 +875,32 @@ mod tests {
 
     impl LoweringFixture {
         fn input(&self) -> LoweringInput<'_> {
+            let target = test_mir_target();
+
+            let lowering_plans = VerifiedLoweringPlans::try_new(
+                &self.unit,
+                &self.storage,
+                &self.liveness,
+                &self.storage_flow,
+                &self.dependencies,
+                &self.selections,
+                available_compiler_known_symbols(),
+                &self.async_analysis,
+            )
+            .unwrap_or_else(|error| panic!("test lowering plans must validate: {error:?}"));
+
             LoweringInput::try_new(
                 &self.unit,
                 &self.control_flow,
                 &self.types,
                 &self.patterns,
-                &self.selections,
                 &self.literals,
-                &self.storage,
-                &self.liveness,
                 &self.refinements,
-                &self.storage_flow,
-                &self.dependencies,
-                &self.async_analysis,
+                lowering_plans,
                 &self.behavior,
                 &self.values,
-                available_compiler_known_symbols(),
                 MirUnitKind::Synchronous,
-                test_mir_target(),
+                target,
             )
             .unwrap_or_else(|error| panic!("test lowering input must validate: {error:?}"))
         }
@@ -1366,8 +1376,38 @@ mod tests {
         let patterns = CheckedPatterns::new(unit.unit(), unit.key().kind(), [], [], []);
         let storage = StoragePlanBuilder::new(unit.unit(), unit.key().kind()).finish();
 
-        let storage_flow = StorageFlow::try_new(unit.unit(), unit.key().kind(), [], [], [], false)
-            .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
+        let exit_nodes = unit
+            .tree()
+            .expressions()
+            .map(|(expression, _)| AnyBoundNodeId::Expression(expression))
+            .chain(
+                unit.tree()
+                    .blocks()
+                    .map(|(block, _)| AnyBoundNodeId::Block(block)),
+            )
+            .filter(|node| unit.view().node_is_recovered(*node) == Some(false))
+            .collect::<Vec<_>>();
+
+        let scope_exits = unit
+            .tree()
+            .blocks()
+            .flat_map(|(scope, _)| exit_nodes.iter().copied().map(move |exit| (scope, exit)))
+            .collect::<Vec<_>>();
+
+        let storage_flow = StorageFlow::try_new(
+            unit.unit(),
+            unit.key().kind(),
+            [],
+            [],
+            scope_exits
+                .iter()
+                .map(|(scope, exit)| StorageExitPoint::new(*scope, *exit)),
+            scope_exits.iter().map(|(scope, exit)| {
+                StorageExitDecision::new(*scope, *exit, [], [], [], [], [], false)
+            }),
+            false,
+        )
+        .unwrap_or_else(|error| panic!("empty storage flow must validate: {error:?}"));
 
         let liveness = Liveness::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
             .unwrap_or_else(|error| panic!("empty liveness must validate: {error:?}"));
@@ -1389,9 +1429,19 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("empty dependencies must validate: {error:?}"));
 
-        let async_analysis =
-            CheckedAsync::try_new(unit.unit(), unit.key().kind(), [], [], [], [], false)
-                .unwrap_or_else(|error| panic!("empty async analysis must validate: {error:?}"));
+        let async_analysis = CheckedAsync::try_new(
+            unit.unit(),
+            unit.key().kind(),
+            [],
+            [],
+            [],
+            [],
+            scope_exits
+                .iter()
+                .map(|(scope, exit)| AsyncScopeExitPlan::new(*scope, *exit, [], [], [], [], false)),
+            false,
+        )
+        .unwrap_or_else(|error| panic!("empty async analysis must validate: {error:?}"));
 
         let behavior = CheckedBodyBehavior::new(
             unit.unit(),

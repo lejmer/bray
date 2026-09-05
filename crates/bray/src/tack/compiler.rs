@@ -227,11 +227,8 @@ impl<'project> ProjectCompiler<'project> {
             self.executor,
         )?;
 
-        let plan = self.build_progress_plan_with_evidence(
-            planned,
-            configuration,
-            Some(&evidence),
-        )?;
+        let plan =
+            self.build_progress_plan_with_evidence(planned, configuration, Some(&evidence))?;
 
         Ok((plan, evidence))
     }

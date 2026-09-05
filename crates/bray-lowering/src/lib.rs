@@ -6,10 +6,14 @@ mod host;
 mod identity;
 mod input;
 mod lowering;
+mod plan;
 mod result;
 
 pub use host::{ExecutableHostLoweringInput, ExecutableHostStatic, lower_executable_host};
 pub use identity::executable_unit_kind;
 pub use input::{LoweringInput, LoweringInputError, LoweringInputKind};
 pub use lowering::{LoweringError, lower_unit};
+pub use plan::{
+    LoweringPlanFailure, LoweringPlanFailureCause, LoweringPlanKind, VerifiedLoweringPlans,
+};
 pub use result::{CompileTimeUnit, LoweredUnit};

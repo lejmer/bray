@@ -1,9 +1,12 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
+use bray_symbols::AnyLocalSymbolId;
+
 use crate::{
-    BorrowCapabilityId, BoundDependencyContract, BoundDependencyContractId, BoundExpressionId,
-    BoundUnit, BoundUnitId, BoundUnitKind, StorageAccessId, StoragePlan,
+    BorrowCapabilityId, BoundBlockItem, BoundDependencyContract, BoundDependencyContractId,
+    BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundUnit, BoundUnitId,
+    BoundUnitKind, StorageAccessId, StoragePlan,
 };
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -163,6 +166,45 @@ impl CheckedDependencyContracts {
         find_contract(&self.deferred_expressions, expression)
     }
 
+    /// Resolves the deferred contract carried through local reference bindings.
+    pub fn deferred_expression_through_bindings(
+        &self,
+        unit: &BoundUnit,
+        expression: BoundExpressionId,
+    ) -> Option<BoundDependencyContractId> {
+        if self.unit != unit.unit() || expression.unit() != self.unit {
+            return None;
+        }
+
+        let initializers = local_initializers(unit);
+        let mut current = expression;
+        let mut active = BTreeSet::new();
+
+        loop {
+            if let Some(contract) = self.deferred_expression(current) {
+                return Some(contract);
+            }
+
+            if !active.insert(current) {
+                return None;
+            }
+
+            current = match unit.view().expression(current)? {
+                BoundExpression::Name(name) => {
+                    let BoundReferenceTarget::Local(local) = name.target() else {
+                        return None;
+                    };
+
+                    *initializers.get(&local)?
+                }
+                BoundExpression::PatternReference(reference) => {
+                    *initializers.get(&AnyLocalSymbolId::from(reference.binding()))?
+                }
+                _ => return None,
+            };
+        }
+    }
+
     /// Returns the contract carried by one evaluated storage access.
     pub fn access(&self, access: StorageAccessId) -> Option<BoundDependencyContractId> {
         find_contract(&self.accesses, access)
@@ -216,6 +258,30 @@ impl CheckedDependencyContracts {
     pub const fn is_recovered(&self) -> bool {
         self.is_recovered
     }
+}
+
+fn local_initializers(unit: &BoundUnit) -> BTreeMap<AnyLocalSymbolId, BoundExpressionId> {
+    let mut initializers = BTreeMap::new();
+
+    for (_, block) in unit.tree().blocks() {
+        for item in block.items() {
+            match item {
+                BoundBlockItem::LocalBinding(binding) => {
+                    for symbol in binding.bindings() {
+                        initializers.insert((*symbol).into(), binding.initializer());
+                    }
+                }
+                BoundBlockItem::LocalConstant(constant) => {
+                    if let Some(symbol) = constant.symbol() {
+                        initializers.insert(symbol.into(), constant.initializer());
+                    }
+                }
+                BoundBlockItem::Expression(_) => {}
+            }
+        }
+    }
+
+    initializers
 }
 
 fn build_entries<I>(

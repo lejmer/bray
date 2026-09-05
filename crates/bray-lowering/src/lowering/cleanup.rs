@@ -8,6 +8,7 @@ use bray_symbols::TypeId;
 
 use super::LoweringError;
 use super::lowerer::Lowerer;
+use crate::plan::ScopeExitCleanupStatus;
 
 enum CleanupDestination {
     Goto(MirBlockId),
@@ -90,7 +91,10 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         exit: AnyBoundNodeId,
     ) -> Result<MirBlockId, LoweringError> {
-        if !self.scope_has_cleanup(scope, exit)? {
+        if !matches!(
+            self.scope_cleanup_status(scope, exit)?,
+            ScopeExitCleanupStatus::Cleanup
+        ) {
             return Ok(current);
         }
 
@@ -367,59 +371,21 @@ impl Lowerer<'_> {
         scope_depth: usize,
         exit: AnyBoundNodeId,
     ) -> Result<Vec<bray_bound_tree::AsyncScopeExitPlan>, LoweringError> {
-        let mut plans = Vec::new();
-
-        for scope in self
-            .active_scopes
-            .get(scope_depth..)
-            .unwrap_or_default()
-            .iter()
-            .rev()
-        {
-            let Some(plan) = self
-                .input
-                .async_analysis()
-                .scope_exits()
-                .iter()
-                .find(|plan| plan.scope() == *scope && plan.exit() == exit)
-            else {
-                if self.scope_requires_cleanup_plan(*scope) {
-                    return Err(LoweringError::MissingCleanupPlan(*scope));
-                }
-
-                continue;
-            };
-
-            plans.push(plan.clone());
-        }
-
-        Ok(plans)
+        self.input
+            .lowering_plans()
+            .cleanup_plans(&self.active_scopes, scope_depth, exit)
+            .map_err(Into::into)
     }
 
-    fn scope_has_cleanup(
+    fn scope_cleanup_status(
         &self,
         scope: BoundBlockId,
         exit: AnyBoundNodeId,
-    ) -> Result<bool, LoweringError> {
-        let Some(plan) = self
-            .input
-            .async_analysis()
-            .scope_exits()
-            .iter()
-            .find(|plan| plan.scope() == scope && plan.exit() == exit)
-        else {
-            return Ok(false);
-        };
-
-        Ok(!plan.cancellation_broadcast().is_empty() || !plan.lifecycle_resolution().is_empty())
-    }
-
-    fn scope_requires_cleanup_plan(&self, scope: BoundBlockId) -> bool {
+    ) -> Result<ScopeExitCleanupStatus, LoweringError> {
         self.input
-            .storage_flow()
-            .exits()
-            .iter()
-            .any(|exit| exit.scope() == scope)
+            .lowering_plans()
+            .scope_cleanup_status(scope, exit)
+            .map_err(Into::into)
     }
 
     fn push_cleanup_operations(
@@ -433,16 +399,6 @@ impl Lowerer<'_> {
             MirCleanupPhase::TaskCancellation => plan.cancellation_broadcast(),
             MirCleanupPhase::LifecycleResolution => plan.lifecycle_resolution(),
         }) {
-            let identity = self
-                .input
-                .storage_plan()
-                .root_identity(*access)
-                .ok_or(LoweringError::MissingStorageIdentity(*access))?;
-
-            if !self.storages.contains_key(&identity) {
-                continue;
-            }
-
             let place = self.place_for_access(*access, false)?;
 
             self.builder.push_operation(

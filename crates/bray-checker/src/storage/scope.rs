@@ -1,10 +1,9 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundBlockId, BoundBlockItem, BoundExpression, BoundExpressionId,
-    BoundPatternId, BoundUnitView, BoundWalkControl, BoundWalkEvent, BoundWalkOutcome,
-    StorageBinding, StorageBindingTarget, StorageIdentity, StorageIdentityId, StoragePlan,
-    walk_bound_unit_view,
+    BoundBlockItem, BoundExpression, BoundExpressionId, BoundPatternId, BoundUnitView,
+    StorageBinding, StorageBindingTarget, StorageIdentityId, StoragePlan, StorageScopeBuildError,
+    StorageScopeOwners,
 };
 
 use crate::{
@@ -12,213 +11,23 @@ use crate::{
     CheckerStorageFlowFailure, CheckerUnitView,
 };
 
-pub(crate) struct StorageScopeOwners {
-    nodes: BTreeMap<AnyBoundNodeId, BoundBlockId>,
-    root: Option<BoundBlockId>,
-}
-
-impl StorageScopeOwners {
-    pub(crate) fn collect<C>(request: CheckerUnitView<'_, C>) -> Result<Self, CheckerQueryError>
-    where
-        C: CheckerRequestContext + ?Sized,
-    {
-        let mut nodes = BTreeMap::new();
-        let mut scopes = Vec::new();
-        let mut root = None;
-
-        let outcome = walk_bound_unit_view(request.view(), request.unit().root(), |event| {
-            match event {
-                BoundWalkEvent::Enter(AnyBoundNodeId::Block(block)) => {
-                    root.get_or_insert(block);
-                    scopes.push(block);
-                    nodes.insert(block.into(), block);
-                }
-                BoundWalkEvent::Enter(node) => {
-                    if let Some(scope) = scopes.last().copied() {
-                        nodes.insert(node, scope);
-                    }
-                }
-                BoundWalkEvent::Exit(AnyBoundNodeId::Block(block)) => {
-                    if scopes.pop() != Some(block) {
-                        return BoundWalkControl::Stop;
-                    }
-                }
-                BoundWalkEvent::Exit(_) => {}
+pub(crate) fn storage_scope_owners<C>(
+    request: CheckerUnitView<'_, C>,
+) -> Result<StorageScopeOwners, CheckerQueryError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    StorageScopeOwners::collect(request.unit()).map_err(|error| {
+        CheckerQueryError::Infrastructure(CheckerInfrastructureError::StorageFlow(match error {
+            StorageScopeBuildError::UnbalancedScopes { open_scope } => {
+                CheckerStorageFlowFailure::UnbalancedScopes { open_scope }
             }
-
-            BoundWalkControl::Continue
-        });
-
-        if outcome != BoundWalkOutcome::Completed || !scopes.is_empty() {
-            return Err(CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::StorageFlow(
-                    CheckerStorageFlowFailure::UnbalancedScopes {
-                        open_scope: scopes.last().copied(),
-                    },
-                ),
-            ));
-        }
-
-        for (_, expression) in request.unit().tree().expressions() {
-            match expression {
-                BoundExpression::Match(expression) => {
-                    for arm in expression.arms() {
-                        assign_pattern_scope(
-                            request.view(),
-                            arm.pattern(),
-                            arm.body(),
-                            &mut nodes,
-                        )?;
-                    }
-                }
-                BoundExpression::For(expression) => assign_pattern_scope(
-                    request.view(),
-                    expression.pattern(),
-                    expression.body(),
-                    &mut nodes,
-                )?,
-                BoundExpression::Generator(expression) => assign_pattern_scope(
-                    request.view(),
-                    expression.pattern(),
-                    expression.body(),
-                    &mut nodes,
-                )?,
-                BoundExpression::Structured(expression) => {
-                    if matches!(
-                        expression.kind(),
-                        bray_bound_tree::BoundStructuredExpressionKind::PatternTest
-                            | bray_bound_tree::BoundStructuredExpressionKind::Condition
-                    ) && let ([subject], [scope]) = (expression.operands(), expression.blocks())
-                    {
-                        assign_expression_scope(request.view(), *subject, *scope, &mut nodes);
-                    }
-
-                    if expression.kind()
-                        == bray_bound_tree::BoundStructuredExpressionKind::Condition
-                        && let ([condition], [scope]) = (expression.operands(), expression.blocks())
-                    {
-                        assign_condition_bindings(request.view(), *condition, *scope, &mut nodes)?;
-                    }
-                }
-                BoundExpression::Block(_)
-                | BoundExpression::Literal(_)
-                | BoundExpression::Name(_)
-                | BoundExpression::PatternReference(_)
-                | BoundExpression::UnresolvedReference(_)
-                | BoundExpression::Unary(_)
-                | BoundExpression::Binary(_)
-                | BoundExpression::Assignment(_)
-                | BoundExpression::Call(_)
-                | BoundExpression::ErrorCall(_)
-                | BoundExpression::Conversion(_)
-                | BoundExpression::ErrorConversion(_)
-                | BoundExpression::AnonymousCallable(_)
-                | BoundExpression::Await(_)
-                | BoundExpression::StructConstruction(_)
-                | BoundExpression::MemberAccess(_)
-                | BoundExpression::LeadingDotVariant(_)
-                | BoundExpression::UnqualifiedVariant(_)
-                | BoundExpression::TraitQualifiedMember(_)
-                | BoundExpression::ControlTransfer(_)
-                | BoundExpression::Error(_) => {}
+            StorageScopeBuildError::MissingPattern { pattern } => {
+                CheckerStorageFlowFailure::MissingPattern { pattern }
             }
-        }
-
-        Ok(Self { nodes, root })
-    }
-
-    pub(crate) fn scope(&self, identity: Option<StorageIdentity>) -> Option<BoundBlockId> {
-        identity.and_then(|identity| {
-            identity
-                .definition_node()
-                .and_then(|node| self.nodes.get(&node).copied())
-                .or(self.root)
-        })
-    }
-
-    pub(crate) fn identity_scope(
-        &self,
-        storage: &bray_bound_tree::StoragePlan,
-        identity: StorageIdentityId,
-    ) -> Option<BoundBlockId> {
-        self.scope(storage.identity(identity))
-    }
+        }))
+    })
 }
-
-fn assign_expression_scope(
-    view: BoundUnitView<'_>,
-    expression: BoundExpressionId,
-    scope: BoundBlockId,
-    nodes: &mut BTreeMap<AnyBoundNodeId, BoundBlockId>,
-) {
-    let original = nodes.get(&expression.into()).copied();
-    let mut pending = vec![expression];
-
-    while let Some(expression) = pending.pop() {
-        if nodes.get(&expression.into()).copied() != original {
-            continue;
-        }
-
-        nodes.insert(expression.into(), scope);
-
-        if let Some(expression) = view.expression(expression) {
-            pending.extend(expression.child_expressions());
-        }
-    }
-}
-
-fn assign_condition_bindings(
-    view: BoundUnitView<'_>,
-    condition: BoundExpressionId,
-    scope: BoundBlockId,
-    nodes: &mut BTreeMap<AnyBoundNodeId, BoundBlockId>,
-) -> Result<(), CheckerQueryError> {
-    let mut pending = vec![condition];
-
-    while let Some(condition) = pending.pop() {
-        match view.expression(condition) {
-            Some(BoundExpression::Binary(binary))
-                if binary.operator() == bray_bound_tree::BoundOperator::LogicalAnd =>
-            {
-                pending.extend(binary.operands());
-            }
-            Some(BoundExpression::Structured(binding))
-                if binding.kind()
-                    == bray_bound_tree::BoundStructuredExpressionKind::PatternBinding =>
-            {
-                for pattern in binding.patterns() {
-                    assign_pattern_scope(view, *pattern, scope, nodes)?;
-                }
-            }
-            _ => {}
-        }
-    }
-
-    Ok(())
-}
-
-fn assign_pattern_scope(
-    view: BoundUnitView<'_>,
-    pattern: BoundPatternId,
-    scope: BoundBlockId,
-    nodes: &mut BTreeMap<AnyBoundNodeId, BoundBlockId>,
-) -> Result<(), CheckerQueryError> {
-    let mut pending = vec![pattern];
-
-    while let Some(pattern) = pending.pop() {
-        let pattern_node = view.pattern(pattern).ok_or_else(|| {
-            CheckerQueryError::Infrastructure(CheckerInfrastructureError::StorageFlow(
-                CheckerStorageFlowFailure::MissingPattern { pattern },
-            ))
-        })?;
-
-        nodes.insert(pattern.into(), scope);
-        pending.extend(pattern_node.children().iter().copied());
-    }
-
-    Ok(())
-}
-
 pub(crate) fn local_initialization_bindings<C>(
     request: CheckerUnitView<'_, C>,
     storage: &StoragePlan,

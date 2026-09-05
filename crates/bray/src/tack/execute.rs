@@ -1193,8 +1193,8 @@ mod tests {
     use std::io::{Cursor, Read, Write};
     use std::path::{Path, PathBuf};
     use std::process::ExitCode;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Mutex;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     use bray_diagnostics::DiagnosticKind;
     use bray_testing::assert_goal_state_diagnostic_kind;
@@ -1371,14 +1371,13 @@ mod tests {
 
             self.record(&request);
 
-            if is_test_product
-                && !self.mutated.swap(true, Ordering::SeqCst)
-            {
-                std::fs::write(&self.source, b"module math;\n\nfunc changed() {}\n")
-                    .map_err(|error| ToolExecutionError::StreamIo {
+            if is_test_product && !self.mutated.swap(true, Ordering::SeqCst) {
+                std::fs::write(&self.source, b"module math;\n\nfunc changed() {}\n").map_err(
+                    |error| ToolExecutionError::StreamIo {
                         stream: ToolStream::StandardOutput,
                         error: error.kind(),
-                    })?;
+                    },
+                )?;
             }
 
             Ok(ToolOutput::new(

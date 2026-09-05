@@ -599,7 +599,7 @@ mod tests {
 
         let mut storage = StoragePlanBuilder::new(unit_id, unit.key().kind());
 
-        let (_, argument_access) = push_direct_storage(
+        let (argument_identity, argument_access) = push_direct_storage(
             &mut storage,
             StorageIdentity::Temporary(argument),
             unit.key().source(),
@@ -612,11 +612,21 @@ mod tests {
         };
 
         let capability = capability_kind.map(|kind| {
+            let equivalent_access = storage
+                .push_access(StorageAccess::new(
+                    StorageAccessRoot::Storage(argument_identity),
+                    [],
+                    error_type(),
+                    unit.key().source(),
+                    false,
+                ))
+                .unwrap_or_else(|error| panic!("equivalent owner access must build: {error:?}"));
+
             let id = storage
                 .push_borrow_capability(PlannedBorrowCapability::new(
                     BorrowCapabilityOrigin::Expression(argument),
                     kind,
-                    argument_access,
+                    equivalent_access,
                     None,
                     unit.key().source(),
                     false,

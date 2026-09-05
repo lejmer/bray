@@ -3,10 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::{
     AsyncSuspensionKind, AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind,
     BodyBehaviorCall, BodyBehaviorPhase, BoundBlock, BoundBlockItem, BoundCallResult,
-    BoundCallableTarget, BoundDependencyContractId, BoundExpression, BoundExpressionId,
-    BoundUnitRoot, CheckedAsync, CheckedDependencyContracts, CheckedExpressionTypes,
-    CheckedRefinements, CheckedSemanticSelections, Liveness, SemanticSelection, StorageFlow,
-    StoragePlan,
+    BoundCallableTarget, BoundExpression, BoundExpressionId, BoundUnitRoot, CheckedAsync,
+    CheckedDependencyContracts, CheckedExpressionTypes, CheckedRefinements,
+    CheckedSemanticSelections, Liveness, SemanticSelection, StorageFlow, StoragePlan,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
@@ -16,7 +15,6 @@ use bray_diagnostics::{
 use bray_symbols::{AnyLocalSymbolId, CallableExecution, CallableSignatureQuery, TypeData};
 
 use super::cleanup::scope_exit_plans;
-use super::dependency::retained_suspension_subjects;
 use super::diagnostic::{add_unavailable_await_dependency_diagnostic, await_dependency_failure};
 
 use crate::analysis::{
@@ -126,10 +124,7 @@ where
     let mut task_operations = BTreeMap::new();
     let mut frame_dependencies = BTreeSet::new();
 
-    let mut is_recovered = liveness.is_recovered()
-        || dependencies.is_recovered()
-        || flow.is_recovered()
-        || types.is_recovered();
+    let mut is_recovered = false;
 
     for operation in graph.operations() {
         if request.is_cancelled() {
@@ -182,12 +177,8 @@ where
 
                         (
                             AsyncSuspensionKind::Await { operand },
-                            deferred_dependency_contract(
-                                request,
-                                dependencies,
-                                &local_initializers,
-                                operand,
-                            ),
+                            dependencies
+                                .deferred_expression_through_bindings(request.unit(), operand),
                             calls,
                             request
                                 .view()
@@ -200,8 +191,7 @@ where
                     }
                 };
 
-                let retained = retained_suspension_subjects(
-                    liveness,
+                let retained = liveness.retained_suspension_subjects(
                     dependencies,
                     storage,
                     expression,
@@ -286,16 +276,17 @@ where
         return CheckerOutcome::InfrastructureFailure(error);
     }
 
-    let (scope_exits, cleanup_diagnostics) = match scope_exit_plans(request, storage, flow) {
-        Ok(plans) => plans,
-        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
-        Err(CheckerQueryError::Upstream(error)) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
-    };
+    let (storage_requirements, scope_exits, cleanup_diagnostics) =
+        match scope_exit_plans(request, storage, flow, dependencies) {
+            Ok(plans) => plans,
+            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+            Err(CheckerQueryError::Infrastructure(error)) => {
+                return CheckerOutcome::InfrastructureFailure(error);
+            }
+            Err(CheckerQueryError::Upstream(error)) => {
+                return CheckerOutcome::UpstreamFailure(error);
+            }
+        };
 
     is_recovered |= scope_exits.iter().any(|exit| exit.is_recovered());
 
@@ -307,6 +298,7 @@ where
         frame_dependencies,
         suspensions,
         task_operations.into_values(),
+        storage_requirements,
         scope_exits,
         is_recovered,
     ) {
@@ -452,43 +444,6 @@ fn collect_block_initializers(
             }
             BoundBlockItem::Expression(_) => {}
         }
-    }
-}
-
-fn deferred_dependency_contract<C>(
-    request: CheckerUnitView<'_, C>,
-    dependencies: &CheckedDependencyContracts,
-    local_initializers: &BTreeMap<AnyLocalSymbolId, BoundExpressionId>,
-    expression: BoundExpressionId,
-) -> Option<BoundDependencyContractId>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let mut current = expression;
-    let mut active = BTreeSet::new();
-
-    loop {
-        if let Some(contract) = dependencies.deferred_expression(current) {
-            return Some(contract);
-        }
-
-        if !active.insert(current) {
-            return None;
-        }
-
-        current = match request.view().expression(current)? {
-            BoundExpression::Name(name) => {
-                let bray_bound_tree::BoundReferenceTarget::Local(local) = name.target() else {
-                    return None;
-                };
-
-                *local_initializers.get(&local)?
-            }
-            BoundExpression::PatternReference(reference) => {
-                *local_initializers.get(&AnyLocalSymbolId::from(reference.binding()))?
-            }
-            _ => return None,
-        };
     }
 }
 
@@ -1048,8 +1003,16 @@ mod tests {
         let suspension = include_suspension_state
             .then(|| StorageSuspensionState::new(expressions[1], [], [], [], []));
 
-        let flow = StorageFlow::try_new(unit.unit(), unit.key().kind(), [], suspension, [], false)
-            .unwrap_or_else(|error| panic!("test storage flow must validate: {error:?}"));
+        let flow = StorageFlow::try_new(
+            unit.unit(),
+            unit.key().kind(),
+            [],
+            suspension,
+            [],
+            [],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("test storage flow must validate: {error:?}"));
 
         check_async_analysis(
             request,

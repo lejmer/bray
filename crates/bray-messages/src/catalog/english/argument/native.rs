@@ -5,6 +5,7 @@ mod document;
 mod external;
 mod foreign_query;
 mod linking;
+mod lowering;
 mod product_failure;
 mod product_query;
 mod standard_library;

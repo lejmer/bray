@@ -5,6 +5,7 @@ use bray_base::{shared_slice, sorted_unique_shared_slice};
 use crate::{
     AnyBoundNodeId, BodyBehaviorCall, BoundBlockId, BoundDependencyContractId,
     BoundDependencySubject, BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccessId,
+    StorageIdentityId,
 };
 
 /// A language-defined operation on an owned future or task.
@@ -113,11 +114,157 @@ impl AsyncSuspensionPoint {
     }
 }
 
+/// The ordered cleanup phases selected for one initialized storage identity.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum AsyncCleanupPhases {
+    /// Broadcast cancellation without a later lifecycle operation.
+    Cancellation,
+    /// Resolve lifecycle state without a preceding cancellation broadcast.
+    Lifecycle,
+    /// Broadcast cancellation before resolving lifecycle state.
+    CancellationThenLifecycle,
+}
+
+impl AsyncCleanupPhases {
+    /// Returns whether cleanup starts with task cancellation broadcast.
+    pub const fn includes_cancellation(self) -> bool {
+        matches!(self, Self::Cancellation | Self::CancellationThenLifecycle)
+    }
+
+    /// Returns whether cleanup resolves lifecycle state.
+    pub const fn includes_lifecycle(self) -> bool {
+        matches!(self, Self::Lifecycle | Self::CancellationThenLifecycle)
+    }
+}
+
+/// The exact outcome assigned to one live storage identity at a scope exit.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum AsyncStorageExitDisposition {
+    /// The identity remains owned by an enclosing lexical scope.
+    Retained,
+    /// The identity transfers through the enclosing result or destructor boundary.
+    Transferred,
+    /// The identity was moved in full before the exit.
+    Moved,
+    /// The identity requires no cancellation or lifecycle operation.
+    NoCleanup,
+    /// The identity requires ordered cleanup through its root access.
+    Cleanup {
+        /// The root access used by both cleanup phases.
+        access: StorageAccessId,
+        /// The ordered phases required by the checked type representation.
+        phases: AsyncCleanupPhases,
+    },
+    /// Earlier recovery prevented a complete disposition.
+    Recovered(AsyncStorageExitRecoveryCause),
+}
+
+/// The exact missing analysis that prevented one storage disposition.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum AsyncStorageExitRecoveryCause {
+    /// Storage planning did not publish the identity's root access.
+    UnavailableRootAccess,
+    /// Recovery prevented the checker from deciding the cleanup shape.
+    UnavailableCleanupShape,
+    /// Partial represented storage has no complete codegen-ready cleanup plan.
+    UnavailablePartialCleanup,
+    /// Cleanup dependencies do not admit a complete lifecycle order.
+    UnavailableCleanupOrder,
+}
+
+/// Type-driven cleanup work required when an owned initialized identity leaves its scope.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum AsyncStorageCleanupRequirement {
+    /// The stored type requires no cleanup phase.
+    None,
+    /// The stored type requires these ordered cleanup phases.
+    Cleanup(AsyncCleanupPhases),
+    /// Recovery prevented a complete cleanup requirement.
+    Recovered(AsyncStorageExitRecoveryCause),
+}
+
+/// Independently checked ownership, transfer, and cleanup facts for one live identity.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AsyncStorageRequirement {
+    identity: StorageIdentityId,
+    owner: Option<BoundBlockId>,
+    transfers: bool,
+    cleanup: AsyncStorageCleanupRequirement,
+}
+
+impl AsyncStorageRequirement {
+    /// Creates one checked storage requirement.
+    pub const fn new(
+        identity: StorageIdentityId,
+        owner: Option<BoundBlockId>,
+        transfers: bool,
+        cleanup: AsyncStorageCleanupRequirement,
+    ) -> Self {
+        Self {
+            identity,
+            owner,
+            transfers,
+            cleanup,
+        }
+    }
+
+    /// Returns the storage identity described by this requirement.
+    pub const fn identity(self) -> StorageIdentityId {
+        self.identity
+    }
+
+    /// Returns the lexical scope that owns the identity.
+    pub const fn owner(self) -> Option<BoundBlockId> {
+        self.owner
+    }
+
+    /// Returns whether this identity transfers through its unit boundary.
+    pub const fn transfers(self) -> bool {
+        self.transfers
+    }
+
+    /// Returns the type-driven cleanup requirement.
+    pub const fn cleanup(self) -> AsyncStorageCleanupRequirement {
+        self.cleanup
+    }
+}
+
+/// One live storage identity and its scope-exit disposition.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct AsyncStorageExitDecision {
+    identity: StorageIdentityId,
+    disposition: AsyncStorageExitDisposition,
+}
+
+impl AsyncStorageExitDecision {
+    /// Creates one source-correlated storage disposition.
+    pub const fn new(
+        identity: StorageIdentityId,
+        disposition: AsyncStorageExitDisposition,
+    ) -> Self {
+        Self {
+            identity,
+            disposition,
+        }
+    }
+
+    /// Returns the live storage identity being disposed.
+    pub const fn identity(self) -> StorageIdentityId {
+        self.identity
+    }
+
+    /// Returns the exact checked disposition.
+    pub const fn disposition(self) -> AsyncStorageExitDisposition {
+        self.disposition
+    }
+}
+
 /// The ordered semantic work required when one lexical task scope exits.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct AsyncScopeExitPlan {
     scope: BoundBlockId,
     exit: AnyBoundNodeId,
+    storage: Arc<[AsyncStorageExitDecision]>,
     cancellation_broadcast: Arc<[StorageAccessId]>,
     lifecycle_resolution: Arc<[StorageAccessId]>,
     moved: Arc<[StorageAccessId]>,
@@ -129,6 +276,7 @@ impl AsyncScopeExitPlan {
     pub fn new(
         scope: BoundBlockId,
         exit: AnyBoundNodeId,
+        storage: impl IntoIterator<Item = AsyncStorageExitDecision>,
         cancellation_broadcast: impl IntoIterator<Item = StorageAccessId>,
         lifecycle_resolution: impl IntoIterator<Item = StorageAccessId>,
         moved: impl IntoIterator<Item = StorageAccessId>,
@@ -137,6 +285,7 @@ impl AsyncScopeExitPlan {
         Self {
             scope,
             exit,
+            storage: shared_slice(storage),
             cancellation_broadcast: shared_slice(cancellation_broadcast),
             lifecycle_resolution: shared_slice(lifecycle_resolution),
             moved: sorted_unique_shared_slice(moved),
@@ -152,6 +301,11 @@ impl AsyncScopeExitPlan {
     /// Returns the bound node whose completion or transfer exits the scope.
     pub const fn exit(&self) -> AnyBoundNodeId {
         self.exit
+    }
+
+    /// Returns one disposition for every live identity at this exit.
+    pub fn storage(&self) -> &[AsyncStorageExitDecision] {
+        &self.storage
     }
 
     /// Returns owned storage visited during cancellation broadcast.
@@ -190,6 +344,7 @@ pub struct CheckedAsync {
     frame_dependencies: Arc<[BoundDependencySubject]>,
     suspensions: Arc<[AsyncSuspensionPoint]>,
     task_operations: Arc<[AsyncTaskOperation]>,
+    storage_requirements: Arc<[AsyncStorageRequirement]>,
     scope_exits: Arc<[AsyncScopeExitPlan]>,
     is_recovered: bool,
 }
@@ -202,12 +357,14 @@ impl CheckedAsync {
         frame_dependencies: impl IntoIterator<Item = BoundDependencySubject>,
         suspensions: impl IntoIterator<Item = AsyncSuspensionPoint>,
         task_operations: impl IntoIterator<Item = AsyncTaskOperation>,
+        storage_requirements: impl IntoIterator<Item = AsyncStorageRequirement>,
         scope_exits: impl IntoIterator<Item = AsyncScopeExitPlan>,
         is_recovered: bool,
     ) -> Result<Self, AsyncAnalysisBuildError> {
         let frame_dependencies = sorted_unique_shared_slice(frame_dependencies);
         let suspensions = shared_slice(suspensions);
         let task_operations = shared_slice(task_operations);
+        let storage_requirements = shared_slice(storage_requirements);
         let scope_exits = shared_slice(scope_exits);
 
         if frame_dependencies
@@ -230,9 +387,23 @@ impl CheckedAsync {
             || task_operations
                 .iter()
                 .any(|operation| operation.expression().unit() != unit)
+            || storage_requirements.iter().any(|requirement| {
+                requirement.identity().unit() != unit
+                    || requirement
+                        .owner()
+                        .is_some_and(|owner| owner.unit() != unit)
+            })
             || scope_exits.iter().any(|exit| {
                 exit.scope().unit() != unit
                     || exit.exit().unit() != unit
+                    || exit.storage().iter().any(|decision| {
+                        decision.identity().unit() != unit
+                            || matches!(
+                                decision.disposition(),
+                                AsyncStorageExitDisposition::Cleanup { access, .. }
+                                    if access.unit() != unit
+                            )
+                    })
                     || exit
                         .cancellation_broadcast()
                         .iter()
@@ -250,6 +421,7 @@ impl CheckedAsync {
             frame_dependencies,
             suspensions,
             task_operations,
+            storage_requirements,
             scope_exits,
             is_recovered,
         })
@@ -280,6 +452,11 @@ impl CheckedAsync {
         &self.task_operations
     }
 
+    /// Returns independently checked storage requirements in identity order.
+    pub fn storage_requirements(&self) -> &[AsyncStorageRequirement] {
+        &self.storage_requirements
+    }
+
     /// Returns two-phase cleanup plans in control-flow order.
     pub fn scope_exits(&self) -> &[AsyncScopeExitPlan] {
         &self.scope_exits
@@ -294,7 +471,8 @@ impl CheckedAsync {
 #[cfg(test)]
 mod tests {
     use super::{
-        AsyncScopeExitPlan, AsyncSuspensionKind, AsyncSuspensionPoint, AsyncTaskOperation,
+        AsyncCleanupPhases, AsyncScopeExitPlan, AsyncStorageExitDecision,
+        AsyncStorageExitDisposition, AsyncSuspensionKind, AsyncSuspensionPoint, AsyncTaskOperation,
         AsyncTaskOperationKind, CheckedAsync,
     };
     use crate::{
@@ -324,6 +502,13 @@ mod tests {
         let cleanup = AsyncScopeExitPlan::new(
             BoundBlockId::from_slot(unit, 4),
             BoundBlockId::from_slot(unit, 4).into(),
+            [AsyncStorageExitDecision::new(
+                crate::StorageIdentityId::from_slot(unit, 5),
+                AsyncStorageExitDisposition::Cleanup {
+                    access: storage,
+                    phases: AsyncCleanupPhases::CancellationThenLifecycle,
+                },
+            )],
             [storage],
             [storage],
             [storage],
@@ -336,6 +521,7 @@ mod tests {
             [dependency, dependency],
             [suspension],
             [operation],
+            [],
             [cleanup],
             false,
         )
@@ -346,6 +532,7 @@ mod tests {
         assert_eq!(analysis.suspensions().len(), 1);
         assert_eq!(analysis.scope_exits().len(), 1);
         assert_eq!(analysis.scope_exits()[0].moved(), &[storage]);
+        assert_eq!(analysis.scope_exits()[0].storage().len(), 1);
     }
 
     #[test]

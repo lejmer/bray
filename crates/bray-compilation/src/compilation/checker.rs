@@ -659,6 +659,8 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
                 member.slot(),
                 bray_symbols::TypeAssociatedLifecycleSlot::Finalizer
                     | bray_symbols::TypeAssociatedLifecycleSlot::Destructor
+                    | bray_symbols::TypeAssociatedLifecycleSlot::ScopeEnter
+                    | bray_symbols::TypeAssociatedLifecycleSlot::ScopeExit
             )
         });
 

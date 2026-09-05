@@ -141,13 +141,39 @@ impl StorageSuspensionState {
     }
 }
 
+/// One lexical scope exit proven reachable by checked control flow.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct StorageExitPoint {
+    scope: BoundBlockId,
+    exit: AnyBoundNodeId,
+}
+
+impl StorageExitPoint {
+    /// Creates one lowering-reachable scope exit.
+    pub const fn new(scope: BoundBlockId, exit: AnyBoundNodeId) -> Self {
+        Self { scope, exit }
+    }
+
+    /// Returns the lexical scope being exited.
+    pub const fn scope(self) -> BoundBlockId {
+        self.scope
+    }
+
+    /// Returns the bound node that exits the scope.
+    pub const fn exit(self) -> AnyBoundNodeId {
+        self.exit
+    }
+}
+
 /// Storage and borrow state that remains relevant at one lexical scope exit.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageExitDecision {
     scope: BoundBlockId,
     exit: AnyBoundNodeId,
+    live: Arc<[StorageIdentityId]>,
     initialized: Arc<[StorageIdentityId]>,
     moved: Arc<[StorageAccessId]>,
+    fully_moved: Arc<[StorageIdentityId]>,
     active_borrows: Arc<[BorrowCapabilityId]>,
     is_recovered: bool,
 }
@@ -157,16 +183,20 @@ impl StorageExitDecision {
     pub fn new(
         scope: BoundBlockId,
         exit: AnyBoundNodeId,
+        live: impl IntoIterator<Item = StorageIdentityId>,
         initialized: impl IntoIterator<Item = StorageIdentityId>,
         moved: impl IntoIterator<Item = StorageAccessId>,
+        fully_moved: impl IntoIterator<Item = StorageIdentityId>,
         active_borrows: impl IntoIterator<Item = BorrowCapabilityId>,
         is_recovered: bool,
     ) -> Self {
         Self {
             scope,
             exit,
+            live: sorted_unique_shared_slice(live),
             initialized: sorted_unique_shared_slice(initialized),
             moved: sorted_unique_shared_slice(moved),
+            fully_moved: sorted_unique_shared_slice(fully_moved),
             active_borrows: sorted_unique_shared_slice(active_borrows),
             is_recovered,
         }
@@ -182,6 +212,11 @@ impl StorageExitDecision {
         self.exit
     }
 
+    /// Returns storage live on at least one path reaching this exit.
+    pub fn live(&self) -> &[StorageIdentityId] {
+        &self.live
+    }
+
     /// Returns storage known to remain initialized.
     pub fn initialized(&self) -> &[StorageIdentityId] {
         &self.initialized
@@ -190,6 +225,11 @@ impl StorageExitDecision {
     /// Returns storage accesses whose reached values were moved before this exit.
     pub fn moved(&self) -> &[StorageAccessId] {
         &self.moved
+    }
+
+    /// Returns storage identities known to be fully moved on every incoming path.
+    pub fn fully_moved(&self) -> &[StorageIdentityId] {
+        &self.fully_moved
     }
 
     /// Returns borrows still active at the exit.
@@ -221,6 +261,7 @@ pub struct StorageFlow {
     kind: BoundUnitKind,
     operations: Arc<[StorageOperationDecision]>,
     suspensions: Arc<[StorageSuspensionState]>,
+    reachable_exits: Arc<[StorageExitPoint]>,
     exits: Arc<[StorageExitDecision]>,
     memory_operations: Arc<[MemoryOperationDecision]>,
     checked_memory_operations: Arc<[CheckedMemoryOperation]>,
@@ -234,11 +275,13 @@ impl StorageFlow {
         kind: BoundUnitKind,
         operations: impl IntoIterator<Item = StorageOperationDecision>,
         suspensions: impl IntoIterator<Item = StorageSuspensionState>,
+        reachable_exits: impl IntoIterator<Item = StorageExitPoint>,
         exits: impl IntoIterator<Item = StorageExitDecision>,
         is_recovered: bool,
     ) -> Result<Self, StorageFlowBuildError> {
         let operations = operations.into_iter().collect::<Vec<_>>();
         let mut suspensions = suspensions.into_iter().collect::<Vec<_>>();
+        let reachable_exits = sorted_unique_shared_slice(reachable_exits);
         let exits = exits.into_iter().collect::<Vec<_>>();
 
         if operations.iter().any(|operation| {
@@ -265,19 +308,28 @@ impl StorageFlow {
                     .active_borrows()
                     .iter()
                     .any(|borrow| borrow.unit() != unit)
-        }) || exits.iter().any(|exit| {
-            exit.scope().unit() != unit
-                || exit.exit().unit() != unit
-                || exit
-                    .initialized()
-                    .iter()
-                    .any(|storage| storage.unit() != unit)
-                || exit.moved().iter().any(|access| access.unit() != unit)
-                || exit
-                    .active_borrows()
-                    .iter()
-                    .any(|borrow| borrow.unit() != unit)
-        }) {
+        }) || reachable_exits
+            .iter()
+            .any(|exit| exit.scope().unit() != unit || exit.exit().unit() != unit)
+            || exits.iter().any(|exit| {
+                exit.scope().unit() != unit
+                    || exit.exit().unit() != unit
+                    || exit.live().iter().any(|storage| storage.unit() != unit)
+                    || exit
+                        .initialized()
+                        .iter()
+                        .any(|storage| storage.unit() != unit)
+                    || exit.moved().iter().any(|access| access.unit() != unit)
+                    || exit
+                        .fully_moved()
+                        .iter()
+                        .any(|storage| storage.unit() != unit)
+                    || exit
+                        .active_borrows()
+                        .iter()
+                        .any(|borrow| borrow.unit() != unit)
+            })
+        {
             return Err(StorageFlowBuildError::ForeignUnit);
         }
 
@@ -295,6 +347,7 @@ impl StorageFlow {
             kind,
             operations: shared_slice(operations),
             suspensions: shared_slice(suspensions),
+            reachable_exits,
             exits: shared_slice(exits),
             memory_operations: Arc::from([]),
             checked_memory_operations: Arc::from([]),
@@ -356,6 +409,11 @@ impl StorageFlow {
         &self.suspensions
     }
 
+    /// Returns the exact scope exits proven reachable by checked control flow.
+    pub fn reachable_exits(&self) -> &[StorageExitPoint] {
+        &self.reachable_exits
+    }
+
     /// Returns storage state immediately before one direct-await expression.
     pub fn suspension(&self, expression: BoundExpressionId) -> Option<&StorageSuspensionState> {
         self.suspensions
@@ -394,8 +452,8 @@ impl StorageFlow {
 #[cfg(test)]
 mod tests {
     use super::{
-        StorageExitDecision, StorageFlow, StorageFlowBuildError, StorageOperationDecision,
-        StorageOperationStatus, StorageSuspensionState,
+        StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError,
+        StorageOperationDecision, StorageOperationStatus, StorageSuspensionState,
     };
     use crate::{
         BoundBlockId, BoundExpressionId, BoundUnitId, BoundUnitKind, StorageAccessId,
@@ -422,7 +480,9 @@ mod tests {
             scope,
             scope.into(),
             [storage, storage],
+            [storage, storage],
             [access, access],
+            [storage, storage],
             [],
             false,
         );
@@ -435,6 +495,7 @@ mod tests {
             BoundUnitKind::CallableBody,
             [operation],
             [suspension],
+            [StorageExitPoint::new(scope, scope.into())],
             [exit],
             false,
         )
@@ -451,6 +512,7 @@ mod tests {
 
         assert_eq!(storage_flow.exits()[0].initialized(), &[storage]);
         assert_eq!(storage_flow.exits()[0].moved(), &[access]);
+        assert_eq!(storage_flow.exits()[0].fully_moved(), &[storage]);
         assert!(!storage_flow.is_recovered());
     }
 
@@ -468,7 +530,15 @@ mod tests {
         );
 
         assert_eq!(
-            StorageFlow::try_new(unit, BoundUnitKind::CallableBody, [decision], [], [], true,),
+            StorageFlow::try_new(
+                unit,
+                BoundUnitKind::CallableBody,
+                [decision],
+                [],
+                [],
+                [],
+                true,
+            ),
             Err(StorageFlowBuildError::ForeignUnit)
         );
     }
