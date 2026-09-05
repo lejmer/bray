@@ -496,6 +496,68 @@ impl MirTerminator {
 }
 
 impl MirTerminatorKind {
+    /// Rewrites explicit edges in execution-selection order, leaving implicit result edges intact.
+    pub fn try_for_each_edge_mut<E>(
+        &mut self,
+        mut visit: impl FnMut(&mut MirEdge) -> Result<(), E>,
+    ) -> Result<(), E> {
+        match self {
+            Self::Goto(edge) => visit(edge)?,
+            Self::Branch {
+                then_edge,
+                else_edge,
+                ..
+            } => {
+                visit(then_edge)?;
+                visit(else_edge)?;
+            }
+            Self::PatternBranch {
+                matched, unmatched, ..
+            } => {
+                visit(matched)?;
+                visit(unmatched)?;
+            }
+            Self::Iterate { exhausted, .. } | Self::RangeIterate { exhausted, .. } => {
+                visit(exhausted)?
+            }
+            Self::Switch {
+                cases, otherwise, ..
+            } => {
+                // A rewritten terminator owns its cases independently of any retained snapshot.
+                for case in Arc::make_mut(cases) {
+                    visit(&mut case.edge)?;
+                }
+
+                visit(otherwise)?;
+            }
+            Self::Suspend {
+                resume,
+                cancellation,
+                ..
+            } => {
+                visit(resume)?;
+                visit(&mut cancellation.edge)?;
+            }
+            Self::ForwardRunResult { edges, .. } => {
+                visit(&mut edges.completed)?;
+                visit(&mut edges.panicked.edge)?;
+                visit(&mut edges.cancelled.edge)?;
+            }
+            Self::CheckCallPanic { completed, .. } => visit(completed)?,
+            Self::BeginCleanup(cleanup)
+            | Self::ContinueCleanup(cleanup)
+            | Self::Panic { cleanup, .. }
+            | Self::CancelCurrentRun { cleanup } => visit(&mut cleanup.edge)?,
+            Self::InlineAssembly(_)
+            | Self::Return(_)
+            | Self::Unreachable
+            | Self::PropagatePanic { .. }
+            | Self::PropagateCancellation { .. } => {}
+        }
+
+        Ok(())
+    }
+
     /// Visits every control-flow successor in deterministic operand order.
     pub fn for_each_successor(&self, mut visit: impl FnMut(MirBlockId)) {
         match self {
@@ -676,5 +738,42 @@ mod tests {
         terminator.for_each_successor(|successor| successors.push(successor));
 
         assert_eq!(successors, [normal, first, second]);
+    }
+
+    #[test]
+    fn edge_rewriting_preserves_arguments_and_stops_at_the_first_failure() {
+        let unit = MirUnitId::new(8);
+        let ty = crate::test_support::test_type();
+
+        let argument = MirOperand::Immediate {
+            value: MirImmediateValue::Unit,
+            ty,
+        };
+
+        let first = MirBlockId::from_slot(unit, 1);
+        let second = MirBlockId::from_slot(unit, 2);
+        let replacement = MirBlockId::from_slot(unit, 3);
+
+        let mut terminator = MirTerminatorKind::Branch {
+            condition: argument.clone(),
+            then_edge: crate::MirEdge::new(first, [argument.clone()]),
+            else_edge: crate::MirEdge::new(second, [argument.clone()]),
+        };
+
+        let mut visited = Vec::new();
+
+        let result = terminator.try_for_each_edge_mut(|edge| {
+            visited.push(edge.target());
+            assert_eq!(edge.arguments(), [argument.clone()]);
+            *edge = crate::MirEdge::new(replacement, edge.arguments().iter().cloned());
+
+            Err(first)
+        });
+
+        assert_eq!(result, Err(first));
+        assert_eq!(visited, [first]);
+        let mut successors = Vec::new();
+        terminator.for_each_successor(|block| successors.push(block));
+        assert_eq!(successors, [replacement, second]);
     }
 }

@@ -470,15 +470,13 @@ fn inspection_node(
             ordinal: origin.ordinal().raw(),
         });
 
-    let storage_accesses = match id {
-        AnyBoundNodeId::Expression(expression) => storage
-            .expression_plans(expression)
-            .map(InspectionStoragePlan::from)
-            .collect(),
-        AnyBoundNodeId::Pattern(_) | AnyBoundNodeId::Block(_) | AnyBoundNodeId::CallableBody(_) => {
-            Vec::new()
-        }
-    };
+    let storage_accesses = storage
+        .access_plans()
+        .iter()
+        .copied()
+        .filter(|plan| plan.node() == id)
+        .map(InspectionStoragePlan::from)
+        .collect();
 
     Ok(InspectionBoundNode {
         node_kind: id.kind().as_str(),
@@ -582,10 +580,12 @@ fn push_text_unit(output: &mut String, unit: &InspectionBoundUnit) {
 
     for plan in unit.storage.plans() {
         output.push_str(&format!(
-            "  expression:{} {} -> access:{}\n",
-            plan.expression(),
+            "  {}:{} {} -> access:{} [expression:{}]\n",
+            plan.node_kind(),
+            plan.node(),
             plan.purpose(),
-            plan.access()
+            plan.access(),
+            plan.expression()
         ));
     }
 

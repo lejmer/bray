@@ -167,40 +167,30 @@ impl Compilation {
                     return Err(CodegenPreparationError::UnsupportedType(place.ty()));
                 }
 
-                let binding_context = self.binding_context(cancellation)?;
+                let representation = self.declared_type_representation_with_cancellation(
+                    NamedTypeSymbolId::Struct(*structure),
+                    cancellation,
+                )?;
 
-                let structure = binding_context
-                    .structure(*structure)
-                    .map_err(super::super::super::super::super::binder::binding_query_error)?
-                    .ok_or_else(|| {
-                        ProductQueryFailure::missing(
-                            ProductQueryContext::Symbol((*structure).into()),
-                            ProductDataKind::Symbol,
-                        )
-                    })?;
+                let bray_symbols::DeclaredStorageShape::Structure(members) =
+                    representation.value().storage()
+                else {
+                    return Err(CodegenPreparationError::UnresolvedType(place.ty()));
+                };
 
-                structure
-                    .fields()
+                members
                     .iter()
-                    .map(|field| {
-                        let template = binding_context
-                            .resolve_symbol_query(SymbolQueryRequest::<
-                                bray_symbols::StructFieldTypeQuery,
-                            >::new(*field))
-                            .map_err(
-                                super::super::super::super::super::binder::binding_query_error,
-                            )?;
+                    .enumerate()
+                    .map(|(index, member)| {
+                        let ty =
+                            self.resolve_codegen_type(member.ty(), *substitution, cancellation)?;
 
-                        let ty = self.resolve_codegen_type(
-                            template.value(),
-                            *substitution,
-                            cancellation,
-                        )?;
+                        let projection =
+                            MirProjectionKind::TupleField(u32::try_from(index).map_err(|_| {
+                                CodegenPreparationError::LayoutOverflow(place.ty())
+                            })?);
 
-                        Ok((
-                            MirProjectionKind::Field(bray_ir::MirFieldReference::Struct(*field)),
-                            ty,
-                        ))
+                        Ok((projection, ty))
                     })
                     .collect::<Result<Vec<_>, CodegenPreparationError>>()?
             }

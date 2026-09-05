@@ -87,7 +87,7 @@ impl OperationEffects {
 
         for plan in storage.access_plans() {
             let subject = BoundDependencySubject::StorageAccess(plan.access());
-            let node = AnyBoundNodeId::Expression(plan.expression());
+            let node = plan.node();
             let effect = effects.by_node.entry(node).or_default();
 
             effect.uses.insert(subject);

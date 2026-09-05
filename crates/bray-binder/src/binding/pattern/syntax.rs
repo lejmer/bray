@@ -45,7 +45,7 @@ pub(super) fn pattern_kind(
         BoundPatternKind::NullablePresent
     } else if syntax.has_box() {
         BoundPatternKind::Box
-    } else if syntax.has_dot() {
+    } else if syntax.has_dot() || syntax.has_path() && syntax.has_open_paren() {
         BoundPatternKind::Variant
     } else if syntax.has_open_brace() {
         BoundPatternKind::Product

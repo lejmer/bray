@@ -1,5 +1,6 @@
 mod expression;
 mod model;
+mod partition;
 mod scope;
 mod verify;
 
@@ -9,6 +10,3 @@ pub use verify::VerifiedLoweringPlans;
 pub(crate) use verify::{
     CleanupPlanLookupError, ScopeExitCleanupStatus, dependency_subject_exists,
 };
-
-#[cfg(test)]
-mod tests;

@@ -94,9 +94,7 @@ impl Lowerer<'_> {
         operation: MirOperationKind,
         result_type: TypeId,
     ) -> Result<MirOperand, LoweringError> {
-        let commit = self
-            .builder
-            .push_operation(current, source, operation, Some(result_type))?;
+        let commit = self.push_operation(current, source, operation, Some(result_type))?;
 
         commit
             .result()

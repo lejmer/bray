@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use bray_bound_tree::BoundUnitKind;
 use bray_runtime_interface::RuntimeAbiRole;
-use bray_symbols::{AnySymbolId, TypeId};
+use bray_symbols::AnySymbolId;
 
 use crate::{
     MirAggregateKind, MirAsyncOperation, MirBlockKind, MirCallArgument, MirCallTarget,
@@ -43,7 +43,7 @@ pub(super) fn validate_operation(
             validate_place(unit, destination, block, Some(id))?;
             validate_operand(unit, value, block, Some(id))?;
 
-            if operand_type(unit, value)? != destination.ty() {
+            if unit.operand_type(value)? != destination.ty() {
                 return Err(MirUnitBuildError::StorageTypeMismatch(
                     destination.storage(),
                 ));
@@ -63,7 +63,7 @@ pub(super) fn validate_operation(
         MirOperationKind::NullableQuery(query) => {
             validate_operand(unit, query.operand(), block, Some(id))?;
 
-            if operand_type(unit, query.operand())? != query.operand_type() {
+            if unit.operand_type(query.operand())? != query.operand_type() {
                 return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
             }
         }
@@ -91,10 +91,10 @@ pub(super) fn validate_operation(
         MirOperationKind::Aggregate(aggregate) => {
             let valid_arity = match aggregate.kind() {
                 MirAggregateKind::Tuple | MirAggregateKind::Array => true,
-                MirAggregateKind::RepeatedArray | MirAggregateKind::Range => {
-                    aggregate.operands().len() == 2
+                MirAggregateKind::Range => aggregate.operands().len() == 2,
+                MirAggregateKind::RepeatedArray | MirAggregateKind::NullablePresent => {
+                    aggregate.operands().len() == 1
                 }
-                MirAggregateKind::NullablePresent => aggregate.operands().len() == 1,
             };
 
             if !valid_arity {
@@ -122,7 +122,7 @@ pub(super) fn validate_operation(
             for (operand, ty) in operation.operands().iter().zip(operation.operand_types()) {
                 validate_operand(unit, operand, block, Some(id))?;
 
-                if operand_type(unit, operand)? != *ty {
+                if unit.operand_type(operand)? != *ty {
                     return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
                 }
             }
@@ -311,7 +311,7 @@ fn validate_operation_result(
             return Err(MirUnitBuildError::MissingValue(result));
         };
 
-        if operand_type(unit, operand)? != conversion.source_type()
+        if unit.operand_type(operand)? != conversion.source_type()
             || result.ty() != conversion.target_type()
         {
             return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
@@ -935,23 +935,6 @@ pub(super) fn validate_operand(
     }
 }
 
-pub(super) fn operand_type(
-    unit: &MirUnit,
-    operand: &MirOperand,
-) -> Result<TypeId, MirUnitBuildError> {
-    match operand {
-        MirOperand::Value(value) => {
-            let Some(value) = unit.value(*value) else {
-                return Err(missing_or_foreign_value(unit, *value));
-            };
-
-            Ok(value.ty())
-        }
-        MirOperand::Constant { ty, .. } | MirOperand::Immediate { ty, .. } => Ok(*ty),
-        MirOperand::Copy(place) | MirOperand::Move(place) => Ok(place.ty()),
-    }
-}
-
 pub(super) fn validate_place(
     unit: &MirUnit,
     place: &MirPlace,
@@ -989,6 +972,7 @@ pub(super) fn validate_place(
             | MirProjectionKind::ElementFromEnd(_)
             | MirProjectionKind::Variant(_)
             | MirProjectionKind::ActiveUnionPayloadField { .. }
+            | MirProjectionKind::ActiveUnionPayloadElement { .. }
             | MirProjectionKind::NullableValue
             | MirProjectionKind::OwnedStorage => {}
         }

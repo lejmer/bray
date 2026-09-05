@@ -1,9 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::{
-    AsyncStorageCleanupRequirement, AsyncStorageExitDisposition, AsyncStorageExitRecoveryCause,
-    BoundDependencySubject, BoundUnit, CheckedDependencyContracts, StorageAccessId,
-    StorageExitDecision, StorageIdentityId, StoragePlan,
+    AsyncCleanupGuard, AsyncStorageCleanupRequirement, AsyncStorageExitDisposition,
+    AsyncStorageExitRecoveryCause, BoundDependencySubject, BoundUnit, CheckedDependencyContracts,
+    StorageAccessId, StorageExitDecision, StorageIdentityId, StoragePlan,
 };
 
 impl CheckedDependencyContracts {
@@ -131,7 +131,7 @@ impl CheckedDependencyContracts {
 impl crate::AsyncStorageRequirement {
     /// Derives the exit disposition from independently checked ownership, shape, and flow.
     pub fn exit_disposition(
-        self,
+        &self,
         storage: &StoragePlan,
         exit: &StorageExitDecision,
     ) -> AsyncStorageExitDisposition {
@@ -147,13 +147,12 @@ impl crate::AsyncStorageRequirement {
             return AsyncStorageExitDisposition::Moved;
         }
 
-        let is_partial = !exit.initialized().contains(&self.identity())
-            || exit
-                .moved()
-                .iter()
-                .any(|access| storage.root_identity(*access) == Some(self.identity()));
+        let is_partial = exit.moved().iter().any(|access| {
+            storage.root_identity(*access) == Some(self.identity())
+                && !storage.is_root_access(*access)
+        });
 
-        if is_partial {
+        if is_partial && self.parts().is_none() {
             return match self.cleanup() {
                 AsyncStorageCleanupRequirement::Recovered(cause) => {
                     AsyncStorageExitDisposition::Recovered(cause)
@@ -171,7 +170,17 @@ impl crate::AsyncStorageRequirement {
             AsyncStorageCleanupRequirement::None => AsyncStorageExitDisposition::NoCleanup,
             AsyncStorageCleanupRequirement::Cleanup(phases) => {
                 match storage.root_access(self.identity()) {
-                    Some(access) => AsyncStorageExitDisposition::Cleanup { access, phases },
+                    Some(access) => AsyncStorageExitDisposition::Cleanup {
+                        access,
+                        phases,
+                        guard: if self.parts().is_none()
+                            && exit.initialized().contains(&self.identity())
+                        {
+                            AsyncCleanupGuard::Always
+                        } else {
+                            AsyncCleanupGuard::Initialized
+                        },
+                    },
                     None => AsyncStorageExitDisposition::Recovered(
                         AsyncStorageExitRecoveryCause::UnavailableRootAccess,
                     ),

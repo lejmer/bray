@@ -5,7 +5,8 @@ use bray_base::{shared_slice, sorted_unique_shared_slice};
 use crate::{
     AnyBoundNodeId, BorrowCapabilityId, BoundBlockId, BoundExpressionId, BoundUnitId,
     BoundUnitKind, CheckedMemoryOperation, CheckedMemoryOperations, MemoryOperationDecision,
-    StorageAccessId, StorageAccessPurpose, StorageIdentityId,
+    StorageAccessId, StorageAccessPurpose, StorageIdentityId, StoragePlan, StorageProjection,
+    storage_identity_transfers_at_unit_exit,
 };
 
 /// The checker result for one evaluated storage operation.
@@ -36,6 +37,7 @@ pub enum StorageOperationStatus {
 /// One source-correlated checked storage operation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageOperationDecision {
+    node: AnyBoundNodeId,
     expression: BoundExpressionId,
     purpose: StorageAccessPurpose,
     access: StorageAccessId,
@@ -46,6 +48,7 @@ pub struct StorageOperationDecision {
 impl StorageOperationDecision {
     /// Creates one checked operation decision.
     pub const fn new(
+        node: AnyBoundNodeId,
         expression: BoundExpressionId,
         purpose: StorageAccessPurpose,
         access: StorageAccessId,
@@ -53,6 +56,7 @@ impl StorageOperationDecision {
         status: StorageOperationStatus,
     ) -> Self {
         Self {
+            node,
             expression,
             purpose,
             access,
@@ -61,7 +65,12 @@ impl StorageOperationDecision {
         }
     }
 
-    /// Returns the evaluated expression occurrence.
+    /// Returns the control-flow node where this operation takes effect.
+    pub const fn node(self) -> AnyBoundNodeId {
+        self.node
+    }
+
+    /// Returns the source expression supplying the accessed value.
     pub const fn expression(self) -> BoundExpressionId {
         self.expression
     }
@@ -285,7 +294,8 @@ impl StorageFlow {
         let exits = exits.into_iter().collect::<Vec<_>>();
 
         if operations.iter().any(|operation| {
-            operation.expression().unit() != unit
+            operation.node().unit() != unit
+                || operation.expression().unit() != unit
                 || operation.access().unit() != unit
                 || operation
                     .borrow()
@@ -427,6 +437,28 @@ impl StorageFlow {
         &self.exits
     }
 
+    /// Returns moved represented-part paths at exits that resolve this storage owner.
+    ///
+    /// Retained inner-scope exits and storage transferred out of the unit do not contribute.
+    pub fn cleanup_moved_projections<'a>(
+        &'a self,
+        storage: &'a StoragePlan,
+        identity: StorageIdentityId,
+        owner: Option<BoundBlockId>,
+    ) -> impl Iterator<Item = &'a [StorageProjection]> {
+        let transfers = storage_identity_transfers_at_unit_exit(storage, identity);
+
+        self.exits
+            .iter()
+            .filter(move |exit| owner == Some(exit.scope()) && !transfers)
+            .flat_map(|exit| exit.moved())
+            .filter(move |access| {
+                storage.root_identity(**access) == Some(identity)
+                    && !storage.is_root_access(**access)
+            })
+            .filter_map(move |access| storage.resolved_projections(*access))
+    }
+
     /// Returns memory-operation decisions in bound-expression order.
     pub fn memory_operations(&self) -> &[MemoryOperationDecision] {
         &self.memory_operations
@@ -469,6 +501,7 @@ mod tests {
         let scope = BoundBlockId::from_slot(unit, 0);
 
         let operation = StorageOperationDecision::new(
+            expression.into(),
             expression,
             StorageAccessPurpose::Read,
             access,
@@ -522,6 +555,7 @@ mod tests {
         let foreign = BoundUnitId::new(5);
 
         let decision = StorageOperationDecision::new(
+            BoundExpressionId::from_slot(unit, 0).into(),
             BoundExpressionId::from_slot(unit, 0),
             StorageAccessPurpose::Read,
             StorageAccessId::from_slot(foreign, 0),

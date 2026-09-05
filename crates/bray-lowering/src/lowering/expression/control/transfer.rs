@@ -174,7 +174,7 @@ impl Lowerer<'_> {
                     element_type,
                 )?;
 
-                self.builder.push_operation(
+                self.push_operation(
                     current,
                     Self::retained_source(&source),
                     MirOperationKind::Generator(MirGeneratorOperation::Push { destination, value }),

@@ -1,4 +1,8 @@
 pub(super) const STARTUP_FIXTURE: &str = "xtask/fixtures/native-execution/control-flow.bray";
+pub(super) const GUARDED_ROOT_CLEANUP_FIXTURE: &str =
+    "xtask/fixtures/native-execution/guarded-root-cleanup.bray";
+pub(super) const GUARDED_PART_CLEANUP_FIXTURE: &str =
+    "xtask/fixtures/native-execution/guarded-part-cleanup.bray";
 pub(super) const RANGE_FIXTURE: &str = "xtask/fixtures/native-execution/half-open-range.bray";
 pub(super) const NULLABLE_STATE_FIXTURE: &str =
     "xtask/fixtures/native-execution/nullable-state.bray";

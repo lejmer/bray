@@ -141,7 +141,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             } => {
                 let result = self.operation_result_type(operation)?;
                 let subject_type = self.operand_type(subject)?;
-                let subject = self.operand(subject)?;
+
+                let subject = if *pattern_operation == bray_bound_tree::PatternOperation::Observe {
+                    self.observed_operand(subject)?
+                } else {
+                    self.operand(subject)?
+                };
 
                 Some(self.translate_pattern_projection(
                     subject,

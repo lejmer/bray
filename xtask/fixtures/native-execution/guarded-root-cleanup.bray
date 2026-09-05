@@ -1,0 +1,88 @@
+module guarded_root_cleanup;
+
+struct Counter
+{
+    mut value: i32;
+}
+
+struct Guard
+{
+    mut counter: &mut Counter;
+
+    destruct()
+    {
+        self.counter.value += 1;
+    }
+}
+
+func take(pos guard: Guard) {}
+
+func conditional(pos flag: bool, pos counter: &mut Counter) -> i32
+{
+    let guard: Guard = Guard
+    {
+        counter = counter
+    };
+
+    if flag
+    {
+        take(guard);
+    }
+
+    return 7;
+}
+
+func reinitialized(pos flag: bool, pos first: &mut Counter, pos second: &mut Counter) -> i32
+{
+    let mut guard: Guard = Guard
+    {
+        counter = first
+    };
+
+    if flag
+    {
+        take(guard);
+
+        guard = Guard
+        {
+            counter = second
+        };
+    }
+
+    return 9;
+}
+
+func main() -> i32
+{
+    let mut first: Counter = Counter
+    {
+        value = 0
+    };
+
+    let mut second: Counter = Counter
+    {
+        value = 0
+    };
+
+    if conditional(false, &mut first) != 7 || first.value != 1
+    {
+        return 1;
+    }
+
+    if conditional(true, &mut first) != 7 || first.value != 2
+    {
+        return 2;
+    }
+
+    if reinitialized(false, &mut first, &mut second) != 9 || first.value != 3 || second.value != 0
+    {
+        return 3;
+    }
+
+    if reinitialized(true, &mut first, &mut second) != 9 || first.value != 4 || second.value != 1
+    {
+        return 4;
+    }
+
+    return 0;
+}

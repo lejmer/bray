@@ -183,7 +183,7 @@ impl ControlFlowGraphAssembler {
         )
     }
 
-    fn push_operation(&mut self, block: AnalysisBlockId, kind: AnalysisOperationKind) {
+    pub(super) fn push_operation(&mut self, block: AnalysisBlockId, kind: AnalysisOperationKind) {
         let Some(id) = AnalysisOperationId::try_from_index(self.unit, self.operations.len()) else {
             return;
         };

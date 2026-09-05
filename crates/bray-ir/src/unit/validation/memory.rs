@@ -2,7 +2,7 @@ use bray_bound_tree::CheckedMemoryOperationKind;
 
 use crate::{MirMemoryOperation, MirOperationId, MirUnit, MirUnitBuildError};
 
-use super::operation::{operand_type, validate_operand};
+use super::operation::validate_operand;
 
 pub(super) fn validate_memory_operation(
     unit: &MirUnit,
@@ -23,7 +23,7 @@ pub(super) fn validate_memory_operation(
     for (operand, expected_type) in memory.operands().iter().zip(memory.operand_types()) {
         validate_operand(unit, operand, block, Some(operation))?;
 
-        if operand_type(unit, operand)? != *expected_type {
+        if unit.operand_type(operand)? != *expected_type {
             return Err(MirUnitBuildError::InvalidMemoryOperation(operation));
         }
     }

@@ -56,7 +56,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 }
             }
             MirAggregateKind::RepeatedArray => {
-                let [element, _count] = aggregate.operands() else {
+                let [element] = aggregate.operands() else {
                     return Err(CodegenFailure::GeneratedModuleInvariant);
                 };
 
@@ -277,13 +277,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .type_mapping(result)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let CodegenTypeKind::Union { tag, variants } = mapping.kind() else {
+        let CodegenTypeKind::Union { tag, .. } = mapping.kind() else {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        let variant = variants
-            .iter()
-            .find(|layout| layout.variant() == variant)
+        let variant = mapping
+            .kind()
+            .union_variant(variant)
             .cloned()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
@@ -492,13 +492,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .type_mapping(subject_type)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let CodegenTypeKind::Union { variants, .. } = mapping.kind() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
-
-        let layout = variants
-            .iter()
-            .find(|layout| layout.variant() == variant)
+        let layout = mapping
+            .kind()
+            .union_variant(variant)
             .and_then(|layout| layout.payload_field(field))
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 

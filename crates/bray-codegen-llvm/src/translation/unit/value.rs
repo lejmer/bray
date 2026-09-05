@@ -33,13 +33,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 }
             }
             MirOperand::Copy(place) => {
-                let pointer = self.place(place)?;
-
-                let value = llvm(self.builder.build_load(
-                    self.types.map(place.ty())?,
-                    pointer,
-                    "load",
-                ))?;
+                let value = self.observed_operand(operand)?;
 
                 self.retain_copied_value(value, place.ty())?;
 
@@ -59,6 +53,22 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             MirOperand::Constant { value, ty } => self.constant_as(*value, *ty),
         }
+    }
+
+    pub(super) fn observed_operand(
+        &mut self,
+        operand: &MirOperand,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let MirOperand::Copy(place) = operand else {
+            return self.operand(operand);
+        };
+
+        let pointer = self.place(place)?;
+
+        llvm(
+            self.builder
+                .build_load(self.types.map(place.ty())?, pointer, "load"),
+        )
     }
 
     fn constant_as(
@@ -606,13 +616,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .type_mapping(ty)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let CodegenTypeKind::Union { tag, variants } = mapping.kind() else {
+        let CodegenTypeKind::Union { tag, .. } = mapping.kind() else {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        let variant = variants
-            .iter()
-            .find(|layout| layout.variant() == variant)
+        let variant = mapping
+            .kind()
+            .union_variant(variant)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let llvm_type = self.types.map(ty)?;
@@ -749,7 +759,7 @@ mod tests {
         let backend = LlvmCodeGenerator::try_new()
             .unwrap_or_else(|error| panic!("LLVM backend must initialize: {error:?}"));
 
-        let fixture = copied_composite_fixture(&backend);
+        let fixture = copied_composite_fixture(&backend, false);
         let context = Context::create();
 
         let (_, module) = backend
@@ -763,6 +773,24 @@ mod tests {
         assert!(ir.contains("switch i8 %copy.union.tag"), "{ir}");
         assert!(ir.contains("copy.union.variant.0"), "{ir}");
         assert!(ir.contains("copy.union.variant.1"), "{ir}");
+        assert!(module.verify().is_ok(), "{ir}");
+    }
+
+    #[test]
+    fn structural_pattern_tests_do_not_retain_observed_payloads() {
+        let backend = LlvmCodeGenerator::try_new().unwrap();
+        let fixture = copied_composite_fixture(&backend, true);
+        let context = Context::create();
+
+        let (_, module) = backend
+            .prepare_module(fixture.request(), &context)
+            .unwrap()
+            .unwrap();
+
+        let ir = module.print_to_string().to_string();
+
+        assert_eq!(ir.matches("atomicrmw add").count(), 4, "{ir}");
+        assert!(ir.contains("pattern.union.active"), "{ir}");
         assert!(module.verify().is_ok(), "{ir}");
     }
 
@@ -1023,6 +1051,7 @@ mod tests {
 
     fn copied_composite_fixture(
         backend: &LlvmCodeGenerator,
+        test_patterns: bool,
     ) -> bray_codegen::test_support::CodegenRequestFixture {
         let target = codegen_target();
         let types = composite_types();
@@ -1039,6 +1068,8 @@ mod tests {
             .push_block(source.clone(), MirBlockKind::Ordinary)
             .unwrap_or_else(|error| panic!("copy test block must build: {error:?}"));
 
+        let mut current = entry;
+
         for ty in [types.nullable, types.tuple, types.union] {
             let source_storage = builder
                 .push_storage(source.clone(), MirStorageKind::Local, ty)
@@ -1050,7 +1081,7 @@ mod tests {
 
             builder
                 .push_operation(
-                    entry,
+                    current,
                     source.clone(),
                     MirOperationKind::Store {
                         kind: MirStoreKind::Initialize,
@@ -1066,7 +1097,7 @@ mod tests {
 
             builder
                 .push_operation(
-                    entry,
+                    current,
                     source.clone(),
                     MirOperationKind::Store {
                         kind: MirStoreKind::Initialize,
@@ -1076,10 +1107,39 @@ mod tests {
                     None,
                 )
                 .unwrap_or_else(|error| panic!("composite copy must build: {error:?}"));
+
+            if test_patterns && ty != types.tuple {
+                let next = builder
+                    .push_block(source.clone(), MirBlockKind::Ordinary)
+                    .unwrap();
+
+                let predicate = if ty == types.nullable {
+                    bray_ir::MirPatternPredicate::NullablePresent
+                } else {
+                    bray_ir::MirPatternPredicate::ActiveUnionVariant(
+                        UnionVariantSymbolId::from_symbol_id(SymbolId::new(1)),
+                    )
+                };
+
+                builder
+                    .set_terminator(
+                        current,
+                        source.clone(),
+                        MirTerminatorKind::PatternBranch {
+                            subject: MirOperand::Copy(MirPlace::new(source_storage, [], ty)),
+                            predicate,
+                            matched: bray_ir::MirEdge::new(next, []),
+                            unmatched: bray_ir::MirEdge::new(next, []),
+                        },
+                    )
+                    .unwrap();
+
+                current = next;
+            }
         }
 
         builder
-            .set_terminator(entry, source.clone(), MirTerminatorKind::Return(None))
+            .set_terminator(current, source.clone(), MirTerminatorKind::Return(None))
             .unwrap_or_else(|error| panic!("copy test return must build: {error:?}"));
 
         let mir = builder

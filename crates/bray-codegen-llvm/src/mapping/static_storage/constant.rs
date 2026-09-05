@@ -432,13 +432,13 @@ fn static_union<'context>(
 ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
     let mapping = type_mapping(owner, representation, mappings)?;
 
-    let CodegenTypeKind::Union { tag, variants } = mapping.kind() else {
+    let CodegenTypeKind::Union { tag, .. } = mapping.kind() else {
         return Err(CodegenFailure::GeneratedModuleInvariant);
     };
 
-    let variant = variants
-        .iter()
-        .find(|variant| variant.variant() == selected)
+    let variant = mapping
+        .kind()
+        .union_variant(selected)
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     let mut values = Vec::new();

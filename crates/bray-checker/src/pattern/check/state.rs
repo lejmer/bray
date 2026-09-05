@@ -574,19 +574,19 @@ where
     {
         let mut matched = subject;
 
-        loop {
-            let data = self
-                .request
-                .semantic_values()
-                .type_data(matched.ty)
-                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+        matched.ty = self
+            .request
+            .semantic_values()
+            .unborrowed_type(matched.ty)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
-            let TypeData::Borrow { target, .. } = data.as_ref() else {
-                return Ok((matched, data));
-            };
+        let data = self
+            .request
+            .semantic_values()
+            .type_data(matched.ty)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
-            matched.ty = *target;
-        }
+        Ok((matched, data))
     }
 
     fn pattern_target(

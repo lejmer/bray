@@ -394,6 +394,14 @@ where
         state: &mut StorageFlowState,
         operation: &AnalysisOperation,
     ) {
+        if let AnalysisOperationKind::PatternObservation(pattern) = operation.kind() {
+            state
+                .observed_pattern_bindings
+                .extend(self.input.definitions(pattern.into()));
+
+            return;
+        }
+
         if let AnalysisOperationKind::Suspension { expression, .. } = operation.kind() {
             self.record_suspension(state, expression);
         }
@@ -558,7 +566,11 @@ where
             }
         }
 
-        if requires_value && !pattern_establishes_projection && !state.initialized.contains(&root) {
+        if requires_value
+            && !pattern_establishes_projection
+            && !state.initialized.contains(&root)
+            && !state.observed_pattern_bindings.contains(&root)
+        {
             return Ok(StorageOperationOutcome::status(
                 StorageOperationStatus::Uninitialized,
             ));
@@ -612,16 +624,14 @@ where
             StorageAccessPurpose::Move => {
                 state.moved.insert(plan.access(), plan.expression());
 
-                if self.move_consumes_complete_storage(plan.access())?
+                if self.storage.is_root_access(plan.access())
+                    && self
+                        .storage
+                        .access(plan.access())
+                        .is_some_and(|access| access.root().borrow_capability().is_none())
                     && let Some(root) = self.storage.root_identity(plan.access())
                 {
                     state.move_complete_storage(root);
-                }
-
-                if self.move_consumes_complete_union_payload(plan.access())
-                    && let Some(root) = self.root_access_for(plan.access())
-                {
-                    state.moved.insert(root, plan.expression());
                 }
             }
             StorageAccessPurpose::Initialize | StorageAccessPurpose::Assignment => {
@@ -683,102 +693,12 @@ where
             })
     }
 
-    fn move_consumes_complete_union_payload(&self, access: StorageAccessId) -> bool {
-        let Some([StorageProjection::ActiveUnionPayloadField { variant, .. }]) =
-            self.storage.resolved_projections(access)
-        else {
-            return false;
-        };
-
-        self.request
-            .symbols()
-            .union_variant(*variant)
-            .is_some_and(|variant| variant.payload_fields().len() == 1)
-    }
-
-    fn move_consumes_complete_storage(
-        &self,
-        access: StorageAccessId,
-    ) -> Result<bool, CheckerQueryError<C::UpstreamError>> {
-        let Some(access_record) = self.storage.access(access) else {
-            return Ok(false);
-        };
-
-        if access_record.root().borrow_capability().is_some() {
-            return Ok(false);
-        }
-
-        if self.storage.is_root_access(access) {
-            return Ok(true);
-        }
-
-        let Some(projections) = self.storage.resolved_projections(access) else {
-            return Ok(false);
-        };
-
-        let Some(root_type) = self
-            .storage
-            .root_identity(access)
-            .and_then(|root| self.storage.storage_type(root))
-        else {
-            return Ok(false);
-        };
-
-        let data = self
-            .request
-            .semantic_values()
-            .type_data(root_type)
-            .map_err(|error| {
-                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
-                    error,
-                ))
-            })?;
-
-        if let bray_symbols::TypeData::Named { definition, .. } = data.as_ref() {
-            let lifecycle = self.request.declared_type_has_lifecycle(*definition)?;
-
-            // A member transfer leaves the containing value's own lifecycle obligation behind.
-            if *lifecycle.value() || lifecycle.diagnostics().has_errors() {
-                return Ok(false);
-            }
-        } else if !matches!(data.as_ref(), bray_symbols::TypeData::Tuple(_)) {
-            return Ok(false);
-        }
-
-        if self.move_consumes_complete_union_payload(access) {
-            return Ok(true);
-        }
-
-        if let [StorageProjection::ProductField(field)] = projections {
-            let symbols = self.request.symbols();
-
-            let consumes_complete_product = symbols
-                .struct_field(*field)
-                .and_then(|field| symbols.structure(field.structure()))
-                .is_some_and(|structure| structure.fields().len() == 1);
-
-            return Ok(consumes_complete_product);
-        }
-
-        let [StorageProjection::TupleElement(element)] = projections else {
-            return Ok(false);
-        };
-
-        Ok(matches!(
-            data.as_ref(),
-            bray_symbols::TypeData::Tuple(elements)
-                if elements.len() == 1 && element.raw() == 0
-        ))
-    }
-
-    fn root_access_for(&self, access: StorageAccessId) -> Option<StorageAccessId> {
-        let identity = self.storage.root_identity(access)?;
-
-        self.storage.root_access(identity)
-    }
-
     fn initialize_operation_storage(&self, state: &mut StorageFlowState, node: AnyBoundNodeId) {
         let definitions = self.input.definitions(node);
+
+        state
+            .observed_pattern_bindings
+            .retain(|identity| !definitions.contains(identity));
 
         state.moved.retain(|access, _| {
             self.storage
@@ -1243,6 +1163,7 @@ where
     fn decisions(&self) -> impl Iterator<Item = StorageOperationDecision> + '_ {
         self.storage.access_plans().iter().copied().map(|plan| {
             StorageOperationDecision::new(
+                plan.node(),
                 plan.expression(),
                 self.effective_purpose(plan),
                 plan.access(),

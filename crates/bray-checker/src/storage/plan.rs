@@ -89,7 +89,7 @@ where
     };
 
     match planner.plan() {
-        Ok(plan) => CheckerOutcome::without_diagnostics(plan),
+        Ok(plan) => CheckerOutcome::complete(plan, planner.diagnostics),
         Err(PlanError::Cancelled) => CheckerOutcome::Cancelled,
         Err(PlanError::Infrastructure(error)) => CheckerOutcome::InfrastructureFailure(error),
         Err(PlanError::Upstream(error)) => CheckerOutcome::UpstreamFailure(error),
@@ -107,6 +107,7 @@ where
     pub(super) selections: &'view CheckedSemanticSelections,
     pub(super) iterations: BTreeMap<BoundExpressionId, &'view SelectedIterationSource>,
     pub(super) builder: Option<StoragePlanBuilder>,
+    pub(super) diagnostics: bray_diagnostics::DiagnosticBag,
     pub(super) expression_accesses: BTreeMap<BoundExpressionId, StorageAccessId>,
     pub(super) planned_blocks: BTreeSet<BoundBlockId>,
     pub(super) planned_patterns: BTreeSet<BoundPatternId>,
@@ -202,6 +203,7 @@ where
                 })
                 .collect(),
             builder: Some(builder),
+            diagnostics: bray_diagnostics::DiagnosticBag::new(),
             expression_accesses: BTreeMap::new(),
             planned_blocks: BTreeSet::new(),
             planned_patterns: BTreeSet::new(),
@@ -669,7 +671,7 @@ where
         };
 
         self.builder_mut()?
-            .plan_access(expression, purpose, access)
+            .plan_access(expression.into(), expression, purpose, access)
             .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
     }
 

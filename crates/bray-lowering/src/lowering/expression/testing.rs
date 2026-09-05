@@ -47,7 +47,8 @@ impl Lowerer<'_> {
             conversion,
         )?;
 
-        let report_type = self.panic_report_type()?;
+        let report_type =
+            self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
 
         let report = self.push_panic_report(
             expression,

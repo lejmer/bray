@@ -174,6 +174,16 @@ impl MirUnitBuilder {
         Ok(id)
     }
 
+    /// Returns the category of a block already allocated by this builder.
+    pub fn block_kind(&self, block: MirBlockId) -> Result<MirBlockKind, MirUnitBuildError> {
+        Ok(self.blocks[self.block_index(block)?].kind)
+    }
+
+    /// Resolves the type of an operand while its unit is still being built.
+    pub fn operand_type(&self, operand: &crate::MirOperand) -> Result<TypeId, MirUnitBuildError> {
+        super::model::resolve_operand_type(self.unit, &self.values, operand)
+    }
+
     /// Adds one incoming block value in parameter order.
     pub fn push_block_parameter(
         &mut self,
@@ -490,6 +500,48 @@ mod tests {
     }
 
     #[test]
+    fn builder_lookups_distinguish_foreign_and_missing_values() {
+        let bound = test_bound_unit(96);
+        let source = MirSourceAnchor::from(bound.key().source());
+        let ty = crate::test_support::test_type();
+        let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
+
+        let entry = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        let value = builder.push_block_parameter(entry, source, ty).unwrap();
+        assert_eq!(builder.block_kind(entry), Ok(MirBlockKind::Ordinary));
+        assert_eq!(builder.operand_type(&MirOperand::Value(value)), Ok(ty));
+        let foreign = crate::MirValueId::from_slot(crate::MirUnitId::new(97), 0);
+        let missing = crate::MirValueId::from_slot(entry.unit(), 10);
+
+        assert_eq!(
+            builder.operand_type(&MirOperand::Value(foreign)),
+            Err(MirUnitBuildError::ForeignValue(foreign))
+        );
+
+        assert_eq!(
+            builder.operand_type(&MirOperand::Value(missing)),
+            Err(MirUnitBuildError::MissingValue(missing))
+        );
+
+        for operand in [
+            MirOperand::Immediate {
+                value: MirImmediateValue::Unit,
+                ty,
+            },
+            MirOperand::Copy(MirPlace::new(
+                crate::MirStorageId::from_slot(entry.unit(), 0),
+                [],
+                ty,
+            )),
+        ] {
+            assert_eq!(builder.operand_type(&operand), Ok(ty));
+        }
+    }
+
+    #[test]
     fn builders_report_completed_incoming_edges() {
         let bound = test_bound_unit(28);
         let source = MirSourceAnchor::from(bound.key().source());
@@ -731,38 +783,49 @@ mod tests {
     }
 
     #[test]
-    fn builders_reject_repeated_arrays_without_value_and_count_operands() {
+    fn repeated_arrays_require_one_value_operand_and_no_count_operand() {
         let bound = test_bound_unit(12);
         let source = MirSourceAnchor::from(bound.key().source());
         let ty = crate::test_support::test_type();
-
-        let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
-        let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
 
         let operand = MirOperand::Immediate {
             value: MirImmediateValue::Unit,
             ty,
         };
 
-        let operation = match builder.push_operation(
-            entry,
-            source.clone(),
-            MirOperationKind::Aggregate(MirAggregate::new(
-                MirAggregateKind::RepeatedArray,
-                [operand],
-            )),
-            Some(ty),
-        ) {
-            Ok(operation) => operation.operation(),
-            Err(error) => panic!("test MIR operation must commit before validation: {error:?}"),
-        };
+        for count in 0..=2 {
+            let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
+            let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
 
-        set_terminator(&mut builder, entry, source, MirTerminatorKind::Return(None));
+            let operation = match builder.push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::Aggregate(MirAggregate::new(
+                    MirAggregateKind::RepeatedArray,
+                    std::iter::repeat_n(operand.clone(), count),
+                )),
+                Some(ty),
+            ) {
+                Ok(operation) => operation.operation(),
+                Err(error) => panic!("test MIR operation must commit before validation: {error:?}"),
+            };
 
-        assert_eq!(
-            builder.finish(entry),
-            Err(MirUnitBuildError::InvalidAggregateOperation(operation))
-        );
+            set_terminator(
+                &mut builder,
+                entry,
+                source.clone(),
+                MirTerminatorKind::Return(None),
+            );
+
+            if count == 1 {
+                assert!(builder.finish(entry).is_ok());
+            } else {
+                assert_eq!(
+                    builder.finish(entry),
+                    Err(MirUnitBuildError::InvalidAggregateOperation(operation))
+                );
+            }
+        }
     }
 
     #[test]

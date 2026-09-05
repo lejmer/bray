@@ -84,14 +84,10 @@ impl Compilation {
                         ty,
                     ));
                 } else {
-                    let mapping = match mapping.layout() {
-                        Some(layout) => {
-                            CodegenTypeMapping::new(template, layout, mapping.kind().clone())
-                        }
-                        None => CodegenTypeMapping::new_unsized(template, mapping.kind().clone()),
-                    }
-                    .with_backend_type(ty)
-                    .with_behavior(mapping.behavior());
+                    let mapping = mapping
+                        .representation_for(template)
+                        .with_backend_type(ty)
+                        .with_behavior(mapping.behavior());
 
                     mappings.insert(template, mapping);
                 }
@@ -378,16 +374,40 @@ impl Compilation {
                 pending,
             )?,
             TypeData::OwnedIndirection {
-                target: pointee, ..
-            } => self.codegen_indirection_type(
-                ty,
-                *pointee,
-                None,
-                target,
-                cancellation,
-                mappings,
-                pending,
-            )?,
+                storage,
+                target: pointee,
+            } => {
+                let pointee_data = values
+                    .type_data(*pointee)
+                    .map_err(FactQueryError::SemanticValueStore)?;
+
+                if matches!(
+                    pointee_data.as_ref(),
+                    TypeData::Slice(_) | TypeData::TraitView(_)
+                ) {
+                    self.codegen_indirection_type(
+                        ty,
+                        *pointee,
+                        None,
+                        target,
+                        cancellation,
+                        mappings,
+                        pending,
+                    )?
+                } else {
+                    self.codegen_type(*storage, target, cancellation, mappings, pending)?;
+
+                    let policy = mappings
+                        .get(storage)
+                        .ok_or(CodegenPreparationError::UnresolvedType(*storage))?;
+
+                    if policy.layout().is_none() {
+                        return Err(CodegenPreparationError::UnsizedTypeByValue(*storage));
+                    }
+
+                    policy.representation_for(ty)
+                }
+            }
             TypeData::Callable(callable) => {
                 let signature = callable_type_signature(self, callable)?;
 
@@ -446,10 +466,7 @@ impl Compilation {
                     return Err(CodegenPreparationError::UnresolvedType(ty));
                 }
 
-                match mapping.layout() {
-                    Some(layout) => CodegenTypeMapping::new(ty, layout, mapping.kind().clone()),
-                    None => CodegenTypeMapping::new_unsized(ty, mapping.kind().clone()),
-                }
+                mapping.representation_for(ty).with_backend_type(ty)
             }
             TypeData::Error
             | TypeData::TypeParameter(_)

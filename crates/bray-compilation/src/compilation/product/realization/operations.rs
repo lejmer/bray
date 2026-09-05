@@ -1,6 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_binder::BindingQueryContext;
 use bray_codegen::{
     CodegenCallSite, CodegenHelperMapping, CodegenInstance, CodegenOperationMapping,
     CodegenSymbolKey, CodegenSymbolMapping, CodegenTarget, CodegenTypeMapping, CodegenUnit,
@@ -13,10 +12,7 @@ use bray_ir::{
     MirUnitId, MirUnitKey,
 };
 use bray_runtime_interface::RuntimeAbiRole;
-use bray_symbols::{
-    AnySymbolId, BorrowKind, CallableDefinitionId, SymbolKeyData, TypeAssociatedLifecycleSlot,
-    TypeData, TypeId,
-};
+use bray_symbols::{BorrowKind, TypeAssociatedLifecycleSlot, TypeData, TypeId};
 
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
@@ -242,10 +238,13 @@ impl Compilation {
                 )?
             }
             MirHelperReference::ConstructionDefault(provider) => self
-                .concrete_codegen_runtime_default(
+                .concrete_codegen_construction_default(
                     owner,
-                    provider.symbol(),
-                    reference,
+                    operation_id,
+                    operation,
+                    operation_result_type,
+                    *provider,
+                    target,
                     cancellation,
                 )?,
             MirHelperReference::TypeForm(callable) | MirHelperReference::Conversion(callable) => {
@@ -317,114 +316,6 @@ impl Compilation {
             | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => reference.clone(),
         })
-    }
-
-    pub(super) fn concrete_codegen_runtime_default(
-        &self,
-        owner: &ConcreteCodegenInstance,
-        provider: AnySymbolId,
-        reference: &MirHelperReference,
-        cancellation: &CancellationToken,
-    ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
-        if let Some(unit) = self.runtime_default_unit(provider)? {
-            return self.concrete_codegen_bound_helper(owner, unit);
-        }
-
-        let binding_context = self.binding_context(cancellation)?;
-
-        let key = binding_context
-            .symbol_key(provider)
-            .map_err(super::super::super::binder::binding_query_error)?
-            .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))?;
-
-        if !matches!(key.data(), SymbolKeyData::External(_)) {
-            return Err(CodegenPreparationError::MissingHelperInstance(
-                reference.clone(),
-            ));
-        }
-
-        let Some(address) = binding_context
-            .imported_semantic_address(provider)
-            .map_err(super::super::super::binder::binding_query_error)?
-        else {
-            return Err(CodegenPreparationError::MissingHelperInstance(
-                reference.clone(),
-            ));
-        };
-
-        let template = self.imported_executable_template_with_cancellation(
-            crate::fact::ImportedExecutableTemplateAddress::root(address),
-            cancellation,
-        )?;
-
-        if template.value().is_none() {
-            return Err(CodegenPreparationError::Diagnostics(
-                template.diagnostics().clone(),
-            ));
-        }
-
-        ConcreteCodegenInstance::imported_runtime_default(owner, provider).ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::Symbol(provider),
-                ProductDataKind::ConcreteInstance,
-            )
-            .into()
-        })
-    }
-
-    pub(super) fn runtime_default_unit(
-        &self,
-        provider: AnySymbolId,
-    ) -> Result<Option<bray_bound_tree::BoundUnitKey>, CodegenPreparationError> {
-        let symbols = self.symbol_graph()?;
-
-        let Some(provider) = symbols.symbol_key(provider) else {
-            return Ok(None);
-        };
-
-        Ok(self.declared_unit_keys()?.into_iter().find(|unit| {
-            unit.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault
-                && unit.declared_owner() == provider
-        }))
-    }
-
-    pub(in crate::compilation::product) fn concrete_codegen_callable_defaults(
-        &self,
-        callable: CallableDefinitionId,
-        owner: &ConcreteCodegenInstance,
-    ) -> Result<Vec<ConcreteCodegenInstance>, CodegenPreparationError> {
-        let symbols = self.symbol_graph()?;
-
-        let (parameters, _) = symbols
-            .callable_parameters_and_receiver(callable.callable_symbol())
-            .ok_or_else(|| {
-                ProductQueryFailure::missing(
-                    ProductQueryContext::CallableDefinition(callable),
-                    ProductDataKind::CallableParameters,
-                )
-            })?;
-
-        let mut defaults = Vec::new();
-
-        for parameter in parameters {
-            let Some(provider) = symbols
-                .callable_parameter(*parameter)
-                .and_then(bray_symbols::CallableParameterSymbol::default_provider)
-            else {
-                continue;
-            };
-
-            let unit = self.runtime_default_unit(provider.into())?.ok_or_else(|| {
-                ProductQueryFailure::missing(
-                    ProductQueryContext::Symbol(provider.into()),
-                    ProductDataKind::RuntimeDefaultUnit,
-                )
-            })?;
-
-            defaults.push(self.concrete_codegen_bound_helper(owner, unit)?);
-        }
-
-        Ok(defaults)
     }
 
     pub(super) fn frame_creation_symbol(

@@ -1496,6 +1496,78 @@ mod tests {
     }
 
     #[test]
+    fn trusted_trait_implementations_must_stay_within_the_capability_envelope() {
+        for (required, provided, valid) in [
+            ("uses(raw_memory, unchecked_init)", "", true),
+            (
+                "uses(raw_memory, unchecked_init)",
+                "uses(unchecked_init)",
+                true,
+            ),
+            (
+                "uses(raw_memory, unchecked_init)",
+                "uses(unchecked_init, raw_memory)",
+                true,
+            ),
+            ("uses(raw_memory)", "uses(raw_memory)", true),
+            ("uses(raw_memory)", "uses(unchecked_init)", false),
+            (
+                "uses(raw_memory)",
+                "uses(raw_memory, unchecked_init)",
+                false,
+            ),
+            ("", "uses(raw_memory)", false),
+        ] {
+            for execution in ["", "async "] {
+                let raw = if provided.contains("raw_memory") {
+                    "let _: i32 = trusted core.memory.read<i32>(pointer);"
+                } else {
+                    ""
+                };
+
+                let initialization = if provided.contains("unchecked_init") {
+                    "let _: i32 = trusted core.memory.move_initialized<i32>(storage);"
+                } else {
+                    ""
+                };
+
+                let source = format!(
+                    "trusted module app; struct Holder {{}} \
+                     trait Provides {{ trusted {execution}func get(\
+                     pos pointer: RawPointer<i32>, pos storage: &mut Uninit<i32>) {required}; }} \
+                     impl Holder(Provides) {{ trusted {execution}func get(\
+                     pos pointer: RawPointer<i32>, pos storage: &mut Uninit<i32>) {provided} \
+                     {{ {raw} {initialization} }} }}"
+                );
+
+                let compilation = compilation(&source);
+
+                let result = compilation
+                    .trait_implementation_conformance(source_implementation(&compilation))
+                    .expect("capability envelope conformance must publish");
+
+                assert_eq!(result.value().is_valid(), valid, "{source}");
+
+                let kinds = result
+                    .diagnostics()
+                    .iter()
+                    .map(|diagnostic| diagnostic.kind())
+                    .collect::<Vec<_>>();
+
+                assert_eq!(
+                    kinds,
+                    if valid {
+                        vec![]
+                    } else {
+                        vec![DiagnosticKind::CheckingIncompatibleTraitFulfillment]
+                    },
+                    "{source}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn missing_extra_and_incompatible_fulfillments_are_distinct() {
         let compilation = compilation(concat!(
             "module app;\n",

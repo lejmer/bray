@@ -11,11 +11,11 @@ use super::buffer::{
 use super::built_fixture::BuiltFixture;
 use super::fixtures::{
     ABI_FIXTURE, ABI_HOST, ASYNC_ERROR_FIXTURE, ASYNC_I32_FIXTURE, ASYNC_TASKS_FIXTURE,
-    ASYNC_UNIT_FIXTURE, ATOMIC_FIXTURE, ENTRY_RESULT_FIXTURE, MEMORY_FIXTURE,
-    MEMORY_LAYOUT_FIXTURE, PATTERN_CONDITIONS_FIXTURE, PRODUCT_NAME, RANGE_FIXTURE,
-    STANDARD_MEMORY_FIXTURE, STANDARD_RUN_SOURCE, STANDARD_TASK_SOURCE, STANDARD_TESTING_SOURCE,
-    STANDARD_TEXT_FIXTURE, STARTUP_FIXTURE, SYNC_CATCH_PROPAGATION_FIXTURE, SYNC_PANIC_FIXTURE,
-    TEXT_CURSOR_FIXTURE,
+    ASYNC_UNIT_FIXTURE, ATOMIC_FIXTURE, ENTRY_RESULT_FIXTURE, GUARDED_PART_CLEANUP_FIXTURE,
+    GUARDED_ROOT_CLEANUP_FIXTURE, MEMORY_FIXTURE, MEMORY_LAYOUT_FIXTURE,
+    PATTERN_CONDITIONS_FIXTURE, PRODUCT_NAME, RANGE_FIXTURE, STANDARD_MEMORY_FIXTURE,
+    STANDARD_RUN_SOURCE, STANDARD_TASK_SOURCE, STANDARD_TESTING_SOURCE, STANDARD_TEXT_FIXTURE,
+    STARTUP_FIXTURE, SYNC_CATCH_PROPAGATION_FIXTURE, SYNC_PANIC_FIXTURE, TEXT_CURSOR_FIXTURE,
 };
 use super::hello::audit_standard_hello_world;
 use super::nullable::audit_nullable_state_queries;
@@ -79,6 +79,32 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
 
     crate::progress::run("Checking nullable state queries", || {
         audit_nullable_state_queries(root, target, &runtime)
+    })?;
+
+    crate::progress::run("Checking guarded root cleanup", || {
+        audit_repeatable_fixture(
+            root,
+            target,
+            &runtime,
+            "bray-native-guarded-root-",
+            GUARDED_ROOT_CLEANUP_FIXTURE,
+            0,
+            "guarded root cleanup",
+            &[],
+        )
+    })?;
+
+    crate::progress::run("Checking guarded represented-part cleanup", || {
+        audit_repeatable_fixture(
+            root,
+            target,
+            &runtime,
+            "bray-native-guarded-part-",
+            GUARDED_PART_CLEANUP_FIXTURE,
+            0,
+            "guarded represented-part cleanup",
+            &[],
+        )
     })?;
 
     crate::progress::run("Checking pattern conditions", || {

@@ -132,14 +132,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .layout()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let CodegenTypeKind::Union { tag, variants } = mapping.kind() else {
+        let CodegenTypeKind::Union { tag, .. } = mapping.kind() else {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
         let variant = |identity| {
-            variants
-                .iter()
-                .find(|variant| variant.variant() == identity)
+            mapping
+                .kind()
+                .union_variant(identity)
                 .cloned()
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)
         };

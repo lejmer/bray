@@ -1389,7 +1389,7 @@ mod tests {
                     .projections()
                     .last()
                     .map(|projection| projection.kind()),
-                Some(MirProjectionKind::ActiveUnionPayloadField { .. })
+                Some(MirProjectionKind::ActiveUnionPayloadElement { .. })
             ));
         }
 
@@ -1997,6 +1997,39 @@ mod tests {
                 substitution,
             })
             .expect("union type must intern")
+    }
+
+    #[test]
+    fn sized_boxes_preserve_the_storage_policy_representation() {
+        let compilation = compilation("module app;");
+        let target = baseline_codegen_target();
+        let values = compilation.semantic_value_store().unwrap();
+
+        let scalar = compilation
+            .compiler_known_type(RepresentationRole::ScalarI64)
+            .unwrap();
+
+        let policy = intern_type(values, TypeData::tuple([scalar, scalar, scalar]));
+
+        let owned = intern_type(
+            values,
+            TypeData::OwnedIndirection {
+                storage: policy,
+                target: scalar,
+            },
+        );
+
+        let mappings = realized_types(&compilation, &target, [owned]);
+
+        assert_eq!(
+            mappings[&owned],
+            mappings[&policy].representation_for(owned)
+        );
+
+        assert_eq!(
+            mappings[&owned].layout().map(TargetValueLayout::size),
+            Some(24)
+        );
     }
 
     #[test]

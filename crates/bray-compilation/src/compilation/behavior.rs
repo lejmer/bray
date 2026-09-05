@@ -190,6 +190,20 @@ impl Compilation {
                     .map(|_| SymbolOrigin::Imported)
             });
 
+            // A Bray implementation owns its uses clause even across an interface or catalog.
+            // Intrinsics and foreign ABI calls remain direct uses of trusted authority.
+            if matches!(
+                origin,
+                Some(SymbolOrigin::Imported | SymbolOrigin::CompilerKnown)
+            ) && self
+                .available_compiler_known_symbols()
+                .symbol_implementation(callable.into_any())
+                .is_none()
+                && has_bray_implementation(&binding_context, callable)?
+            {
+                continue;
+            }
+
             match origin {
                 Some(SymbolOrigin::Source) => {
                     let CallableSymbolId::Function(function) = callable else {
@@ -351,7 +365,7 @@ impl Compilation {
                 let body = self.callable_body_key(instance.definition())?;
 
                 if let Some(body) = body {
-                    let execution = callable_execution(binding_context, callable)?;
+                    let (execution, _) = callable_execution_abi(binding_context, callable)?;
 
                     if phase_executes_body(call.phase(), execution) {
                         pending.push(body);
@@ -588,10 +602,25 @@ fn record_trusted_capability_use(
     }
 }
 
-fn callable_execution(
+fn has_bray_implementation(
     binding_context: &CompilationBindingContext<'_>,
     callable: CallableSymbolId,
-) -> Result<CallableExecution, FactQueryError> {
+) -> Result<bool, FactQueryError> {
+    let signature = binding_context
+        .resolve_symbol_query(
+            SymbolQueryRequest::<bray_symbols::CallableSignatureQuery>::new(callable),
+        )
+        .map_err(binding_query_error)?;
+
+    Ok(!signature.diagnostics().has_errors()
+        && signature.value().has_body()
+        && callable_execution_abi(binding_context, callable)?.1 == bray_symbols::CallableAbi::Bray)
+}
+
+fn callable_execution_abi(
+    binding_context: &CompilationBindingContext<'_>,
+    callable: CallableSymbolId,
+) -> Result<(CallableExecution, bray_symbols::CallableAbi), FactQueryError> {
     let signature = binding_context
         .resolve_symbol_query(
             SymbolQueryRequest::<bray_symbols::CallableSignatureQuery>::new(callable),
@@ -599,7 +628,7 @@ fn callable_execution(
         .map_err(binding_query_error)?;
 
     match signature.value().callable_type() {
-        TypeExpressionTemplate::Callable(callable) => Ok(callable.execution()),
+        TypeExpressionTemplate::Callable(callable) => Ok((callable.execution(), callable.abi())),
         TypeExpressionTemplate::Resolved(ty) => {
             let data = binding_context
                 .semantic_values()
@@ -607,7 +636,7 @@ fn callable_execution(
                 .map_err(FactQueryError::SemanticValueStore)?;
 
             match data.as_ref() {
-                TypeData::Callable(callable) => Ok(callable.execution()),
+                TypeData::Callable(callable) => Ok((callable.execution(), callable.abi())),
                 _ => Err(SemanticQueryFailure::contract(
                     SemanticQueryContext::Type(*ty),
                     SemanticQueryViolation::Unsupported(SemanticDataKind::CallableSignature),
@@ -859,6 +888,180 @@ mod tests {
             .unwrap_or_else(|error| panic!("called behavior must summarize: {error:?}"));
 
         assert!(behavior.value().trusted_capabilities().is_empty());
+    }
+
+    #[test]
+    fn imported_bray_wrappers_do_not_propagate_implementation_capabilities() {
+        let compilation = imported_trust_compilation(
+            "module app;\nusing example.trust.dependency;\nfunc main() -> i32 { return example.trust.dependency.wrapper(); }\n",
+        );
+
+        let diagnostics = compilation.check_diagnostics();
+
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+
+        let behavior = compilation
+            .body_behavior(source_callable_body_key(&compilation))
+            .unwrap();
+
+        assert!(
+            behavior.value().trusted_capabilities().is_empty(),
+            "{behavior:?}"
+        );
+    }
+
+    #[test]
+    fn compiler_known_bray_storage_owns_implementation_capabilities() {
+        let compilation =
+            compilation("module app;\nfunc main() { let value: box i32 = box(7); }\n");
+
+        let diagnostics = compilation.check_diagnostics();
+
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+
+        let behavior = compilation
+            .body_behavior(source_callable_body_key(&compilation))
+            .unwrap();
+
+        assert!(
+            behavior.value().trusted_capabilities().is_empty(),
+            "{behavior:?}"
+        );
+    }
+
+    #[test]
+    fn imported_foreign_calls_still_require_direct_trusted_authority() {
+        for (declaration, expected) in [
+            (
+                "func main()",
+                Some(DiagnosticKind::CheckingTrustedCapabilityRequiresTrustedCallable),
+            ),
+            (
+                "trusted func main()",
+                Some(DiagnosticKind::CheckingUndeclaredTrustedCapability),
+            ),
+            ("trusted func main() uses(foreign_call)", None),
+        ] {
+            let compilation = imported_trust_compilation(&format!(
+                "trusted module app;\nusing example.trust.dependency;\n{declaration} {{ example.trust.dependency.native_call(); }}\n"
+            ));
+
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                crate::test_support::diagnostic_kinds(&diagnostics),
+                expected.into_iter().collect::<Vec<_>>(),
+                "{declaration}: {diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn intrinsic_calls_still_require_direct_trusted_authority() {
+        for (declaration, expected) in [
+            (
+                "func main()",
+                Some(DiagnosticKind::CheckingTrustedCapabilityRequiresTrustedCallable),
+            ),
+            (
+                "trusted func main()",
+                Some(DiagnosticKind::CheckingUndeclaredTrustedCapability),
+            ),
+            ("trusted func main() uses(manual_alloc)", None),
+        ] {
+            let compilation = compilation(&format!(
+                "trusted module app;\n{declaration} {{ trusted core.memory.allocate(bytes = 0, align = 1); }}\n"
+            ));
+
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                crate::test_support::diagnostic_kinds(&diagnostics),
+                expected.into_iter().collect::<Vec<_>>(),
+                "{declaration}: {diagnostics:?}"
+            );
+        }
+    }
+
+    fn imported_trust_compilation(source: &str) -> Compilation {
+        use crate::{
+            CompilationOptions, CompilationRequest, DependencyInterfaceInput,
+            PackageInterfaceExportRequest, SelectedTarget, WorkerBudget,
+        };
+
+        use bray_package_interface::{
+            InterfaceLanguageRevision, InterfaceProductIdentity, InterfaceProductKind,
+            InterfaceValidationPolicy, PackageInterfaceIdentity, encode_package_interface,
+        };
+
+        use bray_symbols::{NativeLinkKind, NativeLinkRequirement, PackageIdentity, ProductKind};
+
+        let library_source = r#"trusted module dependency;
+@link(name = "native")
+@symbol(name = "native_call")
+@abi(c)
+extern trusted func native_call() -> i32 uses(foreign_call);
+
+trusted func wrapper() -> i32 uses(foreign_call)
+{
+    return native_call();
+}
+"#;
+
+        let package = PackageIdentity::try_new("example.trust").unwrap();
+        let product = InterfaceProductIdentity::try_new("library").unwrap();
+
+        let identity = PackageInterfaceIdentity::try_new(
+            package.clone(),
+            crate::test_support::package_version(),
+            product.clone(),
+            InterfaceProductKind::Library,
+            "public",
+        )
+        .unwrap();
+
+        let options = CompilationOptions::new(
+            WorkerBudget::serial(),
+            ProductKind::Library,
+            SelectedTarget::baseline(),
+        )
+        .with_native_link_inputs([NativeLinkRequirement::new(
+            bray_base::NonEmptySharedStr::try_new("native").unwrap(),
+            NativeLinkKind::Dynamic,
+        )]);
+
+        let request = CompilationRequest::with_options(
+            package.clone(),
+            vec![crate::test_support::source_input(library_source, 0)],
+            options,
+        )
+        .with_package_interface_export(PackageInterfaceExportRequest::new(
+            identity,
+            InterfaceLanguageRevision::new(0),
+        ));
+
+        let library = Compilation::load(request).unwrap();
+        let diagnostics = library.check_diagnostics();
+
+        assert!(diagnostics.is_empty(), "library: {diagnostics:?}");
+
+        let bundle = library
+            .package_interface_export_bundle()
+            .unwrap()
+            .as_ref()
+            .unwrap();
+
+        let encoded = encode_package_interface(bundle).unwrap();
+
+        let dependency = DependencyInterfaceInput::new(
+            package,
+            product,
+            "trust.brayi",
+            encoded.shared_bytes(),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        );
+
+        crate::test_support::compilation_with_dependencies(source, [dependency])
     }
 
     #[test]

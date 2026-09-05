@@ -125,7 +125,7 @@ impl Lowerer<'_> {
                     .cloned()
                     .ok_or(LoweringError::MissingSuspensionPoint(expression))?;
 
-                self.builder.set_terminator(
+                self.set_terminator(
                     current,
                     Self::retained_source(&source),
                     MirTerminatorKind::Suspend {

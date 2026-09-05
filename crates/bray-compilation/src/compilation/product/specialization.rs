@@ -161,9 +161,9 @@ impl ConcreteCodegenInstance {
         })
     }
 
-    pub(super) fn bound_helper(owner: &Self, unit: bray_bound_tree::BoundUnitKey) -> Option<Self> {
+    pub(super) fn inherited_helper(owner: &Self, template: MirUnitKey) -> Option<Self> {
         Some(Self {
-            key: Self::inherited_key(owner, MirUnitKey::Bound(unit))?,
+            key: Self::inherited_key(owner, template)?,
             callable: None,
             anonymous_callable_type: None,
             static_initializer: None,
@@ -203,25 +203,28 @@ impl ConcreteCodegenInstance {
         }
     }
 
-    pub(super) fn imported_runtime_default(
-        owner: &Self,
-        provider: bray_symbols::AnySymbolId,
-    ) -> Option<Self> {
-        let template = MirUnitKey::ImportedExecutable(bray_ir::MirImportedExecutableKey::new(
-            provider,
-            bray_ir::MirExecutableTemplateId::ROOT,
-        ));
-
-        Some(Self {
-            key: Self::inherited_key(owner, template)?,
+    pub(super) fn type_default(
+        template: MirUnitKey,
+        substitution: GenericSubstitutionId,
+        specialization: CodegenSpecialization,
+        witnesses: &[(CodegenImplementationWitness, ImplementationInstanceId)],
+        target: MirTargetContract,
+    ) -> Self {
+        Self {
+            key: CodegenInstanceKey::new(
+                template,
+                specialization,
+                witnesses.iter().map(|(identity, _)| identity.clone()),
+                target,
+            ),
             callable: None,
             anonymous_callable_type: None,
             static_initializer: None,
             lifecycle: None,
-            substitution: owner.substitution,
-            witnesses: Arc::clone(&owner.witnesses),
-            contextual_self_witness: owner.contextual_self_witness,
-        })
+            substitution: Some(substitution),
+            witnesses: witnesses.iter().map(|(_, witness)| *witness).collect(),
+            contextual_self_witness: None,
+        }
     }
 
     pub(super) fn try_generated_lifecycle(
@@ -412,7 +415,7 @@ impl Compilation {
         owner: &ConcreteCodegenInstance,
         unit: bray_bound_tree::BoundUnitKey,
     ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
-        ConcreteCodegenInstance::bound_helper(owner, unit).ok_or_else(|| {
+        ConcreteCodegenInstance::inherited_helper(owner, MirUnitKey::Bound(unit)).ok_or_else(|| {
             ProductQueryFailure::missing(
                 ProductQueryContext::Instance(owner.key().clone()),
                 ProductDataKind::BoundHelperInstance,
@@ -1159,7 +1162,7 @@ impl Compilation {
         Ok(witnesses)
     }
 
-    fn concrete_codegen_requirement_witness(
+    pub(super) fn concrete_codegen_requirement_witness(
         &self,
         available: impl IntoIterator<Item = ImplementationInstanceId>,
         requirement: ImplementationRequirementKey,
@@ -1191,7 +1194,7 @@ impl Compilation {
         Ok(*witness)
     }
 
-    fn concrete_codegen_constraint_requirements(
+    pub(super) fn concrete_codegen_constraint_requirements(
         &self,
         owner: GenericOwnerId,
         substitution: GenericSubstitutionId,
@@ -1318,7 +1321,7 @@ impl Compilation {
         self.concrete_codegen_callable(callable, witnesses, target, cancellation)
     }
 
-    fn realize_codegen_substitution(
+    pub(super) fn realize_codegen_substitution(
         &self,
         substitution: GenericSubstitutionId,
     ) -> Result<GenericSubstitutionId, CodegenPreparationError> {

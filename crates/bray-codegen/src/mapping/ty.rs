@@ -363,6 +363,14 @@ impl CodegenUnionVariantLayout {
             .iter()
             .find(|layout| layout.reference() == Some(MirFieldReference::UnionPayload(field)))
     }
+
+    /// Returns a represented payload member, including members hidden from source lookup.
+    pub fn payload_element(
+        &self,
+        ordinal: bray_symbols::SymbolOrdinal,
+    ) -> Option<&CodegenFieldLayout> {
+        self.fields.get(usize::try_from(ordinal.raw()).ok()?)
+    }
 }
 
 /// Backend-neutral physical representation selected for one semantic type.
@@ -429,6 +437,18 @@ pub enum CodegenTypeBehavior {
 }
 
 impl CodegenTypeKind {
+    /// Returns one union variant's physical layout, or none for a different representation or variant.
+    pub fn union_variant(
+        &self,
+        variant: UnionVariantSymbolId,
+    ) -> Option<&CodegenUnionVariantLayout> {
+        let Self::Union { variants, .. } = self else {
+            return None;
+        };
+
+        variants.iter().find(|layout| layout.variant() == variant)
+    }
+
     /// Creates an ordered aggregate representation.
     pub fn aggregate(fields: impl IntoIterator<Item = CodegenFieldLayout>) -> Self {
         Self::Aggregate(shared_slice(fields))
@@ -499,6 +519,18 @@ impl CodegenTypeMapping {
         }
     }
 
+    /// Shares this physical representation with another semantic type, without its behavior.
+    pub fn representation_for(&self, ty: TypeId) -> Self {
+        Self {
+            ty,
+            backend_type: self.backend_type,
+            layout: self.layout,
+            // Each semantic mapping owns its descriptor while aggregate members remain shared.
+            kind: self.kind.clone(),
+            behavior: None,
+        }
+    }
+
     /// Returns this mapping using another semantic type's exact backend identity.
     pub const fn with_backend_type(mut self, backend_type: TypeId) -> Self {
         self.backend_type = backend_type;
@@ -536,5 +568,79 @@ impl CodegenTypeMapping {
     /// Returns semantic behavior attached to this representation.
     pub const fn behavior(&self) -> Option<CodegenTypeBehavior> {
         self.behavior
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CodegenTypeBehavior, CodegenTypeKind, CodegenTypeMapping};
+    use bray_symbols::{SemanticValueStore, TypeData};
+
+    #[test]
+    fn union_member_ordinals_preserve_hidden_storage_and_reject_unknown_members() {
+        use super::{CodegenFieldLayout, CodegenUnionVariantLayout};
+
+        use bray_symbols::{
+            SymbolId, SymbolOrdinal, UnionPayloadFieldSymbolId, UnionVariantSymbolId,
+        };
+
+        let values = SemanticValueStore::try_new().unwrap();
+        let ty = values.intern_type(TypeData::tuple([])).unwrap();
+        let variant = UnionVariantSymbolId::from_symbol_id(SymbolId::new(1));
+        let field = UnionPayloadFieldSymbolId::from_symbol_id(SymbolId::new(2));
+
+        let kind = CodegenTypeKind::untagged_union([CodegenUnionVariantLayout::untagged(
+            variant,
+            [
+                CodegenFieldLayout::new(
+                    Some(bray_ir::MirFieldReference::UnionPayload(field)),
+                    ty,
+                    8,
+                ),
+                CodegenFieldLayout::new(None, ty, 24),
+            ],
+        )]);
+
+        let layout = kind.union_variant(variant).unwrap();
+
+        assert_eq!(
+            layout.payload_element(SymbolOrdinal::new(0)),
+            layout.payload_field(field)
+        );
+
+        assert_eq!(
+            layout.payload_element(SymbolOrdinal::new(1)),
+            Some(&CodegenFieldLayout::new(None, ty, 24))
+        );
+
+        assert_eq!(layout.payload_element(SymbolOrdinal::new(2)), None);
+        assert_eq!(layout.payload_element(SymbolOrdinal::new(u32::MAX)), None);
+
+        assert_eq!(
+            kind.union_variant(UnionVariantSymbolId::from_symbol_id(SymbolId::new(3))),
+            None
+        );
+
+        assert_eq!(CodegenTypeKind::Boolean.union_variant(variant), None);
+    }
+
+    #[test]
+    fn shared_representation_preserves_backend_identity_without_semantic_behavior() {
+        let values = SemanticValueStore::try_new().unwrap();
+        let original = values.intern_type(TypeData::tuple([])).unwrap();
+        let backend = values.intern_type(TypeData::Slice(original)).unwrap();
+        let alias = values.intern_type(TypeData::Nullable(original)).unwrap();
+
+        let mapping = CodegenTypeMapping::new_unsized(original, CodegenTypeKind::UnsizedTraitView)
+            .with_backend_type(backend)
+            .with_behavior(Some(CodegenTypeBehavior::String));
+
+        assert_eq!(
+            mapping.representation_for(alias),
+            CodegenTypeMapping::new_unsized(alias, CodegenTypeKind::UnsizedTraitView)
+                .with_backend_type(backend)
+        );
+
+        assert_eq!(mapping.behavior(), Some(CodegenTypeBehavior::String));
     }
 }

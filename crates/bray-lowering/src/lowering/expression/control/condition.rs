@@ -89,8 +89,7 @@ impl Lowerer<'_> {
             },
         };
 
-        self.builder
-            .set_terminator(current, condition.source, terminator)?;
+        self.set_terminator(current, condition.source, terminator)?;
 
         Ok(true)
     }
@@ -132,6 +131,7 @@ impl Lowerer<'_> {
         };
 
         let subject = self.lower_expression(*subject_id, current)?;
+        let subject = self.materialize_match_subject(*subject_id, subject)?;
 
         let Some(current) = subject.block else {
             return Ok(false);
@@ -140,10 +140,6 @@ impl Lowerer<'_> {
         let Some(value) = subject.value else {
             return Err(LoweringError::MissingOperationResult(*subject_id));
         };
-
-        let ty = self.expression_type(*subject_id)?;
-        let source = self.source(test.origin());
-        let value = self.materialize_match_subject(value, ty, current, &source)?;
 
         self.lower_pattern_branch(*pattern, value, current, matched, unmatched)?;
 
@@ -156,7 +152,7 @@ impl Lowerer<'_> {
         source: &bray_ir::MirSourceAnchor,
     ) -> Result<(), LoweringError> {
         for block in blocks {
-            self.builder.set_terminator(
+            self.set_terminator(
                 *block,
                 Self::retained_source(source),
                 MirTerminatorKind::Unreachable,
@@ -200,7 +196,7 @@ impl Lowerer<'_> {
         for (block, value) in [(matched, true), (unmatched, false)] {
             let value = Self::immediate_operand(ty, MirImmediateValue::Boolean(value));
 
-            self.builder.set_terminator(
+            self.set_terminator(
                 block,
                 Self::retained_source(&source),
                 MirTerminatorKind::Goto(MirEdge::new(join, [value])),

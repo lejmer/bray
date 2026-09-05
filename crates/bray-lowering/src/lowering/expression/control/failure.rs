@@ -49,7 +49,7 @@ impl Lowerer<'_> {
             .builder
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             current,
             Self::retained_source(&source),
             MirTerminatorKind::Branch {
@@ -92,7 +92,8 @@ impl Lowerer<'_> {
             None => (failure, None),
         };
 
-        let report_type = self.panic_report_type()?;
+        let report_type =
+            self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
 
         let report = self.push_panic_report(
             id,
@@ -126,7 +127,9 @@ impl Lowerer<'_> {
         };
 
         let source = self.source(expression.origin());
-        let report_type = self.panic_report_type()?;
+
+        let report_type =
+            self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
 
         let report = self.push_panic_report(
             id,
@@ -201,7 +204,7 @@ impl Lowerer<'_> {
                 .value
                 .unwrap_or_else(|| self.unit_operand(*success_type));
 
-            self.builder.set_terminator(
+            self.set_terminator(
                 block,
                 Self::retained_source(&source),
                 MirTerminatorKind::Goto(MirEdge::new(success, [value])),
@@ -217,7 +220,7 @@ impl Lowerer<'_> {
             MirOperand::Value(success_value),
         )?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             success,
             Self::retained_source(&source),
             MirTerminatorKind::Goto(MirEdge::new(join, [success_result])),
@@ -232,7 +235,7 @@ impl Lowerer<'_> {
             MirOperand::Value(report),
         )?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             handler,
             Self::retained_source(&source),
             MirTerminatorKind::Goto(MirEdge::new(join, [error_result])),
@@ -274,7 +277,7 @@ impl Lowerer<'_> {
         cause: MirPanicCause,
         report_type: TypeId,
     ) -> Result<MirOperand, LoweringError> {
-        let commit = self.builder.push_operation(
+        let commit = self.push_operation(
             current,
             Self::retained_source(source),
             MirOperationKind::PanicReport(cause),
@@ -328,7 +331,8 @@ impl Lowerer<'_> {
         value: &MirOperand,
         result_type: TypeId,
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
-        let report_type = self.panic_report_type()?;
+        let report_type =
+            self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
 
         let completed = self
             .builder
@@ -350,7 +354,7 @@ impl Lowerer<'_> {
             report_type,
         )?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             current,
             Self::retained_source(source),
             MirTerminatorKind::CheckCallPanic {
@@ -387,7 +391,7 @@ impl Lowerer<'_> {
             (representation.error_variant, representation.error_field)
         };
 
-        let commit = self.builder.push_operation(
+        let commit = self.push_operation(
             current,
             Self::retained_source(source),
             MirOperationKind::Construct(MirConstruction::new(

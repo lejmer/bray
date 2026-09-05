@@ -12,6 +12,7 @@ use bray_symbols::{TypeData, TypeId};
 use super::super::super::LoweringError;
 use super::super::super::block::LoweredExpression;
 use super::super::super::lowerer::{Lowerer, YieldTarget};
+use super::super::super::projection::projected_pattern_place;
 
 #[derive(Clone, Copy)]
 enum PropagationDestination {
@@ -87,7 +88,7 @@ impl Lowerer<'_> {
 
         let (absent, _) = self.propagation_branch(&source, operand_type)?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             current,
             Self::retained_source(&source),
             MirTerminatorKind::PatternBranch {
@@ -190,7 +191,7 @@ impl Lowerer<'_> {
 
         let (error, error_operand) = self.propagation_branch(&source, operand_type)?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             current,
             Self::retained_source(&source),
             MirTerminatorKind::PatternBranch {
@@ -260,7 +261,10 @@ impl Lowerer<'_> {
         };
 
         let representation = self.run_result_representation()?;
-        let report_type = self.panic_report_type()?;
+
+        let report_type =
+            self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
+
         let operand = self.lower_expression(operand_id, current)?;
 
         let Some(current) = operand.block else {
@@ -281,7 +285,7 @@ impl Lowerer<'_> {
 
         let (cancelled, _) = self.propagation_branch(&source, operand_type)?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             current,
             Self::retained_source(&source),
             MirTerminatorKind::PatternBranch {
@@ -294,7 +298,7 @@ impl Lowerer<'_> {
             },
         )?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             incomplete,
             Self::retained_source(&source),
             MirTerminatorKind::PatternBranch {
@@ -437,7 +441,11 @@ impl Lowerer<'_> {
         projection: PatternProjection,
         result_type: TypeId,
     ) -> Result<MirOperand, LoweringError> {
-        let commit = self.builder.push_operation(
+        if let Some(place) = projected_pattern_place(&subject, projection, result_type) {
+            return Ok(MirOperand::Move(place));
+        }
+
+        let commit = self.push_operation(
             current,
             Self::retained_source(source),
             MirOperationKind::PatternProjection {

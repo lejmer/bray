@@ -258,6 +258,7 @@ mod tests {
         access: bray_bound_tree::StorageAccessId,
     ) -> StorageOperationDecision {
         StorageOperationDecision::new(
+            bray_bound_tree::AnyBoundNodeId::Expression(expression),
             expression,
             StorageAccessPurpose::Read,
             access,

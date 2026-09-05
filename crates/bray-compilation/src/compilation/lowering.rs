@@ -1543,6 +1543,97 @@ mod tests {
     }
 
     #[test]
+    fn partial_array_cleanup_flags_survive_suspension() {
+        let compilation = compilation(
+            r#"module app;
+struct Guard { destruct() {} }
+func take(pos value: Guard) {}
+async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: Future<i32>)
+{
+    take(values[index][0]);
+    let _ = await pending;
+}
+"#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let result = compilation
+            .lowered_unit(source_function_body_key(&compilation, "partial"))
+            .unwrap();
+
+        let mir = lowered_mir(&result);
+        let frame = mir.frame_descriptor().unwrap();
+        let values = compilation.semantic_value_store().unwrap();
+
+        let boolean = compilation
+            .available_compiler_known_symbols()
+            .representation_symbol::<bray_symbols::StructSymbolId>(
+                bray_compiler_known::RepresentationRole::ScalarBool,
+            )
+            .unwrap();
+
+        let guards = mir
+            .storages_with_ids()
+            .filter_map(|(id, storage)| {
+                if storage.kind() != &bray_ir::MirStorageKind::Local {
+                    return None;
+                }
+
+                let mut ty = storage.ty();
+                let mut dimensions = 0;
+
+                loop {
+                    let data = values.type_data(ty).unwrap();
+
+                    match data.as_ref() {
+                        TypeData::Array { element, .. } => {
+                            ty = *element;
+                            dimensions += 1;
+                        }
+                        TypeData::Named {
+                            definition: bray_symbols::NamedTypeSymbolId::Struct(definition),
+                            ..
+                        } if *definition == boolean => return Some((id, dimensions)),
+                        _ => return None,
+                    }
+                }
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            guards.iter().any(|(_, dimensions)| *dimensions == 2),
+            "nested array flags must remain represented: {mir:?}"
+        );
+
+        assert!(frame.states().len() > 1);
+
+        for state in frame.states().iter().skip(1) {
+            assert!(
+                guards
+                    .iter()
+                    .all(|(guard, _)| state.initialized_storages().contains(guard)),
+                "all entry-initialized flags must survive suspension: {frame:?}"
+            );
+        }
+
+        assert!(
+            mir.blocks()
+                .iter()
+                .filter(|block| block.kind() != bray_ir::MirBlockKind::Ordinary)
+                .all(|block| !matches!(
+                    block.terminator().kind(),
+                    MirTerminatorKind::Suspend { .. }
+                )),
+            "cleanup array loops must not suspend with an unretained counter: {mir:?}"
+        );
+    }
+
+    #[test]
     fn async_callable_frames_retain_declared_execution_lanes() {
         let compilation = compilation(concat!(
             "module app;\n",
@@ -1790,10 +1881,19 @@ struct Receiver<T>
                 )
         )));
 
-        assert!(matches!(
-            mir.blocks().last().map(|block| block.terminator().kind()),
-            Some(MirTerminatorKind::Return(Some(MirOperand::Value(_))))
-        ));
+        let returns = mir
+            .blocks()
+            .iter()
+            .filter_map(|block| match block.terminator().kind() {
+                MirTerminatorKind::Return(value) => Some(value),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            matches!(returns.as_slice(), [Some(MirOperand::Value(_))]),
+            "cleanup continuations must preserve the single value return: {mir:?}"
+        );
     }
 
     #[test]
@@ -1825,13 +1925,15 @@ struct Receiver<T>
                 .any(|block| matches!(block.terminator().kind(), MirTerminatorKind::Branch { .. }))
         );
 
-        assert!(mir.operations().iter().any(|operation| matches!(
-            operation.kind(),
-            MirOperationKind::PatternProjection {
-                operation: bray_bound_tree::PatternOperation::Consume,
-                ..
-            }
-        )));
+        assert!(mir.operations().iter().any(|operation| {
+            let mut projected_move = false;
+
+            operation.kind().for_each_operand(|operand| {
+                projected_move |= matches!(operand, MirOperand::Move(place) if !place.projections().is_empty());
+            });
+
+            projected_move
+        }));
 
         assert!(mir.operations().iter().any(|operation| {
             let MirOperationKind::Call(call) = operation.kind() else {
@@ -2300,8 +2402,24 @@ func both_bounds(pos values: Values) -> i32
             "}\n",
         ));
 
+        let key = source_function_body_key(&compilation, "main");
+        let storage = compilation.storage_plan(key.clone()).unwrap();
+        let analysis = compilation.async_analysis(key.clone()).unwrap();
+
+        let required = analysis
+            .value()
+            .scope_exits()
+            .iter()
+            .flat_map(|exit| {
+                exit.cancellation_broadcast()
+                    .iter()
+                    .chain(exit.lifecycle_resolution())
+            })
+            .filter_map(|access| storage.value().root_identity(*access))
+            .collect::<BTreeSet<_>>();
+
         let lowered = compilation
-            .lowered_unit(source_function_body_key(&compilation, "main"))
+            .lowered_unit(key)
             .unwrap_or_else(|error| panic!("resource cleanup must lower: {error:?}"));
 
         assert!(
@@ -2324,7 +2442,7 @@ func both_bounds(pos values: Values) -> i32
             .map(|(storage, _)| *storage)
             .collect::<BTreeSet<_>>();
 
-        assert_eq!(cleanup_storages.len(), 3, "{cleanup_places:?}");
+        assert_eq!(cleanup_storages.len(), required.len(), "{cleanup_places:?}");
     }
 
     #[test]

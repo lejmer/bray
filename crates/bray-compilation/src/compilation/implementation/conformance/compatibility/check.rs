@@ -896,7 +896,12 @@ fn phase_behavior_mismatch(
         return Ok(Some(CallableBehaviorComponent::Capabilities));
     }
 
-    if requirement.trusted_capabilities() != fulfillment.trusted_capabilities() {
+    if fulfillment.trusted_capabilities().iter().any(|provided| {
+        !requirement
+            .trusted_capabilities()
+            .iter()
+            .any(|required| required.capability() == provided.capability())
+    }) {
         return Ok(Some(CallableBehaviorComponent::TrustedCapabilities));
     }
 

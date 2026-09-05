@@ -601,7 +601,7 @@ impl Lowerer<'_> {
             }
         };
 
-        self.builder.set_terminator(
+        self.set_terminator(
             current,
             source,
             MirTerminatorKind::PatternBranch {
@@ -683,7 +683,7 @@ impl Lowerer<'_> {
             )?
             .0;
 
-        self.builder.push_operation(
+        self.push_operation(
             current,
             Self::retained_source(&source),
             MirOperationKind::Store {
@@ -1194,9 +1194,7 @@ impl Lowerer<'_> {
         operation: MirOperationKind,
         result_type: TypeId,
     ) -> Result<MirOperand, LoweringError> {
-        let commit = self
-            .builder
-            .push_operation(current, source, operation, Some(result_type))?;
+        let commit = self.push_operation(current, source, operation, Some(result_type))?;
 
         commit
             .result()
@@ -1299,6 +1297,10 @@ impl Lowerer<'_> {
         origin: bray_bound_tree::BoundNodeOrigin,
         static_reference: Option<&bray_symbols::StaticReferenceSelection>,
     ) -> Result<MirPlace, LoweringError> {
+        if let Some(place) = self.guard_binding(id) {
+            return Ok(Self::retained_place(place));
+        }
+
         if let Some(reference) = static_reference {
             let storage = match self.static_storages.get(reference).copied() {
                 Some(storage) => storage,

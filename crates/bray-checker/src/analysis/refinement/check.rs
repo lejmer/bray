@@ -333,6 +333,7 @@ fn transfer_operation(
 ) {
     match operation.kind() {
         AnalysisOperationKind::Recovery(_) => state.refinements.clear(),
+        AnalysisOperationKind::PatternObservation(_) => {}
         AnalysisOperationKind::ScopeExit {
             phase: AnalysisScopeExitPhase::LifecycleResolution,
             ..

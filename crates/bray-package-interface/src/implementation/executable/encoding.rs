@@ -172,6 +172,21 @@ pub fn encode_executable_template<C: ExecutableTemplateEncodeContext>(
     Ok(Arc::from(encoder.wire.into_bytes()))
 }
 
+#[cfg(test)]
+pub(super) fn encode_projection_for_test<C: ExecutableTemplateEncodeContext>(
+    projection: &MirProjectionKind,
+    context: &mut C,
+) -> Result<Vec<u8>, ExecutableTemplateEncodeError<C::Error>> {
+    let mut encoder = Encoder {
+        wire: WireEncoder::new(),
+        context,
+    };
+
+    encoder.projection_kind(projection)?;
+
+    Ok(encoder.wire.into_bytes())
+}
+
 /// Encodes one validated MIR unit under its complete specialization identity.
 pub fn encode_pre_specialized_mir<C: ExecutableTemplateEncodeContext>(
     key: crate::PackageImplementationSpecializationKey,
@@ -614,6 +629,11 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             }
             MirProjectionKind::NullableValue => self.wire.write_u32(9),
             MirProjectionKind::OwnedStorage => self.wire.write_u32(10),
+            MirProjectionKind::ActiveUnionPayloadElement { variant, ordinal } => {
+                self.wire.write_u32(11);
+                self.symbol((*variant).into())?;
+                self.wire.write_u32(ordinal.raw());
+            }
         }
 
         Ok(())

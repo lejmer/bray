@@ -6,7 +6,7 @@ use crate::{
     StorageAlternativeId, StorageBinding, StorageBindingTarget, StorageIdentity, StorageIdentityId,
     StoragePlan,
 };
-use bray_symbols::TypeId;
+use bray_symbols::{BorrowKind, TypeId};
 
 /// A contract violation that prevents construction of one storage plan.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -33,12 +33,14 @@ pub struct StoragePlanBuilder {
     pub(super) kind: BoundUnitKind,
     pub(super) identities: Vec<StorageIdentity>,
     pub(super) identity_types: BTreeMap<StorageIdentityId, TypeId>,
+    pub(super) owned_borrows: BTreeMap<(TypeId, BorrowKind), crate::StorageProtocolCall>,
     pub(super) accesses: Vec<StorageAccess>,
     pub(super) alternatives: Vec<StorageAlternative>,
     pub(super) borrow_capabilities: Vec<PlannedBorrowCapability>,
     pub(super) bindings: BTreeMap<StorageBindingTarget, StorageBinding>,
     pub(super) plans: Vec<StorageAccessPlan>,
     pub(super) planned_accesses: BTreeSet<(
+        crate::AnyBoundNodeId,
         crate::BoundExpressionId,
         StorageAccessPurpose,
         StorageAccessId,
@@ -53,6 +55,7 @@ impl StoragePlanBuilder {
             kind,
             identities: Vec::new(),
             identity_types: BTreeMap::new(),
+            owned_borrows: BTreeMap::new(),
             accesses: Vec::new(),
             alternatives: Vec::new(),
             borrow_capabilities: Vec::new(),
@@ -90,6 +93,26 @@ impl StoragePlanBuilder {
         }
 
         self.identity_types.insert(identity, ty);
+
+        Ok(())
+    }
+
+    /// Records a selected policy borrow, rejecting contradictory selections for the same type.
+    pub fn set_owned_borrow(
+        &mut self,
+        owner: TypeId,
+        kind: BorrowKind,
+        call: crate::StorageProtocolCall,
+    ) -> Result<(), StoragePlanBuildError> {
+        match self.owned_borrows.entry((owner, kind)) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(call);
+            }
+            std::collections::btree_map::Entry::Occupied(entry) if *entry.get() == call => {}
+            std::collections::btree_map::Entry::Occupied(_) => {
+                return Err(StoragePlanBuildError::BindingIdentityMismatch);
+            }
+        }
 
         Ok(())
     }
@@ -204,14 +227,16 @@ impl StoragePlanBuilder {
         Ok(())
     }
 
-    /// Records how one expression occurrence uses an evaluated access.
+    /// Records an access at its execution node, retaining its source expression.
     pub fn plan_access(
         &mut self,
+        node: crate::AnyBoundNodeId,
         expression: crate::BoundExpressionId,
         purpose: StorageAccessPurpose,
         access: StorageAccessId,
     ) -> Result<(), StoragePlanBuildError> {
-        if expression.unit() != self.unit || access.unit() != self.unit {
+        if node.unit() != self.unit || expression.unit() != self.unit || access.unit() != self.unit
+        {
             return Err(StoragePlanBuildError::ForeignUnit);
         }
 
@@ -219,12 +244,15 @@ impl StoragePlanBuilder {
             return Err(StoragePlanBuildError::MissingAccess);
         }
 
-        if !self.planned_accesses.insert((expression, purpose, access)) {
+        if !self
+            .planned_accesses
+            .insert((node, expression, purpose, access))
+        {
             return Ok(());
         }
 
         self.plans
-            .push(StorageAccessPlan::new(expression, purpose, access));
+            .push(StorageAccessPlan::new(node, expression, purpose, access));
 
         Ok(())
     }
@@ -393,6 +421,67 @@ mod tests {
     use crate::{
         BoundUnitId, BoundUnitKind, StorageBinding, StorageBindingTarget, StorageIdentity,
     };
+
+    #[test]
+    fn owned_borrow_selections_are_stable_and_distinguish_borrow_kinds() {
+        use crate::StorageProtocolCall;
+
+        use bray_symbols::{
+            BorrowKind, CallableDefinitionId, CallableInstanceData, FunctionSymbolId,
+            GenericOwnerId, GenericSubstitutionData, SemanticValueStore, TypeData,
+        };
+
+        let values = SemanticValueStore::try_new().unwrap();
+        let ty = values.intern_type(TypeData::tuple([])).unwrap();
+        let other = values.intern_type(TypeData::Nullable(ty)).unwrap();
+        let function = FunctionSymbolId::from_symbol_id(SymbolId::new(1));
+
+        let substitution = values
+            .intern_generic_substitution(
+                GenericSubstitutionData::try_new(
+                    GenericOwnerId::try_new(function.into()).unwrap(),
+                    [],
+                    [],
+                )
+                .unwrap(),
+            )
+            .unwrap();
+
+        let callable = CallableInstanceData::new(
+            CallableDefinitionId::try_new(function.into()).unwrap(),
+            substitution,
+        );
+
+        let shared = StorageProtocolCall::new(callable, ty, ty, ty);
+        let mutable = StorageProtocolCall::new(callable, ty, ty, other);
+        let mut builder = StoragePlanBuilder::new(BoundUnitId::new(4), BoundUnitKind::CallableBody);
+
+        assert_eq!(
+            builder.set_owned_borrow(ty, BorrowKind::Shared, shared),
+            Ok(())
+        );
+
+        assert_eq!(
+            builder.set_owned_borrow(ty, BorrowKind::Shared, shared),
+            Ok(())
+        );
+
+        assert_eq!(
+            builder.set_owned_borrow(ty, BorrowKind::Mutable, mutable),
+            Ok(())
+        );
+
+        assert_eq!(
+            builder.set_owned_borrow(ty, BorrowKind::Shared, mutable),
+            Err(StoragePlanBuildError::BindingIdentityMismatch)
+        );
+
+        let plan = builder.finish();
+        assert_eq!(plan.owned_borrow(ty, BorrowKind::Shared), Some(shared));
+        assert_eq!(plan.owned_borrow(ty, BorrowKind::Mutable), Some(mutable));
+        assert_eq!(plan.owned_borrow(other, BorrowKind::Shared), None);
+        assert_eq!(plan.owned_borrows().count(), 2);
+    }
 
     #[test]
     fn builders_reject_incompatible_identity_relationships() {

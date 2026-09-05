@@ -1,8 +1,5 @@
 use bray_bound_tree::{BoundExpressionId, BoundMatchExpression};
-use bray_ir::{
-    MirBlockId, MirBlockKind, MirEdge, MirOperand, MirOperationKind, MirPlace, MirStorageKind,
-    MirStoreKind, MirTerminatorKind,
-};
+use bray_ir::{MirBlockId, MirBlockKind, MirEdge, MirOperand, MirTerminatorKind};
 
 use super::super::super::LoweringError;
 use super::super::super::block::LoweredExpression;
@@ -16,6 +13,7 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
         let subject = self.lower_expression(expression.subject(), current)?;
+        let subject = self.materialize_match_subject(expression.subject(), subject)?;
 
         let Some(current) = subject.block else {
             return Ok(subject);
@@ -26,8 +24,6 @@ impl Lowerer<'_> {
         };
 
         let source = self.source(expression.origin());
-        let subject_type = self.expression_type(expression.subject())?;
-        let subject = self.materialize_match_subject(subject, subject_type, current, &source)?;
 
         let (join, result, result_type) = self.push_result_join(id, expression.origin())?;
 
@@ -62,6 +58,12 @@ impl Lowerer<'_> {
                 .builder
                 .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
+            let guarded = arm.guard().is_some();
+
+            if guarded {
+                self.guard_bindings.push(std::collections::BTreeMap::new());
+            }
+
             self.lower_pattern_branch(
                 arm.pattern(),
                 Self::retained_operand(&subject),
@@ -70,10 +72,30 @@ impl Lowerer<'_> {
                 next,
             )?;
 
-            let body_entry = match arm.guard() {
+            let mut body_entry = match arm.guard() {
                 Some(guard) => self.lower_match_guard(guard, matched, next, &source)?,
                 None => matched,
             };
+
+            if guarded {
+                self.guard_bindings.pop();
+
+                let committed = self
+                    .builder
+                    .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+                // Guards cannot change the subject, so the same structural branch selects
+                // the owning bindings without storing or consuming them on a rejected arm.
+                self.lower_pattern_branch(
+                    arm.pattern(),
+                    Self::retained_operand(&subject),
+                    body_entry,
+                    committed,
+                    next,
+                )?;
+
+                body_entry = committed;
+            }
 
             let body = self.lower_yielding_block(
                 arm.body(),
@@ -94,11 +116,10 @@ impl Lowerer<'_> {
             MirTerminatorKind::Goto(MirEdge::new(join, [self.unit_operand(result_type)]))
         };
 
-        self.builder
-            .set_terminator(candidate, Self::retained_source(&source), terminator)?;
+        self.set_terminator(candidate, Self::retained_source(&source), terminator)?;
 
         if !self.builder.has_incoming_edge(join)? {
-            self.builder.set_terminator(
+            self.set_terminator(
                 join,
                 Self::retained_source(&source),
                 MirTerminatorKind::Unreachable,
@@ -135,7 +156,7 @@ impl Lowerer<'_> {
             .builder
             .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             current,
             Self::retained_source(source),
             MirTerminatorKind::Branch {
@@ -150,38 +171,19 @@ impl Lowerer<'_> {
 
     pub(super) fn materialize_match_subject(
         &mut self,
-        subject: MirOperand,
-        subject_type: bray_symbols::TypeId,
-        current: MirBlockId,
-        source: &bray_ir::MirSourceAnchor,
-    ) -> Result<MirOperand, LoweringError> {
-        let subject = match subject {
-            MirOperand::Move(place) => return Ok(MirOperand::Copy(place)),
-            subject @ (MirOperand::Constant { .. }
-            | MirOperand::Immediate { .. }
-            | MirOperand::Copy(_)) => return Ok(subject),
-            MirOperand::Value(value) => MirOperand::Value(value),
-        };
+        expression: BoundExpressionId,
+        mut subject: LoweredExpression,
+    ) -> Result<LoweredExpression, LoweringError> {
+        if matches!(subject.value, Some(MirOperand::Value(_))) {
+            // Observed bindings resolve through the checked temporary's identity, not a synthetic copy.
+            subject = self.materialize_for_later_evaluation(expression, subject)?;
+        }
 
-        let storage = self.builder.push_storage(
-            Self::retained_source(source),
-            MirStorageKind::Temporary,
-            subject_type,
-        )?;
+        subject.value = subject.value.map(|value| match value {
+            MirOperand::Move(place) => MirOperand::Copy(place),
+            value => value,
+        });
 
-        let place = MirPlace::new(storage, [], subject_type);
-
-        self.builder.push_operation(
-            current,
-            Self::retained_source(source),
-            MirOperationKind::Store {
-                kind: MirStoreKind::Initialize,
-                destination: Self::retained_place(&place),
-                value: subject,
-            },
-            None,
-        )?;
-
-        Ok(MirOperand::Copy(place))
+        Ok(subject)
     }
 }

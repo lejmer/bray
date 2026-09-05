@@ -109,17 +109,28 @@ impl Lowerer<'_> {
             return Ok(lowered);
         };
 
-        let temporary =
-            self.input
-                .storage_plan()
-                .identity_entries()
-                .find_map(|(identity, model)| {
-                    matches!(model, StorageIdentity::Temporary(owner) if owner == expression)
-                        .then_some(identity)
-                        .filter(|identity| {
-                            self.input.storage_plan().storage_type(*identity) == Some(ty)
-                        })
-                });
+        let storage = self.input.storage_plan();
+
+        let temporary = storage
+            .identity_entries()
+            .find_map(|(identity, model)| {
+                matches!(model, StorageIdentity::Temporary(owner) if owner == expression)
+                    .then_some(identity)
+                    .filter(|identity| storage.storage_type(*identity) == Some(ty))
+            })
+            .or_else(|| {
+                // Transparent expressions retain their operand's checked storage identity.
+                storage
+                    .expression_plans(expression)
+                    .filter(|plan| storage.is_root_access(plan.access()))
+                    .filter_map(|plan| storage.root_identity(plan.access()))
+                    .find(|identity| {
+                        matches!(
+                            storage.identity(*identity),
+                            Some(StorageIdentity::Temporary(_))
+                        ) && storage.storage_type(*identity) == Some(ty)
+                    })
+            });
 
         let Some(temporary) = temporary else {
             if required {
@@ -164,7 +175,7 @@ impl Lowerer<'_> {
             ));
         }
 
-        self.builder.push_operation(
+        self.push_operation(
             current,
             Self::retained_source(&lowered.source),
             MirOperationKind::Store {
@@ -197,7 +208,7 @@ impl Lowerer<'_> {
 
         let place = MirPlace::new(storage, [], ty);
 
-        self.builder.push_operation(
+        self.push_operation(
             current,
             Self::retained_source(&source),
             MirOperationKind::Store {

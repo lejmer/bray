@@ -7,7 +7,6 @@ mod memory;
 mod nullable;
 mod numeric;
 mod operand;
-mod projection;
 mod run;
 mod sequence;
 mod static_access;

@@ -51,7 +51,7 @@ impl Lowerer<'_> {
 
         let result_type = self.expression_type(id)?;
 
-        let commit = self.builder.push_operation(
+        let commit = self.push_operation(
             current,
             Self::retained_source(&source),
             MirOperationKind::NumericConversion { kind, operand },

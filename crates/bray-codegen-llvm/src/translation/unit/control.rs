@@ -144,11 +144,27 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 matched,
                 unmatched,
             } => {
-                let subject_type = self.operand_type(subject)?;
-                let subject = self.operand(subject)?;
+                let condition = match (predicate, subject) {
+                    (
+                        MirPatternPredicate::NullablePresent | MirPatternPredicate::NullableAbsent,
+                        MirOperand::Copy(place),
+                    ) => {
+                        let address = self.place(place)?;
+                        let present = self.nullable_present_at(address, place.ty())?;
 
-                let condition =
-                    self.translate_pattern_predicate(block, subject, subject_type, *predicate)?;
+                        if *predicate == MirPatternPredicate::NullablePresent {
+                            present
+                        } else {
+                            llvm(self.builder.build_not(present, "pattern.nullable.absent"))?
+                        }
+                    }
+                    _ => {
+                        let subject_type = self.operand_type(subject)?;
+                        let subject = self.observed_operand(subject)?;
+
+                        self.translate_pattern_predicate(block, subject, subject_type, *predicate)?
+                    }
+                };
 
                 let (source, pending_moves) = self.take_control_source()?;
 
@@ -642,21 +658,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         variant: bray_symbols::UnionVariantSymbolId,
         tag_type: inkwell::types::IntType<'context>,
     ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
-        let variants = loop {
+        let kind = loop {
             let mapping = self
                 .type_mapping(subject_type)
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
             match mapping.kind() {
-                CodegenTypeKind::Union { variants, .. } => break variants,
+                kind @ CodegenTypeKind::Union { .. } => break kind,
                 CodegenTypeKind::Pointer { target, .. } => subject_type = *target,
                 _ => return Err(CodegenFailure::GeneratedModuleInvariant),
             }
         };
 
-        let tag = variants
-            .iter()
-            .find(|layout| layout.variant() == variant)
+        let tag = kind
+            .union_variant(variant)
             .and_then(bray_codegen::CodegenUnionVariantLayout::tag)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 

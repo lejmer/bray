@@ -14,6 +14,7 @@ use bray_runtime_interface::{ProtectedFrameAbiVersions, RuntimeAbiRole};
 use bray_symbols::StaticReferenceSelection;
 
 use super::LoweringError;
+use super::initialization::InitializationState;
 use crate::LoweringInput;
 
 #[derive(Clone)]
@@ -57,6 +58,9 @@ pub(super) struct Lowerer<'unit> {
     pub(super) input: LoweringInput<'unit>,
     pub(super) builder: MirUnitBuilder,
     pub(super) storages: BTreeMap<StorageIdentityId, MirStorageId>,
+    pub(super) guard_bindings: Vec<BTreeMap<StorageIdentityId, MirPlace>>,
+    pub(super) owned_targets: BTreeMap<MirStorageId, MirPlace>,
+    pub(super) initialization_guards: BTreeMap<MirStorageId, InitializationState<'unit>>,
     pub(super) static_storages: BTreeMap<StaticReferenceSelection, MirStorageId>,
     pub(super) static_accesses: BTreeMap<StorageAccessId, StaticReferenceSelection>,
     pub(super) parameter_positions: BTreeMap<StorageIdentityId, u32>,
@@ -81,6 +85,9 @@ impl<'unit> Lowerer<'unit> {
             input,
             builder,
             storages: BTreeMap::new(),
+            guard_bindings: Vec::new(),
+            owned_targets: BTreeMap::new(),
+            initialization_guards: BTreeMap::new(),
             static_storages: BTreeMap::new(),
             static_accesses: BTreeMap::new(),
             parameter_positions,
@@ -99,6 +106,8 @@ impl<'unit> Lowerer<'unit> {
         let entry = self
             .builder
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+        self.initialize_cleanup_guards(entry, &source)?;
 
         if let Some((reference, ty)) = self.input.static_owner().cloned() {
             self.builder.push_storage(
@@ -147,11 +156,7 @@ impl<'unit> Lowerer<'unit> {
 
         if let Some(block) = completion.block {
             if !self.builder.is_reachable(entry, block)? {
-                self.builder.set_terminator(
-                    block,
-                    completion.source,
-                    MirTerminatorKind::Unreachable,
-                )?;
+                self.set_terminator(block, completion.source, MirTerminatorKind::Unreachable)?;
             } else if self.input.unit_kind().protected_frame().is_some() {
                 let result_type = self
                     .input
@@ -163,7 +168,7 @@ impl<'unit> Lowerer<'unit> {
                     .value
                     .unwrap_or_else(|| self.unit_operand(result_type));
 
-                self.builder.push_operation(
+                self.push_operation(
                     block,
                     Self::retained_source(&completion.source),
                     MirOperationKind::Async(MirAsyncOperation::PublishTerminalState {
@@ -173,13 +178,9 @@ impl<'unit> Lowerer<'unit> {
                     None,
                 )?;
 
-                self.builder.set_terminator(
-                    block,
-                    completion.source,
-                    MirTerminatorKind::Return(None),
-                )?;
+                self.set_terminator(block, completion.source, MirTerminatorKind::Return(None))?;
             } else {
-                self.builder.set_terminator(
+                self.set_terminator(
                     block,
                     completion.source,
                     MirTerminatorKind::Return(completion.value),
@@ -228,6 +229,13 @@ impl<'unit> Lowerer<'unit> {
     pub(super) fn retained_place(place: &MirPlace) -> MirPlace {
         // Independent MIR records must own the same immutable place descriptor.
         place.clone()
+    }
+
+    pub(super) fn guard_binding(&self, identity: StorageIdentityId) -> Option<&MirPlace> {
+        self.guard_bindings
+            .iter()
+            .rev()
+            .find_map(|bindings| bindings.get(&identity))
     }
 }
 
@@ -360,6 +368,115 @@ mod tests {
             mir.blocks()[0].terminator().kind(),
             MirTerminatorKind::Return(Some(bray_ir::MirOperand::Value(_)))
         ));
+    }
+
+    #[test]
+    fn only_the_consuming_successor_clears_a_cleanup_guard() {
+        use bray_ir::{
+            MirBlockKind, MirEdge, MirImmediateValue, MirOperand, MirPlace, MirSourceAnchor,
+            MirStorageKind,
+        };
+
+        let fixture = lowering_fixture(95, BoundOperator::Add);
+        let mut lowerer = super::Lowerer::new(fixture.input());
+        let source = MirSourceAnchor::from(fixture.unit.key().source());
+        let ty = fixture.values.intern_type(TypeData::tuple([])).unwrap();
+
+        let entry = lowerer
+            .builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        let consumed = lowerer
+            .builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        let retained = lowerer
+            .builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        let storage = lowerer
+            .builder
+            .push_storage(source.clone(), MirStorageKind::Local, ty)
+            .unwrap();
+
+        let flag = lowerer
+            .builder
+            .push_storage(source.clone(), MirStorageKind::Local, ty)
+            .unwrap();
+
+        lowerer.initialization_guards.insert(
+            storage,
+            super::super::initialization::InitializationState {
+                guard: MirPlace::new(flag, [], ty),
+                parts: Vec::new(),
+            },
+        );
+
+        let parameter = lowerer
+            .builder
+            .push_block_parameter(consumed, source.clone(), ty)
+            .unwrap();
+
+        lowerer
+            .set_terminator(
+                entry,
+                source.clone(),
+                MirTerminatorKind::Branch {
+                    condition: MirOperand::Immediate {
+                        value: MirImmediateValue::Boolean(true),
+                        ty,
+                    },
+                    then_edge: MirEdge::new(
+                        consumed,
+                        [MirOperand::Move(MirPlace::new(storage, [], ty))],
+                    ),
+                    else_edge: MirEdge::new(retained, []),
+                },
+            )
+            .unwrap();
+
+        lowerer
+            .set_terminator(
+                consumed,
+                source.clone(),
+                MirTerminatorKind::Return(Some(MirOperand::Value(parameter))),
+            )
+            .unwrap();
+
+        lowerer
+            .set_terminator(retained, source, MirTerminatorKind::Return(None))
+            .unwrap();
+
+        let mir = lowerer.builder.finish(entry).unwrap();
+
+        let MirTerminatorKind::Branch {
+            then_edge,
+            else_edge,
+            ..
+        } = mir.block(entry).unwrap().terminator().kind()
+        else {
+            panic!("expected branch")
+        };
+
+        assert_ne!(then_edge.target(), consumed);
+        assert_eq!(else_edge.target(), retained);
+        assert!(mir.block(entry).unwrap().operations().is_empty());
+        assert!(mir.block(retained).unwrap().operations().is_empty());
+        let bridge = mir.block(then_edge.target()).unwrap();
+        assert_eq!(bridge.operations().len(), 1);
+
+        assert!(
+            matches!(mir.operation(bridge.operations()[0]).unwrap().kind(), MirOperationKind::Store {
+            destination, value: MirOperand::Immediate { value: MirImmediateValue::Boolean(false), .. }, ..
+        } if destination.storage() == flag)
+        );
+
+        assert!(
+            matches!(bridge.terminator().kind(), MirTerminatorKind::Goto(edge) if edge.target() == consumed && matches!(edge.arguments(), [MirOperand::Value(_)]))
+        );
     }
 
     #[test]
@@ -1432,6 +1549,7 @@ mod tests {
         let async_analysis = CheckedAsync::try_new(
             unit.unit(),
             unit.key().kind(),
+            [],
             [],
             [],
             [],
