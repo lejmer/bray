@@ -306,6 +306,7 @@ dependencies = [
 name = "bray-diagnostics"
 version = "0.0.0"
 dependencies = [
+ "bray-runtime-abi",
  "bray-source",
  "bray-syntax",
 ]

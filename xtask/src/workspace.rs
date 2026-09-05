@@ -32,6 +32,24 @@ pub(crate) fn io_error(action: &str, path: &Path, error: std::io::Error) -> Stri
     format!("failed to {action} {}: {error}", path.display())
 }
 
+pub(crate) fn collect_rust_files(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
+    let entries = std::fs::read_dir(directory)
+        .map_err(|error| format!("could not read {}: {error}", directory.display()))?;
+
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("could not read directory entry: {error}"))?;
+        let path = entry.path();
+
+        if path.is_dir() {
+            collect_rust_files(&path, files)?;
+        } else if path.extension().is_some_and(|extension| extension == "rs") {
+            files.push(path);
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::OsString;

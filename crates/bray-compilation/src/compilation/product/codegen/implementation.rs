@@ -854,9 +854,7 @@ mod tests {
 
         let selected = super::super::link::platform_services_for_imported_symbols(
             &available_services,
-            [bray_runtime_interface::native_platform_service_role_symbol(
-                PlatformServiceRole::StandardOutputWrite,
-            )],
+            [PlatformServiceRole::StandardOutputWrite.native_symbol()],
         );
 
         assert_eq!(
@@ -1055,11 +1053,7 @@ mod tests {
         let inputs = compilation
             .standard_library_link_inputs(
                 ProductKind::Executable,
-                &BTreeSet::from(
-                    [bray_runtime_interface::native_platform_service_role_symbol(
-                        PlatformServiceRole::StandardOutputWrite,
-                    )],
-                ),
+                &BTreeSet::from([PlatformServiceRole::StandardOutputWrite.native_symbol()]),
                 &BTreeSet::new(),
             )
             .unwrap_or_else(|error| panic!("standard library inputs must resolve: {error:?}"));
@@ -1124,11 +1118,7 @@ mod tests {
         let filesystem_inputs = compilation
             .standard_library_link_inputs(
                 ProductKind::Executable,
-                &BTreeSet::from(
-                    [bray_runtime_interface::native_platform_service_role_symbol(
-                        PlatformServiceRole::FileRead,
-                    )],
-                ),
+                &BTreeSet::from([PlatformServiceRole::FileRead.native_symbol()]),
                 &BTreeSet::new(),
             )
             .unwrap_or_else(|error| panic!("filesystem inputs must resolve: {error:?}"));
@@ -1169,11 +1159,7 @@ mod tests {
         let overridden_inputs = compilation
             .standard_library_link_inputs(
                 ProductKind::Test,
-                &BTreeSet::from(
-                    [bray_runtime_interface::native_platform_service_role_symbol(
-                        PlatformServiceRole::StandardOutputWrite,
-                    )],
-                ),
+                &BTreeSet::from([PlatformServiceRole::StandardOutputWrite.native_symbol()]),
                 &BTreeSet::from([PlatformServiceRole::StandardOutputWrite]),
             )
             .unwrap_or_else(|error| panic!("overridden inputs must resolve: {error:?}"));
@@ -2562,6 +2548,88 @@ mod tests {
                 )
             })
         }));
+
+        realize_codegen_mappings(&compilation, &target, &reachability, &cancellation);
+    }
+
+    #[test]
+    fn imported_platform_service_templates_retain_their_role_during_specialization() {
+        let role = PlatformServiceRole::StandardOutputFlush;
+
+        let fixture = GenericDependencyFixture {
+            source: r#"trusted module templates;
+
+@layout(c)
+internal struct PlatformStatus
+{
+    category: u32;
+    reserved: u32;
+    native_code: i64;
+}
+
+@abi(c)
+trusted internal func flush() -> PlatformStatus
+{
+    return { category = 0, reserved = 0, native_code = 0 };
+}
+
+public func invoke<T>(pos value: T)
+{
+    let _: PlatformStatus = trusted flush();
+}
+"#,
+            runtime_frames: None,
+            executable_templates: 2,
+            platform_service: Some((role, "templates.flush")),
+        };
+
+        let compilation = generic_consumer_for_target_with_source(
+            generic_dependency_from_fixture(true, false, fixture),
+            SelectedTarget::baseline(),
+            concat!(
+                "module application;\n",
+                "using example.dependency.templates.invoke;\n",
+                "func main() { example.dependency.templates.invoke<i32>(1); }\n",
+            ),
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:#?}",
+            compilation.check_diagnostics()
+        );
+
+        let cancellation = CancellationToken::new();
+
+        let target = compilation
+            .selected_target()
+            .target()
+            .codegen_target()
+            .unwrap_or_else(|error| panic!("consumer target must validate: {error:?}"));
+
+        let semantic = compilation
+            .product_semantics()
+            .unwrap_or_else(|error| panic!("consumer product plan must resolve: {error:?}"));
+
+        let roots = compilation
+            .product_root_instances(semantic.value(), None, &target, &cancellation)
+            .unwrap_or_else(|error| panic!("consumer roots must resolve: {error:?}"));
+
+        let reachability = compilation
+            .codegen_reachability(roots, None, &target, &cancellation)
+            .unwrap_or_else(|error| panic!("consumer reachability must close: {error:?}"));
+
+        let roles = reachability
+            .graph()
+            .instances()
+            .iter()
+            .filter_map(|instance| match instance.key().template() {
+                MirUnitKey::ImportedExecutable(key) => key.platform_service(),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(roles, [role]);
 
         realize_codegen_mappings(&compilation, &target, &reachability, &cancellation);
     }
@@ -3966,9 +4034,7 @@ mod tests {
             PlatformServiceBinding::try_new(PlatformServiceRole::StandardOutputFlush, "app.flush")
                 .unwrap_or_else(|| panic!("platform service binding must validate"));
 
-        let platform_symbol = bray_runtime_interface::native_platform_service_role_symbol(
-            PlatformServiceRole::StandardOutputFlush,
-        );
+        let platform_symbol = PlatformServiceRole::StandardOutputFlush.native_symbol();
 
         for target in NativeTarget::ALL {
             let selected = SelectedTarget::for_native(target);
@@ -4053,9 +4119,7 @@ mod tests {
             [binding.clone()],
         );
 
-        let symbol = bray_runtime_interface::native_platform_service_role_symbol(
-            PlatformServiceRole::StandardOutputFlush,
-        );
+        let symbol = PlatformServiceRole::StandardOutputFlush.native_symbol();
 
         assert_direct_platform_service(&plan, symbol);
 
@@ -4294,7 +4358,8 @@ mod tests {
         let (backend, plan) =
             runtime_native_plan_with_source_roles(&[source], ProductKind::Library, [binding]);
 
-        let symbol = bray_runtime_interface::native_runtime_role_symbol(role)
+        let symbol = role
+            .native_symbol()
             .unwrap_or_else(|| panic!("runtime role must have a native symbol"));
 
         assert!(plan.mappings().iter().any(|mappings| {
@@ -4346,7 +4411,7 @@ mod tests {
             [binding],
         );
 
-        let symbol = bray_runtime_interface::native_platform_service_role_symbol(role);
+        let symbol = role.native_symbol();
 
         assert!(plan.mappings().iter().any(|mappings| {
             mappings.symbols().iter().any(|mapping| {
@@ -4392,7 +4457,8 @@ mod tests {
         let (backend, plan) =
             runtime_native_plan_with_source_roles(&[source], ProductKind::Library, [binding]);
 
-        let symbol = bray_runtime_interface::native_runtime_role_symbol(role)
+        let symbol = role
+            .native_symbol()
             .unwrap_or_else(|| panic!("runtime role must have a native symbol"));
 
         assert!(
@@ -4505,11 +4571,17 @@ mod tests {
         let artifact = RuntimeArtifactId::try_new("bray.runtime.test.x86_64")
             .unwrap_or_else(|| panic!("test runtime artifact identity must be valid"));
 
-        let roles: Vec<_> = roles.into_iter().collect();
+        let roles: Vec<_> = roles
+            .into_iter()
+            .filter(|role| role.native_symbol().is_some())
+            .collect();
 
         let bindings = roles.iter().copied().map(|role| {
-            let symbol = BinarySymbolName::try_new(format!("bray_runtime_{}", role.as_str()))
-                .unwrap_or_else(|| panic!("test runtime role symbol must be valid"));
+            let symbol = BinarySymbolName::try_new(
+                role.native_symbol()
+                    .expect("selected native role has a symbol"),
+            )
+            .unwrap_or_else(|| panic!("test runtime role symbol must be valid"));
 
             RuntimeRoleBinding::new(role, symbol, RuntimeRoleImplementation::BrayRuntime)
         });
@@ -4549,7 +4621,7 @@ mod tests {
                 roles
                     .iter()
                     .copied()
-                    .filter(|role| *role != RuntimeAbiRole::TestEntrySelection),
+                    .filter(|role| role.available_to_product()),
                 capabilities,
                 "libbray_runtime_product.a",
                 digest,
@@ -4878,6 +4950,7 @@ mod tests {
         source: &'static str,
         runtime_frames: Option<usize>,
         executable_templates: usize,
+        platform_service: Option<(PlatformServiceRole, &'static str)>,
     }
 
     const GENERIC_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixture {
@@ -4901,6 +4974,7 @@ mod tests {
         ),
         runtime_frames: None,
         executable_templates: 3,
+        platform_service: None,
     };
 
     const ASYNC_GENERIC_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixture {
@@ -4924,6 +4998,7 @@ mod tests {
         ),
         runtime_frames: Some(2),
         executable_templates: 3,
+        platform_service: None,
     };
 
     const TRAIT_DEFAULT_DEPENDENCY: GenericDependencyFixture = GenericDependencyFixture {
@@ -4968,6 +5043,7 @@ mod tests {
         ),
         runtime_frames: None,
         executable_templates: 6,
+        platform_service: None,
     };
 
     fn realize_codegen_mappings(
@@ -5114,7 +5190,11 @@ mod tests {
                 SelectedTarget::baseline(),
             ),
         )
-        .with_package_interface_export(export);
+        .with_package_interface_export(export)
+        .with_platform_services(fixture.platform_service.map(|(role, declaration)| {
+            PlatformServiceBinding::try_new(role, declaration)
+                .unwrap_or_else(|| panic!("fixture platform binding must validate"))
+        }));
 
         let compilation = crate::Compilation::load(request)
             .unwrap_or_else(|error| panic!("dependency compilation must load: {error:?}"));

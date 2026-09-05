@@ -466,17 +466,9 @@ fn declare_static_incident_reporter<'context>(
         types,
     );
 
-    let reporter = module
-        .get_function(bray_runtime_abi::ENTRY_FAILURE_REPORTING_SYMBOL)
-        .unwrap_or_else(|| {
-            module.add_function(
-                bray_runtime_abi::ENTRY_FAILURE_REPORTING_SYMBOL,
-                context
-                    .i32_type()
-                    .fn_type(&[usize.into(), usize.into()], false),
-                None,
-            )
-        });
+    let reporter = crate::native::declare_runtime_function(
+        module, context, types.target(), bray_runtime_interface::RuntimeAbiRole::EntryFailureReporting,
+    )?;
 
     let builder = context.create_builder();
 

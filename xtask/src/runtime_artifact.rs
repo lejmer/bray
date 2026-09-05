@@ -1,7 +1,9 @@
 //! Reference runtime artifact packaging and conformance.
 
+mod archive;
 mod bootstrap;
 mod command;
+mod contract;
 mod native_link;
 mod partition;
 mod reuse;

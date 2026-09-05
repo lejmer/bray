@@ -1,4 +1,4 @@
-//! Link integration for Bray's isolated third-party temporal provider.
+//! Link integration for independently packaged temporal and dynamic-library providers.
 
 #![deny(unsafe_code)]
 

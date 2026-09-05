@@ -1,4 +1,3 @@
-use std::borrow::Cow;
 use std::collections::BTreeSet;
 use std::path::Component;
 use std::path::Path;
@@ -11,6 +10,7 @@ use sha2::{Digest, Sha256};
 use super::model::{Description, LinkKind, Manifest, Source};
 use super::render::{RenderedTarget, render_all};
 use super::validation::validate;
+use crate::text::normalize_line_endings;
 use crate::workspace;
 
 const INPUT_PATH: &str = "standard-library/targets/os-bindings.json";
@@ -94,7 +94,7 @@ fn read_input(input: &Path) -> Result<(Description, String), String> {
     let mut sources = Vec::with_capacity(manifest.sources.len());
     let mut digest = Sha256::new();
 
-    digest.update(canonical_text(&manifest_bytes));
+    digest.update(normalize_line_endings(&manifest_bytes));
 
     for name in &manifest.sources {
         let relative = Path::new(name);
@@ -130,7 +130,7 @@ fn read_input(input: &Path) -> Result<(Description, String), String> {
 
         digest.update((name.len() as u64).to_le_bytes());
         digest.update(name.as_bytes());
-        let canonical = canonical_text(&bytes);
+        let canonical = normalize_line_endings(&bytes);
 
         digest.update((canonical.len() as u64).to_le_bytes());
         digest.update(&canonical);
@@ -229,7 +229,7 @@ fn check_files(files: &[GeneratedFile]) -> Result<(), String> {
 
     for file in files {
         match std::fs::read(&file.path) {
-            Ok(actual) if canonical_text(&actual) == canonical_text(file.contents.as_bytes()) => {}
+            Ok(actual) if normalize_line_endings(&actual) == normalize_line_endings(file.contents.as_bytes()) => {}
             Ok(_) => stale.push(file.path.display().to_string()),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 stale.push(file.path.display().to_string());
@@ -262,7 +262,7 @@ fn synchronize_files(files: &[GeneratedFile]) -> Result<(), String> {
             .map_err(|error| workspace::io_error("create", parent, error))?;
 
         if std::fs::read(&file.path).ok().is_some_and(|actual| {
-            canonical_text(&actual) == canonical_text(file.contents.as_bytes())
+            normalize_line_endings(&actual) == normalize_line_endings(file.contents.as_bytes())
         }) {
             continue;
         }
@@ -276,27 +276,6 @@ fn synchronize_files(files: &[GeneratedFile]) -> Result<(), String> {
     }
 
     Ok(())
-}
-
-fn canonical_text(bytes: &[u8]) -> Cow<'_, [u8]> {
-    if !bytes.windows(2).any(|pair| pair == b"\r\n") {
-        return Cow::Borrowed(bytes);
-    }
-
-    let mut normalized = Vec::with_capacity(bytes.len());
-    let mut index = 0;
-
-    while index < bytes.len() {
-        if bytes[index..].starts_with(b"\r\n") {
-            normalized.push(b'\n');
-            index += 2;
-        } else {
-            normalized.push(bytes[index]);
-            index += 1;
-        }
-    }
-
-    Cow::Owned(normalized)
 }
 
 fn obsolete_managed_files(files: &[GeneratedFile]) -> Result<Vec<PathBuf>, String> {
@@ -341,7 +320,7 @@ fn obsolete_managed_files(files: &[GeneratedFile]) -> Result<Vec<PathBuf>, Strin
 #[cfg(test)]
 mod tests {
     use super::{
-        GeneratedFile, canonical_text, check_files, read_description, read_input, synchronize_files,
+        GeneratedFile, check_files, read_description, read_input, synchronize_files,
     };
 
     #[test]
@@ -384,16 +363,6 @@ mod tests {
         .unwrap_or_else(|error| panic!("source must be written: {error}"));
 
         assert!(read_input(&manifest).is_err());
-    }
-
-    #[test]
-    fn canonical_text_is_independent_of_line_endings() {
-        assert_eq!(
-            canonical_text(b"first\nsecond\n"),
-            canonical_text(b"first\r\nsecond\r\n"),
-        );
-
-        assert_eq!(canonical_text(b"first\rsecond").as_ref(), b"first\rsecond");
     }
 
     #[test]

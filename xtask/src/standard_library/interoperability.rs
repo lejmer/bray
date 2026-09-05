@@ -150,9 +150,11 @@ fn audit_target_module(
         })?
         .as_ref()
         .map_err(|error| {
-            BuildError::conformance(
-                "foreign interoperability target modules",
-                format!("could not export {target:?} standard-library interface: {error:?}"),
+            BuildError::compilation_failed(
+                selected.profile().identity().clone(),
+                format!("{error:?}"),
+                standard_library.check_diagnostics(),
+                standard_library.sources(),
             )
         })?;
 

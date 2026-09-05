@@ -425,7 +425,7 @@ impl Compilation {
         if let MirUnitKey::Bound(_) = instance.template()
             && let Some(role) = crate::compilation::foreign::runtime::runtime_role(self, function)?
         {
-            let symbol = bray_runtime_interface::native_runtime_role_symbol(role)
+            let symbol = role.native_symbol()
                 .ok_or(CodegenPreparationError::InvalidSymbolName)?;
 
             let name = BinarySymbolName::try_new(symbol)
@@ -450,7 +450,7 @@ impl Compilation {
 
         if let Some(role) = platform_service {
             let name = BinarySymbolName::try_new(
-                bray_runtime_interface::native_platform_service_role_symbol(role),
+                role.native_symbol(),
             )
             .ok_or(CodegenPreparationError::InvalidSymbolName)?;
 

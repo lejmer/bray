@@ -108,7 +108,8 @@ Compiler libraries and installed Bray tools.
       mechanisms they own. Ordinary compiler-host consumers retain the complete default mechanism set.
 
 - `bray-platform-abi`
-    - Link integration that packages the isolated third-party temporal provider for standard-library products.
+    - Link integration that independently packages the temporal and dynamic-library providers for standard-library
+      products. The temporal provider uses pinned third-party code.
 
 - `bray-platform-abi-support`
     - Dependency-light native export declarations, raw-memory validation, and portable I/O error mapping shared by the

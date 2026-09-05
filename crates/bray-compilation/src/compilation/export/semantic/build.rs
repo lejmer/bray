@@ -18,7 +18,7 @@ use crate::compilation::Compilation;
 use crate::fact::{BatchCompletionError, BatchWork, FactQueryError};
 
 use super::context::{CheckedConstantExpression, SemanticExporter};
-use super::defaults::{generic_parameters, target_dependencies};
+use super::defaults::target_dependencies;
 use super::fragment::SemanticFragment;
 use super::implementation::implementation_semantics;
 use super::templates::ExecutableTemplateExporter;
@@ -146,7 +146,7 @@ fn constant_callable_bodies(
 
         let arguments = callable_argument_ordinals(signature.value())?;
 
-        let parameters = generic_parameters(binder, symbol)?;
+        let parameters = crate::compilation::binder::visible_generic_parameters(export.graph, symbol);
 
         let owner = GenericOwnerId::try_new(symbol)
             .ok_or_else(|| {
@@ -160,6 +160,19 @@ fn constant_callable_bodies(
                 .map_err(super::super::invalid_compilation_fact_error)?;
 
         let result_type = export.resolve_type_template(symbol, signature.value().result())?;
+
+        let result_type = if let Some(context @ bray_symbols::SelfTypeContext::NamedType(_)) =
+            crate::compilation::binder::self_type_context(export.graph, symbol)
+        {
+            let replacement = crate::compilation::substitution::contextual_self_type(binder, context)
+                .map_err(super::super::invalid_compilation_fact_error)?;
+
+            values.substitute_contextual_self(result_type, context, replacement)
+                .map_err(super::super::semantic_value_export_error)?
+        } else {
+            result_type
+        };
+
         let declaration = exported_declaration_identity(export, symbol)?;
 
         let evaluated = compilation

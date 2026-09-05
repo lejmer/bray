@@ -584,32 +584,12 @@ fn native_exports(
     let archive = staging.path().join("optimization.a");
     fs::write(&archive, archive_bytes).map_err(|error| BuildError::write(&archive, error))?;
 
-    let output = Command::new(bray_llvm_toolchain::tool_path(root, "llvm-nm"))
-        .args(["--defined-only", "--extern-only"])
-        .arg(&archive)
-        .output()
-        .map_err(|error| BuildError::NativeArchive(error.to_string()))?;
-
-    if !output.status.success() {
-        return Err(BuildError::NativeArchive(
-            "LLVM could not inspect native optimization symbols".to_owned(),
-        ));
-    }
-
-    let symbols = String::from_utf8(output.stdout).map_err(|_| {
-        BuildError::NativeArchive("native symbol inventory is not UTF-8".to_owned())
-    })?;
+    let symbols = crate::native_symbols::defined_exports(root, &archive, object_format)
+        .map_err(BuildError::NativeSymbolInspection)?;
 
     Ok(symbols
-        .lines()
-        .filter_map(|line| line.split_whitespace().next_back())
-        .map(|name| {
-            if object_format == ObjectFormat::MachO {
-                name.strip_prefix('_').unwrap_or(name)
-            } else {
-                name
-            }
-        })
+        .iter()
+        .map(String::as_str)
         .filter(|name| name.starts_with("bray_"))
         .filter_map(BinarySymbolName::try_new)
         .collect::<BTreeSet<_>>()

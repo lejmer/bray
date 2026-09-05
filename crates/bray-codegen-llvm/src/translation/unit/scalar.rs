@@ -1,10 +1,9 @@
 use super::core::UnitTranslator;
 use super::support::{
-    extract_value, float_predicate, int_value, integer_predicate, llvm, pointer_value,
+    extract_value, float_predicate, int_value, integer_predicate, llvm, nonzero_integer, pointer_value,
 };
 use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenTypeKind, IntrinsicCall};
 use bray_ir::{MirBinaryOperator, MirOperand, MirUnaryOperator};
-use inkwell::IntPredicate;
 use inkwell::types::BasicTypeEnum;
 use inkwell::values::{BasicValueEnum, IntValue, PointerValue};
 
@@ -28,12 +27,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 let tag = int_value(tag).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                llvm(self.builder.build_int_compare(
-                    IntPredicate::NE,
-                    tag,
-                    tag.get_type().const_zero(),
-                    "nullable.present",
-                ))
+                nonzero_integer(&self.builder, tag, "nullable.present")
             }
             _ => Err(CodegenFailure::GeneratedModuleInvariant),
         }
@@ -81,12 +75,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 let state = int_value(state).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                llvm(self.builder.build_int_compare(
-                    IntPredicate::NE,
-                    state,
-                    state.get_type().const_zero(),
-                    "nullable.present",
-                ))
+                nonzero_integer(&self.builder, state, "nullable.present")
             }
             _ => Err(CodegenFailure::GeneratedModuleInvariant),
         }

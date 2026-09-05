@@ -440,7 +440,7 @@ fn build_bundle(
 
                 let artifact = optimization_publication.publish_native(
                     platform.name,
-                    platform.optimization_roles,
+                    &platform.roles,
                     dependencies,
                     &platform_archive,
                     optimization,
@@ -501,13 +501,9 @@ fn build_target(
     work: &Path,
     profile: Option<&BuildProfileOptions>,
 ) -> Result<BuiltTarget, BuildError> {
-    let temporal_provider_required = super::platform::is_required(product.platform_services());
-
-    if temporal_provider_required
-        && !super::platform::inventory_matches(product.platform_services())
-    {
+    if !super::platform::inventory_matches(product.platform_services()) {
         return Err(BuildError::Manifest(
-            "temporal provider roles are missing from the standard library".to_owned(),
+            "platform provider roles are missing or duplicated in the standard library".to_owned(),
         ));
     }
 
@@ -527,13 +523,9 @@ fn build_target(
 
     fs::create_dir_all(&output).map_err(|error| BuildError::write(&output, error))?;
 
-    let platform = if temporal_provider_required {
-        crate::progress::run("Building the temporal provider", || {
-            super::platform::build_archives(&root, native, &output)
-        })?
-    } else {
-        Vec::new()
-    };
+    let platform = crate::progress::run("Building platform providers", || {
+        super::platform::build_archives(&root, native, &output, product.platform_services())
+    })?;
 
     let request = super::source::request_with_native_links(
         product,

@@ -1,5 +1,6 @@
 use bray_codegen::{CodegenFailure, CodegenValueAttribute};
 use inkwell::attributes::Attribute;
+use inkwell::context::Context;
 use inkwell::types::AnyType;
 
 use super::LlvmTypeMappings;
@@ -7,11 +8,11 @@ use super::LlvmTypeMappings;
 pub(crate) fn enum_attribute(
     name: &str,
     value: u64,
-    types: &LlvmTypeMappings<'_, '_>,
+    context: &Context,
 ) -> Result<Attribute, CodegenFailure> {
     let kind = attribute_kind(name)?;
 
-    Ok(types.context().create_enum_attribute(kind, value))
+    Ok(context.create_enum_attribute(kind, value))
 }
 
 pub(crate) fn type_attribute(

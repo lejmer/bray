@@ -765,9 +765,9 @@ mod tests {
         let ir = module.print_to_string().to_string();
 
         for spelling in [
-            "atomic.value.storage",
+            "atomic.value.bits.storage",
             "atomic.value.bits",
-            "atomic.bits.storage",
+            "atomic.bits.value.storage",
             "atomic.bits.value",
         ] {
             assert!(

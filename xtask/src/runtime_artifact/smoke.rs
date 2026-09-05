@@ -1,9 +1,7 @@
-use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use bray_runtime_interface::native_platform_service_role_symbol;
 use bray_target::NativeTarget;
 
 use super::command::{CommandError, Package, RuntimeArchiveKind};
@@ -17,8 +15,6 @@ pub(super) fn smoke_test(
     target: NativeTarget,
     directory: &Path,
 ) -> Result<(), CommandError> {
-    audit_runtime_archives(package)?;
-
     let archives = component_archives(
         package,
         &[
@@ -266,14 +262,14 @@ fn linker_map_argument(target: NativeTarget, map: &Path) -> Result<String, Comma
 
 fn audit_synchronous_link_map(map: &Path) -> Result<(), CommandError> {
     let contents = fs::read_to_string(map).map_err(|error| CommandError::read(map, error))?;
-    let required = [bray_runtime_abi::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL];
+    let required = [bray_runtime_abi::symbols::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL];
 
     let forbidden = [
-        bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
-        bray_runtime_abi::TASK_ALLOCATION_SYMBOL,
-        bray_runtime_abi::TASK_START_SYMBOL,
-        bray_runtime_abi::WAKE_SYMBOL,
-        bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
+        bray_runtime_abi::symbols::ROOT_EXECUTION_SYMBOL,
+        bray_runtime_abi::symbols::TASK_ALLOCATION_SYMBOL,
+        bray_runtime_abi::symbols::TASK_START_SYMBOL,
+        bray_runtime_abi::symbols::WAKE_SYMBOL,
+        bray_runtime_abi::symbols::TEST_ENTRY_SELECTION_SYMBOL,
         "bray_runtime_memory_allocation",
         "bray_runtime_string_scalar_count",
         "bray_runtime_character_scalar_value",
@@ -295,38 +291,30 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
     let contents = fs::read_to_string(map).map_err(|error| CommandError::read(map, error))?;
 
     let required = [
-        bray_runtime_abi::RUNTIME_INITIALIZATION_SYMBOL,
-        bray_runtime_abi::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
-        bray_runtime_abi::FOREIGN_CALLBACK_EXECUTION_SYMBOL,
-        bray_runtime_abi::THREAD_ATTACHMENT_IDENTITY_SYMBOL,
-        bray_runtime_abi::THREAD_STATIC_CLEANUP_REGISTRATION_SYMBOL,
-        bray_runtime_abi::PANIC_REPORT_CONSTRUCTION_SYMBOL,
-        bray_runtime_abi::PANIC_REPORTING_SYMBOL,
-        bray_runtime_abi::STRUCTURED_SHUTDOWN_SYMBOL,
-        bray_runtime_interface::native_platform_service_role_symbol(
-            bray_runtime_interface::PlatformServiceRole::ThreadStorageCreate,
-        ),
-        bray_runtime_interface::native_platform_service_role_symbol(
-            bray_runtime_interface::PlatformServiceRole::ThreadStorageLoad,
-        ),
-        bray_runtime_interface::native_platform_service_role_symbol(
-            bray_runtime_interface::PlatformServiceRole::ThreadStorageStore,
-        ),
-        bray_runtime_interface::native_platform_service_role_symbol(
-            bray_runtime_interface::PlatformServiceRole::ThreadStorageDestroy,
-        ),
+        bray_runtime_abi::symbols::RUNTIME_INITIALIZATION_SYMBOL,
+        bray_runtime_abi::symbols::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
+        bray_runtime_abi::symbols::FOREIGN_CALLBACK_EXECUTION_SYMBOL,
+        bray_runtime_abi::symbols::THREAD_ATTACHMENT_IDENTITY_SYMBOL,
+        bray_runtime_abi::symbols::THREAD_STATIC_CLEANUP_REGISTRATION_SYMBOL,
+        bray_runtime_abi::symbols::PANIC_REPORT_CONSTRUCTION_SYMBOL,
+        bray_runtime_abi::symbols::PANIC_REPORTING_SYMBOL,
+        bray_runtime_abi::symbols::STRUCTURED_SHUTDOWN_SYMBOL,
+        bray_runtime_interface::PlatformServiceRole::ThreadStorageCreate.native_symbol(),
+        bray_runtime_interface::PlatformServiceRole::ThreadStorageLoad.native_symbol(),
+        bray_runtime_interface::PlatformServiceRole::ThreadStorageStore.native_symbol(),
+        bray_runtime_interface::PlatformServiceRole::ThreadStorageDestroy.native_symbol(),
     ];
 
     let forbidden = [
-        bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
-        bray_runtime_abi::TASK_ALLOCATION_SYMBOL,
-        bray_runtime_abi::TASK_START_SYMBOL,
-        bray_runtime_abi::WAKE_SYMBOL,
-        bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
-        bray_runtime_abi::CURRENT_NATIVE_THREAD_IDENTITY_SYMBOL,
-        bray_runtime_abi::MAIN_NATIVE_THREAD_IDENTITY_SYMBOL,
-        bray_runtime_abi::AWAITED_FRAME_COMPOSITION_SYMBOL,
-        bray_runtime_abi::FRAME_COMPLETION_MOVE_SYMBOL,
+        bray_runtime_abi::symbols::ROOT_EXECUTION_SYMBOL,
+        bray_runtime_abi::symbols::TASK_ALLOCATION_SYMBOL,
+        bray_runtime_abi::symbols::TASK_START_SYMBOL,
+        bray_runtime_abi::symbols::WAKE_SYMBOL,
+        bray_runtime_abi::symbols::TEST_ENTRY_SELECTION_SYMBOL,
+        bray_runtime_abi::symbols::CURRENT_NATIVE_THREAD_IDENTITY_SYMBOL,
+        bray_runtime_abi::symbols::MAIN_NATIVE_THREAD_IDENTITY_SYMBOL,
+        bray_runtime_abi::symbols::AWAITED_FRAME_COMPOSITION_SYMBOL,
+        bray_runtime_abi::symbols::FRAME_COMPLETION_MOVE_SYMBOL,
         "__rust_alloc",
         "__rust_dealloc",
         "rust_eh_personality",
@@ -372,201 +360,4 @@ fn audit_link_symbols(contents: &str, required: &[&str], forbidden: &[&str]) -> 
     }
 
     Ok(())
-}
-
-fn audit_runtime_archives(package: &Package) -> Result<(), CommandError> {
-    for component in &package.components {
-        let symbols = defined_symbols(&component.archive)?;
-
-        let (required, forbidden): (&[&str], &[&str]) = match component.kind {
-            RuntimeArchiveKind::Common | RuntimeArchiveKind::TestCommon => (
-                &[],
-                &[
-                    "bray_runtime_memory_",
-                    "bray_runtime_string_",
-                    "bray_runtime_character_",
-                    "bray_runtime_root_",
-                    "bray_runtime_task_",
-                    "bray_platform_standard_",
-                    bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
-                ],
-            ),
-            RuntimeArchiveKind::Observation => (
-                &[
-                    bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL,
-                    bray_runtime_abi::MEMORY_ALLOCATION_OBSERVATION_SYMBOL,
-                    bray_runtime_abi::MEMORY_COPY_OBSERVATION_SYMBOL,
-                    bray_runtime_abi::PERFORMANCE_INTERVAL_BEGIN_SYMBOL,
-                    bray_runtime_abi::PERFORMANCE_INTERVAL_END_SYMBOL,
-                ],
-                &[
-                    "bray_runtime_string_",
-                    "bray_runtime_character_",
-                    "bray_platform_standard_",
-                ],
-            ),
-            RuntimeArchiveKind::Bootstrap => (
-                &[
-                    bray_runtime_abi::RUNTIME_INITIALIZATION_SYMBOL,
-                    bray_runtime_abi::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
-                    bray_runtime_abi::FOREIGN_CALLBACK_EXECUTION_SYMBOL,
-                    bray_runtime_abi::NATIVE_THREAD_EXECUTION_SYMBOL,
-                    bray_runtime_abi::THREAD_ATTACHMENT_IDENTITY_SYMBOL,
-                    bray_runtime_abi::THREAD_STATIC_CLEANUP_REGISTRATION_SYMBOL,
-                    bray_runtime_abi::PANIC_REPORTING_SYMBOL,
-                    bray_runtime_abi::STRUCTURED_SHUTDOWN_SYMBOL,
-                    bray_runtime_abi::PANIC_REPORT_CONSTRUCTION_SYMBOL,
-                ],
-                &[
-                    bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
-                    bray_runtime_abi::TASK_START_SYMBOL,
-                    bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
-                    "__rust_",
-                    "rust_",
-                ],
-            ),
-            RuntimeArchiveKind::Host => (
-                &[
-                    "bray_runtime_substrate_initialization",
-                    "bray_runtime_substrate_shutdown",
-                ],
-                &[
-                    "bray_runtime_memory_",
-                    "bray_runtime_string_",
-                    "bray_runtime_character_",
-                    bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
-                    bray_runtime_abi::TASK_START_SYMBOL,
-                    bray_runtime_abi::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
-                    bray_runtime_abi::FOREIGN_CALLBACK_EXECUTION_SYMBOL,
-                    bray_runtime_abi::STRUCTURED_SHUTDOWN_SYMBOL,
-                    bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
-                    "bray_platform_standard_",
-                ],
-            ),
-            RuntimeArchiveKind::Callback => (
-                &[
-                    "bray_runtime_substrate_panic_reporting",
-                    "bray_runtime_substrate_synchronous_root_execution",
-                    "bray_runtime_substrate_foreign_callback_execution",
-                    "bray_runtime_substrate_native_thread_execution",
-                ],
-                &[
-                    bray_runtime_abi::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
-                    bray_runtime_abi::FOREIGN_CALLBACK_EXECUTION_SYMBOL,
-                    bray_runtime_abi::NATIVE_THREAD_EXECUTION_SYMBOL,
-                    bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
-                    bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
-                    "bray_runtime_memory_",
-                    "bray_runtime_string_",
-                    "bray_runtime_character_",
-                    "bray_platform_standard_",
-                ],
-            ),
-            RuntimeArchiveKind::Scheduler => (
-                &[
-                    bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
-                    bray_runtime_abi::TASK_START_SYMBOL,
-                ],
-                &[
-                    bray_runtime_abi::SYNCHRONOUS_ROOT_EXECUTION_SYMBOL,
-                    bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
-                    "bray_runtime_memory_",
-                    "bray_runtime_string_",
-                    "bray_runtime_character_",
-                    "bray_platform_standard_",
-                ],
-            ),
-            RuntimeArchiveKind::Cancellation => (
-                &[bray_runtime_abi::ROOT_CANCELLATION_REQUEST_SYMBOL],
-                &[
-                    bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
-                    bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
-                    "bray_platform_standard_",
-                ],
-            ),
-            RuntimeArchiveKind::Event => (
-                &[bray_runtime_abi::RUNTIME_EVENT_SYMBOL],
-                &[
-                    bray_runtime_abi::ROOT_EXECUTION_SYMBOL,
-                    bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL,
-                    "bray_platform_standard_",
-                ],
-            ),
-            RuntimeArchiveKind::TestHost => (
-                &[bray_runtime_abi::TEST_ENTRY_SELECTION_SYMBOL],
-                &[
-                    "bray_runtime_memory_",
-                    "bray_runtime_string_",
-                    "bray_runtime_character_",
-                ],
-            ),
-        };
-
-        let required = required
-            .iter()
-            .copied()
-            .chain(
-                component
-                    .kind
-                    .platform_services()
-                    .iter()
-                    .copied()
-                    .map(native_platform_service_role_symbol),
-            )
-            .collect::<BTreeSet<_>>();
-
-        let missing = required
-            .iter()
-            .filter(|symbol| !symbols.contains(**symbol))
-            .map(|symbol| (*symbol).to_owned())
-            .collect::<Vec<_>>();
-
-        let forbidden = symbols
-            .iter()
-            .filter(|symbol| forbidden.iter().any(|prefix| symbol.starts_with(prefix)))
-            .cloned()
-            .collect::<Vec<_>>();
-
-        let undeclared_platform_services = symbols
-            .iter()
-            .filter(|symbol| {
-                symbol.starts_with("bray_platform_") && !required.contains(symbol.as_str())
-            })
-            .cloned()
-            .collect::<Vec<_>>();
-
-        if !missing.is_empty() || !forbidden.is_empty() || !undeclared_platform_services.is_empty()
-        {
-            return Err(CommandError::RuntimeComponentBoundary {
-                kind: component.kind,
-                missing,
-                forbidden,
-                undeclared_platform_services,
-            });
-        }
-    }
-
-    Ok(())
-}
-
-fn defined_symbols(archive: &Path) -> Result<BTreeSet<String>, CommandError> {
-    let tool =
-        bray_tooling::llvm_tool_path(bray_diagnostics::DiagnosticLlvmToolRole::SymbolInspector)
-            .map_err(CommandError::NativeSymbolToolUnavailable)?;
-
-    let output = Command::new(tool)
-        .args(["--defined-only", "--extern-only"])
-        .arg(archive)
-        .output()
-        .map_err(CommandError::NativeSymbolInspection)?;
-
-    if !output.status.success() {
-        return Err(CommandError::NativeSymbolInspectionFailed);
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|line| line.split_whitespace().last())
-        .map(str::to_owned)
-        .collect())
 }

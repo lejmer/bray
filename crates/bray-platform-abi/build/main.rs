@@ -1,3 +1,5 @@
+mod dynamic;
+
 use std::borrow::Cow;
 use std::env;
 use std::fmt::Write;
@@ -49,11 +51,14 @@ fn main() {
     if env::var_os("CARGO_FEATURE_TEMPORAL").is_some() {
         build_temporal(&manifest);
     }
+
+    if env::var_os("CARGO_FEATURE_DYNAMIC").is_some() {
+        dynamic::build(&manifest);
+    }
 }
 
 fn build_temporal(manifest: &Path) {
     let third_party = manifest.join("../../third-party/temporal");
-    let dynamic = manifest.join("native/dynamic");
     let provider = manifest.join("native/temporal");
     let date = third_party.join("date");
     let tzdata = third_party.join("tzdata");
@@ -78,7 +83,6 @@ fn build_temporal(manifest: &Path) {
         .cpp(true)
         .std("c++17")
         .include(date.join("include"))
-        .include(dynamic.join("include"))
         .include(provider.join("include"))
         .include(provider.join("src"))
         .include(&out)
@@ -88,7 +92,6 @@ fn build_temporal(manifest: &Path) {
         .define("ONLY_C_LOCALE", "1")
         .define("NOMINMAX", None)
         .file(date.join("src/tz.cpp"))
-        .file(dynamic.join("src/provider.cpp"))
         .warnings(false);
 
     for partition in &provenance.provider.capability_partitions {
@@ -96,15 +99,11 @@ fn build_temporal(manifest: &Path) {
     }
 
     configure_discardable_sections(&mut native);
-    native.compile("bray_native_providers");
+    native.compile("bray_temporal_provider");
 
     if env::var("CARGO_CFG_TARGET_OS").is_ok_and(|target| target == "windows") {
         println!("cargo:rustc-link-lib=shell32");
         println!("cargo:rustc-link-lib=ole32");
-    }
-
-    if env::var("CARGO_CFG_TARGET_OS").is_ok_and(|target| target == "linux") {
-        println!("cargo:rustc-link-lib=dl");
     }
 
     println!("cargo:rerun-if-changed={}", date.display());
@@ -112,7 +111,6 @@ fn build_temporal(manifest: &Path) {
     println!("cargo:rerun-if-changed={}", provenance_file.display());
 
     println!("cargo:rerun-if-changed={}", provider.display());
-    println!("cargo:rerun-if-changed={}", dynamic.display());
 }
 
 #[derive(Deserialize)]

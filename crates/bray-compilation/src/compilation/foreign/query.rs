@@ -179,10 +179,10 @@ impl Compilation {
 
         let symbol = match (platform_role, runtime_role, symbol_directive) {
             (Some(role), _, _) => NonEmptySharedStr::try_new(
-                bray_runtime_interface::native_platform_service_role_symbol(role),
+                role.native_symbol(),
             )
             .map(NativeSymbolContract::required_name),
-            (None, Some(role), _) => bray_runtime_interface::native_runtime_role_symbol(role)
+            (None, Some(role), _) => role.native_symbol()
                 .and_then(NonEmptySharedStr::try_new)
                 .map(NativeSymbolContract::required_name),
             (None, None, Some(directive)) => {
@@ -593,9 +593,7 @@ extern trusted internal func flush() -> PlatformStatus
 
         assert_eq!(
             contract.symbol().identity().name(),
-            Some(bray_runtime_interface::native_platform_service_role_symbol(
-                PlatformServiceRole::StandardOutputFlush,
-            )),
+            Some(PlatformServiceRole::StandardOutputFlush.native_symbol()),
         );
     }
 

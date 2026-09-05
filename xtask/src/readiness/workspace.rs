@@ -1,5 +1,6 @@
+use crate::workspace::collect_rust_files;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use quote::ToTokens;
 use serde::de::DeserializeOwned;
@@ -226,24 +227,6 @@ pub(super) fn require_executable_source_contracts<'row>(
             return Err(format!(
                 "missing executable {category} test for {name}: {test}"
             ));
-        }
-    }
-
-    Ok(())
-}
-
-fn collect_rust_files(directory: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
-    let entries = std::fs::read_dir(directory)
-        .map_err(|error| format!("could not read {}: {error}", directory.display()))?;
-
-    for entry in entries {
-        let entry = entry.map_err(|error| format!("could not read directory entry: {error}"))?;
-        let path = entry.path();
-
-        if path.is_dir() {
-            collect_rust_files(&path, files)?;
-        } else if path.extension().is_some_and(|extension| extension == "rs") {
-            files.push(path);
         }
     }
 

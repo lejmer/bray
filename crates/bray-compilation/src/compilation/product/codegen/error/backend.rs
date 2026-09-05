@@ -80,6 +80,24 @@ pub(super) fn codegen_backend_failure_kind(
                 [text_failure_field("report", report.as_ref())],
             ))
         }
+        Error::CompilerOwnedRuntimeRole(role) => {
+            Kind::CodegenBackendGeneratedModuleInvariantDetail(failure_detail(
+                "codegen_backend_compiler_owned_runtime_role",
+                [text_failure_field("role", role.as_str())],
+            ))
+        }
+        Error::NativeRuntimeArgumentCount {
+            role,
+            expected,
+            actual,
+        } => Kind::CodegenBackendGeneratedModuleInvariantDetail(failure_detail(
+            "codegen_backend_native_runtime_argument_count",
+            [
+                text_failure_field("role", role.as_str()),
+                DiagnosticFailureField::new("expected", DiagnosticFailureValue::Count(*expected)),
+                DiagnosticFailureField::new("actual", DiagnosticFailureValue::Count(*actual)),
+            ],
+        )),
         Error::InvalidRuntimeMetadata(error) => {
             Kind::CodegenBackendInvalidRuntimeMetadata(runtime_metadata_failure_detail(*error))
         }
@@ -167,30 +185,26 @@ fn outcome_failure_detail(
             ArtifactError::RuntimeMetadataMismatch => {
                 failure_detail("codegen_backend_outcome_runtime_metadata_mismatch", [])
             }
-            ArtifactError::DuplicateArtifact(artifact) => artifact_failure_detail(
-                "codegen_backend_outcome_duplicate_artifact",
-                artifact,
-            ),
+            ArtifactError::DuplicateArtifact(artifact) => {
+                artifact_failure_detail("codegen_backend_outcome_duplicate_artifact", artifact)
+            }
             ArtifactError::MissingRequired(artifact) => artifact_failure_detail(
                 "codegen_backend_outcome_missing_required_artifact",
                 artifact,
             ),
-            ArtifactError::UnrequestedArtifact(artifact) => artifact_failure_detail(
-                "codegen_backend_outcome_unrequested_artifact",
-                artifact,
-            ),
-            ArtifactError::BackendMismatch(artifact) => artifact_failure_detail(
-                "codegen_backend_outcome_backend_mismatch",
-                artifact,
-            ),
+            ArtifactError::UnrequestedArtifact(artifact) => {
+                artifact_failure_detail("codegen_backend_outcome_unrequested_artifact", artifact)
+            }
+            ArtifactError::BackendMismatch(artifact) => {
+                artifact_failure_detail("codegen_backend_outcome_backend_mismatch", artifact)
+            }
             ArtifactError::CapabilityRevisionMismatch(artifact) => artifact_failure_detail(
                 "codegen_backend_outcome_capability_revision_mismatch",
                 artifact,
             ),
-            ArtifactError::TargetMismatch(artifact) => artifact_failure_detail(
-                "codegen_backend_outcome_target_mismatch",
-                artifact,
-            ),
+            ArtifactError::TargetMismatch(artifact) => {
+                artifact_failure_detail("codegen_backend_outcome_target_mismatch", artifact)
+            }
         },
         CodegenOutcomeBuildError::ErrorDiagnostics(diagnostics) => failure_detail(
             "codegen_backend_outcome_error_diagnostics",

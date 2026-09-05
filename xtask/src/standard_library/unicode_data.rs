@@ -5,10 +5,11 @@ use bray_base::lowercase_hex;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
+use crate::text::normalize_line_endings;
 use crate::workspace;
 
 const VERSION: &str = "17.0.0";
-const GENERATOR_REVISION: u32 = 1;
+const GENERATOR_REVISION: u32 = 2;
 const INPUT_ROOT: &str = "standard-library/targets/unicode/17.0.0";
 const TABLE_OUTPUT: &str = "standard-library/std/src/runtime/character/unicode_tables.bray";
 const METADATA_OUTPUT: &str = "standard-library/targets/unicode/metadata.json";
@@ -79,14 +80,12 @@ fn load_input(root: &Path, name: &'static str) -> Result<Input, String> {
     let path = root.join(INPUT_ROOT).join(name);
     let bytes = std::fs::read(&path).map_err(|error| workspace::io_error("read", &path, error))?;
 
-    let contents = String::from_utf8(bytes.clone())
+    let contents = String::from_utf8(normalize_line_endings(&bytes).into_owned())
         .map_err(|error| format!("{} is not UTF-8: {error}", path.display()))?;
 
-    Ok(Input {
-        name,
-        contents,
-        digest: lowercase_hex(&Sha256::digest(bytes)),
-    })
+    let digest = lowercase_hex(&Sha256::digest(contents.as_bytes()));
+
+    Ok(Input { name, contents, digest })
 }
 
 fn property_ranges(contents: &str, properties: &[&str]) -> Result<Vec<(u32, u32)>, String> {
@@ -384,7 +383,7 @@ fn check_outputs(outputs: &[(PathBuf, Vec<u8>)]) -> Result<(), String> {
     let stale = outputs
         .iter()
         .filter_map(|(path, expected)| match std::fs::read(path) {
-            Ok(actual) if actual == *expected => None,
+            Ok(actual) if normalize_line_endings(&actual) == normalize_line_endings(expected) => None,
             _ => Some(path.display().to_string()),
         })
         .collect::<Vec<_>>();

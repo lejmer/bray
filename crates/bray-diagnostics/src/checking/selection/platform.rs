@@ -1,41 +1,36 @@
 use crate::{DiagnosticCallableExecution, DiagnosticType};
 
-/// Validated stable identity of one compiler-defined platform service role.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct DiagnosticPlatformServiceRole(u32);
-
-impl DiagnosticPlatformServiceRole {
-    /// Creates a role only when `id` belongs to the closed platform-service protocol.
-    pub const fn try_new(id: u32) -> Option<Self> {
-        match id {
-            0x0001..=0x0008
-            | 0x0101..=0x0103
-            | 0x0111..=0x0114
-            | 0x0121..=0x0124
-            | 0x0201..=0x0205
-            | 0x0211..=0x0213
-            | 0x0221..=0x0223
-            | 0x0230..=0x0233
-            | 0x0301..=0x0304
-            | 0x0311..=0x0315
-            | 0x0321..=0x0323
-            | 0x0331..=0x0334
-            | 0x0401..=0x0403
-            | 0x0501
-            | 0x0701..=0x0702
-            | 0x0710..=0x0714
-            | 0x0720..=0x0721
-            | 0x0730..=0x0731
-            | 0x0801..=0x0804 => Some(Self(id)),
-            _ => None,
+macro_rules! define_diagnostic_platform_roles {
+    ($( $role:ident {
+        $documentation:literal, $id:literal, $name:literal,
+        $symbol:ident = $native:literal,
+        $family:ident, [$($parameter:ident),*] -> $result:ident, bootstrap: ($($bootstrap:literal)?)
+    })+) => {
+        /// Validated stable identity of one compiler-defined platform service role.
+        #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+        pub enum DiagnosticPlatformServiceRole {
+            $( #[doc = $documentation] $role, )+
         }
-    }
 
-    /// Returns the stable platform-service role ID.
-    pub const fn id(self) -> u32 {
-        self.0
-    }
+        impl DiagnosticPlatformServiceRole {
+            /// Every platform role that can be carried by a diagnostic.
+            pub const ALL: &'static [Self] = &[$(Self::$role,)+];
+
+            /// Creates a role only when `id` belongs to the platform-service catalog.
+            #[deny(unreachable_patterns)]
+            pub const fn try_new(id: u32) -> Option<Self> {
+                match id { $($id => Some(Self::$role),)+ _ => None }
+            }
+
+            /// Returns the stable platform-service role ID.
+            pub const fn id(self) -> u32 {
+                match self { $(Self::$role => $id,)+ }
+            }
+        }
+    };
 }
+
+bray_runtime_abi::platform_role_catalog!(define_diagnostic_platform_roles);
 
 /// One ABI value kind in the closed platform-service callable schema.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -137,6 +132,16 @@ pub enum DiagnosticPlatformServiceSignatureProblem {
 #[cfg(test)]
 mod tests {
     use super::DiagnosticPlatformServiceRole;
+
+    #[test]
+    fn every_catalog_role_round_trips_through_diagnostics() {
+        for role in DiagnosticPlatformServiceRole::ALL {
+            assert_eq!(
+                DiagnosticPlatformServiceRole::try_new(role.id()),
+                Some(*role)
+            );
+        }
+    }
 
     #[test]
     fn diagnostic_roles_cover_bootstrap_thread_storage() {

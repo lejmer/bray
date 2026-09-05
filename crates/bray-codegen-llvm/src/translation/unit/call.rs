@@ -211,6 +211,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .symbol(&key)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
+        if runtime.role().native_signature().is_some() {
+            let result = self.invoke_native_runtime(runtime, arguments)?;
+
+            return if matches!(symbol.signature().result(), CodegenResultMapping::Void) {
+                Ok(None)
+            } else {
+                result
+                    .map(Some)
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)
+            };
+        }
+
         let function = self
             .module
             .get_function(symbol.name().as_str())
@@ -220,6 +232,37 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             function,
             symbol.signature(),
             arguments,
+            runtime.role().as_str(),
+        )
+    }
+
+    pub(super) fn invoke_native_runtime(
+        &self,
+        runtime: bray_ir::MirRuntimeReference,
+        arguments: &[BasicValueEnum<'context>],
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        let key = bray_codegen::CodegenSymbolKey::Runtime(runtime);
+
+        let function = self
+            .request
+            .mappings()
+            .symbol(&key)
+            .and_then(|symbol| self.module.get_function(symbol.name().as_str()))
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let native_arguments = arguments
+            .iter()
+            .copied()
+            .map(Into::into)
+            .collect::<Vec<_>>();
+
+        crate::native::invoke_function(
+            self.types.context(),
+            &self.builder,
+            self.request.target(),
+            &key,
+            function,
+            &native_arguments,
             runtime.role().as_str(),
         )
     }
@@ -356,6 +399,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let key = helper
             .symbol()
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        if let CodegenSymbolKey::Runtime(runtime) = key {
+            return self.invoke_runtime(*runtime, arguments);
+        }
 
         let symbol = self
             .request

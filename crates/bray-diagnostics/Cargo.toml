@@ -6,6 +6,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+bray-runtime-abi = { path = "../bray-runtime-abi" }
 bray-source = { path = "../bray-source" }
 bray-syntax = { path = "../bray-syntax" }
 

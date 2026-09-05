@@ -384,7 +384,7 @@ pub fn selected_runtime_role_symbol(
 ) -> Option<BinarySymbolName> {
     host.and_then(|host| host.role_binding(role))
         .map(|binding| binding.symbol_name().clone())
-        .or_else(|| crate::native_runtime_role_symbol(role).and_then(BinarySymbolName::try_new))
+        .or_else(|| role.native_symbol().and_then(BinarySymbolName::try_new))
 }
 
 /// A contract violation that prevents executable-host construction.
@@ -422,7 +422,7 @@ fn validate_root_contract(
         RuntimeAbiRole::RootExecution
     };
 
-    for role in std::iter::once(root_role).chain(RuntimeAbiRole::EXECUTABLE_HOST_CONTROL) {
+    for role in std::iter::once(root_role).chain(RuntimeAbiRole::host_controls()) {
         if !has_role_binding(role, runtime, host_role_bindings) {
             return Err(ExecutableHostContractBuildError::MissingRole(role));
         }
@@ -487,7 +487,7 @@ mod tests {
     };
 
     #[test]
-    fn async_hosts_require_runtime_frame_and_main_thread_contracts() {
+    fn async_hosts_require_runtime_and_infer_role_capabilities() {
         let root = RootExecution::Asynchronous {
             frame: ProtectedAsyncFrameId::new([7; 32]),
         };
@@ -499,14 +499,13 @@ mod tests {
 
         let requirements = runtime_requirements([]);
 
-        assert_eq!(
+        assert!(
             host(
                 root,
                 requirements,
                 Some(runtime_contract()),
                 base_bindings()
-            ),
-            Err(ExecutableHostContractBuildError::MissingMainThreadLaneCapability)
+            ).is_ok()
         );
     }
 

@@ -2,7 +2,8 @@ use bray_codegen::{
     CodegenFailure, CodegenMappings, CodegenProductHostMapping, CodegenProductHostStatic,
     CodegenStaticStorageMapping,
 };
-use inkwell::types::{ArrayType, IntType, PointerType, StructType};
+use inkwell::attributes::AttributeLoc;
+use inkwell::types::{ArrayType, BasicType, IntType, PointerType, StructType};
 use inkwell::values::{ArrayValue, FunctionValue, GlobalValue, PointerValue};
 use inkwell::{
     GlobalVisibility,
@@ -330,22 +331,32 @@ pub(super) fn declare_product_host<'context>(
         types.target().machine().object_format(),
     );
 
-    let observation_type = product_host_observation_type(context, usize);
-    let runtime_name = bray_runtime_abi::PRODUCT_HOST_CONTROL_RUNTIME_SYMBOL;
+    let role = bray_runtime_interface::RuntimeAbiRole::ProductHostControl;
+    let runtime = crate::native::declare_runtime_function(module, context, types.target(), role)?;
+    let runtime_type = runtime.get_type();
+    let result = crate::native::runtime_indirect_result_type(context, types.target(), role);
 
-    let runtime = module.get_function(runtime_name).unwrap_or_else(|| {
-        module.add_function(
-            runtime_name,
-            observation_type.fn_type(&[pointer.into(), context.i32_type().into()], false),
-            None,
-        )
-    });
+    let mut parameters = runtime_type.get_param_types();
+
+    // The product wrapper captures the descriptor while preserving the native result parameter.
+    parameters.remove(usize::from(result.is_some()));
+
+    let control_type = match runtime_type.get_return_type() {
+        Some(result) => result.fn_type(&parameters, false),
+        None => context.void_type().fn_type(&parameters, false),
+    };
 
     let control = module.add_function(
         product_host.control_symbol().as_str(),
-        observation_type.fn_type(&[context.i32_type().into()], false),
+        control_type,
         Some(Linkage::WeakODR),
     );
+
+    if let Some(result) = result {
+        let attribute = crate::native::indirect_result_attribute(context, result)?;
+
+        control.add_attribute(AttributeLoc::Param(0), attribute);
+    }
 
     crate::comdat::attach(
         module,
@@ -360,22 +371,29 @@ pub(super) fn declare_product_host<'context>(
     builder.position_at_end(entry);
 
     let operation = control
-        .get_first_param()
+        .get_last_param()
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-    let observation = builder
-        .build_call(
-            runtime,
-            &[descriptor.as_pointer_value().into(), operation.into()],
-            "product.host.observation",
-        )
-        .map_err(CodegenFailure::backend_library)?
-        .try_as_basic_value()
-        .basic()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+    let mut arguments = Vec::new();
 
-    builder
-        .build_return(Some(&observation))
+    if result.is_some() {
+        arguments.push(control.get_first_param()
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?.into());
+    }
+
+    arguments.push(descriptor.as_pointer_value().into());
+    arguments.push(operation.into());
+
+    let call = builder.build_call(runtime, &arguments, "product.host.observation")
+        .map_err(CodegenFailure::backend_library)?;
+
+    if let Some(result) = result {
+        call.add_attribute(AttributeLoc::Param(0), crate::native::indirect_result_attribute(context, result)?);
+    }
+
+    let observation = call.try_as_basic_value().basic();
+
+    builder.build_return(observation.as_ref().map(|value| value as &dyn inkwell::values::BasicValue))
         .map_err(CodegenFailure::backend_library)?;
 
     retain_globals(
@@ -571,26 +589,6 @@ fn product_host_descriptor_type<'context>(
             product_identity_type(context).into(),
             pointer.into(),
             usize.into(),
-        ],
-        false,
-    )
-}
-
-fn product_host_observation_type<'context>(
-    context: &'context inkwell::context::Context,
-    usize: IntType<'context>,
-) -> StructType<'context> {
-    context.struct_type(
-        &[
-            context.i32_type().into(),
-            context.i32_type().into(),
-            usize.into(),
-            usize.into(),
-            usize.into(),
-            usize.into(),
-            usize.into(),
-            usize.into(),
-            static_identity_type(context).into(),
         ],
         false,
     )

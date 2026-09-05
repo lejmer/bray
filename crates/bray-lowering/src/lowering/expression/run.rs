@@ -10,31 +10,28 @@ use super::super::LoweringError;
 use super::super::block::LoweredExpression;
 use super::super::lowerer::Lowerer;
 
-pub(super) const fn runtime_call_role(hook: Option<ImplementationHook>) -> Option<RuntimeAbiRole> {
-    match hook {
-        Some(ImplementationHook::NativeThreadExecution) => {
-            Some(RuntimeAbiRole::NativeThreadExecution)
+macro_rules! define_runtime_call_roles {
+    ($( $role:ident {
+        $documentation:literal, $name:literal,
+        native: ($($symbol:ident = $native:literal, [$($native_parameter:ident),*] -> $native_result:ident)?),
+        call_hook: ($($hook:ident)?),
+        compiler: $abi:ident [$($parameter:ident),*] -> $result:ident,
+        owner: $owner:ident, availability: $availability:ident,
+        bootstrap: ($($bootstrap:literal)?), host_control: $host_control:literal,
+        capabilities: [$($capability:ident),*],
+        effects: [$($effect:ident),*]
+    })+) => {
+        #[deny(unreachable_patterns)]
+        pub(super) const fn runtime_call_role(hook: Option<ImplementationHook>) -> Option<RuntimeAbiRole> {
+            match hook {
+                $($(Some(ImplementationHook::$hook) => Some(RuntimeAbiRole::$role),)?)+
+                _ => None,
+            }
         }
-        Some(ImplementationHook::CurrentNativeThreadIdentity) => {
-            Some(RuntimeAbiRole::CurrentNativeThreadIdentity)
-        }
-        Some(ImplementationHook::MainNativeThreadIdentity) => {
-            Some(RuntimeAbiRole::MainNativeThreadIdentity)
-        }
-        Some(ImplementationHook::NativeThreadPanicReportRecovery) => {
-            Some(RuntimeAbiRole::NativeThreadPanicReportRecovery)
-        }
-        Some(ImplementationHook::NativeThreadPanicReporting) => {
-            Some(RuntimeAbiRole::PanicReporting)
-        }
-        Some(ImplementationHook::TaskEventCreation) => Some(RuntimeAbiRole::TaskEventCreation),
-        Some(ImplementationHook::TaskEventSignal) => Some(RuntimeAbiRole::TaskEventSignal),
-        Some(ImplementationHook::TaskEventDestruction) => {
-            Some(RuntimeAbiRole::TaskEventDestruction)
-        }
-        _ => None,
-    }
+    };
 }
+
+bray_runtime_interface::runtime_role_catalog!(define_runtime_call_roles);
 
 impl Lowerer<'_> {
     pub(super) fn lower_run_call(

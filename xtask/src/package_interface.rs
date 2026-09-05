@@ -431,7 +431,7 @@ mod tests {
 
         assert_eq!(
             error.to_string(),
-            "package-interface validation failed: Truncated"
+            "package-interface validation failed: Truncated { context: Header, field: RequiredFlags, offset: 16, expected_length: 8, actual_length: 0 }"
         );
 
         remove_fixture(&path);

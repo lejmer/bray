@@ -243,7 +243,7 @@ impl Compilation {
 
         if has_async_entries {
             runtime_roles.insert(RuntimeAbiRole::RootExecution);
-            runtime_roles.extend(RuntimeAbiRole::EXECUTABLE_HOST_CONTROL);
+            runtime_roles.extend(RuntimeAbiRole::host_controls());
         }
 
         if kind == ProductKind::Test && !entries.is_empty() {
@@ -341,7 +341,7 @@ impl Compilation {
         };
 
         for role in std::iter::once(root_role)
-            .chain(RuntimeAbiRole::EXECUTABLE_HOST_CONTROL)
+            .chain(RuntimeAbiRole::host_controls())
             .filter(|role| !runtime_roles.contains(role))
         {
             let symbol_name = super::super::realization::generated_symbol_name(

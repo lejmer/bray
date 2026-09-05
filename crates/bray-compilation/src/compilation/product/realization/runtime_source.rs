@@ -15,83 +15,38 @@ const USIZE: AbiField = AbiField::Scalar(RepresentationRole::ScalarUsize);
 const RUN_OUTCOME_FIELDS: &[AbiField] = &[U32, USIZE];
 const RUN_OUTCOME: AbiField = AbiField::Struct(RUN_OUTCOME_FIELDS);
 
-impl Compilation {
-    pub(super) fn codegen_runtime_source_signature(
-        &self,
-        role: RuntimeAbiRole,
-    ) -> Result<Option<CodegenCallableSignature>, FactQueryError> {
-        let signature = match role {
-            RuntimeAbiRole::RuntimeInitialization => {
-                let capacity = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
-
-                let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
-
-                CodegenCallableSignature::new(
-                    [
-                        CodegenParameterMapping::direct(capacity, None, []),
-                        CodegenParameterMapping::direct(capacity, None, []),
-                    ],
-                    CodegenResultMapping::direct(status, None, []),
-                    CallableAbi::C,
-                    false,
-                )
+macro_rules! define_runtime_source_fields {
+    ($( $role:ident {
+        $documentation:literal, $name:literal,
+        native: ($($symbol:ident = $native:literal, [$($native_parameter:ident),*] -> $native_result:ident)?),
+        call_hook: ($($hook:ident)?),
+        compiler: $abi:ident [$($parameter:ident),*] -> $result:ident,
+        owner: $owner:ident, availability: $availability:ident,
+        bootstrap: ($($bootstrap:literal)?), host_control: $host_control:literal,
+        capabilities: [$($capability:ident),*],
+        effects: [$($effect:ident),*]
+    })+) => {
+        fn runtime_source_fields(role: RuntimeAbiRole) -> Option<(&'static [AbiField], AbiField)> {
+            match role {
+                $(RuntimeAbiRole::$role => define_runtime_source_fields!(
+                    @bootstrap ($($bootstrap)?) ($([$($native_parameter),*] -> $native_result)?)
+                ),)+
             }
-            RuntimeAbiRole::StructuredShutdown => {
-                let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
-
-                CodegenCallableSignature::new(
-                    [],
-                    CodegenResultMapping::direct(status, None, []),
-                    CallableAbi::C,
-                    false,
-                )
-            }
-            RuntimeAbiRole::ThreadAttachmentIdentity => {
-                let pointer = self.codegen_opaque_pointer_type()?;
-                let identity = self.codegen_representation_type(RepresentationRole::ScalarU64)?;
-
-                CodegenCallableSignature::new(
-                    [CodegenParameterMapping::direct(pointer, None, [])],
-                    CodegenResultMapping::direct(identity, None, []),
-                    CallableAbi::C,
-                    false,
-                )
-            }
-            RuntimeAbiRole::ThreadStaticCleanupRegistration => {
-                let pointer = self.codegen_opaque_pointer_type()?;
-                let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
-
-                CodegenCallableSignature::new(
-                    [CodegenParameterMapping::direct(pointer, None, [])],
-                    CodegenResultMapping::direct(status, None, []),
-                    CallableAbi::C,
-                    false,
-                )
-            }
-            RuntimeAbiRole::NativeThreadExecution => {
-                let pointer = self.codegen_opaque_pointer_type()?;
-                let address = self.codegen_representation_type(RepresentationRole::ScalarUsize)?;
-                let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
-
-                CodegenCallableSignature::new(
-                    [
-                        CodegenParameterMapping::direct(pointer, None, []),
-                        CodegenParameterMapping::direct(address, None, []),
-                        CodegenParameterMapping::direct(pointer, None, []),
-                        CodegenParameterMapping::direct(address, None, []),
-                        CodegenParameterMapping::direct(pointer, None, []),
-                    ],
-                    CodegenResultMapping::direct(status, None, []),
-                    CallableAbi::C,
-                    false,
-                )
-            }
-            _ => return Ok(None),
-        };
-
-        Ok(Some(signature))
-    }
+        }
+    };
+    (@bootstrap () $native:tt) => { None };
+    (@bootstrap ($name:literal) ([$($parameter:ident),*] -> $result:ident)) => {
+        Some((&[$(define_runtime_source_fields!(@field $parameter),)*], define_runtime_source_fields!(@field $result)))
+    };
+    (@field U32) => { U32 };
+    (@field U64) => { U64 };
+    (@field Usize) => { USIZE };
+    (@field Pointer) => { BYTE_POINTER };
+    (@field PointerUsize) => { USIZE_POINTER };
+    (@field RunOutcome) => { RUN_OUTCOME };
 }
+
+bray_runtime_abi::runtime_role_catalog!(define_runtime_source_fields);
 
 pub(super) fn runtime_source_signature_matches(
     compilation: &Compilation,
@@ -99,37 +54,11 @@ pub(super) fn runtime_source_signature_matches(
     signature: &CodegenCallableSignature,
     cancellation: &CancellationToken,
 ) -> Result<Option<bool>, FactQueryError> {
-    let (parameters, result, abi) = match role {
-        RuntimeAbiRole::RuntimeInitialization => (&[USIZE, USIZE][..], Some(&U32), CallableAbi::C),
-        RuntimeAbiRole::SynchronousRootExecution | RuntimeAbiRole::ForeignCallbackExecution => (
-            &[BYTE_POINTER, USIZE][..],
-            Some(&RUN_OUTCOME),
-            CallableAbi::C,
-        ),
-        RuntimeAbiRole::NativeThreadExecution => (
-            &[BYTE_POINTER, USIZE, BYTE_POINTER, USIZE, USIZE_POINTER][..],
-            Some(&U32),
-            CallableAbi::C,
-        ),
-        RuntimeAbiRole::ThreadAttachmentIdentity => {
-            (&[BYTE_POINTER][..], Some(&U64), CallableAbi::C)
-        }
-        RuntimeAbiRole::ThreadStaticCleanupRegistration => {
-            (&[BYTE_POINTER][..], Some(&U32), CallableAbi::C)
-        }
-        RuntimeAbiRole::PanicReporting | RuntimeAbiRole::PanicReportDestruction => {
-            (&[USIZE][..], Some(&U32), CallableAbi::C)
-        }
-        RuntimeAbiRole::StructuredShutdown => (&[][..], Some(&U32), CallableAbi::C),
-        RuntimeAbiRole::PanicReportConstruction => (
-            &[U32, U32, U32, U32, U32, U64, BYTE_POINTER, USIZE][..],
-            Some(&USIZE),
-            CallableAbi::C,
-        ),
-        _ => return Ok(None),
+    let Some((parameters, result)) = runtime_source_fields(role) else {
+        return Ok(None);
     };
 
-    if signature.abi() != abi
+    if signature.abi() != CallableAbi::C
         || signature.is_variadic()
         || signature.has_panic_report_context()
         || signature.parameters().len() != parameters.len()
@@ -152,12 +81,7 @@ pub(super) fn runtime_source_signature_matches(
         }
     }
 
-    let Some(expected_result) = result else {
-        return Ok(Some(matches!(
-            signature.result(),
-            CodegenResultMapping::Void
-        )));
-    };
+    let expected_result = &result;
 
     let CodegenResultMapping::Direct {
         ty,

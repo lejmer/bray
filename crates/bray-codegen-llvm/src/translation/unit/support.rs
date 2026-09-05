@@ -13,6 +13,19 @@ pub(super) fn llvm<T>(result: Result<T, BuilderError>) -> Result<T, CodegenFailu
     result.map_err(CodegenFailure::backend_library)
 }
 
+pub(super) fn nonzero_integer<'context>(
+    builder: &Builder<'context>,
+    value: IntValue<'context>,
+    name: &str,
+) -> Result<IntValue<'context>, CodegenFailure> {
+    llvm(builder.build_int_compare(
+        IntPredicate::NE,
+        value,
+        value.get_type().const_zero(),
+        name,
+    ))
+}
+
 pub(super) fn next_helper<'mapping>(
     helpers: &mut impl Iterator<Item = &'mapping CodegenHelperMapping>,
     expected: &MirHelperReference,

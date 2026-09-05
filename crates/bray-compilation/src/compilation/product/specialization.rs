@@ -571,11 +571,17 @@ impl Compilation {
         )?;
 
         if let Some(template) = template.value() {
+            let platform_service = match template.key() {
+                MirUnitKey::ImportedExecutable(key) => key.platform_service(),
+                _ => None,
+            };
+
             let expected_key = MirUnitKey::ImportedExecutable(
                 bray_ir::MirImportedExecutableKey::new(
                     definition.callable_symbol().into_any(),
                     bray_ir::MirExecutableTemplateId::ROOT,
-                ),
+                )
+                .with_platform_service(platform_service),
             );
 
             if template.key() != &expected_key {

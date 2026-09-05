@@ -11,7 +11,9 @@ mod contract;
 mod family;
 mod platform;
 mod role;
+mod role_artifact;
 mod runtime;
+mod signature;
 
 pub use artifact::{
     RuntimeArtifact, RuntimeArtifactBuildError, RuntimeArtifactComponent,
@@ -21,8 +23,7 @@ pub use artifact::{
     RuntimeArtifactSelectionError,
 };
 pub use binding::{
-    SourceRoleBinding, native_platform_service_role_symbol, native_runtime_role_symbol,
-};
+    SourceRoleBinding, };
 pub use bray_runtime_model::{
     BinarySymbolName, ExecutionLaneRequirement, PanicAbiIdentity, ProtectedAsyncFrameId,
     ProtectedFrameAbiOperation, ProtectedFrameAbiVersions, ProtectedFrameAffinity,
@@ -47,3 +48,9 @@ pub use role::{
     RuntimeRoleImplementation, RuntimeRoleSourceBinding,
 };
 pub use runtime::{RuntimeCompatibilityError, RuntimeContract, RuntimeContractBuildError};
+
+pub use role_artifact::RuntimeRoleArtifact;
+
+pub use signature::{RuntimeAbiType, RuntimeNativeSignature};
+
+pub use bray_runtime_abi::runtime_role_catalog;
