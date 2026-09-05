@@ -231,6 +231,8 @@ See [Compiler diagnostics](diagnostics.md) for the structured producer, renderin
 ## Tests
 
 - Prefer fast unit tests near the code they validate.
+- Keep unit tests in inline `#[cfg(test)]` modules alongside the implementation. Separate test files are reserved for
+  integration tests or test modules with thousands of lines.
 - Use integration tests for cross-crate compiler behavior.
 - Use compile-pass tests for programs that should compile.
 - Use run-pass tests for programs that should compile and execute.

@@ -1,7 +1,7 @@
 # Testing
 
-Keep unit tests near the production code they exercise. Use integration tests for repository contracts that cross module
-or crate boundaries.
+Follow the [unit-test placement rules](coding-conventions.md#tests). Use integration tests for repository contracts that
+cross module or crate boundaries.
 
 See [Repository tasks](xtask.md) for the complete development-command reference.
 
