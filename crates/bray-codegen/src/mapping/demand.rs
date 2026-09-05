@@ -367,6 +367,7 @@ fn collect_place_values(place: &MirPlace, demands: &mut ConstantDemands) {
             | MirProjectionKind::ElementFromEnd(_)
             | MirProjectionKind::Variant(_)
             | MirProjectionKind::ActiveUnionPayloadField { .. }
+            | MirProjectionKind::ActiveUnionPayloadElement { .. }
             | MirProjectionKind::NullableValue
             | MirProjectionKind::OwnedStorage => {}
         }

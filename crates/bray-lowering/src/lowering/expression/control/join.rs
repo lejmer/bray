@@ -40,7 +40,7 @@ impl Lowerer<'_> {
             .value
             .unwrap_or_else(|| self.unit_operand(result_type));
 
-        self.builder.set_terminator(
+        self.set_terminator(
             block,
             completion.source,
             MirTerminatorKind::Goto(MirEdge::new(join, [value])),
@@ -58,7 +58,7 @@ impl Lowerer<'_> {
             return Ok(());
         };
 
-        self.builder.set_terminator(
+        self.set_terminator(
             block,
             completion.source,
             MirTerminatorKind::Goto(MirEdge::new(target, [])),

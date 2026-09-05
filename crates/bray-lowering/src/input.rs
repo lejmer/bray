@@ -112,6 +112,7 @@ impl<'unit> LoweringInput<'unit> {
 
         validate_literal_target(literal_values, &target)?;
         validate_literal_values(literal_values, semantic_values)?;
+        lowering_plans.validate_cleanup_types(semantic_values)?;
 
         let semantic_selections = lowering_plans.semantic_selections();
         let storage_plan = lowering_plans.storage_plan();
@@ -641,17 +642,19 @@ fn validate_storage_analysis(
     }
 
     for (plan, decision) in plans.iter().copied().zip(decisions.iter().copied()) {
-        let plan_matches = plan.expression() == decision.expression()
+        let plan_matches = plan.node() == decision.node()
+            && plan.expression() == decision.expression()
             && plan.access() == decision.access()
             && plan.purpose().matches_checked(decision.purpose());
 
         let has_expression = unit.view().expression(decision.expression()).is_some();
+        let has_node = unit.view().node_is_recovered(decision.node()).is_some();
 
         let has_access = storage.access(decision.access()).is_some();
 
         let borrow_matches = storage_borrow_matches(storage, plan, decision);
 
-        if !plan_matches || !has_expression || !has_access || !borrow_matches {
+        if !plan_matches || !has_expression || !has_node || !has_access || !borrow_matches {
             return Err(LoweringInputError::InvalidStorageOperation(
                 decision.expression(),
             ));
@@ -1223,6 +1226,7 @@ mod tests {
             [],
             [],
             [],
+            [],
             false,
         )
         .unwrap_or_else(|error| panic!("same-unit async analysis must build: {error:?}"));
@@ -1320,6 +1324,7 @@ mod tests {
             [],
             [],
             [],
+            [],
             [AsyncScopeExitPlan::new(scope, exit, [], [], [], [], false)],
             false,
         )
@@ -1328,6 +1333,7 @@ mod tests {
         let mismatched = CheckedAsync::try_new(
             unit.unit(),
             kind,
+            [],
             [],
             [],
             [],
@@ -1519,7 +1525,12 @@ mod tests {
         );
 
         storage
-            .plan_access(expression, StorageAccessPurpose::Read, access)
+            .plan_access(
+                expression.into(),
+                expression,
+                StorageAccessPurpose::Read,
+                access,
+            )
             .unwrap_or_else(|error| panic!("test access plan must validate: {error:?}"));
 
         let storage = storage.finish();
@@ -1540,6 +1551,7 @@ mod tests {
             unit.unit(),
             unit.key().kind(),
             [StorageOperationDecision::new(
+                expression.into(),
                 expression,
                 StorageAccessPurpose::Write,
                 access,
@@ -1593,6 +1605,7 @@ mod tests {
 
         storage
             .plan_access(
+                expression.into(),
                 expression,
                 StorageAccessPurpose::Borrow(BorrowKind::Shared),
                 access,
@@ -1605,6 +1618,7 @@ mod tests {
             unit.unit(),
             unit.key().kind(),
             [StorageOperationDecision::new(
+                expression.into(),
                 expression,
                 StorageAccessPurpose::Borrow(BorrowKind::Shared),
                 access,
@@ -1825,9 +1839,18 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("empty dependency contracts must validate: {error:?}"));
 
-        let async_analysis =
-            CheckedAsync::try_new(unit.unit(), unit.key().kind(), [], [], [], [], [], false)
-                .unwrap_or_else(|error| panic!("empty async analysis must validate: {error:?}"));
+        let async_analysis = CheckedAsync::try_new(
+            unit.unit(),
+            unit.key().kind(),
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("empty async analysis must validate: {error:?}"));
 
         let behavior = CheckedBodyBehavior::new(
             unit.unit(),

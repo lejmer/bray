@@ -364,12 +364,10 @@ where
                 }),
             );
 
-            let arm_entry = self
-                .build_pattern(arm.pattern(), arm_entry)?
-                .unwrap_or_else(|| self.push_block());
-
             let body_entry = match arm.guard() {
                 Some(guard) => {
+                    self.build_pattern_observations(arm.pattern(), arm_entry)?;
+
                     let body_entry = self.push_block();
 
                     self.build_condition(
@@ -383,6 +381,10 @@ where
                 }
                 None => arm_entry,
             };
+
+            let body_entry = self
+                .build_pattern(arm.pattern(), body_entry)?
+                .unwrap_or_else(|| self.push_block());
 
             if let Some(completion) =
                 self.build_result_branch(arm.body(), body_entry, join, self.scope_depth())?

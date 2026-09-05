@@ -101,7 +101,7 @@ impl Lowerer<'_> {
         if let Some((owner, value)) = initial_value
             && !value.reads_from(&place)
         {
-            self.builder.push_operation(
+            self.push_operation(
                 current,
                 self.expression_source(owner)?,
                 MirOperationKind::Store {
@@ -115,7 +115,7 @@ impl Lowerer<'_> {
 
         Ok(RootInitialization::Continuing {
             block: current,
-            storage: place.storage(),
+            place,
         })
     }
 }

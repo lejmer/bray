@@ -19,18 +19,14 @@ pub enum StorageScopeBuildError {
 
 /// Returns whether one identity transfers through its checked unit boundary.
 pub fn storage_identity_transfers_at_unit_exit(
-    unit: &BoundUnit,
     storage: &StoragePlan,
     identity: StorageIdentityId,
 ) -> bool {
     match storage.identity(identity) {
         Some(StorageIdentity::Result(_)) => true,
-        Some(StorageIdentity::Receiver(_)) => {
-            unit.key().kind() == crate::BoundUnitKind::CallableBody
-                && unit.key().declared_owner().kind() == SymbolKind::Destructor
-        }
         Some(
-            StorageIdentity::LocalOwned(_)
+            StorageIdentity::Receiver(_)
+            | StorageIdentity::LocalOwned(_)
             | StorageIdentity::Static(_)
             | StorageIdentity::Parameter(_)
             | StorageIdentity::AnonymousParameter(_)
@@ -47,6 +43,19 @@ pub fn storage_identity_transfers_at_unit_exit(
         )
         | None => false,
     }
+}
+
+/// Returns whether the checked body owns the remaining represented parts of its destructor receiver.
+pub fn storage_identity_is_destructor_receiver(
+    unit: &BoundUnit,
+    storage: &StoragePlan,
+    identity: StorageIdentityId,
+) -> bool {
+    matches!(
+        storage.identity(identity),
+        Some(StorageIdentity::Receiver(_))
+    ) && unit.key().kind() == crate::BoundUnitKind::CallableBody
+        && unit.key().declared_owner().kind() == SymbolKind::Destructor
 }
 
 /// Lexical owner scopes derived from one complete bound unit.

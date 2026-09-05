@@ -1055,6 +1055,9 @@ impl DiagnosticKind {
                 &[StorageAccess],
                 related_components!(&[StorageAccess], DiagnosticRelatedLocationKind::MoveOrigin),
             ),
+            Self::CheckingIncompleteLifecycleStorage => {
+                Self::quality_source(&[ActualType], primary_components!(&[ActualType]))
+            }
             Self::CheckingRefutablePattern => Self::quality_source(
                 &[ActualType],
                 note_components!(

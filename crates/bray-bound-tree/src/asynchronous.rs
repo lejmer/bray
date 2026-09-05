@@ -137,6 +137,15 @@ impl AsyncCleanupPhases {
     }
 }
 
+/// The runtime condition required before executing a checked cleanup operation.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum AsyncCleanupGuard {
+    /// Every incoming path leaves the complete value initialized.
+    Always,
+    /// Cleanup runs only while the reached storage is initialized on the executed path.
+    Initialized,
+}
+
 /// The exact outcome assigned to one live storage identity at a scope exit.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum AsyncStorageExitDisposition {
@@ -154,6 +163,8 @@ pub enum AsyncStorageExitDisposition {
         access: StorageAccessId,
         /// The ordered phases required by the checked type representation.
         phases: AsyncCleanupPhases,
+        /// The checked initialization condition for this exit.
+        guard: AsyncCleanupGuard,
     },
     /// Earlier recovery prevented a complete disposition.
     Recovered(AsyncStorageExitRecoveryCause),
@@ -184,12 +195,13 @@ pub enum AsyncStorageCleanupRequirement {
 }
 
 /// Independently checked ownership, transfer, and cleanup facts for one live identity.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct AsyncStorageRequirement {
     identity: StorageIdentityId,
     owner: Option<BoundBlockId>,
     transfers: bool,
     cleanup: AsyncStorageCleanupRequirement,
+    parts: Option<Arc<[crate::StorageCleanupPart]>>,
 }
 
 impl AsyncStorageRequirement {
@@ -205,26 +217,42 @@ impl AsyncStorageRequirement {
             owner,
             transfers,
             cleanup,
+            parts: None,
         }
     }
 
+    /// Selects represented-part cleanup instead of whole-value cleanup for this identity.
+    pub fn with_parts(
+        mut self,
+        parts: impl IntoIterator<Item = crate::StorageCleanupPart>,
+    ) -> Self {
+        self.parts = Some(shared_slice(parts));
+
+        self
+    }
+
+    /// Returns the complete checked partition when this identity needs represented-part cleanup.
+    pub fn parts(&self) -> Option<&[crate::StorageCleanupPart]> {
+        self.parts.as_deref()
+    }
+
     /// Returns the storage identity described by this requirement.
-    pub const fn identity(self) -> StorageIdentityId {
+    pub const fn identity(&self) -> StorageIdentityId {
         self.identity
     }
 
     /// Returns the lexical scope that owns the identity.
-    pub const fn owner(self) -> Option<BoundBlockId> {
+    pub const fn owner(&self) -> Option<BoundBlockId> {
         self.owner
     }
 
     /// Returns whether this identity transfers through its unit boundary.
-    pub const fn transfers(self) -> bool {
+    pub const fn transfers(&self) -> bool {
         self.transfers
     }
 
     /// Returns the type-driven cleanup requirement.
-    pub const fn cleanup(self) -> AsyncStorageCleanupRequirement {
+    pub const fn cleanup(&self) -> AsyncStorageCleanupRequirement {
         self.cleanup
     }
 }
@@ -345,6 +373,7 @@ pub struct CheckedAsync {
     suspensions: Arc<[AsyncSuspensionPoint]>,
     task_operations: Arc<[AsyncTaskOperation]>,
     storage_requirements: Arc<[AsyncStorageRequirement]>,
+    cleanup_types: Arc<[crate::StorageCleanupType]>,
     scope_exits: Arc<[AsyncScopeExitPlan]>,
     is_recovered: bool,
 }
@@ -358,6 +387,7 @@ impl CheckedAsync {
         suspensions: impl IntoIterator<Item = AsyncSuspensionPoint>,
         task_operations: impl IntoIterator<Item = AsyncTaskOperation>,
         storage_requirements: impl IntoIterator<Item = AsyncStorageRequirement>,
+        cleanup_types: impl IntoIterator<Item = crate::StorageCleanupType>,
         scope_exits: impl IntoIterator<Item = AsyncScopeExitPlan>,
         is_recovered: bool,
     ) -> Result<Self, AsyncAnalysisBuildError> {
@@ -365,6 +395,7 @@ impl CheckedAsync {
         let suspensions = shared_slice(suspensions);
         let task_operations = shared_slice(task_operations);
         let storage_requirements = shared_slice(storage_requirements);
+        let cleanup_types = shared_slice(cleanup_types);
         let scope_exits = shared_slice(scope_exits);
 
         if frame_dependencies
@@ -392,6 +423,16 @@ impl CheckedAsync {
                     || requirement
                         .owner()
                         .is_some_and(|owner| owner.unit() != unit)
+                    || requirement
+                        .parts()
+                        .is_some_and(|parts| parts.iter().any(|part| !part.is_valid_for(unit)))
+            })
+            || cleanup_types.iter().any(|shape| {
+                shape
+                    .components()
+                    .into_iter()
+                    .flatten()
+                    .any(|projection| !projection.is_valid_for(unit))
             })
             || scope_exits.iter().any(|exit| {
                 exit.scope().unit() != unit
@@ -422,6 +463,7 @@ impl CheckedAsync {
             suspensions,
             task_operations,
             storage_requirements,
+            cleanup_types,
             scope_exits,
             is_recovered,
         })
@@ -455,6 +497,11 @@ impl CheckedAsync {
     /// Returns independently checked storage requirements in identity order.
     pub fn storage_requirements(&self) -> &[AsyncStorageRequirement] {
         &self.storage_requirements
+    }
+
+    /// Returns independently checked cleanup types, including hidden represented members.
+    pub fn cleanup_types(&self) -> &[crate::StorageCleanupType] {
+        &self.cleanup_types
     }
 
     /// Returns two-phase cleanup plans in control-flow order.
@@ -507,6 +554,7 @@ mod tests {
                 AsyncStorageExitDisposition::Cleanup {
                     access: storage,
                     phases: AsyncCleanupPhases::CancellationThenLifecycle,
+                    guard: crate::AsyncCleanupGuard::Always,
                 },
             )],
             [storage],
@@ -521,6 +569,7 @@ mod tests {
             [dependency, dependency],
             [suspension],
             [operation],
+            [],
             [],
             [cleanup],
             false,
@@ -540,5 +589,51 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<CheckedAsync>();
+    }
+
+    #[test]
+    fn cleanup_type_components_reject_foreign_expression_identities() {
+        let unit = BoundUnitId::new(7);
+        let values = bray_symbols::SemanticValueStore::try_new().unwrap();
+
+        let ty = values
+            .intern_type(bray_symbols::TypeData::tuple([]))
+            .unwrap();
+
+        for component_unit in [unit, BoundUnitId::new(8)] {
+            let projection = crate::StorageCleanupProjection::new(
+                crate::StorageProjection::Element(BoundExpressionId::from_slot(component_unit, 1)),
+                ty,
+                ty,
+            );
+
+            let shape =
+                crate::StorageCleanupType::new(ty, crate::AsyncStorageCleanupRequirement::None)
+                    .with_components([projection], None, false);
+
+            let result = CheckedAsync::try_new(
+                unit,
+                BoundUnitKind::CallableBody,
+                [],
+                [],
+                [],
+                [],
+                [shape],
+                [],
+                false,
+            );
+
+            if component_unit == unit {
+                assert_eq!(
+                    result.unwrap().cleanup_types()[0].components(),
+                    Some([projection].as_slice())
+                );
+            } else {
+                assert!(matches!(
+                    result,
+                    Err(super::AsyncAnalysisBuildError::ForeignUnit)
+                ));
+            }
+        }
     }
 }

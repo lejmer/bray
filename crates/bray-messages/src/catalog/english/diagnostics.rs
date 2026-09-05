@@ -989,6 +989,12 @@ const CHECKING_REFINEMENT_CAPACITY_EXCEEDED: &[MessageTemplatePart] = &[MessageT
     DiagnosticArgName::RefinementCapacity,
 )];
 
+const CHECKING_INCOMPLETE_LIFECYCLE_STORAGE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("ownership cannot end for a partially moved value of type "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+    MessageTemplatePart::Text(" because its lifecycle requires a complete value"),
+];
+
 const CHECKING_USE_OF_MOVED_STORAGE: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::StorageAccess),
     MessageTemplatePart::Text(" reaches storage whose value was moved"),
@@ -2396,6 +2402,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingUseOfMovedStorage => {
             MessageTemplate::new(CHECKING_USE_OF_MOVED_STORAGE)
+        }
+        DiagnosticKind::CheckingIncompleteLifecycleStorage => {
+            MessageTemplate::new(CHECKING_INCOMPLETE_LIFECYCLE_STORAGE)
         }
         DiagnosticKind::CheckingConflictingBorrow => {
             MessageTemplate::new(CHECKING_CONFLICTING_BORROW)

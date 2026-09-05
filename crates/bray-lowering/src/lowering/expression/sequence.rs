@@ -1,11 +1,7 @@
 use bray_bound_tree::BoundExpressionId;
 use bray_compiler_known::{ImplementationHook, RepresentationRole};
 use bray_ir::{
-    MirBinaryOperator, MirBlockId, MirMemoryOperation, MirOperand, MirOperationKind,
-    MirSourceAnchor,
-};
-use bray_symbols::{
-    ConstantValueData, ConstantValueKind, IntegerConstant, NamedTypeSymbolId, StructSymbolId,
+    MirBinaryOperator, MirBlockId, MirMemoryOperation, MirOperationKind, MirSourceAnchor,
 };
 
 use super::super::LoweringError;
@@ -52,7 +48,7 @@ impl Lowerer<'_> {
             return Err(LoweringError::MissingOperationResult(receiver.expression()));
         };
 
-        let usize_type = self.sequence_length_type()?;
+        let usize_type = self.representation_type(RepresentationRole::ScalarUsize)?;
 
         let length = self.push_typed_value_operation(
             id,
@@ -71,7 +67,7 @@ impl Lowerer<'_> {
             return Ok(LoweredExpression::continuing(current, Some(length), source));
         }
 
-        let zero = self.sequence_length_zero(usize_type)?;
+        let zero = self.integer_operand(usize_type, 0)?;
         let result_type = self.expression_type(id)?;
 
         let empty = self.push_typed_value_operation(
@@ -87,33 +83,6 @@ impl Lowerer<'_> {
         )?;
 
         Ok(LoweredExpression::continuing(current, Some(empty), source))
-    }
-
-    fn sequence_length_type(&self) -> Result<bray_symbols::TypeId, LoweringError> {
-        let symbol = self
-            .input
-            .available_compiler_known_symbols()
-            .representation_symbol::<StructSymbolId>(RepresentationRole::ScalarUsize)
-            .ok_or(LoweringError::MissingRepresentation(
-                RepresentationRole::ScalarUsize,
-            ))?;
-
-        self.input
-            .semantic_values()
-            .intern_non_generic_named_type(NamedTypeSymbolId::Struct(symbol))
-            .map_err(LoweringError::from)
-    }
-
-    fn sequence_length_zero(&self, ty: bray_symbols::TypeId) -> Result<MirOperand, LoweringError> {
-        let value = self
-            .input
-            .semantic_values()
-            .intern_constant_value(ConstantValueData::new(
-                ty,
-                ConstantValueKind::Integer(IntegerConstant::from_u64(0)),
-            ))?;
-
-        Ok(MirOperand::Constant { value, ty })
     }
 }
 

@@ -163,6 +163,8 @@ pub enum DiagnosticLabelKind {
     DuplicateModuleContribution,
     /// Label for a use of storage after it was moved.
     MovedStorageUse,
+    /// Storage remains partial when its whole-value lifecycle is required.
+    IncompleteLifecycleStorage,
     /// Label for an operation that conflicts with a live borrow.
     ConflictingBorrowOperation,
     /// Label for an operation without mutation authority.
@@ -239,6 +241,7 @@ impl DiagnosticLabelKind {
             Self::InvalidProductConfiguration => "invalid_product_configuration",
             Self::DuplicateModuleContribution => "duplicate_module_contribution",
             Self::MovedStorageUse => "moved_storage_use",
+            Self::IncompleteLifecycleStorage => "incomplete_lifecycle_storage",
             Self::ConflictingBorrowOperation => "conflicting_borrow_operation",
             Self::MissingMutationAuthority => "missing_mutation_authority",
             Self::MissingStorageOwnership => "missing_storage_ownership",

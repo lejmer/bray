@@ -53,9 +53,10 @@ where
                     checked.is_recovered(),
                 )?;
 
-                self.record_purpose(
+                self.record_pattern_purpose(
+                    id,
                     subject_expression,
-                    Some(StorageAccessPurpose::Projection),
+                    StorageAccessPurpose::Projection,
                     access,
                 )?;
 
@@ -84,13 +85,10 @@ where
                 )?;
             }
 
-            self.record_purpose(
+            self.record_pattern_purpose(
+                id,
                 subject_expression,
-                Some(pattern_operation_purpose(
-                    pattern.mode(),
-                    checked.operation(),
-                    transfers_borrow,
-                )),
+                pattern_operation_purpose(pattern.mode(), checked.operation(), transfers_borrow),
                 access,
             )?;
         }
@@ -121,9 +119,10 @@ where
                         checked.is_recovered(),
                     )?;
 
-                    self.record_purpose(
+                    self.record_pattern_purpose(
+                        id,
                         subject_expression,
-                        Some(StorageAccessPurpose::Projection),
+                        StorageAccessPurpose::Projection,
                         access,
                     )?;
 
@@ -139,7 +138,7 @@ where
             .target()
             .filter(|target| pattern.mode() == BoundPatternMode::Assignment || target.is_constant())
         {
-            self.plan_pattern_target(subject_expression, pattern.mode(), target)?;
+            self.plan_pattern_target(id, subject_expression, pattern.mode(), target)?;
         }
 
         for child in pattern.children() {
@@ -221,7 +220,7 @@ where
 
         let purpose = pattern_operation_purpose(mode, checked.operation(), transfers_borrow);
 
-        self.record_purpose(subject_expression, Some(purpose), access)
+        self.record_pattern_purpose(pattern, subject_expression, purpose, access)
     }
 
     fn bind_owned_pattern_storage(
@@ -286,6 +285,20 @@ where
                 .patterns
                 .binding_type(binding)
                 .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+
+            if matches!(
+                checked.operation(),
+                PatternOperation::Consume | PatternOperation::Copy
+            ) {
+                self.bind_owned_pattern_storage(
+                    StorageBindingTarget::Local(binding),
+                    pattern,
+                    checked.ty(),
+                    checked.is_recovered(),
+                )?;
+
+                continue;
+            }
 
             if !matches!(
                 checked.operation(),
@@ -405,6 +418,7 @@ where
 
     fn plan_pattern_target(
         &mut self,
+        pattern: BoundPatternId,
         subject_expression: BoundExpressionId,
         mode: BoundPatternMode,
         target: BoundPatternTarget,
@@ -423,7 +437,19 @@ where
             | BoundPatternMode::MatchConsume => StorageAccessPurpose::Read,
         };
 
-        self.record_purpose(subject_expression, Some(purpose), access)
+        self.record_pattern_purpose(pattern, subject_expression, purpose, access)
+    }
+
+    fn record_pattern_purpose(
+        &mut self,
+        pattern: BoundPatternId,
+        expression: BoundExpressionId,
+        purpose: StorageAccessPurpose,
+        access: StorageAccessId,
+    ) -> Result<(), PlanError<C::UpstreamError>> {
+        self.builder_mut()?
+            .plan_access(pattern.into(), expression, purpose, access)
+            .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
     }
 
     fn project_pattern_access(
@@ -432,23 +458,9 @@ where
         base: StorageAccessId,
         projection: PatternProjection,
         reached_type: bray_symbols::TypeId,
-        is_recovered: bool,
+        mut is_recovered: bool,
     ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
-        let projection = match projection {
-            PatternProjection::ProductField(field) => StorageProjection::ProductField(field),
-            PatternProjection::TupleElement(ordinal) => StorageProjection::TupleElement(ordinal),
-            PatternProjection::ActiveUnionPayloadField { variant, field } => {
-                StorageProjection::ActiveUnionPayloadField { variant, field }
-            }
-            PatternProjection::ElementFromStart(ordinal) => {
-                StorageProjection::ElementFromStart(ordinal)
-            }
-            PatternProjection::ElementFromEnd(ordinal) => {
-                StorageProjection::ElementFromEnd(ordinal)
-            }
-            PatternProjection::NullableValue => StorageProjection::NullableValue,
-            PatternProjection::OwnedTarget => StorageProjection::OwnedTarget,
-        };
+        let projection = StorageProjection::from(projection);
 
         let base = self
             .builder()?
@@ -456,9 +468,14 @@ where
             .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
 
         let root = base.root();
+        let owner = base.reached_type();
         let mut projections = base.projections().to_vec();
 
         projections.push(projection);
+
+        if projection == StorageProjection::OwnedTarget {
+            is_recovered |= !self.plan_owned_borrows(owner)?;
+        }
 
         let pattern = self
             .request
@@ -477,6 +494,54 @@ where
         self.builder_mut()?
             .push_access(access)
             .map_err(|error| CheckerInfrastructureError::StoragePlan(error).into())
+    }
+
+    fn plan_owned_borrows(
+        &mut self,
+        owner: bray_symbols::TypeId,
+    ) -> Result<bool, PlanError<C::UpstreamError>> {
+        let owner = self
+            .request
+            .semantic_values()
+            .unborrowed_type(owner)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+        let data = self
+            .request
+            .semantic_values()
+            .type_data(owner)
+            .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+        let TypeData::OwnedIndirection { storage, target } = data.as_ref() else {
+            return Ok(false);
+        };
+
+        let mut complete = true;
+
+        for (kind, member) in [
+            (bray_symbols::BorrowKind::Shared, "StorageBorrow"),
+            (bray_symbols::BorrowKind::Mutable, "StorageBorrowMut"),
+        ] {
+            let member = bray_compiler_known::CompilerKnownDeclarationKey::try_new(member)
+                .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
+
+            let selected =
+                super::selected_storage_protocol_call(self.request, *storage, *target, &member)?;
+
+            let (call, diagnostics) = selected.into_parts();
+
+            self.diagnostics.add_range(diagnostics);
+
+            match call {
+                Some(call) => self
+                    .builder_mut()?
+                    .set_owned_borrow(owner, kind, call)
+                    .map_err(CheckerInfrastructureError::StoragePlan)?,
+                None => complete = false,
+            }
+        }
+
+        Ok(complete)
     }
 }
 

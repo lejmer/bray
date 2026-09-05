@@ -92,6 +92,13 @@ pub enum MirProjectionKind {
         /// The selected payload field.
         field: UnionPayloadFieldSymbolId,
     },
+    /// Select a represented member from the checked active union payload without a visible field name.
+    ActiveUnionPayloadElement {
+        /// The variant proven active for this projection.
+        variant: UnionVariantSymbolId,
+        /// The member's position in the complete represented payload.
+        ordinal: bray_symbols::SymbolOrdinal,
+    },
     /// Select the present contents of nullable storage.
     NullableValue,
     /// Select the storage-policy value represented by owned indirection.

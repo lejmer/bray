@@ -37,6 +37,19 @@ pub struct SemanticValueStore {
 }
 
 impl SemanticValueStore {
+    /// Returns the type beneath every borrow layer without granting access authority.
+    pub fn unborrowed_type(&self, mut ty: TypeId) -> Result<TypeId, SemanticValueStoreError> {
+        loop {
+            let data = self.type_data(ty)?;
+
+            let TypeData::Borrow { target, .. } = data.as_ref() else {
+                return Ok(ty);
+            };
+
+            ty = *target;
+        }
+    }
+
     /// Interns a named type using its declaration's generic parameters as open arguments.
     pub fn intern_open_named_type(
         &self,
@@ -848,5 +861,39 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<SemanticValueStore>();
+    }
+
+    #[test]
+    fn unborrowed_types_remove_only_outer_borrow_layers() {
+        let values = store();
+        let unit = values.intern_type(TypeData::tuple([])).unwrap();
+
+        let shared = values
+            .intern_type(TypeData::Borrow {
+                kind: crate::BorrowKind::Shared,
+                target: unit,
+            })
+            .unwrap();
+
+        let mutable = values
+            .intern_type(TypeData::Borrow {
+                kind: crate::BorrowKind::Mutable,
+                target: shared,
+            })
+            .unwrap();
+
+        let nullable = values.intern_type(TypeData::Nullable(shared)).unwrap();
+
+        for ty in [unit, shared, mutable] {
+            assert_eq!(values.unborrowed_type(ty), Ok(unit));
+        }
+
+        assert_eq!(values.unborrowed_type(nullable), Ok(nullable));
+        let foreign = store().intern_type(TypeData::tuple([])).unwrap();
+
+        assert_eq!(
+            values.unborrowed_type(foreign).unwrap_err(),
+            values.type_data(foreign).unwrap_err()
+        );
     }
 }

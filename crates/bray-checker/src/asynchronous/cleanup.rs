@@ -3,7 +3,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use bray_bound_tree::{
     AsyncCleanupPhases, AsyncScopeExitPlan, AsyncStorageCleanupRequirement,
     AsyncStorageExitDecision, AsyncStorageExitDisposition, AsyncStorageExitRecoveryCause,
-    AsyncStorageRequirement, StorageFlow, StoragePlan, storage_identity_transfers_at_unit_exit,
+    AsyncStorageRequirement, StorageCleanupType, StorageFlow, StoragePlan,
+    storage_identity_transfers_at_unit_exit,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
@@ -11,6 +12,7 @@ use bray_symbols::{
     DeclaredStorageShape, GenericArgument, TypeData, TypeExpressionTemplate, TypeId,
 };
 
+use super::parts::CleanupExpansion;
 use crate::storage::storage_scope_owners;
 use crate::{
     CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, CheckerUnitView,
@@ -46,10 +48,12 @@ pub(super) struct CleanupShapeResolver<'request, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    request: CheckerUnitView<'request, C>,
+    pub(super) request: CheckerUnitView<'request, C>,
     completed: BTreeMap<TypeId, CleanupShape>,
+    pub(super) cleanup_types: BTreeMap<TypeId, StorageCleanupType>,
     active: BTreeSet<TypeId>,
-    diagnostics: DiagnosticBag,
+    // Query diagnostics are cloned because the cleanup result owns them independently.
+    pub(super) diagnostics: DiagnosticBag,
 }
 
 impl<'request, C> CleanupShapeResolver<'request, C>
@@ -60,6 +64,7 @@ where
         Self {
             request,
             completed: BTreeMap::new(),
+            cleanup_types: BTreeMap::new(),
             active: BTreeSet::new(),
             diagnostics: DiagnosticBag::new(),
         }
@@ -217,6 +222,21 @@ where
         template: &TypeExpressionTemplate,
         substitution: bray_symbols::GenericSubstitutionId,
     ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
+        let Some(ty) = self.member_type(template, substitution)? else {
+            return Ok(CleanupShape {
+                recovered: true,
+                ..CleanupShape::BOTH
+            });
+        };
+
+        self.resolve(ty)
+    }
+
+    pub(super) fn member_type(
+        &mut self,
+        template: &TypeExpressionTemplate,
+        substitution: bray_symbols::GenericSubstitutionId,
+    ) -> Result<Option<TypeId>, CheckerQueryError<C::UpstreamError>> {
         let constants = self.request.checked_constant_terms(template)?;
         self.diagnostics.add_range(constants.diagnostics().clone());
 
@@ -227,10 +247,7 @@ where
         )
         .map_err(CheckerQueryError::Infrastructure)?
         else {
-            return Ok(CleanupShape {
-                recovered: true,
-                ..CleanupShape::BOTH
-            });
+            return Ok(None);
         };
 
         let ty = self
@@ -243,7 +260,7 @@ where
                 ))
             })?;
 
-        self.resolve(ty)
+        Ok(Some(ty))
     }
 
     fn aggregate(
@@ -259,8 +276,34 @@ where
         Ok(shape)
     }
 
-    pub(super) fn into_diagnostics(self) -> DiagnosticBag {
-        self.diagnostics
+    pub(super) fn report_incomplete_lifecycle(
+        &mut self,
+        ty: TypeId,
+        source: bray_bound_tree::BoundSourceAnchor,
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+        use bray_diagnostics::{
+            Diagnostic, DiagnosticArg, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
+            SeverityKind,
+        };
+
+        let span = self.request.source(source)?.span();
+        let ty = crate::diagnostic::diagnostic_type(self.request.context(), ty)?;
+
+        self.diagnostics.add(
+            Diagnostic::new(
+                crate::diagnostic::diagnostic_id(self.diagnostics.len()),
+                DiagnosticKind::CheckingIncompleteLifecycleStorage,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::IncompleteLifecycleStorage,
+                span,
+            ))
+            .with_arg(DiagnosticArg::actual_type(ty)),
+        );
+
+        Ok(())
     }
 }
 
@@ -272,6 +315,7 @@ pub(super) fn scope_exit_plans<C>(
 ) -> Result<
     (
         Vec<AsyncStorageRequirement>,
+        Vec<StorageCleanupType>,
         Vec<AsyncScopeExitPlan>,
         DiagnosticBag,
     ),
@@ -287,7 +331,7 @@ where
 
     let requirements_by_identity = requirements
         .iter()
-        .map(|requirement| (requirement.identity(), *requirement))
+        .map(|requirement| (requirement.identity(), requirement))
         .collect::<BTreeMap<_, _>>();
 
     let mut plans = Vec::new();
@@ -317,7 +361,7 @@ where
             is_recovered |= matches!(disposition, AsyncStorageExitDisposition::Recovered(_));
             dispositions.push(AsyncStorageExitDecision::new(identity, disposition));
 
-            if let AsyncStorageExitDisposition::Cleanup { access, phases } = disposition {
+            if let AsyncStorageExitDisposition::Cleanup { access, phases, .. } = disposition {
                 if phases.includes_cancellation() {
                     cancellation.push(access);
                 }
@@ -357,7 +401,12 @@ where
         ));
     }
 
-    Ok((requirements, plans, cleanup_shapes.into_diagnostics()))
+    Ok((
+        requirements,
+        cleanup_shapes.cleanup_types.into_values().collect(),
+        plans,
+        cleanup_shapes.diagnostics,
+    ))
 }
 
 fn storage_requirements<C>(
@@ -379,7 +428,7 @@ where
     let mut requirements = Vec::with_capacity(live.len());
 
     for identity in live {
-        let cleanup = match (
+        let mut cleanup = match (
             storage.root_access(identity),
             storage.storage_type(identity),
         ) {
@@ -392,18 +441,75 @@ where
             (Some(_), Some(ty)) => cleanup_requirement(cleanup_shapes.resolve(ty)?),
         };
 
-        requirements.push(AsyncStorageRequirement::new(
+        let owner = owners.scope(storage.identity(identity));
+        let transfers = storage_identity_transfers_at_unit_exit(storage, identity);
+
+        let moved = flow
+            .exits()
+            .iter()
+            .filter(|exit| owner == Some(exit.scope()) && !transfers)
+            .flat_map(|exit| exit.moved())
+            .filter(|access| {
+                storage.root_identity(**access) == Some(identity)
+                    && !storage.is_root_access(**access)
+            })
+            .filter_map(|access| storage.resolved_projections(*access))
+            .collect::<Vec<_>>();
+
+        let destructor = bray_bound_tree::storage_identity_is_destructor_receiver(
+            request.unit(),
+            storage,
             identity,
-            owners.scope(storage.identity(identity)),
-            storage_identity_transfers_at_unit_exit(request.unit(), storage, identity),
-            cleanup,
-        ));
+        );
+
+        let parts = match (
+            storage.storage_type(identity),
+            storage
+                .root_access(identity)
+                .and_then(|access| storage.access(access)),
+        ) {
+            (Some(ty), Some(root)) if destructor || !moved.is_empty() => cleanup_shapes
+                .represented_parts(
+                    ty,
+                    &moved,
+                    if destructor {
+                        CleanupExpansion::DestructorReceiver
+                    } else {
+                        CleanupExpansion::MovedPaths
+                    },
+                    root.source(),
+                )?,
+            _ => None,
+        };
+
+        if destructor {
+            cleanup = match &parts {
+                Some(parts) => cleanup_requirement(CleanupShape {
+                    cancellation: parts
+                        .iter()
+                        .any(|part| part.phases().includes_cancellation()),
+                    lifecycle: parts.iter().any(|part| part.phases().includes_lifecycle()),
+                    recovered: false,
+                }),
+                None => AsyncStorageCleanupRequirement::Recovered(
+                    AsyncStorageExitRecoveryCause::UnavailablePartialCleanup,
+                ),
+            };
+        }
+
+        let mut requirement = AsyncStorageRequirement::new(identity, owner, transfers, cleanup);
+
+        if let Some(parts) = parts {
+            requirement = requirement.with_parts(parts);
+        }
+
+        requirements.push(requirement);
     }
 
     Ok(requirements)
 }
 
-const fn cleanup_requirement(shape: CleanupShape) -> AsyncStorageCleanupRequirement {
+pub(super) const fn cleanup_requirement(shape: CleanupShape) -> AsyncStorageCleanupRequirement {
     if shape.recovered {
         return AsyncStorageCleanupRequirement::Recovered(
             AsyncStorageExitRecoveryCause::UnavailableCleanupShape,

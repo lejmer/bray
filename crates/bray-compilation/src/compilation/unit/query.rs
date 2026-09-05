@@ -4151,6 +4151,336 @@ trusted func bray_abi_context(pos context: RawPointer<i32>) -> i32 uses(raw_memo
     }
 
     #[test]
+    fn conditional_whole_moves_lower_guarded_cleanup_and_preserve_return_values() {
+        let compilation = compilation(
+            r#"module app;
+struct Guard
+{
+    value: bool;
+    destruct() {}
+}
+func take(pos guard: Guard) {}
+func conditional(pos flag: bool, pos guard: Guard) -> i32
+{
+    if flag { take(guard); }
+    return 7;
+}
+func reinitialized(pos flag: bool, pos mut guard: Guard) -> i32
+{
+    if flag
+    {
+        take(guard);
+        guard = Guard { value = true };
+    }
+    return 9;
+}
+"#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        for name in ["conditional", "reinitialized"] {
+            let key = source_function_body_key(&compilation, name);
+            let analysis = compilation.async_analysis(key.clone()).unwrap();
+            let lowered = compilation.lowered_unit(key).unwrap();
+            assert!(lowered.value().is_some(), "{name}: {lowered:?}");
+            let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+
+            if name == "conditional" {
+                assert!(mir.blocks().iter().any(|block| {
+                    block.kind() == bray_ir::MirBlockKind::LifecycleResolution
+                        && matches!(
+                            block.terminator().kind(),
+                            bray_ir::MirTerminatorKind::Branch {
+                                condition: bray_ir::MirOperand::Copy(_),
+                                ..
+                            }
+                        )
+                }));
+
+                assert!(
+                    analysis
+                        .value()
+                        .scope_exits()
+                        .iter()
+                        .flat_map(|exit| exit.storage())
+                        .any(|decision| matches!(
+                            decision.disposition(),
+                            bray_bound_tree::AsyncStorageExitDisposition::Cleanup {
+                                guard: bray_bound_tree::AsyncCleanupGuard::Initialized,
+                                ..
+                            }
+                        ))
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn projected_moves_lower_guarded_remainder_cleanup() {
+        let compilation = compilation(
+            r#"module app;
+struct Guard { value: i32; destruct() {} }
+struct Pair { mut left: Guard; right: Guard; }
+func take(pos guard: Guard) {}
+func projected(pos flag: bool, pos pair: Pair) -> i32
+{
+    if flag { take(pair.left); }
+    return 7;
+}
+func tupled(pos flag: bool, pos pair: (Guard, Guard)) -> i32
+{
+    if flag { take(pair.0); }
+    return 9;
+}
+"#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        for name in ["projected", "tupled"] {
+            let key = source_function_body_key(&compilation, name);
+            let analysis = compilation.async_analysis(key.clone()).unwrap();
+
+            let partitions = analysis
+                .value()
+                .storage_requirements()
+                .iter()
+                .filter_map(bray_bound_tree::AsyncStorageRequirement::parts)
+                .collect::<Vec<_>>();
+
+            assert_eq!(partitions.len(), 1, "{name}: {analysis:?}");
+            assert_eq!(partitions[0].len(), 2, "{name}: {analysis:?}");
+
+            let lowered = compilation.lowered_unit(key).unwrap();
+            assert!(lowered.value().is_some(), "{name}: {lowered:?}");
+            let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+
+            assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+                bray_ir::MirOperationKind::Cleanup { place, .. } if !place.projections().is_empty()
+            )));
+        }
+    }
+
+    #[test]
+    fn box_construction_transfers_its_noncopyable_input_storage() {
+        let compilation = compilation(include_str!(
+            "../../../../../xtask/fixtures/native-execution/guarded-part-cleanup.bray"
+        ));
+
+        let key = source_function_body_key(&compilation, "main");
+        let bound = compilation.bound_unit(key.clone()).unwrap();
+        let flow = compilation.storage_flow(key).unwrap();
+
+        let operands = bound
+            .value()
+            .tree()
+            .expressions()
+            .find_map(|(_, expression)| match expression {
+                BoundExpression::Structured(expression)
+                    if expression.kind()
+                        == bray_bound_tree::BoundStructuredExpressionKind::TypeFormConstruction =>
+                {
+                    Some(expression.operands())
+                }
+                _ => None,
+            })
+            .unwrap();
+
+        let [operand] = operands else {
+            panic!("fixture must construct one boxed value")
+        };
+
+        assert!(
+            flow.value().operations().iter().any(|operation| {
+                operation.expression() == *operand
+                    && operation.purpose() == bray_bound_tree::StorageAccessPurpose::Move
+                    && operation.status() == bray_bound_tree::StorageOperationStatus::Valid
+            }),
+            "box input must transfer ownership: {flow:?}"
+        );
+    }
+
+    #[test]
+    fn partially_moved_box_projects_through_policy_and_releases_on_both_exits() {
+        let source = include_str!(
+            "../../../../../xtask/fixtures/native-execution/guarded-part-cleanup.bray"
+        );
+
+        let (declarations, _) = source.split_once("func main").unwrap();
+
+        let compilation = compilation(declarations);
+        let key = source_function_body_key(&compilation, "boxed");
+        let analysis = compilation.async_analysis(key.clone()).unwrap();
+
+        let releases = analysis
+            .value()
+            .storage_requirements()
+            .iter()
+            .flat_map(|requirement| requirement.parts().into_iter().flatten())
+            .filter_map(bray_bound_tree::StorageCleanupPart::release)
+            .map(|call| call.callable())
+            .collect::<Vec<_>>();
+
+        assert_eq!(releases.len(), 1, "{analysis:?}");
+
+        let lowered = compilation.lowered_unit(key).unwrap();
+        let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+
+        let releases = mir.operations().iter().filter(|operation| matches!(operation.kind(),
+            bray_ir::MirOperationKind::Call(call) if matches!(call.target(), bray_ir::MirCallTarget::Direct(reference) if releases.contains(&reference.instance()))
+        )).count();
+
+        assert_eq!(
+            releases, 2,
+            "normal and panic exits must both release: {mir:?}"
+        );
+
+        assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+            bray_ir::MirOperationKind::Cleanup { place, .. } if place.projections().first().is_some_and(|projection| projection.kind() == &bray_ir::MirProjectionKind::Dereference)
+        )), "surviving fields must use the policy's borrowed target: {mir:?}");
+    }
+
+    #[test]
+    fn box_patterns_select_borrows_independently_of_partial_cleanup() {
+        let source = include_str!(
+            "../../../../../xtask/fixtures/native-execution/guarded-part-cleanup.bray"
+        );
+
+        let (declarations, _) = source.split_once("func main").unwrap();
+
+        let compilation = compilation(declarations);
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        for (name, kind) in [
+            ("observe_box", bray_symbols::BorrowKind::Shared),
+            ("observe_borrowed_box", bray_symbols::BorrowKind::Shared),
+            ("move_box_target", bray_symbols::BorrowKind::Mutable),
+        ] {
+            let key = source_function_body_key(&compilation, name);
+            let storage = compilation.storage_plan(key.clone()).unwrap();
+            let calls = storage.value().owned_borrows().collect::<Vec<_>>();
+            assert_eq!(calls.len(), 2, "{name}: {storage:?}");
+
+            let (_, _, selected) = calls
+                .iter()
+                .find(|(_, candidate, _)| *candidate == kind)
+                .unwrap();
+
+            let lowered = compilation.lowered_unit(key.clone()).unwrap();
+            let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+
+            assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+                bray_ir::MirOperationKind::Call(call) if matches!(call.target(),
+                    bray_ir::MirCallTarget::Direct(reference) if reference.instance() == selected.callable())
+            )), "{name} must use the selected {kind:?} policy borrow: {mir:?}");
+
+            if matches!(name, "observe_box" | "observe_borrowed_box") {
+                assert!(!mir.operations().iter().any(|operation| matches!(operation.kind(),
+                    bray_ir::MirOperationKind::Store { destination, .. } if !destination.projections().is_empty()
+                )), "observed aliases must not write back to source storage: {mir:?}");
+
+                let analysis = compilation.async_analysis(key).unwrap();
+
+                assert!(
+                    analysis
+                        .value()
+                        .storage_requirements()
+                        .iter()
+                        .all(|requirement| requirement.parts().is_none()),
+                    "observation must not require partial cleanup metadata: {analysis:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn guarded_part_fixture_preserves_payload_and_nullable_cleanup() {
+        let compilation = compilation(include_str!(
+            "../../../../../xtask/fixtures/native-execution/guarded-part-cleanup.bray"
+        ));
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        for name in [
+            "fields",
+            "tupled",
+            "payload",
+            "nullable",
+            "destructed",
+            "indexed",
+            "indexed_return",
+            "nested_indexed",
+            "indexed_repaired",
+            "guarded",
+            "guarded_alternative",
+            "boxed",
+            "boxed_panic",
+            "observe_box",
+            "observe_borrowed_box",
+            "move_box_target",
+            "main",
+        ] {
+            let key = source_function_body_key(&compilation, name);
+            let lowered = compilation.lowered_unit(key).unwrap();
+
+            assert!(lowered.value().is_some(), "{name}: {lowered:?}");
+
+            if matches!(name, "payload" | "nullable") {
+                let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+
+                assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+                    bray_ir::MirOperationKind::Cleanup { place, .. } if !place.projections().is_empty()
+                )), "{name}: {mir:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn borrowed_box_patterns_do_not_grant_target_ownership() {
+        let source = include_str!(
+            "../../../../../xtask/fixtures/native-execution/guarded-part-cleanup.bray"
+        );
+
+        let (declarations, _) = source.split_once("func main").unwrap();
+
+        let source = format!(
+            "{declarations}\nfunc invalid_borrow_move(pos pair: &box[PairStorage] Pair) {{ let box(value) = pair; consume_pair(value); }}"
+        );
+
+        let compilation = compilation(&source);
+        let diagnostics = compilation.check_diagnostics();
+
+        assert!(
+            diagnostics
+                .by_kind(DiagnosticKind::CheckingMissingStorageOwnership)
+                .next()
+                .is_some(),
+            "{diagnostics:?}"
+        );
+
+        let key = source_function_body_key(&compilation, "invalid_borrow_move");
+        assert!(compilation.lowered_unit(key).unwrap().value().is_none());
+    }
+
+    #[test]
     fn mutable_trait_fulfillment_receivers_authorize_field_assignment() {
         let compilation = compilation(concat!(
             "module app;\n",
@@ -7928,7 +8258,7 @@ func other()
     }
 
     #[test]
-    fn pattern_conditions_reject_unrepresented_partial_cleanup_before_lowering() {
+    fn pattern_conditions_lower_with_guarded_temporary_cleanup() {
         let compilation = compilation(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../xtask/fixtures/native-execution/pattern-conditions.bray"
@@ -7940,29 +8270,58 @@ func other()
             compilation.check_diagnostics()
         );
 
-        for name in ["next_value", "probe_return"] {
+        for name in ["next_value", "probe_return", "main"] {
             let lowered = compilation
                 .lowered_unit(source_function_body_key(&compilation, name))
                 .unwrap();
 
             assert!(lowered.value().is_some(), "{name}: {lowered:?}");
         }
+    }
 
-        let error = compilation
-            .lowered_unit(source_function_body_key(&compilation, "main"))
-            .expect_err("guarded partial cleanup must not satisfy the lowering boundary");
+    #[test]
+    fn observed_call_result_patterns_evaluate_their_subject_once() {
+        for body in [
+            "match make() { case ?value { let (first, second) = value; return first; } case none { return 0; } }",
+            "if let ?value = make() { let (first, second) = value; return first; } return 0;",
+        ] {
+            for subject in [
+                "make()",
+                "trusted make()",
+                "trusted internal make()",
+                "(trusted internal make())",
+            ] {
+                let body = body.replace("make()", subject);
 
-        assert!(matches!(
-            error,
-            FactQueryError::LoweringInput(failure)
-                if matches!(
-                    failure.cause(),
-                    bray_lowering::LoweringInputError::InvalidPlan(plan)
-                        if plan.kind() == bray_lowering::LoweringPlanKind::StorageDisposition
-                            && plan.cause() == bray_lowering::LoweringPlanFailureCause::StorageRecovery(
-                                bray_bound_tree::AsyncStorageExitRecoveryCause::UnavailablePartialCleanup)
-                )
-        ));
+                let source = format!(
+                    "trusted module app; internal func make() -> (i32, bool)? {{ return (7, true); }} func main() -> i32 {{ {body} }}"
+                );
+
+                let compilation = compilation(&source);
+                let diagnostics = compilation.check_diagnostics();
+
+                assert!(diagnostics.is_empty(), "{source}: {diagnostics:?}");
+
+                let lowered = compilation
+                    .lowered_unit(source_function_body_key(&compilation, "main"))
+                    .unwrap();
+
+                let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+
+                let calls = mir
+                    .operations()
+                    .iter()
+                    .filter(|operation| {
+                        matches!(operation.kind(), bray_ir::MirOperationKind::Call(_))
+                    })
+                    .count();
+
+                assert_eq!(
+                    calls, 1,
+                    "the subject must be evaluated only before entering the arm: {mir:?}"
+                );
+            }
+        }
     }
 
     #[test]
@@ -7993,11 +8352,18 @@ func other()
                 let storage = compilation.storage_plan(key.clone()).unwrap();
                 let flow = compilation.storage_flow(key.clone()).unwrap();
 
-                assert!(
-                    !flow.diagnostics().has_errors(),
-                    "{source}: {:?}",
-                    flow.diagnostics()
-                );
+                if lifecycle.is_empty() {
+                    assert!(
+                        !flow.diagnostics().has_errors(),
+                        "{source}: {:?}",
+                        flow.diagnostics()
+                    );
+                } else {
+                    assert_goal_state_diagnostic_kind(
+                        flow.diagnostics(),
+                        DiagnosticKind::CheckingIncompleteLifecycleStorage,
+                    );
+                }
 
                 let root = storage
                     .value()
@@ -8016,17 +8382,22 @@ func other()
                     "{source}"
                 );
 
-                assert_eq!(
-                    flow.value()
+                assert!(
+                    !flow
+                        .value()
                         .exits()
                         .iter()
                         .any(|exit| exit.fully_moved().contains(&root)),
-                    lifecycle.is_empty(),
                     "{source}"
                 );
 
                 if !lifecycle.is_empty() {
                     let analysis = compilation.async_analysis(key).unwrap();
+
+                    bray_testing::assert_goal_state_diagnostic_kind(
+                        analysis.diagnostics(),
+                        DiagnosticKind::CheckingIncompleteLifecycleStorage,
+                    );
 
                     assert!(analysis.value().scope_exits().iter().flat_map(|exit| exit.storage()).any(|decision|
                         decision.identity() == root && decision.disposition() ==

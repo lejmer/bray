@@ -2250,6 +2250,10 @@ fn projection_kind(
                     .into_owned(),
             ),
         ),
+        MirProjectionKind::ActiveUnionPayloadElement { ordinal, .. } => (
+            "active_union_payload_element",
+            Some(ordinal.raw().to_string()),
+        ),
         MirProjectionKind::NullableValue => ("nullable_value", None),
         MirProjectionKind::OwnedStorage => ("owned_storage", None),
     }

@@ -718,6 +718,24 @@ pub trait CheckerRequestContext: Sync {
         Ok(None)
     }
 
+    /// Selects one exact storage-policy protocol callable and its substituted signature.
+    fn storage_protocol_callable(
+        &self,
+        _storage: TypeId,
+        _target: TypeId,
+        _member: &bray_compiler_known::CompilerKnownDeclarationKey,
+    ) -> CheckerQueryResult<
+        DiagnosticResult<
+            Option<(
+                bray_symbols::CallableInstanceData,
+                bray_symbols::CallableSignature,
+            )>,
+        >,
+        Self::UpstreamError,
+    > {
+        Ok(DiagnosticResult::without_diagnostics(None))
+    }
+
     /// Returns whether a declared type has whole-value finalization, destruction, or scoped behavior.
     fn declared_type_has_lifecycle(
         &self,

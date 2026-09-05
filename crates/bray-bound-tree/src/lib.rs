@@ -30,7 +30,7 @@ mod unit;
 mod view;
 
 pub use asynchronous::{
-    AsyncAnalysisBuildError, AsyncCleanupPhases, AsyncScopeExitPlan,
+    AsyncAnalysisBuildError, AsyncCleanupGuard, AsyncCleanupPhases, AsyncScopeExitPlan,
     AsyncStorageCleanupRequirement, AsyncStorageExitDecision, AsyncStorageExitDisposition,
     AsyncStorageExitRecoveryCause, AsyncStorageRequirement, AsyncSuspensionKind,
     AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind, CheckedAsync,
@@ -115,11 +115,12 @@ pub use storage::{
     Liveness, LivenessBuildError, OwnerRetention, PlannedBorrowCapability, StorageAccess,
     StorageAccessId, StorageAccessPlan, StorageAccessPurpose, StorageAccessRoot,
     StorageAlternative, StorageAlternativeId, StorageBinding, StorageBindingTarget,
+    StorageCleanupPart, StorageCleanupProjection, StorageCleanupProjectionKind, StorageCleanupType,
     StorageExitDecision, StorageExitPoint, StorageFlow, StorageFlowBuildError, StorageIdentity,
     StorageIdentityId, StorageOperationDecision, StorageOperationStatus, StoragePlan,
-    StoragePlanBuildError, StoragePlanBuilder, StorageProjection, StorageRelationship,
-    StorageScopeBuildError, StorageScopeOwners, StorageSuspensionState,
-    storage_identity_transfers_at_unit_exit,
+    StoragePlanBuildError, StoragePlanBuilder, StorageProjection, StorageProtocolCall,
+    StorageRelationship, StorageScopeBuildError, StorageScopeOwners, StorageSuspensionState,
+    storage_identity_is_destructor_receiver, storage_identity_transfers_at_unit_exit,
 };
 pub use template::{
     CheckedTemplate, CheckedTemplateBehavior, CheckedTemplateBuildError, CheckedTemplateBuilder,

@@ -244,7 +244,7 @@ impl Lowerer<'_> {
             }
         };
 
-        self.builder.set_terminator(
+        self.set_terminator(
             current,
             Self::retained_source(&source),
             MirTerminatorKind::Branch {
@@ -261,7 +261,7 @@ impl Lowerer<'_> {
                 return Err(LoweringError::MissingOperationResult(*right_id));
             };
 
-            self.builder.set_terminator(
+            self.set_terminator(
                 right_block,
                 Self::retained_source(&source),
                 MirTerminatorKind::Goto(MirEdge::new(join, [right])),

@@ -171,8 +171,9 @@ where
                             .ok_or_else(|| invalid_node(arm.pattern()))?;
 
                         match pattern.mode() {
-                            BoundPatternMode::MatchConsume => StorageAccessPurpose::Move,
-                            BoundPatternMode::MatchObserve => StorageAccessPurpose::Read,
+                            BoundPatternMode::MatchConsume | BoundPatternMode::MatchObserve => {
+                                StorageAccessPurpose::Read
+                            }
                             BoundPatternMode::Declaration | BoundPatternMode::Assignment => {
                                 return Err(CheckerInfrastructureError::InvalidStoragePlan.into());
                             }
@@ -471,7 +472,8 @@ where
             }
             BoundStructuredExpressionKind::Tuple
             | BoundStructuredExpressionKind::Array
-            | BoundStructuredExpressionKind::RepeatedArray => {
+            | BoundStructuredExpressionKind::RepeatedArray
+            | BoundStructuredExpressionKind::TypeFormConstruction => {
                 for operand in operands {
                     self.plan_expression(*operand, Some(StorageAccessPurpose::ValueTransfer))?;
                 }

@@ -261,6 +261,7 @@ where
             }
             AnalysisOperationKind::Recovery(_) => is_recovered = true,
             AnalysisOperationKind::Bound(_)
+            | AnalysisOperationKind::PatternObservation(_)
             | AnalysisOperationKind::Call { .. }
             | AnalysisOperationKind::ScopeExit { .. } => {}
         }
@@ -276,7 +277,7 @@ where
         return CheckerOutcome::InfrastructureFailure(error);
     }
 
-    let (storage_requirements, scope_exits, cleanup_diagnostics) =
+    let (storage_requirements, cleanup_types, scope_exits, cleanup_diagnostics) =
         match scope_exit_plans(request, storage, flow, dependencies) {
             Ok(plans) => plans,
             Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
@@ -299,6 +300,7 @@ where
         suspensions,
         task_operations.into_values(),
         storage_requirements,
+        cleanup_types,
         scope_exits,
         is_recovered,
     ) {

@@ -489,7 +489,12 @@ mod tests {
         };
 
         if builder
-            .plan_access(expression, StorageAccessPurpose::Read, access)
+            .plan_access(
+                expression.into(),
+                expression,
+                StorageAccessPurpose::Read,
+                access,
+            )
             .is_err()
         {
             panic!("test access plan must be valid");
@@ -546,7 +551,12 @@ mod tests {
         };
 
         if builder
-            .plan_access(expression, StorageAccessPurpose::Read, access)
+            .plan_access(
+                expression.into(),
+                expression,
+                StorageAccessPurpose::Read,
+                access,
+            )
             .is_err()
         {
             panic!("test access plan must be valid");

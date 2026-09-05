@@ -282,6 +282,24 @@ impl StorageProjection {
     }
 }
 
+impl From<crate::PatternProjection> for StorageProjection {
+    fn from(projection: crate::PatternProjection) -> Self {
+        use crate::PatternProjection;
+
+        match projection {
+            PatternProjection::ProductField(field) => Self::ProductField(field),
+            PatternProjection::TupleElement(ordinal) => Self::TupleElement(ordinal),
+            PatternProjection::ActiveUnionPayloadField { variant, field } => {
+                Self::ActiveUnionPayloadField { variant, field }
+            }
+            PatternProjection::ElementFromStart(ordinal) => Self::ElementFromStart(ordinal),
+            PatternProjection::ElementFromEnd(ordinal) => Self::ElementFromEnd(ordinal),
+            PatternProjection::NullableValue => Self::NullableValue,
+            PatternProjection::OwnedTarget => Self::OwnedTarget,
+        }
+    }
+}
+
 fn optional_expression_is_valid_for(
     expression: Option<BoundExpressionId>,
     unit: BoundUnitId,
@@ -404,6 +422,60 @@ mod tests {
     };
     use crate::test_support::{error_type, source_anchor};
     use crate::{BoundExpressionId, BoundUnitId};
+
+    #[test]
+    fn pattern_projections_preserve_their_storage_component_identity() {
+        use crate::PatternProjection;
+
+        use bray_symbols::{
+            StructFieldSymbolId, SymbolId, SymbolOrdinal, UnionPayloadFieldSymbolId,
+            UnionVariantSymbolId,
+        };
+
+        let field = StructFieldSymbolId::from_symbol_id(SymbolId::new(3));
+        let payload = UnionPayloadFieldSymbolId::from_symbol_id(SymbolId::new(4));
+        let variant = UnionVariantSymbolId::from_symbol_id(SymbolId::new(5));
+        let ordinal = SymbolOrdinal::new(u32::MAX);
+
+        for (pattern, storage) in [
+            (
+                PatternProjection::ProductField(field),
+                StorageProjection::ProductField(field),
+            ),
+            (
+                PatternProjection::TupleElement(ordinal),
+                StorageProjection::TupleElement(ordinal),
+            ),
+            (
+                PatternProjection::ElementFromStart(ordinal),
+                StorageProjection::ElementFromStart(ordinal),
+            ),
+            (
+                PatternProjection::ElementFromEnd(ordinal),
+                StorageProjection::ElementFromEnd(ordinal),
+            ),
+            (
+                PatternProjection::ActiveUnionPayloadField {
+                    variant,
+                    field: payload,
+                },
+                StorageProjection::ActiveUnionPayloadField {
+                    variant,
+                    field: payload,
+                },
+            ),
+            (
+                PatternProjection::NullableValue,
+                StorageProjection::NullableValue,
+            ),
+            (
+                PatternProjection::OwnedTarget,
+                StorageProjection::OwnedTarget,
+            ),
+        ] {
+            assert_eq!(StorageProjection::from(pattern), storage);
+        }
+    }
 
     #[test]
     fn storage_identity_is_distinct_from_provenance_and_access_occurrences() {

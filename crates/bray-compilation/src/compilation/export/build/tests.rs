@@ -58,6 +58,169 @@ fn module_only_library_exports_are_cached_on_demand() {
 }
 
 #[test]
+fn imported_union_cleanup_retains_members_without_exported_field_identities() {
+    use bray_package_interface::{
+        InterfaceStorageMember, InterfaceStorageShape, InterfaceUnionStorageVariant,
+    };
+
+    let provider = compilation(
+        "module types; public struct Guard { destruct() {} } public union Choice { Pair(pos left: Guard, pos right: Guard); }",
+    );
+
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let original = export(&provider);
+    let baseline_artifact = encode_package_interface(original).unwrap();
+
+    let baseline = crate::test_support::compilation_with_dependencies(
+        "module app; using example.package.types; func take(pos item: example.package.types.Guard) {} func partial(pos value: example.package.types.Choice) { match consume value { case Pair(left,..) { take(left); } } }",
+        [DependencyInterfaceInput::new(
+            PackageIdentity::try_new("example.package").unwrap(),
+            InterfaceProductIdentity::try_new("library").unwrap(),
+            "provider.brayi",
+            baseline_artifact.shared_bytes(),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        )],
+    );
+
+    assert!(
+        baseline.check_diagnostics().is_empty(),
+        "baseline: {:?}",
+        baseline.check_diagnostics()
+    );
+
+    let representations = original
+        .semantics()
+        .type_representations()
+        .iter()
+        .map(|representation| {
+            let InterfaceStorageShape::Union(variants) = representation.storage() else {
+                return representation.clone();
+            };
+
+            let variants = variants
+                .iter()
+                .map(|variant| {
+                    InterfaceUnionStorageVariant::new(
+                        variant.variant().clone(),
+                        variant.members().iter().enumerate().map(|(index, member)| {
+                            InterfaceStorageMember::new(
+                                if index == 0 {
+                                    member.field().cloned()
+                                } else {
+                                    None
+                                },
+                                member.ty(),
+                            )
+                        }),
+                    )
+                })
+                .collect::<Vec<_>>();
+
+            representation
+                .clone()
+                .with_storage(InterfaceStorageShape::Union(variants.into()))
+        })
+        .collect::<Vec<_>>();
+
+    let semantics = original
+        .semantics()
+        .clone()
+        .with_type_representations(representations);
+
+    let bundle = PackageInterfaceExportBundle::try_new(
+        original.surface().clone(),
+        semantics,
+        original.language_revision(),
+        original.implementation_configuration().clone(),
+    )
+    .unwrap();
+
+    let artifact = encode_package_interface(&bundle).unwrap();
+
+    let dependency = DependencyInterfaceInput::new(
+        PackageIdentity::try_new("example.package").unwrap(),
+        InterfaceProductIdentity::try_new("library").unwrap(),
+        "provider.brayi",
+        artifact.shared_bytes(),
+        InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+    );
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        "module app; using example.package.types; func take(pos item: example.package.types.Guard) {} func partial(pos value: example.package.types.Choice) { match consume value { case Pair(left,..) { take(left); } } }",
+        [dependency],
+    );
+
+    assert!(
+        consumer.check_diagnostics().is_empty(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
+
+    let key = source_function_body_key(&consumer, "partial");
+    let analysis = consumer.async_analysis(key.clone()).unwrap();
+
+    assert!(analysis.value().storage_requirements().iter().filter_map(|requirement| requirement.parts()).flatten().any(|part| {
+        part.projections().iter().any(|projection| matches!(projection.projection(), bray_bound_tree::StorageCleanupProjectionKind::UnionPayloadElement { ordinal, .. } if ordinal.raw() == 1))
+    }), "{analysis:?}");
+
+    let lowered = consumer.lowered_unit(key).unwrap();
+    let mir = lowered.value().as_ref().unwrap().mir().unwrap();
+
+    assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Cleanup { place, .. } if place.projections().iter().any(|projection| matches!(projection.kind(), MirProjectionKind::ActiveUnionPayloadElement { ordinal, .. } if ordinal.raw() == 1)))), "{mir:?}");
+}
+
+#[test]
+fn imported_construction_defaults_use_the_declaring_type_specialization() {
+    let provider = compilation(
+        "module types; public struct Value<T> { marker: bool; data: T? = none; } public union Choice<T> { Item(data: T? = none); }",
+    );
+
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+    let interface = encode_package_interface(bundle).unwrap();
+
+    let implementation = PackageImplementationArtifact::try_from_export_bundle(
+        &interface,
+        bundle,
+        InterfaceValidationLimits::default(),
+    )
+    .unwrap();
+
+    let dependency = DependencyInterfaceInput::new(
+        PackageIdentity::try_new("example.package").unwrap(),
+        InterfaceProductIdentity::try_new("library").unwrap(),
+        "provider.brayi",
+        interface.shared_bytes(),
+        InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+    )
+    .with_implementation_artifact("provider.brayimpl", Arc::new(implementation));
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        "module app; using example.package.types; func first<U>() -> example.package.types.Value<U> { return { marker = true }; } func second<U>() -> example.package.types.Value<U> { return { marker = true }; } func third<U>() -> example.package.types.Choice<U> { return Item(); } func fourth<U>() -> example.package.types.Choice<U> { return Item(); } func main() { first<i32>(); second<i32>(); first<bool>(); third<i32>(); fourth<i32>(); third<bool>(); }",
+        [dependency],
+    );
+
+    assert!(
+        consumer.check_diagnostics().is_empty(),
+        "{:?}",
+        consumer.check_diagnostics()
+    );
+
+    let result = consumer.imported_codegen_instance_count_for_test();
+    assert_eq!(result.unwrap(), 4);
+}
+
+#[test]
 fn library_interfaces_exclude_test_only_block_module_suffixes() {
     let compilation = compilation(concat!(
         "module net;\n",

@@ -43,6 +43,17 @@ pub(super) struct InspectionStorage {
     borrow_capabilities: Vec<InspectionBorrowCapability>,
     bindings: Vec<InspectionStorageBindingEntry>,
     plans: Vec<InspectionStoragePlan>,
+    owned_borrows: Vec<InspectionOwnedBorrow>,
+}
+
+#[derive(Serialize)]
+struct InspectionOwnedBorrow {
+    owner: InspectionType,
+    kind: &'static str,
+    callable: InspectionSymbolIdentity,
+    signature: InspectionType,
+    parameter: InspectionType,
+    result: InspectionType,
 }
 
 impl InspectionStorage {
@@ -91,6 +102,30 @@ impl InspectionStorage {
             accesses,
             alternatives,
             borrow_capabilities,
+            owned_borrows: plan
+                .owned_borrows()
+                .map(|(owner, kind, call)| {
+                    Ok(InspectionOwnedBorrow {
+                        owner: InspectionType::from_type(semantic_values, symbols, owner)?,
+                        kind: kind.as_str(),
+                        callable: InspectionSymbolIdentity::from_symbol(
+                            symbols,
+                            call.callable().definition().symbol(),
+                        ),
+                        signature: InspectionType::from_type(
+                            semantic_values,
+                            symbols,
+                            call.callable_type(),
+                        )?,
+                        parameter: InspectionType::from_type(
+                            semantic_values,
+                            symbols,
+                            call.parameter(),
+                        )?,
+                        result: InspectionType::from_type(semantic_values, symbols, call.result())?,
+                    })
+                })
+                .collect::<Result<_, StorageInspectionError>>()?,
             bindings: plan
                 .bindings()
                 .iter()
@@ -631,12 +666,22 @@ impl From<StorageBinding> for InspectionStorageBinding {
 
 #[derive(Clone, Serialize)]
 pub(super) struct InspectionStoragePlan {
+    node_kind: &'static str,
+    node: u32,
     expression: u32,
     purpose: &'static str,
     access: u32,
 }
 
 impl InspectionStoragePlan {
+    pub(super) const fn node_kind(&self) -> &'static str {
+        self.node_kind
+    }
+
+    pub(super) const fn node(&self) -> u32 {
+        self.node
+    }
+
     pub(super) const fn expression(&self) -> u32 {
         self.expression
     }
@@ -653,6 +698,8 @@ impl InspectionStoragePlan {
 impl From<StorageAccessPlan> for InspectionStoragePlan {
     fn from(plan: StorageAccessPlan) -> Self {
         Self {
+            node_kind: plan.node().kind().as_str(),
+            node: plan.node().ordinal(),
             expression: plan.expression().ordinal(),
             purpose: plan.purpose().as_str(),
             access: plan.access().ordinal(),

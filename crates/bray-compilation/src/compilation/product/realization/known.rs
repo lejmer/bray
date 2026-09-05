@@ -139,15 +139,7 @@ impl Compilation {
                     .get(&element)
                     .ok_or(CodegenPreparationError::UnresolvedType(element))?;
 
-                let kind = element_mapping.kind().clone();
-
-                let mapping = match element_mapping.layout() {
-                    Some(layout) => CodegenTypeMapping::new(ty, layout, kind),
-                    None => CodegenTypeMapping::new_unsized(ty, kind),
-                }
-                .with_backend_type(element_mapping.backend_type());
-
-                Ok(Some(mapping))
+                Ok(Some(element_mapping.representation_for(ty)))
             }
             RepresentationRole::String => self
                 .codegen_string_type(ty, target, cancellation, mappings, pending)

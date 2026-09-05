@@ -728,6 +728,10 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             }),
             9 => Ok(MirProjectionKind::NullableValue),
             10 => Ok(MirProjectionKind::OwnedStorage),
+            11 => Ok(MirProjectionKind::ActiveUnionPayloadElement {
+                variant: self.exact_symbol()?,
+                ordinal: bray_symbols::SymbolOrdinal::new(read_u32(&mut self.reader)?),
+            }),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }
@@ -2603,6 +2607,158 @@ fn decoded_inline_assembly_value_types(
 
 #[cfg(test)]
 mod tests {
+    struct ProjectionSymbols(bray_symbols::AnySymbolId);
+
+    impl crate::InterfaceSymbolResolver for ProjectionSymbols {
+        fn resolve(
+            &self,
+            reference: &crate::InterfaceSymbolReference,
+        ) -> Option<bray_symbols::AnySymbolId> {
+            (*reference
+                == crate::InterfaceSymbolReference::Local(bray_symbols::InterfaceSymbolId::new(0)))
+            .then_some(self.0)
+        }
+
+        fn symbol_key(
+            &self,
+            _: &crate::InterfaceSymbolReference,
+        ) -> Option<bray_symbols::SymbolKey> {
+            None
+        }
+    }
+
+    impl super::super::encoding::ExecutableTemplateEncodeContext for ProjectionSymbols {
+        type Error = ();
+
+        fn type_id(&mut self, _: bray_symbols::TypeId) -> Result<crate::InterfaceTypeId, ()> {
+            Err(())
+        }
+        fn constant_value_id(
+            &mut self,
+            _: bray_symbols::ConstantValueId,
+        ) -> Result<crate::InterfaceConstantValueId, ()> {
+            Err(())
+        }
+        fn constant_term_id(
+            &mut self,
+            _: bray_symbols::ConstantTermId,
+        ) -> Result<crate::InterfaceConstantTermId, ()> {
+            Err(())
+        }
+        fn substitution_id(
+            &mut self,
+            _: bray_symbols::GenericSubstitutionId,
+        ) -> Result<crate::InterfaceGenericSubstitutionId, ()> {
+            Err(())
+        }
+        fn trait_application_id(
+            &mut self,
+            _: bray_symbols::TraitApplicationId,
+        ) -> Result<crate::InterfaceTraitApplicationId, ()> {
+            Err(())
+        }
+        fn implementation_instance_id(
+            &mut self,
+            _: bray_symbols::ImplementationInstanceId,
+        ) -> Result<crate::InterfaceImplementationInstanceId, ()> {
+            Err(())
+        }
+        fn dependency_contract_id(
+            &mut self,
+            _: bray_symbols::DependencyContractTemplateId,
+        ) -> Result<crate::InterfaceDependencyContractId, ()> {
+            Err(())
+        }
+        fn nested_executable_id(
+            &mut self,
+            _: &bray_bound_tree::BoundUnitKey,
+        ) -> Result<bray_ir::MirExecutableTemplateId, ()> {
+            Err(())
+        }
+
+        fn symbol_reference(
+            &mut self,
+            id: bray_symbols::AnySymbolId,
+        ) -> Result<crate::InterfaceSymbolReference, ()> {
+            if id != self.0 {
+                return Err(());
+            }
+
+            Ok(crate::InterfaceSymbolReference::Local(
+                bray_symbols::InterfaceSymbolId::new(0),
+            ))
+        }
+    }
+
+    fn decode_projection(
+        bytes: &[u8],
+        symbols: &ProjectionSymbols,
+    ) -> Result<bray_ir::MirProjectionKind, ExecutableTemplateDecodeError> {
+        let values = SemanticValueStore::try_new().unwrap();
+
+        let semantics = crate::InterfaceSemantics::new()
+            .intern(&values, symbols)
+            .unwrap();
+
+        let mut decoder = super::Decoder {
+            reader: crate::wire::WireReader::new(bytes),
+            semantic: crate::semantic::SemanticDecodeContext::new(
+                crate::InterfaceValidationLimits::default(),
+            ),
+            semantics: &semantics,
+            symbols,
+            unit: bray_ir::MirUnitId::new(1),
+            owner: symbols.0,
+            identity: bray_ir::MirExecutableTemplateId::new(0),
+            family_size: 1,
+            target: bray_target::TargetIdentity::try_new("x86_64-pc-windows-msvc").unwrap(),
+        };
+
+        decoder.projection_kind()
+    }
+
+    #[test]
+    fn hidden_union_member_projections_round_trip_without_field_symbol_references() {
+        let variant =
+            bray_symbols::UnionVariantSymbolId::from_symbol_id(bray_symbols::SymbolId::new(7));
+
+        let mut symbols = ProjectionSymbols(variant.into());
+
+        for ordinal in [0, 3, u32::MAX] {
+            let projection = bray_ir::MirProjectionKind::ActiveUnionPayloadElement {
+                variant,
+                ordinal: bray_symbols::SymbolOrdinal::new(ordinal),
+            };
+
+            let bytes =
+                super::super::encoding::encode_projection_for_test(&projection, &mut symbols)
+                    .unwrap();
+
+            assert_eq!(decode_projection(&bytes, &symbols), Ok(projection));
+
+            assert!(matches!(
+                decode_projection(&bytes[..bytes.len() - 1], &symbols),
+                Err(ExecutableTemplateDecodeError::Validation(
+                    crate::InterfaceValidationError::Truncated {
+                        expected_length: 4,
+                        actual_length: 3,
+                        ..
+                    }
+                ))
+            ));
+
+            let wrong_kind = ProjectionSymbols(
+                bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(8))
+                    .into(),
+            );
+
+            assert_eq!(
+                decode_projection(&bytes, &wrong_kind),
+                Err(ExecutableTemplateDecodeError::Malformed)
+            );
+        }
+    }
+
     use bray_bound_tree::{
         CheckedMemoryOperationKind, InlineAssemblyOperand, InlineAssemblyOperandKind,
         MAX_INLINE_ASSEMBLY_OPERANDS, MemoryAddressKind, MemoryOrder,

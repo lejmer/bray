@@ -415,6 +415,8 @@ define_diagnostic_kinds! {
     CheckingRefinementCapacityExceeded,
     /// Storage or substorage is used after ownership was moved from it.
     CheckingUseOfMovedStorage,
+    /// A partially moved value still requires its whole-value lifecycle at an ownership exit.
+    CheckingIncompleteLifecycleStorage,
     /// An operation conflicts with an active overlapping borrow.
     CheckingConflictingBorrow,
     /// An operation requires mutation authority that is not available.
@@ -858,6 +860,7 @@ impl DiagnosticKind {
             Self::CheckingInvalidUnionTag => 7032,
             Self::CheckingRefinementCapacityExceeded => 7033,
             Self::CheckingUseOfMovedStorage => 7035,
+            Self::CheckingIncompleteLifecycleStorage => 7116,
             Self::CheckingConflictingBorrow => 7036,
             Self::CheckingMissingMutationAuthority => 7037,
             Self::CheckingMissingStorageOwnership => 7039,
@@ -1267,6 +1270,7 @@ impl DiagnosticKind {
             Self::CheckingInvalidUnionTag => "checking_invalid_union_tag",
             Self::CheckingRefinementCapacityExceeded => "checking_refinement_capacity_exceeded",
             Self::CheckingUseOfMovedStorage => "checking_use_of_moved_storage",
+            Self::CheckingIncompleteLifecycleStorage => "checking_incomplete_lifecycle_storage",
             Self::CheckingConflictingBorrow => "checking_conflicting_borrow",
             Self::CheckingMissingMutationAuthority => "checking_missing_mutation_authority",
             Self::CheckingMissingStorageOwnership => "checking_missing_storage_ownership",

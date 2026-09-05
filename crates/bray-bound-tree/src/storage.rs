@@ -3,10 +3,12 @@ mod cleanup;
 mod flow;
 mod liveness;
 mod model;
+mod parts;
 mod plan;
 mod query;
 mod retention;
 mod scope;
+mod shape;
 
 pub use builder::{StoragePlanBuildError, StoragePlanBuilder};
 pub use flow::{
@@ -20,10 +22,15 @@ pub use model::{
     BorrowCapabilityId, StorageAccess, StorageAccessId, StorageAccessRoot, StorageAlternativeId,
     StorageIdentity, StorageIdentityId, StorageProjection, StorageRelationship,
 };
+pub use parts::{
+    StorageCleanupPart, StorageCleanupProjection, StorageCleanupProjectionKind, StorageProtocolCall,
+};
 pub use plan::{
     BorrowCapabilityOrigin, PlannedBorrowCapability, StorageAccessPlan, StorageAccessPurpose,
     StorageAlternative, StorageBinding, StorageBindingTarget, StoragePlan,
 };
 pub use scope::{
-    StorageScopeBuildError, StorageScopeOwners, storage_identity_transfers_at_unit_exit,
+    StorageScopeBuildError, StorageScopeOwners, storage_identity_is_destructor_receiver,
+    storage_identity_transfers_at_unit_exit,
 };
+pub use shape::StorageCleanupType;

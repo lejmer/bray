@@ -318,7 +318,36 @@ impl MirUnit {
             .and_then(|index| self.values.get(index))
     }
 
+    pub(crate) fn operand_type(
+        &self,
+        operand: &crate::MirOperand,
+    ) -> Result<bray_symbols::TypeId, super::MirUnitBuildError> {
+        resolve_operand_type(self.unit, &self.values, operand)
+    }
+
     fn local_index(&self, unit: MirUnitId, index: Option<usize>) -> Option<usize> {
         (unit == self.unit).then_some(index).flatten()
+    }
+}
+
+pub(super) fn resolve_operand_type(
+    unit: MirUnitId,
+    values: &[MirValue],
+    operand: &crate::MirOperand,
+) -> Result<bray_symbols::TypeId, super::MirUnitBuildError> {
+    match operand {
+        crate::MirOperand::Value(value) => {
+            if value.unit() != unit {
+                return Err(super::MirUnitBuildError::ForeignValue(*value));
+            }
+
+            value
+                .to_index()
+                .and_then(|index| values.get(index))
+                .map(MirValue::ty)
+                .ok_or(super::MirUnitBuildError::MissingValue(*value))
+        }
+        crate::MirOperand::Copy(place) | crate::MirOperand::Move(place) => Ok(place.ty()),
+        crate::MirOperand::Constant { ty, .. } | crate::MirOperand::Immediate { ty, .. } => Ok(*ty),
     }
 }

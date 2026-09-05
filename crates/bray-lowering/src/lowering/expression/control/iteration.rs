@@ -137,7 +137,7 @@ impl Lowerer<'_> {
             _ => return Err(LoweringError::UnsupportedExpression(id)),
         };
 
-        self.builder.set_terminator(
+        self.set_terminator(
             iteration.item,
             Self::retained_source(&iteration.source),
             MirTerminatorKind::Branch {
@@ -147,7 +147,7 @@ impl Lowerer<'_> {
             },
         )?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             iteration.exhausted,
             Self::retained_source(&iteration.source),
             MirTerminatorKind::Goto(MirEdge::new(
@@ -188,7 +188,7 @@ impl Lowerer<'_> {
         // Lowering mutates the MIR builder after consulting this immutable checked selection.
         let selection = self.iteration_selection(iteration_id)?.clone();
 
-        self.builder.push_operation(
+        self.push_operation(
             current,
             Self::retained_source(&source),
             MirOperationKind::Generator(MirGeneratorOperation::Begin {
@@ -293,7 +293,7 @@ impl Lowerer<'_> {
             iteration_type,
         )?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             break_block,
             Self::retained_source(&iteration.source),
             MirTerminatorKind::Goto(MirEdge::new(iteration.exhausted, [])),
@@ -399,7 +399,7 @@ impl Lowerer<'_> {
             selection.element_type(),
         )?;
 
-        self.builder.push_operation(
+        self.push_operation(
             current,
             Self::retained_source(&source),
             MirOperationKind::Store {
@@ -428,7 +428,7 @@ impl Lowerer<'_> {
             selection.element_type(),
         )?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             current,
             Self::retained_source(&source),
             MirTerminatorKind::Goto(MirEdge::new(header, [])),
@@ -452,10 +452,9 @@ impl Lowerer<'_> {
             }
         };
 
-        self.builder
-            .set_terminator(header, Self::retained_source(&source), terminator)?;
+        self.set_terminator(header, Self::retained_source(&source), terminator)?;
 
-        self.builder.push_operation(
+        self.push_operation(
             item,
             Self::retained_source(&source),
             MirOperationKind::Store {
@@ -503,7 +502,7 @@ impl Lowerer<'_> {
             |lowerer, current, place| {
                 let source = lowerer.expression_source(expression)?;
 
-                let commit = lowerer.builder.push_operation(
+                let commit = lowerer.push_operation(
                     current,
                     Self::retained_source(&source),
                     MirOperationKind::Borrow { kind, place },
@@ -623,7 +622,7 @@ impl Lowerer<'_> {
             self.builder
                 .push_block_parameter(join, Self::retained_source(&source), result_type)?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             current,
             Self::retained_source(&source),
             MirTerminatorKind::RangeIterate {
@@ -642,7 +641,7 @@ impl Lowerer<'_> {
             result_type,
         )?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             item,
             Self::retained_source(&source),
             MirTerminatorKind::Goto(MirEdge::new(join, [present])),
@@ -650,7 +649,7 @@ impl Lowerer<'_> {
 
         let absent = Self::immediate_operand(result_type, MirImmediateValue::NullableAbsent);
 
-        self.builder.set_terminator(
+        self.set_terminator(
             exhausted,
             Self::retained_source(&source),
             MirTerminatorKind::Goto(MirEdge::new(join, [absent])),

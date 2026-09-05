@@ -96,7 +96,7 @@ pub enum MirAggregateKind {
     Tuple,
     /// A fixed array with one operand per element.
     Array,
-    /// A fixed array produced by repeating one value a checked number of times.
+    /// A fixed array with one repeated-value operand and an extent carried by its result type.
     RepeatedArray,
     /// A bounded half-open range with lower and upper operands.
     Range,

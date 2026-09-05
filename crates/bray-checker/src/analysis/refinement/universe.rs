@@ -27,7 +27,7 @@ pub(super) struct RefinementUniverse {
     edge_refinements: BTreeMap<AnalysisRefinement, Box<[usize]>>,
     normal_completion: BTreeMap<BoundExpressionId, usize>,
     trust_boundaries: BTreeMap<BoundExpressionId, usize>,
-    invalidating_accesses: BTreeMap<BoundExpressionId, Box<[StorageAccessId]>>,
+    invalidating_accesses: BTreeMap<AnyBoundNodeId, Box<[StorageAccessId]>>,
 }
 
 impl RefinementUniverse {
@@ -56,7 +56,7 @@ impl RefinementUniverse {
         }
 
         let direct_dependencies = direct_expression_dependencies(storage);
-        let invalidating_accesses = invalidating_expression_accesses(storage);
+        let invalidating_accesses = invalidating_operation_accesses(storage);
 
         let mut universe = Self {
             refinements: Vec::new(),
@@ -303,11 +303,7 @@ impl RefinementUniverse {
         node: AnyBoundNodeId,
         storage: &StoragePlan,
     ) {
-        let AnyBoundNodeId::Expression(expression) = node else {
-            return;
-        };
-
-        let Some(mutations) = self.invalidating_accesses.get(&expression) else {
+        let Some(mutations) = self.invalidating_accesses.get(&node) else {
             return;
         };
 
@@ -382,20 +378,17 @@ fn direct_expression_dependencies(
     dependencies
 }
 
-fn invalidating_expression_accesses(
+fn invalidating_operation_accesses(
     storage: &StoragePlan,
-) -> BTreeMap<BoundExpressionId, Box<[StorageAccessId]>> {
-    let mut accesses = BTreeMap::<BoundExpressionId, Vec<StorageAccessId>>::new();
+) -> BTreeMap<AnyBoundNodeId, Box<[StorageAccessId]>> {
+    let mut accesses = BTreeMap::<AnyBoundNodeId, Vec<StorageAccessId>>::new();
 
     for plan in storage
         .access_plans()
         .iter()
         .filter(|plan| access_invalidates_refinements(plan.purpose()))
     {
-        accesses
-            .entry(plan.expression())
-            .or_default()
-            .push(plan.access());
+        accesses.entry(plan.node()).or_default().push(plan.access());
     }
 
     accesses

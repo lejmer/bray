@@ -213,7 +213,7 @@ impl Lowerer<'_> {
                 output_type,
             )?;
 
-            self.builder.set_terminator(
+            self.set_terminator(
                 current,
                 Self::retained_source(&source),
                 MirTerminatorKind::InlineAssembly(MirInlineAssemblyTerminator::new(
@@ -236,7 +236,7 @@ impl Lowerer<'_> {
             ));
         }
 
-        let commit = self.builder.push_operation(
+        let commit = self.push_operation(
             current,
             Self::retained_source(&source),
             MirOperationKind::Memory(
@@ -252,7 +252,7 @@ impl Lowerer<'_> {
                 | bray_bound_tree::CheckedMemoryOperationKind::UnreachableTermination
                 | bray_bound_tree::CheckedMemoryOperationKind::InlineAssembly { output: None, .. }
         ) {
-            self.builder.set_terminator(
+            self.set_terminator(
                 current,
                 Self::retained_source(&source),
                 bray_ir::MirTerminatorKind::Unreachable,
@@ -455,14 +455,14 @@ impl Lowerer<'_> {
                 [],
             );
 
-            self.builder.push_operation(
+            self.push_operation(
                 alternate,
                 Self::retained_source(source),
                 MirOperationKind::Call(call),
                 Some(callable.result()),
             )?;
 
-            self.builder.set_terminator(
+            self.set_terminator(
                 alternate,
                 Self::retained_source(source),
                 MirTerminatorKind::Unreachable,

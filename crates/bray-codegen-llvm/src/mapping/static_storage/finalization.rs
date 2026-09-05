@@ -304,9 +304,9 @@ fn declare_static_finalizer_resolver<'context>(
         .map_err(CodegenFailure::backend_library)?
         .into_int_value();
 
-    let success = variants
-        .iter()
-        .find(|variant| variant.variant() == success_variant)
+    let success = result_mapping
+        .kind()
+        .union_variant(success_variant)
         .and_then(bray_codegen::CodegenUnionVariantLayout::tag)
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 

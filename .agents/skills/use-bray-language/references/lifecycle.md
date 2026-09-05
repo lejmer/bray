@@ -232,15 +232,9 @@ func replace_payload(pos mut packet: Packet, pos replacement: Payload) -> Packet
     return packet;
 }
 
-func take_receipt(pos packet: Packet) -> Receipt
-{
-    let Packet { receipt, .. } = packet;
-
-    return receipt;
-}
 ```
 
-Under the [partial-value rules](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/partial-values-and-replacement.md), moving `packet.payload` makes `packet` partial. Reinitializing that field restores a complete value before returning it. In `take_receipt`, the whole-product destructor does not run because the value is partial. Only represented parts that remain initialized are resolved.
+Under the [partial-value rules](https://github.com/lejmer/bray/blob/develop/docs/language/lifecycle/partial-values-and-replacement.md), moving `packet.payload` makes `packet` partial. Because `Packet` declares a whole-value destructor, every reachable path must reinitialize that field before ownership ends or the packet is used as a complete value. Reinitializing the field restores a complete value before returning it. A type without whole-value lifecycle behavior may remain partial at scope exit, where only its initialized represented parts are resolved.
 
 Whole-value replacement first resolves the old complete value through finalization, destruction, and represented-part destruction, then initializes the new value at that access path. Union replacement does the same for the old active payload. Assigning `none` resolves the old present value before making a nullable access path absent.
 

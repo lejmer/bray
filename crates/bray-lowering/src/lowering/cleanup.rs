@@ -47,15 +47,16 @@ impl Lowerer<'_> {
             MirBlockKind::LifecycleResolution,
         )?;
 
-        self.push_cleanup_operations(
+        let (cancellation_end, _) = self.push_cleanup_operations(
             cancellation,
             source,
             MirCleanupPhase::TaskCancellation,
             &plans,
+            None,
         )?;
 
-        self.builder.set_terminator(
-            cancellation,
+        self.set_terminator(
+            cancellation_end,
             Self::retained_source(source),
             MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
                 MirCleanupPhase::LifecycleResolution,
@@ -63,17 +64,18 @@ impl Lowerer<'_> {
             )),
         )?;
 
-        self.push_cleanup_operations(
+        let (lifecycle_end, _) = self.push_cleanup_operations(
             lifecycle,
             source,
             MirCleanupPhase::LifecycleResolution,
             &plans,
+            None,
         )?;
 
         let terminal = self.terminal_state_block(source, TerminalState::Cancelled)?;
 
-        self.builder.set_terminator(
-            lifecycle,
+        self.set_terminator(
+            lifecycle_end,
             Self::retained_source(source),
             MirTerminatorKind::Goto(MirEdge::new(terminal, [])),
         )?;
@@ -258,7 +260,7 @@ impl Lowerer<'_> {
             TerminalState::Cancelled => MirTaskTerminalState::Cancelled,
         };
 
-        self.builder.push_operation(
+        self.push_operation(
             block,
             Self::retained_source(source),
             MirOperationKind::Async(MirAsyncOperation::PublishTerminalState {
@@ -268,7 +270,7 @@ impl Lowerer<'_> {
             None,
         )?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             block,
             Self::retained_source(source),
             MirTerminatorKind::Return(None),
@@ -316,34 +318,39 @@ impl Lowerer<'_> {
             .as_ref()
             .map(|(value, _)| Self::retained_operand(value));
 
-        self.push_cleanup_operations(
+        let (cancellation_end, cancellation_value) = self.push_cleanup_operations(
             cancellation,
             source,
             MirCleanupPhase::TaskCancellation,
             &plans,
+            cancellation_value.zip(value.as_ref().map(|(_, ty)| *ty)),
         )?;
 
-        self.builder.set_terminator(
-            cancellation,
+        self.set_terminator(
+            cancellation_end,
             Self::retained_source(source),
             MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
                 MirCleanupPhase::LifecycleResolution,
-                MirEdge::new(lifecycle, cancellation_value.map(MirOperand::Value)),
+                MirEdge::new(
+                    lifecycle,
+                    cancellation_value.map(|(value, _)| MirOperand::Value(value)),
+                ),
             )),
         )?;
 
-        self.push_cleanup_operations(
+        let (lifecycle_end, lifecycle_value) = self.push_cleanup_operations(
             lifecycle,
             source,
             MirCleanupPhase::LifecycleResolution,
             &plans,
+            lifecycle_value.zip(value.as_ref().map(|(_, ty)| *ty)),
         )?;
 
         self.set_destination(
-            lifecycle,
+            lifecycle_end,
             source,
             destination,
-            lifecycle_value.map(MirOperand::Value),
+            lifecycle_value.map(|(value, _)| MirOperand::Value(value)),
         )?;
 
         let edge = MirCleanupEdge::new(
@@ -360,8 +367,7 @@ impl Lowerer<'_> {
             CleanupEntry::Cancellation => MirTerminatorKind::CancelCurrentRun { cleanup: edge },
         };
 
-        self.builder
-            .set_terminator(current, Self::retained_source(source), terminator)?;
+        self.set_terminator(current, Self::retained_source(source), terminator)?;
 
         Ok(())
     }
@@ -390,18 +396,171 @@ impl Lowerer<'_> {
 
     fn push_cleanup_operations(
         &mut self,
-        block: MirBlockId,
+        mut block: MirBlockId,
         source: &MirSourceAnchor,
         phase: MirCleanupPhase,
         plans: &[bray_bound_tree::AsyncScopeExitPlan],
-    ) -> Result<(), LoweringError> {
+        mut value: Option<(bray_ir::MirValueId, TypeId)>,
+    ) -> Result<(MirBlockId, Option<(bray_ir::MirValueId, TypeId)>), LoweringError> {
         for access in plans.iter().flat_map(|plan| match phase {
             MirCleanupPhase::TaskCancellation => plan.cancellation_broadcast(),
             MirCleanupPhase::LifecycleResolution => plan.lifecycle_resolution(),
         }) {
             let place = self.place_for_access(*access, false)?;
 
-            self.builder.push_operation(
+            let state = self.initialization_guards.get(&place.storage());
+            let guard = state.map(|state| Self::retained_place(&state.guard));
+
+            // Cleanup construction mutates the lowerer while retaining shared checked paths and flag types.
+            let parts = state
+                .map(|state| {
+                    state
+                        .parts
+                        .iter()
+                        .map(|part| super::initialization::InitializedPart {
+                            plan: part.plan,
+                            guard: Self::retained_place(&part.guard),
+                            array_types: std::sync::Arc::clone(&part.array_types),
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default();
+
+            if parts.is_empty() {
+                (block, value) =
+                    self.push_guarded_cleanup(block, source, phase, place, guard, None, value)?;
+            } else {
+                (block, value) = self.guarded_cleanup_region(
+                    block,
+                    source,
+                    place,
+                    guard,
+                    value,
+                    |lowerer, block, place, value| {
+                        lowerer.push_part_cleanup(
+                            block, source, phase, *access, place, &parts, 0, value,
+                        )
+                    },
+                )?;
+            }
+        }
+
+        Ok((block, value))
+    }
+
+    pub(super) fn push_guarded_cleanup(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        phase: MirCleanupPhase,
+        place: bray_ir::MirPlace,
+        guard: Option<bray_ir::MirPlace>,
+        release: Option<bray_bound_tree::StorageProtocolCall>,
+        value: Option<(bray_ir::MirValueId, TypeId)>,
+    ) -> Result<(MirBlockId, Option<(bray_ir::MirValueId, TypeId)>), LoweringError> {
+        self.guarded_cleanup_region(
+            block,
+            source,
+            place,
+            guard,
+            value,
+            |lowerer, block, place, value| {
+                lowerer.push_cleanup_action(block, source, phase, place, release)?;
+
+                Ok((block, value))
+            },
+        )
+    }
+
+    pub(super) fn guarded_cleanup_region(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        place: bray_ir::MirPlace,
+        guard: Option<bray_ir::MirPlace>,
+        value: Option<(bray_ir::MirValueId, TypeId)>,
+        body: impl FnOnce(
+            &mut Self,
+            MirBlockId,
+            bray_ir::MirPlace,
+            Option<(bray_ir::MirValueId, TypeId)>,
+        )
+            -> Result<(MirBlockId, Option<(bray_ir::MirValueId, TypeId)>), LoweringError>,
+    ) -> Result<(MirBlockId, Option<(bray_ir::MirValueId, TypeId)>), LoweringError> {
+        if let Some(guard) = guard {
+            let kind = self.builder.block_kind(block)?;
+
+            let perform = self
+                .builder
+                .push_block(Self::retained_source(source), kind)?;
+
+            let continuation = self
+                .builder
+                .push_block(Self::retained_source(source), kind)?;
+
+            let forwarded = value.map(|(value, ty)| (MirOperand::Value(value), ty));
+            let perform_value = self.cleanup_parameter(perform, source, forwarded.as_ref())?;
+
+            let continuation_value =
+                self.cleanup_parameter(continuation, source, forwarded.as_ref())?;
+
+            self.set_terminator(
+                block,
+                Self::retained_source(source),
+                MirTerminatorKind::Branch {
+                    condition: MirOperand::Copy(guard),
+                    then_edge: MirEdge::new(
+                        perform,
+                        value.map(|(value, _)| MirOperand::Value(value)),
+                    ),
+                    else_edge: MirEdge::new(
+                        continuation,
+                        value.map(|(value, _)| MirOperand::Value(value)),
+                    ),
+                },
+            )?;
+
+            let (perform, perform_value) = self.guard_cleanup_payloads(
+                perform,
+                continuation,
+                source,
+                &place,
+                perform_value.zip(value.map(|(_, ty)| ty)),
+            )?;
+
+            let (perform, perform_value) = body(self, perform, place, perform_value)?;
+
+            self.set_terminator(
+                perform,
+                Self::retained_source(source),
+                MirTerminatorKind::Goto(MirEdge::new(
+                    continuation,
+                    perform_value.map(|(value, _)| MirOperand::Value(value)),
+                )),
+            )?;
+
+            return Ok((
+                continuation,
+                continuation_value.zip(value.map(|(_, ty)| ty)),
+            ));
+        }
+
+        body(self, block, place, value)
+    }
+
+    fn push_cleanup_action(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        phase: MirCleanupPhase,
+        place: bray_ir::MirPlace,
+        release: Option<bray_bound_tree::StorageProtocolCall>,
+    ) -> Result<(), LoweringError> {
+        if let Some(release) = release {
+            self.push_storage_protocol_call(block, source, &place, release)?;
+            self.set_storage_initialized(block, source, &place, false)?;
+        } else {
+            self.push_operation(
                 block,
                 Self::retained_source(source),
                 MirOperationKind::Cleanup { phase, place },
@@ -412,7 +571,7 @@ impl Lowerer<'_> {
         Ok(())
     }
 
-    fn cleanup_parameter(
+    pub(super) fn cleanup_parameter(
         &mut self,
         block: MirBlockId,
         source: &MirSourceAnchor,
@@ -455,7 +614,7 @@ impl Lowerer<'_> {
 
                 let lifecycle_value = self.cleanup_parameter(lifecycle, source, value.as_ref())?;
 
-                self.builder.set_terminator(
+                self.set_terminator(
                     cancellation,
                     Self::retained_source(source),
                     MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
@@ -487,8 +646,7 @@ impl Lowerer<'_> {
                     CleanupEntry::Ordinary => unreachable!(),
                 };
 
-                self.builder
-                    .set_terminator(current, Self::retained_source(source), terminator)?;
+                self.set_terminator(current, Self::retained_source(source), terminator)?;
 
                 Ok(())
             }
@@ -516,8 +674,7 @@ impl Lowerer<'_> {
             },
         };
 
-        self.builder
-            .set_terminator(block, Self::retained_source(source), terminator)?;
+        self.set_terminator(block, Self::retained_source(source), terminator)?;
 
         Ok(())
     }

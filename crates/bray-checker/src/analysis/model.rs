@@ -6,6 +6,7 @@ use super::id::{AnalysisBlockId, AnalysisEdgeId, AnalysisOperationId, ProgramPoi
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum AnalysisOperationKind {
     Bound(AnyBoundNodeId),
+    PatternObservation(BoundPatternId),
     Call {
         expression: BoundExpressionId,
         phase: AnalysisCallPhase,
@@ -30,6 +31,7 @@ impl AnalysisOperationKind {
     pub(crate) const fn node(self) -> AnyBoundNodeId {
         match self {
             Self::Bound(node) | Self::Recovery(node) => node,
+            Self::PatternObservation(pattern) => AnyBoundNodeId::Pattern(pattern),
             Self::Call { expression, .. }
             | Self::Suspension { expression, .. }
             | Self::TaskOperation { expression, .. } => AnyBoundNodeId::Expression(expression),

@@ -54,7 +54,7 @@ impl Lowerer<'_> {
         let source = self.source(expression.origin());
         let child = MirFrameReference::Erased;
 
-        self.builder.push_operation(
+        self.push_operation(
             current,
             Self::retained_source(&source),
             MirOperationKind::Async(MirAsyncOperation::ComposeAwaitedFrame {
@@ -72,7 +72,7 @@ impl Lowerer<'_> {
         let cancellation = self.suspension_cleanup_edge(&source, id.into())?;
         let state = self.next_frame_state()?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             current,
             Self::retained_source(&source),
             MirTerminatorKind::Suspend {
@@ -248,6 +248,12 @@ impl Lowerer<'_> {
             }
         }
 
+        // Entry initializes every guard, including guards for values created after resumption.
+        storages.extend(self.initialization_guards.values().flat_map(|state| {
+            std::iter::once(state.guard.storage())
+                .chain(state.parts.iter().map(|part| part.guard.storage()))
+        }));
+
         storages.sort_unstable();
         storages.dedup();
 
@@ -309,13 +315,23 @@ mod tests {
             [],
             [],
             [],
+            [],
             false,
         )
         .unwrap_or_else(|error| panic!("pinned async analysis must validate: {error:?}"));
 
-        let movable =
-            CheckedAsync::try_new(unit, BoundUnitKind::CallableBody, [], [], [], [], [], false)
-                .unwrap_or_else(|error| panic!("movable async analysis must validate: {error:?}"));
+        let movable = CheckedAsync::try_new(
+            unit,
+            BoundUnitKind::CallableBody,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+        )
+        .unwrap_or_else(|error| panic!("movable async analysis must validate: {error:?}"));
 
         assert_eq!(
             frame_affinity(pinned.frame_dependencies()),

@@ -424,10 +424,33 @@ where
         self.build_expressions(operands.iter().copied(), current)
     }
 
-    pub(super) fn build_pattern(
+    pub(super) fn build_pattern_observations(
         &mut self,
         id: BoundPatternId,
         current: AnalysisBlockId,
+    ) -> Option<()> {
+        if self.cancelled() {
+            return None;
+        }
+
+        let pattern = self.view.pattern(id)?;
+
+        for child in pattern.children() {
+            self.build_pattern_observations(*child, current)?;
+        }
+
+        self.storage.push_operation(
+            current,
+            super::model::AnalysisOperationKind::PatternObservation(id),
+        );
+
+        Some(())
+    }
+
+    pub(super) fn build_pattern(
+        &mut self,
+        id: BoundPatternId,
+        mut current: AnalysisBlockId,
     ) -> Option<Option<AnalysisBlockId>> {
         if self.cancelled() {
             return None;
@@ -439,8 +462,26 @@ where
             return Some(Some(current));
         };
 
-        for child in pattern.children() {
-            self.build_pattern(*child, current)?;
+        if pattern.kind() == bray_bound_tree::BoundPatternKind::Alternative {
+            let join = self.push_block();
+
+            for child in pattern.children() {
+                let selected = self.push_block();
+
+                self.push_edge(current, selected, AnalysisEdgeKind::MatchArm, None);
+
+                if let Some(completion) = self.build_pattern(*child, selected)? {
+                    self.push_edge(completion, join, AnalysisEdgeKind::Sequential, None);
+                }
+            }
+
+            current = join;
+        } else {
+            for child in pattern.children() {
+                current = self
+                    .build_pattern(*child, current)?
+                    .unwrap_or_else(|| self.push_block());
+            }
         }
 
         self.push_bound(current, id.into());

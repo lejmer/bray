@@ -1,6 +1,6 @@
 use crate::{
-    BorrowCapabilityId, BoundExpressionId, BoundPatternId, BoundSourceAnchor, BoundUnitId,
-    StorageAccessId, StorageIdentityId,
+    AnyBoundNodeId, BorrowCapabilityId, BoundExpressionId, BoundPatternId, BoundSourceAnchor,
+    BoundUnitId, StorageAccessId, StorageIdentityId,
 };
 use bray_symbols::{
     AnonymousCallableParameterSymbolId, BorrowKind, CallableParameterSymbolId,
@@ -221,9 +221,10 @@ impl StorageAccessPurpose {
     }
 }
 
-/// One expression occurrence and the exact storage access it evaluates.
+/// One control-flow occurrence and the exact storage access it evaluates.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageAccessPlan {
+    node: AnyBoundNodeId,
     expression: BoundExpressionId,
     purpose: StorageAccessPurpose,
     access: StorageAccessId,
@@ -231,18 +232,25 @@ pub struct StorageAccessPlan {
 
 impl StorageAccessPlan {
     pub(in crate::storage) const fn new(
+        node: AnyBoundNodeId,
         expression: BoundExpressionId,
         purpose: StorageAccessPurpose,
         access: StorageAccessId,
     ) -> Self {
         Self {
+            node,
             expression,
             purpose,
             access,
         }
     }
 
-    /// Returns the expression occurrence that evaluates this access.
+    /// Returns the control-flow node at which this access takes effect.
+    pub const fn node(self) -> AnyBoundNodeId {
+        self.node
+    }
+
+    /// Returns the source expression supplying the accessed value.
     pub const fn expression(self) -> BoundExpressionId {
         self.expression
     }

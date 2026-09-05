@@ -3,14 +3,14 @@ use bray_bound_tree::{
     StorageIdentityId, StorageOperationStatus, StorageProjection,
 };
 use bray_ir::{
-    MirBlockId, MirFieldReference, MirOperand, MirOperationKind, MirPlace, MirProjection,
-    MirProjectionKind,
+    MirBlockId, MirOperand, MirOperationKind, MirPlace, MirProjection, MirProjectionKind,
 };
 use bray_symbols::{BorrowKind, ConstantValueKind, ReceiverMode, TypeData, TypeId};
 
 use super::super::LoweringError;
 use super::super::block::LoweredExpression;
 use super::super::lowerer::Lowerer;
+use super::super::projection::static_projection_kind;
 
 pub(in crate::lowering) enum LoweredPlace {
     Continuing { block: MirBlockId, place: MirPlace },
@@ -159,7 +159,7 @@ impl Lowerer<'_> {
 
                 let place = MirPlace::new(place.storage(), projections, place_type);
 
-                let commit = lowerer.builder.push_operation(
+                let commit = lowerer.push_operation(
                     current,
                     Self::retained_source(&source),
                     MirOperationKind::Borrow { kind, place },
@@ -346,15 +346,17 @@ impl Lowerer<'_> {
             .ok_or(LoweringError::MissingStorageAccessRecord(id))?
             .to_vec();
 
-        let (mut current, storage) =
+        let (mut current, root) =
             match self.initialize_access_root(id, identity, expression, current)? {
-                RootInitialization::Continuing { block, storage } => (block, storage),
+                RootInitialization::Continuing { block, place } => (block, place),
                 RootInitialization::Terminated(completion) => {
                     return Ok(LoweredPlace::Terminated(completion));
                 }
             };
 
-        let mut lowered = Vec::with_capacity(projections.len() + 2);
+        let mut lowered = Vec::with_capacity(root.projections().len() + projections.len() + 2);
+        lowered.extend(root.projections().iter().cloned());
+        let mut storage = root.storage();
 
         let mut source_type = self.append_entry_dereference(
             identity,
@@ -364,10 +366,49 @@ impl Lowerer<'_> {
         )?;
 
         for (index, projection) in projections.iter().copied().enumerate() {
-            source_type =
-                self.append_projection_dereferences(projection, source_type, &mut lowered)?;
+            source_type = self.append_projection_dereferences(source_type, &mut lowered)?;
 
             let result_type = self.projection_result_type(identity, &projections[..=index])?;
+
+            if projection == StorageProjection::OwnedTarget {
+                let mutable = self
+                    .input
+                    .storage_flow()
+                    .operations()
+                    .iter()
+                    .any(|operation| {
+                        operation.access() == id
+                            && matches!(
+                                operation.purpose(),
+                                StorageAccessPurpose::Move
+                                    | StorageAccessPurpose::Write
+                                    | StorageAccessPurpose::Assignment
+                                    | StorageAccessPurpose::Initialize
+                                    | StorageAccessPurpose::Borrow(BorrowKind::Mutable)
+                            )
+                    });
+
+                let kind = if mutable && self.guard_bindings.is_empty() {
+                    BorrowKind::Mutable
+                } else {
+                    BorrowKind::Shared
+                };
+
+                let call = self
+                    .owned_target_call(source_type, kind)
+                    .ok_or(LoweringError::UnsupportedStorageAccess(id))?;
+
+                let owner = MirPlace::new(storage, lowered, source_type);
+                let source = self.expression_source(expression)?;
+
+                let target =
+                    self.project_owned_target(current, &source, &owner, call, result_type)?;
+
+                storage = target.storage();
+                lowered = target.projections().to_vec();
+                source_type = result_type;
+                continue;
+            }
 
             let (continuation, kind) = self.lower_projection(projection, current)?;
 
@@ -450,6 +491,13 @@ impl Lowerer<'_> {
         expression: BoundExpressionId,
         current: MirBlockId,
     ) -> Result<RootInitialization, LoweringError> {
+        if let Some(place) = self.guard_binding(identity) {
+            return Ok(RootInitialization::Continuing {
+                block: current,
+                place: Self::retained_place(place),
+            });
+        }
+
         let model = self
             .input
             .storage_plan()
@@ -479,7 +527,7 @@ impl Lowerer<'_> {
         if let Some(storage) = existing {
             return Ok(RootInitialization::Continuing {
                 block: current,
-                storage,
+                place: MirPlace::new(storage, [], self.storage_identity_type(identity)?),
             });
         }
 
@@ -558,8 +606,11 @@ impl Lowerer<'_> {
             static_reference.as_ref(),
         )?;
 
-        let mut lowered =
-            Vec::with_capacity(projections.len() + usize::from(project_borrowed_root) + 1);
+        let mut lowered = Vec::with_capacity(
+            root.projections().len() + projections.len() + usize::from(project_borrowed_root) + 1,
+        );
+
+        lowered.extend(root.projections().iter().cloned());
 
         let mut source_type = if project_borrowed_root {
             self.append_entry_dereference(
@@ -573,8 +624,7 @@ impl Lowerer<'_> {
         };
 
         for (index, projection) in projections.iter().copied().enumerate() {
-            source_type =
-                self.append_projection_dereferences(projection, source_type, &mut lowered)?;
+            source_type = self.append_projection_dereferences(source_type, &mut lowered)?;
 
             let Some(kind) = static_projection_kind(projection) else {
                 return Err(LoweringError::UnsupportedStorageAccess(id));
@@ -741,50 +791,7 @@ impl Lowerer<'_> {
     }
 }
 
-fn static_projection_kind(projection: StorageProjection) -> Option<MirProjectionKind> {
-    match projection {
-        StorageProjection::ProductField(field) => {
-            Some(MirProjectionKind::Field(MirFieldReference::Struct(field)))
-        }
-        StorageProjection::TupleElement(ordinal) => {
-            Some(MirProjectionKind::TupleField(ordinal.raw()))
-        }
-        StorageProjection::ElementFromStart(ordinal) => {
-            Some(MirProjectionKind::ElementFromStart(ordinal.raw()))
-        }
-        StorageProjection::ElementFromEnd(ordinal) => {
-            Some(MirProjectionKind::ElementFromEnd(ordinal.raw()))
-        }
-        StorageProjection::ActiveUnionPayloadField { variant, field } => {
-            Some(MirProjectionKind::ActiveUnionPayloadField { variant, field })
-        }
-        StorageProjection::NullableValue => Some(MirProjectionKind::NullableValue),
-        StorageProjection::OwnedTarget => Some(MirProjectionKind::Dereference),
-        StorageProjection::Element(_) | StorageProjection::SliceRange { .. } => None,
-    }
-}
-
 pub(super) enum RootInitialization {
-    Continuing {
-        block: MirBlockId,
-        storage: bray_ir::MirStorageId,
-    },
+    Continuing { block: MirBlockId, place: MirPlace },
     Terminated(LoweredExpression),
-}
-
-#[cfg(test)]
-mod tests {
-    use bray_bound_tree::StorageProjection;
-    use bray_ir::MirProjectionKind;
-    use bray_symbols::SymbolOrdinal;
-
-    use super::static_projection_kind;
-
-    #[test]
-    fn cleanup_places_retain_static_projection_paths() {
-        let projection =
-            static_projection_kind(StorageProjection::TupleElement(SymbolOrdinal::new(2)));
-
-        assert!(matches!(projection, Some(MirProjectionKind::TupleField(2))));
-    }
 }

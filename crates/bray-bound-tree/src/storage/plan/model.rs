@@ -10,7 +10,7 @@ use crate::{
     StorageRelationship,
 };
 use bray_base::shared_slice;
-use bray_symbols::TypeId;
+use bray_symbols::{BorrowKind, TypeId};
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
@@ -21,6 +21,7 @@ pub struct StoragePlan {
     kind: BoundUnitKind,
     identities: Arc<[StorageIdentity]>,
     identity_types: BTreeMap<StorageIdentityId, TypeId>,
+    owned_borrows: BTreeMap<(TypeId, BorrowKind), crate::StorageProtocolCall>,
     accesses: Arc<[StorageAccess]>,
     alternatives: Arc<[StorageAlternative]>,
     resolved_accesses: Arc<[Option<ResolvedStorageAccess>]>,
@@ -49,6 +50,7 @@ impl StoragePlan {
             kind,
             identities,
             identity_types,
+            owned_borrows,
             accesses,
             alternatives,
             borrow_capabilities,
@@ -70,6 +72,7 @@ impl StoragePlan {
             kind,
             identities: identities.into(),
             identity_types,
+            owned_borrows,
             accesses: accesses.into(),
             alternatives: alternatives.into(),
             resolved_accesses: resolved_accesses.into(),
@@ -125,6 +128,24 @@ impl StoragePlan {
     /// Returns the checked type stored by one persistent storage origin, when recorded.
     pub fn identity_type(&self, identity: StorageIdentityId) -> Option<TypeId> {
         self.identity_types.get(&identity).copied()
+    }
+
+    /// Returns the selected policy call for this owned type and borrow kind.
+    pub fn owned_borrow(
+        &self,
+        owner: TypeId,
+        kind: BorrowKind,
+    ) -> Option<crate::StorageProtocolCall> {
+        self.owned_borrows.get(&(owner, kind)).copied()
+    }
+
+    /// Returns selected policy borrows independently of exit cleanup requirements.
+    pub fn owned_borrows(
+        &self,
+    ) -> impl Iterator<Item = (TypeId, BorrowKind, crate::StorageProtocolCall)> + '_ {
+        self.owned_borrows
+            .iter()
+            .map(|((owner, kind), call)| (*owner, *kind, *call))
     }
 
     /// Returns evaluated accesses in deterministic evaluation order.

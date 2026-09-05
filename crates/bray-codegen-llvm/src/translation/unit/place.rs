@@ -126,6 +126,14 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirProjectionKind::ActiveUnionPayloadField { variant, field } => {
                 self.union_field_pointer(pointer, &kind, *variant, *field)
             }
+            MirProjectionKind::ActiveUnionPayloadElement { variant, ordinal } => {
+                let field = kind
+                    .union_variant(*variant)
+                    .and_then(|layout| layout.payload_element(*ordinal))
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                self.constant_offset_pointer(pointer, field.offset_bytes())
+            }
             MirProjectionKind::NullableValue => {
                 self.nullable_value_pointer(pointer, source_type, &kind)
             }
@@ -375,13 +383,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         kind: &CodegenTypeKind,
         variant: bray_symbols::UnionVariantSymbolId,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
-        let CodegenTypeKind::Union { variants, .. } = kind else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
-
-        let offset = variants
-            .iter()
-            .find(|layout| layout.variant() == variant)
+        let offset = kind
+            .union_variant(variant)
             .and_then(|layout| {
                 layout
                     .fields()
@@ -401,13 +404,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         variant: bray_symbols::UnionVariantSymbolId,
         field: bray_symbols::UnionPayloadFieldSymbolId,
     ) -> Result<PointerValue<'context>, CodegenFailure> {
-        let CodegenTypeKind::Union { variants, .. } = kind else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
-
-        let offset = variants
-            .iter()
-            .find(|layout| layout.variant() == variant)
+        let offset = kind
+            .union_variant(variant)
             .and_then(|layout| layout.payload_field(field))
             .map(bray_codegen::CodegenFieldLayout::offset_bytes)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;

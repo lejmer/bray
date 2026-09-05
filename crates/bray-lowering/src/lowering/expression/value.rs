@@ -39,7 +39,7 @@ impl Lowerer<'_> {
         operand: MirOperand,
         result_type: TypeId,
     ) -> Result<MirOperand, LoweringError> {
-        let commit = self.builder.push_operation(
+        let commit = self.push_operation(
             current,
             source,
             MirOperationKind::Aggregate(MirAggregate::new(
@@ -90,10 +90,19 @@ impl Lowerer<'_> {
 
         let source = self.source(expression.origin());
 
-        let (block, operands) = match self.lower_operands(expression.operands(), current)? {
+        let (block, mut operands) = match self.lower_operands(expression.operands(), current)? {
             LoweredOperands::Continuing { block, operands } => (block, operands),
             LoweredOperands::Terminated(completion) => return Ok(completion),
         };
+
+        if kind == MirAggregateKind::RepeatedArray {
+            if operands.len() != 2 {
+                return Err(LoweringError::UnsupportedExpression(id));
+            }
+
+            // Source evaluation is preserved, but the checked array type owns the MIR extent.
+            operands.truncate(1);
+        }
 
         let value = self.push_value_operation(
             id,

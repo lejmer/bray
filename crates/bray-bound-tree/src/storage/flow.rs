@@ -36,6 +36,7 @@ pub enum StorageOperationStatus {
 /// One source-correlated checked storage operation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageOperationDecision {
+    node: AnyBoundNodeId,
     expression: BoundExpressionId,
     purpose: StorageAccessPurpose,
     access: StorageAccessId,
@@ -46,6 +47,7 @@ pub struct StorageOperationDecision {
 impl StorageOperationDecision {
     /// Creates one checked operation decision.
     pub const fn new(
+        node: AnyBoundNodeId,
         expression: BoundExpressionId,
         purpose: StorageAccessPurpose,
         access: StorageAccessId,
@@ -53,6 +55,7 @@ impl StorageOperationDecision {
         status: StorageOperationStatus,
     ) -> Self {
         Self {
+            node,
             expression,
             purpose,
             access,
@@ -61,7 +64,12 @@ impl StorageOperationDecision {
         }
     }
 
-    /// Returns the evaluated expression occurrence.
+    /// Returns the control-flow node where this operation takes effect.
+    pub const fn node(self) -> AnyBoundNodeId {
+        self.node
+    }
+
+    /// Returns the source expression supplying the accessed value.
     pub const fn expression(self) -> BoundExpressionId {
         self.expression
     }
@@ -285,7 +293,8 @@ impl StorageFlow {
         let exits = exits.into_iter().collect::<Vec<_>>();
 
         if operations.iter().any(|operation| {
-            operation.expression().unit() != unit
+            operation.node().unit() != unit
+                || operation.expression().unit() != unit
                 || operation.access().unit() != unit
                 || operation
                     .borrow()
@@ -469,6 +478,7 @@ mod tests {
         let scope = BoundBlockId::from_slot(unit, 0);
 
         let operation = StorageOperationDecision::new(
+            expression.into(),
             expression,
             StorageAccessPurpose::Read,
             access,
@@ -522,6 +532,7 @@ mod tests {
         let foreign = BoundUnitId::new(5);
 
         let decision = StorageOperationDecision::new(
+            BoundExpressionId::from_slot(unit, 0).into(),
             BoundExpressionId::from_slot(unit, 0),
             StorageAccessPurpose::Read,
             StorageAccessId::from_slot(foreign, 0),

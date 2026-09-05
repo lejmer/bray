@@ -6,7 +6,7 @@ use crate::{
 };
 
 use super::core::{missing_or_foreign_block, validate_frame_state, validate_runtime_role};
-use super::operation::{operand_type, validate_operand};
+use super::operation::validate_operand;
 
 pub(super) fn validate_terminator(
     unit: &MirUnit,
@@ -82,7 +82,7 @@ pub(super) fn validate_terminator(
                 })
                 .count();
 
-            if operand_type(unit, assembly.inputs())? != assembly.inputs_type()
+            if unit.operand_type(assembly.inputs())? != assembly.inputs_type()
                 || label_count != assembly.alternates().len()
                 || assembly
                     .contract()
@@ -444,7 +444,7 @@ fn validate_edge(
     for (argument, parameter) in edge.arguments().iter().zip(target.parameters()) {
         validate_operand(unit, argument, source, None)?;
 
-        let argument_type = operand_type(unit, argument)?;
+        let argument_type = unit.operand_type(argument)?;
 
         let Some(parameter) = unit.value(*parameter) else {
             return Err(MirUnitBuildError::MissingValue(*parameter));

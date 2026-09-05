@@ -1,4 +1,3 @@
-use bray_binder::SymbolQueryProvider;
 use bray_ir::{
     MirBlockKind, MirEdge, MirGeneratorOperation, MirHelperReference, MirOperand, MirOperationKind,
     MirPlace, MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirTerminatorKind,
@@ -6,15 +5,13 @@ use bray_ir::{
 };
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::{
-    BorrowKind, GenericSubstitutionId, NamedTypeSymbolId, SymbolQueryRequest,
-    TypeAssociatedLifecycleSlot, TypeData, TypeId, UnionPayloadFieldTypeQuery,
+    BorrowKind, GenericSubstitutionId, NamedTypeSymbolId, TypeAssociatedLifecycleSlot, TypeData,
+    TypeId,
 };
 
 use super::super::super::super::CodegenPreparationError;
 use super::super::super::super::Compilation;
-use super::super::super::super::{
-    ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductValueKind,
-};
+use super::super::super::super::{ProductQueryFailure, ProductValueKind};
 use super::super::support::{lifecycle_operation_block_kind, projected_lifecycle_place};
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -57,7 +54,10 @@ impl Compilation {
                     TypeAssociatedLifecycleSlot::Destructor,
                     cancellation,
                 )? {
-                    self.push_lifecycle_call(builder, block, source, place.clone(), callable)?;
+                    self.push_lifecycle_call(builder, block, source, place, callable)?;
+
+                    // The consuming destructor body resolves its checked initialized remainder.
+                    return Ok(block);
                 }
 
                 return self.push_represented_lifecycle_operations(
@@ -309,31 +309,19 @@ impl Compilation {
             .push_block(source.clone(), kind)
             .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
 
-        let binding_context = self.binding_context(cancellation)?;
+        let representation = self.declared_type_representation_with_cancellation(
+            NamedTypeSymbolId::Union(union),
+            cancellation,
+        )?;
 
-        let union = binding_context
-            .union(union)
-            .map_err(super::super::super::super::binder::binding_query_error)?
-            .ok_or_else(|| {
-                ProductQueryFailure::missing(
-                    ProductQueryContext::Symbol(union.into()),
-                    ProductDataKind::Symbol,
-                )
-            })?;
+        let bray_symbols::DeclaredStorageShape::Union(variants) = representation.value().storage()
+        else {
+            return Err(CodegenPreparationError::UnresolvedType(place.ty()));
+        };
 
         let mut current = block;
 
-        for variant in union.variants() {
-            let variant_record = binding_context
-                .union_variant(*variant)
-                .map_err(super::super::super::super::binder::binding_query_error)?
-                .ok_or_else(|| {
-                    ProductQueryFailure::missing(
-                        ProductQueryContext::Symbol((*variant).into()),
-                        ProductDataKind::Symbol,
-                    )
-                })?;
-
+        for variant in variants.iter() {
             let matched = builder
                 .push_block(source.clone(), kind)
                 .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
@@ -348,34 +336,31 @@ impl Compilation {
                     source.clone(),
                     MirTerminatorKind::PatternBranch {
                         subject: MirOperand::Copy(place.clone()),
-                        predicate: bray_ir::MirPatternPredicate::ActiveUnionVariant(*variant),
+                        predicate: bray_ir::MirPatternPredicate::ActiveUnionVariant(
+                            variant.variant(),
+                        ),
                         matched: MirEdge::new(matched, []),
                         unmatched: MirEdge::new(unmatched, []),
                     },
                 )
                 .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
 
-            let children = variant_record
-                .payload_fields()
+            let children = variant
+                .members()
                 .iter()
-                .map(|field| {
-                    let template = binding_context
-                        .resolve_symbol_query(
-                            SymbolQueryRequest::<UnionPayloadFieldTypeQuery>::new(*field),
-                        )
-                        .map_err(super::super::super::super::binder::binding_query_error)?;
+                .enumerate()
+                .map(|(index, member)| {
+                    let ty = self.resolve_codegen_type(member.ty(), substitution, cancellation)?;
 
-                    let ty =
-                        self.resolve_codegen_type(template.value(), substitution, cancellation)?;
+                    let projection = MirProjectionKind::ActiveUnionPayloadElement {
+                        variant: variant.variant(),
+                        ordinal: bray_symbols::SymbolOrdinal::new(
+                            u32::try_from(index)
+                                .map_err(|_| CodegenPreparationError::LayoutOverflow(place.ty()))?,
+                        ),
+                    };
 
-                    Ok(projected_lifecycle_place(
-                        &place,
-                        MirProjectionKind::ActiveUnionPayloadField {
-                            variant: *variant,
-                            field: *field,
-                        },
-                        ty,
-                    ))
+                    Ok(projected_lifecycle_place(&place, projection, ty))
                 })
                 .collect::<Result<Vec<_>, CodegenPreparationError>>()?;
 

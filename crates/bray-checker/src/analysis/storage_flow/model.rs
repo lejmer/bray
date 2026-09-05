@@ -54,11 +54,7 @@ impl StorageFlowInput {
             .collect::<BTreeMap<_, _>>();
 
         for plan in storage.access_plans().iter().copied() {
-            input
-                .plans
-                .entry(AnyBoundNodeId::Expression(plan.expression()))
-                .or_default()
-                .push(plan);
+            input.plans.entry(plan.node()).or_default().push(plan);
 
             let StorageAccessPurpose::Borrow(kind) = plan.purpose() else {
                 continue;
@@ -131,6 +127,7 @@ pub(super) struct StorageFlowState {
     pub(super) reachable: bool,
     pub(super) live: BTreeSet<StorageIdentityId>,
     pub(super) initialized: BTreeSet<StorageIdentityId>,
+    pub(super) observed_pattern_bindings: BTreeSet<StorageIdentityId>,
     pub(super) moved: BTreeMap<StorageAccessId, BoundExpressionId>,
     pub(super) fully_moved: BTreeSet<StorageIdentityId>,
     pub(super) active_borrows: BTreeSet<BorrowCapabilityId>,
@@ -159,6 +156,7 @@ impl StorageFlowState {
             reachable: true,
             live: initialized.clone(),
             initialized,
+            observed_pattern_bindings: BTreeSet::new(),
             moved: BTreeMap::new(),
             fully_moved: BTreeSet::new(),
             definitely_active_borrows: active_borrows.clone(),
@@ -185,6 +183,7 @@ impl StorageFlowState {
 
         let live_count = self.live.len();
         let initialized_count = self.initialized.len();
+        let observed_count = self.observed_pattern_bindings.len();
         let moved_count = self.moved.len();
         let fully_moved_count = self.fully_moved.len();
         let borrow_count = self.active_borrows.len();
@@ -206,6 +205,9 @@ impl StorageFlowState {
 
         self.initialized
             .retain(|storage| incoming.initialized.contains(storage));
+
+        self.observed_pattern_bindings
+            .retain(|storage| incoming.observed_pattern_bindings.contains(storage));
 
         let mut moved_changed = false;
 
@@ -284,6 +286,7 @@ impl StorageFlowState {
 
         self.live.len() != live_count
             || self.initialized.len() != initialized_count
+            || self.observed_pattern_bindings.len() != observed_count
             || self.moved.len() != moved_count
             || moved_changed
             || self.fully_moved.len() != fully_moved_count
@@ -458,6 +461,24 @@ mod tests {
 
     use super::StorageFlowState;
     use crate::test_support::{error_type, expression_unit, push_expression};
+
+    #[test]
+    fn guard_observations_do_not_create_ownership_and_join_by_intersection() {
+        let (identity, _) = storage_and_expressions(78);
+
+        let mut observed = reachable_state();
+        observed.observed_pattern_bindings.insert(identity);
+
+        assert!(observed.live.is_empty());
+        assert!(observed.initialized.is_empty());
+
+        let mut merged = observed.clone();
+        assert!(!merged.merge(&observed));
+        assert!(merged.observed_pattern_bindings.contains(&identity));
+        assert!(merged.merge(&reachable_state()));
+        assert!(merged.observed_pattern_bindings.is_empty());
+        assert!(!merged.merge(&observed));
+    }
 
     #[test]
     fn raw_memory_merge_preserves_conservative_state_and_branch_origin() {

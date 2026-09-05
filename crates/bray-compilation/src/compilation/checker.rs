@@ -641,6 +641,37 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .map_err(checker_query_error)
     }
 
+    fn storage_protocol_callable(
+        &self,
+        storage: TypeId,
+        target: TypeId,
+        member: &bray_compiler_known::CompilerKnownDeclarationKey,
+    ) -> CheckerQueryResult<
+        DiagnosticResult<
+            Option<(
+                bray_symbols::CallableInstanceData,
+                bray_symbols::CallableSignature,
+            )>,
+        >,
+    > {
+        let selected = super::operation::selected_storage_callable(
+            self.binding_context.compilation(),
+            &self.binding_context,
+            storage,
+            target,
+            member,
+            self.binding_context.cancellation(),
+        )
+        .map_err(checker_query_error)?;
+
+        let (selected, diagnostics) = selected.into_parts();
+
+        Ok(DiagnosticResult::new(
+            selected.map(|(_, _, callable, signature)| (callable, signature)),
+            diagnostics,
+        ))
+    }
+
     fn declared_type_has_lifecycle(
         &self,
         subject: NamedTypeSymbolId,

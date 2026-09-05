@@ -26,7 +26,7 @@ impl Lowerer<'_> {
             .builder
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             current,
             Self::retained_source(&source),
             MirTerminatorKind::Goto(MirEdge::new(header, [])),
@@ -128,7 +128,7 @@ impl Lowerer<'_> {
 
         let (join, result, result_type) = self.push_result_join(id, expression.origin())?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             current,
             Self::retained_source(&source),
             MirTerminatorKind::Goto(MirEdge::new(header, [])),

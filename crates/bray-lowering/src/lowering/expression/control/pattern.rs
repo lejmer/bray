@@ -3,13 +3,14 @@ use bray_bound_tree::{
     PatternProjection, StorageBinding, StorageBindingTarget,
 };
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirEdge, MirFieldReference, MirOperand, MirOperationKind, MirPlace,
-    MirProjection, MirProjectionKind, MirStoreKind, MirTerminatorKind,
+    MirBlockId, MirBlockKind, MirEdge, MirOperand, MirOperationKind, MirPlace, MirStoreKind,
+    MirTerminatorKind,
 };
 use bray_symbols::{BorrowKind, LocalBindingSymbolId};
 
 use super::super::super::LoweringError;
 use super::super::super::lowerer::Lowerer;
+use super::super::super::projection::projected_pattern_place;
 
 impl Lowerer<'_> {
     pub(super) fn lower_pattern_branch(
@@ -43,7 +44,7 @@ impl Lowerer<'_> {
 
         let completion = self.lower_pattern_bindings(pattern, subject, bindings)?;
 
-        self.builder.set_terminator(
+        self.set_terminator(
             completion,
             source,
             MirTerminatorKind::Goto(MirEdge::new(matched, [])),
@@ -105,7 +106,13 @@ impl Lowerer<'_> {
         current: MirBlockId,
     ) -> Result<MirBlockId, LoweringError> {
         let pattern_node = self.pattern(pattern)?;
-        let operation = self.pattern_operation(pattern)?;
+
+        let operation = if !self.guard_bindings.is_empty() {
+            PatternOperation::Observe
+        } else {
+            self.pattern_operation(pattern)?
+        };
+
         let subject = self.project_pattern_subject(pattern, subject, current, operation)?;
 
         if pattern_node.kind() == BoundPatternKind::Discard
@@ -173,7 +180,7 @@ impl Lowerer<'_> {
 
         let destination = self.place_for_identity(identity, checked.input_type(), origin)?;
 
-        self.builder.push_operation(
+        self.push_operation(
             current,
             self.source(origin),
             MirOperationKind::Store {
@@ -233,7 +240,7 @@ impl Lowerer<'_> {
                 completion,
             )?;
 
-            self.builder.set_terminator(
+            self.set_terminator(
                 completion,
                 Self::retained_source(&source),
                 MirTerminatorKind::Goto(MirEdge::new(matched, [])),
@@ -243,7 +250,7 @@ impl Lowerer<'_> {
         }
 
         if pattern_node.children().is_empty() {
-            self.builder.set_terminator(
+            self.set_terminator(
                 current,
                 source,
                 MirTerminatorKind::Goto(MirEdge::new(unmatched, [])),
@@ -290,7 +297,7 @@ impl Lowerer<'_> {
             }
 
             if pattern_node.children().is_empty() {
-                self.builder.set_terminator(
+                self.set_terminator(
                     current,
                     source,
                     MirTerminatorKind::Goto(MirEdge::new(unmatched, [])),
@@ -329,7 +336,7 @@ impl Lowerer<'_> {
         };
 
         if let Some(predicate) = check.test() {
-            self.builder.set_terminator(
+            self.set_terminator(
                 current,
                 Self::retained_source(&source),
                 MirTerminatorKind::PatternBranch {
@@ -374,7 +381,7 @@ impl Lowerer<'_> {
         }
 
         if check.test().is_none() && pattern_node.children().is_empty() {
-            self.builder.set_terminator(
+            self.set_terminator(
                 current,
                 source,
                 MirTerminatorKind::Goto(MirEdge::new(matched, [])),
@@ -403,16 +410,31 @@ impl Lowerer<'_> {
 
         let source = self.source(self.pattern(pattern)?.origin());
 
-        if let MirOperand::Copy(place) | MirOperand::Move(place) = &subject {
-            let mut projections = place.projections().to_vec();
+        if projection == PatternProjection::OwnedTarget {
+            let (MirOperand::Copy(owner) | MirOperand::Move(owner)) = &subject else {
+                return Err(LoweringError::UnsupportedPattern(pattern));
+            };
 
-            projections.push(MirProjection::new(
-                mir_pattern_projection(projection),
-                place.ty(),
-                check.input_type(),
-            ));
+            let mut projections = owner.projections().to_vec();
+            let owner_type = self.append_projection_dereferences(owner.ty(), &mut projections)?;
+            let owner = MirPlace::new(owner.storage(), projections, owner_type);
 
-            let place = MirPlace::new(place.storage(), projections, check.input_type());
+            let kind = match operation {
+                PatternOperation::Consume | PatternOperation::MutableBorrow => BorrowKind::Mutable,
+                PatternOperation::Observe
+                | PatternOperation::Copy
+                | PatternOperation::SharedBorrow => BorrowKind::Shared,
+                PatternOperation::Recovered => {
+                    return Err(LoweringError::UnsupportedPattern(pattern));
+                }
+            };
+
+            let call = self
+                .owned_target_call(owner.ty(), kind)
+                .ok_or(LoweringError::UnsupportedPattern(pattern))?;
+
+            let place =
+                self.project_owned_target(current, &source, &owner, call, check.input_type())?;
 
             return self.pattern_projected_place_operand(
                 pattern,
@@ -424,7 +446,18 @@ impl Lowerer<'_> {
             );
         }
 
-        let result = self.builder.push_operation(
+        if let Some(place) = projected_pattern_place(&subject, projection, check.input_type()) {
+            return self.pattern_projected_place_operand(
+                pattern,
+                place,
+                current,
+                operation,
+                source,
+                check.input_type(),
+            );
+        }
+
+        let result = self.push_operation(
             current,
             source,
             MirOperationKind::PatternProjection {
@@ -460,7 +493,7 @@ impl Lowerer<'_> {
                     _ => return Err(LoweringError::UnsupportedPattern(pattern)),
                 };
 
-                let result = self.builder.push_operation(
+                let result = self.push_operation(
                     current,
                     source,
                     MirOperationKind::Borrow { kind, place },
@@ -527,25 +560,10 @@ impl Lowerer<'_> {
             .binding_type(binding)
             .ok_or(LoweringError::UnsupportedPattern(pattern))?;
 
-        let value = match binding_type.projection().filter(|_| apply_projection) {
-            Some(projection) => {
-                let commit = self.builder.push_operation(
-                    current,
-                    self.source(origin),
-                    MirOperationKind::PatternProjection {
-                        subject,
-                        projection,
-                        operation: binding_type.operation(),
-                    },
-                    Some(binding_type.ty()),
-                )?;
-
-                commit
-                    .result()
-                    .map(MirOperand::Value)
-                    .ok_or(LoweringError::UnsupportedPattern(pattern))?
-            }
-            None => subject,
+        let operation = if !self.guard_bindings.is_empty() {
+            PatternOperation::Observe
+        } else {
+            binding_type.operation()
         };
 
         let storage = self
@@ -554,14 +572,63 @@ impl Lowerer<'_> {
             .binding(StorageBindingTarget::Local(binding))
             .ok_or(LoweringError::UnsupportedPattern(pattern))?;
 
+        if operation == PatternOperation::Observe && matches!(storage, StorageBinding::Access(_)) {
+            // Observed bindings already name the checked source access and acquire no storage.
+            return Ok(());
+        }
+
+        let value = match binding_type.projection().filter(|_| apply_projection) {
+            Some(projection) => {
+                if let Some(place) =
+                    projected_pattern_place(&subject, projection, binding_type.ty())
+                {
+                    self.pattern_projected_place_operand(
+                        pattern,
+                        place,
+                        current,
+                        operation,
+                        self.source(origin),
+                        binding_type.ty(),
+                    )?
+                } else {
+                    let commit = self.push_operation(
+                        current,
+                        self.source(origin),
+                        MirOperationKind::PatternProjection {
+                            subject,
+                            projection,
+                            operation,
+                        },
+                        Some(binding_type.ty()),
+                    )?;
+
+                    commit
+                        .result()
+                        .map(MirOperand::Value)
+                        .ok_or(LoweringError::UnsupportedPattern(pattern))?
+                }
+            }
+            None => subject,
+        };
+
         let destination = match storage {
             StorageBinding::Identity(identity) => {
+                if !self.guard_bindings.is_empty() {
+                    return self.store_guard_binding(
+                        identity,
+                        value,
+                        binding_type.ty(),
+                        origin,
+                        current,
+                    );
+                }
+
                 self.place_for_identity(identity, binding_type.ty(), origin)?
             }
             StorageBinding::Access(access) => self.place_for_access(access, true)?,
         };
 
-        self.builder.push_operation(
+        self.push_operation(
             current,
             self.source(origin),
             MirOperationKind::Store {
@@ -604,7 +671,7 @@ impl Lowerer<'_> {
 
                 let source = self.source(self.pattern(pattern)?.origin());
 
-                let result = self.builder.push_operation(
+                let result = self.push_operation(
                     current,
                     source,
                     MirOperationKind::Borrow { kind, place },
@@ -654,25 +721,5 @@ impl Lowerer<'_> {
             .pattern(pattern)
             .cloned()
             .ok_or_else(|| LoweringError::MissingBoundNode(pattern.into()))
-    }
-}
-
-const fn mir_pattern_projection(projection: PatternProjection) -> MirProjectionKind {
-    match projection {
-        PatternProjection::ProductField(field) => {
-            MirProjectionKind::Field(MirFieldReference::Struct(field))
-        }
-        PatternProjection::TupleElement(ordinal) => MirProjectionKind::TupleField(ordinal.raw()),
-        PatternProjection::ActiveUnionPayloadField { variant, field } => {
-            MirProjectionKind::ActiveUnionPayloadField { variant, field }
-        }
-        PatternProjection::ElementFromStart(ordinal) => {
-            MirProjectionKind::ElementFromStart(ordinal.raw())
-        }
-        PatternProjection::ElementFromEnd(ordinal) => {
-            MirProjectionKind::ElementFromEnd(ordinal.raw())
-        }
-        PatternProjection::NullableValue => MirProjectionKind::NullableValue,
-        PatternProjection::OwnedTarget => MirProjectionKind::OwnedStorage,
     }
 }
