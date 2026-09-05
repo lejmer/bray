@@ -445,15 +445,7 @@ where
         let transfers = storage_identity_transfers_at_unit_exit(storage, identity);
 
         let moved = flow
-            .exits()
-            .iter()
-            .filter(|exit| owner == Some(exit.scope()) && !transfers)
-            .flat_map(|exit| exit.moved())
-            .filter(|access| {
-                storage.root_identity(**access) == Some(identity)
-                    && !storage.is_root_access(**access)
-            })
-            .filter_map(|access| storage.resolved_projections(*access))
+            .cleanup_moved_projections(storage, identity, owner)
             .collect::<Vec<_>>();
 
         let destructor = bray_bound_tree::storage_identity_is_destructor_receiver(

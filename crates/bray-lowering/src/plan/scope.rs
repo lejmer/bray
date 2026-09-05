@@ -305,12 +305,8 @@ fn verify_cleanup_parts(
             ));
         }
 
-        for moved in flow
-            .exits()
-            .iter()
-            .flat_map(|exit| exit.moved())
-            .filter(|access| storage.root_identity(**access) == Some(requirement.identity()))
-            .filter_map(|access| storage.resolved_projections(*access))
+        for moved in
+            flow.cleanup_moved_projections(storage, requirement.identity(), requirement.owner())
         {
             if part.release().is_none()
                 && moved.len() > path.len()

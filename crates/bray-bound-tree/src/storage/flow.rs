@@ -5,7 +5,8 @@ use bray_base::{shared_slice, sorted_unique_shared_slice};
 use crate::{
     AnyBoundNodeId, BorrowCapabilityId, BoundBlockId, BoundExpressionId, BoundUnitId,
     BoundUnitKind, CheckedMemoryOperation, CheckedMemoryOperations, MemoryOperationDecision,
-    StorageAccessId, StorageAccessPurpose, StorageIdentityId,
+    StorageAccessId, StorageAccessPurpose, StorageIdentityId, StoragePlan, StorageProjection,
+    storage_identity_transfers_at_unit_exit,
 };
 
 /// The checker result for one evaluated storage operation.
@@ -434,6 +435,28 @@ impl StorageFlow {
     /// Returns lexical scope-exit decisions in control-flow order.
     pub fn exits(&self) -> &[StorageExitDecision] {
         &self.exits
+    }
+
+    /// Returns moved represented-part paths at exits that resolve this storage owner.
+    ///
+    /// Retained inner-scope exits and storage transferred out of the unit do not contribute.
+    pub fn cleanup_moved_projections<'a>(
+        &'a self,
+        storage: &'a StoragePlan,
+        identity: StorageIdentityId,
+        owner: Option<BoundBlockId>,
+    ) -> impl Iterator<Item = &'a [StorageProjection]> {
+        let transfers = storage_identity_transfers_at_unit_exit(storage, identity);
+
+        self.exits
+            .iter()
+            .filter(move |exit| owner == Some(exit.scope()) && !transfers)
+            .flat_map(|exit| exit.moved())
+            .filter(move |access| {
+                storage.root_identity(**access) == Some(identity)
+                    && !storage.is_root_access(**access)
+            })
+            .filter_map(move |access| storage.resolved_projections(*access))
     }
 
     /// Returns memory-operation decisions in bound-expression order.

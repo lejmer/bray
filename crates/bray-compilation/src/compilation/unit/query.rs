@@ -1838,6 +1838,35 @@ mod tests {
     }
 
     #[test]
+    fn partial_cleanup_ignores_repaired_moves_at_retained_inner_exits() {
+        for repair in ["outer.inner.first = replacement;", ""] {
+            let source = format!(
+                "module app; struct Guard {{ destruct() {{}} }} struct Inner {{ mut first: Guard; second: Guard; }} struct Outer {{ mut inner: Inner; other: Guard; }} func take(pos value: Guard) {{}} func probe(pos mut outer: Outer, pos replacement: Guard, pos flag: bool) {{ {{ let taken: Guard = outer.inner.first; }} {repair} if flag {{ take(outer.other); }} }}",
+            );
+
+            let compilation = compilation(&source);
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{source}: {:?}",
+                compilation.check_diagnostics()
+            );
+
+            let key = source_function_body_key(&compilation, "probe");
+            let lowered = compilation.lowered_unit(key).unwrap();
+
+            assert!(
+                lowered
+                    .value()
+                    .as_ref()
+                    .and_then(|unit| unit.mir())
+                    .is_some(),
+                "{source}: {lowered:?}"
+            );
+        }
+    }
+
+    #[test]
     fn storage_flow_copies_copyable_value_transfers() {
         let compilation = compilation(concat!(
             "module app;\n",
