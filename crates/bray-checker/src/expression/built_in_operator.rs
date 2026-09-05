@@ -276,6 +276,28 @@ where
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     }
 
+    if is_logical_operator(operation.operator) {
+        for operand in &operands {
+            let Some(result) = types
+                .expression(*operand)
+                .filter(|result| !result.is_recovered())
+            else {
+                return Ok(None);
+            };
+
+            let role = type_representation(request, observed_type(request, result.ty())?)?;
+
+            if !matches!(
+                role,
+                Some(RepresentationRole::ScalarBool | RepresentationRole::Never)
+            ) {
+                return Ok(None);
+            }
+        }
+
+        return representation_type(request, RepresentationRole::ScalarBool).map(Some);
+    }
+
     let Some(first) = types
         .expression(operands[0])
         .filter(|result| !result.is_recovered())

@@ -30,34 +30,36 @@ Unary expression tokens:
 
 Binary expression tokens:
 
-| Token  | Precedence | Associativity | Primary function                  | Overloadable                                       |
-|--------|------------|---------------|-----------------------------------|----------------------------------------------------|
-| `**`   | 12         | right         | exponentiation                    | yes, through `Exponentiate<Rhs>.exponentiate`      |
-| `*`    | 10         | left          | multiplication                    | yes, through `Multiply<Rhs>.multiply`              |
-| `/`    | 10         | left          | division                          | yes, through `Divide<Rhs>.divide`                  |
-| `%`    | 10         | left          | remainder                         | yes, through `Remainder<Rhs>.remainder`            |
-| `@`    | 10         | left          | linear-algebra multiplication     | yes, through `MatrixMultiply<Rhs>.matrix_multiply` |
-| `+`    | 9          | left          | addition                          | yes, through `Add<Rhs>.add`                        |
-| `-`    | 9          | left          | subtraction                       | yes, through `Subtract<Rhs>.subtract`              |
-| `<<`   | 8          | left          | shift left                        | yes, through `ShiftLeft<Rhs>.shift_left`           |
-| `>>`   | 8          | left          | shift right                       | yes, through `ShiftRight<Rhs>.shift_right`         |
-| `&`    | 7          | left          | bitwise and                       | yes, through `BitAnd<Rhs>.bit_and`                 |
-| `^`    | 6          | left          | bitwise xor                       | yes, through `BitXor<Rhs>.bit_xor`                 |
-| `\|`   | 5          | left          | bitwise or                        | yes, through `BitOr<Rhs>.bit_or`                   |
-| `==`   | 4          | none          | equality comparison               | yes, through `Equatable<Rhs>.equals`               |
-| `!=`   | 4          | none          | inequality comparison             | yes, derived from `Equatable<Rhs>.equals`          |
-| `<`    | 4          | none          | less-than comparison              | yes, derived from `Comparable<Rhs>.compare`        |
-| `<=`   | 4          | none          | less-than-or-equal comparison     | yes, derived from `Comparable<Rhs>.compare`        |
-| `>`    | 4          | none          | greater-than comparison           | yes, derived from `Comparable<Rhs>.compare`        |
-| `>=`   | 4          | none          | greater-than-or-equal comparison  | yes, derived from `Comparable<Rhs>.compare`        |
-| `&&`   | 2          | left          | short-circuit boolean conjunction | no                                                 |
-| `\|\|` | 1          | left          | short-circuit boolean disjunction | no                                                 |
+| Token     | Precedence | Associativity | Primary function                  | Overloadable                                       |
+|-----------|------------|---------------|-----------------------------------|----------------------------------------------------|
+| `**`      | 12         | right         | exponentiation                    | yes, through `Exponentiate<Rhs>.exponentiate`      |
+| `*`       | 10         | left          | multiplication                    | yes, through `Multiply<Rhs>.multiply`              |
+| `/`       | 10         | left          | division                          | yes, through `Divide<Rhs>.divide`                  |
+| `%`       | 10         | left          | remainder                         | yes, through `Remainder<Rhs>.remainder`            |
+| `@`       | 10         | left          | linear-algebra multiplication     | yes, through `MatrixMultiply<Rhs>.matrix_multiply` |
+| `+`       | 9          | left          | addition                          | yes, through `Add<Rhs>.add`                        |
+| `-`       | 9          | left          | subtraction                       | yes, through `Subtract<Rhs>.subtract`              |
+| `<<`      | 8          | left          | shift left                        | yes, through `ShiftLeft<Rhs>.shift_left`           |
+| `>>`      | 8          | left          | shift right                       | yes, through `ShiftRight<Rhs>.shift_right`         |
+| `&`       | 7          | left          | bitwise and                       | yes, through `BitAnd<Rhs>.bit_and`                 |
+| `^`       | 6          | left          | bitwise xor                       | yes, through `BitXor<Rhs>.bit_xor`                 |
+| `\|`      | 5          | left          | bitwise or                        | yes, through `BitOr<Rhs>.bit_or`                   |
+| `==`      | 4          | none          | equality comparison               | yes, through `Equatable<Rhs>.equals`               |
+| `!=`      | 4          | none          | inequality comparison             | yes, derived from `Equatable<Rhs>.equals`          |
+| `<`       | 4          | none          | less-than comparison              | yes, derived from `Comparable<Rhs>.compare`        |
+| `<=`      | 4          | none          | less-than-or-equal comparison     | yes, derived from `Comparable<Rhs>.compare`        |
+| `>`       | 4          | none          | greater-than comparison           | yes, derived from `Comparable<Rhs>.compare`        |
+| `>=`      | 4          | none          | greater-than-or-equal comparison  | yes, derived from `Comparable<Rhs>.compare`        |
+| `matches` | 4          | none          | structural pattern test           | no                                                 |
+| `&&`      | 2          | left          | short-circuit boolean conjunction | no                                                 |
+| `\|\|`    | 1          | left          | short-circuit boolean disjunction | no                                                 |
 
 Exponentiation binds tighter than prefix unary negation, bitwise complement, and boolean negation.
 
 Therefore `-x ** y` is parsed as `-(x ** y)`.
 
-Comparisons are non-associative.
+Comparisons and [structural pattern tests](pattern-test-expressions.md) are non-associative. The operand after
+`matches` is a pattern, including any `|` alternatives, rather than a runtime value expression.
 
 To combine comparisons, use boolean operators explicitly.
 

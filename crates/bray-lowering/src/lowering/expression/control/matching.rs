@@ -75,7 +75,13 @@ impl Lowerer<'_> {
                 None => matched,
             };
 
-            let body = self.lower_yielding_block(arm.body(), body_entry, join, result_type)?;
+            let body = self.lower_yielding_block(
+                arm.body(),
+                body_entry,
+                join,
+                result_type,
+                self.active_scopes.len(),
+            )?;
 
             self.finish_result_edge(body, join, result_type)?;
 
@@ -142,7 +148,7 @@ impl Lowerer<'_> {
         Ok(body)
     }
 
-    fn materialize_match_subject(
+    pub(super) fn materialize_match_subject(
         &mut self,
         subject: MirOperand,
         subject_type: bray_symbols::TypeId,

@@ -436,6 +436,11 @@ where
             resolved.push(bindings);
         }
 
+        if self.type_is_error(input_type)? {
+            // Subject-dependent names remain provisional until the checker resolves variants.
+            return Ok((true, resolved.into_iter().flatten().collect()));
+        }
+
         let Some(first) = resolved.first() else {
             return Ok((true, Vec::new()));
         };
@@ -772,10 +777,15 @@ mod tests {
         let context =
             crate::binding::test_support::internal_path_context(binder.binding_context(), root);
 
+        let subject_type = fixture
+            .semantic_values
+            .intern_type(bray_symbols::TypeData::tuple([]))
+            .unwrap();
+
         let bound = match binder.bind_case_pattern(
             context,
             &pattern,
-            fixture.declared_type,
+            subject_type,
             fixture.declared_type,
             PatternBindingMode::MatchObserve,
         ) {

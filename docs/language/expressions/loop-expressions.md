@@ -48,7 +48,7 @@ let found: Item? = loop
 
     let item = items.at(index);
 
-    if item.matches(query)
+    if item.satisfies(query)
     {
         break item;
     }

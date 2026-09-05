@@ -80,10 +80,9 @@ func utf8_conversion_and_scalar_iteration()
     let invalid: [u8; 1] = [255];
     let rejected: Result<string, std.string.Utf8Error> = string.from_utf8(&invalid[..]);
 
-    match std.testing.assert_error<string, std.string.Utf8Error>(rejected)
-    {
-        case std.string.Utf8Error.InvalidEncoding {}
-    }
+    assert(
+        std.testing.assert_error<string, std.string.Utf8Error>(rejected) matches std.string.Utf8Error.InvalidEncoding
+    );
 
     let mut cursor: std.string.ScalarCursor = value.characters();
     let first: char? = cursor(Iterator).next();

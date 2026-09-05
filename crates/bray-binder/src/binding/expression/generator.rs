@@ -91,9 +91,8 @@ impl ExpressionBinder {
 
         let is_recovered = syntax.is_recovered()
             || region.is_recovered()
-            || binder.expression_is_recovered(source)
-            || binder.pattern_is_recovered(pattern)
-            || binder.block_is_recovered(body);
+            || binder.children_are_recovered(&[source], &[body])
+            || binder.pattern_is_recovered(pattern);
 
         let expression = BoundGeneratorExpression::new(
             binder.source_origin(syntax),

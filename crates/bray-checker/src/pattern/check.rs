@@ -1,3 +1,4 @@
+mod coherence;
 mod result;
 mod state;
 mod subject;

@@ -37,7 +37,38 @@ else
 }
 ```
 
-The condition expression is evaluated exactly once.
+Each condition is evaluated exactly once when reached. A later `else if` initializer or condition is evaluated only
+after every preceding condition has failed.
+
+A conditional pattern binding uses `let pattern = expression` as a condition operand:
+
+```bray
+if let Ok(value) = result && value > 0
+{
+    process(value);
+}
+```
+
+The initializer is evaluated once, then tested structurally in the existing observing match mode. Refutable and
+irrefutable patterns are accepted without an exhaustiveness requirement. Successful bindings and positive refinements
+are available to subsequent `&&` operands and the then body. Failure selects the ordinary false path, with no bindings
+and only the justified negative refinements. A binding is unavailable in its own initializer, earlier operands, the
+else body, later `else if` conditions, and the surrounding scope.
+
+Observing bindings preserve the subject's ownership and do not authorize moving non-copyable parts from it. Temporary
+subjects remain alive for the body's required observations. Mutation, borrowing, copying, destruction, and partial-state
+restrictions follow the existing pattern operation mode and storage contracts. Use an explicit consuming match when
+matched parts must be moved from an owned subject.
+
+Condition operands evaluate from left to right, stopping at the first false boolean or failed pattern. Each reached
+initializer runs once. A later `let` can refer to earlier bindings and can shadow an earlier name. All bindings and
+observed initializer temporaries leave scope when the chain fails or its successful body exits, including through
+`return`, `break`, or `continue`.
+
+A chain containing `let` uses top-level `&&` only. A `let` operand cannot appear inside `||`, negation, parentheses,
+or an ordinary value expression. Ordinary boolean operands may use grouping, such as
+`if let Ok(value) = result && (value > 0 || fallback)`. Group a boolean initializer to include `&&` or `||` in the
+initializer itself. The ungrouped operators separate conditions rather than extending the initializer.
 
 The condition expression must have type `bool`.
 

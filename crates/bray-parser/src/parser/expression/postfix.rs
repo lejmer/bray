@@ -319,6 +319,7 @@ pub(super) const fn postfix_operation_start(kind: SyntaxKind) -> Option<PostfixO
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticKind;
+    use bray_syntax::SeparatedSyntaxNode;
     use bray_syntax::{ExpressionSyntax, SyntaxKind, SyntaxText};
     use bray_testing::test_source_store as source_store;
 

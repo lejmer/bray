@@ -179,6 +179,12 @@ impl StoragePlanBuilder {
         target: StorageBindingTarget,
         binding: StorageBinding,
     ) -> Result<(), StoragePlanBuildError> {
+        if let StorageBindingTarget::PatternSubject(pattern) = target
+            && pattern.unit() != self.unit
+        {
+            return Err(StoragePlanBuildError::ForeignUnit);
+        }
+
         self.validate_binding(binding)?;
 
         if !self.binding_matches_identity(target, binding) {
@@ -317,6 +323,7 @@ impl StoragePlanBuilder {
                     | StorageBindingTarget::PredicateParameter(_)
                     | StorageBindingTarget::Local(_)
                     | StorageBindingTarget::PatternDiscard(_)
+                    | StorageBindingTarget::PatternSubject(_)
             );
         };
 

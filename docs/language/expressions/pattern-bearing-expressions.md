@@ -3,8 +3,8 @@
 A **pattern-bearing expression** is an expression form that applies a pattern to a subject value, subject access path,
 or subject element.
 
-The pattern-bearing expression forms are match expressions, for expressions, array generator expressions, general
-generator iteration expressions, and local destructuring constructs.
+The pattern-bearing expression forms are match expressions, `matches` tests, conditional `let`, for expressions,
+array generator expressions, general generator iteration expressions, and local destructuring constructs.
 
 Pattern syntax, resolution, refutability, operation modes, bindings, partial moves, condition refinement, and structural
 matching rules are defined in [Patterns](../patterns.md).

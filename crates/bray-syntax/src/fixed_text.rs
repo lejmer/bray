@@ -65,6 +65,7 @@ fixed_syntax_text! {
     "let" => LetKeyword,
     "loop" => LoopKeyword,
     "match" => MatchKeyword,
+    "matches" => MatchesKeyword,
     "module" => ModuleKeyword,
     "move" => MoveKeyword,
     "mut" => MutKeyword,

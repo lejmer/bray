@@ -83,6 +83,23 @@ impl StorageScopeOwners {
                     expression.body(),
                     &mut nodes,
                 )?,
+                BoundExpression::Structured(expression) => {
+                    if matches!(
+                        expression.kind(),
+                        bray_bound_tree::BoundStructuredExpressionKind::PatternTest
+                            | bray_bound_tree::BoundStructuredExpressionKind::Condition
+                    ) && let ([subject], [scope]) = (expression.operands(), expression.blocks())
+                    {
+                        assign_expression_scope(request.view(), *subject, *scope, &mut nodes);
+                    }
+
+                    if expression.kind()
+                        == bray_bound_tree::BoundStructuredExpressionKind::Condition
+                        && let ([condition], [scope]) = (expression.operands(), expression.blocks())
+                    {
+                        assign_condition_bindings(request.view(), *condition, *scope, &mut nodes)?;
+                    }
+                }
                 BoundExpression::Block(_)
                 | BoundExpression::Literal(_)
                 | BoundExpression::Name(_)
@@ -97,7 +114,6 @@ impl StorageScopeOwners {
                 | BoundExpression::ErrorConversion(_)
                 | BoundExpression::AnonymousCallable(_)
                 | BoundExpression::Await(_)
-                | BoundExpression::Structured(_)
                 | BoundExpression::StructConstruction(_)
                 | BoundExpression::MemberAccess(_)
                 | BoundExpression::LeadingDotVariant(_)
@@ -127,6 +143,58 @@ impl StorageScopeOwners {
     ) -> Option<BoundBlockId> {
         self.scope(storage.identity(identity))
     }
+}
+
+fn assign_expression_scope(
+    view: BoundUnitView<'_>,
+    expression: BoundExpressionId,
+    scope: BoundBlockId,
+    nodes: &mut BTreeMap<AnyBoundNodeId, BoundBlockId>,
+) {
+    let original = nodes.get(&expression.into()).copied();
+    let mut pending = vec![expression];
+
+    while let Some(expression) = pending.pop() {
+        if nodes.get(&expression.into()).copied() != original {
+            continue;
+        }
+
+        nodes.insert(expression.into(), scope);
+
+        if let Some(expression) = view.expression(expression) {
+            pending.extend(expression.child_expressions());
+        }
+    }
+}
+
+fn assign_condition_bindings(
+    view: BoundUnitView<'_>,
+    condition: BoundExpressionId,
+    scope: BoundBlockId,
+    nodes: &mut BTreeMap<AnyBoundNodeId, BoundBlockId>,
+) -> Result<(), CheckerQueryError> {
+    let mut pending = vec![condition];
+
+    while let Some(condition) = pending.pop() {
+        match view.expression(condition) {
+            Some(BoundExpression::Binary(binary))
+                if binary.operator() == bray_bound_tree::BoundOperator::LogicalAnd =>
+            {
+                pending.extend(binary.operands());
+            }
+            Some(BoundExpression::Structured(binding))
+                if binding.kind()
+                    == bray_bound_tree::BoundStructuredExpressionKind::PatternBinding =>
+            {
+                for pattern in binding.patterns() {
+                    assign_pattern_scope(view, *pattern, scope, nodes)?;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(())
 }
 
 fn assign_pattern_scope(
@@ -191,14 +259,27 @@ where
     let mut result = local_initialization_bindings(request, storage);
 
     for (_, expression) in request.unit().tree().expressions() {
-        let BoundExpression::Match(expression) = expression else {
-            continue;
-        };
+        match expression {
+            BoundExpression::Match(expression) => {
+                let bindings = result.entry(expression.subject()).or_default();
 
-        let bindings = result.entry(expression.subject()).or_default();
+                for arm in expression.arms() {
+                    extend_pattern_bindings(request.view(), storage, arm.pattern(), bindings);
+                }
+            }
+            BoundExpression::Structured(test)
+                if test.kind()
+                    == bray_bound_tree::BoundStructuredExpressionKind::PatternBinding =>
+            {
+                if let Some(subject) = test.operands().first() {
+                    let bindings = result.entry(*subject).or_default();
 
-        for arm in expression.arms() {
-            extend_pattern_bindings(request.view(), storage, arm.pattern(), bindings);
+                    for pattern in test.patterns() {
+                        extend_pattern_bindings(request.view(), storage, *pattern, bindings);
+                    }
+                }
+            }
+            _ => {}
         }
     }
 

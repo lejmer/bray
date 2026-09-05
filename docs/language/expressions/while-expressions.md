@@ -24,6 +24,22 @@ else
 
 The condition expression is evaluated before each attempted iteration.
 
+`while let pattern = expression` uses a refutable structural condition with the same observing pattern mode and body
+scope as [conditional pattern bindings](conditional-expressions.md). Boolean and `let` operands can form an `&&`
+chain. Each reached initializer is evaluated once per attempted match, including a reached attempt that fails.
+Each successful match establishes bindings for later operands and the body. Every iteration starts with fresh bindings.
+
+```bray
+while let Some(value) = iterator.next() && ready(value)
+{
+    process(value);
+}
+```
+
+A failed match or false boolean operand is natural loop exhaustion. It selects `else` when present and contributes the same result and
+ownership state as an ordinary false condition. Failed attempts introduce no bindings. Body bindings are unavailable
+in `else`, the next initializer, and after the loop. `continue` starts a new attempt and `break` bypasses `else`.
+
 The condition expression must have type `bool`.
 
 Bray does not define truthy or falsy conversion for while conditions.
@@ -96,7 +112,7 @@ let found: Item? = while index < items.count()
 {
     let item = items.at(index);
 
-    if item.matches(query)
+    if item.satisfies(query)
     {
         break item;
     }

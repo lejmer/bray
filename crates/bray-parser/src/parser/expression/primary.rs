@@ -148,8 +148,7 @@ impl Parser {
         let start = self.peek().full_range().start();
         let open_paren = self.expect(SyntaxKind::OpenParenToken);
 
-        let mut at_expression_boundary =
-            |parser: &mut Parser| parser.at_parenthesized_expression_boundary(at_boundary);
+        let mut at_expression_boundary = Parser::at_tuple_expression_element_boundary;
 
         let expression = self.parse_expression_until(&mut at_expression_boundary);
 
@@ -210,7 +209,7 @@ impl Parser {
         at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
     ) {
         loop {
-            if self.at(SyntaxKind::CloseParenToken) || self.at(SyntaxKind::EndOfFileToken) {
+            if at_primary_hard_boundary(self.peek().kind()) && !self.at(SyntaxKind::CommaToken) {
                 break;
             }
 
@@ -628,6 +627,31 @@ mod tests {
         parse_expression_until_semicolon_for_test, primary_contains_child_kind_for_test,
     };
     use crate::test_support::diagnostic_kinds;
+
+    #[test]
+    fn grouped_conditions_accept_assignment_blocks_and_nested_initializers() {
+        for source in [
+            "if !(value matches none || { value = none; yield false; }) { 11; };",
+            "if (ready && ({ value = none; yield true; })) { 11; };",
+            "({ value = none; yield false; });",
+            "{ value = { let result = 1; yield result; }, other = 2 };",
+        ] {
+            let (expression, diagnostics) = parse_expression_until_semicolon_for_test(source);
+
+            assert!(diagnostics.is_empty(), "{source}: {diagnostics:?}");
+            assert_eq!(expression.full_text(), source.trim_end_matches(';'));
+        }
+    }
+
+    #[test]
+    fn tuple_recovery_stops_at_hard_boundaries() {
+        for source in ["(first second;", "(first second]", "(first second}"] {
+            let (expression, diagnostics) = parse_expression_until_semicolon_for_test(source);
+
+            assert!(!diagnostics.is_empty(), "{source}");
+            assert!(expression.is_recovered(), "{source}");
+        }
+    }
 
     #[test]
     fn parser_parses_grouped_tuple_array_literals_structs_and_leading_dot_variants() {

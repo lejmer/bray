@@ -11,22 +11,50 @@ pub(crate) fn expected_token(
     actual: &SyntaxToken,
 ) -> Diagnostic {
     let span = SourceSpan::empty(snapshot.source_id(), actual.start());
-    let expected_arg = DiagnosticArg::expected_syntax_kind(expected);
 
-    let mut diagnostic = diagnostic(span, DiagnosticKind::SyntaxExpectedToken)
-        .with_arg(expected_arg.clone())
-        .with_arg(DiagnosticArg::actual_syntax_kind(actual.kind()))
-        .with_optional_arg(token_text_arg(snapshot, actual))
-        .with_label(
-            DiagnosticLabel::primary(DiagnosticLabelKind::ExpectedTokenInsertionPoint, span)
-                .with_arg(expected_arg),
-        );
+    let mut diagnostic = expected_token_at(
+        snapshot,
+        expected,
+        actual,
+        span,
+        DiagnosticLabelKind::ExpectedTokenInsertionPoint,
+    );
 
     if let Some(suggestion) = insertion_suggestion(expected, span) {
         diagnostic = diagnostic.with_suggestion(suggestion);
     }
 
     diagnostic
+}
+
+pub(crate) fn expected_operator(
+    snapshot: &SourceSnapshot,
+    expected: SyntaxKind,
+    actual: &SyntaxToken,
+) -> Diagnostic {
+    expected_token_at(
+        snapshot,
+        expected,
+        actual,
+        SourceSpan::new(snapshot.source_id(), actual.range()),
+        DiagnosticLabelKind::InvalidOperatorOrPunctuation,
+    )
+}
+
+fn expected_token_at(
+    snapshot: &SourceSnapshot,
+    expected: SyntaxKind,
+    actual: &SyntaxToken,
+    span: SourceSpan,
+    label: DiagnosticLabelKind,
+) -> Diagnostic {
+    let expected_arg = DiagnosticArg::expected_syntax_kind(expected);
+
+    diagnostic(span, DiagnosticKind::SyntaxExpectedToken)
+        .with_arg(expected_arg.clone())
+        .with_arg(DiagnosticArg::actual_syntax_kind(actual.kind()))
+        .with_optional_arg(token_text_arg(snapshot, actual))
+        .with_label(DiagnosticLabel::primary(label, span).with_arg(expected_arg))
 }
 
 pub(crate) fn unexpected_eof(
@@ -139,6 +167,47 @@ mod tests {
         expected_expression, expected_token, invalid_directive_target, nesting_limit_exceeded,
         unexpected_eof,
     };
+
+    #[test]
+    fn unexpected_condition_operator_does_not_suggest_inserting_before_it() {
+        let snapshot = snapshot("||");
+
+        let token = SyntaxToken::new(
+            SyntaxKind::PipePipeToken,
+            TextRange::new(TextSize::ZERO, TextSize::new(2)),
+        );
+
+        let diagnostic =
+            super::expected_operator(&snapshot, SyntaxKind::AmpersandAmpersandToken, &token);
+
+        assert_eq!(diagnostic.kind(), DiagnosticKind::SyntaxExpectedToken);
+
+        assert_eq!(
+            diagnostic.primary_span(),
+            Some(bray_source::SourceSpan::new(
+                snapshot.source_id(),
+                token.range()
+            ))
+        );
+
+        assert!(diagnostic.suggestions().is_empty());
+
+        assert!(
+            diagnostic
+                .args()
+                .contains(&DiagnosticArg::expected_syntax_kind(
+                    SyntaxKind::AmpersandAmpersandToken
+                ))
+        );
+
+        assert!(
+            diagnostic
+                .args()
+                .contains(&DiagnosticArg::actual_syntax_kind(
+                    SyntaxKind::PipePipeToken
+                ))
+        );
+    }
 
     #[test]
     fn expected_token_diagnostic_uses_an_insertion_point_span() {

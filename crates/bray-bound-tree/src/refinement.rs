@@ -24,7 +24,7 @@ pub enum RefinementKind {
         /// Whether the nullable value is present.
         is_present: bool,
     },
-    /// A checked structural pattern has matched its subject.
+    /// A checked structural predicate is known to hold or fail at its exact input access.
     Pattern {
         /// The matched subject expression.
         subject: BoundExpressionId,
@@ -32,6 +32,10 @@ pub enum RefinementKind {
         pattern: BoundPatternId,
         /// The structural refinement established by that pattern.
         predicate: PatternPredicate,
+        /// The evaluated storage reached by this pattern, including any field projections.
+        access: StorageAccessId,
+        /// Whether the predicate holds.
+        value: bool,
     },
     /// The operand is currently inside this explicit trust boundary.
     TrustBoundary(BoundExpressionId),
@@ -47,8 +51,15 @@ impl RefinementKind {
             | Self::TrustBoundary(expression)
             | Self::NormalCompletion(expression) => expression.unit().raw() == unit.raw(),
             Self::Pattern {
-                subject, pattern, ..
-            } => subject.unit().raw() == unit.raw() && pattern.unit().raw() == unit.raw(),
+                subject,
+                pattern,
+                access,
+                ..
+            } => {
+                subject.unit().raw() == unit.raw()
+                    && pattern.unit().raw() == unit.raw()
+                    && access.unit().raw() == unit.raw()
+            }
         }
     }
 }
@@ -282,6 +293,8 @@ mod tests {
                 subject: expression,
                 pattern: foreign_pattern,
                 predicate: PatternPredicate::NullablePresent,
+                access: StorageAccessId::from_slot(unit, 0),
+                value: true,
             },
             [],
         );

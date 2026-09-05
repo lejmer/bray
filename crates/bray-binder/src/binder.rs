@@ -145,6 +145,17 @@ impl<'binding_context, C: BindingQueryContext + ?Sized> Binder<'binding_context,
         self.node_is_recovered(block.into())
     }
 
+    pub(crate) fn children_are_recovered(
+        &self,
+        operands: &[BoundExpressionId],
+        blocks: &[BoundBlockId],
+    ) -> bool {
+        operands
+            .iter()
+            .any(|operand| self.expression_is_recovered(*operand))
+            || blocks.iter().any(|block| self.block_is_recovered(*block))
+    }
+
     fn node_is_recovered(&self, node: AnyBoundNodeId) -> bool {
         self.unit_view()
             .node_is_recovered(node)

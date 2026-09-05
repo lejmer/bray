@@ -1,15 +1,19 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundExpression, BoundExpressionId, BoundPatternId, CheckedPatterns,
-    PatternPredicate, Refinement, RefinementKind, StorageAccessId, StorageAccessPurpose,
-    StoragePlan, StorageRelationship,
+    AnyBoundNodeId, BoundExpression, BoundExpressionId, CheckedPatterns, PatternPredicate,
+    Refinement, RefinementKind, StorageAccessId, StorageAccessPurpose, StoragePlan,
+    StorageRelationship,
 };
 use bray_diagnostics::{DiagnosticRefinementCapacity, DiagnosticRefinementCapacitySurface};
 
 use crate::{CheckerRequestContext, CheckerUnitView};
 
 use super::super::model::{AnalysisRefinement, ControlFlowGraph};
+use super::evidence::{
+    condition_refinements, equivalent_pattern_accesses, expression_dependencies,
+    pattern_refinements,
+};
 use super::set::RefinementSet;
 
 pub(super) const MAX_REFINEMENT_REFINEMENTS: usize = 1 << 20;
@@ -18,6 +22,8 @@ pub(super) const MAX_REFINEMENT_CELLS: usize = 1 << 24;
 pub(super) struct RefinementUniverse {
     refinements: Vec<Refinement>,
     indexes: BTreeMap<Refinement, usize>,
+    pattern_indexes: BTreeMap<(StorageAccessId, PatternPredicate, bool), usize>,
+    equivalent_accesses: BTreeMap<StorageAccessId, StorageAccessId>,
     edge_refinements: BTreeMap<AnalysisRefinement, Box<[usize]>>,
     normal_completion: BTreeMap<BoundExpressionId, usize>,
     trust_boundaries: BTreeMap<BoundExpressionId, usize>,
@@ -55,6 +61,8 @@ impl RefinementUniverse {
         let mut universe = Self {
             refinements: Vec::new(),
             indexes: BTreeMap::new(),
+            pattern_indexes: BTreeMap::new(),
+            equivalent_accesses: equivalent_pattern_accesses(storage),
             edge_refinements: BTreeMap::new(),
             normal_completion: BTreeMap::new(),
             trust_boundaries: BTreeMap::new(),
@@ -75,8 +83,13 @@ impl RefinementUniverse {
                 continue;
             };
 
-            let refinements =
-                universe.refinements(refinement, request.view(), patterns, &direct_dependencies);
+            let refinements = universe.refinements(
+                refinement,
+                request.view(),
+                patterns,
+                storage,
+                &direct_dependencies,
+            );
 
             let indexes = refinements
                 .into_iter()
@@ -108,6 +121,14 @@ impl RefinementUniverse {
         }
 
         let words = universe.len().div_ceil(u64::BITS as usize);
+
+        if universe.len() > MAX_REFINEMENT_REFINEMENTS {
+            return Err(capacity_error(
+                DiagnosticRefinementCapacitySurface::RefinementEntries,
+                universe.len(),
+                MAX_REFINEMENT_REFINEMENTS,
+            ));
+        }
 
         let retained_states = graph
             .blocks()
@@ -148,14 +169,12 @@ impl RefinementUniverse {
         refinement: AnalysisRefinement,
         view: bray_bound_tree::BoundUnitView<'_>,
         patterns: &CheckedPatterns,
+        storage: &StoragePlan,
         dependencies: &BTreeMap<BoundExpressionId, BTreeSet<StorageAccessId>>,
     ) -> Vec<Refinement> {
         match refinement {
             AnalysisRefinement::Condition { expression, value } => {
-                vec![Refinement::new(
-                    RefinementKind::Condition { expression, value },
-                    expression_dependencies(view, dependencies, expression),
-                )]
+                condition_refinements(view, patterns, storage, dependencies, expression, value)
             }
             AnalysisRefinement::NullablePresence {
                 expression,
@@ -169,9 +188,11 @@ impl RefinementUniverse {
                     expression_dependencies(view, dependencies, expression),
                 )]
             }
-            AnalysisRefinement::PatternSuccess { subject, pattern } => {
-                pattern_refinements(view, patterns, dependencies, subject, pattern)
-            }
+            AnalysisRefinement::PatternOutcome {
+                subject,
+                pattern,
+                value,
+            } => pattern_refinements(view, patterns, storage, subject, pattern, value),
             AnalysisRefinement::TrustBoundary(expression) => {
                 let refinement = Refinement::new(RefinementKind::TrustBoundary(expression), []);
 
@@ -184,12 +205,52 @@ impl RefinementUniverse {
         }
     }
 
-    fn intern(&mut self, refinement: Refinement) -> usize {
+    fn intern(&mut self, mut refinement: Refinement) -> usize {
+        let pattern_key = if let RefinementKind::Pattern {
+            subject,
+            pattern,
+            predicate,
+            access,
+            value,
+        } = refinement.kind()
+        {
+            let access = self
+                .equivalent_accesses
+                .get(&access)
+                .copied()
+                .unwrap_or(access);
+
+            let key = (access, predicate, value);
+
+            if let Some(index) = self.pattern_indexes.get(&key) {
+                return *index;
+            }
+
+            refinement = Refinement::new(
+                RefinementKind::Pattern {
+                    subject,
+                    pattern,
+                    predicate,
+                    access,
+                    value,
+                },
+                [access],
+            );
+
+            Some(key)
+        } else {
+            None
+        };
+
         if let Some(index) = self.indexes.get(&refinement).copied() {
             return index;
         }
 
         let index = self.refinements.len();
+
+        if let Some(key) = pattern_key {
+            self.pattern_indexes.insert(key, index);
+        }
 
         self.refinements.push(refinement.clone());
         self.indexes.insert(refinement, index);
@@ -306,68 +367,6 @@ fn capacity_error(
     RefinementUniverseError::CapacityExceeded(capacity)
 }
 
-fn expression_dependencies(
-    view: bray_bound_tree::BoundUnitView<'_>,
-    direct: &BTreeMap<BoundExpressionId, BTreeSet<StorageAccessId>>,
-    expression: BoundExpressionId,
-) -> BTreeSet<StorageAccessId> {
-    let mut dependencies = BTreeSet::new();
-    let mut pending = vec![expression];
-    let mut visited = BTreeSet::new();
-
-    while let Some(expression) = pending.pop() {
-        if !visited.insert(expression) {
-            continue;
-        }
-
-        dependencies.extend(direct.get(&expression).into_iter().flatten().copied());
-
-        if let Some(expression) = view.expression(expression) {
-            pending.extend(expression.child_expressions());
-        }
-    }
-
-    dependencies
-}
-
-fn pattern_refinements(
-    view: bray_bound_tree::BoundUnitView<'_>,
-    patterns: &CheckedPatterns,
-    direct: &BTreeMap<BoundExpressionId, BTreeSet<StorageAccessId>>,
-    subject: BoundExpressionId,
-    root: BoundPatternId,
-) -> Vec<Refinement> {
-    let dependencies = expression_dependencies(view, direct, subject);
-    let mut pending = vec![root];
-    let mut refinements = Vec::new();
-
-    while let Some(pattern) = pending.pop() {
-        let Some(bound) = view.pattern(pattern) else {
-            continue;
-        };
-
-        pending.extend(bound.children().iter().copied());
-
-        let Some(predicate) = patterns
-            .pattern(pattern)
-            .and_then(|entry| entry.refinement())
-        else {
-            continue;
-        };
-
-        refinements.push(Refinement::new(
-            RefinementKind::Pattern {
-                subject,
-                pattern,
-                predicate,
-            },
-            dependencies.iter().copied(),
-        ));
-    }
-
-    refinements
-}
-
 fn direct_expression_dependencies(
     storage: &StoragePlan,
 ) -> BTreeMap<BoundExpressionId, BTreeSet<StorageAccessId>> {
@@ -451,16 +450,23 @@ fn refinements_conflict(left: RefinementKind, right: RefinementKind) -> bool {
         ) => left == right && left_present != right_present,
         (
             RefinementKind::Pattern {
-                subject: left,
+                access: left,
                 predicate: left_predicate,
+                value: left_value,
                 ..
             },
             RefinementKind::Pattern {
-                subject: right,
+                access: right,
                 predicate: right_predicate,
+                value: right_value,
                 ..
             },
-        ) if left == right => predicates_conflict(left_predicate, right_predicate),
+        ) if left == right => {
+            (left_predicate == right_predicate && left_value != right_value)
+                || (left_value
+                    && right_value
+                    && predicates_conflict(left_predicate, right_predicate))
+        }
         _ => false,
     }
 }

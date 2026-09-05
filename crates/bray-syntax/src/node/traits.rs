@@ -2,9 +2,9 @@ use std::fmt::{self, Write};
 
 use bray_source::{SourceSnapshot, TextRange, TextSize};
 
-use crate::SyntaxKind;
 use crate::green::GreenNode;
 use crate::text::text_from_writer;
+use crate::{SyntaxKind, SyntaxToken};
 
 /// Common contract implemented by typed syntax tree nodes.
 pub trait SyntaxNode: Send + Sync {
@@ -35,6 +35,25 @@ pub trait SourceSyntaxNode: SyntaxNode {
     /// Panics when `source_text` does not contain the node's element ranges.
     fn full_text_from(&self, source_text: &str) -> String {
         text_from_writer(|writer| self.write_full_text_from(source_text, writer))
+    }
+}
+
+/// A syntax node whose immediate children are separated by punctuation.
+pub trait SeparatedSyntaxNode: SyntaxNode {
+    /// Returns this node's separator tokens in source order, including missing tokens retained
+    /// by recovery. Separators inside nested nodes are excluded.
+    fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_;
+}
+
+pub(crate) trait GreenSeparatedSyntaxNode: GreenSyntaxNode {
+    const SEPARATOR_KIND: SyntaxKind = SyntaxKind::CommaToken;
+}
+
+impl<T: GreenSeparatedSyntaxNode> SeparatedSyntaxNode for T {
+    fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
+        self.green_node()
+            .child_tokens(self.start())
+            .filter(|token| token.kind() == Self::SEPARATOR_KIND)
     }
 }
 

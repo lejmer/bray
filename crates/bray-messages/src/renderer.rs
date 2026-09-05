@@ -406,6 +406,36 @@ mod tests {
     }
 
     #[test]
+    fn pattern_conditions_binding_diagnostic_explains_the_available_forms() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(7),
+            DiagnosticKind::CheckingBindingInPatternTest,
+            SeverityKind::Error,
+        )
+        .with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::PatternTestMustNotBind,
+        ));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(
+            rendered.message(),
+            "a `matches` pattern cannot introduce a binding"
+        );
+
+        let [note] = rendered.notes() else {
+            panic!("expected binding help");
+        };
+
+        assert_eq!(note.rendered_kind(), RenderedDiagnosticNoteKind::Help);
+
+        assert_eq!(
+            note.message(),
+            "replace the binding with `_`, or use `if let` or `while let` to use the matched value"
+        );
+    }
+
+    #[test]
     fn renderer_renders_diagnostic_messages_from_structured_catalog() {
         let diagnostic = Diagnostic::new(
             DiagnosticId::new(7),

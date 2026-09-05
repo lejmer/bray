@@ -86,7 +86,14 @@ pub fn load_runtime_artifact(
         });
     }
 
-    let directory = metadata_path.parent().unwrap_or_else(|| Path::new(""));
+    let absolute_path = std::path::absolute(metadata_path).map_err(|error| {
+        RuntimeArtifactLoadError::MetadataRead {
+            path: metadata_path.to_path_buf(),
+            kind: error.kind(),
+        }
+    })?;
+
+    let directory = absolute_path.parent().unwrap_or_else(|| Path::new(""));
 
     let components = metadata
         .components()
@@ -202,6 +209,34 @@ mod tests {
 
         std::fs::remove_dir_all(directory)
             .unwrap_or_else(|error| panic!("test runtime directory must be removed: {error}"));
+    }
+
+    #[test]
+    #[cfg(feature = "compiler")]
+    fn relative_runtime_metadata_resolves_archives_independently_of_linker_working_directory() {
+        let directory = tempfile::tempdir_in(".").unwrap();
+        let metadata_path = directory.path().join("bray-runtime.brayrt");
+        let metadata = metadata("x86_64-pc-windows-msvc", RuntimeAbiVersion::new(1, 0));
+
+        std::fs::write(&metadata_path, metadata.encode_json().unwrap()).unwrap();
+
+        let artifact = load_runtime_artifact(
+            &metadata_path,
+            &target("x86_64-pc-windows-msvc"),
+            RuntimeAbiVersion::new(1, 0),
+        )
+        .unwrap();
+
+        let directory = std::path::absolute(directory.path()).unwrap();
+
+        for component in artifact.components() {
+            assert_eq!(
+                component.archive(),
+                directory.join(component.metadata().archive_file_name())
+            );
+
+            assert!(component.archive().is_absolute());
+        }
     }
 
     fn metadata(target_identity: &str, abi: RuntimeAbiVersion) -> RuntimeArtifactMetadata {

@@ -67,6 +67,9 @@ pub(crate) fn intrinsic_representation_role(
                 Some(RepresentationRole::Unit)
             }
             BoundStructuredExpressionKind::Panic => Some(RepresentationRole::Never),
+            BoundStructuredExpressionKind::PatternTest
+            | BoundStructuredExpressionKind::Condition
+            | BoundStructuredExpressionKind::PatternBinding => Some(RepresentationRole::ScalarBool),
             _ => None,
         },
         _ => None,
@@ -185,12 +188,14 @@ where
             BoundExpression::Structured(structured)
                 if structured.kind() == BoundStructuredExpressionKind::Conditional =>
             {
-                add_operand_expectation(
-                    structured.operands().first().copied(),
-                    Some(types.boolean),
-                    variables,
-                    inference,
-                );
+                for condition in structured.operands() {
+                    add_operand_expectation(
+                        Some(*condition),
+                        Some(types.boolean),
+                        variables,
+                        inference,
+                    );
+                }
 
                 for block in structured.blocks() {
                     if let Some(block_variable) = block_variables.get(block).copied() {
@@ -248,6 +253,9 @@ where
                     structured.kind(),
                     BoundStructuredExpressionKind::BooleanAllFold
                         | BoundStructuredExpressionKind::BooleanAnyFold
+                        | BoundStructuredExpressionKind::PatternTest
+                        | BoundStructuredExpressionKind::Condition
+                        | BoundStructuredExpressionKind::PatternBinding
                 ) =>
             {
                 inference.add_evidence(variable, types.boolean, expression_id);

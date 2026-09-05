@@ -22,6 +22,13 @@ If pattern resolution is ambiguous, the pattern is rejected.
 
 A binding pattern receives its name only after pattern resolution fails to find a pattern-capable declaration.
 
+The subject type supplies unqualified union variants in `match`, `matches`, `if let`, and `while let`. For example,
+`result matches Ok(_)` uses the `Ok` variant of the result type. Qualified `Result.Ok(_)` and leading-dot `.Ok(_)`
+patterns remain valid. This resolution also applies when the subject is a local value or the result of a call.
+
+Alternative binding sets are compared after subject-dependent names have resolved. A variant name contributes no
+binding. A name that resolves to a binding in `matches` is rejected.
+
 This means ordinary binding syntax stays compact while named pattern forms do not require leading punctuation.
 
 Named constants, variants, and other pattern-capable declarations can also be matched through qualified paths.

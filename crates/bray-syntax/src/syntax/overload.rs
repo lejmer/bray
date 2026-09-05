@@ -118,13 +118,7 @@ define_source_syntax_node! {
     }
 }
 
-impl OverloadArmListSyntax {
-    /// Returns comma separator tokens in source order.
-    pub fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
-        self.tokens()
-            .filter(|token| token.kind() == SyntaxKind::CommaToken)
-    }
-}
+impl crate::node::GreenSeparatedSyntaxNode for OverloadArmListSyntax {}
 
 define_source_syntax_node! {
     /// Subject named by an implementation overload declaration.
@@ -329,6 +323,7 @@ define_source_syntax_node! {
 
 #[cfg(test)]
 mod tests {
+    use crate::SeparatedSyntaxNode;
     use bray_source::{SourceSnapshot, TextRange, TextSize};
 
     use crate::test_support::{identifier_path, snapshot as test_snapshot, token};

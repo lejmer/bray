@@ -260,12 +260,12 @@ where
         access: StorageAccessId,
         refinements: &[Refinement],
     ) -> bool {
-        let Some(storage_access) = self.storage.access(access) else {
+        let Some(projections) = self.storage.resolved_projections(access) else {
             return false;
         };
 
-        for projection in storage_access.projections() {
-            if !projection_is_available(self.storage, access, *projection, refinements) {
+        for (depth, projection) in projections.iter().enumerate() {
+            if !projection_is_available(self.storage, access, *projection, depth, refinements) {
                 return false;
             }
         }

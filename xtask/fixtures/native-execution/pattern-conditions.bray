@@ -1,0 +1,398 @@
+module pattern_conditions;
+
+struct Counter
+{
+    mut calls: i32;
+}
+
+struct Owned
+{
+    value: i32;
+}
+
+struct Probe
+{
+    mut counter: &mut Counter;
+    value: i32;
+
+    destruct()
+    {
+        self.counter.calls += 1;
+    }
+}
+
+union Choice
+{
+    Data(pos value: i32);
+    Empty;
+}
+
+func next_value(pos counter: &mut Counter) -> i32?
+{
+    counter.calls += 1;
+
+    if counter.calls < 4
+    {
+        return counter.calls;
+    }
+
+    return none;
+}
+
+func main() -> i32
+{
+    let mut counter: Counter = Counter
+    {
+        calls = 0
+    };
+
+    if !(next_value(&mut counter) matches ?1) || counter.calls != 1
+    {
+        return 1;
+    }
+
+    let skipped: bool = true || next_value(&mut counter) matches ?_;
+
+    if !skipped || counter.calls != 1
+    {
+        return 2;
+    }
+
+    if let ?value = next_value(&mut counter)
+    {
+        if value != 2
+        {
+            return 3;
+        }
+    }
+    else if let ?value = next_value(&mut counter)
+    {
+        return 4;
+    }
+    else
+    {
+        return 5;
+    }
+
+    if counter.calls != 2
+    {
+        return 6;
+    }
+
+    let mut total: i32 = 0;
+
+    let exhausted: i32 = while let ?value = next_value(&mut counter)
+    {
+        total += value;
+        continue;
+    }
+    else
+    {
+        break 9;
+    };
+
+    if counter.calls != 4 || total != 3 || exhausted != 9
+    {
+        return 7;
+    }
+
+    let selected: i32 = if let ?value = next_value(&mut counter)
+    {
+        yield value;
+    }
+    else
+    {
+        yield 11;
+    };
+
+    if selected != 11 || counter.calls != 5
+    {
+        return 8;
+    }
+
+    counter.calls = 0;
+
+    let early: i32 = while let ?value = next_value(&mut counter)
+    {
+        break value;
+    }
+    else
+    {
+        break 99;
+    };
+
+    if early != 1 || counter.calls != 1
+    {
+        return 9;
+    }
+
+    let choice: Choice = Data(7);
+
+    if !(choice matches Data(_) | Empty)
+    {
+        return 10;
+    }
+
+    if let Data(value) = choice
+    {
+        if value != 7
+        {
+            return 11;
+        }
+    }
+    else
+    {
+        return 12;
+    }
+
+    let owned: Owned = Owned
+    {
+        value = 13
+    };
+
+    if !(owned matches Owned
+    {
+        value = 13
+    }
+    )
+    {
+        return 13;
+    }
+
+    if owned.value != 13
+    {
+        return 14;
+    }
+
+    let tuple: (i32, bool) = (1, true);
+    let array: [i32; 2] = [2, 3];
+
+    if !(tuple matches (1, true)) || !(array matches [2,..])
+    {
+        return 15;
+    }
+
+    counter.calls = 0;
+
+    if let
+    {
+        value,..
+    }
+    = Probe
+    {
+        counter = &mut counter,
+        value = 7
+    }
+    {
+        if value != 7
+        {
+            return 16;
+        }
+    }
+
+    if counter.calls != 1
+    {
+        return 17;
+    }
+
+    if(Probe
+    {
+        counter = &mut counter,
+        value = 0
+    }
+    ) matches
+    {
+        value = 1,..
+    }
+    {
+        return 18;
+    }
+
+    if counter.calls != 2
+    {
+        return 19;
+    }
+
+    counter.calls = 0;
+
+    let mut attempts: i32 = 0;
+
+    while let
+    {
+        value = 0 | 1,..
+    }
+    = Probe
+    {
+        value = attempts,
+        counter = &mut counter
+    }
+    {
+        attempts += 1;
+        continue;
+    }
+    else
+    {
+        if attempts != 2
+        {
+            return 20;
+        }
+    }
+
+    if counter.calls != 3
+    {
+        return 21;
+    }
+
+    while let
+    {
+        value,..
+    }
+    = Probe
+    {
+        counter = &mut counter,
+        value = 7
+    }
+    {
+        if value != 7
+        {
+            return 22;
+        }
+
+        break;
+    }
+
+    if counter.calls != 4
+    {
+        return 23;
+    }
+
+    if probe_return(&mut counter) != 8 || counter.calls != 5
+    {
+        return 24;
+    }
+
+    if let
+    {
+        value,..
+    }
+    = Probe
+    {
+        counter = &mut counter,
+        value = 7
+    }
+    && value > 10
+    {
+        return 25;
+    }
+    else
+    {
+        if counter.calls != 6
+        {
+            return 26;
+        }
+    }
+
+    if false && let
+    {
+        value,..
+    }
+    = Probe
+    {
+        counter = &mut counter,
+        value = 7
+    }
+    && value > 0
+    {
+        return value;
+    }
+
+    if counter.calls != 6
+    {
+        return 27;
+    }
+
+    let mut other: Counter = Counter
+    {
+        calls = 0
+    };
+
+    if let
+    {
+        value,..
+    }
+    = Probe
+    {
+        counter = &mut counter,
+        value = 7
+    }
+    && let
+    {
+        value = next,..
+    }
+    = Probe
+    {
+        counter = &mut other,
+        value = value + 1
+    }
+    && (next == 8 || value == 0)
+    {
+        if next != value + 1
+        {
+            return 28;
+        }
+    }
+    else
+    {
+        return 29;
+    }
+
+    if counter.calls != 7 || other.calls != 1
+    {
+        return 30;
+    }
+
+    attempts = 0;
+
+    while let
+    {
+        value,..
+    }
+    = Probe
+    {
+        counter = &mut counter,
+        value = attempts
+    }
+    && value < 2
+    {
+        attempts += 1;
+        continue;
+    }
+    else
+    {
+        if attempts != 2 || counter.calls != 10
+        {
+            return 31;
+        }
+    }
+
+    return 0;
+}
+
+func probe_return(pos counter: &mut Counter) -> i32
+{
+    if let
+    {
+        value,..
+    }
+    = Probe
+    {
+        counter = counter,
+        value = 8
+    }
+    && value > 0
+    {
+        return value;
+    }
+
+    return 0;
+}

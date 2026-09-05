@@ -6,10 +6,11 @@ use bray_bound_tree::{
 use bray_symbols::{LocalScopeId, SymbolName};
 use bray_syntax::{
     AccessExpressionSyntax, ArrayExpressionSyntax, AwaitExpressionSyntax,
-    BooleanFoldExpressionSyntax, ForExpressionSyntax, GeneralGeneratorExpressionSyntax,
-    LambdaExpressionSyntax, LeadingDotVariantExpressionSyntax, LiteralExpressionSyntax,
-    MatchExpressionSyntax, PrimaryExpressionSyntax, SourceSyntaxNode, SyntaxKind, SyntaxNodeView,
-    SyntaxWalkControl, TypeExpressionSyntax, WithExpressionSyntax, walk_direct_child_nodes,
+    BooleanFoldExpressionSyntax, ConditionalExpressionSyntax, ForExpressionSyntax,
+    GeneralGeneratorExpressionSyntax, LambdaExpressionSyntax, LeadingDotVariantExpressionSyntax,
+    LiteralExpressionSyntax, MatchExpressionSyntax, PrimaryExpressionSyntax, SourceSyntaxNode,
+    SyntaxKind, SyntaxNodeView, SyntaxWalkControl, TypeExpressionSyntax, WhileExpressionSyntax,
+    WithExpressionSyntax, walk_direct_child_nodes,
 };
 
 use super::super::{BindingError, BindingResult};
@@ -142,6 +143,14 @@ impl ExpressionBinder {
                 &generator.generator_iteration_expression(),
                 BoundStructuredExpressionKind::GeneralGenerator,
             );
+        }
+
+        if let Some(expression) = root.cast::<ConditionalExpressionSyntax>() {
+            return self.bind_conditional(binder, scope, &expression);
+        }
+
+        if let Some(expression) = root.cast::<WhileExpressionSyntax>() {
+            return self.bind_while(binder, scope, &expression);
         }
 
         if root.kind() == SyntaxKind::ForExpression {

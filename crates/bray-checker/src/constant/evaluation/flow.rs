@@ -184,27 +184,25 @@ where
         expression: BoundExpressionId,
         conditional: &BoundStructuredExpression,
     ) -> Result<EvaluationFlow, EvaluationFailure> {
-        let [condition] = conditional.operands() else {
+        if conditional.operands().is_empty()
+            || conditional.blocks().len() < conditional.operands().len()
+        {
             return Err(EvaluationFailure::invalid_expression(expression));
-        };
-
-        let condition = self.evaluate(*condition)?;
-        let condition = self.closed_value(condition, expression)?;
-        let condition = self.constant_value(condition)?;
-
-        let ConstantValueKind::Boolean(condition) = condition.kind() else {
-            return Err(EvaluationFailure::invalid_expression(expression));
-        };
+        }
 
         let ty = self.expression_type(expression)?;
 
-        match (*condition, conditional.blocks()) {
-            (true, [then, ..]) => self.evaluate_block(*then, ty),
-            (false, [_, otherwise, ..]) => self.evaluate_block(*otherwise, ty),
-            (false, [_]) | (false, []) => self
+        for (condition, block) in conditional.operands().iter().zip(conditional.blocks()) {
+            if self.boolean_value(*condition)? {
+                return self.evaluate_block(*block, ty);
+            }
+        }
+
+        match conditional.blocks().get(conditional.operands().len()) {
+            Some(block) => self.evaluate_block(*block, ty),
+            None => self
                 .intern_value_term(ty, ConstantValueKind::Unit)
                 .map(EvaluationFlow::Value),
-            (true, []) => Err(EvaluationFailure::invalid_expression(expression)),
         }
     }
 

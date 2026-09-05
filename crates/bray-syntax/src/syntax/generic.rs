@@ -132,13 +132,7 @@ define_source_syntax_node! {
     }
 }
 
-impl GenericParameterListSyntax {
-    /// Returns comma separator tokens in source order.
-    pub fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
-        self.tokens()
-            .filter(|token| token.kind() == SyntaxKind::CommaToken)
-    }
-}
+impl crate::node::GreenSeparatedSyntaxNode for GenericParameterListSyntax {}
 
 define_source_syntax_node! {
     /// Generic argument.
@@ -228,13 +222,7 @@ define_source_syntax_node! {
     }
 }
 
-impl GenericArgumentListSyntax {
-    /// Returns comma separator tokens in source order.
-    pub fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
-        self.tokens()
-            .filter(|token| token.kind() == SyntaxKind::CommaToken)
-    }
-}
+impl crate::node::GreenSeparatedSyntaxNode for GenericArgumentListSyntax {}
 
 define_source_syntax_node! {
     /// Type-form argument.
@@ -324,16 +312,11 @@ define_source_syntax_node! {
     }
 }
 
-impl TypeFormArgumentListSyntax {
-    /// Returns comma separator tokens in source order.
-    pub fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
-        self.tokens()
-            .filter(|token| token.kind() == SyntaxKind::CommaToken)
-    }
-}
+impl crate::node::GreenSeparatedSyntaxNode for TypeFormArgumentListSyntax {}
 
 #[cfg(test)]
 mod tests {
+    use crate::SeparatedSyntaxNode;
     use bray_source::TextSize;
 
     use super::{

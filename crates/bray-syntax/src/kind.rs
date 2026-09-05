@@ -387,6 +387,8 @@ pub enum SyntaxKind {
     LetKeyword,
     LoopKeyword,
     MatchKeyword,
+    /// The structural pattern-test keyword.
+    MatchesKeyword,
     ModuleKeyword,
     MoveKeyword,
     MutKeyword,
@@ -735,6 +737,7 @@ impl SyntaxKind {
                 | Self::LetKeyword
                 | Self::LoopKeyword
                 | Self::MatchKeyword
+                | Self::MatchesKeyword
                 | Self::ModuleKeyword
                 | Self::MoveKeyword
                 | Self::MutKeyword
@@ -808,6 +811,7 @@ impl SyntaxKind {
                 | Self::PipePipeToken
                 | Self::AmpersandAmpersandToken
                 | Self::EqualsEqualsToken
+                | Self::MatchesKeyword
                 | Self::BangEqualsToken
                 | Self::LessToken
                 | Self::LessEqualsToken
@@ -1076,6 +1080,7 @@ impl SyntaxKind {
             Self::LetKeyword => "let_keyword",
             Self::LoopKeyword => "loop_keyword",
             Self::MatchKeyword => "match_keyword",
+            Self::MatchesKeyword => "matches_keyword",
             Self::ModuleKeyword => "module_keyword",
             Self::MoveKeyword => "move_keyword",
             Self::MutKeyword => "mut_keyword",

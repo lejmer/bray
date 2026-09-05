@@ -152,7 +152,9 @@ impl Parser {
         context: PatternContext,
         at_boundary: &mut dyn FnMut(&mut Parser) -> bool,
     ) -> PatternNode {
-        if at_boundary(self) || at_pattern_hard_boundary(self.peek().kind()) {
+        if (!self.at(SyntaxKind::OpenBraceToken) && at_boundary(self))
+            || at_pattern_hard_boundary(self.peek().kind())
+        {
             return self.missing_pattern(context);
         }
 
@@ -293,11 +295,36 @@ impl Parser {
 
         if !at_boundary(self) && self.at(SyntaxKind::OpenParenToken) {
             self.parse_payload_pattern_body(&mut builder, context, at_boundary);
-        } else if !at_boundary(self) && self.at(SyntaxKind::OpenBraceToken) {
+        } else if self.at(SyntaxKind::OpenBraceToken)
+            && (!at_boundary(self) || self.product_pattern_precedes_continuation(context))
+        {
             self.parse_product_pattern_body(&mut builder, context, at_boundary);
         }
 
         builder.build()
+    }
+
+    fn product_pattern_precedes_continuation(&mut self, context: PatternContext) -> bool {
+        self.scan_ahead(|scan| {
+            let recovered = match scan.parse_expected_type_product_pattern(context, &mut |_| false)
+            {
+                PatternNode::Irrefutable(pattern) => pattern.is_recovered(),
+                PatternNode::Case(pattern) => pattern.is_recovered(),
+            };
+
+            !recovered
+                && matches!(
+                    scan.peek().kind(),
+                    SyntaxKind::OpenBraceToken
+                        | SyntaxKind::WhenKeyword
+                        | SyntaxKind::PipeToken
+                        | SyntaxKind::AmpersandAmpersandToken
+                        | SyntaxKind::PipePipeToken
+                        | SyntaxKind::CloseParenToken
+                        | SyntaxKind::CloseBracketToken
+                        | SyntaxKind::CommaToken
+                )
+        })
     }
 
     fn parse_expected_type_product_pattern(
@@ -669,6 +696,7 @@ fn at_pattern_entry_sequence_hard_boundary(kind: SyntaxKind) -> bool {
 #[cfg(test)]
 mod tests {
     use bray_diagnostics::DiagnosticKind;
+    use bray_syntax::SeparatedSyntaxNode;
     use bray_syntax::{SyntaxKind, SyntaxText};
     use bray_testing::test_source_store as source_store;
 
@@ -742,9 +770,34 @@ mod tests {
         };
 
         assert_eq!(pattern.full_text(), "(Some(value) | none)");
+        assert_eq!(pattern.alternative_separator_tokens().count(), 0);
         assert_eq!(inner.alternative_separator_tokens().count(), 1);
 
         assert!(diagnostics.is_empty());
+    }
+
+    #[test]
+    fn pattern_separators_exclude_nested_patterns() {
+        let source_text = "(1 | 2, [3, 4])";
+        let sources = source_store([source_text]);
+        let snapshot = source(&sources, 0);
+        let mut parser = Parser::new(snapshot);
+        let mut boundary = |parser: &mut Parser| parser.at(SyntaxKind::EndOfFileToken);
+        let pattern = parser.parse_case_pattern_until(&mut boundary);
+        let diagnostics = parser.finish();
+        let nested = pattern.case_patterns().collect::<Vec<_>>();
+
+        let [alternatives, array] = nested.as_slice() else {
+            panic!("expected tuple pattern children: {nested:?}");
+        };
+
+        assert_eq!(pattern.full_text(), source_text);
+        assert_eq!(pattern.separator_tokens().count(), 1);
+        assert_eq!(pattern.alternative_separator_tokens().count(), 0);
+        assert_eq!(alternatives.separator_tokens().count(), 0);
+        assert_eq!(alternatives.alternative_separator_tokens().count(), 1);
+        assert_eq!(array.separator_tokens().count(), 1);
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
     }
 
     #[test]

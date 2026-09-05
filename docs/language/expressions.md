@@ -55,6 +55,7 @@ later language checks.
 - [Nullable and absence expressions](expressions/nullable-and-absence-expressions.md)
 - [Result and run result propagation expressions](expressions/result-and-run-result-propagation-expressions.md)
 - [Conditional expressions](expressions/conditional-expressions.md)
+- [Pattern-test expressions](expressions/pattern-test-expressions.md)
 - [While expressions](expressions/while-expressions.md)
 - [For expressions](expressions/for-expressions.md)
 - [Loop expressions](expressions/loop-expressions.md)

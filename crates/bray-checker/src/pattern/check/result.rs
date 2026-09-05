@@ -301,6 +301,47 @@ where
         Ok(())
     }
 
+    pub(super) fn report_binding_in_test(
+        &mut self,
+        id: BoundPatternId,
+        pattern: &BoundPattern,
+        binding: Option<bray_symbols::LocalBindingSymbolId>,
+    ) -> Result<(), CheckerQueryError<C::UpstreamError>> {
+        let span = match binding.and_then(|binding| {
+            self.request
+                .unit()
+                .local_symbols()
+                .syntax_anchor(binding.into())
+        }) {
+            Some(syntax) => self
+                .request
+                .source(bray_bound_tree::BoundSourceAnchor::new(
+                    syntax,
+                    pattern.origin().source_anchor().source_version(),
+                ))?
+                .span(),
+            None => pattern_span(self.request, id)?,
+        };
+
+        self.diagnostics.push(
+            Diagnostic::new(
+                diagnostic_id(self.diagnostics.len()),
+                DiagnosticKind::CheckingBindingInPatternTest,
+                SeverityKind::Error,
+            )
+            .with_primary_span(span)
+            .with_label(DiagnosticLabel::primary(
+                DiagnosticLabelKind::PatternFailure,
+                span,
+            ))
+            .with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::PatternTestMustNotBind,
+            )),
+        );
+
+        Ok(())
+    }
+
     pub(super) fn report_refutable(
         &mut self,
         pattern: BoundPatternId,

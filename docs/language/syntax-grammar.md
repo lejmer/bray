@@ -267,7 +267,7 @@ logical-and-expression =
     comparison-expression { "&&" comparison-expression } ;
 
 comparison-expression =
-    bitwise-or-expression [ comparison-operator bitwise-or-expression ] ;
+    bitwise-or-expression [ comparison-operator bitwise-or-expression | "matches" case-pattern ] ;
 
 bitwise-or-expression =
     bitwise-xor-expression { "|" bitwise-xor-expression } ;
@@ -706,7 +706,15 @@ Control-flow expressions use header syntax followed by block bodies.
 
 ```ebnf
 conditional-expression =
-    "if" condition-expression block-expression [ "else" conditional-else ] ;
+    "if" conditional-test block-expression [ "else" conditional-else ] ;
+
+conditional-test =
+      logical-or-expression
+    | binding-condition { "&&" binding-condition } ;
+
+binding-condition =
+      comparison-expression
+    | "let" case-pattern "=" comparison-expression ;
 
 conditional-else =
       block-expression
@@ -725,7 +733,7 @@ match-arm =
     "case" case-pattern [ "when" guard-expression ] block-expression ;
 
 while-expression =
-    "while" condition-expression block-expression [ "else" block-expression ] ;
+    "while" conditional-test block-expression [ "else" block-expression ] ;
 
 for-expression =
     "for" irrefutable-pattern "in" iteration-source block-expression
@@ -984,7 +992,9 @@ Expected-type struct construction uses `expected-type-struct-construction-expres
 
 Leading-dot union variant syntax is a primary root. Payload variant construction then uses the ordinary call postfix.
 
-Comparisons are non-associative because `comparison-expression` accepts at most one comparison operator.
+Comparisons and `matches` are non-associative because `comparison-expression` accepts at most one comparison or
+structural pattern test. The right operand of `matches` is a case pattern, including its `|` alternatives.
+Conditional `let` is restricted to `if` and `while` headers and is not an arbitrary boolean expression.
 
 Exponentiation is right-associative and binds tighter than prefix unary operators because the right operand of `**` is a
 `unary-expression`.

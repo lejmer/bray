@@ -199,13 +199,8 @@ macro_rules! define_expression_contract_clause_syntax {
             }
         }
 
-        impl $node_syntax {
-            /// Returns comma separator tokens in source order.
-            pub fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
-                self.tokens()
-                    .filter(|token| token.kind() == SyntaxKind::CommaToken)
-            }
-        }
+        impl crate::node::GreenSeparatedSyntaxNode for $node_syntax {}
+
     };
 }
 
@@ -330,16 +325,11 @@ define_source_syntax_node! {
     }
 }
 
-impl UsesClauseSyntax {
-    /// Returns comma separator tokens in source order.
-    pub fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
-        self.tokens()
-            .filter(|token| token.kind() == SyntaxKind::CommaToken)
-    }
-}
+impl crate::node::GreenSeparatedSyntaxNode for UsesClauseSyntax {}
 
 #[cfg(test)]
 mod tests {
+    use crate::SeparatedSyntaxNode;
     use bray_source::TextSize;
 
     use crate::test_support::{

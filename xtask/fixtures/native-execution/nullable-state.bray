@@ -17,9 +17,9 @@ func next_value(pos counter: &mut Counter) -> i32?
     return 42;
 }
 
-func borrowed_is_present(pos value: &(OwnedValue?)) -> bool
+func borrowed_state<T>(pos value: &(T?)) -> (bool, bool)
 {
-    return value.is_present();
+    return (value.is_present(), value.is_absent());
 }
 
 func yielded_value() -> i32?
@@ -50,7 +50,11 @@ func main() -> i32
     let present_is_absent: bool = present.is_absent();
     let absent_is_present: bool = absent.is_present();
     let absent_is_absent: bool = absent.is_absent();
-    let borrowed_present: bool = borrowed_is_present(&present);
+    let (borrowed_present, borrowed_absent) = borrowed_state<OwnedValue>(&present);
+    let (empty_present, empty_absent) = borrowed_state<OwnedValue>(&absent);
+
+    let integer: i32? = 7;
+    let (integer_present, integer_absent) = borrowed_state<i32>(&integer);
 
     if !present_is_present || present_is_absent
     {
@@ -62,7 +66,7 @@ func main() -> i32
         return 2;
     }
 
-    if !borrowed_present
+    if !borrowed_present || borrowed_absent
     {
         return 3;
     }
@@ -92,6 +96,16 @@ func main() -> i32
     if(broken_value()).is_absent()
     {
         return 7;
+    }
+
+    if empty_present || !empty_absent
+    {
+        return 8;
+    }
+
+    if !integer_present || integer_absent
+    {
+        return 9;
     }
 
     return 0;

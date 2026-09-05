@@ -790,6 +790,45 @@ mod tests {
     }
 
     #[test]
+    fn pattern_conditions_preserve_scope_and_round_trip() {
+        let source = "module app; func main() { if let ?value=input&&value>0 { if flag { use(value); } } while let Data(value)=next()&&value>0 { assert(value matches 0|1); } else {} if input matches Empty {} else if input matches Data(_) {} if let true=(ready||fallback)&&permitted {} }";
+        let output = format(source);
+        let snapshot = test_source_snapshot(output.text());
+        let parsed = parse_source_unit(&snapshot);
+
+        assert!(
+            parsed.diagnostics().is_empty(),
+            "{}: {:?}",
+            output.text(),
+            parsed.diagnostics()
+        );
+
+        assert!(
+            output.text().contains("if let ?value = input && value > 0"),
+            "{}",
+            output.text()
+        );
+
+        assert!(output.text().contains("if flag"), "{}", output.text());
+
+        assert!(
+            output
+                .text()
+                .contains("while let Data(value) = next() && value > 0"),
+            "{}",
+            output.text()
+        );
+
+        assert!(
+            output.text().contains("value matches 0 | 1"),
+            "{}",
+            output.text()
+        );
+
+        assert!(!format(output.text()).changed());
+    }
+
+    #[test]
     fn separates_generic_delimiters_from_prefix_borrows() {
         let source =
             "module app; func borrow<T, E>(pos value: &T) -> Result< &T, E> { return Ok(value); }";

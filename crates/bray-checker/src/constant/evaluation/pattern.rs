@@ -18,6 +18,30 @@ impl<'view, 'input, 'types, C> Evaluator<'view, 'input, 'types, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    pub(super) fn evaluate_pattern_test(
+        &mut self,
+        expression: BoundExpressionId,
+        test: &bray_bound_tree::BoundStructuredExpression,
+        ty: bray_symbols::TypeId,
+    ) -> Result<ConstantTermId, EvaluationFailure> {
+        let ([subject], [pattern]) = (test.operands(), test.patterns()) else {
+            return Err(EvaluationFailure::invalid_expression(expression));
+        };
+
+        let subject = self.evaluate(*subject)?;
+        let value = self.closed_value(subject, expression)?;
+
+        // A failed conditional pattern must discard bindings created before a nested failure.
+        let outer_locals = self.locals.clone();
+        let matched = self.pattern_matches(expression, *pattern, subject, value)?;
+
+        if !matched || test.kind() == bray_bound_tree::BoundStructuredExpressionKind::PatternTest {
+            self.locals = outer_locals;
+        }
+
+        self.intern_value_term(ty, ConstantValueKind::Boolean(matched))
+    }
+
     pub(super) fn evaluate_match(
         &mut self,
         expression: BoundExpressionId,
@@ -284,7 +308,10 @@ where
         Ok((term, value))
     }
 
-    fn boolean_value(&mut self, expression: BoundExpressionId) -> Result<bool, EvaluationFailure> {
+    pub(super) fn boolean_value(
+        &mut self,
+        expression: BoundExpressionId,
+    ) -> Result<bool, EvaluationFailure> {
         let value = self.evaluate(expression)?;
         let value = self.closed_value(value, expression)?;
         let value = self.constant_value(value)?;

@@ -152,13 +152,7 @@ define_source_syntax_node! {
     }
 }
 
-impl UnionVariantPayloadSyntax {
-    /// Returns comma separator tokens in source order.
-    pub fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
-        self.tokens()
-            .filter(|token| token.kind() == SyntaxKind::CommaToken)
-    }
-}
+impl crate::node::GreenSeparatedSyntaxNode for UnionVariantPayloadSyntax {}
 
 define_source_syntax_node! {
     /// Optional union payload field modifiers in source order.

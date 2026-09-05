@@ -76,23 +76,24 @@ impl GreenNode {
         start: TextSize,
         predicate: impl Fn(SyntaxKind) -> bool,
     ) -> Option<SyntaxToken> {
+        self.child_tokens(start)
+            .find(|token| predicate(token.kind()))
+    }
+
+    /// Returns direct child tokens without descending into nested syntax nodes.
+    pub(crate) fn child_tokens(&self, start: TextSize) -> impl Iterator<Item = SyntaxToken> + '_ {
         let mut offset = start;
 
-        for child in self.children() {
+        self.children().iter().filter_map(move |child| {
             let child_start = offset;
 
             offset = checked_add(child_start, child.full_width(), "next child token start");
 
-            let GreenElement::Token(token) = child else {
-                continue;
-            };
-
-            if predicate(token.kind()) {
-                return Some(token.syntax_token(child_start));
+            match child {
+                GreenElement::Token(token) => Some(token.syntax_token(child_start)),
+                GreenElement::Node(_) => None,
             }
-        }
-
-        None
+        })
     }
 
     /// Returns the last descendant token kind and presence in source order.

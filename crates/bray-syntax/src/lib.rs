@@ -20,7 +20,7 @@ mod walk;
 
 pub use fragment::{PreparsedSyntaxEvent, PreparsedSyntaxFragment, PreparsedSyntaxFragmentError};
 pub use kind::SyntaxKind;
-pub use node::{SourceSyntaxNode, SyntaxNode};
+pub use node::{SeparatedSyntaxNode, SourceSyntaxNode, SyntaxNode};
 pub use syntax::{
     AbiDirectiveSyntax, AbiDirectiveSyntaxBuilder, AbsenceExpressionSyntax,
     AbsenceExpressionSyntaxBuilder, AccessExpressionSyntax, AccessExpressionSyntaxBuilder,

@@ -57,6 +57,15 @@ pub(super) fn token_spacing(
     }
 
     if matches!(previous, SyntaxKind::DotToken) || matches!(current, SyntaxKind::DotToken) {
+        if current == SyntaxKind::DotToken
+            && matches!(
+                previous,
+                SyntaxKind::CaseKeyword | SyntaxKind::LetKeyword | SyntaxKind::MatchesKeyword
+            )
+        {
+            return Some(space(FormatterRule::WordSpacing));
+        }
+
         return Some(no_space(FormatterRule::MemberAccessSpacing));
     }
 
@@ -283,7 +292,12 @@ fn punctuation_spacing(previous: SyntaxKind, current: SyntaxKind) -> Option<Toke
         SyntaxKind::OpenParenToken | SyntaxKind::CloseParenToken => {
             Some(no_space(FormatterRule::ParenthesizedListLayout))
         }
-        SyntaxKind::OpenBracketToken if previous == SyntaxKind::MutKeyword => {
+        SyntaxKind::OpenBracketToken
+            if matches!(
+                previous,
+                SyntaxKind::MutKeyword | SyntaxKind::LetKeyword | SyntaxKind::CaseKeyword
+            ) =>
+        {
             Some(space(FormatterRule::WordSpacing))
         }
         SyntaxKind::OpenBracketToken | SyntaxKind::CloseBracketToken => {
@@ -292,7 +306,9 @@ fn punctuation_spacing(previous: SyntaxKind, current: SyntaxKind) -> Option<Toke
         SyntaxKind::CommaToken => Some(no_space(FormatterRule::CommaSpacing)),
         SyntaxKind::SemicolonToken => Some(no_space(FormatterRule::SemicolonLayout)),
         SyntaxKind::ColonToken => Some(no_space(FormatterRule::ColonSpacing)),
-        SyntaxKind::QuestionToken if previous == SyntaxKind::CaseKeyword => {
+        SyntaxKind::QuestionToken
+            if matches!(previous, SyntaxKind::CaseKeyword | SyntaxKind::LetKeyword) =>
+        {
             Some(space(FormatterRule::WordSpacing))
         }
         SyntaxKind::QuestionToken => Some(no_space(FormatterRule::MemberAccessSpacing)),

@@ -1598,6 +1598,14 @@ const CHECKING_REFUTABLE_PATTERN: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
 ];
 
+const CHECKING_BINDING_IN_PATTERN_TEST: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "a `matches` pattern cannot introduce a binding",
+)];
+
+const NOTE_PATTERN_TEST_MUST_NOT_BIND: &[MessageTemplatePart] = &[MessageTemplatePart::Text(
+    "replace the binding with `_`, or use `if let` or `while let` to use the matched value",
+)];
+
 const CHECKING_NON_EXHAUSTIVE_MATCH: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("match coverage is incomplete: "),
     MessageTemplatePart::Arg(DiagnosticArgName::PatternCoverage),
@@ -2008,6 +2016,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::ArrayGeneratorMustYieldOncePerElement
         | DiagnosticNoteKind::CallbackStateRequirements
         | DiagnosticNoteKind::RefutablePatternRequiresConditionalContext
+        | DiagnosticNoteKind::PatternTestMustNotBind
         | DiagnosticNoteKind::EscapingStorageDependencyResolution
         | DiagnosticNoteKind::AsynchronousCallableRequired
         | DiagnosticNoteKind::ExecutableEntrypointRequired
@@ -2333,6 +2342,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::CheckingRefutablePattern => {
             MessageTemplate::new(CHECKING_REFUTABLE_PATTERN)
+        }
+        DiagnosticKind::CheckingBindingInPatternTest => {
+            MessageTemplate::new(CHECKING_BINDING_IN_PATTERN_TEST)
         }
         DiagnosticKind::CheckingNonExhaustiveMatch => {
             MessageTemplate::new(CHECKING_NON_EXHAUSTIVE_MATCH)
@@ -2938,6 +2950,9 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         }
         DiagnosticNoteKind::RefutablePatternRequiresConditionalContext => {
             MessageTemplate::new(NOTE_REFUTABLE_PATTERN_REQUIRES_CONDITIONAL_CONTEXT)
+        }
+        DiagnosticNoteKind::PatternTestMustNotBind => {
+            MessageTemplate::new(NOTE_PATTERN_TEST_MUST_NOT_BIND)
         }
         DiagnosticNoteKind::InterfaceDependencyContext => {
             MessageTemplate::new(NOTE_INTERFACE_DEPENDENCY_CONTEXT)

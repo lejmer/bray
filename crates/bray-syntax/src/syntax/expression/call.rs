@@ -1,5 +1,5 @@
 use crate::node::define_source_syntax_node;
-use crate::{ExpressionSyntax, GenericArgumentListSyntax, SyntaxKind, SyntaxToken};
+use crate::{ExpressionSyntax, GenericArgumentListSyntax, SyntaxKind};
 
 define_source_syntax_node! {
     /// Call postfix operation.
@@ -133,10 +133,4 @@ define_source_syntax_node! {
     }
 }
 
-impl ArgumentListSyntax {
-    /// Returns comma separator tokens in source order.
-    pub fn separator_tokens(&self) -> impl Iterator<Item = SyntaxToken> + '_ {
-        self.tokens()
-            .filter(|token| token.kind() == SyntaxKind::CommaToken)
-    }
-}
+impl crate::node::GreenSeparatedSyntaxNode for ArgumentListSyntax {}

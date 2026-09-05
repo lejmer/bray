@@ -7,8 +7,8 @@ use bray_symbols::{
 };
 
 use crate::{
-    BoundExpressionId, BoundPatternId, BoundPatternLiteral, BoundPatternTarget, BoundUnitId,
-    BoundUnitKind,
+    BoundExpressionId, BoundPattern, BoundPatternId, BoundPatternLiteral, BoundPatternTarget,
+    BoundUnitId, BoundUnitKind,
 };
 
 /// The value or storage operation selected for one checked pattern.
@@ -188,6 +188,20 @@ impl PatternCheckEntry {
     /// Returns the declaration or local selected by this pattern.
     pub const fn target(self) -> Option<BoundPatternTarget> {
         self.target
+    }
+
+    /// Returns direct bindings after subject-dependent names have resolved.
+    /// The supplied syntax-shaped pattern must describe this checked occurrence.
+    pub fn bindings(
+        self,
+        pattern: &BoundPattern,
+    ) -> impl Iterator<Item = LocalBindingSymbolId> + '_ {
+        pattern
+            .bindings()
+            .iter()
+            .copied()
+            .filter(move |_| self.target.is_none())
+            .chain(pattern.entries().iter().filter_map(|entry| entry.binding()))
     }
 
     /// Returns the structural condition tested directly by this pattern.

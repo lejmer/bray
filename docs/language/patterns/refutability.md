@@ -36,6 +36,10 @@ The `none` pattern and `?inner` pattern are refutable because a nullable value c
 
 A pattern context declares whether it accepts refutable patterns.
 
+`matches`, `if let`, and `while let` accept refutable patterns without requiring exhaustive coverage. A failed
+`matches` test returns `false`. A failed conditional binding selects the false branch or natural loop exhaustion.
+Irrefutable patterns are also valid in these contexts, subject to the prohibition on bindings in `matches`.
+
 ## Navigation
 
 - [Language index](../index.md)
