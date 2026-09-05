@@ -40,7 +40,7 @@ struct PairStorage
 
 impl PairStorage(Storage<Pair>)
 {
-    trusted static func create(pos value: Pair) -> PairStorage
+    trusted static func create(pos value: Pair) -> Self
     {
         let mut storage: Uninit<Pair> = core.memory.uninit<Pair>();
         let _: &mut Pair = core.memory.uninit_write<Pair>(&mut storage, value);
@@ -51,23 +51,23 @@ impl PairStorage(Storage<Pair>)
         };
     }
 
-    static func borrow(pos storage: &PairStorage) -> &Pair
+    static func borrow(pos storage: &Self) -> &Pair
     {
         return borrow_pair(storage);
     }
 
-    static func borrow_mut(pos storage: &mut PairStorage) -> &mut Pair
+    static func borrow_mut(pos storage: &mut Self) -> &mut Pair
     {
         return borrow_pair_mut(storage);
     }
 
-    trusted static func destroy(pos storage: &mut PairStorage)
+    trusted static func destroy(pos storage: &mut Self)
         uses(unchecked_init)
     {
         let _: Pair = trusted core.memory.move_initialized<Pair>(&mut storage.value);
     }
 
-    trusted static func release(pos storage: PairStorage)
+    trusted static func release(pos storage: Self)
     {
         let count = core.atomic.load<usize, 1>(&RELEASES);
 
@@ -569,7 +569,7 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
             return 14;
         }
 
-        let owned: box[PairStorage] Pair = box(
+        let owned = box[PairStorage](
             Pair
             {
                 left = Guard

@@ -9,6 +9,8 @@ use crate::{BoundExpressionId, BoundPatternId, BoundReferenceTarget, BoundUnitId
 pub enum DeclaredValueTypeTerm {
     /// One source-correlated expression occurrence.
     Expression(BoundExpressionId),
+    /// The explicit storage-policy type of an owned-indirection construction.
+    BoxStoragePolicy(BoundExpressionId),
     /// One source-correlated pattern occurrence.
     Pattern(BoundPatternId),
     /// One local or compilation-wide value identity.

@@ -869,3 +869,14 @@ mod tests {
         assert_eq!(open.as_array().map(Vec::len), Some(1));
     }
 }
+
+pub(in crate::output::diagnostic::json) fn push_source_span(
+    fields: &mut Vec<DiagnosticEmissionFieldJson>,
+    span: bray_source::SourceSpan,
+) {
+    fields.extend([
+        count_field("source", span.source_id().raw()),
+        count_field("source_start", span.start().bytes()),
+        count_field("source_end", span.end().bytes()),
+    ]);
+}

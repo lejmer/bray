@@ -65,31 +65,14 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
     ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
         let target = self.bind_only_nested_type(syntax)?;
 
-        let storage = match syntax.type_form_argument_lists().next() {
-            Some(arguments) => {
-                let mut arguments = arguments.type_form_arguments();
+        let storage = match box_storage_policy(syntax.type_form_argument_lists().next()) {
+            Ok(Some(storage)) => self.bind_type(&storage)?,
+            Ok(None) => self.bind_heap_storage_type()?,
+            Err(diagnostic) => {
+                self.diagnostics.add(diagnostic);
 
-                let Some(argument) = arguments.next() else {
-                    return self.error_type_template();
-                };
-
-                if arguments.next().is_some() || argument.expressions().next().is_some() {
-                    return self.error_type_template();
-                }
-
-                let mut types = argument.type_expressions();
-
-                let Some(storage) = types.next() else {
-                    return self.error_type_template();
-                };
-
-                if types.next().is_some() {
-                    return self.error_type_template();
-                }
-
-                self.bind_type(&storage)?
+                return self.error_type_template();
             }
-            None => self.bind_heap_storage_type()?,
         };
 
         if let (Some(storage), Some(target)) = (storage.resolved_type(), target.resolved_type()) {
@@ -207,4 +190,44 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
 
         self.bind_named_type(definition.into(), None)
     }
+}
+
+/// Selects the one type argument shared by box types and box construction expressions.
+pub(in crate::binding) fn box_storage_policy(
+    syntax: Option<bray_syntax::TypeFormArgumentListSyntax>,
+) -> Result<Option<bray_syntax::TypeExpressionSyntax>, bray_diagnostics::Diagnostic> {
+    use bray_syntax::SourceSyntaxNode;
+
+    let Some(syntax) = syntax else {
+        return Ok(None);
+    };
+
+    let invalid = || {
+        super::diagnostic::source_diagnostic(
+            &syntax,
+            bray_diagnostics::DiagnosticKind::BindingInvalidBoxStoragePolicy,
+        )
+        .with_arg(bray_diagnostics::DiagnosticArg::token_text(
+            syntax
+                .source()
+                .text_slice(syntax.full_range())
+                .unwrap_or_default(),
+        ))
+    };
+
+    let mut arguments = syntax.type_form_arguments();
+    let argument = arguments.next().ok_or_else(invalid)?;
+
+    if arguments.next().is_some() || argument.expressions().next().is_some() {
+        return Err(invalid());
+    }
+
+    let mut types = argument.type_expressions();
+    let policy = types.next().ok_or_else(invalid)?;
+
+    if types.next().is_some() {
+        return Err(invalid());
+    }
+
+    Ok(Some(policy))
 }

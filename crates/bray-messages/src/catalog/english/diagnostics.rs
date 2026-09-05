@@ -950,6 +950,12 @@ const BINDING_INVALID_MODULE_EXPORT_TARGET: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text(" cannot be re-exported"),
 ];
 
+const BINDING_INVALID_BOX_STORAGE_POLICY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("box storage policy "),
+    MessageTemplatePart::Arg(DiagnosticArgName::TokenText),
+    MessageTemplatePart::Text(" must contain exactly one type inside the brackets"),
+];
+
 const BINDING_MALFORMED_DIRECTIVE_ARGUMENT: &[MessageTemplatePart] =
     &[MessageTemplatePart::Text("directive argument is malformed")];
 
@@ -2684,6 +2690,9 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         }
         DiagnosticKind::BindingInvalidModuleExportTarget => {
             MessageTemplate::new(BINDING_INVALID_MODULE_EXPORT_TARGET)
+        }
+        DiagnosticKind::BindingInvalidBoxStoragePolicy => {
+            MessageTemplate::new(BINDING_INVALID_BOX_STORAGE_POLICY)
         }
         DiagnosticKind::BindingMalformedDirectiveArgument => {
             MessageTemplate::new(BINDING_MALFORMED_DIRECTIVE_ARGUMENT)

@@ -67,6 +67,8 @@ pub(super) const fn native_product_failure_is_internal(
         | Kind::CodegenUnitMismatch(_)
         | Kind::CodegenInvalidHostMir(_)
         | Kind::CodegenInvalidLifecycleMir(_)
+        | Kind::CodegenInvalidCompilerProvidedMir(_)
+        | Kind::CodegenMissingCallableImplementation { .. }
         | Kind::CodegenInvalidMappings(_)
         | Kind::CodegenMissingRuntimeRole(_)
         | Kind::CodegenOpenConstantTerm(_)

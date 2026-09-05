@@ -55,9 +55,6 @@ pub(crate) const fn expression_category(
             | BoundStructuredExpressionKind::GeneralGenerator => {
                 DiagnosticExpressionCategory::Generator
             }
-            BoundStructuredExpressionKind::TypeFormConstruction => {
-                DiagnosticExpressionCategory::Construction
-            }
             BoundStructuredExpressionKind::PatternTest
             | BoundStructuredExpressionKind::Condition
             | BoundStructuredExpressionKind::PatternBinding
@@ -74,6 +71,7 @@ pub(crate) const fn expression_category(
             | BoundStructuredExpressionKind::Panic => DiagnosticExpressionCategory::ControlFlow,
         },
         BoundExpression::StructConstruction(_)
+        | BoundExpression::BoxConstruction(_)
         | BoundExpression::LeadingDotVariant(_)
         | BoundExpression::UnqualifiedVariant(_) => DiagnosticExpressionCategory::Construction,
         BoundExpression::MemberAccess(_) => DiagnosticExpressionCategory::MemberAccess,

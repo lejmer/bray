@@ -6,13 +6,11 @@ use bray_codegen::{
     demanded_callable_instance_for_call,
 };
 use bray_ir::{
-    MirAsyncOperation, MirBlockKind, MirCallTarget, MirCleanupEdge, MirEdge, MirFrameInitializer,
-    MirHelperReference, MirOperand, MirOperationId, MirOperationKind, MirPlace, MirProjection,
-    MirProjectionKind, MirSourceAnchor, MirStorageKind, MirTerminatorKind, MirUnit, MirUnitBuilder,
-    MirUnitId, MirUnitKey,
+    MirAsyncOperation, MirCallTarget, MirFrameInitializer, MirHelperReference, MirOperationId,
+    MirOperationKind, MirUnit, MirUnitId, MirUnitKey,
 };
 use bray_runtime_interface::RuntimeAbiRole;
-use bray_symbols::{BorrowKind, TypeAssociatedLifecycleSlot, TypeData, TypeId};
+use bray_symbols::TypeId;
 
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
@@ -20,11 +18,10 @@ use super::super::specialization::{
     ConcreteCodegenCallee, ConcreteCodegenInstance, ConcreteCodegenReachability,
 };
 use super::support::{
-    dependency_symbol, direct_helper_symbol, helper_runtime_symbol, is_void_result,
-    operation_result_type,
+    dependency_symbol, direct_helper_symbol, helper_runtime_symbol, operation_result_type,
 };
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
-use crate::fact::{CancellationToken, FactQueryError};
+use crate::fact::CancellationToken;
 
 impl Compilation {
     pub(super) fn codegen_operations(
@@ -401,184 +398,15 @@ impl Compilation {
             .into());
         }
 
-        let ty = reference
-            .lifecycle_type()
-            .ok_or_else(|| CodegenPreparationError::MissingHelperInstance(reference.clone()))?;
+        let context =
+            super::synthetic::CompilationSyntheticLoweringContext::new(self, cancellation)?;
 
-        let values = self.semantic_value_store()?;
-
-        let pointer = values
-            .intern_type(TypeData::Borrow {
-                kind: BorrowKind::Mutable,
-                target: ty,
-            })
-            .map_err(FactQueryError::SemanticValueStore)?;
-
-        let source = MirSourceAnchor::generated_lifecycle(reference.clone());
-
-        let mut builder = MirUnitBuilder::for_generated_lifecycle(
-            unit,
+        bray_lowering::lower_lifecycle(
+            &context,
             instance.template().clone(),
-            reference.clone(),
-            instance.target().clone(),
-        );
-
-        let entry = builder
-            .push_block(source.clone(), MirBlockKind::Ordinary)
-            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
-
-        let storage = builder
-            .push_storage(source.clone(), MirStorageKind::Parameter(0), pointer)
-            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
-
-        let place = MirPlace::new(
-            storage,
-            [MirProjection::new(
-                MirProjectionKind::Dereference,
-                pointer,
-                ty,
-            )],
-            ty,
-        );
-
-        match reference {
-            MirHelperReference::Cleanup { phase, .. } => {
-                let broadcast = builder
-                    .push_block(source.clone(), MirBlockKind::CleanupBroadcast)
-                    .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
-
-                let lifecycle = builder
-                    .push_block(source.clone(), MirBlockKind::LifecycleResolution)
-                    .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
-
-                builder
-                    .set_terminator(
-                        entry,
-                        source.clone(),
-                        MirTerminatorKind::BeginCleanup(MirCleanupEdge::new(
-                            bray_ir::MirCleanupPhase::TaskCancellation,
-                            MirEdge::new(broadcast, []),
-                        )),
-                    )
-                    .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
-
-                let (broadcast_end, lifecycle_end) = match phase {
-                    bray_ir::MirCleanupPhase::TaskCancellation => (
-                        self.push_generated_lifecycle_operations(
-                            &mut builder,
-                            broadcast,
-                            &source,
-                            reference,
-                            place,
-                            instance.target().runtime_abi(),
-                            cancellation,
-                        )?,
-                        lifecycle,
-                    ),
-                    bray_ir::MirCleanupPhase::LifecycleResolution => (
-                        broadcast,
-                        self.push_generated_lifecycle_operations(
-                            &mut builder,
-                            lifecycle,
-                            &source,
-                            reference,
-                            place,
-                            instance.target().runtime_abi(),
-                            cancellation,
-                        )?,
-                    ),
-                };
-
-                builder
-                    .set_terminator(
-                        broadcast_end,
-                        source.clone(),
-                        MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
-                            bray_ir::MirCleanupPhase::LifecycleResolution,
-                            MirEdge::new(lifecycle, []),
-                        )),
-                    )
-                    .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
-
-                builder
-                    .set_terminator(lifecycle_end, source, MirTerminatorKind::Return(None))
-                    .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
-            }
-            MirHelperReference::StaticFinalize(ty) => {
-                let return_value = if self.push_compiler_known_lifecycle_operations(
-                    &mut builder,
-                    entry,
-                    &source,
-                    reference,
-                    &place,
-                    instance.target().runtime_abi(),
-                    cancellation,
-                )? {
-                    None
-                } else if let Some(callable) = self.lifecycle_callable(
-                    *ty,
-                    TypeAssociatedLifecycleSlot::Finalizer,
-                    cancellation,
-                )? {
-                    let returns_void = callable.3 == bray_symbols::CallableExecution::Synchronous
-                        && is_void_result(self, callable.2)?;
-
-                    let value = self.push_static_finalizer_call(
-                        &mut builder,
-                        entry,
-                        &source,
-                        place,
-                        callable,
-                    )?;
-
-                    (!returns_void).then_some(MirOperand::Value(value))
-                } else {
-                    None
-                };
-
-                builder
-                    .set_terminator(entry, source, MirTerminatorKind::Return(return_value))
-                    .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
-            }
-            MirHelperReference::Finalize(_) | MirHelperReference::Destroy(_) => {
-                let end = self.push_generated_lifecycle_operations(
-                    &mut builder,
-                    entry,
-                    &source,
-                    reference,
-                    place,
-                    instance.target().runtime_abi(),
-                    cancellation,
-                )?;
-
-                builder
-                    .set_terminator(end, source, MirTerminatorKind::Return(None))
-                    .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
-            }
-            MirHelperReference::AnonymousCallable(_)
-            | MirHelperReference::DeclaredCallable(_)
-            | MirHelperReference::CallableDefault(_)
-            | MirHelperReference::ConstructionDefault(_)
-            | MirHelperReference::TypeForm(_)
-            | MirHelperReference::Conversion(_)
-            | MirHelperReference::BeginGenerator
-            | MirHelperReference::PushGenerator
-            | MirHelperReference::FinishGenerator
-            | MirHelperReference::PanicReport
-            | MirHelperReference::StandardLibrary(_)
-            | MirHelperReference::CreateFrame(_)
-            | MirHelperReference::MoveInactiveFrame(_)
-            | MirHelperReference::ComposeAwaitedFrame(_)
-            | MirHelperReference::CommitAwaitedCompletion(_)
-            | MirHelperReference::DestroyTerminalTask => {
-                return Err(CodegenPreparationError::MissingHelperInstance(
-                    reference.clone(),
-                ));
-            }
-        }
-
-        builder
-            .finish(entry)
-            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)
+            reference,
+            unit,
+            instance.target(),
+        )
     }
 }

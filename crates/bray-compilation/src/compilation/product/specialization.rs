@@ -13,9 +13,9 @@ use bray_ir::{
     MirUnitKey,
 };
 use bray_symbols::{
-    CallableInstanceData, CallableSignatureQuery, CheckedConstraintKind, ConstantTermData,
-    ConstantValueData, ConstantValueKind, ExactSymbolId, GenericArgument, GenericConstraintsQuery,
-    GenericOwnerId, GenericSubstitutionData, GenericSubstitutionId, ImplementationInstanceData,
+    CallableInstanceData, CheckedConstraintKind, ConstantTermData, ConstantValueData,
+    ConstantValueKind, ExactSymbolId, GenericArgument, GenericConstraintsQuery, GenericOwnerId,
+    GenericSubstitutionData, GenericSubstitutionId, ImplementationInstanceData,
     ImplementationInstanceId, ImplementationRequirementKey, ImplementationSelection,
     NamedTypeSymbolId, ProofOutcome, StaticInstanceKey, StaticReferenceSelection, StructSymbolId,
     SymbolQueryRequest, TargetSizedIntegerType, TraitCallableMemberSymbolId, TypeData,
@@ -537,92 +537,6 @@ impl Compilation {
             }
             .into()
         })
-    }
-
-    fn codegen_callable_template(
-        &self,
-        definition: bray_symbols::CallableDefinitionId,
-        cancellation: &CancellationToken,
-    ) -> Result<MirUnitKey, CodegenPreparationError> {
-        if let Some(body) = self.callable_body_key(definition)? {
-            return Ok(MirUnitKey::Bound(body));
-        }
-
-        let skeleton = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
-
-        let Some(address) = skeleton.value().as_ref().and_then(|skeleton| {
-            skeleton.imported_semantic_address(definition.callable_symbol().into_any())
-        }) else {
-            return Ok(MirUnitKey::ExternalCallable(definition));
-        };
-
-        let binding_context = self.binding_context(cancellation)?;
-
-        let signature = binding_context
-            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
-                definition.callable_symbol(),
-            ))
-            .map_err(binding_query_error)?;
-
-        if !signature.value().has_body() {
-            return Ok(MirUnitKey::ExternalCallable(definition));
-        }
-
-        let template = self.imported_executable_template_with_cancellation(
-            crate::fact::ImportedExecutableTemplateAddress::root(address),
-            cancellation,
-        )?;
-
-        if let Some(template) = template.value() {
-            let platform_service = match template.key() {
-                MirUnitKey::ImportedExecutable(key) => key.platform_service(),
-                MirUnitKey::Bound(_)
-                | MirUnitKey::ExternalCallable(_)
-                | MirUnitKey::ExternalRuntimeDefault(_)
-                | MirUnitKey::ExecutableHost(_)
-                | MirUnitKey::GeneratedLifecycle(_) => None,
-            };
-
-            let expected_key = MirUnitKey::ImportedExecutable(
-                bray_ir::MirImportedExecutableKey::new(
-                    definition.callable_symbol().into_any(),
-                    bray_ir::MirExecutableTemplateId::ROOT,
-                )
-                .with_platform_service(platform_service),
-            );
-
-            if template.key() != &expected_key {
-                // The retained failure owns both sides after the imported-template borrow ends.
-                let target = template.target().clone();
-
-                return Err(FactQueryError::from(
-                    crate::ImportedQueryFailure::ExecutableTemplateMismatch(Box::new(
-                        crate::ImportedExecutableTemplateMismatch::new(
-                            address.interface(),
-                            address.symbol(),
-                            bray_ir::MirExecutableTemplateId::ROOT,
-                            template.unit(),
-                            template.unit(),
-                            expected_key,
-                            template.key().clone(),
-                            target.clone(),
-                            target,
-                        ),
-                    )),
-                )
-                .into());
-            }
-
-            let MirUnitKey::ImportedExecutable(key) = template.key() else {
-                unreachable!("validated imported executable key must retain its variant");
-            };
-
-            return Ok(MirUnitKey::ImportedExecutable(*key));
-        }
-
-        Err(CodegenPreparationError::Diagnostics(
-            signature.diagnostics().merged(template.diagnostics()),
-        ))
     }
 
     pub(super) fn concrete_codegen_callee(

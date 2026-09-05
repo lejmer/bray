@@ -155,6 +155,12 @@ impl<'binding> DeclaredValueTypeBinding<'binding> {
 
                 self.add_evidence(DeclaredValueTypeTerm::Expression(id), template);
             }
+            BoundExpression::BoxConstruction(construction) => {
+                if let Some(policy) = construction.policy() {
+                    let template = self.bind_type_anchor(policy.syntax())?;
+                    self.add_evidence(DeclaredValueTypeTerm::BoxStoragePolicy(id), template);
+                }
+            }
             _ => {}
         }
 

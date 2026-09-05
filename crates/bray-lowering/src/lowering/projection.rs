@@ -40,13 +40,7 @@ pub(super) fn projected_pattern_place(
 
     let kind = static_projection_kind(projection.into())?;
 
-    let projections = place
-        .projections()
-        .iter()
-        .cloned()
-        .chain([MirProjection::new(kind, place.ty(), result_type)]);
-
-    Some(MirPlace::new(place.storage(), projections, result_type))
+    Some(place.project(kind, result_type))
 }
 
 pub(super) fn static_projection_kind(projection: StorageProjection) -> Option<MirProjectionKind> {

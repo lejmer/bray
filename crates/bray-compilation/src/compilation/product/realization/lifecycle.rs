@@ -1,3 +1,1 @@
-mod generated;
-mod storage;
-mod task;
+mod queries;

@@ -847,42 +847,44 @@ mod tests {
 
     #[test]
     fn expression_created_borrow_defaults_require_the_active_borrow() {
-        let compilation = compilation(concat!(
-            "module app;\n",
-            "func choose(first: i32, second: &i32 = &first)\n",
-            "{\n",
-            "}\n",
-        ));
+        for source in [
+            "module app; func choose(first: i32, second: &i32 = &first) {}",
+            "module app; struct Holder { value: i32; } impl Holder { static func choose(first: Self, second: &Self = &first) {} }",
+        ] {
+            let compilation = compilation(source);
 
-        let symbols = compilation
-            .symbol_graph()
-            .unwrap_or_else(|error| panic!("symbol graph must build: {error:?}"));
+            let symbols = compilation
+                .symbol_graph()
+                .unwrap_or_else(|error| panic!("symbol graph must build: {error:?}"));
 
-        let parameter = symbols
-            .callable_parameters()
-            .iter()
-            .filter(|parameter| parameter.origin() == SymbolOrigin::Source)
-            .nth(1)
-            .unwrap_or_else(|| panic!("defaulted source parameter must exist"));
+            let parameter = symbols
+                .callable_parameters()
+                .iter()
+                .filter(|parameter| parameter.origin() == SymbolOrigin::Source)
+                .nth(1)
+                .unwrap_or_else(|| panic!("defaulted source parameter must exist"));
 
-        let default = compilation
-            .callable_parameter_default(parameter.id())
-            .unwrap_or_else(|error| panic!("borrowed parameter default must publish: {error:?}"));
+            let default = compilation
+                .callable_parameter_default(parameter.id())
+                .unwrap_or_else(|error| {
+                    panic!("borrowed parameter default must publish: {error:?}")
+                });
 
-        let CallableParameterDefaultValue::Valid(surface) = default.value().value() else {
-            panic!("borrowed parameter default must be valid");
-        };
+            let CallableParameterDefaultValue::Valid(surface) = default.value().value() else {
+                panic!("borrowed parameter default must be valid");
+            };
 
-        assert_parameter_dependency_contract(
-            &compilation,
-            surface.behavior().dependency_contract(),
-            0,
-            &[
-                DependencyRequirementKind::StorageAlive,
-                DependencyRequirementKind::StorageInitialized,
-                DependencyRequirementKind::BorrowCapabilityActive(BorrowKind::Shared),
-            ],
-        );
+            assert_parameter_dependency_contract(
+                &compilation,
+                surface.behavior().dependency_contract(),
+                0,
+                &[
+                    DependencyRequirementKind::StorageAlive,
+                    DependencyRequirementKind::StorageInitialized,
+                    DependencyRequirementKind::BorrowCapabilityActive(BorrowKind::Shared),
+                ],
+            );
+        }
     }
 
     #[test]

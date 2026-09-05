@@ -6,6 +6,7 @@ mod preparation;
 mod presentation;
 mod query;
 mod runtime_selection;
+mod synthetic;
 
 #[cfg(test)]
 mod tests;

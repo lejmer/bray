@@ -569,6 +569,9 @@ where
         SelectionCandidateKey::Value(DeclaredValueTypeTerm::Expression(_)) => {
             DiagnosticSelectionCandidateIdentity::ExpressionValue
         }
+        SelectionCandidateKey::Value(DeclaredValueTypeTerm::BoxStoragePolicy(_)) => {
+            return Err(crate::CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
+        }
         SelectionCandidateKey::Value(DeclaredValueTypeTerm::Pattern(_)) => {
             DiagnosticSelectionCandidateIdentity::PatternValue
         }
@@ -659,6 +662,9 @@ where
             };
 
             locations.insert(request.source(expression.origin().source_anchor())?.span());
+        }
+        SelectionCandidateKey::Value(DeclaredValueTypeTerm::BoxStoragePolicy(_)) => {
+            return Err(crate::CheckerInfrastructureError::InvalidSemanticSelectionInput.into());
         }
         SelectionCandidateKey::Value(DeclaredValueTypeTerm::Pattern(pattern)) => {
             let Some(pattern) = request.view().pattern(*pattern) else {

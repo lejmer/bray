@@ -428,7 +428,7 @@ where
     Ok(())
 }
 
-fn contextual_container_element<C>(
+pub(super) fn contextual_container_element<C>(
     request: CheckerUnitView<'_, C>,
     variable: InferenceTypeId,
     inference: &mut TypeInferenceContext,

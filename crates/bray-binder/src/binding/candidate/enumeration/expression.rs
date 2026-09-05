@@ -128,15 +128,11 @@ where
         {
             operation(expression, SelectionKind::Index, bound.child_expressions())
         }
-        BoundExpression::Structured(structured)
-            if structured.kind() == BoundStructuredExpressionKind::TypeFormConstruction =>
-        {
-            operation(
-                expression,
-                SelectionKind::Construction,
-                bound.child_expressions(),
-            )
-        }
+        BoundExpression::BoxConstruction(_) => operation(
+            expression,
+            SelectionKind::Construction,
+            bound.child_expressions(),
+        ),
         BoundExpression::Assignment(_) => ExpressionCandidateSet::NotApplicable(expression),
         _ => ExpressionCandidateSet::NotApplicable(expression),
     };

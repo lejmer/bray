@@ -102,6 +102,12 @@ pub(in crate::compilation) fn selected_storage_callable(
         return Ok(DiagnosticResult::new(None, diagnostics));
     };
 
+    let self_context = if callable.uses_trait_default() {
+        bray_symbols::SelfTypeContext::Trait(application.definition())
+    } else {
+        bray_symbols::SelfTypeContext::Implementation(implementation.definition())
+    };
+
     let callable = callable.instance();
 
     let signature = binding_context
@@ -129,6 +135,17 @@ pub(in crate::compilation) fn selected_storage_callable(
         checked.value(),
     )
     .map_err(FactQueryError::from)?;
+
+    let signature = signature
+        .map(|signature| {
+            super::signature::substitute_callable_self(
+                binding_context,
+                signature,
+                self_context,
+                storage,
+            )
+        })
+        .transpose()?;
 
     Ok(DiagnosticResult::new(
         signature.map(|signature| (requirement, *witness, callable, signature)),

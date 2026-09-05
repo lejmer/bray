@@ -29,6 +29,15 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
             ))
         }
         CodegenPreparationError::MissingEntrypoint => Kind::CodegenMissingEntrypoint,
+        CodegenPreparationError::MissingCallableImplementation {
+            callable, source, ..
+        } => {
+            // The diagnostic owns the failure-only declaration identity independently of the error.
+            Kind::CodegenMissingCallableImplementation {
+                callable: callable.clone(),
+                source: *source,
+            }
+        }
         CodegenPreparationError::InvalidInstance(cause) => {
             Kind::CodegenInvalidInstance(failure_detail(codegen_instance_failure(*cause), []))
         }
@@ -53,6 +62,16 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
         }
         CodegenPreparationError::InvalidMappings(cause) => {
             Kind::CodegenInvalidMappings(failure_detail(codegen_mappings_failure(*cause), []))
+        }
+        CodegenPreparationError::InvalidCompilerProvidedMir { definition, cause } => {
+            let detail = mir_unit_failure_detail("codegen_invalid_compiler_provided_mir", *cause);
+            let mut context = detail.context().to_vec();
+
+            context.push(crate::fact::diagnostic_context::identity_field(
+                "callable", definition,
+            ));
+
+            Kind::CodegenInvalidCompilerProvidedMir(failure_detail(detail.reason(), context))
         }
         CodegenPreparationError::MissingRuntimeRole(role) => {
             Kind::CodegenMissingRuntimeRole(failure_detail(

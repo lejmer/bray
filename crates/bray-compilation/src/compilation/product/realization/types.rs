@@ -6,11 +6,8 @@ use bray_codegen::{
     CodegenInstanceTypeMapping, CodegenParameterMapping, CodegenResultMapping, CodegenTarget,
     CodegenTypeKind, CodegenTypeMapping, TargetAddressSpaceKind,
 };
-use bray_compiler_known::CompilerKnownDeclarationKey;
 use bray_diagnostics::DiagnosticBag;
-use bray_symbols::{
-    GenericSubstitutionId, NamedTypeSymbolId, SelfTypeContext, StructSymbolId, TypeData, TypeId,
-};
+use bray_symbols::{GenericSubstitutionId, NamedTypeSymbolId, SelfTypeContext, TypeData, TypeId};
 use bray_target::{TargetLayoutContract, TargetValueLayout};
 
 use super::super::super::CodegenPreparationError;
@@ -25,7 +22,6 @@ use super::support::{
     callable_type_signature, closed_array_length, codegen_checker_error, pointer_layout,
     pointer_mapping, target_layout_contract,
 };
-use crate::compilation::ProductQueryFailure;
 use crate::fact::{CancellationToken, FactQueryError};
 
 impl Compilation {
@@ -514,15 +510,10 @@ impl Compilation {
             return Ok(mapping);
         }
 
-        let heap_key = CompilerKnownDeclarationKey::try_new("Heap").ok_or_else(|| {
-            ProductQueryFailure::InvalidCompilerKnownDeclarationKey {
-                key: "Heap".to_owned(),
-            }
-        })?;
-
         if self
-            .available_compiler_known_symbols()
-            .declaration_symbol::<StructSymbolId>(&heap_key)
+            .symbol_graph()?
+            .compiler_known_provider()
+            .heap_storage_policy()
             .is_some_and(|heap| definition == NamedTypeSymbolId::Struct(heap))
         {
             return Ok(pointer_mapping(

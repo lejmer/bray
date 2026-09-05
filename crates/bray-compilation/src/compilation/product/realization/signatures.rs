@@ -78,6 +78,7 @@ impl Compilation {
             MirUnitKey::ExecutableHost(_) => return Ok(void_signature(CallableAbi::Bray)),
             MirUnitKey::Bound(_)
             | MirUnitKey::ImportedExecutable(_)
+            | MirUnitKey::CompilerProvidedCallable(_)
             | MirUnitKey::ExternalCallable(_) => {
                 self.codegen_callable_definition(instance.key())?
             }
@@ -532,7 +533,8 @@ impl Compilation {
                     .into()
                 })
             }
-            MirUnitKey::ExternalCallable(definition) => Ok(*definition),
+            MirUnitKey::ExternalCallable(definition)
+            | MirUnitKey::CompilerProvidedCallable(definition) => Ok(*definition),
             MirUnitKey::ExecutableHost(_)
             | MirUnitKey::GeneratedLifecycle(_)
             | MirUnitKey::ExternalRuntimeDefault(_) => Err(ProductQueryFailure::missing(

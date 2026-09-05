@@ -83,9 +83,6 @@ pub(super) fn structured_kind(kind: SyntaxKind) -> Option<BoundStructuredExpress
         SyntaxKind::AssertionExpression => BoundStructuredExpressionKind::Assertion,
         SyntaxKind::ResultPropagationExpression => BoundStructuredExpressionKind::ResultPropagation,
         SyntaxKind::CatchExpression => BoundStructuredExpressionKind::Catch,
-        SyntaxKind::TypeFormConstructionExpression => {
-            BoundStructuredExpressionKind::TypeFormConstruction
-        }
         SyntaxKind::PanicExpression => BoundStructuredExpressionKind::Panic,
         _ => return None,
     })

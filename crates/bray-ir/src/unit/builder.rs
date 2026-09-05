@@ -37,6 +37,26 @@ pub struct MirUnitBuilder {
 }
 
 impl MirUnitBuilder {
+    /// Starts construction of a compiler-provided body with ordinary synchronous calling semantics.
+    pub fn for_compiler_provided_callable(
+        unit: MirUnitId,
+        definition: bray_symbols::CallableDefinitionId,
+        target: MirTargetContract,
+    ) -> Self {
+        Self {
+            key: MirUnitKey::CompilerProvidedCallable(definition),
+            unit,
+            source: MirSourceOrigin::CompilerProvidedCallable(definition),
+            target,
+            kind: MirUnitKind::Synchronous,
+            frame_descriptor: None,
+            blocks: Vec::new(),
+            operations: Vec::new(),
+            storages: Vec::new(),
+            values: Vec::new(),
+        }
+    }
+
     /// Starts MIR reconstruction for one checked executable template from a dependency.
     pub fn for_imported_executable(
         unit: MirUnitId,
@@ -439,6 +459,60 @@ mod tests {
         MirProjection, MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirStorageKind,
         MirTerminatorKind, MirUnitBuildError, MirUnitKind,
     };
+
+    #[test]
+    fn compiler_provided_bodies_reject_other_declarations_and_source_anchors() {
+        let definition = |ordinal| {
+            bray_symbols::CallableDefinitionId::try_new(
+                bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(
+                    ordinal,
+                ))
+                .into(),
+            )
+            .unwrap()
+        };
+
+        let owner = definition(3);
+        let source = MirSourceAnchor::CompilerProvidedCallable(owner);
+
+        let mut builder = MirUnitBuilder::for_compiler_provided_callable(
+            crate::MirUnitId::new(9),
+            owner,
+            crate::test_support::test_target(),
+        );
+
+        let bound = test_bound_unit(4);
+
+        for foreign in [
+            MirSourceAnchor::CompilerProvidedCallable(definition(4)),
+            MirSourceAnchor::from(bound.key().source()),
+        ] {
+            assert_eq!(
+                builder.push_block(foreign, MirBlockKind::Ordinary),
+                Err(MirUnitBuildError::SourceOriginMismatch)
+            );
+        }
+
+        let entry = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        builder
+            .set_terminator(entry, source, MirTerminatorKind::Return(None))
+            .unwrap();
+
+        let unit = builder.finish(entry).unwrap();
+
+        assert_eq!(
+            unit.key(),
+            &crate::MirUnitKey::CompilerProvidedCallable(owner)
+        );
+
+        assert_eq!(
+            unit.source(),
+            &crate::MirSourceOrigin::CompilerProvidedCallable(owner)
+        );
+    }
 
     #[test]
     fn builders_publish_typed_storage_values_operations_and_edges() {

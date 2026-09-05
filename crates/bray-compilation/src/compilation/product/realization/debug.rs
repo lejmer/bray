@@ -74,6 +74,7 @@ impl Compilation {
                     CodegenDebugLocation::new(anchor, file.clone(), line, column)
                 }
                 MirSourceAnchor::ImportedExecutable(_)
+                | MirSourceAnchor::CompilerProvidedCallable(_)
                 | MirSourceAnchor::ExecutableHost(_)
                 | MirSourceAnchor::GeneratedLifecycle(_) => {
                     // The clone retains the shared immutable generated path.

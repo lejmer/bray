@@ -182,6 +182,8 @@ pub enum MirUnitKey {
     ExecutableHost(ProductIdentity),
     /// MIR synthesized for one type-specialized lifecycle role.
     GeneratedLifecycle(MirGeneratedLifecycleKey),
+    /// MIR supplied by the compiler for one exact callable declaration.
+    CompilerProvidedCallable(CallableDefinitionId),
     /// A bodyless callable referenced by generated MIR.
     ExternalCallable(CallableDefinitionId),
     /// A body reconstructed from a dependency's checked executable template.

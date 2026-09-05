@@ -1,27 +1,21 @@
 use bray_bound_tree::BoundCallResult;
 use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
 use bray_ir::{
-    MirAsyncOperation, MirCall, MirCallTarget, MirCallableReference, MirHelperReference,
-    MirMemoryOperation, MirOperand, MirOperationKind, MirPlace, MirProjectionKind,
-    MirRuntimeReference, MirSourceAnchor, MirStorageKind, MirStoreKind, MirUnitBuilder,
+    MirAsyncOperation, MirCall, MirCallTarget, MirHelperReference, MirMemoryOperation, MirOperand,
+    MirOperationKind, MirPlace, MirProjectionKind, MirRuntimeReference, MirSourceAnchor,
+    MirStorageKind, MirStoreKind, MirUnitBuilder,
 };
 use bray_runtime_interface::RuntimeAbiRole;
-use bray_symbols::{BorrowKind, CallableSignature, TypeData, TypeId};
+use bray_symbols::{BorrowKind, TypeData, TypeId};
 
-use super::super::super::super::super::CodegenPreparationError;
-use super::super::super::super::super::Compilation;
-use super::super::super::super::super::{
-    ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductValueKind,
-};
-use super::super::super::support::projected_lifecycle_place;
-use crate::fact::{CancellationToken, FactQueryError};
+use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
 
-impl Compilation {
+impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     #[expect(
         clippy::too_many_arguments,
         reason = "storage projection retains the selected policy and target type"
     )]
-    pub(in crate::compilation::product::realization) fn storage_target_place(
+    pub(super) fn storage_target_place(
         &self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
@@ -29,8 +23,7 @@ impl Compilation {
         storage_place: MirPlace,
         storage: TypeId,
         target: TypeId,
-        cancellation: &CancellationToken,
-    ) -> Result<MirPlace, CodegenPreparationError> {
+    ) -> Result<MirPlace, C::Error> {
         let borrowed = self.push_storage_lifecycle_call(
             builder,
             block,
@@ -40,21 +33,20 @@ impl Compilation {
             target,
             "StorageBorrowMut",
             Some(BorrowKind::Mutable),
-            cancellation,
         )?;
 
-        let values = self.semantic_value_store()?;
+        let values = self.context.semantic_values();
 
         let pointer = values
             .intern_type(TypeData::Borrow {
                 kind: BorrowKind::Mutable,
                 target,
             })
-            .map_err(FactQueryError::SemanticValueStore)?;
+            .map_err(SyntheticLoweringError::SemanticValue)?;
 
         let temporary = builder
             .push_storage(source.clone(), MirStorageKind::Temporary, pointer)
-            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+            .map_err(|cause| self.mir_error(source, cause))?;
 
         let temporary_place = MirPlace::new(temporary, [], pointer);
 
@@ -69,18 +61,14 @@ impl Compilation {
             },
         )?;
 
-        Ok(projected_lifecycle_place(
-            &temporary_place,
-            MirProjectionKind::Dereference,
-            target,
-        ))
+        Ok(temporary_place.project(MirProjectionKind::Dereference, target))
     }
 
     #[expect(
         clippy::too_many_arguments,
         reason = "storage protocol calls retain exact policy, target, and MIR placement"
     )]
-    pub(in crate::compilation::product::realization) fn push_storage_lifecycle_call(
+    pub(super) fn push_storage_lifecycle_call(
         &self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
@@ -90,24 +78,17 @@ impl Compilation {
         target: TypeId,
         member: &str,
         borrow: Option<BorrowKind>,
-        cancellation: &CancellationToken,
-    ) -> Result<bray_ir::MirValueId, CodegenPreparationError> {
-        let member = CompilerKnownDeclarationKey::try_new(member).ok_or_else(|| {
-            ProductQueryFailure::InvalidCompilerKnownDeclarationKey {
-                key: member.to_owned(),
-            }
-        })?;
+    ) -> Result<bray_ir::MirValueId, C::Error> {
+        let member = CompilerKnownDeclarationKey::try_new(member)
+            .ok_or_else(|| SyntheticLoweringError::InvalidStorageMemberKey(member.to_owned()))?;
 
-        let (callable, signature) =
-            self.storage_lifecycle_callable(storage, target, &member, cancellation)?;
+        let (callable, signature) = self.context.storage_callable(storage, target, &member)?;
 
         let [parameter] = signature.parameters() else {
-            return Err(ProductQueryFailure::count_mismatch(
-                ProductQueryContext::CompilerKnownDeclaration(member.clone()),
-                ProductDataKind::CallableParameters,
-                1,
-                signature.parameters().len(),
-            )
+            return Err(SyntheticLoweringError::StorageParameterCount {
+                member: member.clone(),
+                actual: signature.parameters().len(),
+            }
             .into());
         };
 
@@ -122,19 +103,17 @@ impl Compilation {
                     },
                     Some(parameter.ty()),
                 )
-                .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+                .map_err(|cause| self.mir_error(source, cause))?;
 
             let operation = value.operation();
 
-            let value = value.result().ok_or_else(|| {
-                ProductQueryFailure::missing(
-                    ProductQueryContext::MirOperation {
+            let value =
+                value
+                    .result()
+                    .ok_or_else(|| SyntheticLoweringError::MissingOperationResult {
                         source: source.clone(),
                         operation,
-                    },
-                    ProductDataKind::OperationResultType,
-                )
-            })?;
+                    })?;
 
             MirOperand::Value(value)
         } else {
@@ -153,71 +132,20 @@ impl Compilation {
                 )),
                 Some(signature.result()),
             )
-            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+            .map_err(|cause| self.mir_error(source, cause))?;
 
         let operation = result.operation();
 
         result.result().ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::MirOperation {
-                    source: source.clone(),
-                    operation,
-                },
-                ProductDataKind::OperationResultType,
-            )
+            SyntheticLoweringError::MissingOperationResult {
+                source: source.clone(),
+                operation,
+            }
             .into()
         })
     }
 
-    pub(in crate::compilation::product::realization) fn storage_lifecycle_callable(
-        &self,
-        storage: TypeId,
-        target: TypeId,
-        member: &CompilerKnownDeclarationKey,
-        cancellation: &CancellationToken,
-    ) -> Result<(MirCallableReference, CallableSignature), CodegenPreparationError> {
-        let binding_context = self.binding_context(cancellation)?;
-
-        let selected = super::super::super::super::super::operation::selected_storage_callable(
-            self,
-            &binding_context,
-            storage,
-            target,
-            member,
-            cancellation,
-        )?;
-
-        if selected.diagnostics().has_errors() {
-            return Err(CodegenPreparationError::UnsupportedType(storage));
-        }
-
-        let Some((_, _, callable, signature)) = selected.value() else {
-            return Err(CodegenPreparationError::UnsupportedType(storage));
-        };
-
-        let values = self.semantic_value_store()?;
-
-        let callable_type = values
-            .type_data(signature.callable_type())
-            .map_err(FactQueryError::SemanticValueStore)?;
-
-        let TypeData::Callable(callable_type) = callable_type.as_ref() else {
-            return Err(ProductQueryFailure::UnexpectedSemanticType {
-                ty: signature.callable_type(),
-                expected: ProductValueKind::CallableType,
-                actual: callable_type.as_ref().clone(),
-            }
-            .into());
-        };
-
-        // The generated MIR owns this Arc-backed signature after releasing the query result.
-        Ok((
-            MirCallableReference::new(*callable, callable_type.abi()),
-            signature.clone(),
-        ))
-    }
-
-    pub(in crate::compilation::product::realization) fn push_compiler_known_lifecycle_operations(
+    pub(super) fn push_compiler_known_lifecycle_operations(
         &self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
@@ -225,17 +153,16 @@ impl Compilation {
         reference: &MirHelperReference,
         place: &MirPlace,
         runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
-        cancellation: &CancellationToken,
-    ) -> Result<bool, CodegenPreparationError> {
+    ) -> Result<bool, C::Error> {
         let Some(ty) = reference.lifecycle_type() else {
             return Ok(false);
         };
 
-        let values = self.semantic_value_store()?;
+        let values = self.context.semantic_values();
 
         let data = values
             .type_data(ty)
-            .map_err(FactQueryError::SemanticValueStore)?;
+            .map_err(SyntheticLoweringError::SemanticValue)?;
 
         let TypeData::Named {
             definition,
@@ -246,15 +173,16 @@ impl Compilation {
         };
 
         if let MirHelperReference::Destroy(_) = reference
-            && let Some(element) =
-                self.imported_raw_buffer_element(*definition, *substitution, cancellation)?
+            && let Some(element) = self
+                .context
+                .imported_raw_buffer_element(*definition, *substitution)?
         {
             let borrowed = values
                 .intern_type(TypeData::Borrow {
                     kind: BorrowKind::Mutable,
                     target: ty,
                 })
-                .map_err(FactQueryError::SemanticValueStore)?;
+                .map_err(SyntheticLoweringError::SemanticValue)?;
 
             let buffer = builder
                 .push_operation(
@@ -266,19 +194,17 @@ impl Compilation {
                     },
                     Some(borrowed),
                 )
-                .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+                .map_err(|cause| self.mir_error(source, cause))?;
 
             let operation = buffer.operation();
 
-            let buffer = buffer.result().ok_or_else(|| {
-                ProductQueryFailure::missing(
-                    ProductQueryContext::MirOperation {
+            let buffer =
+                buffer
+                    .result()
+                    .ok_or_else(|| SyntheticLoweringError::MissingOperationResult {
                         source: source.clone(),
                         operation,
-                    },
-                    ProductDataKind::OperationResultType,
-                )
-            })?;
+                    })?;
 
             self.push_lifecycle_operation(
                 builder,
@@ -295,10 +221,7 @@ impl Compilation {
             return Ok(true);
         }
 
-        let Some(role) = super::super::super::super::super::foreign::compiler_known_representation(
-            self,
-            *definition,
-        ) else {
+        let Some(role) = self.context.representation_role(*definition) else {
             return Ok(false);
         };
 
@@ -336,7 +259,9 @@ impl Compilation {
                         ..
                     }
             ) {
-                let status = self.codegen_representation_type(RepresentationRole::ScalarU32)?;
+                let status = self
+                    .context
+                    .representation_type(RepresentationRole::ScalarU32)?;
 
                 let call = MirCall::protocol(
                     MirCallTarget::Runtime(MirRuntimeReference::new(
@@ -355,7 +280,7 @@ impl Compilation {
                         MirOperationKind::Call(call),
                         Some(status),
                     )
-                    .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+                    .map_err(|cause| self.mir_error(source, cause))?;
             }
 
             return Ok(true);
@@ -427,12 +352,86 @@ impl Compilation {
             | MirHelperReference::ComposeAwaitedFrame(_)
             | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => {
-                return Err(CodegenPreparationError::MissingHelperInstance(
-                    reference.clone(),
-                ));
+                return Err(SyntheticLoweringError::MissingHelper(reference.clone()).into());
             }
         }
 
         Ok(true)
+    }
+
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "owned lifecycle realization keeps the storage policy and target explicit"
+    )]
+    pub(super) fn push_owned_indirection_lifecycle_operations(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        role: bray_ir::MirGeneratedLifecycleRole,
+        place: MirPlace,
+        storage: TypeId,
+        target: TypeId,
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
+        let storage_place = place.project(MirProjectionKind::OwnedStorage, storage);
+
+        let target_place = self.storage_target_place(
+            builder,
+            block,
+            source,
+            storage_place.clone(),
+            storage,
+            target,
+        )?;
+
+        match role {
+            bray_ir::MirGeneratedLifecycleRole::Destroy => {
+                self.push_lifecycle_operation(
+                    builder,
+                    block,
+                    source,
+                    MirOperationKind::Finalize(target_place),
+                )?;
+
+                self.push_storage_lifecycle_call(
+                    builder,
+                    block,
+                    source,
+                    storage_place.clone(),
+                    storage,
+                    target,
+                    "StorageDestroy",
+                    Some(BorrowKind::Mutable),
+                )?;
+
+                self.push_storage_lifecycle_call(
+                    builder,
+                    block,
+                    source,
+                    storage_place,
+                    storage,
+                    target,
+                    "StorageRelease",
+                    None,
+                )?;
+            }
+            bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => {
+                self.push_lifecycle_operation(
+                    builder,
+                    block,
+                    source,
+                    MirOperationKind::Cleanup {
+                        phase,
+                        place: target_place,
+                    },
+                )?;
+            }
+            bray_ir::MirGeneratedLifecycleRole::Finalize
+            | bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
+                return Err(SyntheticLoweringError::UnsupportedLifecycleRole(role).into());
+            }
+        }
+
+        Ok(block)
     }
 }

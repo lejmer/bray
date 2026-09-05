@@ -1517,6 +1517,8 @@ mod tests {
                 false,
             ),
             ("", "uses(raw_memory)", false),
+            ("uses(raw_memory)", "uses(intrinsic)", false),
+            ("uses(raw_memory)", "uses(foreign_call)", false),
         ] {
             for execution in ["", "async "] {
                 let raw = if provided.contains("raw_memory") {
@@ -1558,11 +1560,53 @@ mod tests {
                     kinds,
                     if valid {
                         vec![]
+                    } else if provided == "uses(intrinsic)" || provided == "uses(foreign_call)" {
+                        vec![
+                            DiagnosticKind::CheckingUnusedTrustedCapability,
+                            DiagnosticKind::CheckingIncompatibleTraitFulfillment,
+                        ]
                     } else {
                         vec![DiagnosticKind::CheckingIncompatibleTraitFulfillment]
                     },
                     "{source}"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn static_fulfillments_resolve_self_in_parameters_and_results() {
+        for (required, provided, valid) in [
+            ("Self", "Self", true),
+            ("Self", "Holder", true),
+            ("&Self", "&Self", true),
+            ("&mut Self", "&mut Self", true),
+            ("Self?", "Self?", true),
+            ("Self", "i32", false),
+        ] {
+            let source = format!(
+                "module app; struct Holder {{}} \
+                 trait Provides {{ static func get(pos value: {required}) -> {required}; }} \
+                 impl Holder(Provides) {{ static func get(pos value: {provided}) -> {provided} \
+                 {{ return value; }} }}"
+            );
+
+            let compilation = compilation(&source);
+
+            let result = compilation
+                .trait_implementation_conformance(source_implementation(&compilation))
+                .expect("static Self conformance must publish");
+
+            assert_eq!(
+                result.value().is_valid(),
+                valid,
+                "{source}: {:?}",
+                result.diagnostics()
+            );
+
+            if valid {
+                let diagnostics = compilation.check_diagnostics();
+                assert!(!diagnostics.has_errors(), "{source}: {diagnostics:?}");
             }
         }
     }

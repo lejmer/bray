@@ -144,6 +144,7 @@ impl StorageScopeOwners {
                 | BoundExpression::Binary(_)
                 | BoundExpression::Assignment(_)
                 | BoundExpression::Call(_)
+                | BoundExpression::BoxConstruction(_)
                 | BoundExpression::ErrorCall(_)
                 | BoundExpression::Conversion(_)
                 | BoundExpression::ErrorConversion(_)

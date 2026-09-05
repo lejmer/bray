@@ -12,7 +12,7 @@ use super::built_fixture::BuiltFixture;
 use super::fixtures::{
     ABI_FIXTURE, ABI_HOST, ASYNC_ERROR_FIXTURE, ASYNC_I32_FIXTURE, ASYNC_TASKS_FIXTURE,
     ASYNC_UNIT_FIXTURE, ATOMIC_FIXTURE, ENTRY_RESULT_FIXTURE, GUARDED_PART_CLEANUP_FIXTURE,
-    GUARDED_ROOT_CLEANUP_FIXTURE, MEMORY_FIXTURE, MEMORY_LAYOUT_FIXTURE,
+    GUARDED_ROOT_CLEANUP_FIXTURE, HEAP_STORAGE_FIXTURE, MEMORY_FIXTURE, MEMORY_LAYOUT_FIXTURE,
     PATTERN_CONDITIONS_FIXTURE, PRODUCT_NAME, RANGE_FIXTURE, STANDARD_MEMORY_FIXTURE,
     STANDARD_RUN_SOURCE, STANDARD_TASK_SOURCE, STANDARD_TESTING_SOURCE, STANDARD_TEXT_FIXTURE,
     STARTUP_FIXTURE, SYNC_CATCH_PROPAGATION_FIXTURE, SYNC_PANIC_FIXTURE, TEXT_CURSOR_FIXTURE,
@@ -103,6 +103,19 @@ pub(crate) fn audit(root: &Path) -> Result<(), String> {
             GUARDED_PART_CLEANUP_FIXTURE,
             0,
             "guarded represented-part cleanup",
+            &[],
+        )
+    })?;
+
+    crate::progress::run("Checking heap storage execution", || {
+        audit_repeatable_fixture(
+            root,
+            target,
+            &runtime,
+            "bray-native-heap-storage-",
+            HEAP_STORAGE_FIXTURE,
+            0,
+            "heap storage execution",
             &[],
         )
     })?;

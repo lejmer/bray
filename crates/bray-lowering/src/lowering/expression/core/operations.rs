@@ -148,6 +148,7 @@ impl Lowerer<'_> {
                 self.lower_control_transfer(id, expression, current)
             }
             BoundExpression::StructConstruction(_)
+            | BoundExpression::BoxConstruction(_)
             | BoundExpression::LeadingDotVariant(_)
             | BoundExpression::UnqualifiedVariant(_) => self.lower_construction(id, current),
             BoundExpression::MemberAccess(_) | BoundExpression::TraitQualifiedMember(_) => {

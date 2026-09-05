@@ -622,12 +622,9 @@ fn source_text(source: &InspectionMirSource) -> String {
         InspectionMirSource::ExecutableHost { package, product } => {
             format!("generated {package}/{product}")
         }
-        InspectionMirSource::GeneratedLifecycle { role } => {
-            format!("generated lifecycle {role}")
-        }
-        InspectionMirSource::ImportedExecutable { owner, template } => {
-            format!("imported {} template:{template}", owner.text())
-        }
+        InspectionMirSource::CompilerProvidedCallable { .. }
+        | InspectionMirSource::GeneratedLifecycle { .. }
+        | InspectionMirSource::ImportedExecutable { .. } => super::notation::source_text(source),
     }
 }
 

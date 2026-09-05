@@ -358,19 +358,17 @@ fn push_alignment_carrier<'context>(
     elements: &mut Vec<BasicTypeEnum<'context>>,
     mapping: &CodegenTypeMapping,
 ) -> Result<(), CodegenFailure> {
-    let alignment_bits = mapping
+    let alignment = mapping
         .layout()
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?
         .alignment()
-        .get()
-        .checked_mul(8)
-        .and_then(|width| u32::try_from(width).ok())
-        .and_then(NonZeroU32::new)
-        .ok_or(CodegenFailure::UnsupportedTarget)?;
+        .get();
 
-    let carrier = context
-        .custom_width_int_type(alignment_bits)
-        .map_err(CodegenFailure::unsupported_target_report)?;
+    let lanes = crate::conversion::target_value(alignment, "alignment_carrier_lanes")?;
+
+    // Wide integers have target-limited ABI alignment. A zero-length vector array supplies
+    // the requested power-of-two alignment without adding payload bytes or instructions.
+    let carrier = context.i8_type().vec_type(lanes);
 
     elements.push(carrier.array_type(0).into());
 
@@ -536,6 +534,48 @@ mod tests {
             llvm.map(invalid_aggregate),
             Err(bray_codegen::CodegenFailure::UnsupportedTarget)
         );
+    }
+
+    #[test]
+    fn alignment_carriers_preserve_small_and_overaligned_aggregate_layouts() {
+        let fixture = codegen_request();
+        let request = fixture.request();
+        let machine = LlvmTargetMachine::create(request.target()).unwrap();
+        let target_data = machine.target_data();
+        let context = Context::create();
+
+        for alignment in [1, 2, 4, 8, 16, 32, 64, 128] {
+            let mut types = mapped_type_fixture();
+            let alignment = NonZeroU64::new(alignment).unwrap();
+
+            let mapping = types
+                .mappings
+                .iter_mut()
+                .find(|mapping| mapping.ty() == types.aggregate)
+                .unwrap();
+
+            *mapping = CodegenTypeMapping::new(
+                types.aggregate,
+                layout(alignment.get(), alignment),
+                CodegenTypeKind::aggregate([CodegenFieldLayout::new(None, types.byte, 0)]),
+            );
+
+            let mappings = combined_mappings(request, &types);
+
+            let mut llvm =
+                LlvmTypeMappings::new(&context, &mappings, request.target(), &target_data);
+
+            let mapped = llvm
+                .map(types.aggregate)
+                .unwrap_or_else(|error| panic!("alignment {alignment}: {error:?}"));
+
+            assert_eq!(target_data.get_store_size(&mapped), alignment.get());
+
+            assert_eq!(
+                u64::from(target_data.get_abi_alignment(&mapped)),
+                alignment.get()
+            );
+        }
     }
 
     struct MappedTypeFixture {

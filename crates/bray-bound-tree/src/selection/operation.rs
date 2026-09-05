@@ -636,9 +636,8 @@ impl SelectedOperation {
             (Self::Construction(construction), BoundExpression::StructConstruction(_)) => {
                 matches!(construction.target(), ConstructionTarget::Struct(_))
             }
-            (Self::Construction(construction), BoundExpression::Structured(source)) => {
+            (Self::Construction(construction), BoundExpression::BoxConstruction(_)) => {
                 matches!(construction.target(), ConstructionTarget::TypeForm { .. })
-                    && source.kind() == BoundStructuredExpressionKind::TypeFormConstruction
             }
             (
                 Self::Construction(construction),

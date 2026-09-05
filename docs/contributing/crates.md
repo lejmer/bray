@@ -59,6 +59,8 @@ Compiler libraries and installed Bray tools.
 
 - `bray-lowering`
     - Transformation of bound units and their required semantic inputs into explicit backend-independent mid-level IR.
+    - MIR construction for compiler-generated bodies, including executable hosts, lifecycle helpers, and
+      compiler-provided callables.
 
 - `bray-ir`
     - Backend-independent mid-level IR, its validation, construction, and traversal APIs.
@@ -131,6 +133,7 @@ Compiler libraries and installed Bray tools.
 - `bray-compilation`
     - The demand-driven compilation context, query coordination, phase orchestration, profile collection, and top-level
       product emission.
+    - Supply resolved semantic inputs to lowering services. Do not construct MIR bodies in compilation queries.
 
 - `bray-tooling`
     - Shared diagnostic presentation, compiler inspection, source-request, and product-request tooling for command

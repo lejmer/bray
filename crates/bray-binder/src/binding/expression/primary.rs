@@ -215,6 +215,11 @@ impl ExpressionBinder {
             return self.bind_first_descendant_expression(binder, scope, root, recovery_origin);
         }
 
+        if let Some(construction) = root.cast::<bray_syntax::TypeFormConstructionExpressionSyntax>()
+        {
+            return self.bind_box_construction(binder, scope, &construction);
+        }
+
         if root.kind() == SyntaxKind::LiteralExpression {
             let Some(literal) = root.cast::<LiteralExpressionSyntax>() else {
                 return self.push_error(binder, Some(recovery_origin));

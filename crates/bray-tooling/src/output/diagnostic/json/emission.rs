@@ -8,7 +8,8 @@ mod product_query;
 
 pub(super) use checker::checker_failure_context;
 pub(super) use context::{
-    diagnostic_failure_context, fact_runtime_failure_context, semantic_value_failure_context,
+    diagnostic_failure_context, fact_runtime_failure_context, push_source_span,
+    semantic_value_failure_context,
 };
 #[cfg(feature = "analysis")]
 pub use failure::diagnostic_evaluation_failure_json;

@@ -5,18 +5,14 @@ use bray_ir::{
 };
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::{
-    BorrowKind, GenericSubstitutionId, NamedTypeSymbolId, TypeAssociatedLifecycleSlot, TypeData,
-    TypeId,
+    GenericSubstitutionId, NamedTypeSymbolId, TypeAssociatedLifecycleSlot, TypeData, TypeId,
 };
 
-use super::super::super::super::CodegenPreparationError;
-use super::super::super::super::Compilation;
-use super::super::super::super::{ProductQueryFailure, ProductValueKind};
-use super::super::support::{lifecycle_operation_block_kind, projected_lifecycle_place};
-use crate::fact::{CancellationToken, FactQueryError};
+use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
+use super::support::lifecycle_operation_block_kind;
 
-impl Compilation {
-    pub(in crate::compilation::product::realization) fn push_generated_lifecycle_operations(
+impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
+    pub(super) fn push_generated_lifecycle_operations(
         &self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
@@ -24,8 +20,7 @@ impl Compilation {
         reference: &MirHelperReference,
         place: MirPlace,
         runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
-        cancellation: &CancellationToken,
-    ) -> Result<bray_ir::MirBlockId, CodegenPreparationError> {
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
         if self.push_compiler_known_lifecycle_operations(
             builder,
             block,
@@ -33,27 +28,24 @@ impl Compilation {
             reference,
             &place,
             runtime_abi,
-            cancellation,
         )? {
             return Ok(block);
         }
 
         match reference {
             MirHelperReference::Finalize(ty) | MirHelperReference::StaticFinalize(ty) => {
-                if let Some(callable) = self.lifecycle_callable(
-                    *ty,
-                    TypeAssociatedLifecycleSlot::Finalizer,
-                    cancellation,
-                )? {
+                if let Some(callable) = self
+                    .context
+                    .lifecycle_callable(*ty, TypeAssociatedLifecycleSlot::Finalizer)?
+                {
                     self.push_lifecycle_call(builder, block, source, place, callable)?;
                 }
             }
             MirHelperReference::Destroy(ty) => {
-                if let Some(callable) = self.lifecycle_callable(
-                    *ty,
-                    TypeAssociatedLifecycleSlot::Destructor,
-                    cancellation,
-                )? {
+                if let Some(callable) = self
+                    .context
+                    .lifecycle_callable(*ty, TypeAssociatedLifecycleSlot::Destructor)?
+                {
                     self.push_lifecycle_call(builder, block, source, place, callable)?;
 
                     // The consuming destructor body resolves its checked initialized remainder.
@@ -67,7 +59,6 @@ impl Compilation {
                     bray_ir::MirGeneratedLifecycleRole::Destroy,
                     place,
                     runtime_abi,
-                    cancellation,
                 );
             }
             MirHelperReference::Cleanup {
@@ -83,7 +74,6 @@ impl Compilation {
                     ),
                     place,
                     runtime_abi,
-                    cancellation,
                 );
             }
             MirHelperReference::Cleanup {
@@ -120,16 +110,14 @@ impl Compilation {
             | MirHelperReference::ComposeAwaitedFrame(_)
             | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => {
-                return Err(CodegenPreparationError::MissingHelperInstance(
-                    reference.clone(),
-                ));
+                return Err(SyntheticLoweringError::MissingHelper(reference.clone()).into());
             }
         }
 
         Ok(block)
     }
 
-    pub(in crate::compilation::product::realization) fn push_represented_lifecycle_operations(
+    pub(super) fn push_represented_lifecycle_operations(
         &self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
@@ -137,13 +125,12 @@ impl Compilation {
         role: bray_ir::MirGeneratedLifecycleRole,
         place: MirPlace,
         runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
-        cancellation: &CancellationToken,
-    ) -> Result<bray_ir::MirBlockId, CodegenPreparationError> {
-        let values = self.semantic_value_store()?;
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
+        let values = self.context.semantic_values();
 
         let data = values
             .type_data(place.ty())
-            .map_err(FactQueryError::SemanticValueStore)?;
+            .map_err(SyntheticLoweringError::SemanticValue)?;
 
         match data.as_ref() {
             TypeData::Named {
@@ -157,7 +144,6 @@ impl Compilation {
                 place,
                 *union,
                 *substitution,
-                cancellation,
             ),
             TypeData::Nullable(target) => self
                 .push_nullable_lifecycle_operations(builder, block, source, role, place, *target),
@@ -186,7 +172,7 @@ impl Compilation {
                     | bray_ir::MirGeneratedLifecycleRole::Cleanup(
                         bray_ir::MirCleanupPhase::LifecycleResolution,
                     ) => {
-                        return Err(ProductQueryFailure::UnsupportedLifecycleRole { role }.into());
+                        return Err(SyntheticLoweringError::UnsupportedLifecycleRole(role).into());
                     }
                 };
 
@@ -201,14 +187,7 @@ impl Compilation {
             }
             TypeData::OwnedIndirection { storage, target } => self
                 .push_owned_indirection_lifecycle_operations(
-                    builder,
-                    block,
-                    source,
-                    role,
-                    place,
-                    *storage,
-                    *target,
-                    cancellation,
+                    builder, block, source, role, place, *storage, *target,
                 ),
             TypeData::Error
             | TypeData::TypeParameter(_)
@@ -216,18 +195,19 @@ impl Compilation {
             | TypeData::TypeValuedMemberProjection { .. }
             | TypeData::FlexibleArray(_)
             | TypeData::Slice(_)
-            | TypeData::TraitView(_) => Err(CodegenPreparationError::UnsupportedType(place.ty())),
+            | TypeData::TraitView(_) => {
+                Err(SyntheticLoweringError::UnsupportedType(place.ty()).into())
+            }
             TypeData::Named { .. } | TypeData::Tuple(_) | TypeData::Array { .. } => {
-                let children = self.lifecycle_children(place, cancellation)?;
+                let children = self.lifecycle_children(place)?;
 
                 self.push_child_lifecycle_operations(builder, block, source, role, children)?;
 
                 Ok(block)
             }
             TypeData::Borrow { .. } | TypeData::Callable(_) => {
-                Err(ProductQueryFailure::UnexpectedSemanticType {
+                Err(SyntheticLoweringError::UnexpectedLifecycleType {
                     ty: place.ty(),
-                    expected: ProductValueKind::LifecycleRepresentableType,
                     actual: data.as_ref().clone(),
                 }
                 .into())
@@ -235,7 +215,7 @@ impl Compilation {
         }
     }
 
-    pub(in crate::compilation::product::realization) fn push_nullable_lifecycle_operations(
+    pub(super) fn push_nullable_lifecycle_operations(
         &self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
@@ -243,20 +223,20 @@ impl Compilation {
         role: bray_ir::MirGeneratedLifecycleRole,
         place: MirPlace,
         target: TypeId,
-    ) -> Result<bray_ir::MirBlockId, CodegenPreparationError> {
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
         let kind = lifecycle_operation_block_kind(role)?;
 
         let present = builder
             .push_block(source.clone(), kind)
-            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+            .map_err(|cause| self.mir_error(source, cause))?;
 
         let absent = builder
             .push_block(source.clone(), kind)
-            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+            .map_err(|cause| self.mir_error(source, cause))?;
 
         let merge = builder
             .push_block(source.clone(), kind)
-            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+            .map_err(|cause| self.mir_error(source, cause))?;
 
         builder
             .set_terminator(
@@ -269,9 +249,9 @@ impl Compilation {
                     unmatched: MirEdge::new(absent, []),
                 },
             )
-            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+            .map_err(|cause| self.mir_error(source, cause))?;
 
-        let child = projected_lifecycle_place(&place, MirProjectionKind::NullableValue, target);
+        let child = place.project(MirProjectionKind::NullableValue, target);
 
         self.push_child_lifecycle_operations(builder, present, source, role, [child])?;
 
@@ -282,7 +262,7 @@ impl Compilation {
                     source.clone(),
                     MirTerminatorKind::Goto(MirEdge::new(merge, [])),
                 )
-                .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+                .map_err(|cause| self.mir_error(source, cause))?;
         }
 
         Ok(merge)
@@ -292,7 +272,7 @@ impl Compilation {
         clippy::too_many_arguments,
         reason = "union lifecycle dispatch keeps its checked type and MIR context explicit"
     )]
-    pub(in crate::compilation::product::realization) fn push_union_lifecycle_operations(
+    pub(super) fn push_union_lifecycle_operations(
         &self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
@@ -301,22 +281,19 @@ impl Compilation {
         place: MirPlace,
         union: bray_symbols::UnionSymbolId,
         substitution: GenericSubstitutionId,
-        cancellation: &CancellationToken,
-    ) -> Result<bray_ir::MirBlockId, CodegenPreparationError> {
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
         let kind = lifecycle_operation_block_kind(role)?;
 
         let merge = builder
             .push_block(source.clone(), kind)
-            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+            .map_err(|cause| self.mir_error(source, cause))?;
 
-        let representation = self.declared_type_representation_with_cancellation(
-            NamedTypeSymbolId::Union(union),
-            cancellation,
-        )?;
+        let representation = self
+            .context
+            .declared_representation(NamedTypeSymbolId::Union(union))?;
 
-        let bray_symbols::DeclaredStorageShape::Union(variants) = representation.value().storage()
-        else {
-            return Err(CodegenPreparationError::UnresolvedType(place.ty()));
+        let bray_symbols::DeclaredStorageShape::Union(variants) = representation.storage() else {
+            return Err(SyntheticLoweringError::UnresolvedType(place.ty()).into());
         };
 
         let mut current = block;
@@ -324,11 +301,11 @@ impl Compilation {
         for variant in variants.iter() {
             let matched = builder
                 .push_block(source.clone(), kind)
-                .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+                .map_err(|cause| self.mir_error(source, cause))?;
 
             let unmatched = builder
                 .push_block(source.clone(), kind)
-                .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+                .map_err(|cause| self.mir_error(source, cause))?;
 
             builder
                 .set_terminator(
@@ -343,26 +320,26 @@ impl Compilation {
                         unmatched: MirEdge::new(unmatched, []),
                     },
                 )
-                .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+                .map_err(|cause| self.mir_error(source, cause))?;
 
             let children = variant
                 .members()
                 .iter()
                 .enumerate()
                 .map(|(index, member)| {
-                    let ty = self.resolve_codegen_type(member.ty(), substitution, cancellation)?;
+                    let ty = self.context.resolve_type(member.ty(), substitution)?;
 
                     let projection = MirProjectionKind::ActiveUnionPayloadElement {
                         variant: variant.variant(),
                         ordinal: bray_symbols::SymbolOrdinal::new(
                             u32::try_from(index)
-                                .map_err(|_| CodegenPreparationError::LayoutOverflow(place.ty()))?,
+                                .map_err(|_| SyntheticLoweringError::LayoutOverflow(place.ty()))?,
                         ),
                     };
 
-                    Ok(projected_lifecycle_place(&place, projection, ty))
+                    Ok(place.project(projection, ty))
                 })
-                .collect::<Result<Vec<_>, CodegenPreparationError>>()?;
+                .collect::<Result<Vec<_>, C::Error>>()?;
 
             self.push_child_lifecycle_operations(builder, matched, source, role, children)?;
 
@@ -372,7 +349,7 @@ impl Compilation {
                     source.clone(),
                     MirTerminatorKind::Goto(MirEdge::new(merge, [])),
                 )
-                .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+                .map_err(|cause| self.mir_error(source, cause))?;
 
             current = unmatched;
         }
@@ -385,20 +362,20 @@ impl Compilation {
 
         builder
             .set_terminator(current, source.clone(), unmatched)
-            .map_err(CodegenPreparationError::InvalidGeneratedLifecycleMir)?;
+            .map_err(|cause| self.mir_error(source, cause))?;
 
         Ok(merge)
     }
 
-    pub(in crate::compilation::product::realization) fn push_child_lifecycle_operations(
+    pub(super) fn push_child_lifecycle_operations(
         &self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
         role: bray_ir::MirGeneratedLifecycleRole,
-        children: impl IntoIterator<Item = MirPlace>,
-    ) -> Result<(), CodegenPreparationError> {
-        for child in children.into_iter().collect::<Vec<_>>().into_iter().rev() {
+        children: impl IntoIterator<Item = MirPlace, IntoIter: DoubleEndedIterator>,
+    ) -> Result<(), C::Error> {
+        for child in children.into_iter().rev() {
             match role {
                 bray_ir::MirGeneratedLifecycleRole::Destroy => {
                     self.push_lifecycle_operation(
@@ -428,92 +405,11 @@ impl Compilation {
                 }
                 bray_ir::MirGeneratedLifecycleRole::Finalize
                 | bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
-                    return Err(ProductQueryFailure::UnsupportedLifecycleRole { role }.into());
+                    return Err(SyntheticLoweringError::UnsupportedLifecycleRole(role).into());
                 }
             }
         }
 
         Ok(())
-    }
-
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "owned lifecycle realization keeps the storage policy and target explicit"
-    )]
-    pub(in crate::compilation::product::realization) fn push_owned_indirection_lifecycle_operations(
-        &self,
-        builder: &mut MirUnitBuilder,
-        block: bray_ir::MirBlockId,
-        source: &MirSourceAnchor,
-        role: bray_ir::MirGeneratedLifecycleRole,
-        place: MirPlace,
-        storage: TypeId,
-        target: TypeId,
-        cancellation: &CancellationToken,
-    ) -> Result<bray_ir::MirBlockId, CodegenPreparationError> {
-        let storage_place =
-            projected_lifecycle_place(&place, MirProjectionKind::OwnedStorage, storage);
-
-        let target_place = self.storage_target_place(
-            builder,
-            block,
-            source,
-            storage_place.clone(),
-            storage,
-            target,
-            cancellation,
-        )?;
-
-        match role {
-            bray_ir::MirGeneratedLifecycleRole::Destroy => {
-                self.push_lifecycle_operation(
-                    builder,
-                    block,
-                    source,
-                    MirOperationKind::Finalize(target_place),
-                )?;
-
-                self.push_storage_lifecycle_call(
-                    builder,
-                    block,
-                    source,
-                    storage_place.clone(),
-                    storage,
-                    target,
-                    "StorageDestroy",
-                    Some(BorrowKind::Mutable),
-                    cancellation,
-                )?;
-
-                self.push_storage_lifecycle_call(
-                    builder,
-                    block,
-                    source,
-                    storage_place,
-                    storage,
-                    target,
-                    "StorageRelease",
-                    None,
-                    cancellation,
-                )?;
-            }
-            bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => {
-                self.push_lifecycle_operation(
-                    builder,
-                    block,
-                    source,
-                    MirOperationKind::Cleanup {
-                        phase,
-                        place: target_place,
-                    },
-                )?;
-            }
-            bray_ir::MirGeneratedLifecycleRole::Finalize
-            | bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
-                return Err(ProductQueryFailure::UnsupportedLifecycleRole { role }.into());
-            }
-        }
-
-        Ok(block)
     }
 }

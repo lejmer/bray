@@ -27,6 +27,9 @@ pub(in crate::compilation) fn native_product_preparation_diagnostic(
     target: &str,
 ) -> Diagnostic {
     let source = match &failure {
+        DiagnosticNativeProductFailureKind::CodegenMissingCallableImplementation {
+            source, ..
+        } => *source,
         DiagnosticNativeProductFailureKind::EvaluationLoweringInput(failure) => {
             Some(failure.source())
         }

@@ -8,6 +8,7 @@ mod input;
 mod lowering;
 mod plan;
 mod result;
+mod synthetic;
 
 pub use host::{ExecutableHostLoweringInput, ExecutableHostStatic, lower_executable_host};
 pub use identity::executable_unit_kind;
@@ -17,3 +18,7 @@ pub use plan::{
     LoweringPlanFailure, LoweringPlanFailureCause, LoweringPlanKind, VerifiedLoweringPlans,
 };
 pub use result::{CompileTimeUnit, LoweredUnit};
+pub use synthetic::{
+    HeapStorageLoweringInput, HeapStorageMethod, SyntheticLoweringContext, SyntheticLoweringError,
+    lower_heap_storage, lower_lifecycle,
+};

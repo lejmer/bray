@@ -374,9 +374,7 @@ where
         (SelectionKind::Construction, BoundExpression::Call(call)) => {
             union_variant_reference(request, call.callee())
         }
-        (SelectionKind::Construction, BoundExpression::Structured(expression)) => {
-            expression.kind() == BoundStructuredExpressionKind::TypeFormConstruction
-        }
+        (SelectionKind::Construction, BoundExpression::BoxConstruction(_)) => true,
         (SelectionKind::Conversion, BoundExpression::Conversion(_)) => true,
         (SelectionKind::Implementation, _) => true,
         _ => false,

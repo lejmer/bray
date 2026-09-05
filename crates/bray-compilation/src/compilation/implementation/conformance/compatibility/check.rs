@@ -2,7 +2,7 @@
 
 use std::collections::BTreeMap;
 
-use bray_binder::SymbolQueryProvider;
+use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     CallableContractClause, CallableContractSet, CallableContractsQuery,
@@ -99,6 +99,9 @@ pub(in crate::compilation::implementation::conformance) fn fulfillment_is_compat
             TraitMemberRequirementId::Constant(requirement),
             TraitMemberFulfillmentId::Constant(fulfillment),
         ) => {
+            let fulfillment_context =
+                fulfillment_self_context(binding_context, fulfillment.into())?;
+
             let requirement = resolve_query!(
                 binding_context,
                 diagnostics,
@@ -117,6 +120,7 @@ pub(in crate::compilation::implementation::conformance) fn fulfillment_is_compat
                 values,
                 context.subject,
                 trait_application,
+                fulfillment_context,
                 None,
                 requirement.value(),
                 fulfillment.value(),
@@ -194,6 +198,7 @@ fn callable_is_compatible(
     let binding_context = context.binding_context;
     let trait_application = context.trait_application;
     let type_bindings = context.type_bindings;
+    let fulfillment_context = fulfillment_self_context(binding_context, fulfillment.into_any())?;
 
     let requirement_signature = resolve_query!(
         binding_context,
@@ -322,6 +327,7 @@ fn callable_is_compatible(
             values,
             context.subject,
             trait_application,
+            fulfillment_context,
             generic_substitution,
             requirement.ty(),
             fulfillment.ty(),
@@ -339,6 +345,7 @@ fn callable_is_compatible(
         values,
         context.subject,
         trait_application,
+        fulfillment_context,
         generic_substitution,
         requirement_type.result(),
         fulfillment_type.result(),
@@ -460,6 +467,8 @@ fn generic_surfaces_are_compatible(
     ),
     FactQueryError,
 > {
+    let fulfillment_context = fulfillment_self_context(binding_context, fulfillment)?;
+
     let Some(requirement_owner) = GenericOwnerId::try_new(requirement) else {
         return Ok((None, None));
     };
@@ -583,6 +592,7 @@ fn generic_surfaces_are_compatible(
             values,
             subject,
             trait_application,
+            fulfillment_context,
             Some(substitution),
             requirement_type.value(),
             fulfillment_type.value(),
@@ -949,6 +959,7 @@ fn predicate_is_compatible(
     let binding_context = context.binding_context;
     let trait_application = context.trait_application;
     let type_bindings = context.type_bindings;
+    let fulfillment_context = fulfillment_self_context(binding_context, fulfillment.into_any())?;
 
     let requirement_signature = resolve_query!(
         binding_context,
@@ -1046,6 +1057,7 @@ fn predicate_is_compatible(
             values,
             context.subject,
             trait_application,
+            fulfillment_context,
             generic_substitution,
             requirement.ty(),
             fulfillment.ty(),
@@ -1060,4 +1072,14 @@ fn predicate_is_compatible(
     }
 
     Ok(None)
+}
+
+fn fulfillment_self_context(
+    binding_context: &CompilationBindingContext<'_>,
+    fulfillment: bray_symbols::AnySymbolId,
+) -> Result<Option<bray_symbols::SelfTypeContext>, FactQueryError> {
+    binding_context
+        .containing_symbol(fulfillment)
+        .map(|owner| owner.and_then(bray_symbols::SelfTypeContext::try_new))
+        .map_err(binding_query_error)
 }

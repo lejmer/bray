@@ -1,3 +1,4 @@
+mod box_construction;
 mod call;
 mod category;
 mod construction;
@@ -11,6 +12,7 @@ mod literal;
 mod recovery;
 mod selection;
 
+pub use box_construction::BoundBoxConstructionExpression;
 pub use call::{
     BoundArgument, BoundCallExpression, BoundCallResolution, BoundCallResult, BoundCallableTarget,
     BoundFutureConstruction, BoundGenericArgument, BoundResolvedCall,

@@ -1,7 +1,5 @@
 use bray_binder::BindingQueryContext;
-use bray_bound_tree::{
-    BoundExpression, BoundExpressionId, BoundReferenceTarget, BoundStructuredExpressionKind,
-};
+use bray_bound_tree::{BoundExpression, BoundExpressionId, BoundReferenceTarget};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{AnySymbolId, NamedTypeSymbolId, TypeId};
 
@@ -80,17 +78,13 @@ impl Compilation {
 
                 Some(candidate)
             }
-            BoundExpression::Structured(structured)
-                if structured.kind() == BoundStructuredExpressionKind::TypeFormConstruction =>
-            {
-                self.type_form_construction_candidate(
-                    key,
-                    binding_context,
-                    result_type,
-                    cancellation,
-                    diagnostics,
-                )?
-            }
+            BoundExpression::BoxConstruction(_) => self.type_form_construction_candidate(
+                key,
+                binding_context,
+                result_type,
+                cancellation,
+                diagnostics,
+            )?,
             _ => {
                 return Err(operation_contract_failure(
                     key,
@@ -141,6 +135,13 @@ impl Compilation {
             && !result.is_recovered()
         {
             return Ok(Some(result.ty()));
+        }
+
+        if matches!(
+            unit.view().expression(expression),
+            Some(BoundExpression::BoxConstruction(_))
+        ) {
+            return Ok(None);
         }
 
         if unit.tree().expressions().any(|(_, candidate)| {
