@@ -74,12 +74,12 @@ pub fn demanded_runtime_references_for_mir(
             ),
         )))
         .chain(
-            checked_call_cancellation_propagation_is_demanded(mir).then_some(Some(
-                MirRuntimeReference::new(
-                    bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
-                    runtime_abi,
-                ),
-            )),
+            (checked_call_cancellation_propagation_is_demanded(mir)
+                || boundary_panic_propagation_is_demanded(mir))
+            .then_some(Some(MirRuntimeReference::new(
+                bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
+                runtime_abi,
+            ))),
         )
         .flatten()
         .collect()
@@ -89,7 +89,7 @@ fn checked_call_cancellation_propagation_is_demanded(mir: &bray_ir::MirUnit) -> 
     mir.blocks().iter().any(|block| {
         matches!(
             block.terminator().kind(),
-            MirTerminatorKind::CheckCallPanic { .. }
+            MirTerminatorKind::CheckCallOutcome { .. }
         )
     })
 }
@@ -98,7 +98,7 @@ fn boundary_panic_propagation_is_demanded(mir: &bray_ir::MirUnit) -> bool {
     mir.blocks().iter().any(|block| {
         let checked_call = matches!(
             block.terminator().kind(),
-            MirTerminatorKind::CheckCallPanic { .. }
+            MirTerminatorKind::CheckCallOutcome { .. }
         )
         .then(|| block.operations().last().copied())
         .flatten();
@@ -151,10 +151,13 @@ pub fn mapped_runtime_references(
         .iter()
         .any(|symbol| symbol.signature().has_panic_report_context())
     {
-        references.insert(MirRuntimeReference::new(
-            bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
-            unit.target().runtime_abi(),
-        ));
+        references.extend(
+            [
+                bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
+                bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
+            ]
+            .map(|role| MirRuntimeReference::new(role, unit.target().runtime_abi())),
+        );
     }
 
     references
@@ -443,7 +446,7 @@ fn terminator_runtime_references(
         | MirTerminatorKind::Return(_)
         | MirTerminatorKind::Unreachable
         | MirTerminatorKind::ForwardRunResult { .. }
-        | MirTerminatorKind::CheckCallPanic { .. }
+        | MirTerminatorKind::CheckCallOutcome { .. }
         | MirTerminatorKind::BeginCleanup(_)
         | MirTerminatorKind::ContinueCleanup(_)
         | MirTerminatorKind::Panic { .. }
@@ -500,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn hidden_panic_context_demands_panic_propagation_runtime() {
+    fn hidden_outcome_context_demands_panic_and_cancellation_runtime() {
         let fixture = codegen_request();
         let request = fixture.request();
 
@@ -523,6 +526,13 @@ mod tests {
             references
                 .iter()
                 .any(|reference| reference.role() == RuntimeAbiRole::PanicPropagation)
+        );
+
+        assert!(
+            references
+                .iter()
+                .any(|reference| reference.role()
+                    == RuntimeAbiRole::CurrentRunCancellationPropagation)
         );
     }
 }

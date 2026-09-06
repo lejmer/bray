@@ -15,6 +15,7 @@ struct Guard
 {
     mut counter: &mut Counter;
     digit: usize = 0;
+    fail: bool = false;
 
     destruct()
     {
@@ -25,6 +26,11 @@ struct Guard
             let current = core.atomic.load<usize, 1>(&CLEANUP_ORDER);
 
             core.atomic.store<usize, 4>(&CLEANUP_ORDER, current * 10 + self.digit);
+        }
+
+        if self.fail
+        {
+            panic("old custom-policy replacement destructor");
         }
     }
 }
@@ -314,6 +320,71 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
             }
             case none {}
         };
+    }
+
+    func replacement(pos fails: bool)
+    {
+        let mut first: Counter = Counter
+        {
+            value = 0
+        };
+
+        let mut second: Counter = Counter
+        {
+            value = 0
+        };
+
+        let mut third: Counter = Counter
+        {
+            value = 0
+        };
+
+        let mut fourth: Counter = Counter
+        {
+            value = 0
+        };
+
+        let releases = core.atomic.load<usize, 1>(&RELEASES);
+
+        let outcome = catch
+        {
+            let mut value: box[PairStorage] Pair = box(
+                Pair
+                {
+                    left = Guard
+                    {
+                        counter = &mut first
+                    },
+                    right = Guard
+                    {
+                        counter = &mut second,
+                        fail = fails
+                    }
+                }
+            );
+
+            value = box(
+                Pair
+                {
+                    left = Guard
+                    {
+                        counter = &mut third
+                    },
+                    right = Guard
+                    {
+                        counter = &mut fourth
+                    }
+                }
+            );
+
+            assert(core.atomic.load<usize, 1>(&RELEASES) == releases + 1);
+            yield unit;
+        };
+
+        assert((outcome matches Error(_)) == fails);
+        assert(first.value == 1 && second.value == 1);
+        assert(third.value == 1 && fourth.value == 1);
+        assert(core.atomic.load<usize, 1>(&RELEASES) == releases + 2);
     }
 
     func main() -> i32
@@ -713,6 +784,9 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
         {
             return 22;
         }
+
+        replacement(false);
+        replacement(true);
 
         return 0;
     }

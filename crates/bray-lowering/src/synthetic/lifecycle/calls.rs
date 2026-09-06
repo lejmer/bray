@@ -29,10 +29,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         place: MirPlace,
         callable: (MirCallableReference, TypeId, TypeId, CallableExecution),
-    ) -> Result<(), C::Error> {
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
         let (callable, receiver, result, _) = callable;
 
         let receiver = self.lifecycle_receiver_operand(builder, block, source, place, receiver)?;
+        let outcome = self.cleanup_outcome(builder, block, source)?;
 
         builder
             .push_operation(
@@ -48,7 +49,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )
             .map_err(|cause| self.mir_error(source, cause))?;
 
-        Ok(())
+        let completed = outcome
+            .check(builder, block, source)
+            .map_err(|cause| self.mir_error(source, cause))?;
+
+        self.finish_cleanup_outcome(builder, completed, source, &outcome)
     }
 
     pub(super) fn push_static_finalizer_call(

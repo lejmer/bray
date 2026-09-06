@@ -85,6 +85,9 @@ where
         ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
             return CheckerOutcome::InfrastructureFailure(error);
         }
+        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
     };
 
     check_storage_flow_with_graph(request, storage, liveness, refinements, memory, &graph)
@@ -235,6 +238,7 @@ where
     let decisions = collector.decisions().collect::<Vec<_>>();
     let memory_decisions = collector.memory_decisions().collect::<Vec<_>>();
     let exits = collector.exit_decisions().collect::<Vec<_>>();
+    let replacements = collector.replacement_decisions().collect::<Vec<_>>();
 
     let analysis = match StorageFlow::try_new(
         storage.unit(),
@@ -249,6 +253,7 @@ where
             || refinements.is_recovered(),
     )
     .and_then(|analysis| analysis.with_memory_operations(memory, memory_decisions))
+    .and_then(|analysis| analysis.with_replacements(replacements))
     {
         Ok(analysis) => analysis,
         Err(error) => {
@@ -318,6 +323,7 @@ where
         StorageFlowState,
     )>,
     exit_indices: BTreeMap<(bray_bound_tree::BoundBlockId, AnyBoundNodeId), usize>,
+    replacements: BTreeMap<StorageAccessPlan, StorageFlowState>,
     pub(super) memory_decisions: BTreeMap<BoundExpressionId, MemoryOperationStatus>,
     pub(super) diagnostics: DiagnosticBag,
     pub(super) reported_diagnostics: BTreeSet<(DiagnosticKind, StorageAccessId)>,
@@ -356,6 +362,7 @@ where
             suspensions: Vec::new(),
             exits: Vec::new(),
             exit_indices: BTreeMap::new(),
+            replacements: BTreeMap::new(),
             memory_decisions: BTreeMap::new(),
             diagnostics: DiagnosticBag::new(),
             reported_diagnostics: BTreeSet::new(),
@@ -492,6 +499,16 @@ where
         }
 
         if matches!(status, StorageOperationStatus::Valid) {
+            if self.publish && purpose == StorageAccessPurpose::Assignment {
+                self.replacements
+                    .entry(plan)
+                    .and_modify(|previous| {
+                        previous.merge(state);
+                    })
+                    // Publication owns the pre-installation state independently of later writes.
+                    .or_insert_with(|| state.clone());
+            }
+
             if let Err(error) = self.apply_valid_operation(state, plan, purpose, borrow) {
                 self.infrastructure_failure = Some(error);
 
@@ -911,6 +928,44 @@ where
                 state.fully_moved.iter().copied(),
                 state.active_borrows.iter().copied(),
                 state.recovered,
+            )
+        })
+    }
+
+    fn replacement_decisions(
+        &self,
+    ) -> impl Iterator<Item = bray_bound_tree::StorageReplacementDecision> + '_ {
+        self.replacements.iter().map(|(plan, state)| {
+            let root = self.storage.root_identity(plan.access());
+
+            let moved = state
+                .moved
+                .keys()
+                .copied()
+                .filter(|access| self.storage.root_identity(*access) == root);
+
+            let initialization = match root {
+                Some(root) if !state.live.contains(&root) || state.fully_moved.contains(&root) => {
+                    bray_bound_tree::StorageReplacementState::Absent
+                }
+                Some(root)
+                    if state.initialized.contains(&root)
+                        && !state.moved.keys().any(|access| {
+                            self.storage.access_contains(plan.access(), *access)
+                                || self.storage.access_contains(*access, plan.access())
+                        }) =>
+                {
+                    bray_bound_tree::StorageReplacementState::Present
+                }
+                _ => bray_bound_tree::StorageReplacementState::Conditional,
+            };
+
+            bray_bound_tree::StorageReplacementDecision::new(
+                plan.expression(),
+                plan.access(),
+                initialization,
+                moved,
+                state.recovered || root.is_none(),
             )
         })
     }

@@ -10,8 +10,8 @@ use bray_compiler_known::{CompilerKnownOperationRole, RepresentationRole};
 use bray_ir::{
     MirBinaryOperator, MirBlockId, MirBlockKind, MirCall, MirCallArgument, MirCallIntrinsic,
     MirCallTarget, MirCallableReference, MirEdge, MirImmediateValue, MirOperand, MirOperationKind,
-    MirPatternPredicate, MirPlace, MirSourceAnchor, MirStorageKind, MirStoreKind,
-    MirTerminatorKind, MirUnaryOperator,
+    MirPatternPredicate, MirPlace, MirSourceAnchor, MirStorageKind, MirTerminatorKind,
+    MirUnaryOperator,
 };
 use bray_symbols::{
     BorrowKind, CallableAbi, CallableDefinitionId, CallableInstanceData, GenericOwnerId,
@@ -684,16 +684,7 @@ impl Lowerer<'_> {
             )?
             .0;
 
-        self.push_operation(
-            current,
-            Self::retained_source(&source),
-            MirOperationKind::Store {
-                kind: MirStoreKind::Assign,
-                destination,
-                value,
-            },
-            None,
-        )?;
+        let current = self.replace_value(id, current, &source, destination, value)?;
 
         let value = self.unit_operand(self.expression_type(id)?);
 

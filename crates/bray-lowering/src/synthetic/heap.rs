@@ -347,16 +347,34 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .push_block_parameter(completed, source.clone(), pointer_type)
             .map_err(invalid)?;
 
-        let panicked =
-            self.push_heap_construction_failure(builder, source, parameter.clone(), runtime_abi)?;
+        let report_type = self
+            .context
+            .representation_type(RepresentationRole::PanicReport)?;
+
+        let panicked = self.push_heap_construction_failure(
+            builder,
+            source,
+            parameter.clone(),
+            runtime_abi,
+            Some(report_type),
+        )?;
+
+        let cancelled = self.push_heap_construction_failure(
+            builder,
+            source,
+            parameter.clone(),
+            runtime_abi,
+            None,
+        )?;
 
         builder
             .set_terminator(
                 entry,
                 source.clone(),
-                MirTerminatorKind::CheckCallPanic {
+                MirTerminatorKind::CheckCallOutcome {
                     completed: MirEdge::new(completed, [MirOperand::Value(allocation)]),
-                    panicked,
+                    panicked: MirCallPanicEdge::new(panicked, report_type),
+                    cancelled: MirEdge::new(cancelled, []),
                 },
             )
             .map_err(invalid)?;
@@ -396,19 +414,17 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         parameter: MirPlace,
         runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
-    ) -> Result<MirCallPanicEdge, C::Error> {
-        let report_type = self
-            .context
-            .representation_type(RepresentationRole::PanicReport)?;
-
+        report_type: Option<TypeId>,
+    ) -> Result<MirBlockId, C::Error> {
         let invalid = |cause| self.mir_error(source, cause);
 
         let failed = builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
             .map_err(invalid)?;
 
-        let report = builder
-            .push_block_parameter(failed, source.clone(), report_type)
+        let report = report_type
+            .map(|ty| builder.push_block_parameter(failed, source.clone(), ty))
+            .transpose()
             .map_err(invalid)?;
 
         let broadcast = builder
@@ -419,12 +435,14 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .push_block(source.clone(), MirBlockKind::LifecycleResolution)
             .map_err(invalid)?;
 
-        let broadcast_report = builder
-            .push_block_parameter(broadcast, source.clone(), report_type)
+        let broadcast_report = report_type
+            .map(|ty| builder.push_block_parameter(broadcast, source.clone(), ty))
+            .transpose()
             .map_err(invalid)?;
 
-        let resolution_report = builder
-            .push_block_parameter(resolution, source.clone(), report_type)
+        let resolution_report = report_type
+            .map(|ty| builder.push_block_parameter(resolution, source.clone(), ty))
+            .transpose()
             .map_err(invalid)?;
 
         builder
@@ -433,7 +451,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 source.clone(),
                 MirTerminatorKind::BeginCleanup(MirCleanupEdge::new(
                     MirCleanupPhase::TaskCancellation,
-                    MirEdge::new(broadcast, [MirOperand::Value(report)]),
+                    MirEdge::new(broadcast, report.map(MirOperand::Value)),
                 )),
             )
             .map_err(invalid)?;
@@ -456,7 +474,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 source.clone(),
                 MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
                     MirCleanupPhase::LifecycleResolution,
-                    MirEdge::new(resolution, [MirOperand::Value(broadcast_report)]),
+                    MirEdge::new(resolution, broadcast_report.map(MirOperand::Value)),
                 )),
             )
             .map_err(invalid)?;
@@ -477,17 +495,25 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .set_terminator(
                 resolution,
                 source.clone(),
-                MirTerminatorKind::PropagatePanic {
-                    report: MirOperand::Value(resolution_report),
-                    runtime: MirRuntimeReference::new(
-                        RuntimeAbiRole::PanicPropagation,
-                        runtime_abi,
-                    ),
+                match resolution_report {
+                    Some(report) => MirTerminatorKind::PropagatePanic {
+                        report: MirOperand::Value(report),
+                        runtime: MirRuntimeReference::new(
+                            RuntimeAbiRole::PanicPropagation,
+                            runtime_abi,
+                        ),
+                    },
+                    None => MirTerminatorKind::PropagateCancellation {
+                        runtime: MirRuntimeReference::new(
+                            RuntimeAbiRole::CurrentRunCancellationPropagation,
+                            runtime_abi,
+                        ),
+                    },
                 },
             )
             .map_err(invalid)?;
 
-        Ok(MirCallPanicEdge::new(failed, report_type))
+        Ok(failed)
     }
 }
 

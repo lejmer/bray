@@ -37,6 +37,11 @@ pub struct MirUnitBuilder {
 }
 
 impl MirUnitBuilder {
+    /// Returns the target contract retained by the body under construction.
+    pub const fn target(&self) -> &MirTargetContract {
+        &self.target
+    }
+
     /// Starts construction of a compiler-provided body with ordinary synchronous calling semantics.
     pub fn for_compiler_provided_callable(
         unit: MirUnitId,
@@ -1055,6 +1060,86 @@ mod tests {
             builder.finish(entry),
             Err(MirUnitBuildError::StorageTypeMismatch(storage))
         );
+    }
+
+    #[test]
+    fn checked_cleanup_outcomes_require_a_local_cancellation_edge_and_fallible_operation() {
+        for (fallible, cancellation_kind) in [
+            (true, MirBlockKind::Ordinary),
+            (false, MirBlockKind::Ordinary),
+            (true, MirBlockKind::LifecycleResolution),
+        ] {
+            let bound = test_bound_unit(6);
+            let source = MirSourceAnchor::from(bound.key().source());
+            let ty = crate::test_support::test_type();
+            let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
+            let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+            let completed = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+            let panicked = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+            let cancelled = push_block(&mut builder, source.clone(), cancellation_kind);
+            push_parameter(&mut builder, panicked, source.clone(), ty);
+            let storage = push_storage(&mut builder, source.clone(), ty);
+            let place = MirPlace::new(storage, [], ty);
+
+            let operation = if fallible {
+                MirOperationKind::Destroy(place)
+            } else {
+                MirOperationKind::Store {
+                    kind: crate::MirStoreKind::Initialize,
+                    destination: place,
+                    value: MirOperand::Immediate {
+                        value: MirImmediateValue::Unit,
+                        ty,
+                    },
+                }
+            };
+
+            builder
+                .push_operation(entry, source.clone(), operation, None)
+                .unwrap();
+
+            set_terminator(
+                &mut builder,
+                entry,
+                source.clone(),
+                MirTerminatorKind::CheckCallOutcome {
+                    completed: MirEdge::new(completed, []),
+                    panicked: crate::MirCallPanicEdge::new(panicked, ty),
+                    cancelled: MirEdge::new(cancelled, []),
+                },
+            );
+
+            for block in [completed, panicked, cancelled] {
+                set_terminator(
+                    &mut builder,
+                    block,
+                    source.clone(),
+                    MirTerminatorKind::Return(None),
+                );
+            }
+
+            let unit = builder.finish(entry);
+
+            if !fallible {
+                assert_eq!(unit, Err(MirUnitBuildError::InvalidCallPanicCheck(entry)));
+            } else if cancellation_kind != MirBlockKind::Ordinary {
+                assert_eq!(
+                    unit,
+                    Err(MirUnitBuildError::CleanupPhaseOrderViolation(cancelled))
+                );
+            } else {
+                let unit = unit.unwrap();
+                let mut successors = Vec::new();
+
+                unit.block(entry)
+                    .unwrap()
+                    .terminator()
+                    .kind()
+                    .for_each_successor(|block| successors.push(block));
+
+                assert_eq!(successors, [completed, panicked, cancelled]);
+            }
+        }
     }
 
     #[test]

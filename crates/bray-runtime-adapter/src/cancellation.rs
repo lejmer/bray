@@ -2,6 +2,18 @@ use bray_runtime::native::implementation;
 use bray_runtime_abi::{NativeRootHandle, NativeRuntimeStatus, NativeTaskHandle};
 
 native_adapter! {
+    pub extern "C" fn bray_runtime_cleanup_shield_enter() {
+        implementation::bray_runtime_cleanup_shield_enter()
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_cleanup_shield_leave() {
+        implementation::bray_runtime_cleanup_shield_leave()
+    }
+}
+
+native_adapter! {
     pub extern "C" fn bray_runtime_root_cancellation_request(
         root: NativeRootHandle,
     ) -> NativeRuntimeStatus {

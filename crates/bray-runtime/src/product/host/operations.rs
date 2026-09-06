@@ -40,6 +40,16 @@ pub(crate) fn control(
         return close_product(product);
     }
 
+    if operation == NativeProductHostOperation::FINISH_ROOT {
+        if super::super::attachment::has_foreign_attachment(product) {
+            return observation_with_status(product, NativeProductHostStatus::INVALID_ARGUMENT);
+        }
+
+        let observation = close_product(product);
+
+        return super::thread::drain_product_thread_statics(product).unwrap_or(observation);
+    }
+
     let result = mutate_host(product, operation);
 
     match result {
@@ -474,7 +484,7 @@ fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
         let _ = incident.report();
     }
 
-    let Ok(mut hosts) = product_hosts().lock() else {
+    let Ok(mut hosts) = product_hosts().lock().map_err(|_| ()) else {
         cleanup.runtime.release();
 
         return NativeProductHostObservation::new(
@@ -491,6 +501,7 @@ fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
     };
 
     let Some(host) = hosts.get_mut(&cleanup.product) else {
+        drop(hosts);
         cleanup.runtime.release();
 
         return NativeProductHostObservation::invalid();
@@ -502,9 +513,13 @@ fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
     host.cleanup_running = false;
     host.state = NativeProductHostState::CLOSED;
 
+    let observation = host.observation(status_for_state(host));
+
+    // Runtime shutdown can join workers whose exit callbacks need this registry.
+    drop(hosts);
     cleanup.runtime.release();
 
-    host.observation(status_for_state(host))
+    observation
 }
 
 fn ensure_formed(
@@ -512,7 +527,7 @@ fn ensure_formed(
 ) -> Result<(), NativeProductHostObservation> {
     let product = product_key(descriptor);
 
-    let mut hosts = product_hosts().lock().map_err(|_| {
+    let hosts = product_hosts().lock().map_err(|_| {
         NativeProductHostObservation::new(
             NativeProductHostStatus::RUNTIME_FAILURE,
             NativeProductHostState::FAILED,
@@ -529,6 +544,9 @@ fn ensure_formed(
     if hosts.contains_key(&product) {
         return Ok(());
     }
+
+    // Runtime creation can wait for another thread that needs the product registry.
+    drop(hosts);
 
     let runtime = crate::native::retain_runtime().map_err(|_| {
         NativeProductHostObservation::new(
@@ -550,7 +568,26 @@ fn ensure_formed(
         return Err(NativeProductHostObservation::invalid());
     };
 
-    hosts.insert(product, host);
+    // Drop a poisoned guard before releasing a runtime that can join product workers.
+    let inserted = match product_hosts().lock().map_err(|_| ()) {
+        Ok(mut hosts) => match hosts.entry(product) {
+            std::collections::btree_map::Entry::Vacant(entry) => {
+                entry.insert(host);
+
+                true
+            }
+            std::collections::btree_map::Entry::Occupied(_) => false,
+        },
+        Err(_) => {
+            runtime.release();
+
+            return Err(NativeProductHostObservation::invalid());
+        }
+    };
+
+    if !inserted {
+        runtime.release();
+    }
 
     Ok(())
 }
@@ -1325,6 +1362,97 @@ mod tests {
 
         assert_eq!(
             control(descriptor, NativeProductHostOperation::CLOSE).state(),
+            NativeProductHostState::CLOSED
+        );
+    }
+
+    #[test]
+    fn finishing_root_drains_implicit_thread_statics_once() {
+        THREAD_CLEANUP_ORDER.set(0);
+
+        let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
+            NativeProductIdentity::new([71; 32]),
+            thread_order_entry,
+            2,
+        )));
+
+        let scope = bray_platform::RuntimeThreadScope::enter().expect("runtime thread enters");
+
+        let registration = NativeThreadStaticCleanupRegistration::new(
+            descriptor,
+            NativeStaticIdentity::new([11; 32]),
+            detach_thread_static,
+            finalizer(first_thread_cleanup),
+            no_cleanup,
+            detach_thread_static,
+        );
+
+        assert!(register_thread_static(&registration).is_success());
+
+        assert_eq!(
+            control(descriptor, NativeProductHostOperation::OBSERVE).thread_attachments(),
+            1
+        );
+
+        let closed = control(descriptor, NativeProductHostOperation::FINISH_ROOT);
+
+        assert_eq!(closed.state(), NativeProductHostState::CLOSED);
+        assert_eq!(closed.status(), NativeProductHostStatus::CLOSED);
+        assert_eq!(closed.thread_attachments(), 0);
+        assert_eq!(THREAD_CLEANUP_ORDER.get(), 1);
+
+        assert_eq!(
+            control(descriptor, NativeProductHostOperation::FINISH_ROOT).state(),
+            NativeProductHostState::CLOSED
+        );
+
+        drop(scope);
+        assert_eq!(THREAD_CLEANUP_ORDER.get(), 1);
+    }
+
+    #[test]
+    fn finishing_root_preserves_foreign_and_external_obligations() {
+        let descriptor = NativeProductHostDescriptor::new(
+            NativeProductIdentity::new([72; 32]),
+            delayed_entry,
+            0,
+        );
+
+        assert_eq!(
+            control(
+                &descriptor,
+                NativeProductHostOperation::ATTACH_CURRENT_THREAD
+            )
+            .status(),
+            NativeProductHostStatus::SUCCESS
+        );
+
+        let rejected = control(&descriptor, NativeProductHostOperation::FINISH_ROOT);
+        assert_eq!(rejected.status(), NativeProductHostStatus::INVALID_ARGUMENT);
+        assert_eq!(rejected.state(), NativeProductHostState::OPEN);
+        assert_eq!(rejected.thread_attachments(), 1);
+
+        assert_eq!(
+            control(
+                &descriptor,
+                NativeProductHostOperation::DETACH_CURRENT_THREAD
+            )
+            .status(),
+            NativeProductHostStatus::SUCCESS
+        );
+
+        assert_eq!(
+            control(&descriptor, NativeProductHostOperation::ACQUIRE_EXTERNAL).status(),
+            NativeProductHostStatus::SUCCESS
+        );
+
+        let pending = control(&descriptor, NativeProductHostOperation::FINISH_ROOT);
+
+        assert_eq!(pending.status(), NativeProductHostStatus::PENDING);
+        assert_eq!(pending.state(), NativeProductHostState::CLOSING);
+
+        assert_eq!(
+            control(&descriptor, NativeProductHostOperation::RELEASE_EXTERNAL).state(),
             NativeProductHostState::CLOSED
         );
     }

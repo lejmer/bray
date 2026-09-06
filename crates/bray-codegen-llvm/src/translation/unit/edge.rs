@@ -35,7 +35,7 @@ pub(super) fn checked_call_operations(unit: &MirUnit) -> BTreeSet<MirOperationId
         .filter_map(|block| {
             matches!(
                 block.terminator().kind(),
-                bray_ir::MirTerminatorKind::CheckCallPanic { .. }
+                bray_ir::MirTerminatorKind::CheckCallOutcome { .. }
             )
             .then(|| block.operations().last().copied())
             .flatten()

@@ -114,29 +114,13 @@ fn validate_host_sequence(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
         }
     }
 
-    let Some((report, cleanup)) = cleanup.split_last() else {
-        return Err(MirUnitBuildError::InvalidHostSequence);
-    };
-
-    let Some((begin, cleanup)) = cleanup.split_first() else {
-        return Err(MirUnitBuildError::InvalidHostSequence);
-    };
-
     if !matches!(
-        begin,
-        crate::MirOperationKind::Host(crate::MirHostOperation::BeginStaticCleanup)
-    ) || !matches!(
-        report,
-        crate::MirOperationKind::Host(crate::MirHostOperation::ReportCleanupIncidents { .. })
-    ) || cleanup.iter().any(|operation| {
-        !matches!(
-            operation,
-            crate::MirOperationKind::Cleanup {
-                phase: crate::MirCleanupPhase::LifecycleResolution,
-                ..
-            }
-        )
-    }) {
+        cleanup,
+        [
+            crate::MirOperationKind::Host(crate::MirHostOperation::BeginStaticCleanup),
+            crate::MirOperationKind::Host(crate::MirHostOperation::ReportCleanupIncidents { .. }),
+        ]
+    ) {
         return Err(MirUnitBuildError::InvalidHostSequence);
     }
 

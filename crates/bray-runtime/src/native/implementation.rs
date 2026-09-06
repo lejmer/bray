@@ -9,6 +9,7 @@ pub use super::callback::{
 };
 pub use super::export::{
     bray_runtime_awaited_frame_composition, bray_runtime_cleanup_incident_reporting,
+    bray_runtime_cleanup_shield_enter, bray_runtime_cleanup_shield_leave,
     bray_runtime_compatible_lane_selection, bray_runtime_current_run_cancellation_observation,
     bray_runtime_current_run_cancellation_propagation, bray_runtime_entry_failure_reporting,
     bray_runtime_event, bray_runtime_frame_completion_move, bray_runtime_join_registration,

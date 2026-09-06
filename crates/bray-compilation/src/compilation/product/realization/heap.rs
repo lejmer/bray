@@ -396,7 +396,7 @@ trusted func deallocate(pos pointer: RawPointer<u8>, pos bytes: usize, pos align
             if member == "StorageCreate" {
                 assert!(mir.blocks().iter().any(|block| matches!(
                     block.terminator().kind(),
-                    MirTerminatorKind::CheckCallPanic { .. }
+                    MirTerminatorKind::CheckCallOutcome { .. }
                 )));
 
                 assert!(mir.operations().iter().any(

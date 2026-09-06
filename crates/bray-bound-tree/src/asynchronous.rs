@@ -362,6 +362,8 @@ impl AsyncScopeExitPlan {
 pub enum AsyncAnalysisBuildError {
     /// One analysis references semantic state owned by another bound unit.
     ForeignUnit,
+    /// One assignment has more than one replacement cleanup plan.
+    DuplicateReplacement,
 }
 
 /// Durable async frame, suspension, task, and cleanup analysis for one bound unit.
@@ -375,6 +377,7 @@ pub struct CheckedAsync {
     storage_requirements: Arc<[AsyncStorageRequirement]>,
     cleanup_types: Arc<[crate::StorageCleanupType]>,
     scope_exits: Arc<[AsyncScopeExitPlan]>,
+    replacements: Arc<[crate::StorageReplacementPlan]>,
     is_recovered: bool,
 }
 
@@ -465,8 +468,45 @@ impl CheckedAsync {
             storage_requirements,
             cleanup_types,
             scope_exits,
+            replacements: Arc::from([]),
             is_recovered,
         })
+    }
+
+    /// Adds complete replacement cleanup selections in source-identity order.
+    pub fn with_replacements(
+        mut self,
+        replacements: impl IntoIterator<Item = crate::StorageReplacementPlan>,
+    ) -> Result<Self, AsyncAnalysisBuildError> {
+        let mut replacements = replacements.into_iter().collect::<Vec<_>>();
+
+        if replacements.iter().any(|plan| {
+            plan.expression().unit() != self.unit
+                || plan.access().unit() != self.unit
+                || plan
+                    .parts()
+                    .is_some_and(|parts| parts.iter().any(|part| !part.is_valid_for(self.unit)))
+        }) {
+            return Err(AsyncAnalysisBuildError::ForeignUnit);
+        }
+
+        replacements.sort_unstable_by_key(crate::StorageReplacementPlan::expression);
+
+        if replacements
+            .windows(2)
+            .any(|pair| pair[0].expression() == pair[1].expression())
+        {
+            return Err(AsyncAnalysisBuildError::DuplicateReplacement);
+        }
+
+        self.replacements = shared_slice(replacements);
+
+        Ok(self)
+    }
+
+    /// Returns complete cleanup plans for evaluated replacements.
+    pub fn replacements(&self) -> &[crate::StorageReplacementPlan] {
+        &self.replacements
     }
 
     /// Returns the checked bound unit.

@@ -261,6 +261,8 @@ pub enum StorageFlowBuildError {
     DuplicateSuspension,
     /// The same expression has more than one memory-flow decision.
     DuplicateMemoryOperation,
+    /// The same assignment has more than one old-storage decision.
+    DuplicateReplacement,
 }
 
 /// Immutable storage, ownership, and borrow decisions for one bound unit.
@@ -274,6 +276,7 @@ pub struct StorageFlow {
     exits: Arc<[StorageExitDecision]>,
     memory_operations: Arc<[MemoryOperationDecision]>,
     checked_memory_operations: Arc<[CheckedMemoryOperation]>,
+    replacements: Arc<[crate::StorageReplacementDecision]>,
     is_recovered: bool,
 }
 
@@ -361,8 +364,46 @@ impl StorageFlow {
             exits: shared_slice(exits),
             memory_operations: Arc::from([]),
             checked_memory_operations: Arc::from([]),
+            replacements: Arc::from([]),
             is_recovered,
         })
+    }
+
+    /// Adds source-ordered replacement decisions, rejecting foreign and duplicate identities.
+    pub fn with_replacements(
+        mut self,
+        replacements: impl IntoIterator<Item = crate::StorageReplacementDecision>,
+    ) -> Result<Self, StorageFlowBuildError> {
+        let mut replacements = replacements.into_iter().collect::<Vec<_>>();
+
+        if replacements.iter().any(|decision| {
+            decision.expression().unit() != self.unit
+                || decision.access().unit() != self.unit
+                || decision
+                    .moved()
+                    .iter()
+                    .any(|access| access.unit() != self.unit)
+        }) {
+            return Err(StorageFlowBuildError::ForeignUnit);
+        }
+
+        replacements.sort_unstable_by_key(crate::StorageReplacementDecision::expression);
+
+        if replacements
+            .windows(2)
+            .any(|pair| pair[0].expression() == pair[1].expression())
+        {
+            return Err(StorageFlowBuildError::DuplicateReplacement);
+        }
+
+        self.replacements = shared_slice(replacements);
+
+        Ok(self)
+    }
+
+    /// Returns old-storage decisions after replacement operands have been evaluated.
+    pub fn replacements(&self) -> &[crate::StorageReplacementDecision] {
+        &self.replacements
     }
 
     /// Adds validated memory-flow decisions without mutating the published analysis.
@@ -437,9 +478,9 @@ impl StorageFlow {
         &self.exits
     }
 
-    /// Returns moved represented-part paths at exits that resolve this storage owner.
+    /// Returns moved represented-part paths needed by this owner's cleanup or replacement.
     ///
-    /// Retained inner-scope exits and storage transferred out of the unit do not contribute.
+    /// Retained inner-scope exits and transferred-out storage do not contribute exit paths.
     pub fn cleanup_moved_projections<'a>(
         &'a self,
         storage: &'a StoragePlan,
@@ -452,6 +493,11 @@ impl StorageFlow {
             .iter()
             .filter(move |exit| owner == Some(exit.scope()) && !transfers)
             .flat_map(|exit| exit.moved())
+            .chain(
+                self.replacements
+                    .iter()
+                    .flat_map(|replacement| replacement.moved()),
+            )
             .filter(move |access| {
                 storage.root_identity(**access) == Some(identity)
                     && !storage.is_root_access(**access)

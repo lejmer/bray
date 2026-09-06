@@ -63,6 +63,9 @@ where
         ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
             return CheckerOutcome::InfrastructureFailure(error);
         }
+        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
     };
 
     let mut diagnostics = DiagnosticBag::new();

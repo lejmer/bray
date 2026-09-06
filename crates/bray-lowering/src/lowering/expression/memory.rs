@@ -455,15 +455,16 @@ impl Lowerer<'_> {
                 [],
             );
 
-            self.push_operation(
+            let (completed, _) = self.push_checked_call(
+                expression,
                 alternate,
                 Self::retained_source(source),
-                MirOperationKind::Call(call),
-                Some(callable.result()),
+                call,
+                callable.result(),
             )?;
 
             self.set_terminator(
-                alternate,
+                completed,
                 Self::retained_source(source),
                 MirTerminatorKind::Unreachable,
             )?;

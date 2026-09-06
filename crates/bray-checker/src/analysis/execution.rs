@@ -119,7 +119,7 @@ where
         expression: BoundExpressionId,
         hook: Option<ImplementationHook>,
     ) -> bool {
-        if !implementation_hook_preserves_synchronous_call(hook) {
+        if !implementation_hook_may_propagate_synchronous_panic(hook) {
             return false;
         }
 
@@ -156,23 +156,34 @@ where
     }
 }
 
-const fn implementation_hook_preserves_synchronous_call(hook: Option<ImplementationHook>) -> bool {
-    matches!(hook, None | Some(ImplementationHook::NativeThreadStart))
+const fn implementation_hook_may_propagate_synchronous_panic(
+    hook: Option<ImplementationHook>,
+) -> bool {
+    matches!(
+        hook,
+        None | Some(
+            ImplementationHook::NativeThreadStart | ImplementationHook::BranchingInlineAssembly
+        )
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use bray_compiler_known::ImplementationHook;
 
-    use super::implementation_hook_preserves_synchronous_call;
+    use super::implementation_hook_may_propagate_synchronous_panic;
 
     #[test]
     fn native_thread_start_preserves_the_synchronous_call() {
-        assert!(implementation_hook_preserves_synchronous_call(Some(
+        assert!(implementation_hook_may_propagate_synchronous_panic(Some(
             ImplementationHook::NativeThreadStart,
         )));
 
-        assert!(!implementation_hook_preserves_synchronous_call(Some(
+        assert!(implementation_hook_may_propagate_synchronous_panic(Some(
+            ImplementationHook::BranchingInlineAssembly,
+        )));
+
+        assert!(!implementation_hook_may_propagate_synchronous_panic(Some(
             ImplementationHook::FutureStart,
         )));
     }

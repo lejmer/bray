@@ -424,6 +424,18 @@ native_export! {
 }
 
 native_export! {
+    pub extern "C" fn bray_runtime_cleanup_shield_enter() {
+        crate::context::enter_current_run_cleanup_shield();
+    }
+}
+
+native_export! {
+    pub extern "C" fn bray_runtime_cleanup_shield_leave() {
+        crate::context::leave_current_run_cleanup_shield();
+    }
+}
+
+native_export! {
     pub extern "C-unwind" fn bray_runtime_current_run_cancellation_propagation() -> ! {
         propagate_current_run_cancellation()
     }

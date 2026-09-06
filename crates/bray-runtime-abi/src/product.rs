@@ -152,10 +152,13 @@ impl NativeProductHostOperation {
     pub const ATTACH_CURRENT_THREAD: Self = Self(9);
     /// Detach the current foreign thread and resolve its exact-thread statics.
     pub const DETACH_CURRENT_THREAD: Self = Self(10);
+    /// Close an executable root and resolve its implicit current-thread static obligations.
+    /// Explicit foreign-thread attachments must be released by their original owner first.
+    pub const FINISH_ROOT: Self = Self(11);
 
     /// Returns whether the value belongs to this ABI version.
     pub const fn is_known(self) -> bool {
-        matches!(self.0, 0..=10)
+        matches!(self.0, 0..=11)
     }
 
     /// Returns the stable integer representation.

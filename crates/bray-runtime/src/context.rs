@@ -117,6 +117,22 @@ pub fn current_run_cancellation_observable() -> bool {
     })
 }
 
+pub(crate) fn enter_current_run_cleanup_shield() {
+    CURRENT_RUN_CANCELLATION.with(|context| {
+        if let Some(context) = context.borrow().as_ref() {
+            context.enter_shield();
+        }
+    });
+}
+
+pub(crate) fn leave_current_run_cleanup_shield() {
+    CURRENT_RUN_CANCELLATION.with(|context| {
+        if let Some(context) = context.borrow().as_ref() {
+            context.leave_shield();
+        }
+    });
+}
+
 /// Returns whether cancellation was requested for the current run, including while shielded.
 pub fn current_run_cancellation_requested() -> bool {
     let requested = CURRENT_RUN_CANCELLATION.with(|context| {
@@ -404,6 +420,27 @@ mod tests {
         });
 
         drop(shield);
+    }
+
+    #[test]
+    fn generated_cleanup_shields_nest_and_restore_delivery() {
+        let cancellation = CancellationContext::root();
+
+        super::with_run_cancellation_context(cancellation, || {
+            super::enter_current_run_cleanup_shield();
+            super::enter_current_run_cleanup_shield();
+
+            super::CURRENT_RUN_CANCELLATION.with(|context| {
+                assert!(context.borrow().as_ref().unwrap().request());
+            });
+
+            assert!(current_run_cancellation_requested());
+            assert!(!current_run_cancellation_observable());
+            super::leave_current_run_cleanup_shield();
+            assert!(!current_run_cancellation_observable());
+            super::leave_current_run_cleanup_shield();
+            assert!(current_run_cancellation_observable());
+        });
     }
 
     fn nonzero(value: usize) -> NonZeroUsize {

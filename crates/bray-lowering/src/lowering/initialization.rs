@@ -61,11 +61,12 @@ impl Lowerer<'_> {
 
             let initialized = record.is_initialized_at_entry();
 
-            let place = self.place_for_identity(
-                identity,
-                access.reached_type(),
-                BoundNodeOrigin::source(access.source()),
-            )?;
+            let ty = storage
+                .storage_type(identity)
+                .ok_or(LoweringError::MissingStorageIdentityRecord(identity))?;
+
+            let place =
+                self.place_for_identity(identity, ty, BoundNodeOrigin::source(access.source()))?;
 
             let guard = self.new_initialization_guard(entry, source, boolean, &[], initialized)?;
             let mut parts = Vec::new();

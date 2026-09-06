@@ -9,6 +9,7 @@ mod lowerer;
 mod owned;
 mod parts;
 mod projection;
+mod replacement;
 mod representation;
 
 pub use error::LoweringError;

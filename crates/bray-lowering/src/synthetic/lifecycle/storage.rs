@@ -386,12 +386,18 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         match role {
             bray_ir::MirGeneratedLifecycleRole::Destroy => {
+                let outcome = self.cleanup_outcome(builder, block, source)?;
+
                 self.push_lifecycle_operation(
                     builder,
                     block,
                     source,
                     MirOperationKind::Finalize(target_place),
                 )?;
+
+                let block = outcome
+                    .check(builder, block, source)
+                    .map_err(|cause| self.mir_error(source, cause))?;
 
                 self.push_storage_lifecycle_call(
                     builder,
@@ -404,6 +410,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     Some(BorrowKind::Mutable),
                 )?;
 
+                let block = outcome
+                    .check(builder, block, source)
+                    .map_err(|cause| self.mir_error(source, cause))?;
+
                 self.push_storage_lifecycle_call(
                     builder,
                     block,
@@ -414,6 +424,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     "StorageRelease",
                     None,
                 )?;
+
+                let block = outcome
+                    .check(builder, block, source)
+                    .map_err(|cause| self.mir_error(source, cause))?;
+
+                return self.finish_cleanup_outcome(builder, block, source, &outcome);
             }
             bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => {
                 self.push_lifecycle_operation(

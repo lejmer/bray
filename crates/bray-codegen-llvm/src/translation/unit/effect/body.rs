@@ -23,6 +23,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let destination = self.place(destination)?;
                 let value = self.operand(value)?;
 
+                // A transferred source can alias its destination, including self-replacement.
+                // Retire the source before installing the already-evaluated value.
+                self.clear_moved_places()?;
+
                 llvm(self.builder.build_store(destination, value))?;
 
                 None
@@ -391,13 +395,36 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
+        let context = if self.checked_call_operations.contains(&operation) {
+            let context = self.checked_call_panic_report_context()?;
+
+            if self
+                .pending_call_panic_report_context
+                .replace(context)
+                .is_some()
+            {
+                return Err(CodegenFailure::GeneratedModuleInvariant);
+            }
+
+            Some(context)
+        } else {
+            None
+        };
+
         if helper.symbol().is_none() {
             return Ok(());
         }
 
         let place = self.place(place)?.into();
 
-        if self.invoke_helper(helper, &[place])?.is_some() {
+        let result = match context {
+            Some(context) => {
+                self.invoke_helper_with_panic_report_context(helper, &[place], context)?
+            }
+            None => self.invoke_helper(helper, &[place])?,
+        };
+
+        if result.is_some() {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 

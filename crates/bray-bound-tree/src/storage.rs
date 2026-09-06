@@ -6,6 +6,7 @@ mod model;
 mod parts;
 mod plan;
 mod query;
+mod replacement;
 mod retention;
 mod scope;
 mod shape;
@@ -28,6 +29,9 @@ pub use parts::{
 pub use plan::{
     BorrowCapabilityOrigin, PlannedBorrowCapability, StorageAccessPlan, StorageAccessPurpose,
     StorageAlternative, StorageBinding, StorageBindingTarget, StoragePlan,
+};
+pub use replacement::{
+    StorageReplacementDecision, StorageReplacementPlan, StorageReplacementState,
 };
 pub use scope::{
     StorageScopeBuildError, StorageScopeOwners, storage_identity_is_destructor_receiver,

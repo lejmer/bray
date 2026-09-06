@@ -29,7 +29,7 @@ pub(crate) fn check_refinements<C>(
     patterns: &CheckedPatterns,
     selections: &CheckedSemanticSelections,
     storage: &StoragePlan,
-) -> CheckerOutcome<CheckedRefinements>
+) -> CheckerOutcome<CheckedRefinements, C::UpstreamError>
 where
     C: CheckerRequestContext + ?Sized,
 {
@@ -59,9 +59,12 @@ where
         ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
             return CheckerOutcome::InfrastructureFailure(error);
         }
+        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
     };
 
-    check_refinements_with_graph(request, patterns, storage, &graph)
+    check_refinements_with_graph(request, patterns, storage, &graph).with_upstream()
 }
 
 pub(crate) fn check_refinements_with_graph<C>(

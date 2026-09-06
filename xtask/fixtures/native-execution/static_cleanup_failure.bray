@@ -1,0 +1,24 @@
+module static_cleanup_failure;
+
+struct Resource
+{
+    value: i32;
+
+    finalize() -> Result<unit, i32>
+    {
+        return Error(7);
+    }
+
+    destruct() {}
+}
+
+static RESOURCE: Resource = Resource
+{
+    value = 42
+};
+
+func main() -> i32
+{
+    assert(RESOURCE.value == 42);
+    return 0;
+}

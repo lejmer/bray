@@ -68,6 +68,9 @@ where
         ControlFlowGraphBuildOutcome::InfrastructureFailure(error) => {
             return CheckerOutcome::InfrastructureFailure(error);
         }
+        ControlFlowGraphBuildOutcome::UpstreamFailure(error) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
     };
 
     check_async_analysis_with_graph(
@@ -277,7 +280,7 @@ where
         return CheckerOutcome::InfrastructureFailure(error);
     }
 
-    let (storage_requirements, cleanup_types, scope_exits, cleanup_diagnostics) =
+    let (storage_requirements, cleanup_types, scope_exits, replacements, cleanup_diagnostics) =
         match scope_exit_plans(request, storage, flow, dependencies) {
             Ok(plans) => plans,
             Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
@@ -303,7 +306,9 @@ where
         cleanup_types,
         scope_exits,
         is_recovered,
-    ) {
+    )
+    .and_then(|analysis| analysis.with_replacements(replacements))
+    {
         Ok(analysis) => analysis,
         Err(error) => {
             return CheckerOutcome::InfrastructureFailure(CheckerInfrastructureError::StorageFlow(

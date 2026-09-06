@@ -8,7 +8,7 @@ use inkwell::values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue};
 use inkwell::{DLLStorageClass, GlobalVisibility, IntPredicate};
 
 use super::super::LlvmTypeMappings;
-use super::super::symbol::apply_signature_call_attributes;
+use super::boundary::{invoke_static_boundary, mapped_instance_function};
 use super::constant::static_initializer;
 use super::finalization::declare_static_finalizer;
 use super::host::{
@@ -480,20 +480,19 @@ fn declare_static_lifecycle_phase<'context>(
     builder.position_at_end(entry);
 
     if let Some(instance) = instance {
-        let symbol = mappings
-            .instance_symbol(instance)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let (function, signature) = mapped_instance_function(module, mappings, instance)?;
 
-        let function = module
-            .get_function(symbol.name().as_str())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        let call = builder
-            .build_call(function, &[storage.into()], "")
-            .map_err(CodegenFailure::backend_library)?;
-
-        call.set_call_convention(function.get_call_conventions());
-        apply_signature_call_attributes(call, symbol.signature(), types)?;
+        invoke_static_boundary(
+            module,
+            mappings,
+            instance,
+            &builder,
+            function,
+            signature,
+            &[storage.into()],
+            "",
+            types,
+        )?;
     }
 
     builder

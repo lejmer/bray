@@ -88,13 +88,46 @@ fn propagate_static_boundary_panic<'context>(
     let context = types.context();
     let usize = crate::native::pointer_integer_type(context, types.target());
 
-    let (report, continued) =
-        crate::translation::branch_on_pending_panic(context, builder, usize, storage)?;
+    let (report, continued, cancelled) =
+        crate::translation::branch_on_pending_outcome(context, builder, usize, storage)?;
 
-    let reference = MirRuntimeReference::new(
+    propagate_static_outcome(
+        module,
+        mappings,
+        owner,
+        builder,
         bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
-        owner.target().runtime_abi(),
-    );
+        &[report.into()],
+        types,
+    )?;
+
+    builder.position_at_end(cancelled);
+
+    propagate_static_outcome(
+        module,
+        mappings,
+        owner,
+        builder,
+        bray_runtime_interface::RuntimeAbiRole::CurrentRunCancellationPropagation,
+        &[],
+        types,
+    )?;
+
+    builder.position_at_end(continued);
+
+    Ok(())
+}
+
+fn propagate_static_outcome<'context>(
+    module: &Module<'context>,
+    mappings: &CodegenMappings,
+    owner: &CodegenInstanceKey,
+    builder: &Builder<'context>,
+    role: bray_runtime_interface::RuntimeAbiRole,
+    arguments: &[BasicMetadataValueEnum<'context>],
+    types: &mut LlvmTypeMappings<'context, '_>,
+) -> Result<(), CodegenFailure> {
+    let reference = MirRuntimeReference::new(role, owner.target().runtime_abi());
 
     let symbol = mappings
         .symbol(&CodegenSymbolKey::Runtime(reference))
@@ -105,7 +138,7 @@ fn propagate_static_boundary_panic<'context>(
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     let call = builder
-        .build_call(runtime, &[report.into()], reference.role().as_str())
+        .build_call(runtime, arguments, reference.role().as_str())
         .map_err(CodegenFailure::backend_library)?;
 
     call.set_call_convention(runtime.get_call_conventions());
@@ -114,8 +147,6 @@ fn propagate_static_boundary_panic<'context>(
     builder
         .build_unreachable()
         .map_err(CodegenFailure::backend_library)?;
-
-    builder.position_at_end(continued);
 
     Ok(())
 }

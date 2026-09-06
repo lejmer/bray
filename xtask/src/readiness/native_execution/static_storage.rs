@@ -14,6 +14,7 @@ use super::repeatable::{RepeatableFixtureAudit, audit_repeatable_fixtures};
 const STATIC_STORAGE_FIXTURE: &str = "xtask/fixtures/native-execution/static_storage.bray";
 const STATIC_STORAGE_CONTRIBUTION: &str =
     "xtask/fixtures/native-execution/static_storage_contribution.bray";
+const STATIC_CLEANUP_FAILURE: &str = "xtask/fixtures/native-execution/static_cleanup_failure.bray";
 const STATIC_STORAGE_HOST: &str = "xtask/fixtures/native-execution/static_storage_host.c";
 const STATIC_STORAGE_ARCHIVE_HOST: &str =
     "xtask/fixtures/native-execution/static_storage_archive_host.c";
@@ -34,6 +35,19 @@ pub(super) fn audit_static_storage(
             &[STATIC_STORAGE_FIXTURE, STATIC_STORAGE_CONTRIBUTION],
             42,
             "Bray-owned static storage",
+            &["bray.static.host.", section],
+        ),
+    )?;
+
+    audit_repeatable_fixtures(
+        root,
+        target,
+        runtime,
+        "bray-native-static-cleanup-failure-",
+        RepeatableFixtureAudit::new(
+            &[STATIC_CLEANUP_FAILURE],
+            1,
+            "static cleanup failure after a successful root",
             &["bray.static.host.", section],
         ),
     )?;

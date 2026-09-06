@@ -330,8 +330,17 @@ mod tests {
             panic!("tuple lowering must not resolve named representation roles");
         }
 
-        fn representation_type(&self, _: RepresentationRole) -> Result<TypeId, Self::Error> {
-            panic!("tuple lowering must not construct compiler-known types");
+        fn representation_type(&self, role: RepresentationRole) -> Result<TypeId, Self::Error> {
+            assert!(matches!(
+                role,
+                RepresentationRole::ScalarBool
+                    | RepresentationRole::PanicReport
+                    | RepresentationRole::Unit
+            ));
+
+            self.0
+                .intern_type(TypeData::tuple([]))
+                .map_err(SyntheticLoweringError::SemanticValue)
         }
 
         fn array_length(&self, _: ConstantTermId) -> Result<u64, Self::Error> {
@@ -377,11 +386,11 @@ mod tests {
         let operations = mir
             .operations()
             .iter()
-            .map(|operation| {
+            .filter_map(|operation| {
                 let (finalize, place) = match operation.kind() {
                     MirOperationKind::Finalize(place) => (true, place),
                     MirOperationKind::Destroy(place) => (false, place),
-                    other => panic!("unexpected tuple teardown operation: {other:?}"),
+                    _ => return None,
                 };
 
                 let MirProjectionKind::TupleField(index) =
@@ -390,7 +399,7 @@ mod tests {
                     panic!("tuple teardown must retain the element projection");
                 };
 
-                (finalize, *index)
+                Some((finalize, *index))
             })
             .collect::<Vec<_>>();
 

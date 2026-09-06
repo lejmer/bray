@@ -290,7 +290,7 @@ impl Lowerer<'_> {
             .ok_or(LoweringError::MissingOperationResult(id))
     }
 
-    pub(in crate::lowering::expression) fn finish_panic_to_active_catch(
+    pub(in crate::lowering) fn finish_panic_to_active_catch(
         &mut self,
         expression: BoundExpressionId,
         current: MirBlockId,
@@ -354,12 +354,17 @@ impl Lowerer<'_> {
             report_type,
         )?;
 
+        let cancelled = self
+            .builder
+            .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
+
         self.set_terminator(
             current,
             Self::retained_source(source),
-            MirTerminatorKind::CheckCallPanic {
+            MirTerminatorKind::CheckCallOutcome {
                 completed: MirEdge::new(completed, [Self::retained_operand(value)]),
                 panicked: MirCallPanicEdge::new(panicked, report_type),
+                cancelled: MirEdge::new(cancelled, []),
             },
         )?;
 
@@ -370,6 +375,8 @@ impl Lowerer<'_> {
             MirOperand::Value(report),
             report_type,
         )?;
+
+        self.finish_cancellation(cancelled, source, expression.into())?;
 
         Ok((completed, MirOperand::Value(result)))
     }

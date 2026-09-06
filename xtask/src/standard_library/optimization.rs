@@ -486,9 +486,29 @@ fn quoted_assignment(line: &str, name: &str) -> Option<String> {
 }
 
 fn create_archive(root: &Path, archive: &Path, modules: &[PathBuf]) -> Result<(), BuildError> {
+    let response = archive.with_extension("rsp");
+
+    let arguments = modules
+        .iter()
+        .map(|path| path.as_os_str().to_os_string())
+        .collect::<Vec<_>>();
+
+    let contents =
+        bray_linker::encode_response_arguments(&arguments, bray_linker::ResponseFileEncoding::Utf8)
+            .map_err(|source| BuildError::ResponseFileEncoding {
+                path: response.clone(),
+                source,
+            })?;
+
+    fs::write(&response, contents).map_err(|error| BuildError::write(&response, error))?;
+
     let mut command = Command::new(bray_llvm_toolchain::tool_path(root, "llvm-ar"));
 
-    command.arg("rcsD").arg(archive).args(modules);
+    command
+        .args(["--rsp-quoting=posix", "rcsD"])
+        .arg(archive)
+        .arg(bray_linker::response_file_reference(&response));
+
     require_success(command, "LLVM could not create an optimization archive")?;
 
     let mut inspect = Command::new(bray_llvm_toolchain::tool_path(root, "llvm-ar"));
@@ -597,10 +617,12 @@ fn native_exports(
         .collect())
 }
 
-fn require_success(mut command: Command, failure: &str) -> Result<(), BuildError> {
-    let output = command
-        .output()
-        .map_err(|error| BuildError::NativeArchive(error.to_string()))?;
+fn require_success(mut command: Command, failure: &'static str) -> Result<(), BuildError> {
+    let output = command.output().map_err(|source| BuildError::ToolLaunch {
+        action: failure,
+        program: PathBuf::from(command.get_program()),
+        source,
+    })?;
 
     if output.status.success() {
         return Ok(());
@@ -678,6 +700,60 @@ mod tests {
         assert!(is_llvm_bitcode(b"BC\xc0\xdepayload"));
         assert!(is_llvm_bitcode(b"\xde\xc0\x17\x0bpayload"));
         assert!(!is_llvm_bitcode(b"native object"));
+    }
+
+    #[test]
+    fn optimization_archives_accept_member_lists_beyond_windows_command_limits() {
+        let root = crate::workspace::root().unwrap();
+        let scratch = root.join("scratch");
+        std::fs::create_dir_all(&scratch).unwrap();
+
+        let directory = tempfile::Builder::new()
+            .prefix("archive response ")
+            .tempdir_in(&scratch)
+            .unwrap();
+
+        let members = (0..512)
+            .map(|index| {
+                let path = directory.path().join(format!(
+                    "module with spaces {index:04} {}.bc",
+                    "x".repeat(48)
+                ));
+
+                std::fs::write(&path, b"archive member").unwrap();
+
+                path
+            })
+            .collect::<Vec<_>>();
+
+        assert!(
+            members
+                .iter()
+                .map(|path| path.as_os_str().len())
+                .sum::<usize>()
+                > 32767
+        );
+
+        super::create_archive(&root, &directory.path().join("optimization.a"), &members).unwrap();
+    }
+
+    #[test]
+    fn tool_launch_failures_retain_the_operation_program_and_io_cause() {
+        let directory = tempfile::tempdir().unwrap();
+        let program = directory.path().join("nonexistent-llvm-ar");
+
+        let error = super::require_success(
+            std::process::Command::new(&program),
+            "create optimization archive",
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("create optimization archive"));
+
+        assert!(
+            matches!(error, super::BuildError::ToolLaunch { program: actual, source, .. }
+            if actual == program && source.kind() == std::io::ErrorKind::NotFound)
+        );
     }
 
     #[test]

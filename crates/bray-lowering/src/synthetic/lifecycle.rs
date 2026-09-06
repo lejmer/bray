@@ -1,6 +1,7 @@
 mod aggregate;
 mod body;
 mod calls;
+mod outcome;
 mod representation;
 mod storage;
 mod support;

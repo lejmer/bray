@@ -212,40 +212,35 @@ impl Lowerer<'_> {
         let mut storages = Vec::new();
 
         for subject in subjects {
-            let storage = match subject {
-                BoundDependencySubject::Storage(identity) => {
-                    let ty = self.storage_identity_type(*identity)?;
-
-                    let origin =
-                        bray_bound_tree::BoundNodeOrigin::source(self.input.unit().key().source());
-
-                    Some(self.place_for_identity(*identity, ty, origin)?.storage())
-                }
-                BoundDependencySubject::StorageAccess(access) => {
-                    let identity = self
-                        .input
-                        .storage_plan()
-                        .root_identity(*access)
-                        .ok_or(LoweringError::MissingStorageIdentity(*access))?;
-
-                    let ty = self.storage_identity_type(identity)?;
-
-                    let origin =
-                        bray_bound_tree::BoundNodeOrigin::source(self.input.unit().key().source());
-
-                    Some(self.place_for_identity(identity, ty, origin)?.storage())
-                }
+            let identity = match subject {
+                BoundDependencySubject::Storage(identity) => *identity,
+                BoundDependencySubject::StorageAccess(access) => self
+                    .input
+                    .storage_plan()
+                    .root_identity(*access)
+                    .ok_or(LoweringError::MissingStorageIdentity(*access))?,
                 BoundDependencySubject::BorrowCapability(_)
                 | BoundDependencySubject::ScopedCapability(_)
                 | BoundDependencySubject::ImplementationWitness(_)
                 | BoundDependencySubject::ProductStatic(_)
                 | BoundDependencySubject::ExactThreadStatic(_)
-                | BoundDependencySubject::LifecycleObligation(_) => None,
+                | BoundDependencySubject::LifecycleObligation(_) => continue,
             };
 
-            if let Some(storage) = storage {
-                storages.push(storage);
+            let storage = self
+                .input
+                .storage_plan()
+                .identity(identity)
+                .ok_or(LoweringError::MissingStorageIdentityRecord(identity))?;
+
+            // Static dependencies retain their product or thread owner, not frame-local storage.
+            if matches!(storage, bray_bound_tree::StorageIdentity::Static(_)) {
+                continue;
             }
+
+            let ty = self.storage_identity_type(identity)?;
+            let origin = bray_bound_tree::BoundNodeOrigin::source(self.input.unit().key().source());
+            storages.push(self.place_for_identity(identity, ty, origin)?.storage());
         }
 
         // Entry initializes every guard, including guards for values created after resumption.

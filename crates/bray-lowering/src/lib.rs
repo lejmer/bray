@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod cleanup_outcome;
 mod host;
 mod identity;
 mod input;

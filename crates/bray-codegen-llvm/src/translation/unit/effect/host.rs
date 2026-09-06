@@ -218,6 +218,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             MirHostOperation::BeginStaticCleanup => {
                 self.finish_test_entry_selection()?;
+                self.finish_product_statics()?;
 
                 Ok(None)
             }
@@ -245,6 +246,130 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.translate_compiler_shutdown(status)
             }
         }
+    }
+
+    fn finish_product_statics(&mut self) -> Result<(), CodegenFailure> {
+        let Some(host) = self.request.mappings().product_host() else {
+            return Ok(());
+        };
+
+        let descriptor = self
+            .module
+            .get_global(host.descriptor_symbol().as_str())
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let context = self.types.context();
+        let role = bray_runtime_interface::RuntimeAbiRole::ProductHostControl;
+
+        let function = crate::native::declare_runtime_function(
+            self.module,
+            context,
+            self.request.target(),
+            role,
+        )?;
+
+        let key = bray_codegen::CodegenSymbolKey::Runtime(bray_ir::MirRuntimeReference::new(
+            role,
+            self.unit.target().runtime_abi(),
+        ));
+
+        let observation = crate::native::invoke_function(
+            context,
+            &self.builder,
+            self.request.target(),
+            &key,
+            function,
+            &[
+                descriptor.as_pointer_value().into(),
+                context
+                    .i32_type()
+                    .const_int(
+                        u64::from(bray_runtime_abi::NativeProductHostOperation::FINISH_ROOT.code()),
+                        false,
+                    )
+                    .into(),
+            ],
+            "product.cleanup",
+        )?
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let status = int_value(super::super::support::extract_value(
+            &self.builder,
+            observation,
+            0,
+        )?)
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let state = int_value(super::super::support::extract_value(
+            &self.builder,
+            observation,
+            1,
+        )?)
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let not_success = llvm(self.builder.build_int_compare(
+            IntPredicate::NE,
+            status,
+            status.get_type().const_zero(),
+            "product.cleanup.not_success",
+        ))?;
+
+        let not_closed = llvm(self.builder.build_int_compare(
+            IntPredicate::NE,
+            status,
+            status.get_type().const_int(
+                u64::from(bray_runtime_abi::NativeProductHostStatus::CLOSED.code()),
+                false,
+            ),
+            "product.cleanup.not_closed",
+        ))?;
+
+        let failed = llvm(self.builder.build_and(
+            not_success,
+            not_closed,
+            "product.cleanup.failed",
+        ))?;
+
+        let pending = llvm(self.builder.build_int_compare(
+            IntPredicate::NE,
+            state,
+            state.get_type().const_int(
+                u64::from(bray_runtime_abi::NativeProductHostState::CLOSED.code()),
+                false,
+            ),
+            "product.cleanup.pending",
+        ))?;
+
+        let failed = llvm(
+            self.builder
+                .build_or(failed, pending, "product.cleanup.incomplete"),
+        )?;
+
+        let failed = llvm(self.builder.build_int_z_extend(
+            failed,
+            context.i64_type(),
+            "product.cleanup.status",
+        ))?;
+
+        self.host_status = Some(match self.host_status.take() {
+            Some(status) => {
+                let succeeded = llvm(self.builder.build_int_compare(
+                    IntPredicate::EQ,
+                    status,
+                    status.get_type().const_zero(),
+                    "host.succeeded",
+                ))?;
+
+                llvm(
+                    self.builder
+                        .build_select(succeeded, failed, status, "host.status"),
+                )?
+                .into_int_value()
+            }
+            None => failed,
+        });
+
+        Ok(())
     }
 
     fn begin_memory_observation(&self) -> Result<(), CodegenFailure> {
