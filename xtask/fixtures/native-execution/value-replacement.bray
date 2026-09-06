@@ -11,6 +11,7 @@ struct Guard
     id: usize;
     fail: bool = false;
     cancel: bool = false;
+    destructor_fail: bool = false;
 
     finalize()
     {
@@ -36,6 +37,11 @@ struct Guard
         let previous = core.atomic.load<usize, 1>(&DESTRUCTIONS);
 
         core.atomic.store<usize, 4>(&DESTRUCTIONS, previous * 10 + self.id);
+
+        if self.destructor_fail
+        {
+            panic("old replacement destructor");
+        }
     }
 }
 
@@ -283,7 +289,7 @@ func replace_heap(pos slot: &mut HeapSlot)
     );
 }
 
-func heap_replacement(pos fails: bool)
+func heap_replacement(pos fails: bool, destructor_fails: bool = false)
 {
     let mut slot: HeapSlot = HeapSlot
     {
@@ -291,7 +297,8 @@ func heap_replacement(pos fails: bool)
             Guard
             {
                 id = 1,
-                fail = fails
+                fail = fails,
+                destructor_fail = destructor_fails
             }
         )
     };
@@ -302,7 +309,7 @@ func heap_replacement(pos fails: bool)
         yield unit;
     };
 
-    assert((result matches Error(_)) == fails);
+    assert((result matches Error(_)) == (fails || destructor_fails));
     assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 1);
 
     match slot.value
@@ -579,6 +586,14 @@ async func main() -> i32
 
     reset();
     heap_replacement(true);
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
+
+    reset();
+    heap_replacement(false, destructor_fails = true);
+    assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
+
+    reset();
+    heap_replacement(true, destructor_fails = true);
     assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
 
     reset();

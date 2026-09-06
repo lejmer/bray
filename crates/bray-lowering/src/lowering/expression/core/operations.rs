@@ -369,7 +369,7 @@ impl Lowerer<'_> {
             }
         };
 
-        let left = if self.later_evaluation_may_check_call_panic([*right_id])? {
+        let left = if self.later_evaluation_may_change_block([*right_id])? {
             self.materialize_typed_for_later_evaluation(*left_id, left, left_type)?
         } else {
             left
@@ -854,7 +854,7 @@ impl Lowerer<'_> {
                             },
                         ));
 
-                    let callee = if self.later_evaluation_may_check_call_panic(later_expressions)? {
+                    let callee = if self.later_evaluation_may_change_block(later_expressions)? {
                         self.materialize_for_later_evaluation(expression.callee(), callee)?
                     } else {
                         callee
@@ -893,7 +893,7 @@ impl Lowerer<'_> {
                         SelectedArgument::Default { .. } => None,
                     });
 
-            let lowered = if self.later_evaluation_may_check_call_panic(later_expressions)? {
+            let lowered = if self.later_evaluation_may_change_block(later_expressions)? {
                 self.materialize_typed_for_later_evaluation(
                     receiver.expression(),
                     lowered,
@@ -948,12 +948,11 @@ impl Lowerer<'_> {
                                 SelectedArgument::Default { .. } => None,
                             });
 
-                    let lowered =
-                        if self.later_evaluation_may_check_call_panic(later_expressions)? {
-                            self.materialize_for_later_evaluation(*expression, lowered)?
-                        } else {
-                            lowered
-                        };
+                    let lowered = if self.later_evaluation_may_change_block(later_expressions)? {
+                        self.materialize_for_later_evaluation(*expression, lowered)?
+                    } else {
+                        lowered
+                    };
 
                     let Some(continuation) = lowered.block else {
                         return Ok(lowered);

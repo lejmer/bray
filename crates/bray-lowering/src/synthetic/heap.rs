@@ -3,11 +3,10 @@ use bray_compiler_known::RepresentationRole;
 use bray_ir::{
     MirBlockId, MirBlockKind, MirCall, MirCallPanicEdge, MirCallTarget, MirCallableReference,
     MirCleanupEdge, MirCleanupPhase, MirEdge, MirMemoryOperation, MirOperand, MirOperationKind,
-    MirPlace, MirProjection, MirProjectionKind, MirRuntimeReference, MirSourceAnchor,
-    MirStandardLibraryHelper, MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnit,
-    MirUnitBuildError, MirUnitBuilder, MirUnitId,
+    MirPlace, MirProjection, MirProjectionKind, MirSourceAnchor, MirStandardLibraryHelper,
+    MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnit, MirUnitBuildError, MirUnitBuilder,
+    MirUnitId,
 };
-use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::{BorrowKind, CallableAbi, CallableDefinitionId, TypeData, TypeId};
 
 use super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
@@ -107,7 +106,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 &source,
                 parameter,
                 result.ok_or_else(missing)?,
-                target.runtime_abi(),
             )?,
             HeapStorageMethod::Borrow | HeapStorageMethod::BorrowMut => {
                 let pointer = self.heap_stored_pointer(parameter)?;
@@ -129,9 +127,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 (entry, value)
             }
             HeapStorageMethod::Destroy => {
-                self.destroy_heap_target(&mut builder, entry, &source, parameter, element)?;
+                let end =
+                    self.destroy_heap_target(&mut builder, entry, &source, parameter, element)?;
 
-                (entry, None)
+                (end, None)
             }
             HeapStorageMethod::Release => {
                 let layout = self.push_heap_layout(&mut builder, entry, &source, element)?;
@@ -168,7 +167,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         parameter: MirPlace,
         element: TypeId,
-    ) -> Result<(), C::Error> {
+    ) -> Result<MirBlockId, C::Error> {
         let values = self.context.semantic_values();
         let invalid = |cause| self.mir_error(source, cause);
         let missing = || SyntheticLoweringError::MissingTypeResult(element);
@@ -222,16 +221,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             element,
         );
 
-        builder
-            .push_operation(
-                entry,
-                source.clone(),
-                MirOperationKind::Destroy(pointee),
-                None,
-            )
-            .map_err(invalid)?;
-
-        Ok(())
+        self.resolve_lifecycle_sequence(
+            builder,
+            entry,
+            source,
+            [MirOperationKind::Destroy(pointee)],
+        )
     }
 
     fn heap_stored_pointer(&self, parameter: MirPlace) -> Result<MirOperand, C::Error> {
@@ -286,10 +281,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         ])
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "heap construction retains its MIR owner, input and concrete specialization"
-    )]
     fn push_heap_construction(
         &self,
         builder: &mut MirUnitBuilder,
@@ -297,7 +288,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         parameter: MirPlace,
         result: TypeId,
-        runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
     ) -> Result<(MirBlockId, Option<MirOperand>), C::Error> {
         let element = parameter.ty();
         let layout = self.push_heap_layout(builder, entry, source, element)?;
@@ -355,17 +345,11 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             builder,
             source,
             parameter.clone(),
-            runtime_abi,
             Some(report_type),
         )?;
 
-        let cancelled = self.push_heap_construction_failure(
-            builder,
-            source,
-            parameter.clone(),
-            runtime_abi,
-            None,
-        )?;
+        let cancelled =
+            self.push_heap_construction_failure(builder, source, parameter.clone(), None)?;
 
         builder
             .set_terminator(
@@ -413,7 +397,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         builder: &mut MirUnitBuilder,
         source: &MirSourceAnchor,
         parameter: MirPlace,
-        runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
         report_type: Option<TypeId>,
     ) -> Result<MirBlockId, C::Error> {
         let invalid = |cause| self.mir_error(source, cause);
@@ -427,6 +410,18 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .transpose()
             .map_err(invalid)?;
 
+        let outcome = self.cleanup_outcome(builder, failed, source)?;
+
+        if let Some(report) = report {
+            outcome
+                .initialize_panic(builder, failed, source, MirOperand::Value(report))
+                .map_err(invalid)?;
+        } else {
+            outcome
+                .initialize_cancellation(builder, failed, source)
+                .map_err(invalid)?;
+        }
+
         let broadcast = builder
             .push_block(source.clone(), MirBlockKind::CleanupBroadcast)
             .map_err(invalid)?;
@@ -435,23 +430,13 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .push_block(source.clone(), MirBlockKind::LifecycleResolution)
             .map_err(invalid)?;
 
-        let broadcast_report = report_type
-            .map(|ty| builder.push_block_parameter(broadcast, source.clone(), ty))
-            .transpose()
-            .map_err(invalid)?;
-
-        let resolution_report = report_type
-            .map(|ty| builder.push_block_parameter(resolution, source.clone(), ty))
-            .transpose()
-            .map_err(invalid)?;
-
         builder
             .set_terminator(
                 failed,
                 source.clone(),
                 MirTerminatorKind::BeginCleanup(MirCleanupEdge::new(
                     MirCleanupPhase::TaskCancellation,
-                    MirEdge::new(broadcast, report.map(MirOperand::Value)),
+                    MirEdge::new(broadcast, []),
                 )),
             )
             .map_err(invalid)?;
@@ -468,13 +453,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )
             .map_err(invalid)?;
 
+        let broadcast = outcome.check(builder, broadcast, source).map_err(invalid)?;
+
         builder
             .set_terminator(
                 broadcast,
                 source.clone(),
                 MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
                     MirCleanupPhase::LifecycleResolution,
-                    MirEdge::new(resolution, broadcast_report.map(MirOperand::Value)),
+                    MirEdge::new(resolution, []),
                 )),
             )
             .map_err(invalid)?;
@@ -491,26 +478,14 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )
             .map_err(invalid)?;
 
+        let resolution = outcome
+            .check(builder, resolution, source)
+            .map_err(invalid)?;
+
+        let completed = self.finish_cleanup_outcome(builder, resolution, source, &outcome)?;
+
         builder
-            .set_terminator(
-                resolution,
-                source.clone(),
-                match resolution_report {
-                    Some(report) => MirTerminatorKind::PropagatePanic {
-                        report: MirOperand::Value(report),
-                        runtime: MirRuntimeReference::new(
-                            RuntimeAbiRole::PanicPropagation,
-                            runtime_abi,
-                        ),
-                    },
-                    None => MirTerminatorKind::PropagateCancellation {
-                        runtime: MirRuntimeReference::new(
-                            RuntimeAbiRole::CurrentRunCancellationPropagation,
-                            runtime_abi,
-                        ),
-                    },
-                },
-            )
+            .set_terminator(completed, source.clone(), MirTerminatorKind::Unreachable)
             .map_err(invalid)?;
 
         Ok(failed)

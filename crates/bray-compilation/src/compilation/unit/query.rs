@@ -2033,6 +2033,7 @@ mod tests {
 
         for name in [
             "ordinary_scope_cleanup",
+            "heap_replacement",
             "pending_return",
             "abandoned_return",
             "return_across_catch",
@@ -2069,6 +2070,43 @@ mod tests {
 
             let key = source_function_body_key(&compilation, "probe");
             let lowered = compilation.lowered_unit(key).unwrap();
+
+            assert!(
+                lowered
+                    .value()
+                    .as_ref()
+                    .and_then(|unit| unit.mir())
+                    .is_some(),
+                "{source}: {lowered:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn earlier_operands_survive_later_short_circuit_and_conditional_blocks() {
+        for body in [
+            "return (value == first) == (first || second);",
+            "return compare(value == first, first && second);",
+            "let values: [bool; 2] = [value == first, first || second]; return values[0];",
+            "return (value == first) == (if first { yield second; } else { yield value; });",
+        ] {
+            let source = format!(
+                "module app; func compare(pos left: bool, pos right: bool) -> bool {{ return left == right; }} func probe(pos value: bool, pos first: bool, pos second: bool) -> bool {{ {body} }}"
+            );
+
+            let compilation = compilation(&source);
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{source}: {:?}",
+                compilation.check_diagnostics()
+            );
+
+            let key = source_function_body_key(&compilation, "probe");
+
+            let lowered = compilation
+                .lowered_unit(key)
+                .unwrap_or_else(|error| panic!("{source}: {error:?}"));
 
             assert!(
                 lowered
@@ -2404,12 +2442,10 @@ mod tests {
             );
 
             let compilation = compilation(&source);
+
             assert!(!compilation.check_diagnostics().has_errors(), "{source}");
 
-            let key = crate::test_support::source_trait_callable_fulfillment_body_key(
-                &compilation,
-                "forward",
-            );
+            let key = source_trait_callable_fulfillment_body_key(&compilation, "forward");
 
             let plan = compilation.storage_plan(key.clone()).unwrap();
             let values = compilation.semantic_value_store().unwrap();
@@ -2421,16 +2457,17 @@ mod tests {
                 }
 
                 parameters += 1;
+
                 let ty = plan.value().storage_type(identity).unwrap();
                 let data = values.type_data(ty).unwrap();
 
-                let bray_symbols::TypeData::Borrow { target, .. } = data.as_ref() else {
+                let TypeData::Borrow { target, .. } = data.as_ref() else {
                     panic!("parameter must remain borrowed: {data:?}");
                 };
 
                 assert!(matches!(
                     values.type_data(*target).unwrap().as_ref(),
-                    bray_symbols::TypeData::Named { .. }
+                    TypeData::Named { .. }
                 ));
 
                 let lowered = compilation.lowered_unit(key.clone()).unwrap();
@@ -2741,32 +2778,37 @@ mod tests {
             Err(error) => panic!("declared unit keys must be available: {error:?}"),
         };
 
-        let templates =
-            keys.iter()
-                .filter(|key| key.kind() == BoundUnitKind::RuntimeDefault)
-                .map(|key| {
-                    let analysis = match compilation.declared_value_type_templates(key.clone()) {
-                        Ok(analysis) => analysis,
-                        Err(error) => panic!("runtime default types must publish: {error:?}"),
-                    };
+        let templates = keys
+            .iter()
+            .filter(|key| key.kind() == BoundUnitKind::RuntimeDefault)
+            .map(|key| {
+                let analysis = match compilation.declared_value_type_templates(key.clone()) {
+                    Ok(analysis) => analysis,
+                    Err(error) => panic!("runtime default types must publish: {error:?}"),
+                };
 
-                    let initializer = analysis
-                        .value()
-                        .constraints()
-                        .iter()
-                        .find(|constraint| {
-                            constraint.kind()
-                                == bray_bound_tree::DeclaredValueTypeConstraintKind::Initializer
-                        })
-                        .expect("runtime default must identify its initialized parameter");
+                let initializer = analysis
+                    .value()
+                    .constraints()
+                    .iter()
+                    .find(|constraint| {
+                        constraint.kind()
+                            == bray_bound_tree::DeclaredValueTypeConstraintKind::Initializer
+                    })
+                    .expect("runtime default must identify its initialized parameter");
 
-                    let evidence = analysis.value().evidence().iter().find(|evidence| {
-                    evidence.term() == initializer.right()
-                }).expect("runtime default must publish the initialized parameter's declared type");
+                let evidence = analysis
+                    .value()
+                    .evidence()
+                    .iter()
+                    .find(|evidence| evidence.term() == initializer.right())
+                    .expect(
+                        "runtime default must publish the initialized parameter's declared type",
+                    );
 
-                    evidence.template().clone()
-                })
-                .collect::<Vec<_>>();
+                evidence.template().clone()
+            })
+            .collect::<Vec<_>>();
 
         assert_eq!(templates.len(), 2);
 
@@ -4708,6 +4750,7 @@ func tupled(pos flag: bool, pos pair: (Guard, Guard)) -> i32
             let key = source_function_body_key(&compilation, name);
             let storage = compilation.storage_plan(key.clone()).unwrap();
             let calls = storage.value().owned_borrows().collect::<Vec<_>>();
+
             assert_eq!(calls.len(), 2, "{name}: {storage:?}");
 
             let (_, _, selected) = calls
@@ -4719,13 +4762,13 @@ func tupled(pos flag: bool, pos pair: (Guard, Guard)) -> i32
             let mir = lowered.value().as_ref().unwrap().mir().unwrap();
 
             assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
-                bray_ir::MirOperationKind::Call(call) if matches!(call.target(),
+                MirOperationKind::Call(call) if matches!(call.target(),
                     bray_ir::MirCallTarget::Direct(reference) if reference.instance() == selected.callable())
             )), "{name} must use the selected {kind:?} policy borrow: {mir:?}");
 
             if matches!(name, "observe_box" | "observe_borrowed_box") {
                 assert!(!mir.operations().iter().any(|operation| matches!(operation.kind(),
-                    bray_ir::MirOperationKind::Store { destination, .. } if !destination.projections().is_empty()
+                    MirOperationKind::Store { destination, .. } if !destination.projections().is_empty()
                 )), "observed aliases must not write back to source storage: {mir:?}");
 
                 let analysis = compilation.async_analysis(key).unwrap();

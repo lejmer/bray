@@ -9,7 +9,7 @@ use super::super::{SyntheticLowerer, SyntheticLoweringContext};
 use crate::cleanup_outcome::CleanupOutcome;
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
-    pub(super) fn cleanup_outcome(
+    pub(in crate::synthetic) fn cleanup_outcome(
         &self,
         builder: &mut MirUnitBuilder,
         block: MirBlockId,
@@ -37,7 +37,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         .map_err(|cause| self.mir_error(source, cause))
     }
 
-    pub(super) fn resolve_lifecycle_sequence(
+    pub(in crate::synthetic) fn resolve_lifecycle_sequence(
         &self,
         builder: &mut MirUnitBuilder,
         mut block: MirBlockId,
@@ -63,7 +63,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         self.finish_cleanup_outcome(builder, block, source, &outcome)
     }
 
-    pub(super) fn finish_cleanup_outcome(
+    pub(in crate::synthetic) fn finish_cleanup_outcome(
         &self,
         builder: &mut MirUnitBuilder,
         block: MirBlockId,
