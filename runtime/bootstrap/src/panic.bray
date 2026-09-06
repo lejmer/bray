@@ -42,6 +42,7 @@ trusted internal func panic_report_construction(
     };
 
     let bytes: usize = internal bray.runtime.bootstrap.heap.allocation_bytes<PanicReportData>();
+
     let allocation: RawPointer<u8> = trusted internal bray.runtime.bootstrap.heap.allocate(
         bytes,
         align = std.memory.align_of<PanicReportData>()
@@ -99,6 +100,7 @@ trusted internal func panic_reporting(pos payload: usize) -> u32
     {
         let report: RawPointer<PanicReportData> = trusted panic_report_from_payload(address);
         let value: PanicReportData = trusted read_opaque<PanicReportData>(report);
+
         let status: u32 = trusted substrate_panic_reporting(
             value.cause,
             source_present = value.source_present,
@@ -158,6 +160,7 @@ trusted internal func panic_report_suppression(pos primary: usize, pos incident:
         {
             value.next_incident = incident;
             trusted write_opaque<PanicReportData>(report, value);
+
             return primary;
         }
     }
