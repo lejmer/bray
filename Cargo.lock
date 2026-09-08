@@ -186,6 +186,7 @@ dependencies = [
  "bray-base",
  "bray-compiler-known",
  "bray-declarations",
+ "bray-diagnostics",
  "bray-source",
  "bray-symbols",
  "bray-syntax",
@@ -306,6 +307,7 @@ dependencies = [
 name = "bray-diagnostics"
 version = "0.0.0"
 dependencies = [
+ "bray-package-interface-model",
  "bray-runtime-abi",
  "bray-source",
  "bray-syntax",
@@ -469,11 +471,16 @@ dependencies = [
  "bray-diagnostics",
  "bray-ir",
  "bray-messages",
+ "bray-package-interface-model",
  "bray-runtime-interface",
  "bray-symbols",
  "bray-target",
  "zstd",
 ]
+
+[[package]]
+name = "bray-package-interface-model"
+version = "0.0.0"
 
 [[package]]
 name = "bray-parser"
@@ -1421,6 +1428,7 @@ name = "rust-style"
 version = "0.0.0"
 dependencies = [
  "ra_ap_syntax",
+ "tempfile",
 ]
 
 [[package]]

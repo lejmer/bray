@@ -11,15 +11,15 @@ use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
     AnySymbolId, CallableContractTemplateQuery, CallableOverloadSymbolId,
     CallableOverloadTemplateQuery, CallableParameterDefaultTemplateQuery, CallableSignatureQuery,
-    GenericArgumentTemplate, GenericDeclarationTemplate, GenericDeclarationTemplateQuery,
-    GenericOwnerId, MemberLookupResult, NamedTypeSymbolId, OverloadArmTemplate,
-    PredicateDefinitionSymbolId, PredicateSignatureTemplateQuery, SymbolQueryContract,
-    SymbolQueryRequest,
+    GenericDeclarationTemplateQuery, GenericOwnerId, MemberLookupResult, NamedTypeSymbolId,
+    OverloadArmTemplate, PredicateDefinitionSymbolId, PredicateSignatureTemplateQuery,
+    SymbolQueryContract, SymbolQueryRequest,
 };
 use bray_syntax::{GenericArgumentSyntax, PathSyntax};
 
 use super::template::{
-    bind_generic_arguments, callable_declaration_template, combined_generic_declaration,
+    BoundDeclarationGenerics, bind_generic_arguments, bind_instantiated_member_generics,
+    callable_declaration_template, combined_generic_declaration,
 };
 
 use crate::lookup::{NameAccess, ResolvedName, bind_module_path, bind_owner_path};
@@ -39,9 +39,12 @@ pub(super) struct CallGenericContext<'syntax> {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct InheritedGenericContext<'syntax> {
-    pub(super) owner: NamedTypeSymbolId,
-    pub(super) arguments: &'syntax [GenericArgumentSyntax],
+pub(super) enum InheritedGenericContext<'syntax> {
+    Written {
+        owner: NamedTypeSymbolId,
+        arguments: &'syntax [GenericArgumentSyntax],
+    },
+    Instantiated(bray_symbols::GenericSubstitutionId),
 }
 
 #[derive(Clone, Copy)]
@@ -128,7 +131,9 @@ where
 
             absence
         }
-        BoundExpression::MemberAccess(_) if type_member_subject(unit, callee).is_some() => {
+        BoundExpression::MemberAccess(_)
+            if type_member_subject(context, unit, callee)?.is_some() =>
+        {
             bind_type_member_candidates(
                 context,
                 unit,
@@ -219,12 +224,20 @@ where
         BoundReferenceTarget::Surface(symbol)
             if PredicateDefinitionSymbolId::try_from_any(symbol).is_some() =>
         {
-            Ok(
-                bind_predicate_candidate(context, symbol, state, generic, diagnostics, candidates)?
-                    .absence(),
-            )
+            Ok(bind_predicate_candidate(
+                context,
+                symbol,
+                state,
+                generic,
+                None,
+                diagnostics,
+                candidates,
+            )?
+            .absence())
         }
-        BoundReferenceTarget::Local(_) | BoundReferenceTarget::Surface(_) => {
+        BoundReferenceTarget::Local(_)
+        | BoundReferenceTarget::Surface(_)
+        | BoundReferenceTarget::TypeQualifier(_) => {
             bind_callable_value(DeclaredValueTypeTerm::Value(target), state, candidates);
 
             Ok(CandidateAbsence::UnresolvedReference)
@@ -452,6 +465,7 @@ where
                 symbol,
                 state,
                 generic,
+                inherited_generic,
                 diagnostics,
                 candidates,
             );
@@ -512,12 +526,6 @@ where
     Ok(DeclarationCandidateOutcome::Added)
 }
 
-struct BoundDeclarationGenerics {
-    declaration: GenericDeclarationTemplate,
-    arguments: Vec<GenericArgumentTemplate>,
-    has_diagnostics: bool,
-}
-
 fn bind_declaration_generics<C>(
     context: &C,
     owner: GenericOwnerId,
@@ -545,7 +553,20 @@ where
         }));
     };
 
-    let inherited_owner = GenericOwnerId::try_new(inherited.owner.into_any())
+    let (inherited_owner, inherited_arguments) = match inherited {
+        InheritedGenericContext::Written { owner, arguments } => (owner, arguments),
+        InheritedGenericContext::Instantiated(substitution) => {
+            return bind_instantiated_member_generics(
+                context,
+                owner,
+                substitution,
+                call,
+                diagnostics,
+            );
+        }
+    };
+
+    let inherited_owner = GenericOwnerId::try_new(inherited_owner.into_any())
         .ok_or(BindingQueryError::DependencyUnavailable)?;
 
     let (inherited_declaration, inherited_diagnostics) =
@@ -557,8 +578,7 @@ where
     let declaration =
         combined_generic_declaration(owner, &inherited_declaration, &direct_declaration);
 
-    let argument_syntax = inherited
-        .arguments
+    let argument_syntax = inherited_arguments
         .iter()
         .chain(call.arguments)
         .cloned()
@@ -587,6 +607,7 @@ fn bind_predicate_candidate<C>(
     symbol: AnySymbolId,
     state: CallableCandidateTemplateState,
     call_generic: CallGenericContext<'_>,
+    inherited: Option<InheritedGenericContext<'_>>,
     diagnostics: &mut DiagnosticBag,
     candidates: &mut Vec<CallableCandidateTemplate>,
 ) -> BindingQueryResult<DeclarationCandidateOutcome, C::UpstreamError>
@@ -610,11 +631,8 @@ where
     let (signature, signature_diagnostics) =
         resolve_symbol_query_value::<_, PredicateSignatureTemplateQuery>(context, definition)?;
 
-    let (generic, generic_diagnostics) =
-        resolve_symbol_query_value::<_, GenericDeclarationTemplateQuery>(context, generic_owner)?;
-
-    let Some(generic_arguments) =
-        bind_generic_arguments(context, call_generic, &generic, diagnostics)?
+    let Some(generics) =
+        bind_declaration_generics(context, generic_owner, call_generic, inherited, diagnostics)?
     else {
         return Ok(DeclarationCandidateOutcome::Ignored);
     };
@@ -623,10 +641,7 @@ where
 
     let state = combine_recovery(
         state,
-        is_recovered
-            || signature_diagnostics
-            || generic_diagnostics
-            || generic_arguments.has_diagnostics,
+        is_recovered || signature_diagnostics || generics.has_diagnostics,
     );
 
     candidates.push(CallableCandidateTemplate::Predicate(
@@ -634,8 +649,8 @@ where
             key,
             definition,
             signature,
-            generic,
-            generic_arguments.arguments,
+            generics.declaration,
+            generics.arguments,
             state,
         ),
     ));

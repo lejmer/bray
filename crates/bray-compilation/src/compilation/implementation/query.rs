@@ -3,8 +3,8 @@ use std::sync::Arc;
 use bray_binder::SymbolQueryProvider;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationCandidate,
-    ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationCoherenceEvidence,
+    GenericDeclarationTemplateQuery, ImplementationCandidate, ImplementationCandidateSet,
+    ImplementationCoherenceDomainKey, ImplementationCoherenceEvidence,
     ImplementationCoherenceParticipant, ImplementationCoherenceQuery,
     ImplementationHeadTemplateQuery, ImplementationRequirementKey, SymbolQueryRequest,
 };
@@ -93,15 +93,7 @@ impl super::super::Compilation {
 
                 let symbol = implementation.into_any();
 
-                let owner = GenericOwnerId::try_new(symbol).ok_or_else(|| {
-                    crate::compilation::SemanticQueryFailure::contract(
-                        crate::compilation::SemanticQueryContext::Symbol(symbol),
-                        crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
-                            expected: crate::compilation::SemanticSymbolCategory::GenericOwner,
-                            actual: symbol.kind(),
-                        },
-                    )
-                })?;
+                let owner = crate::compilation::substitution::generic_owner(symbol)?;
 
                 let generic = binding_context
                     .resolve_symbol_query(

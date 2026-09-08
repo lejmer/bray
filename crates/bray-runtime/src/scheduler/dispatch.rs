@@ -138,6 +138,7 @@ fn scheduled_task_snapshot(
     queued: Option<QueuedObservation>,
 ) -> Result<ScheduledTaskSnapshot, SchedulerError> {
     let (state, dispatch, wake_cause) = match task.dispatch {
+        DispatchState::Terminal(state) => (state, ScheduledTaskState::Terminal, None),
         DispatchState::Idle(state) => (state, ScheduledTaskState::Idle, None),
         DispatchState::Queued(state) => (
             state,

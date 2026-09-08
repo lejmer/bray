@@ -31,6 +31,12 @@ pub(super) struct BoundGenericArguments {
     pub(super) has_diagnostics: bool,
 }
 
+pub(super) struct BoundDeclarationGenerics {
+    pub(super) declaration: GenericDeclarationTemplate,
+    pub(super) arguments: Vec<GenericArgumentTemplate>,
+    pub(super) has_diagnostics: bool,
+}
+
 pub(super) fn bind_generic_arguments<C>(
     context: &C,
     call: CallGenericContext<'_>,
@@ -170,6 +176,39 @@ where
         return Ok(DiagnosticResult::without_diagnostics(None));
     };
 
+    let mut diagnostics = DiagnosticBag::new();
+
+    let Some(generics) = bind_instantiated_member_generics(
+        context,
+        owner,
+        inherited,
+        CallGenericContext { arguments, scope },
+        &mut diagnostics,
+    )?
+    else {
+        return Ok(DiagnosticResult::new(None, diagnostics));
+    };
+
+    let declaration =
+        callable_declaration_template(context, symbol, generics.declaration, generics.arguments)?
+            .and_then(|(declaration, has_diagnostics)| {
+                (!generics.has_diagnostics && !has_diagnostics).then_some(declaration)
+            });
+
+    Ok(DiagnosticResult::new(declaration, diagnostics))
+}
+
+pub(super) fn bind_instantiated_member_generics<C>(
+    context: &C,
+    owner: GenericOwnerId,
+    inherited: GenericSubstitutionId,
+    call: CallGenericContext<'_>,
+    diagnostics: &mut DiagnosticBag,
+) -> BindingQueryResult<Option<BoundDeclarationGenerics>, C::UpstreamError>
+where
+    C: BindingQueryContext,
+    C::SymbolSemantics: SymbolQueryProvider<GenericDeclarationTemplateQuery>,
+{
     let inherited = context
         .semantic_values()
         .generic_substitution_data(inherited)
@@ -184,16 +223,11 @@ where
         resolve_symbol_query_value::<_, GenericDeclarationTemplateQuery>(context, owner)?;
 
     let generic = combined_generic_declaration(owner, &inherited_declaration, &direct_declaration);
-    let mut diagnostics = DiagnosticBag::new();
 
-    let Some(direct_arguments) = bind_generic_arguments(
-        context,
-        CallGenericContext { arguments, scope },
-        &direct_declaration,
-        &mut diagnostics,
-    )?
+    let Some(direct_arguments) =
+        bind_generic_arguments(context, call, &direct_declaration, diagnostics)?
     else {
-        return Ok(DiagnosticResult::new(None, diagnostics));
+        return Ok(None);
     };
 
     if inherited.bindings().len() != inherited_declaration.parameters().len() {
@@ -204,18 +238,16 @@ where
         .bindings()
         .iter()
         .map(|binding| GenericArgumentTemplate::Resolved(binding.argument()))
-        .chain(direct_arguments.arguments);
+        .chain(direct_arguments.arguments)
+        .collect();
 
-    let declaration = callable_declaration_template(context, symbol, generic, generic_arguments)?
-        .and_then(|(declaration, declaration_diagnostics)| {
-            (!inherited_diagnostics
-                && !direct_diagnostics
-                && !direct_arguments.has_diagnostics
-                && !declaration_diagnostics)
-                .then_some(declaration)
-        });
-
-    Ok(DiagnosticResult::new(declaration, diagnostics))
+    Ok(Some(BoundDeclarationGenerics {
+        declaration: generic,
+        arguments: generic_arguments,
+        has_diagnostics: inherited_diagnostics
+            || direct_diagnostics
+            || direct_arguments.has_diagnostics,
+    }))
 }
 
 pub(super) fn combined_generic_declaration(

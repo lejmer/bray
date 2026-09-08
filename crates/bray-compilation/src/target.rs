@@ -29,7 +29,7 @@ impl SelectedTarget {
 
     /// Creates a selected target from one native toolchain profile.
     pub fn for_native(target: NativeTarget) -> Self {
-        Self::new(target.profile(), RuntimeAbiVersion::new(1, 0))
+        Self::new(target.profile(), RuntimeAbiVersion::CURRENT)
     }
 
     /// Returns the native selected target with the supplied canonical identity.
@@ -136,7 +136,7 @@ mod tests {
         );
 
         assert_eq!(target.integer_width_bits().get(), 64);
-        assert_eq!(target.runtime_abi(), RuntimeAbiVersion::new(1, 0));
+        assert_eq!(target.runtime_abi(), RuntimeAbiVersion::CURRENT);
     }
 
     #[test]
@@ -160,6 +160,7 @@ mod tests {
                 .unwrap_or_else(|error| panic!("native target must support codegen: {error:?}"));
 
             assert_eq!(selected.profile().identity().as_str(), native.as_str());
+            assert_eq!(selected.runtime_abi(), RuntimeAbiVersion::CURRENT);
             assert_eq!(codegen.identity().as_str(), native.as_str());
             assert_eq!(codegen.machine().architecture(), native.architecture());
             assert_eq!(codegen.machine().object_format(), native.object_format());

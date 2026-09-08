@@ -1,4 +1,4 @@
-module std.collection;
+trusted module std.collection;
 
 using std.hash;
 
@@ -21,7 +21,6 @@ struct HashMap<Key, Value>
         while true
         {
             let index: usize = (trusted hash_table_find_hash<MapItem<Key, Value>>(&self.table, previous, hash = hash))?;
-
             let item: &MapItem<Key, Value> = trusted hash_table_item<MapItem<Key, Value>>(&self.table, index = index);
 
             if item.key.equals(key)

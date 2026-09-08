@@ -33,6 +33,14 @@ where
         )));
     }
 
+    if callable_contract_conversion_is_valid(request, source, target)? {
+        return Ok(Some(SelectedConversion::new(
+            source,
+            target,
+            ConversionTarget::CallableContract,
+        )));
+    }
+
     if scalar_conversion_is_valid(request, source, target)? {
         return Ok(Some(SelectedConversion::new(
             source,
@@ -77,6 +85,9 @@ where
 
         let is_valid = match conversion.target() {
             ConversionTarget::Identity => source == target,
+            ConversionTarget::CallableContract => {
+                callable_contract_conversion_is_valid(request.context(), source, target)?
+            }
             ConversionTarget::NullablePresent => {
                 let target = request
                     .semantic_values()
@@ -115,6 +126,34 @@ where
     }
 
     Ok(true)
+}
+
+pub(crate) fn callable_contract_conversion_is_valid<C>(
+    request: &C,
+    source: TypeId,
+    target: TypeId,
+) -> Result<bool, CheckerInfrastructureError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let values = request.semantic_values();
+
+    let source = values
+        .type_data(source)
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+    let target = values
+        .type_data(target)
+        .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+    let (TypeData::Callable(source), TypeData::Callable(target)) =
+        (source.as_ref(), target.as_ref())
+    else {
+        return Ok(false);
+    };
+
+    crate::callable_type_contract_is_compatible(values, target, source)
+        .map_err(CheckerInfrastructureError::SemanticValueStore)
 }
 
 fn scalar_conversion_is_valid<C>(
@@ -367,6 +406,7 @@ pub(super) const fn is_builtin_conversion(operation: &SelectedOperation) -> bool
     matches!(
         conversion.target(),
         ConversionTarget::Identity
+            | ConversionTarget::CallableContract
             | ConversionTarget::NullablePresent
             | ConversionTarget::BuiltInScalar
             | ConversionTarget::CVariadicPromotion

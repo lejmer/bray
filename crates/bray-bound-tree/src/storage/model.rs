@@ -65,6 +65,8 @@ pub enum StorageIdentity {
     PredicateParameter(PredicateParameterSymbolId),
     /// A callable result supplied to a postcondition.
     PostconditionResult(PostconditionResultSymbolId),
+    /// An observational parameter introduced by a callable type's contract signature.
+    ContractParameter(bray_symbols::LocalBindingSymbolId),
     /// Storage receiving the value produced by this semantic unit.
     Result(AnyBoundNodeId),
     /// Source-correlated temporary storage.
@@ -91,6 +93,18 @@ pub enum StorageIdentity {
 }
 
 impl StorageIdentity {
+    /// Returns whether this storage is supplied as a formal input to the unit.
+    pub const fn is_parameter(self) -> bool {
+        matches!(
+            self,
+            Self::Parameter(_)
+                | Self::Receiver(_)
+                | Self::AnonymousParameter(_)
+                | Self::PredicateParameter(_)
+                | Self::ContractParameter(_)
+        )
+    }
+
     /// Returns this storage identity's stable machine-readable category.
     pub const fn kind_name(self) -> &'static str {
         match self {
@@ -101,6 +115,7 @@ impl StorageIdentity {
             Self::AnonymousParameter(_) => "anonymous_parameter",
             Self::PredicateParameter(_) => "predicate_parameter",
             Self::PostconditionResult(_) => "postcondition_result",
+            Self::ContractParameter(_) => "contract_parameter",
             Self::Result(_) => "result",
             Self::Temporary(_) => "temporary",
             Self::CustomIndexBorrow(_) => "custom_index_borrow",
@@ -123,6 +138,7 @@ impl StorageIdentity {
                 | Self::AnonymousParameter(_)
                 | Self::PredicateParameter(_)
                 | Self::PostconditionResult(_)
+                | Self::ContractParameter(_)
         )
     }
 
@@ -142,6 +158,7 @@ impl StorageIdentity {
             | Self::AnonymousParameter(_)
             | Self::PredicateParameter(_)
             | Self::PostconditionResult(_)
+            | Self::ContractParameter(_)
             | Self::CompilerCreated(_)
             | Self::Error(_) => None,
         }
@@ -160,6 +177,7 @@ impl StorageIdentity {
                 alternative,
             } => pattern.unit() == unit && alternative.unit() == unit,
             Self::AnonymousParameter(parameter) => parameter.region().raw() == unit.raw(),
+            Self::ContractParameter(parameter) => parameter.region().raw() == unit.raw(),
             Self::Parameter(_)
             | Self::Static(_)
             | Self::PredicateParameter(_)

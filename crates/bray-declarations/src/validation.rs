@@ -607,7 +607,7 @@ pub fn duplicate_lifecycle_slot_diagnostic(
     ))
 }
 
-fn declaration_diagnostic<const ARG_COUNT: usize>(
+pub(crate) fn declaration_diagnostic<const ARG_COUNT: usize>(
     declaration: &DeclarationRecord,
     kind: DiagnosticKind,
     args: [DiagnosticArg; ARG_COUNT],

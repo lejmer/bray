@@ -395,7 +395,12 @@ where
             candidate = next_candidate;
         }
 
-        self.push_edge(candidate, join, AnalysisEdgeKind::MatchNoMatch, None);
+        self.push_edge(
+            candidate,
+            join,
+            AnalysisEdgeKind::MatchNoMatch,
+            Some(AnalysisRefinement::MatchExhaustion(id)),
+        );
 
         Some(Some(join))
     }

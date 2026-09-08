@@ -866,7 +866,7 @@ mod tests {
     #[test]
     fn merge_populates_child_containers_for_signatures_and_variants() {
         let sources = source_store([concat!(
-            "module core;\n",
+            "trusted module core;\n",
             "func main<T, const N: Int>(value: T) {}\n",
             "trusted predicate valid<T, const N: Int>(value: T);\n",
             "union Maybe { Some(value: Int, fallback: Int); }",

@@ -51,7 +51,9 @@ impl ExpressionBinder {
         let namespace = match binder.unit_view().expression(receiver) {
             Some(BoundExpression::Name(name)) => match name.target() {
                 BoundReferenceTarget::Surface(AnySymbolId::Module(module)) => Some(module),
-                BoundReferenceTarget::Local(_) | BoundReferenceTarget::Surface(_) => None,
+                BoundReferenceTarget::Local(_)
+                | BoundReferenceTarget::Surface(_)
+                | BoundReferenceTarget::TypeQualifier(_) => None,
             },
             _ => None,
         };

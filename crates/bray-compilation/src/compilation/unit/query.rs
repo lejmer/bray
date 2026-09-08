@@ -409,6 +409,7 @@ impl Compilation {
             key,
             cancellation,
             bound.result().value(),
+            &types,
             &semantic_context,
             &context,
         )?;
@@ -6407,7 +6408,8 @@ func convert(pos value: Value) -> i32
             DeclaredValueTypeTerm::Value(BoundReferenceTarget::Surface(symbol)) => {
                 symbol.kind() == kind
             }
-            DeclaredValueTypeTerm::Expression(_)
+            DeclaredValueTypeTerm::Value(BoundReferenceTarget::TypeQualifier(_))
+            | DeclaredValueTypeTerm::Expression(_)
             | DeclaredValueTypeTerm::Pattern(_)
             | DeclaredValueTypeTerm::BoxStoragePolicy(_) => false,
         })
@@ -8375,6 +8377,58 @@ func other()
             "{:?}",
             analysis.diagnostics()
         );
+    }
+
+    #[test]
+    fn pattern_payload_fields_remain_available_after_foreign_calls() {
+        for (input, pattern) in [("Payload?", "?payload"), ("Message", "Data(payload)")] {
+            let source = format!(
+                r#"
+trusted module app;
+@copy struct Payload {{ first: i32; second: i32?; }}
+@copy union Message {{ Data(pos payload: Payload); Empty; }}
+@link(name = "pattern_probe", kind = system)
+@symbol(name = "pattern_touch")
+@abi(c) extern trusted func touch() uses(foreign_call);
+trusted func main(pos input: {input}) -> i32 uses(foreign_call)
+{{
+    match input
+    {{
+        case {pattern}
+        {{
+            touch();
+            if let ?second = payload.second
+            {{
+                touch();
+                return payload.first + second;
+            }}
+            return payload.first;
+        }}
+        case _ {{ return 0; }}
+    }}
+}}
+"#
+            );
+
+            let options = crate::CompilationOptions::default().with_native_link_inputs([
+                bray_symbols::NativeLinkRequirement::new(
+                    bray_base::NonEmptySharedStr::try_new("pattern_probe").unwrap(),
+                    bray_symbols::NativeLinkKind::System,
+                ),
+            ]);
+
+            let compilation = crate::test_support::compilation_with_options(&source, options);
+            let key = source_function_body_key(&compilation, "main");
+            let storage = compilation.storage_flow(key).unwrap();
+
+            assert!(storage.diagnostics().is_empty(), "{input}: {storage:#?}");
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{input}: {:?}",
+                compilation.check_diagnostics()
+            );
+        }
     }
 
     #[test]

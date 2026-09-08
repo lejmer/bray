@@ -120,17 +120,30 @@ impl WorkerPool {
         }
     }
 
-    pub(super) fn finish_blocking_work(&self) -> bool {
+    pub(super) fn finish_blocking_work(&self, retain_thread: impl FnOnce() -> bool) -> bool {
         if self.is_stopping() {
             return false;
         }
 
+        self.idle_blocking_workers.fetch_add(1, Ordering::AcqRel);
+
+        !self.try_retire_idle_blocking_worker(retain_thread)
+    }
+
+    pub(super) fn try_retire_idle_blocking_worker(
+        &self,
+        retain_thread: impl FnOnce() -> bool,
+    ) -> bool {
         let mut idle = self.idle_blocking_workers.load(Ordering::Acquire);
 
-        while idle < 2 {
+        if idle <= 2 || retain_thread() {
+            return false;
+        }
+
+        while idle > 2 {
             match self.idle_blocking_workers.compare_exchange_weak(
                 idle,
-                idle + 1,
+                idle - 1,
                 Ordering::AcqRel,
                 Ordering::Acquire,
             ) {
@@ -362,9 +375,26 @@ mod tests {
     fn completed_blocking_work_keeps_a_bounded_idle_reserve() {
         let workers = WorkerPool::new();
 
-        assert!(workers.finish_blocking_work());
-        assert!(workers.finish_blocking_work());
-        assert!(!workers.finish_blocking_work());
+        assert!(workers.finish_blocking_work(|| panic!("idle reserve must retain the worker")));
+        assert!(workers.finish_blocking_work(|| panic!("idle reserve must retain the worker")));
+        assert!(!workers.finish_blocking_work(|| false));
+
+        assert_eq!(workers.idle_blocking_workers.load(Ordering::Acquire), 2);
+    }
+
+    #[test]
+    fn affined_work_retains_a_worker_beyond_the_idle_reserve() {
+        let workers = WorkerPool::new();
+        workers.idle_blocking_workers.store(2, Ordering::Relaxed);
+
+        assert!(workers.finish_blocking_work(|| true));
+        assert_eq!(workers.idle_blocking_workers.load(Ordering::Acquire), 3);
+        assert!(!workers.try_retire_idle_blocking_worker(|| true));
+        assert!(workers.try_retire_idle_blocking_worker(|| false));
+
+        assert!(
+            !workers.try_retire_idle_blocking_worker(|| panic!("idle reserve must be retained"))
+        );
 
         assert_eq!(workers.idle_blocking_workers.load(Ordering::Acquire), 2);
     }

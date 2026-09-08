@@ -33,7 +33,10 @@ fn default_instance_linkage(
 ) -> CodegenLinkage {
     if roots.contains(instance.key()) {
         CodegenLinkage::Export
-    } else if matches!(instance.key().template(), MirUnitKey::ImportedExecutable(_)) {
+    } else if matches!(
+        instance.key().template(),
+        MirUnitKey::ImportedExecutable(_) | MirUnitKey::GeneratedLifecycle(_)
+    ) {
         CodegenLinkage::LinkOnce
     } else {
         CodegenLinkage::Internal
@@ -80,72 +83,78 @@ impl Compilation {
         let mut symbols = Vec::new();
 
         for instance in unit.instances() {
-            let (name, linkage, signature, native_entry) = match instance.mir().kind() {
-                MirUnitKind::ExecutableHost(host) => (
-                    host.native_entry().clone(),
-                    CodegenLinkage::Export,
-                    void_signature(CallableAbi::Bray),
-                    None,
-                ),
-                MirUnitKind::GeneratedLifecycle(reference) => {
-                    let name = generated_instance_symbol_name(
-                        target,
-                        CodegenLinkage::LinkOnce,
-                        instance.key(),
-                    )?;
+            let (name, linkage, signature, native_entry) =
+                match (instance.mir().source(), instance.mir().kind()) {
+                    (_, MirUnitKind::ExecutableHost(host)) => (
+                        host.native_entry().clone(),
+                        CodegenLinkage::Export,
+                        void_signature(CallableAbi::Bray),
+                        None,
+                    ),
+                    (bray_ir::MirSourceOrigin::GeneratedLifecycle(reference), _) => {
+                        let name = generated_instance_symbol_name(
+                            target,
+                            CodegenLinkage::LinkOnce,
+                            instance.key(),
+                        )?;
 
-                    let signature = self.generated_lifecycle_signature(reference, cancellation)?;
+                        let signature =
+                            self.generated_lifecycle_signature(reference, cancellation)?;
 
-                    (name, CodegenLinkage::LinkOnce, signature, None)
-                }
-                MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => {
-                    let realization = reachability.instance(instance.key()).ok_or_else(|| {
-                        ProductQueryFailure::missing(
-                            ProductQueryContext::Instance(instance.key().clone()),
-                            ProductDataKind::ConcreteInstance,
-                        )
-                    })?;
-
-                    let boundary = self.codegen_native_boundary(
-                        instance.key(),
-                        platform_overrides,
-                        cancellation,
-                    )?;
-
-                    let (name, linkage, native_entry) = self.codegen_callable_symbol_boundary(
-                        product,
-                        target,
-                        realization,
-                        boundary,
-                        default_instance_linkage(instance, roots),
-                        cancellation,
-                    )?;
-
-                    let signature = self.codegen_instance_signature(realization, cancellation)?;
-
-                    if let Some(role) = self.codegen_runtime_source_role(instance.key())? {
-                        let expected = self.codegen_runtime_signature(role)?;
-
-                        let matches = super::runtime_source::runtime_source_signature_matches(
-                            self,
-                            role,
-                            &signature,
-                            cancellation,
-                        )?
-                        .unwrap_or(signature == expected);
-
-                        if !matches {
-                            return Err(CodegenPreparationError::InvalidRuntimeRoleSourceBinding {
-                                role,
-                                expected,
-                                actual: signature,
-                            });
-                        }
+                        (name, CodegenLinkage::LinkOnce, signature, None)
                     }
+                    (_, MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_)) => {
+                        let realization =
+                            reachability.instance(instance.key()).ok_or_else(|| {
+                                ProductQueryFailure::missing(
+                                    ProductQueryContext::Instance(instance.key().clone()),
+                                    ProductDataKind::ConcreteInstance,
+                                )
+                            })?;
 
-                    (name, linkage, signature, native_entry)
-                }
-            };
+                        let boundary = self.codegen_native_boundary(
+                            instance.key(),
+                            platform_overrides,
+                            cancellation,
+                        )?;
+
+                        let (name, linkage, native_entry) = self.codegen_callable_symbol_boundary(
+                            product,
+                            target,
+                            realization,
+                            boundary,
+                            default_instance_linkage(instance, roots),
+                            cancellation,
+                        )?;
+
+                        let signature =
+                            self.codegen_instance_signature(realization, cancellation)?;
+
+                        if let Some(role) = self.codegen_runtime_source_role(instance.key())? {
+                            let expected = self.codegen_runtime_signature(role)?;
+
+                            let matches = super::runtime_source::runtime_source_signature_matches(
+                                self,
+                                role,
+                                &signature,
+                                cancellation,
+                            )?
+                            .unwrap_or(signature == expected);
+
+                            if !matches {
+                                return Err(
+                                    CodegenPreparationError::InvalidRuntimeRoleSourceBinding {
+                                        role,
+                                        expected,
+                                        actual: signature,
+                                    },
+                                );
+                            }
+                        }
+
+                        (name, linkage, signature, native_entry)
+                    }
+                };
 
             let mut symbol = CodegenSymbolMapping::new(
                 CodegenSymbolKey::Instance(instance.key().clone()),
@@ -313,10 +322,10 @@ impl Compilation {
         let package =
             self.codegen_instance_package(instance.key(), product_package, cancellation)?;
 
-        let linkage = match instance.mir().kind() {
-            MirUnitKind::ExecutableHost(_) => CodegenLinkage::Export,
-            MirUnitKind::GeneratedLifecycle(_) => CodegenLinkage::LinkOnce,
-            MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => self
+        let linkage = match (instance.mir().source(), instance.mir().kind()) {
+            (_, MirUnitKind::ExecutableHost(_)) => CodegenLinkage::Export,
+            (bray_ir::MirSourceOrigin::GeneratedLifecycle(_), _) => CodegenLinkage::LinkOnce,
+            (_, MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_)) => self
                 .codegen_native_boundary(instance.key(), &BTreeSet::new(), cancellation)?
                 .map_or_else(
                     || default_instance_linkage(instance, roots),
@@ -529,6 +538,13 @@ impl Compilation {
         realization: &ConcreteCodegenInstance,
         cancellation: &CancellationToken,
     ) -> Result<BinarySymbolName, CodegenPreparationError> {
+        if matches!(
+            realization.key().template(),
+            MirUnitKey::GeneratedLifecycle(_)
+        ) {
+            return generated_instance_symbol_name(target, linkage, realization.key());
+        }
+
         if let Some(provider) =
             self.codegen_runtime_default_provider(realization.key(), cancellation)?
         {

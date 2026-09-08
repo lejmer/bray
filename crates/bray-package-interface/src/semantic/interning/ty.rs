@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
 use bray_symbols::{
-    CallableParameterData, CallableParameterName, GenericTypeParameterSymbolId, NamedTypeSymbolId,
-    SelfTypeContext, SemanticValueStore, TraitTypeMemberSymbolId, TypeData,
+    CallableConditions, CallableParameterData, CallableParameterName, GenericTypeParameterSymbolId,
+    NamedTypeSymbolId, SelfTypeContext, SemanticValueStore, TraitTypeMemberSymbolId, TypeData,
 };
 
 use crate::{InterfaceSemantics, InterfaceType};
@@ -22,8 +22,10 @@ impl InternState {
                 continue;
             }
 
-            let Some(data) = self.convert_type(input, symbols)? else {
-                continue;
+            let data = match self.convert_type(input, symbols) {
+                Ok(Some(data)) => data,
+                Ok(None) | Err(InterfaceSemanticInternError::UnresolvedValueGraph) => continue,
+                Err(error) => return Err(error),
             };
 
             self.types[index] = Some(store.intern_type(data)?);
@@ -128,6 +130,7 @@ impl InternState {
                 constness,
                 trust,
                 abi,
+                conditions,
                 invocation_behavior,
                 deferred_execution_behavior,
             } => {
@@ -183,6 +186,7 @@ impl InternState {
                         dependencies,
                     )
                     .with_variadic(*variadic)
+                    .with_conditions(self.convert_callable_conditions(conditions)?)
                     .with_phase_behaviors(phase_behaviors),
                 ))
             }

@@ -408,14 +408,19 @@ impl SymbolRelationshipKind {
                     )
             }
             Self::CallableParameter => {
-                is_interface_callable(owner)
+                (owner.is_callable() || owner == SymbolKind::CallableContract)
                     && matches!(
                         member,
                         SymbolKind::CallableParameter | SymbolKind::ReceiverParameter
                     )
             }
             Self::PredicateParameter => {
-                owner == SymbolKind::Predicate && member == SymbolKind::PredicateParameter
+                matches!(
+                    owner,
+                    SymbolKind::Predicate
+                        | SymbolKind::TraitPredicateMember
+                        | SymbolKind::TraitPredicateFulfillment
+                ) && member == SymbolKind::PredicateParameter
             }
             Self::OverloadArm => matches!(
                 owner,
@@ -455,6 +460,7 @@ const fn is_type_or_implementation_member(kind: SymbolKind) -> bool {
     matches!(
         kind,
         SymbolKind::CallableOverload
+            | SymbolKind::Predicate
             | SymbolKind::TypeCallableMember
             | SymbolKind::Constructor
             | SymbolKind::Finalizer
@@ -472,26 +478,6 @@ const fn is_trait_member(kind: SymbolKind) -> bool {
             | SymbolKind::TraitConstantMember
             | SymbolKind::TraitTypeMember
             | SymbolKind::TraitPredicateMember
-            | SymbolKind::TraitFinalizerRequirement
-            | SymbolKind::TraitDestructorRequirement
-            | SymbolKind::TraitScopeEnterRequirement
-            | SymbolKind::TraitScopeExitRequirement
-    )
-}
-
-const fn is_interface_callable(kind: SymbolKind) -> bool {
-    matches!(
-        kind,
-        SymbolKind::Function
-            | SymbolKind::CallableContract
-            | SymbolKind::TypeCallableMember
-            | SymbolKind::TraitCallableMember
-            | SymbolKind::TraitCallableFulfillment
-            | SymbolKind::Constructor
-            | SymbolKind::Finalizer
-            | SymbolKind::Destructor
-            | SymbolKind::ScopeEnter
-            | SymbolKind::ScopeExit
             | SymbolKind::TraitFinalizerRequirement
             | SymbolKind::TraitDestructorRequirement
             | SymbolKind::TraitScopeEnterRequirement
@@ -692,9 +678,14 @@ mod tests {
                 &callable_owners(),
                 &[SymbolKind::CallableParameter, SymbolKind::ReceiverParameter],
             ),
-            SymbolRelationshipKind::PredicateParameter => {
-                vec![(SymbolKind::Predicate, SymbolKind::PredicateParameter)]
-            }
+            SymbolRelationshipKind::PredicateParameter => cross(
+                &[
+                    SymbolKind::Predicate,
+                    SymbolKind::TraitPredicateMember,
+                    SymbolKind::TraitPredicateFulfillment,
+                ],
+                &[SymbolKind::PredicateParameter],
+            ),
             SymbolRelationshipKind::OverloadArm => cross(
                 &[
                     SymbolKind::CallableOverload,
@@ -733,9 +724,10 @@ mod tests {
         }
     }
 
-    fn type_members() -> [SymbolKind; 8] {
+    fn type_members() -> [SymbolKind; 9] {
         [
             SymbolKind::CallableOverload,
+            SymbolKind::Predicate,
             SymbolKind::TypeCallableMember,
             SymbolKind::Constructor,
             SymbolKind::Finalizer,
@@ -767,7 +759,7 @@ mod tests {
         ]
     }
 
-    fn callable_owners() -> [SymbolKind; 14] {
+    fn callable_owners() -> [SymbolKind; 16] {
         [
             SymbolKind::Function,
             SymbolKind::CallableContract,
@@ -783,6 +775,8 @@ mod tests {
             SymbolKind::TraitDestructorRequirement,
             SymbolKind::TraitScopeEnterRequirement,
             SymbolKind::TraitScopeExitRequirement,
+            SymbolKind::TraitScopeEnterFulfillment,
+            SymbolKind::TraitScopeExitFulfillment,
         ]
     }
 

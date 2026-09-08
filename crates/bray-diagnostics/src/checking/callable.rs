@@ -6,8 +6,9 @@ pub use contract::{
     DiagnosticCallableConstness, DiagnosticCallableContractClauseCategory,
     DiagnosticCallableContractMismatch, DiagnosticCallableContractSurface,
     DiagnosticCallableExecution, DiagnosticCallableParameterMode, DiagnosticCallablePosition,
-    DiagnosticCallableTrust, DiagnosticConstraintCategory, DiagnosticGenericConstraintMismatch,
-    DiagnosticGenericParameterCategory, DiagnosticReceiverMode, DiagnosticTraitFulfillmentMismatch,
+    DiagnosticCallableTrust, DiagnosticConstraintCategory, DiagnosticExecutionProperty,
+    DiagnosticGenericConstraintMismatch, DiagnosticGenericParameterCategory,
+    DiagnosticReceiverMode, DiagnosticTraitFulfillmentMismatch,
 };
 pub use overload::{
     DiagnosticCallableOverloadArm, DiagnosticCallableOverloadContext,

@@ -30,28 +30,92 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         callable: (MirCallableReference, TypeId, TypeId, CallableExecution),
     ) -> Result<bray_ir::MirBlockId, C::Error> {
-        let (callable, receiver, result, _) = callable;
+        let (_, _, result, execution) = callable;
 
-        let receiver = self.lifecycle_receiver_operand(builder, block, source, place, receiver)?;
         let outcome = self.cleanup_outcome(builder, block, source)?;
+        let value = self.push_static_finalizer_call(builder, block, source, place, callable)?;
 
-        builder
-            .push_operation(
-                block,
-                source.clone(),
-                MirOperationKind::Call(MirCall::protocol(
-                    MirCallTarget::Direct(callable),
-                    bray_bound_tree::BoundCallResult::Immediate(result),
-                    [receiver],
-                    [],
-                )),
-                Some(result),
-            )
-            .map_err(|cause| self.mir_error(source, cause))?;
+        let completed = match execution {
+            CallableExecution::Synchronous => {
+                let invalid = |cause| self.mir_error(source, cause);
+                let kind = builder.block_kind(block).map_err(invalid)?;
+                let finished = builder.push_block(source.clone(), kind).map_err(invalid)?;
 
-        let completed = outcome
-            .check(builder, block, source)
-            .map_err(|cause| self.mir_error(source, cause))?;
+                let (completed, result) = outcome
+                    .check_value(builder, block, source, value, finished)
+                    .map_err(invalid)?;
+
+                let completed = self.retain_finalizer_error(
+                    builder,
+                    completed,
+                    source,
+                    MirOperand::Move(result),
+                    &outcome,
+                )?;
+
+                builder
+                    .set_terminator(
+                        completed,
+                        source.clone(),
+                        bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(finished, [])),
+                    )
+                    .map_err(invalid)?;
+
+                finished
+            }
+            CallableExecution::Asynchronous => {
+                let (resumed, run_result, variants) = self.await_lifecycle_result(
+                    builder,
+                    block,
+                    source,
+                    crate::cleanup_await::CleanupAwait::Frame(
+                        MirOperand::Value(value),
+                        bray_ir::MirFrameEntry::Body,
+                    ),
+                    result,
+                )?;
+
+                // Preserve the completed payload path independently of the outcome tag branch.
+                let (completed, finished) = outcome
+                    .resolve_run_result(
+                        builder,
+                        resumed,
+                        source,
+                        run_result.clone(),
+                        (
+                            variants,
+                            crate::cleanup_outcome::CleanupCancellation::Propagate,
+                        ),
+                    )
+                    .map_err(|cause| self.mir_error(source, cause))?;
+
+                let result = run_result.project(
+                    bray_ir::MirProjectionKind::ActiveUnionPayloadElement {
+                        variant: variants.completed(),
+                        ordinal: bray_symbols::SymbolOrdinal::new(0),
+                    },
+                    result,
+                );
+
+                let completed = self.retain_finalizer_error(
+                    builder,
+                    completed,
+                    source,
+                    MirOperand::Move(result),
+                    &outcome,
+                )?;
+
+                builder
+                    .set_terminator(
+                        completed,
+                        source.clone(),
+                        bray_ir::MirTerminatorKind::Goto(bray_ir::MirEdge::new(finished, [])),
+                    )
+                    .map_err(|cause| self.mir_error(source, cause))?;
+
+                finished
+            }
+        };
 
         self.finish_cleanup_outcome(builder, completed, source, &outcome)
     }
@@ -127,7 +191,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         })
     }
 
-    fn lifecycle_receiver_operand(
+    pub(super) fn lifecycle_receiver_operand(
         &self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,

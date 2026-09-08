@@ -1,6 +1,6 @@
 mod coherence;
 mod common;
-pub(in crate::semantic) use common::{invalid_discriminant, invalid_value};
+pub(in crate::semantic) use common::{invalid_discriminant, invalid_value, malformed};
 mod decoding;
 mod encoding;
 mod record;

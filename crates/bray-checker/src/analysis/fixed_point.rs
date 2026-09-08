@@ -392,6 +392,7 @@ mod tests {
             [AnalysisExit::new(
                 second,
                 AnalysisExitKind::NormalFallthrough,
+                None,
             )],
         )
     }
@@ -413,7 +414,7 @@ mod tests {
                 None,
             )],
             [],
-            [AnalysisExit::new(block, AnalysisExitKind::Divergence)],
+            [AnalysisExit::new(block, AnalysisExitKind::Divergence, None)],
         )
     }
 }

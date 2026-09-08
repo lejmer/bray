@@ -107,6 +107,8 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
         MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Finalize(place)
         | MirOperationKind::Destroy(place)
+        | MirOperationKind::Abandon { place, .. }
+        | MirOperationKind::DestructorRemainder { place, .. }
         | MirOperationKind::Cleanup { place, .. } => collect_place_values(place, demands),
         MirOperationKind::Unary { operand, .. }
         | MirOperationKind::Convert { operand, .. }
@@ -216,7 +218,10 @@ fn collect_terminator_values(terminator: &MirTerminatorKind, demands: &mut Const
             }
 
             collect_edge_values(resume, demands);
-            collect_cleanup_edge_values(cancellation, demands);
+
+            if let Some(cancellation) = cancellation {
+                collect_cleanup_edge_values(cancellation, demands);
+            }
         }
         MirTerminatorKind::ForwardRunResult { result, edges } => {
             collect_operand_value(result, demands);
@@ -252,9 +257,7 @@ fn collect_terminator_values(terminator: &MirTerminatorKind, demands: &mut Const
 fn collect_generator_values(operation: &MirGeneratorOperation, demands: &mut ConstantDemands) {
     match operation {
         MirGeneratorOperation::Begin { destination, .. }
-        | MirGeneratorOperation::Finish { destination }
-        | MirGeneratorOperation::CleanupBroadcast { destination, .. }
-        | MirGeneratorOperation::Destroy { destination, .. } => {
+        | MirGeneratorOperation::Finish { destination } => {
             collect_place_values(destination, demands);
         }
         MirGeneratorOperation::Push { destination, value } => {
@@ -268,37 +271,37 @@ fn collect_async_values(operation: &MirAsyncOperation, demands: &mut ConstantDem
     match operation {
         MirAsyncOperation::CreateFrame { initializer, .. } => match initializer {
             MirFrameInitializer::Callable(call) => collect_call_values(call, demands),
-            MirFrameInitializer::TaskObservation { task, .. } => {
-                collect_operand_value(task, demands);
+            MirFrameInitializer::Lifecycle { receiver, .. } => {
+                collect_operand_value(receiver, demands)
             }
         },
-        MirAsyncOperation::MoveInactiveFrame {
-            source,
-            destination,
-            ..
-        } => {
-            collect_place_values(source, demands);
-            collect_place_values(destination, demands);
-        }
         MirAsyncOperation::ResumeFrame { .. }
-        | MirAsyncOperation::CommitAwaitedCompletion { .. }
+        | MirAsyncOperation::ResolveAwaitedFrame { .. }
         | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
         | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
         | MirAsyncOperation::ExecuteLifecycleResolution { .. } => {}
         MirAsyncOperation::ComposeAwaitedFrame { frame, .. }
-        | MirAsyncOperation::StartTask { value: frame, .. } => {
+        | MirAsyncOperation::DestroyInactiveCaptures { frame, .. } => {
             collect_operand_value(frame, demands);
+        }
+        MirAsyncOperation::StartTask {
+            value, destination, ..
+        } => {
+            collect_operand_value(value, demands);
+            collect_place_values(destination, demands);
         }
         MirAsyncOperation::RequestTaskCancellation { task, .. }
         | MirAsyncOperation::ResolveTask { task, .. }
-        | MirAsyncOperation::DestroyTerminalTask { task } => {
+        | MirAsyncOperation::BorrowTaskCompletion { task, .. }
+        | MirAsyncOperation::ReleaseTaskCompletionBorrow { task, .. }
+        | MirAsyncOperation::DestroyTerminalTask { task, .. } => {
             collect_operand_value(task, demands);
         }
         MirAsyncOperation::PublishTerminalState { state, .. } => match state {
             MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
                 collect_operand_value(value, demands);
             }
-            MirTaskTerminalState::Cancelled => {}
+            MirTaskTerminalState::Cancelled | MirTaskTerminalState::CapturesCompleted => {}
         },
         MirAsyncOperation::TransferCleanupIncident { incident, .. } => {
             collect_operand_value(incident, demands);
@@ -333,6 +336,7 @@ fn collect_call_values(call: &MirCall, demands: &mut ConstantDemands) {
 
 fn collect_panic_values(cause: &MirPanicCause, demands: &mut ConstantDemands) {
     match cause {
+        MirPanicCause::TaskAdmission => {}
         MirPanicCause::Message(message) | MirPanicCause::ExplicitTestFailure(message) => {
             collect_operand_value(message, demands);
         }

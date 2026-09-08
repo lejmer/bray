@@ -4,10 +4,10 @@ use std::sync::Arc;
 use bray_bound_tree::{BoundNodeOrigin, StorageCleanupPart, StorageCleanupProjectionKind};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirAggregate, MirAggregateKind, MirAsyncOperation, MirBlockId, MirCleanupPhase, MirEdge,
-    MirGeneratorOperation, MirImmediateValue, MirOperand, MirOperationCommit, MirOperationKind,
-    MirPlace, MirProjection, MirProjectionKind, MirSourceAnchor, MirStorageId, MirStorageKind,
-    MirStoreKind, MirTerminatorKind, MirUnitBuildError, MirUnitBuilder,
+    MirAggregate, MirAggregateKind, MirBlockId, MirCleanupPhase, MirEdge, MirGeneratorOperation,
+    MirImmediateValue, MirOperand, MirOperationCommit, MirOperationKind, MirPlace, MirProjection,
+    MirProjectionKind, MirSourceAnchor, MirStorageId, MirStorageKind, MirStoreKind,
+    MirTerminatorKind, MirUnitBuildError, MirUnitBuilder,
 };
 use bray_symbols::{TypeData, TypeId};
 
@@ -181,15 +181,14 @@ impl Lowerer<'_> {
         }
 
         match &kind {
-            MirOperationKind::Async(MirAsyncOperation::MoveInactiveFrame {
-                source: place, ..
-            })
-            | MirOperationKind::Generator(MirGeneratorOperation::Finish { destination: place })
-            | MirOperationKind::Generator(MirGeneratorOperation::Destroy {
-                destination: place,
-                ..
-            })
+            MirOperationKind::Generator(MirGeneratorOperation::Finish { destination: place })
             | MirOperationKind::Destroy(place)
+            | MirOperationKind::DestructorRemainder { place, .. }
+            | MirOperationKind::Abandon {
+                action:
+                    bray_ir::MirAbandonmentAction::Destroy | bray_ir::MirAbandonmentAction::Destructor,
+                place,
+            }
             | MirOperationKind::Cleanup {
                 phase: MirCleanupPhase::LifecycleResolution,
                 place,
@@ -201,9 +200,6 @@ impl Lowerer<'_> {
 
         let initialized = match &kind {
             MirOperationKind::Store { destination, .. }
-            | MirOperationKind::Async(MirAsyncOperation::MoveInactiveFrame {
-                destination, ..
-            })
             | MirOperationKind::Generator(MirGeneratorOperation::Begin { destination, .. }) => {
                 Some(Self::retained_place(destination))
             }

@@ -383,10 +383,26 @@ trusted internal func platform_child_reap(
     return trusted internal close_windows_process(child);
 }
 
+internal func platform_child_wait_completed(pos status: std.platform.PlatformStatus) -> bool
+{
+    // Waiting observes termination; the process handle remains owned until CloseHandle succeeds.
+    return false;
+}
+
 @abi(c)
-trusted internal func platform_child_dispose(pos child: u64) -> std.platform.PlatformStatus
+trusted internal func platform_child_dispose(
+    pos child: u64,
+    pos released: RawPointer<u32>
+) -> std.platform.PlatformStatus
     uses(foreign_call)
 {
+    if std.memory.is_null<u32>(released)
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    trusted std.memory.write<u32>(released, value = 0);
+
     let process: RawPointer<u8> = trusted internal std.platform.handle_pointer(child);
 
     if !trusted internal valid_windows_handle(process)
@@ -401,13 +417,11 @@ trusted internal func platform_child_dispose(pos child: u64) -> std.platform.Pla
         return trusted internal std.platform.windows_error_status();
     }
 
-    let mut first_error: std.platform.PlatformStatus = internal std.platform.success_status();
-
     if exit_code == std.os.windows.STILL_ACTIVE
     {
         if trusted std.os.windows.terminate_process(process, exit_code = 1) == 0
         {
-            first_error = trusted internal std.platform.windows_error_status();
+            return trusted internal std.platform.windows_error_status();
         }
 
         let waited: u32 = trusted std.os.windows.wait_for_single_object(
@@ -415,9 +429,9 @@ trusted internal func platform_child_dispose(pos child: u64) -> std.platform.Pla
             milliseconds = std.os.windows.INFINITE,
         );
 
-        if waited != std.os.windows.WAIT_OBJECT_0 && internal std.platform.successful_status(first_error)
+        if waited != std.os.windows.WAIT_OBJECT_0
         {
-            first_error = if waited == std.os.windows.WAIT_FAILED
+            return if waited == std.os.windows.WAIT_FAILED
             {
                 yield trusted internal std.platform.windows_error_status();
             }
@@ -430,9 +444,9 @@ trusted internal func platform_child_dispose(pos child: u64) -> std.platform.Pla
 
     let closed: std.platform.PlatformStatus = trusted internal close_windows_process(child);
 
-    if !internal std.platform.successful_status(first_error)
+    if internal std.platform.successful_status(closed)
     {
-        return first_error;
+        trusted std.memory.write<u32>(released, value = 1);
     }
 
     return closed;

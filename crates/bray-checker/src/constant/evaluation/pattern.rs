@@ -6,9 +6,7 @@ use bray_symbols::{
     AnyLocalSymbolId, ConstantTermData, ConstantTermId, ConstantValueId, ConstantValueKind,
 };
 
-use crate::constant::literal::parse_literal;
-use crate::representation::type_representation;
-use crate::{CheckerInfrastructureError, CheckerRequestContext};
+use crate::CheckerRequestContext;
 
 use super::engine::Evaluator;
 use super::flow::EvaluationFlow;
@@ -29,7 +27,14 @@ where
         };
 
         let subject = self.evaluate(*subject)?;
-        let value = self.closed_value(subject, expression)?;
+
+        let Some(value) = self.term_value(subject)? else {
+            if test.kind() != bray_bound_tree::BoundStructuredExpressionKind::PatternTest {
+                return Err(EvaluationFailure::invalid_expression(expression));
+            }
+
+            return self.symbolic_pattern_test(expression, *pattern, subject, ty);
+        };
 
         // A failed conditional pattern must discard bindings created before a nested failure.
         let outer_locals = self.locals.clone();
@@ -117,7 +122,7 @@ where
             ))?;
 
         if checked.is_recovered()
-            || !self.predicate_matches(owner, pattern_node, checked.test(), subject_value)?
+            || !self.predicate_matches(owner, checked.test(), subject_value)?
         {
             return Ok(false);
         }
@@ -164,7 +169,6 @@ where
     fn predicate_matches(
         &mut self,
         owner: BoundExpressionId,
-        pattern: &bray_bound_tree::BoundPattern,
         predicate: Option<PatternPredicate>,
         subject: ConstantValueId,
     ) -> Result<bool, EvaluationFailure> {
@@ -178,56 +182,32 @@ where
                 | PatternPredicate::TupleShape(_)
                 | PatternPredicate::ArrayShape(_),
             ) => true,
-            Some(PatternPredicate::NullableAbsent) => {
-                matches!(subject.kind(), ConstantValueKind::NullableAbsent)
-            }
-            Some(PatternPredicate::NullablePresent) => {
-                matches!(subject.kind(), ConstantValueKind::NullablePresent(_))
+            Some(PatternPredicate::NullableAbsent | PatternPredicate::NullablePresent) => {
+                let present = crate::constant::shape::test_value_shape(
+                    bray_symbols::ConstantTest::NullablePresent,
+                    subject.kind(),
+                )
+                .ok_or_else(|| EvaluationFailure::invalid_expression(owner))?;
+
+                if predicate == Some(PatternPredicate::NullableAbsent) {
+                    !present
+                } else {
+                    present
+                }
             }
             Some(PatternPredicate::ActiveUnionVariant(variant)) => {
-                matches!(
+                crate::constant::shape::test_value_shape(
+                    bray_symbols::ConstantTest::ActiveUnionVariant(variant),
                     subject.kind(),
-                    ConstantValueKind::Union {
-                        variant: active,
-                        ..
-                    } if *active == variant
                 )
+                .ok_or_else(|| EvaluationFailure::invalid_expression(owner))?
             }
-            Some(PatternPredicate::Literal(literal)) => {
-                let literal = literal.literal();
-
-                let source = self
-                    .request
-                    .source(pattern.origin().source_anchor())
-                    .map_err(EvaluationFailure::Infrastructure)?;
-
-                let spelling = source.text_for_range(literal.range()).ok_or_else(|| {
-                    EvaluationFailure::Infrastructure(
-                        CheckerInfrastructureError::InvalidSourceRange {
-                            span: bray_source::SourceSpan::new(
-                                source.span().source_id(),
-                                literal.range(),
-                            ),
-                        },
-                    )
-                })?;
-
-                self.budget.charge_literal(owner, spelling.len())?;
-
-                let representation = type_representation(self.request, pattern.input_type())
-                    .map_err(EvaluationFailure::Infrastructure)?
-                    .ok_or_else(|| EvaluationFailure::invalid_expression(owner))?;
-
-                let expected = parse_literal(literal.kind(), spelling, representation, || {
-                    self.request
-                        .selected_target()
-                        .machine()
-                        .pointer_width_bits()
-                })
-                .map_err(|error| EvaluationFailure::literal(owner, error))?;
-
-                subject.kind() == &expected
-            }
+            Some(PatternPredicate::Literal(literal)) => crate::constant::constant_values_equal(
+                self.request.semantic_values(),
+                subject_id,
+                literal.value(),
+            )
+            .map_err(EvaluationFailure::Infrastructure)?,
             Some(PatternPredicate::Constant(expected)) => {
                 let Some(expected) = self.term_value(expected)? else {
                     return Err(EvaluationFailure::invalid_expression(owner));

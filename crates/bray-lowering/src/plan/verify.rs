@@ -50,6 +50,18 @@ pub struct VerifiedLoweringPlans<'unit> {
     scope_exits: BTreeMap<(BoundBlockId, AnyBoundNodeId), usize>,
     lifecycle_storage: BTreeSet<StorageIdentityId>,
     replacements: BTreeMap<BoundExpressionId, usize>,
+    completed_finalizers: BTreeSet<(
+        BoundBlockId,
+        AnyBoundNodeId,
+        bray_bound_tree::StorageAccessId,
+        Option<bray_symbols::SymbolOrdinal>,
+    )>,
+    synchronous_destructors: BTreeSet<(
+        BoundBlockId,
+        AnyBoundNodeId,
+        bray_bound_tree::StorageAccessId,
+        Option<bray_symbols::SymbolOrdinal>,
+    )>,
 }
 
 impl<'unit> VerifiedLoweringPlans<'unit> {
@@ -124,6 +136,8 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
 
         let task_operations = verify_task_operations(unit, selections, symbols, analysis)?;
 
+        super::capture::verify_capture_cleanup(unit, storage, dependencies, analysis)?;
+
         let retained = analysis
             .suspensions()
             .iter()
@@ -161,7 +175,158 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
             scope_exits,
             lifecycle_storage,
             replacements,
+            completed_finalizers: BTreeSet::new(),
+            synchronous_destructors: BTreeSet::new(),
         })
+    }
+
+    /// Adds dependency-validated completion and destruction evidence for exact cleanup occurrences.
+    /// The caller supplies certified obligations. This boundary verifies their storage and exit
+    /// identities against the independently checked ownership plan.
+    pub fn with_cleanup_proofs(
+        mut self,
+        certified: &[bray_bound_tree::CallableProofObligation],
+    ) -> Result<Self, LoweringPlanFailure> {
+        for obligation in certified {
+            let (scope, exit, access, part) = match *obligation {
+                bray_bound_tree::CallableProofObligation::Finalization {
+                    scope,
+                    exit,
+                    access,
+                    part,
+                }
+                | bray_bound_tree::CallableProofObligation::SynchronousDestruction {
+                    scope,
+                    exit,
+                    access,
+                    part,
+                } => (scope, exit, access, part),
+                _ => continue,
+            };
+
+            let plan = self
+                .scope_exits
+                .get(&(scope, exit))
+                .and_then(|index| self.analysis.scope_exits().get(*index));
+
+            if !self.storage.is_root_access(access)
+                || plan.is_none_or(|plan| {
+                    !plan.lifecycle_resolution().contains(&access)
+                        || part.is_none()
+                            && plan.moved().iter().any(|moved| {
+                                self.storage.root_identity(*moved)
+                                    == self.storage.root_identity(access)
+                            })
+                })
+            {
+                return Err(LoweringPlanFailure::for_access(
+                    super::LoweringPlanKind::LifecyclePhase,
+                    LoweringPlanFailureCause::Contradictory,
+                    scope,
+                    exit,
+                    access,
+                ));
+            }
+
+            let parts = self
+                .storage
+                .root_identity(access)
+                .and_then(|identity| self.cleanup_parts(identity));
+
+            let valid = match part {
+                Some(part) => part
+                    .to_index()
+                    .and_then(|index| parts?.get(index))
+                    .is_some_and(|part| {
+                        part.release().is_none() && part.phases().includes_lifecycle()
+                    }),
+                None => parts.is_none(),
+            };
+
+            if !valid {
+                return Err(LoweringPlanFailure::for_access(
+                    super::LoweringPlanKind::LifecyclePhase,
+                    LoweringPlanFailureCause::Contradictory,
+                    scope,
+                    exit,
+                    access,
+                ));
+            }
+
+            let proofs = match obligation {
+                bray_bound_tree::CallableProofObligation::SynchronousDestruction { .. } => {
+                    &mut self.synchronous_destructors
+                }
+                _ => &mut self.completed_finalizers,
+            };
+
+            if !proofs.insert((scope, exit, access, part)) {
+                return Err(LoweringPlanFailure::for_access(
+                    super::LoweringPlanKind::LifecyclePhase,
+                    LoweringPlanFailureCause::Duplicate,
+                    scope,
+                    exit,
+                    access,
+                ));
+            }
+        }
+
+        Ok(self)
+    }
+
+    pub(crate) fn finalizer_is_complete(
+        &self,
+        scope: BoundBlockId,
+        exit: AnyBoundNodeId,
+        access: bray_bound_tree::StorageAccessId,
+    ) -> bool {
+        self.completed_finalizers
+            .contains(&(scope, exit, access, None))
+    }
+
+    pub(crate) fn part_finalizer_is_complete(
+        &self,
+        scope: BoundBlockId,
+        exit: AnyBoundNodeId,
+        access: bray_bound_tree::StorageAccessId,
+        part: &bray_bound_tree::StorageCleanupPart,
+    ) -> bool {
+        self.part_ordinal(access, part).is_some_and(|ordinal| {
+            self.completed_finalizers
+                .contains(&(scope, exit, access, Some(ordinal)))
+        })
+    }
+
+    pub(crate) fn destruction_is_synchronous(
+        &self,
+        scope: BoundBlockId,
+        exit: AnyBoundNodeId,
+        access: bray_bound_tree::StorageAccessId,
+        part: Option<&bray_bound_tree::StorageCleanupPart>,
+    ) -> bool {
+        let ordinal = match part {
+            Some(part) => match self.part_ordinal(access, part) {
+                Some(ordinal) => Some(ordinal),
+                None => return false,
+            },
+            None => None,
+        };
+
+        self.synchronous_destructors
+            .contains(&(scope, exit, access, ordinal))
+    }
+
+    fn part_ordinal(
+        &self,
+        access: bray_bound_tree::StorageAccessId,
+        part: &bray_bound_tree::StorageCleanupPart,
+    ) -> Option<bray_symbols::SymbolOrdinal> {
+        self.storage
+            .root_identity(access)
+            .and_then(|identity| self.cleanup_parts(identity))
+            .and_then(|parts| parts.iter().position(|candidate| candidate == part))
+            .and_then(|index| u32::try_from(index).ok())
+            .map(bray_symbols::SymbolOrdinal::new)
     }
 
     /// Returns the bound unit whose plan set was verified.
@@ -211,7 +376,7 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
     }
 
     /// Returns frame dependencies after complete-plan verification.
-    pub fn frame_dependencies(&self) -> &[BoundDependencySubject] {
+    pub fn frame_dependencies(&self) -> &'unit [BoundDependencySubject] {
         self.analysis.frame_dependencies()
     }
 
@@ -329,6 +494,22 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
             .iter()
             .find(|requirement| requirement.identity() == identity)
             .and_then(bray_bound_tree::AsyncStorageRequirement::parts)
+    }
+
+    /// Returns checked ownership before the async body starts.
+    pub(crate) fn capture_cleanup(&self) -> Option<&'unit bray_bound_tree::AsyncCaptureCleanup> {
+        self.analysis.capture_cleanup()
+    }
+
+    /// Returns the execution modes checked for a cleanup type.
+    pub(crate) fn cleanup_type(
+        &self,
+        ty: bray_symbols::TypeId,
+    ) -> Option<&bray_bound_tree::StorageCleanupType> {
+        self.analysis
+            .cleanup_types()
+            .iter()
+            .find(|shape| shape.ty() == ty)
     }
 
     /// Rejects represented projections that contradict their semantic type constructors.
@@ -2323,7 +2504,7 @@ mod tests {
     }
 
     #[test]
-    fn represented_part_plans_reject_overlaps_missing_phases_and_broken_types() {
+    fn represented_part_plans_and_completion_proofs_require_exact_partitions() {
         let fixture = ScopeExitFixture::new();
         let ty = fixture.storage.storage_type(fixture.second).unwrap();
         let values = SemanticValueStore::try_new().unwrap();
@@ -2416,7 +2597,140 @@ mod tests {
             let result = fixture.verify(&analysis);
 
             if valid {
-                result.unwrap();
+                let plans = result.unwrap();
+
+                let proof =
+                    |part: Option<u32>| bray_bound_tree::CallableProofObligation::Finalization {
+                        scope: fixture.scope,
+                        exit: fixture.exit,
+                        access: fixture.second_access,
+                        part: part.map(SymbolOrdinal::new),
+                    };
+
+                let certified = plans
+                    .clone()
+                    .with_cleanup_proofs(&[proof(Some(0))])
+                    .unwrap();
+
+                let parts = certified.cleanup_parts(fixture.second).unwrap();
+
+                assert!(certified.part_finalizer_is_complete(
+                    fixture.scope,
+                    fixture.exit,
+                    fixture.second_access,
+                    &parts[0]
+                ));
+
+                assert!(!certified.part_finalizer_is_complete(
+                    fixture.scope,
+                    fixture.exit,
+                    fixture.second_access,
+                    &parts[1]
+                ));
+
+                assert!(!certified.finalizer_is_complete(
+                    fixture.scope,
+                    fixture.exit,
+                    fixture.second_access
+                ));
+
+                for part in [None, Some(2)] {
+                    assert_eq!(
+                        plans.clone().with_cleanup_proofs(&[proof(part)]).err(),
+                        Some(LoweringPlanFailure::for_access(
+                            LoweringPlanKind::LifecyclePhase,
+                            LoweringPlanFailureCause::Contradictory,
+                            fixture.scope,
+                            fixture.exit,
+                            fixture.second_access
+                        ))
+                    );
+                }
+
+                let destruction = |part: Option<u32>| {
+                    bray_bound_tree::CallableProofObligation::SynchronousDestruction {
+                        scope: fixture.scope,
+                        exit: fixture.exit,
+                        access: fixture.second_access,
+                        part: part.map(SymbolOrdinal::new),
+                    }
+                };
+
+                let synchronous = plans
+                    .clone()
+                    .with_cleanup_proofs(&[destruction(Some(0))])
+                    .unwrap();
+
+                assert!(synchronous.destruction_is_synchronous(
+                    fixture.scope,
+                    fixture.exit,
+                    fixture.second_access,
+                    Some(&parts[0])
+                ));
+
+                assert!(!synchronous.destruction_is_synchronous(
+                    fixture.scope,
+                    fixture.exit,
+                    fixture.second_access,
+                    Some(&parts[1])
+                ));
+
+                assert!(!synchronous.part_finalizer_is_complete(
+                    fixture.scope,
+                    fixture.exit,
+                    fixture.second_access,
+                    &parts[0]
+                ));
+
+                for part in [None, Some(2)] {
+                    assert_eq!(
+                        plans
+                            .clone()
+                            .with_cleanup_proofs(&[destruction(part)])
+                            .err(),
+                        Some(LoweringPlanFailure::for_access(
+                            LoweringPlanKind::LifecyclePhase,
+                            LoweringPlanFailureCause::Contradictory,
+                            fixture.scope,
+                            fixture.exit,
+                            fixture.second_access
+                        ))
+                    );
+                }
+
+                assert!(
+                    plans
+                        .clone()
+                        .with_cleanup_proofs(&[proof(Some(0)), destruction(Some(0))])
+                        .is_ok()
+                );
+
+                assert_eq!(
+                    plans
+                        .clone()
+                        .with_cleanup_proofs(&[destruction(Some(0)), destruction(Some(0))])
+                        .err(),
+                    Some(LoweringPlanFailure::for_access(
+                        LoweringPlanKind::LifecyclePhase,
+                        LoweringPlanFailureCause::Duplicate,
+                        fixture.scope,
+                        fixture.exit,
+                        fixture.second_access
+                    ))
+                );
+
+                assert_eq!(
+                    plans
+                        .with_cleanup_proofs(&[proof(Some(0)), proof(Some(0))])
+                        .err(),
+                    Some(LoweringPlanFailure::for_access(
+                        LoweringPlanKind::LifecyclePhase,
+                        LoweringPlanFailureCause::Duplicate,
+                        fixture.scope,
+                        fixture.exit,
+                        fixture.second_access
+                    ))
+                );
             } else {
                 assert_plan_failure(
                     result,

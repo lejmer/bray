@@ -278,7 +278,7 @@ fn format_english_generic_constraint_mismatch(
     }
 }
 
-fn format_english_callable_contract_mismatch(
+pub(in crate::catalog::english::argument) fn format_english_callable_contract_mismatch(
     mismatch: &DiagnosticCallableContractMismatch,
 ) -> String {
     let ordinal = |index: u64| index.saturating_add(1);
@@ -331,6 +331,41 @@ fn format_english_callable_contract_mismatch(
         ),
         DiagnosticCallableContractMismatch::DeferredExecutionPresence => {
             "the callable and trait member disagree about deferred execution behavior".to_owned()
+        }
+        DiagnosticCallableContractMismatch::ExecutionGuarantee { property, guard } => {
+            let property = match property {
+                bray_diagnostics::DiagnosticExecutionProperty::Pure => "pure",
+                bray_diagnostics::DiagnosticExecutionProperty::Total => "total",
+            };
+
+            match guard {
+                Some(guard) => format!(
+                    "the provided callable does not establish `{property}` under required entry guard {}",
+                    ordinal(*guard),
+                ),
+                None => format!(
+                    "the provided callable does not establish unconditional `{property}` execution",
+                ),
+            }
+        }
+        DiagnosticCallableContractMismatch::PredicateImplication { surface, index } => {
+            match surface {
+                DiagnosticCallableContractSurface::InvocationPreconditions => format!(
+                    "provided precondition {} does not follow from the required contract's preconditions",
+                    ordinal(*index),
+                ),
+                DiagnosticCallableContractSurface::CompletionPostconditions => format!(
+                    "required postcondition {} does not follow from the provided guarantees on the required entry domain",
+                    ordinal(*index),
+                ),
+                DiagnosticCallableContractSurface::StaticConstraints => format!(
+                    "provided constraint {} does not follow from the required contract's constraints",
+                    ordinal(*index),
+                ),
+            }
+        }
+        DiagnosticCallableContractMismatch::ConditionReasoningLimit => {
+            "bounded contract reasoning could not establish callable compatibility".to_owned()
         }
     }
 }

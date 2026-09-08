@@ -28,9 +28,9 @@ use bray_symbols::{
 
 use super::compatibility::{
     CallableBehaviorComponent, CallableBehaviorPhase, CallableContractClauseCategory,
-    CallableContractMismatch, CallableContractSurface, CompatibilityContext, ConstraintCategory,
-    GenericConstraintMismatch, GenericParameterCategory, GenericSurfaceMismatch,
-    TraitFulfillmentMismatch, fulfillment_is_compatible, subject_lifecycle_is_compatible,
+    CallableContractMismatch, CompatibilityContext, ConstraintCategory, GenericConstraintMismatch,
+    GenericParameterCategory, GenericSurfaceMismatch, TraitFulfillmentMismatch,
+    fulfillment_is_compatible, subject_lifecycle_is_compatible,
 };
 use crate::compilation::{Compilation, binder::CompilationBindingContext};
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
@@ -42,7 +42,7 @@ impl Compilation {
         implementation: ImplementationSymbolId,
     ) -> Result<
         Arc<
-            bray_diagnostics::DiagnosticResult<
+            DiagnosticResult<
                 <TraitImplementationConformanceQuery as bray_symbols::SemanticQueryContract>::Value,
             >,
         >,
@@ -60,7 +60,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<
         Arc<
-            bray_diagnostics::DiagnosticResult<
+            DiagnosticResult<
                 <TraitImplementationConformanceQuery as bray_symbols::SemanticQueryContract>::Value,
             >,
         >,
@@ -183,14 +183,25 @@ impl Compilation {
                 .push(*fulfillment);
         }
 
-        let type_bindings = type_fulfillment_bindings(
-            symbols,
-            imported,
-            &binding_context,
-            &requirements,
-            &fulfillments_by_slot,
-            &mut diagnostics,
-        )?;
+        let mut matched_fulfillments = BTreeMap::new();
+
+        for requirement in &requirements {
+            let slot = member_slot(
+                symbols,
+                imported,
+                requirement.symbol(),
+                requirement_kind(*requirement),
+            )?;
+
+            if let Some(matches) = fulfillments_by_slot.get(&slot)
+                && let [fulfillment] = matches.as_slice()
+            {
+                matched_fulfillments.insert(*requirement, *fulfillment);
+            }
+        }
+
+        let type_bindings =
+            type_fulfillment_bindings(&binding_context, &matched_fulfillments, &mut diagnostics)?;
 
         let subject_lifecycle = subject_lifecycle_fulfillments(
             self,
@@ -208,6 +219,7 @@ impl Compilation {
             coherence.value().subject(),
             trait_application,
             &type_bindings,
+            &matched_fulfillments,
         );
 
         let mut checked = Vec::with_capacity(requirements.len());
@@ -659,47 +671,44 @@ fn diagnostic_callable_contract_mismatch(
     let diagnostic_count = |value| diagnostic_count(implementation, value);
 
     let mismatch = match mismatch {
-        CallableContractMismatch::ClauseCount {
-            surface,
-            required,
-            provided,
-        } => DiagnosticCallableContractMismatch::ClauseCount {
-            surface: diagnostic_callable_contract_surface(surface),
-            required: diagnostic_count(required)?,
-            provided: diagnostic_count(provided)?,
-        },
-        CallableContractMismatch::ClauseOrdinal { surface, index } => {
+        CallableContractMismatch::ClauseCount { required, provided } => {
+            DiagnosticCallableContractMismatch::ClauseCount {
+                surface: DiagnosticCallableContractSurface::StaticConstraints,
+                required: diagnostic_count(required)?,
+                provided: diagnostic_count(provided)?,
+            }
+        }
+        CallableContractMismatch::ClauseOrdinal { index } => {
             DiagnosticCallableContractMismatch::ClauseOrdinal {
-                surface: diagnostic_callable_contract_surface(surface),
+                surface: DiagnosticCallableContractSurface::StaticConstraints,
                 index: diagnostic_count(index)?,
             }
         }
-        CallableContractMismatch::ClauseKind { surface, index } => {
+        CallableContractMismatch::ClauseKind { index } => {
             DiagnosticCallableContractMismatch::ClauseKind {
-                surface: diagnostic_callable_contract_surface(surface),
+                surface: DiagnosticCallableContractSurface::StaticConstraints,
                 index: diagnostic_count(index)?,
             }
         }
         CallableContractMismatch::ClauseCategory {
-            surface,
             index,
             required,
             provided,
         } => DiagnosticCallableContractMismatch::ClauseCategory {
-            surface: diagnostic_callable_contract_surface(surface),
+            surface: DiagnosticCallableContractSurface::StaticConstraints,
             index: diagnostic_count(index)?,
             required: diagnostic_callable_clause_category(required),
             provided: diagnostic_callable_clause_category(provided),
         },
-        CallableContractMismatch::PredicateDependencies { surface, index } => {
+        CallableContractMismatch::PredicateDependencies { index } => {
             DiagnosticCallableContractMismatch::PredicateDependencies {
-                surface: diagnostic_callable_contract_surface(surface),
+                surface: DiagnosticCallableContractSurface::StaticConstraints,
                 index: diagnostic_count(index)?,
             }
         }
-        CallableContractMismatch::TraitSatisfaction { surface, index } => {
+        CallableContractMismatch::TraitSatisfaction { index } => {
             DiagnosticCallableContractMismatch::TraitSatisfaction {
-                surface: diagnostic_callable_contract_surface(surface),
+                surface: DiagnosticCallableContractSurface::StaticConstraints,
                 index: diagnostic_count(index)?,
             }
         }
@@ -712,6 +721,7 @@ fn diagnostic_callable_contract_mismatch(
         CallableContractMismatch::DeferredExecutionPresence => {
             DiagnosticCallableContractMismatch::DeferredExecutionPresence
         }
+        CallableContractMismatch::ConditionImplication(mismatch) => mismatch.diagnostic(),
     };
 
     Ok(mismatch)
@@ -825,22 +835,6 @@ const fn diagnostic_callable_parameter_mode(
             DiagnosticCallableParameterMode::Immutable
         }
         bray_symbols::CallableParameterMode::Mutable => DiagnosticCallableParameterMode::Mutable,
-    }
-}
-
-const fn diagnostic_callable_contract_surface(
-    value: CallableContractSurface,
-) -> DiagnosticCallableContractSurface {
-    match value {
-        CallableContractSurface::InvocationPreconditions => {
-            DiagnosticCallableContractSurface::InvocationPreconditions
-        }
-        CallableContractSurface::StaticConstraints => {
-            DiagnosticCallableContractSurface::StaticConstraints
-        }
-        CallableContractSurface::CompletionPostconditions => {
-            DiagnosticCallableContractSurface::CompletionPostconditions
-        }
     }
 }
 
@@ -1143,25 +1137,16 @@ const fn fulfillment_kind(fulfillment: TraitMemberFulfillmentId) -> MemberKind {
 }
 
 fn type_fulfillment_bindings(
-    symbols: &bray_symbols::SymbolGraph,
-    imported: Option<&bray_symbols::ImportedSymbolSkeleton>,
     binding_context: &CompilationBindingContext<'_>,
-    requirements: &[TraitMemberRequirementId],
-    fulfillments: &BTreeMap<MemberSlot, Vec<TraitMemberFulfillmentId>>,
+    fulfillments: &BTreeMap<TraitMemberRequirementId, TraitMemberFulfillmentId>,
     diagnostics: &mut bray_diagnostics::DiagnosticBag,
 ) -> Result<BTreeMap<bray_symbols::TraitTypeMemberSymbolId, TypeExpressionTemplate>, FactQueryError>
 {
     let mut bindings = BTreeMap::new();
 
-    for requirement in requirements {
-        let TraitMemberRequirementId::Type(member) = requirement else {
-            continue;
-        };
-
-        let slot = member_slot(symbols, imported, requirement.symbol(), MemberKind::Type)?;
-
-        let Some(TraitMemberFulfillmentId::Type(fulfillment)) =
-            fulfillments.get(&slot).and_then(|matches| matches.first())
+    for (requirement, fulfillment) in fulfillments {
+        let (TraitMemberRequirementId::Type(member), TraitMemberFulfillmentId::Type(fulfillment)) =
+            (requirement, fulfillment)
         else {
             continue;
         };
@@ -2101,6 +2086,181 @@ mod tests {
             entry.resolution(),
             TraitRequirementResolution::SubjectLifecycle(_)
         )));
+    }
+
+    #[test]
+    fn execution_guarantee_implication_is_checked_for_trait_fulfillments() {
+        for (required, provided, valid) in [
+            ("executes(pure, total)", "executes(total, pure)", true),
+            ("executes(total)", "executes(pure)", false),
+            ("executes(pure)", "", false),
+            ("", "executes(pure, total)", true),
+            ("when(first) { executes(total) }", "executes(total)", true),
+            ("executes(total)", "when(first) { executes(total) }", false),
+            (
+                "when(first) { when(second) { executes(total) } }",
+                "when(second) { executes(total) }",
+                true,
+            ),
+            (
+                "when(first) { executes(total) }",
+                "when(first) { when(second) { executes(total) } }",
+                false,
+            ),
+            (
+                "executes(total)",
+                "when(first) { executes(total) } when(!first) { executes(total) }",
+                true,
+            ),
+        ] {
+            let source = callable_fulfillment_source(required, provided);
+
+            let diagnostics = assert_trait_condition_conformance(&source, valid);
+
+            if !valid {
+                let diagnostic = diagnostics.iter().next().unwrap();
+
+                assert!(diagnostic.args().iter().any(|argument| matches!(argument.value(), DiagnosticArgValue::TraitFulfillmentMismatch(DiagnosticTraitFulfillmentMismatch::CallableContract(bray_diagnostics::DiagnosticCallableContractMismatch::ExecutionGuarantee { .. })))));
+
+                assert!(
+                    DiagnosticRenderer::english()
+                        .render(diagnostic)
+                        .message()
+                        .contains("does not establish")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn trait_condition_comparison_uses_selected_predicate_fulfillments() {
+        for (required, provided, valid) in [
+            ("ensures(valid(result))", "ensures(result)", true),
+            ("ensures(result)", "ensures(valid(result))", true),
+            ("ensures(valid(result))", "ensures(!result)", false),
+            (
+                "when(valid(first)) { executes(pure) }",
+                "when(first) { executes(pure) }",
+                true,
+            ),
+        ] {
+            let source = format!(
+                "module app; predicate valid(value: bool) = !value; struct Holder {{}} \
+                 trait Provides {{ predicate valid(value: bool); static func get(pos first: bool) -> bool {required}; }} \
+                 impl Holder(Provides) {{ predicate valid(value: bool) = value; static func get(pos first: bool) -> bool {provided} {{ return first; }} }}"
+            );
+
+            assert_trait_condition_conformance(&source, valid);
+        }
+    }
+
+    #[test]
+    fn selected_predicate_contracts_normalize_self_and_renamed_generic_arguments() {
+        for source in [
+            "module app; struct Holder { flag: bool; } \
+             trait Provides { predicate valid(value: &Self); static func get(pos value: &Self) -> bool ensures(valid(value)); } \
+             impl Holder(Provides) { predicate valid(value: &Self) = value.flag; static func get(pos value: &Self) -> bool ensures(value.flag) { return value.flag; } }",
+            "module app; struct Holder {} \
+             trait Provides<T> { predicate valid(value: &T, flag: bool); static func get<V>(pos value: &T, pos other: &V, pos flag: bool) -> bool ensures(valid(value, flag)); } \
+             impl Holder(Provides<bool>) { predicate valid(value: &bool, flag: bool) = flag; static func get<W>(pos value: &bool, pos other: &W, pos flag: bool) -> bool ensures(flag) { return flag; } }",
+        ] {
+            let compilation = compilation(source);
+
+            let result = compilation
+                .trait_implementation_conformance(source_implementation(&compilation))
+                .unwrap();
+
+            assert!(
+                result.value().is_valid(),
+                "{source}\n{:?}",
+                result.diagnostics()
+            );
+
+            assert!(
+                result.diagnostics().is_empty(),
+                "{source}\n{:?}",
+                result.diagnostics()
+            );
+        }
+    }
+
+    #[test]
+    fn predicate_condition_implication_is_checked_for_trait_fulfillments() {
+        for (required, provided, valid) in [
+            ("requires(first)", "", true),
+            ("", "requires(first)", false),
+            ("requires(first && second)", "requires(first)", true),
+            ("requires(first)", "requires(first && second)", false),
+            ("ensures(result)", "ensures(result && first)", true),
+            ("ensures(result && first)", "ensures(result)", false),
+            ("when(first) { ensures(result) }", "ensures(result)", true),
+            ("ensures(result)", "when(first) { ensures(result) }", false),
+            (
+                "ensures(result)",
+                "when(first) { ensures(result) } when(!first) { ensures(result) }",
+                true,
+            ),
+        ] {
+            let source = callable_fulfillment_source(required, provided);
+
+            let diagnostics = assert_trait_condition_conformance(&source, valid);
+
+            if !valid {
+                let diagnostic = diagnostics.iter().next().unwrap();
+
+                assert!(diagnostic.args().iter().any(|argument| matches!(argument.value(), DiagnosticArgValue::TraitFulfillmentMismatch(DiagnosticTraitFulfillmentMismatch::CallableContract(bray_diagnostics::DiagnosticCallableContractMismatch::PredicateImplication { .. })))));
+            }
+        }
+    }
+
+    fn callable_fulfillment_source(required: &str, provided: &str) -> String {
+        format!(
+            "module app; struct Holder {{}} \
+             trait Provides {{ static func get(pos first: bool, pos second: bool) -> bool {required}; }} \
+             impl Holder(Provides) {{ static func get(pos first: bool, pos second: bool) -> bool {provided} {{ return first; }} }}"
+        )
+    }
+
+    fn assert_trait_condition_conformance(
+        source: &str,
+        valid: bool,
+    ) -> bray_diagnostics::DiagnosticBag {
+        let compilation = compilation(source);
+
+        let result = compilation
+            .trait_implementation_conformance(source_implementation(&compilation))
+            .unwrap();
+
+        assert_eq!(
+            result.value().is_valid(),
+            valid,
+            "{source}\n{:?}",
+            result.diagnostics()
+        );
+
+        assert_eq!(
+            result
+                .diagnostics()
+                .iter()
+                .map(|diagnostic| diagnostic.kind())
+                .collect::<Vec<_>>(),
+            if valid {
+                vec![]
+            } else {
+                vec![DiagnosticKind::CheckingIncompatibleTraitFulfillment]
+            },
+            "{source}"
+        );
+
+        if !valid {
+            let diagnostic = result.diagnostics().iter().next().unwrap();
+
+            assert!(diagnostic.related_locations().iter().any(|location| {
+                location.kind() == DiagnosticRelatedLocationKind::RequirementOrigin
+            }));
+        }
+
+        result.diagnostics().clone()
     }
 
     fn source_implementation(compilation: &crate::Compilation) -> ImplementationSymbolId {

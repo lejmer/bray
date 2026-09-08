@@ -1,9 +1,7 @@
 use bray_ir::{
-    MirBlockKind, MirEdge, MirGeneratorOperation, MirHelperReference, MirOperand, MirOperationKind,
-    MirPlace, MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirTerminatorKind,
-    MirUnitBuilder,
+    MirBlockKind, MirEdge, MirHelperReference, MirOperand, MirOperationKind, MirPlace,
+    MirProjectionKind, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder,
 };
-use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::{
     GenericSubstitutionId, NamedTypeSymbolId, TypeAssociatedLifecycleSlot, TypeData, TypeId,
 };
@@ -21,7 +19,18 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
-        if self.push_compiler_known_lifecycle_operations(
+        if let MirHelperReference::Abandon { action, .. } = reference {
+            return self.push_abandonment_operations(
+                builder,
+                block,
+                source,
+                *action,
+                place,
+                runtime_abi,
+            );
+        }
+
+        if let Some(completed) = self.push_compiler_known_lifecycle_operations(
             builder,
             block,
             source,
@@ -29,11 +38,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             &place,
             runtime_abi,
         )? {
-            return Ok(block);
+            return Ok(completed);
         }
 
         match reference {
             MirHelperReference::Finalize(ty) | MirHelperReference::StaticFinalize(ty) => {
+                if self.context.finalization_complete(*ty)? {
+                    return Ok(block);
+                }
+
                 if let Some(callable) = self
                     .context
                     .lifecycle_callable(*ty, TypeAssociatedLifecycleSlot::Finalizer)?
@@ -56,7 +69,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     source,
                     bray_ir::MirGeneratedLifecycleRole::Destroy,
                     place,
-                    runtime_abi,
                 );
             }
             MirHelperReference::Cleanup {
@@ -71,7 +83,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                         bray_ir::MirCleanupPhase::TaskCancellation,
                     ),
                     place,
-                    runtime_abi,
                 );
             }
             MirHelperReference::Cleanup {
@@ -90,6 +101,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 );
             }
             MirHelperReference::AnonymousCallable(_)
+            | MirHelperReference::Abandon { .. }
             | MirHelperReference::DeclaredCallable(_)
             | MirHelperReference::CallableDefault(_)
             | MirHelperReference::ConstructionDefault(_)
@@ -101,9 +113,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             | MirHelperReference::PanicReport
             | MirHelperReference::StandardLibrary(_)
             | MirHelperReference::CreateFrame(_)
-            | MirHelperReference::MoveInactiveFrame(_)
             | MirHelperReference::ComposeAwaitedFrame(_)
-            | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => {
                 return Err(SyntheticLoweringError::MissingHelper(reference.clone()).into());
             }
@@ -119,7 +129,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         role: bray_ir::MirGeneratedLifecycleRole,
         place: MirPlace,
-        runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         let values = self.context.semantic_values();
 
@@ -143,42 +152,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             TypeData::Nullable(target) => self
                 .push_nullable_lifecycle_operations(builder, block, source, role, place, *target),
             TypeData::Generator(element) => {
-                let operation = match role {
-                    bray_ir::MirGeneratedLifecycleRole::Destroy => MirGeneratorOperation::Destroy {
-                        destination: place,
-                        element: *element,
-                        runtime: MirRuntimeReference::new(
-                            RuntimeAbiRole::GeneratorDestruction,
-                            runtime_abi,
-                        ),
-                    },
-                    bray_ir::MirGeneratedLifecycleRole::Cleanup(
-                        bray_ir::MirCleanupPhase::TaskCancellation,
-                    ) => MirGeneratorOperation::CleanupBroadcast {
-                        destination: place,
-                        element: *element,
-                        runtime: MirRuntimeReference::new(
-                            RuntimeAbiRole::GeneratorCleanupBroadcast,
-                            runtime_abi,
-                        ),
-                    },
-                    bray_ir::MirGeneratedLifecycleRole::Finalize
-                    | bray_ir::MirGeneratedLifecycleRole::StaticFinalize
-                    | bray_ir::MirGeneratedLifecycleRole::Cleanup(
-                        bray_ir::MirCleanupPhase::LifecycleResolution,
-                    ) => {
-                        return Err(SyntheticLoweringError::UnsupportedLifecycleRole(role).into());
-                    }
-                };
-
-                self.push_lifecycle_operation(
-                    builder,
-                    block,
-                    source,
-                    MirOperationKind::Generator(operation),
-                )?;
-
-                Ok(block)
+                self.push_buffer_lifecycle(builder, block, source, role, place, *element)
             }
             TypeData::OwnedIndirection { storage, target } => self
                 .push_owned_indirection_lifecycle_operations(
@@ -217,7 +191,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         place: MirPlace,
         target: TypeId,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
-        let kind = lifecycle_operation_block_kind(role)?;
+        let kind = lifecycle_operation_block_kind(role, builder)?;
 
         let present = builder
             .push_block(source.clone(), kind)
@@ -276,7 +250,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         union: bray_symbols::UnionSymbolId,
         substitution: GenericSubstitutionId,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
-        let kind = lifecycle_operation_block_kind(role)?;
+        let kind = lifecycle_operation_block_kind(role, builder)?;
 
         let merge = builder
             .push_block(source.clone(), kind)
@@ -382,6 +356,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => {
                     operations.push(MirOperationKind::Cleanup {
                         phase,
+                        place: child,
+                    });
+                }
+                bray_ir::MirGeneratedLifecycleRole::Abandon(action) => {
+                    operations.push(MirOperationKind::Abandon {
+                        action,
                         place: child,
                     });
                 }

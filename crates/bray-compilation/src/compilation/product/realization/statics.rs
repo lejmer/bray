@@ -2,17 +2,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::{
     CodegenConstantTermMapping, CodegenLinkage, CodegenMappings, CodegenStaticFinalization,
-    CodegenStaticIncidentMemory, CodegenStaticInstanceKey, CodegenStaticRelocation,
-    CodegenStaticStorageMapping, CodegenStaticWitness, CodegenTarget, CodegenTerminatorMapping,
-    CodegenUnit, demanded_callable_instances_for_mir,
+    CodegenStaticInstanceKey, CodegenStaticRelocation, CodegenStaticStorageMapping,
+    CodegenStaticWitness, CodegenTarget, CodegenTerminatorMapping, CodegenUnit,
+    demanded_callable_instances_for_mir,
 };
-use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirStorageKind, MirUnit, MirUnitKey};
-use bray_runtime_interface::{BinarySymbolName, ExecutableEntryResult, ExecutableHostContract};
-use bray_symbols::{
-    CallableExecution, GenericArgument, StaticReferenceSelection, TypeAssociatedLifecycleSlot,
-    TypeData, TypeId,
-};
+use bray_runtime_interface::{BinarySymbolName, ExecutableHostContract};
+use bray_symbols::{CallableExecution, StaticReferenceSelection, TypeId};
 
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
@@ -40,135 +36,9 @@ pub(super) struct ConcreteStaticRealization {
 pub(super) struct ConcreteStaticFinalization {
     execution: CallableExecution,
     pub(super) instance: ConcreteCodegenInstance,
-    pub(super) result: ExecutableEntryResult,
-    error_type_identity: Option<[u8; 32]>,
-    source: Option<bray_ir::MirSourceAnchor>,
-    incident_cleanup: Option<ConcreteCodegenInstance>,
-    incident_memory: Option<ConcreteStaticIncidentMemory>,
-}
-
-struct ConcreteStaticIncidentMemory {
-    allocation: ConcreteCodegenInstance,
-    deallocation: ConcreteCodegenInstance,
 }
 
 impl Compilation {
-    fn static_finalizer_result(
-        &self,
-        ty: TypeId,
-        cancellation: &CancellationToken,
-    ) -> Result<(ExecutableEntryResult, Option<[u8; 32]>), CodegenPreparationError> {
-        let values = self.semantic_value_store()?;
-
-        let data = values
-            .type_data(ty)
-            .map_err(FactQueryError::SemanticValueStore)?;
-
-        let TypeData::Named {
-            definition,
-            substitution,
-        } = data.as_ref()
-        else {
-            return Err(ProductQueryFailure::UnexpectedSemanticType {
-                ty,
-                expected: crate::compilation::ProductValueKind::NamedType,
-                actual: data.as_ref().clone(),
-            }
-            .into());
-        };
-
-        match super::super::super::foreign::compiler_known_representation(self, *definition) {
-            Some(RepresentationRole::Unit) => Ok((ExecutableEntryResult::Unit, None)),
-            Some(RepresentationRole::Result) => {
-                let representation = self
-                    .available_compiler_known_symbols()
-                    .result_representation()
-                    .ok_or_else(|| {
-                        ProductQueryFailure::missing(
-                            ProductQueryContext::CompilerKnownRepresentation(
-                                RepresentationRole::Result,
-                            ),
-                            ProductDataKind::ResultRepresentation,
-                        )
-                    })?;
-
-                let substitution_id = *substitution;
-
-                let substitution = values
-                    .generic_substitution_data(substitution_id)
-                    .map_err(FactQueryError::SemanticValueStore)?;
-
-                let [success, error] = substitution.bindings() else {
-                    return Err(ProductQueryFailure::count_mismatch(
-                        ProductQueryContext::Substitution(substitution_id),
-                        ProductDataKind::ResultRepresentation,
-                        2,
-                        substitution.bindings().len(),
-                    )
-                    .into());
-                };
-
-                let GenericArgument::Type(success_type) = success.argument() else {
-                    return Err(ProductQueryFailure::unexpected_kind(
-                        ProductQueryContext::Substitution(substitution_id),
-                        crate::compilation::ProductValueKind::GenericTypeArgument,
-                        crate::compilation::ProductValueKind::ConstantArgument,
-                    )
-                    .into());
-                };
-
-                let success = values
-                    .type_data(success_type)
-                    .map_err(FactQueryError::SemanticValueStore)?;
-
-                let TypeData::Named { definition, .. } = success.as_ref() else {
-                    return Err(ProductQueryFailure::UnexpectedSemanticType {
-                        ty: success_type,
-                        expected: crate::compilation::ProductValueKind::NamedType,
-                        actual: success.as_ref().clone(),
-                    }
-                    .into());
-                };
-
-                let actual =
-                    super::super::super::foreign::compiler_known_representation(self, *definition);
-
-                if actual != Some(RepresentationRole::Unit) {
-                    return Err(ProductQueryFailure::CompilerKnownRepresentationMismatch {
-                        ty: success_type,
-                        expected: RepresentationRole::Unit,
-                        actual,
-                    }
-                    .into());
-                }
-
-                let GenericArgument::Type(error) = error.argument() else {
-                    return Err(ProductQueryFailure::unexpected_kind(
-                        ProductQueryContext::Substitution(substitution_id),
-                        crate::compilation::ProductValueKind::GenericTypeArgument,
-                        crate::compilation::ProductValueKind::ConstantArgument,
-                    )
-                    .into());
-                };
-
-                let binding_context = self.binding_context(cancellation)?;
-
-                let identity =
-                    super::super::structural_type_identity(values, &binding_context, error)?;
-
-                Ok((
-                    ExecutableEntryResult::Fallible {
-                        ty,
-                        error,
-                        success_variant: representation.success_variant(),
-                    },
-                    Some(identity),
-                ))
-            }
-            actual => Err(ProductQueryFailure::UnsupportedEntryResultType { ty, actual }.into()),
-        }
-    }
-
     pub(in crate::compilation::product) fn concrete_codegen_dependencies_for_mir(
         &self,
         owner: &ConcreteCodegenInstance,
@@ -187,6 +57,12 @@ impl Compilation {
         }
 
         for (operation_id, operation) in mir.operations_with_ids() {
+            if let Some(incident) =
+                self.concrete_operation_incident(owner, mir, operation, target, cancellation)?
+            {
+                dependencies.extend(incident.into_dependencies());
+            }
+
             let result_type = operation_result_type(mir, operation);
 
             for reference in operation.kind().helper_references() {
@@ -219,14 +95,6 @@ impl Compilation {
 
             if let Some(finalization) = static_realization.finalization {
                 dependencies.push(finalization.instance);
-
-                if let Some(cleanup) = finalization.incident_cleanup {
-                    dependencies.push(cleanup);
-                }
-
-                if let Some(memory) = finalization.incident_memory {
-                    dependencies.extend([memory.allocation, memory.deallocation]);
-                }
             }
 
             if let Some(destroy) = static_realization.destroy {
@@ -340,16 +208,6 @@ impl Compilation {
             demanded.extend(signature_types(symbol.signature()));
         }
 
-        for storage in &static_storages {
-            let Some(finalization) = storage.finalization() else {
-                continue;
-            };
-
-            if let ExecutableEntryResult::Fallible { ty, error, .. } = finalization.result() {
-                demanded.extend([ty, error]);
-            }
-        }
-
         demanded.retain(|ty| !type_mappings.contains_key(ty));
 
         self.extend_codegen_types(
@@ -448,18 +306,6 @@ impl Compilation {
                         CodegenStaticFinalization::new(
                             finalization.execution,
                             finalization.instance.key().clone(),
-                            finalization.result,
-                            finalization.error_type_identity,
-                            finalization.source,
-                            finalization
-                                .incident_cleanup
-                                .map(|cleanup| cleanup.key().clone()),
-                            finalization.incident_memory.map(|memory| {
-                                CodegenStaticIncidentMemory::new(
-                                    memory.allocation.key().clone(),
-                                    memory.deallocation.key().clone(),
-                                )
-                            }),
                         )
                     }),
                     realization.destroy.map(|destroy| destroy.key().clone()),
@@ -477,213 +323,174 @@ impl Compilation {
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteStaticRealization, CodegenPreparationError> {
-        let (instance, specialization, witnesses) =
-            self.concrete_codegen_static_selection(owner, reference, cancellation)?;
+        crate::profile::profile_operation(
+            self.state.fact_runtime.profile(),
+            crate::profile::ProfileOperation::NativeStaticRealization,
+            || {
+                let (instance, specialization, witnesses) =
+                    self.concrete_codegen_static_selection(owner, reference, cancellation)?;
 
-        let declaration = instance.template().declaration();
-        let template = self.static_instance_template(declaration)?;
+                let declaration = instance.template().declaration();
+                let template = self.static_instance_template(declaration)?;
 
-        if template.diagnostics().has_errors() {
-            return Err(CodegenPreparationError::Diagnostics(
-                template.diagnostics().clone(),
-            ));
-        }
-
-        let initializer_template = match self.static_initializer_key(declaration)? {
-            Some(source) => MirUnitKey::Bound(source),
-            None => {
-                let binding_context = self.binding_context(cancellation)?;
-
-                binding_context
-                    .imported_semantic_address(declaration.into())
-                    .map_err(super::super::super::binder::binding_query_error)?
-                    .ok_or_else(|| {
-                        ProductQueryFailure::missing(
-                            ProductQueryContext::Symbol(declaration.into()),
-                            ProductDataKind::ImportedSemanticAddress,
-                        )
-                    })?;
-
-                MirUnitKey::ImportedExecutable(bray_ir::MirImportedExecutableKey::new(
-                    declaration.into(),
-                    bray_ir::MirExecutableTemplateId::ROOT,
-                ))
-            }
-        };
-
-        // Initializer and storage identities independently own shared specialization data.
-        let initializer = ConcreteCodegenInstance::static_initializer(
-            initializer_template,
-            declaration,
-            instance.substitution().substitution(),
-            specialization.clone(),
-            &witnesses,
-            owner.key().target().clone(),
-        );
-
-        let binding_context = self.binding_context(cancellation)?;
-        let declaration = self.portable_codegen_symbol_key(&binding_context, declaration.into())?;
-
-        let key = CodegenStaticInstanceKey::new(
-            declaration,
-            specialization,
-            template
-                .value()
-                .witness_requirements()
-                .iter()
-                .cloned()
-                .zip(witnesses.iter().map(|(identity, _)| identity.clone()))
-                .map(|(requirement, implementation)| {
-                    CodegenStaticWitness::new(requirement, implementation)
-                }),
-            owner.key().target().clone(),
-            template.value().duration(),
-        );
-
-        let symbol = match self.optional_native_static_contract(reference, cancellation)? {
-            Some(native) if native.direction == bray_symbols::ForeignCallableDirection::Export => {
-                native
-                    .symbol
-                    .identity()
-                    .name()
-                    .and_then(BinarySymbolName::try_new)
-                    .ok_or(CodegenPreparationError::InvalidSymbolName)?
-            }
-            _ => generated_symbol_name(target, CodegenLinkage::LinkOnce, "static", &key)?,
-        };
-
-        let ty = self.resolve_codegen_type(
-            template.value().declared_type(),
-            instance.substitution().substitution(),
-            cancellation,
-        )?;
-
-        let lifecycle_dependencies = template.value().lifecycle_dependencies().to_vec();
-
-        let finalization = (!self.codegen_lifecycle_is_trivial(
-            &bray_ir::MirHelperReference::Finalize(ty),
-            cancellation,
-        )?)
-        .then(|| {
-            let callable =
-                self.lifecycle_callable(ty, TypeAssociatedLifecycleSlot::Finalizer, cancellation)?;
-
-            let source = match callable {
-                Some((callable, ..)) => self
-                    .callable_body_key(callable.instance().definition())?
-                    .map(|key| {
-                        bray_ir::MirSourceAnchor::source(bray_bound_tree::BoundNodeOrigin::source(
-                            key.source(),
-                        ))
-                    }),
-                None => None,
-            };
-
-            let (execution, result, error_type_identity) = callable.map_or_else(
-                || {
-                    Ok((
-                        CallableExecution::Synchronous,
-                        ExecutableEntryResult::Unit,
-                        None,
-                    ))
-                },
-                |(_, _, result, execution)| {
-                    self.static_finalizer_result(result, cancellation)
-                        .map(|(result, identity)| (execution, result, identity))
-                },
-            )?;
-
-            let (incident_cleanup, incident_memory) = match result {
-                ExecutableEntryResult::Fallible { error, .. } => {
-                    let cleanup = self.concrete_codegen_lifecycle(
-                        bray_ir::MirHelperReference::Cleanup {
-                            phase: bray_ir::MirCleanupPhase::LifecycleResolution,
-                            ty: error,
-                        },
-                        target,
-                    )?;
-
-                    let memory = ConcreteStaticIncidentMemory {
-                        allocation: self.concrete_standard_library_helper(
-                            bray_ir::MirStandardLibraryHelper::MemoryAllocate,
-                            target,
-                            cancellation,
-                        )?,
-                        deallocation: self.concrete_standard_library_helper(
-                            bray_ir::MirStandardLibraryHelper::MemoryDeallocate,
-                            target,
-                            cancellation,
-                        )?,
-                    };
-
-                    (Some(cleanup), Some(memory))
-                }
-                ExecutableEntryResult::Unit => (None, None),
-                ExecutableEntryResult::I32 => {
-                    return Err(CodegenPreparationError::from(
-                        ProductQueryFailure::UnexpectedEntryResult {
-                            actual: ExecutableEntryResult::I32,
-                        },
+                if template.diagnostics().has_errors() {
+                    return Err(CodegenPreparationError::Diagnostics(
+                        template.diagnostics().clone(),
                     ));
                 }
-            };
 
-            Ok(ConcreteStaticFinalization {
-                execution,
-                instance: self.concrete_codegen_lifecycle(
-                    bray_ir::MirHelperReference::StaticFinalize(ty),
+                let initializer_template = match self.static_initializer_key(declaration)? {
+                    Some(source) => MirUnitKey::Bound(source),
+                    None => {
+                        let binding_context = self.binding_context(cancellation)?;
+
+                        binding_context
+                            .imported_semantic_address(declaration.into())
+                            .map_err(super::super::super::binder::binding_query_error)?
+                            .ok_or_else(|| {
+                                ProductQueryFailure::missing(
+                                    ProductQueryContext::Symbol(declaration.into()),
+                                    ProductDataKind::ImportedSemanticAddress,
+                                )
+                            })?;
+
+                        MirUnitKey::ImportedExecutable(bray_ir::MirImportedExecutableKey::new(
+                            declaration.into(),
+                            bray_ir::MirExecutableTemplateId::ROOT,
+                        ))
+                    }
+                };
+
+                // Initializer and storage identities independently own shared specialization data.
+                let initializer = ConcreteCodegenInstance::static_initializer(
+                    initializer_template,
+                    declaration,
+                    instance.substitution().substitution(),
+                    specialization.clone(),
+                    &witnesses,
+                    owner.key().target().clone(),
+                );
+
+                let binding_context = self.binding_context(cancellation)?;
+
+                let declaration =
+                    self.portable_codegen_symbol_key(&binding_context, declaration.into())?;
+
+                let key = CodegenStaticInstanceKey::new(
+                    declaration,
+                    specialization,
+                    template
+                        .value()
+                        .witness_requirements()
+                        .iter()
+                        .cloned()
+                        .zip(witnesses.iter().map(|(identity, _)| identity.clone()))
+                        .map(|(requirement, implementation)| {
+                            CodegenStaticWitness::new(requirement, implementation)
+                        }),
+                    owner.key().target().clone(),
+                    template.value().duration(),
+                );
+
+                let symbol = match self.optional_native_static_contract(reference, cancellation)? {
+                    Some(native)
+                        if native.direction == bray_symbols::ForeignCallableDirection::Export =>
+                    {
+                        native
+                            .symbol
+                            .identity()
+                            .name()
+                            .and_then(BinarySymbolName::try_new)
+                            .ok_or(CodegenPreparationError::InvalidSymbolName)?
+                    }
+                    _ => generated_symbol_name(target, CodegenLinkage::LinkOnce, "static", &key)?,
+                };
+
+                let ty = self.resolve_codegen_type(
+                    template.value().declared_type(),
+                    instance.substitution().substitution(),
+                    cancellation,
+                )?;
+
+                let lifecycle_dependencies = template.value().lifecycle_dependencies().to_vec();
+
+                let finalization = (!self.codegen_lifecycle_is_trivial(
+                    &bray_ir::MirHelperReference::Finalize(ty),
+                    cancellation,
+                )?)
+                .then(|| {
+                    let context = super::synthetic::CompilationSyntheticLoweringContext::new(
+                        self,
+                        cancellation,
+                    )?;
+
+                    let cleanup = bray_lowering::SyntheticLoweringContext::cleanup_type_execution(
+                        &context, ty,
+                    )?;
+
+                    let execution = cleanup
+                        .finalization_execution()
+                        .ok_or(CodegenPreparationError::UnresolvedType(ty))?;
+
+                    Ok::<_, CodegenPreparationError>(ConcreteStaticFinalization {
+                        execution,
+                        instance: self.concrete_codegen_lifecycle(
+                            bray_ir::MirHelperReference::StaticFinalize(ty),
+                            target,
+                        )?,
+                    })
+                })
+                .transpose()?;
+
+                let destroy = (!self.codegen_lifecycle_is_trivial(
+                    &bray_ir::MirHelperReference::Destroy(ty),
+                    cancellation,
+                )?)
+                .then(|| {
+                    self.concrete_codegen_lifecycle(
+                        bray_ir::MirHelperReference::Destroy(ty),
+                        target,
+                    )
+                })
+                .transpose()?;
+
+                let evaluated = self.evaluate_static_initializer(
+                    &instance,
+                    template.value().duration(),
+                    ty,
+                    bray_checker::ConstantEvaluationLimits::default(),
+                    cancellation,
+                )?;
+
+                if evaluated.diagnostics().has_errors() {
+                    // The preparation error owns diagnostics after the evaluation result is released.
+                    return Err(CodegenPreparationError::Diagnostics(
+                        evaluated.diagnostics().clone(),
+                    ));
+                }
+
+                let relocations = self.codegen_static_relocations(
+                    &initializer,
+                    evaluated.value().value(),
                     target,
-                )?,
-                result,
-                error_type_identity,
-                source,
-                incident_cleanup,
-                incident_memory,
-            })
-        })
-        .transpose()?;
+                    cancellation,
+                )?;
 
-        let destroy = (!self.codegen_lifecycle_is_trivial(
-            &bray_ir::MirHelperReference::Destroy(ty),
-            cancellation,
-        )?)
-        .then(|| self.concrete_codegen_lifecycle(bray_ir::MirHelperReference::Destroy(ty), target))
-        .transpose()?;
-
-        let evaluated = self.evaluate_static_initializer(
-            &instance,
-            template.value().duration(),
-            ty,
-            bray_checker::ConstantEvaluationLimits::default(),
-            cancellation,
-        )?;
-
-        if evaluated.diagnostics().has_errors() {
-            // The preparation error owns diagnostics after the evaluation result is released.
-            return Err(CodegenPreparationError::Diagnostics(
-                evaluated.diagnostics().clone(),
-            ));
-        }
-
-        let relocations = self.codegen_static_relocations(
-            &initializer,
-            evaluated.value().value(),
-            target,
-            cancellation,
-        )?;
-
-        Ok(ConcreteStaticRealization {
-            key,
-            symbol,
-            initializer,
-            initial_value: evaluated.value().value(),
-            relocations,
-            finalization,
-            destroy,
-            reference: StaticReferenceSelection::Closed(instance),
-            ty,
-            lifecycle_dependencies,
-        })
+                Ok(ConcreteStaticRealization {
+                    key,
+                    symbol,
+                    initializer,
+                    initial_value: evaluated.value().value(),
+                    relocations,
+                    finalization,
+                    destroy,
+                    reference: StaticReferenceSelection::Closed(instance),
+                    ty,
+                    lifecycle_dependencies,
+                })
+            },
+            crate::profile::result_outcome,
+        )
     }
 
     fn codegen_static_relocations(
@@ -694,6 +501,7 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<Vec<CodegenStaticRelocation>, CodegenPreparationError> {
         let values = self.semantic_value_store()?;
+
         let mut pending = vec![root];
         let mut visited = BTreeSet::new();
         let mut relocations = BTreeMap::new();

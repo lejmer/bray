@@ -8,6 +8,11 @@ trusted internal func resolve_dynamic_symbol<T>(
     requires(blocking_execution())
     uses(foreign_call, layout_reinterpret)
 {
+    if !library.is_owned_value
+    {
+        return Error(std.ffi.foreign_error(kind = std.ffi.ForeignErrorKind.InvalidResource));
+    }
+
     if !valid_symbol_name(name)
     {
         return Error(std.ffi.foreign_error(kind = std.ffi.ForeignErrorKind.InvalidInput));

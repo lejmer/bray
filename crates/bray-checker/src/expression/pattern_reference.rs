@@ -221,7 +221,9 @@ where
         Some(BoundExpression::Name(name))
             if matches!(
                 name.target(),
-                BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(_))
+                BoundReferenceTarget::Local(bray_symbols::AnyLocalSymbolId::Binding(binding))
+                    if !request.unit().contract_inputs()
+                        .is_some_and(|inputs| inputs.parameters().contains(&binding))
             )
     )
 }

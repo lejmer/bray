@@ -1,5 +1,5 @@
 @target(target.identity.NAME == "x86_64-apple-darwin" || target.identity.NAME == "aarch64-apple-darwin")
-module std.atomic;
+trusted module std.atomic;
 
 trusted internal func platform_wait_word(pos storage: &core.atomic.Atomic<u32>, pos expected: u32)
     requires(blocking_execution())

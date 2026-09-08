@@ -180,6 +180,16 @@ impl HeaderMatcher<'_> {
 
                 self.match_constants(pattern_arguments, actual_arguments)
             }
+            (
+                ConstantTermData::Test {
+                    subject: pattern,
+                    kind: pattern_kind,
+                },
+                ConstantTermData::Test {
+                    subject: actual,
+                    kind: actual_kind,
+                },
+            ) => Ok(pattern_kind == actual_kind && self.match_constant(*pattern, *actual)?),
             (ConstantTermData::Projection(pattern), ConstantTermData::Projection(actual)) => {
                 self.match_projection(*pattern, *actual)
             }

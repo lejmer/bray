@@ -172,6 +172,39 @@ where
     C: BindingQueryContext + ?Sized,
     C::SymbolSemantics: SymbolQueryProvider<CallableSignatureQuery>,
 {
+    if let Some(source) =
+        super::input::callable_contract_source(binding_context.syntax(), key.source().syntax())
+    {
+        let (signature, diagnostics) =
+            super::input::input_signature(binding_context, &key, source)?.into_parts();
+
+        let has_result = key.source().syntax().syntax_kind() == SyntaxKind::EnsuresClause
+            && crate::binding::normal_completion_has_value(binding_context, signature.result())
+                .map_err(map_query_error)?;
+
+        let mut parameters = Vec::new();
+
+        let (output, root) = bind_expression_sequence_unit(
+            binding_context,
+            unit,
+            key,
+            true,
+            has_result,
+            |binder, scope| {
+                for diagnostic in diagnostics {
+                    binder.add_diagnostic(diagnostic);
+                }
+
+                parameters =
+                    super::input::install_contract_parameters(binder, scope, source, &signature)?;
+
+                Ok(())
+            },
+        )?;
+
+        return Ok((output.with_contract_inputs(signature, parameters), root));
+    }
+
     let has_result = if key.source().syntax().syntax_kind() == SyntaxKind::EnsuresClause {
         let owner = binding_context
             .symbols()
@@ -514,6 +547,10 @@ where
         SyntaxKind::EnsuresClause => {
             anchored_descendant::<_, EnsuresClauseSyntax>(binding_context, anchor)
                 .map(|clause| clause.expressions().collect())
+        }
+        SyntaxKind::WhenClause => {
+            anchored_descendant::<_, bray_syntax::WhenClauseSyntax>(binding_context, anchor)
+                .map(|clause| vec![clause.condition()])
         }
         SyntaxKind::WithClause => {
             anchored_descendant::<_, WithClauseSyntax>(binding_context, anchor)

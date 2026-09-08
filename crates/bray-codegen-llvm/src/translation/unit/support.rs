@@ -13,6 +13,17 @@ pub(super) fn llvm<T>(result: Result<T, BuilderError>) -> Result<T, CodegenFailu
     result.map_err(CodegenFailure::backend_library)
 }
 
+pub(super) fn offset_pointer<'context>(
+    builder: &Builder<'context>,
+    pointer: PointerValue<'context>,
+    offset: IntValue<'context>,
+) -> Result<PointerValue<'context>, CodegenFailure> {
+    let address = llvm(builder.build_ptr_to_int(pointer, offset.get_type(), "address"))?;
+    let address = llvm(builder.build_int_add(address, offset, "address.offset"))?;
+
+    llvm(builder.build_int_to_ptr(address, pointer.get_type(), "offset.pointer"))
+}
+
 pub(super) fn nonzero_integer<'context>(
     builder: &Builder<'context>,
     value: IntValue<'context>,
@@ -27,10 +38,13 @@ pub(super) fn next_helper<'mapping>(
 ) -> Result<&'mapping CodegenHelperMapping, CodegenFailure> {
     let helper = helpers
         .next()
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        .ok_or_else(|| CodegenFailure::generated_module_invariant(expected))?;
 
     if helper.reference() != expected {
-        return Err(CodegenFailure::GeneratedModuleInvariant);
+        return Err(CodegenFailure::generated_module_invariant((
+            expected,
+            helper.reference(),
+        )));
     }
 
     Ok(helper)

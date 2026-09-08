@@ -335,9 +335,7 @@ fn codegen_mappings(
                 // The mapping owns the selected process-entry spelling past the MIR borrow.
                 (host.native_entry().clone(), CodegenLinkage::Export)
             }
-            MirUnitKind::Synchronous
-            | MirUnitKind::ProtectedAsyncFrame(_)
-            | MirUnitKind::GeneratedLifecycle(_) => (
+            MirUnitKind::Synchronous | MirUnitKind::ProtectedAsyncFrame(_) => (
                 super::product::generated_symbol_name(
                     target,
                     CodegenLinkage::Internal,
@@ -446,7 +444,21 @@ pub enum CodegenPreparationError {
     /// A generated executable host did not satisfy the MIR contract.
     InvalidHostMir(MirUnitBuildError),
     /// A generated lifecycle definition did not satisfy the MIR contract.
-    InvalidGeneratedLifecycleMir(MirUnitBuildError),
+    InvalidGeneratedLifecycleMir {
+        /// Source or generated owner of the invalid body.
+        owner: bray_ir::MirSourceOrigin,
+        /// Exact violated MIR invariant.
+        cause: MirUnitBuildError,
+    },
+    /// A concrete template's lifecycle expansion violated its MIR contract.
+    InvalidSpecializedMir {
+        /// Source or imported executable location retained from the template.
+        source: bray_ir::MirSourceAnchor,
+        /// Exact violated MIR invariant.
+        cause: MirUnitBuildError,
+    },
+    /// A generated lifecycle frame has an invalid resumable-state descriptor.
+    InvalidGeneratedLifecycleFrame(bray_ir::MirFrameDescriptorBuildError),
     /// A compiler-provided callable body did not satisfy the MIR contract.
     InvalidCompilerProvidedMir {
         /// Exact declaration whose generated body was invalid.
@@ -496,6 +508,12 @@ pub enum CodegenPreparationError {
 impl From<FactQueryError> for CodegenPreparationError {
     fn from(error: FactQueryError) -> Self {
         Self::Query(error)
+    }
+}
+
+impl From<bray_checker::CheckerQueryError<FactQueryError>> for CodegenPreparationError {
+    fn from(error: bray_checker::CheckerQueryError<FactQueryError>) -> Self {
+        FactQueryError::from(error).into()
     }
 }
 

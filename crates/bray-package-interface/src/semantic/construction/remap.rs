@@ -1,8 +1,9 @@
+use bray_symbols::CallableConditions;
+
 use std::sync::Arc;
 
 use super::super::model::{
-    InterfaceCallableContract, InterfaceCallableContractClause,
-    InterfaceCallableContractClauseValue, InterfaceCallablePhaseBehavior, InterfaceConstraint,
+    InterfaceCallableContract, InterfaceCallablePhaseBehavior, InterfaceConstraint,
     InterfaceConstraintKind, InterfaceDeclarationTemplate, InterfacePredicateSummary,
     InterfaceSemanticRecordKind, InterfaceSemantics, InterfaceStorageMember, InterfaceStorageShape,
 };
@@ -174,17 +175,14 @@ fn remap_callable_contract(
     contract: &mut InterfaceCallableContract,
     remap: &InterfaceSemanticIdRemap,
 ) -> Result<(), InterfaceSemanticCommitError> {
-    for clause in Arc::make_mut(&mut contract.invocation_preconditions) {
-        remap_callable_clause(clause, remap)?;
-    }
-
-    for clause in Arc::make_mut(&mut contract.static_constraints) {
-        remap_callable_clause(clause, remap)?;
-    }
-
-    for clause in Arc::make_mut(&mut contract.normal_completion_postconditions) {
-        remap_callable_clause(clause, remap)?;
-    }
+    contract.try_map_clauses(|clause| {
+        clause.try_map_ids(
+            |id| remap.dependency_contract(id),
+            |id| remap.constant_term(id),
+            |id| remap.ty(id),
+            |id| remap.trait_application(id),
+        )
+    })?;
 
     remap_callable_behavior(&mut contract.invocation_behavior, remap)?;
 
@@ -193,26 +191,6 @@ fn remap_callable_contract(
     }
 
     Ok(())
-}
-
-fn remap_callable_clause(
-    clause: &mut InterfaceCallableContractClause,
-    remap: &InterfaceSemanticIdRemap,
-) -> Result<(), InterfaceSemanticCommitError> {
-    match &mut clause.value {
-        InterfaceCallableContractClauseValue::Predicate(predicate) => {
-            remap_predicate(predicate, remap)
-        }
-        InterfaceCallableContractClauseValue::TraitSatisfaction {
-            subject,
-            application,
-        } => {
-            *subject = remap.ty(*subject)?;
-            *application = remap.trait_application(*application)?;
-
-            Ok(())
-        }
-    }
 }
 
 fn remap_callable_behavior(
@@ -229,6 +207,11 @@ fn remap_predicate(
     remap: &InterfaceSemanticIdRemap,
 ) -> Result<(), InterfaceSemanticCommitError> {
     predicate.dependency_contract = remap.dependency_contract(predicate.dependency_contract)?;
+
+    predicate.condition = predicate
+        .condition
+        .map(|term| remap.constant_term(term))
+        .transpose()?;
 
     Ok(())
 }

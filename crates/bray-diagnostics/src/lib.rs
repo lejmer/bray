@@ -61,7 +61,7 @@ pub use checking::{
     DiagnosticCallableParameterMode, DiagnosticCallablePosition, DiagnosticCallableTrust,
     DiagnosticCallbackStateProblem, DiagnosticConstantOperation, DiagnosticConstraintCategory,
     DiagnosticConstructionInputRejection, DiagnosticDirectiveArgumentProblem,
-    DiagnosticExpressionCategory, DiagnosticGenericConstraintMismatch,
+    DiagnosticExecutionProperty, DiagnosticExpressionCategory, DiagnosticGenericConstraintMismatch,
     DiagnosticGenericParameterCategory, DiagnosticImplementationBorrowKind,
     DiagnosticImplementationFamily, DiagnosticImplementationFamilySubject,
     DiagnosticImplementationOverloadProblem, DiagnosticMemoryOperation,
@@ -113,13 +113,12 @@ pub use interface::{
     DiagnosticInterfaceLimit, DiagnosticInterfaceMalformedCause, DiagnosticInterfaceProductKind,
     DiagnosticInterfaceRelationship, DiagnosticInterfaceRelationshipKind,
     DiagnosticInterfaceSection, DiagnosticInterfaceSemanticProblem,
-    DiagnosticInterfaceSemanticRecordKind, DiagnosticInterfaceSymbolGraphProblem,
-    DiagnosticInterfaceSymbolIdentity, DiagnosticInterfaceSymbolKind,
-    DiagnosticInterfaceSymbolReference, DiagnosticInterfaceSynthesizedIdentity,
-    DiagnosticInterfaceUtf8Failure, DiagnosticInterfaceValidationContext,
-    DiagnosticInterfaceValidationFailure, DiagnosticInterfaceValidationField,
-    DiagnosticPackageInterfaceIdentity, DiagnosticSemanticContentProblem,
-    DiagnosticSemanticValueKind,
+    DiagnosticInterfaceSymbolGraphProblem, DiagnosticInterfaceSymbolIdentity,
+    DiagnosticInterfaceSymbolKind, DiagnosticInterfaceSymbolReference,
+    DiagnosticInterfaceSynthesizedIdentity, DiagnosticInterfaceUtf8Failure,
+    DiagnosticInterfaceValidationContext, DiagnosticInterfaceValidationFailure,
+    DiagnosticInterfaceValidationField, DiagnosticPackageInterfaceIdentity,
+    DiagnosticSemanticContentProblem, DiagnosticSemanticValueKind,
 };
 pub use kind::DiagnosticKind;
 pub use label::{DiagnosticLabel, DiagnosticLabelKind, DiagnosticLabelStyle};

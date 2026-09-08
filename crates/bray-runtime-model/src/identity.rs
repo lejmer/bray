@@ -24,6 +24,12 @@ pub struct RuntimeAbiVersion {
 }
 
 impl RuntimeAbiVersion {
+    /// Private execution contract emitted by this compiler and provided by its native runtime.
+    ///
+    /// Artifact producers and native target selection share this value. Private artifacts
+    /// remain at version 1 during greenfield development and are regenerated after contract changes.
+    pub const CURRENT: Self = Self::new(1, 0);
+
     /// Creates an ABI version.
     pub const fn new(major: u16, minor: u16) -> Self {
         Self { major, minor }

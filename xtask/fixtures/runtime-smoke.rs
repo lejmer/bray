@@ -48,6 +48,15 @@ struct RunOutcome {
     payload: usize,
 }
 
+#[repr(C)]
+struct SourceAnchor {
+    present: u32,
+    source: u32,
+    start: u32,
+    end: u32,
+    version: u64,
+}
+
 #[repr(transparent)]
 #[derive(Clone, Copy)]
 struct PanicCause(u32);
@@ -119,16 +128,13 @@ struct InactiveFrame {
     move_before_start: extern "C" fn(usize) -> ProtectedFrame,
 }
 
-#[repr(transparent)]
-struct ProtectedFrameTransfer(usize);
-
 unsafe extern "C" {
     safe fn bray_runtime_initialization(
         worker_capacity: usize,
         timer_capacity: usize,
     ) -> Status;
     safe fn bray_runtime_root_execution(
-        frame: ProtectedFrameTransfer,
+        frame: InactiveFrame,
         configuration: Configuration,
     ) -> RootStart;
     safe fn bray_runtime_root_cancellation_request(root: RootHandle) -> Status;
@@ -147,7 +153,7 @@ unsafe extern "C" {
     ) -> usize;
     safe fn bray_runtime_panic_reporting(payload: usize) -> Status;
     safe fn bray_runtime_panic_report_destruction(payload: usize) -> Status;
-    safe fn bray_runtime_entry_failure_reporting(payload: usize, size: usize) -> Status;
+    safe fn bray_runtime_entry_failure_resolution(identity: &[u8; 32], source: &SourceAnchor, value: usize, broadcast: usize, lifecycle: usize) -> Status;
     safe fn bray_runtime_wake(task: TaskHandle, state: u32) -> Status;
     safe fn bray_runtime_main_thread_lane_startup(configuration: Configuration) -> Status;
     safe fn bray_runtime_task_allocation() -> TaskAllocation;
@@ -276,11 +282,18 @@ extern "C-unwind" fn record_failure_resolution(_: usize, _: FrameExit) {
 
 extern "C-unwind" fn ignore_completion_move(_: usize, _: usize) {}
 
-extern "C" fn move_before_start(context: usize) -> ProtectedFrame {
-    unsafe {
-        // The inactive-frame transfer gives this callback sole ownership of the descriptor.
-        *Box::from_raw(context as *mut ProtectedFrame)
-    }
+thread_local! {
+    static PENDING_FRAME: std::cell::RefCell<Option<ProtectedFrame>> = const { std::cell::RefCell::new(None) };
+}
+
+fn transfer_frame(frame: ProtectedFrame) -> InactiveFrame {
+    PENDING_FRAME.with(|pending| assert!(pending.replace(Some(frame)).is_none()));
+
+    InactiveFrame { context: 0, move_before_start }
+}
+
+extern "C" fn move_before_start(_: usize) -> ProtectedFrame {
+    PENDING_FRAME.with(|pending| pending.take().expect("the runtime consumes each fixture frame during its startup call"))
 }
 
 extern "C-unwind" fn record_failure_action(_: usize) {
@@ -314,10 +327,8 @@ fn protected_frame(
 fn start_root(frame: ProtectedFrame) -> RootHandle {
     assert!(bray_runtime_initialization(8, 8) == Status::SUCCESS);
 
-    let transfer = ProtectedFrameTransfer(&frame as *const ProtectedFrame as usize);
-
     let start = bray_runtime_root_execution(
-        transfer,
+        transfer_frame(frame),
         Configuration {
             task_capacity: 8,
             timer_capacity: 8,
@@ -409,12 +420,13 @@ fn main() {
     assert!(bray_runtime_root_completion_resolution(root) == Status::SUCCESS);
     assert!(bray_runtime_structured_shutdown() == Status::SUCCESS);
 
-    let failure = 42_i32;
-
     assert!(
-        bray_runtime_entry_failure_reporting(
-            (&raw const failure).addr(),
-            size_of::<i32>(),
+        bray_runtime_entry_failure_resolution(
+            &[42; 32],
+            &SourceAnchor { present: 0, source: 0, start: 0, end: 0, version: 0 },
+            0,
+            0,
+            0,
         ) == Status::SUCCESS
     );
 
@@ -435,15 +447,12 @@ fn main() {
 
     let task = TaskHandle(allocation.task);
 
-    let frame = InactiveFrame {
-        context: Box::into_raw(Box::new(protected_frame(
+    let frame = transfer_frame(protected_frame(
             11,
             resume_frame,
             cancel_frame,
             ignore_action,
-        ))) as usize,
-        move_before_start,
-    };
+        ));
 
     assert!(bray_runtime_task_start(task, frame) == Status::SUCCESS);
     assert!(bray_runtime_main_thread_lane_drive() == Status::SUCCESS);

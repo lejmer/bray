@@ -1,4 +1,6 @@
-use bray_bound_tree::{AnyBoundNodeId, BoundExpressionId, BoundPatternId, BoundUnitId};
+use bray_bound_tree::{
+    AnyBoundNodeId, BoundBlockId, BoundExpressionId, BoundPatternId, BoundUnitId,
+};
 use bray_compiler_known::ImplementationHook;
 
 use super::id::{AnalysisBlockId, AnalysisEdgeId, AnalysisOperationId, ProgramPointId};
@@ -23,6 +25,7 @@ pub(crate) enum AnalysisOperationKind {
         block: bray_bound_tree::BoundBlockId,
         exit: AnyBoundNodeId,
         phase: AnalysisScopeExitPhase,
+        kind: AnalysisCleanupKind,
     },
     Recovery(AnyBoundNodeId),
 }
@@ -79,6 +82,12 @@ pub(crate) enum AnalysisScopeExitPhase {
     TaskCancellationBroadcast,
     /// Resolves joining, finalization, destruction, and related lifecycle obligations.
     LifecycleResolution,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub(crate) enum AnalysisCleanupKind {
+    Ordinary,
+    Abnormal,
 }
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -153,6 +162,11 @@ pub(crate) enum AnalysisEdgeKind {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(crate) enum AnalysisRefinement {
+    CallFailure(BoundExpressionId),
+    CleanupFailure {
+        scope: BoundBlockId,
+        exit: AnyBoundNodeId,
+    },
     Condition {
         expression: BoundExpressionId,
         value: bool,
@@ -165,6 +179,11 @@ pub(crate) enum AnalysisRefinement {
         subject: BoundExpressionId,
         pattern: BoundPatternId,
         value: bool,
+    },
+    MatchExhaustion(BoundExpressionId),
+    ResultOutcome {
+        expression: BoundExpressionId,
+        is_success: bool,
     },
     TrustBoundary(BoundExpressionId),
 }
@@ -272,11 +291,20 @@ pub(crate) enum AnalysisExitKind {
 pub(crate) struct AnalysisExit {
     block: AnalysisBlockId,
     kind: AnalysisExitKind,
+    origin: Option<AnyBoundNodeId>,
 }
 
 impl AnalysisExit {
-    pub(crate) const fn new(block: AnalysisBlockId, kind: AnalysisExitKind) -> Self {
-        Self { block, kind }
+    pub(crate) const fn new(
+        block: AnalysisBlockId,
+        kind: AnalysisExitKind,
+        origin: Option<AnyBoundNodeId>,
+    ) -> Self {
+        Self {
+            block,
+            kind,
+            origin,
+        }
     }
 
     pub(crate) const fn block(self) -> AnalysisBlockId {
@@ -285,6 +313,10 @@ impl AnalysisExit {
 
     pub(crate) const fn kind(self) -> AnalysisExitKind {
         self.kind
+    }
+
+    pub(crate) const fn origin(self) -> Option<AnyBoundNodeId> {
+        self.origin
     }
 }
 
@@ -394,8 +426,14 @@ impl ControlFlowGraph {
         });
 
         let refinements_are_valid = self.edges().iter().all(|edge| match edge.refinement() {
+            Some(AnalysisRefinement::CleanupFailure { scope, exit }) => {
+                scope.unit() == self.unit && exit.unit() == self.unit
+            }
             Some(
                 AnalysisRefinement::Condition { expression, .. }
+                | AnalysisRefinement::CallFailure(expression)
+                | AnalysisRefinement::MatchExhaustion(expression)
+                | AnalysisRefinement::ResultOutcome { expression, .. }
                 | AnalysisRefinement::NullablePresence { expression, .. }
                 | AnalysisRefinement::TrustBoundary(expression),
             ) => expression.unit() == self.unit,
@@ -407,6 +445,9 @@ impl ControlFlowGraph {
 
         let exits_are_valid = self.exits.iter().all(|exit| {
             self.block(exit.block()).is_some()
+                && exit
+                    .origin()
+                    .is_none_or(|origin| origin.unit() == self.unit)
                 && matches!(
                     exit.kind(),
                     AnalysisExitKind::NormalFallthrough

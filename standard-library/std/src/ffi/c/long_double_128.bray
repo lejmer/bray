@@ -1,5 +1,5 @@
 @target(target.c.LONG_DOUBLE == "r128")
-module std.ffi.c;
+trusted module std.ffi.c;
 
 @copy
 @layout(transparent)

@@ -2,7 +2,7 @@ use bray_compiler_known::{IntegerRepresentation, RepresentationRole};
 use bray_diagnostics::DiagnosticConstantOperation;
 use bray_symbols::{
     AnyConstantDefinitionId, AnySymbolId, ConstantBinaryOperation, ConstantUnaryOperation,
-    ConstantValueId, ConstantValueKind, SemanticValueStore, TypeId,
+    ConstantValueId, SemanticValueStore, TypeId,
 };
 
 use super::super::diagnostic::ConstantDiagnostic;
@@ -100,14 +100,6 @@ pub(super) fn recovery_value(
     values
         .intern_error_constant_value(ty)
         .map_err(CheckerInfrastructureError::SemanticValueStore)
-}
-
-pub(super) fn integer_index(value: &ConstantValueKind) -> Option<usize> {
-    let ConstantValueKind::Integer(value) = value else {
-        return None;
-    };
-
-    value.to_u64().and_then(|value| usize::try_from(value).ok())
 }
 
 pub(super) fn template_index(raw: u32) -> Result<usize, TemplateEvaluationFailure> {

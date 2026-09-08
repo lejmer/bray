@@ -1,6 +1,7 @@
 mod constant;
 mod debug;
 mod demand;
+mod incident;
 mod model;
 mod native_static;
 mod product_host;
@@ -12,6 +13,7 @@ mod ty;
 pub use constant::{CodegenConstantMapping, CodegenConstantTermMapping};
 pub use debug::{CodegenDebugLocation, CodegenSourceFile};
 pub use demand::{ConstantDemands, child_constants, demanded_constant_terms, demanded_constants};
+pub use incident::CodegenCleanupIncident;
 pub use model::{
     CodegenMappings, CodegenMappingsBuildError, DemandedCallableInstance,
     demanded_callable_instance_for_call, demanded_callable_instances,
@@ -28,11 +30,11 @@ pub use reference::{
     CodegenOperationMapping, CodegenTerminatorMapping, IntrinsicCall,
 };
 pub use static_storage::{
-    CodegenStaticFinalization, CodegenStaticIncidentMemory, CodegenStaticInstanceKey,
-    CodegenStaticRelocation, CodegenStaticStorageMapping, CodegenStaticWitness,
+    CodegenStaticFinalization, CodegenStaticInstanceKey, CodegenStaticRelocation,
+    CodegenStaticStorageMapping, CodegenStaticWitness,
 };
 pub use symbol::{
-    CodegenNativeEntryMapping, CodegenSymbolKey, CodegenSymbolMapping,
+    CLEANUP_RUNTIME_ROLES, CodegenNativeEntryMapping, CodegenSymbolKey, CodegenSymbolMapping,
     FOREIGN_CALLBACK_RUNTIME_ROLES,
 };
 pub use ty::{

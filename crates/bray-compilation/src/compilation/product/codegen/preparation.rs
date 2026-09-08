@@ -94,17 +94,6 @@ impl Compilation {
             },
         )?;
 
-        let platform_overrides = match (runtime, host.as_ref()) {
-            (Some(runtime), Some(host)) if host.requirements().requires_implementation() => {
-                let selection = runtime
-                    .select(runtime_artifact_purpose(kind), host.requirements())
-                    .map_err(NativeProductPlanningError::InvalidRuntimeSelection)?;
-
-                super::link::runtime_platform_services(Some(&selection))
-            }
-            (Some(_) | None, Some(_) | None) => BTreeSet::new(),
-        };
-
         let reachability = match host.as_ref() {
             Some(host) => {
                 // Generated host MIR owns its target and host contracts after this query returns.
@@ -161,6 +150,22 @@ impl Compilation {
                 )?
             }
             None => source_reachability.ok_or(NativeProductPlanningError::MissingProductRoot)?,
+        };
+
+        let platform_overrides = match (runtime, host.as_ref()) {
+            (Some(runtime), Some(host)) => {
+                let requirements = super::host::reachable_host_runtime_requirements(
+                    host,
+                    super::host::demanded_product_runtime_roles(reachability.graph()),
+                );
+
+                let selection = runtime
+                    .select(runtime_artifact_purpose(kind), &requirements)
+                    .map_err(NativeProductPlanningError::InvalidRuntimeSelection)?;
+
+                super::link::runtime_platform_services(Some(&selection))
+            }
+            (Some(_) | None, None) | (None, Some(_)) => BTreeSet::new(),
         };
 
         let roots: BTreeSet<_> = reachability.graph().roots().iter().cloned().collect();

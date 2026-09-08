@@ -25,6 +25,19 @@ pub(crate) fn render_unit(unit: &InspectionMirUnit, include_source: bool) -> Str
             frame.result_type.text()
         );
 
+        if let Some(entry) = frame.inactive_cleanup {
+            let _ = writeln!(output, "        inactive_cleanup -> bb{entry};");
+        }
+
+        for (name, entry) in [
+            ("capture_quiescence", frame.capture_quiescence),
+            ("capture_destruction", frame.capture_destruction),
+        ] {
+            if let Some(entry) = entry {
+                let _ = writeln!(output, "        {name} -> bb{entry};");
+            }
+        }
+
         for state in &frame.states {
             let storages = state
                 .initialized_storages

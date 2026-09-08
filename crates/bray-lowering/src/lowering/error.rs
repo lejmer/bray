@@ -25,6 +25,8 @@ pub enum LoweringError {
     InvalidTaskOperation(BoundExpressionId),
     /// A protected callable frame has no checked completion type.
     MissingCallableResultType,
+    /// A cleanup storage has no checked execution mode for its selected lifecycle helper.
+    MissingCleanupExecution(bray_ir::MirStorageId),
     /// Active lowering scopes do not contain the requested cleanup depth.
     InvalidCleanupScopeDepth {
         /// First active scope that must be cleaned.

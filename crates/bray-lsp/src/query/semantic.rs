@@ -406,7 +406,10 @@ fn identifier_token_type(
         | SemanticAvailability::Recovered(Some(BoundReferenceTarget::Surface(symbol))) => {
             Some(symbol.kind())
         }
-        SemanticAvailability::Recovered(None) | SemanticAvailability::Unavailable => None,
+        SemanticAvailability::Available(BoundReferenceTarget::TypeQualifier(_))
+        | SemanticAvailability::Recovered(Some(BoundReferenceTarget::TypeQualifier(_)))
+        | SemanticAvailability::Recovered(None)
+        | SemanticAvailability::Unavailable => None,
     };
 
     if let Some(kind) = kind {

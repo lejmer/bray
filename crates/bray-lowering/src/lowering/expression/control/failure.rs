@@ -103,7 +103,7 @@ impl Lowerer<'_> {
             report_type,
         )?;
 
-        self.finish_panic_to_active_catch(id, failure, source, report, report_type)
+        self.finish_panic_to_active_catch(id, failure, source, report, report_type, None)
     }
 
     pub(super) fn lower_panic(
@@ -139,7 +139,7 @@ impl Lowerer<'_> {
             report_type,
         )?;
 
-        self.finish_panic_to_active_catch(id, current, &source, report, report_type)?;
+        self.finish_panic_to_active_catch(id, current, &source, report, report_type, None)?;
 
         Ok(LoweredExpression::terminated(source))
     }
@@ -269,7 +269,7 @@ impl Lowerer<'_> {
         }
     }
 
-    pub(in crate::lowering::expression) fn push_panic_report(
+    pub(in crate::lowering) fn push_panic_report(
         &mut self,
         id: BoundExpressionId,
         current: MirBlockId,
@@ -297,6 +297,7 @@ impl Lowerer<'_> {
         source: &bray_ir::MirSourceAnchor,
         report: MirOperand,
         report_type: TypeId,
+        abandoned: Option<&bray_ir::MirPlace>,
     ) -> Result<(), LoweringError> {
         let target = self
             .catch_targets
@@ -320,6 +321,7 @@ impl Lowerer<'_> {
             catch,
             scope_depth,
             expression.into(),
+            abandoned,
         )
     }
 
@@ -374,6 +376,7 @@ impl Lowerer<'_> {
             source,
             MirOperand::Value(report),
             report_type,
+            None,
         )?;
 
         self.finish_cancellation(cancelled, source, expression.into())?;

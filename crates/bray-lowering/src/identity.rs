@@ -1,8 +1,8 @@
 use std::hash::{Hash, Hasher};
 
 use bray_base::StableDigestHasher;
-use bray_bound_tree::{BoundUnit, BoundUnitKey, BoundUnitRoot};
-use bray_ir::{MirTargetContract, MirUnitKind};
+use bray_bound_tree::{BoundUnit, BoundUnitRoot};
+use bray_ir::{MirTargetContract, MirUnitKey, MirUnitKind};
 use bray_runtime_interface::ProtectedAsyncFrameId;
 use bray_symbols::CallableExecution;
 
@@ -17,15 +17,15 @@ pub fn executable_unit_kind(unit: &BoundUnit, target: &MirTargetContract) -> Mir
     };
 
     match execution {
-        Some(CallableExecution::Asynchronous) => {
-            MirUnitKind::ProtectedAsyncFrame(protected_frame_identity(unit.key(), target))
-        }
+        Some(CallableExecution::Asynchronous) => MirUnitKind::ProtectedAsyncFrame(
+            protected_frame_identity(&MirUnitKey::Bound(unit.key().clone()), target),
+        ),
         Some(CallableExecution::Synchronous) | None => MirUnitKind::Synchronous,
     }
 }
 
-fn protected_frame_identity(
-    key: &BoundUnitKey,
+pub(crate) fn protected_frame_identity(
+    key: &MirUnitKey,
     target: &MirTargetContract,
 ) -> ProtectedAsyncFrameId {
     // This is the target-specific template identity. The concrete codegen instance
@@ -54,8 +54,8 @@ mod tests {
         let target = bray_testing::test_mir_target();
 
         assert_eq!(
-            protected_frame_identity(first.key(), &target),
-            protected_frame_identity(second.key(), &target)
+            protected_frame_identity(&bray_ir::MirUnitKey::Bound(first.key().clone()), &target),
+            protected_frame_identity(&bray_ir::MirUnitKey::Bound(second.key().clone()), &target)
         );
     }
 
@@ -73,8 +73,11 @@ mod tests {
         );
 
         assert_ne!(
-            protected_frame_identity(unit.key(), &target),
-            protected_frame_identity(unit.key(), &alternate_abi)
+            protected_frame_identity(&bray_ir::MirUnitKey::Bound(unit.key().clone()), &target),
+            protected_frame_identity(
+                &bray_ir::MirUnitKey::Bound(unit.key().clone()),
+                &alternate_abi
+            )
         );
     }
 

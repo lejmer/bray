@@ -5,33 +5,31 @@ use bray_binder::{BindingError, BindingQueryError, SymbolQueryProvider};
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    AnySymbolId, CallableContractExpressionTemplate, CallableContractTemplate,
-    CallableContractTemplateQuery, CallableOverloadTemplateQuery,
-    CallableParameterDefaultTemplateQuery, CallableParameterSymbolId, CallableSymbolId,
-    DeclarationCapabilityTemplate, DeclarationExpressionTemplate, DeclarationPredicateClauseKind,
-    ExactSymbolId, GenericConstraintTemplate, GenericDeclarationTemplate,
-    GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationHeadTemplate,
-    ImplementationHeadTemplateQuery, ImplementationOverloadTemplateQuery,
-    ImplementationSubjectQuery, ImplementationSymbolId, ImplementedTraitApplicationQuery,
-    OverloadArmTemplate, OverloadSignatureTemplate, PredicateDefinitionSymbolId,
-    PredicateParameterTemplate, PredicateSignatureTemplate, PredicateSignatureTemplateQuery,
-    StructFieldDefaultTemplateQuery, SymbolQueryRequest, UnevaluatedDefaultTemplate,
-    UnionPayloadFieldDefaultTemplateQuery,
+    AnySymbolId, CallableContractTemplateQuery, CallableOverloadTemplateQuery,
+    CallableParameterDefaultTemplateQuery, CallableParameterSymbolId,
+    DeclarationExpressionTemplate, ExactSymbolId, GenericConstraintTemplate,
+    GenericDeclarationTemplate, GenericDeclarationTemplateQuery, GenericOwnerId,
+    ImplementationHeadTemplate, ImplementationHeadTemplateQuery,
+    ImplementationOverloadTemplateQuery, ImplementationSubjectQuery, ImplementationSymbolId,
+    ImplementedTraitApplicationQuery, OverloadArmTemplate, OverloadSignatureTemplate,
+    PredicateDefinitionSymbolId, PredicateParameterTemplate, PredicateSignatureTemplate,
+    PredicateSignatureTemplateQuery, StructFieldDefaultTemplateQuery, SymbolQueryRequest,
+    UnevaluatedDefaultTemplate, UnionPayloadFieldDefaultTemplateQuery,
 };
 use bray_syntax::{
     ExpressionSyntax, PredicateDeclarationSyntax, PredicateParameterListSyntax, SourceSyntaxNode,
-    SyntaxKind, SyntaxNodeView, SyntaxWalkControl, TraitPredicateMemberDeclarationSyntax,
-    UsesClauseSyntax, WithClauseSyntax, walk_direct_child_nodes,
+    SyntaxNodeView, SyntaxWalkControl, TraitPredicateMemberDeclarationSyntax, WithClauseSyntax,
+    walk_direct_child_nodes,
 };
 
 use super::super::binding::CompilationSymbolQueryEvaluator;
 use super::super::cache::CompilationSymbolSemantics;
 use super::super::environment::{generic_parameter_ids, type_binder};
 use super::super::surface::{declaration_callable_surface, symbol_ordinal, with_declaration_root};
+use super::contract::bind_callable_contract_template;
 use crate::compilation::binder::CompilationBindingContext;
 use crate::compilation::binder::symbol::imported::{
-    imported_callable_contract, imported_callable_parameter_default, imported_generic_declaration,
-    missing_imported_template,
+    imported_callable_parameter_default, imported_generic_declaration, missing_imported_template,
 };
 use crate::fact::SymbolQueryCache;
 
@@ -47,7 +45,7 @@ impl CompilationSymbolQueryEvaluator<GenericDeclarationTemplateQuery>
         context: &CompilationBindingContext<'_>,
         request: SymbolQueryRequest<GenericDeclarationTemplateQuery>,
     ) -> BindingQueryResult<
-        bray_diagnostics::DiagnosticResult<
+        DiagnosticResult<
             <GenericDeclarationTemplateQuery as bray_symbols::SymbolQueryContract>::Value,
         >,
     > {
@@ -65,7 +63,7 @@ impl CompilationSymbolQueryEvaluator<CallableContractTemplateQuery> for Compilat
         context: &CompilationBindingContext<'_>,
         request: SymbolQueryRequest<CallableContractTemplateQuery>,
     ) -> BindingQueryResult<
-        bray_diagnostics::DiagnosticResult<
+        DiagnosticResult<
             <CallableContractTemplateQuery as bray_symbols::SymbolQueryContract>::Value,
         >,
     > {
@@ -85,7 +83,7 @@ impl CompilationSymbolQueryEvaluator<PredicateSignatureTemplateQuery>
         context: &CompilationBindingContext<'_>,
         request: SymbolQueryRequest<PredicateSignatureTemplateQuery>,
     ) -> BindingQueryResult<
-        bray_diagnostics::DiagnosticResult<
+        DiagnosticResult<
             <PredicateSignatureTemplateQuery as bray_symbols::SymbolQueryContract>::Value,
         >,
     > {
@@ -105,7 +103,7 @@ impl CompilationSymbolQueryEvaluator<ImplementationHeadTemplateQuery>
         context: &CompilationBindingContext<'_>,
         request: SymbolQueryRequest<ImplementationHeadTemplateQuery>,
     ) -> BindingQueryResult<
-        bray_diagnostics::DiagnosticResult<
+        DiagnosticResult<
             <ImplementationHeadTemplateQuery as bray_symbols::SymbolQueryContract>::Value,
         >,
     > {
@@ -281,114 +279,6 @@ fn source_constraint(
         unit,
         DeclarationExpressionTemplate::new(owner, SyntaxAnchor::from_node(expression)),
     )
-}
-
-fn bind_callable_contract_template(
-    context: &CompilationBindingContext<'_>,
-    owner: CallableSymbolId,
-) -> BindingQueryResult<DiagnosticResult<CallableContractTemplate>> {
-    let symbol = owner.into_any();
-
-    if let Some(address) = context.imported_semantic_address(symbol)? {
-        return imported_callable_contract(context, address);
-    }
-
-    with_declaration_root(context, symbol, |root| {
-        let mut expressions = Vec::new();
-        let mut capabilities = Vec::new();
-
-        let mut traversal_error = None;
-
-        walk_direct_child_nodes(&root, |node| {
-            if let Err(error) =
-                push_callable_contract_child(symbol, &node, &mut expressions, &mut capabilities)
-            {
-                traversal_error = Some(error);
-
-                return SyntaxWalkControl::Stop;
-            }
-
-            SyntaxWalkControl::Continue
-        });
-
-        if let Some(error) = traversal_error {
-            return Err(error);
-        }
-
-        Ok(DiagnosticResult::without_diagnostics(
-            CallableContractTemplate::source(owner, expressions, capabilities),
-        ))
-    })
-}
-
-fn push_callable_contract_child(
-    owner: AnySymbolId,
-    node: &SyntaxNodeView<'_>,
-    expressions: &mut Vec<CallableContractExpressionTemplate>,
-    capabilities: &mut Vec<DeclarationCapabilityTemplate>,
-) -> BindingQueryResult<()> {
-    match node.kind() {
-        SyntaxKind::RequiresClause => push_contract_expressions(
-            owner,
-            DeclarationPredicateClauseKind::Requires,
-            node,
-            expressions,
-        ),
-        SyntaxKind::EnsuresClause => push_contract_expressions(
-            owner,
-            DeclarationPredicateClauseKind::Ensures,
-            node,
-            expressions,
-        ),
-        SyntaxKind::WithClause => push_contract_expressions(
-            owner,
-            DeclarationPredicateClauseKind::Static,
-            node,
-            expressions,
-        ),
-        SyntaxKind::UsesClause => push_capabilities(node, capabilities),
-        _ => Ok(()),
-    }
-}
-
-fn push_capabilities(
-    node: &SyntaxNodeView<'_>,
-    output: &mut Vec<DeclarationCapabilityTemplate>,
-) -> BindingQueryResult<()> {
-    let Some(clause) = node.cast::<UsesClauseSyntax>() else {
-        return Err(syntax_contract(SyntaxAnchor::from_node(node)));
-    };
-
-    for path in clause.paths() {
-        output.push(DeclarationCapabilityTemplate::new(
-            symbol_ordinal(output.len())?,
-            SyntaxAnchor::from_node(&path),
-        ));
-    }
-
-    Ok(())
-}
-
-fn push_contract_expressions(
-    owner: AnySymbolId,
-    kind: DeclarationPredicateClauseKind,
-    node: &SyntaxNodeView<'_>,
-    output: &mut Vec<CallableContractExpressionTemplate>,
-) -> BindingQueryResult<()> {
-    let expressions = direct_children::<ExpressionSyntax>(node)?;
-
-    for expression in expressions {
-        let ordinal = symbol_ordinal(output.len())?;
-
-        output.push(CallableContractExpressionTemplate::new(
-            ordinal,
-            kind,
-            SyntaxAnchor::from_node(node),
-            DeclarationExpressionTemplate::new(owner, SyntaxAnchor::from_node(&expression)),
-        ));
-    }
-
-    Ok(())
 }
 
 fn bind_predicate_signature_template(
@@ -687,6 +577,7 @@ fn syntax_contract(source: SyntaxAnchor) -> BindingQueryError<crate::fact::FactQ
 
 #[cfg(test)]
 mod tests {
+    use bray_symbols::CallableConditions;
     use std::sync::Arc;
 
     use bray_package_interface::{
@@ -1030,12 +921,12 @@ overload choose_any = {fast}
         assert!(matches!(
             contract.value(),
             CallableContractTemplate::Resolved(contract)
-                if contract.invocation_preconditions().len() == 1
+                if contract.conditions().invocation_preconditions().len() == 1
         ));
     }
 
     fn expression_text(
-        compilation: &crate::Compilation,
+        compilation: &Compilation,
         expression: Option<bray_symbols::DeclarationExpressionTemplate>,
     ) -> &str {
         let Some(expression) = expression else {

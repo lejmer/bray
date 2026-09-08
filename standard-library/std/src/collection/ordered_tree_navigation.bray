@@ -1,4 +1,4 @@
-module std.collection;
+trusted module std.collection;
 
 internal func ordered_tree_search<Item, Key>(pos tree: &OrderedTree<Item>, pos key: &Key) -> OrderedTreeSearch
     with(Item: OrderedTreeItem<Key>)

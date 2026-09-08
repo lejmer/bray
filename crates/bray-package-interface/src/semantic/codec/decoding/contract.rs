@@ -1,6 +1,8 @@
+use bray_symbols::CallableConditions;
+
 use super::common::{decode_tag, validate_record_count};
 use crate::semantic::codec::common::{
-    SemanticDecodeContext, map_wire_error, read_count, read_symbol_reference,
+    SemanticDecodeContext, map_wire_error, read_count, read_optional_u32, read_symbol_reference,
     read_symbol_references, read_u32,
 };
 use crate::semantic::codec::record::RecordTable;
@@ -17,6 +19,107 @@ use crate::{
     InterfaceLimit, InterfaceValidationError, InterfaceValidationLimits, ValidatedInterfaceSection,
 };
 use bray_symbols::{CallableContractClauseKind, SymbolOrdinal};
+
+#[cfg(test)]
+mod tests {
+    use super::decode_contract_evidence;
+    use crate::InterfaceValidationLimits;
+    use crate::semantic::codec::common::{SemanticDecodeContext, write_count};
+    use crate::wire::{WireEncoder, WireReader};
+
+    fn evidence_bytes(promises: &[u32], targets: &[u32]) -> Vec<u8> {
+        let mut encoder = WireEncoder::new();
+        write_count(&mut encoder, promises.len());
+
+        for ordinal in promises {
+            encoder.write_u32(0); // Checked body evidence.
+            encoder.write_u32(1); // Postcondition obligation.
+            encoder.write_u32(*ordinal);
+            write_count(&mut encoder, targets.len());
+
+            for target in targets {
+                encoder.write_u32(1); // Local symbol reference.
+                encoder.write_u32(*target);
+                encoder.write_u32(1); // Postcondition obligation.
+                encoder.write_u32(0);
+            }
+        }
+
+        encoder.into_bytes()
+    }
+
+    #[test]
+    fn proof_decoding_rejects_duplicates_reordering_and_every_truncation() {
+        let limits = InterfaceValidationLimits::default();
+        let valid = evidence_bytes(&[1, 2], &[1, 2]);
+
+        assert!(
+            decode_contract_evidence(
+                &mut WireReader::new(&valid),
+                limits,
+                &mut SemanticDecodeContext::new(limits)
+            )
+            .is_ok()
+        );
+
+        for length in 0..valid.len() {
+            assert!(
+                decode_contract_evidence(
+                    &mut WireReader::new(&valid[..length]),
+                    limits,
+                    &mut SemanticDecodeContext::new(limits)
+                )
+                .is_err(),
+                "length {length}"
+            );
+        }
+
+        for invalid in [
+            evidence_bytes(&[1, 1], &[1]),
+            evidence_bytes(&[2, 1], &[1]),
+            evidence_bytes(&[1], &[1, 1]),
+            evidence_bytes(&[1], &[2, 1]),
+        ] {
+            assert!(
+                decode_contract_evidence(
+                    &mut WireReader::new(&invalid),
+                    limits,
+                    &mut SemanticDecodeContext::new(limits)
+                )
+                .is_err()
+            );
+        }
+
+        for origin in [1_u32, u32::MAX] {
+            let mut invalid = evidence_bytes(&[1], &[1]);
+            invalid[4..8].copy_from_slice(&origin.to_le_bytes());
+
+            assert!(
+                decode_contract_evidence(
+                    &mut WireReader::new(&invalid),
+                    limits,
+                    &mut SemanticDecodeContext::new(limits)
+                )
+                .is_err()
+            );
+        }
+
+        let mut foreign = evidence_bytes(&[1], &[]);
+        foreign[4..8].copy_from_slice(&1_u32.to_le_bytes());
+
+        let decoded = decode_contract_evidence(
+            &mut WireReader::new(&foreign),
+            limits,
+            &mut SemanticDecodeContext::new(limits),
+        )
+        .unwrap();
+
+        assert_eq!(
+            decoded[0].origin(),
+            bray_symbols::CallableEvidenceOrigin::ForeignAssertion
+        );
+    }
+}
 
 pub(super) struct ContractRecordTables<'bytes> {
     pub(super) dependencies: RecordTable<'bytes>,
@@ -88,6 +191,15 @@ pub(super) fn decode_dependency_contract(
     Ok(InterfaceDependencyContract::new(requirements))
 }
 
+fn decode_predicate(
+    reader: &mut WireReader<'_>,
+) -> Result<InterfacePredicateSummary, InterfaceValidationError> {
+    let dependency = InterfaceDependencyContractId::new(read_u32(reader)?);
+    let condition = read_optional_u32(reader)?.map(crate::InterfaceConstantTermId::new);
+
+    Ok(InterfacePredicateSummary::new(dependency).with_condition(condition))
+}
+
 pub(super) fn decode_constraint(
     reader: &mut WireReader<'_>,
     context: &mut SemanticDecodeContext,
@@ -100,7 +212,7 @@ pub(super) fn decode_constraint(
         1 => Ok(InterfaceConstraint::new(
             owner,
             ordinal,
-            InterfacePredicateSummary::new(InterfaceDependencyContractId::new(read_u32(reader)?)),
+            decode_predicate(reader)?,
         )),
         2 => Ok(InterfaceConstraint::trait_satisfaction(
             owner,
@@ -128,26 +240,8 @@ pub(super) fn decode_callable_contract(
 ) -> Result<InterfaceCallableContract, InterfaceValidationError> {
     let owner = read_symbol_reference(reader, context)?;
 
-    let mut decoded_clauses = decode_callable_clauses(
-        reader,
-        limits,
-        context,
-        CallableContractClauseKind::Requires,
-    )?;
-
-    decoded_clauses.extend(decode_callable_clauses(
-        reader,
-        limits,
-        context,
-        CallableContractClauseKind::Static,
-    )?);
-
-    decoded_clauses.extend(decode_callable_clauses(
-        reader,
-        limits,
-        context,
-        CallableContractClauseKind::Ensures,
-    )?);
+    let conditions = decode_callable_conditions(reader, limits, context)?;
+    let evidence = decode_contract_evidence(reader, limits, context)?;
 
     let invocation_behavior = decode_callable_behavior(reader, limits, context)?;
     let deferred_execution_behavior_raw = read_u32(reader)?;
@@ -163,12 +257,174 @@ pub(super) fn decode_callable_contract(
         }
     };
 
-    Ok(InterfaceCallableContract::new(
-        owner,
-        decoded_clauses,
-        invocation_behavior,
-        deferred_execution_behavior,
-    ))
+    Ok(
+        InterfaceCallableContract::new(owner, [], invocation_behavior, deferred_execution_behavior)
+            .with_conditions(conditions)
+            .with_evidence(evidence),
+    )
+}
+
+fn decode_contract_evidence(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<
+    Vec<bray_symbols::CallableContractEvidence<crate::InterfaceSymbolReference>>,
+    InterfaceValidationError,
+> {
+    let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut proofs = context.allocate_items(reader, count)?;
+
+    for _ in 0..count {
+        let origin = match read_u32(reader)? {
+            0 => bray_symbols::CallableEvidenceOrigin::CheckedBody,
+            1 => bray_symbols::CallableEvidenceOrigin::ForeignAssertion,
+            value => {
+                return Err(crate::semantic::codec::invalid_discriminant(
+                    crate::InterfaceValidationField::Dependency,
+                    value,
+                ));
+            }
+        };
+
+        let obligation = decode_contract_obligation(reader)?;
+        let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+        let mut dependencies = context.allocate_items(reader, count)?;
+
+        for _ in 0..count {
+            dependencies.push((
+                read_symbol_reference(reader, context)?,
+                decode_contract_obligation(reader)?,
+            ));
+        }
+
+        if !crate::validation::is_strictly_sorted(&dependencies) {
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
+        }
+
+        proofs.push(match origin {
+            bray_symbols::CallableEvidenceOrigin::CheckedBody => {
+                bray_symbols::CallableContractEvidence::new(obligation, dependencies)
+            }
+            bray_symbols::CallableEvidenceOrigin::ForeignAssertion if dependencies.is_empty() => {
+                bray_symbols::CallableContractEvidence::foreign_assertion(obligation)
+            }
+            bray_symbols::CallableEvidenceOrigin::ForeignAssertion => {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
+            }
+        });
+    }
+
+    if !proofs
+        .windows(2)
+        .all(|pair| pair[0].obligation() < pair[1].obligation())
+    {
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Reference,
+        ));
+    }
+
+    Ok(proofs)
+}
+
+fn decode_contract_obligation(
+    reader: &mut WireReader<'_>,
+) -> Result<bray_symbols::CallableContractObligation, InterfaceValidationError> {
+    match read_u32(reader)? {
+        0 => Ok(bray_symbols::CallableContractObligation::Execution(
+            bray_symbols::CallableExecutionGuarantee::new(
+                decode_tag(read_u32(reader)?)?,
+                read_optional_u32(reader)?.map(SymbolOrdinal::new),
+            ),
+        )),
+        1 => Ok(bray_symbols::CallableContractObligation::Postcondition(
+            SymbolOrdinal::new(read_u32(reader)?),
+        )),
+        value => Err(crate::semantic::codec::invalid_discriminant(
+            crate::InterfaceValidationField::Dependency,
+            value,
+        )),
+    }
+}
+
+pub(super) fn decode_callable_conditions(
+    reader: &mut WireReader<'_>,
+    limits: InterfaceValidationLimits,
+    context: &mut SemanticDecodeContext,
+) -> Result<
+    bray_symbols::CallableConditionSet<InterfaceCallableContractClause>,
+    InterfaceValidationError,
+> {
+    let mut decoded_clauses = decode_callable_clauses(
+        reader,
+        limits,
+        context,
+        CallableContractClauseKind::Requires,
+    )?;
+
+    decoded_clauses.extend(decode_callable_clauses(
+        reader,
+        limits,
+        context,
+        CallableContractClauseKind::Static,
+    )?);
+
+    let postconditions =
+        decode_callable_clauses(reader, limits, context, CallableContractClauseKind::Ensures)?;
+
+    if postconditions.iter().any(|clause| clause.guard().is_some()) {
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Reference,
+        ));
+    }
+
+    decoded_clauses.extend(postconditions);
+
+    decoded_clauses.extend(decode_callable_clauses(
+        reader,
+        limits,
+        context,
+        CallableContractClauseKind::Guard,
+    )?);
+
+    let guarded_postconditions =
+        decode_callable_clauses(reader, limits, context, CallableContractClauseKind::Ensures)?;
+
+    if guarded_postconditions
+        .iter()
+        .any(|clause| clause.guard().is_none())
+    {
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Reference,
+        ));
+    }
+
+    decoded_clauses.extend(guarded_postconditions);
+
+    let guarantee_count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
+    let mut guarantees = context.allocate_items(reader, guarantee_count)?;
+
+    for _ in 0..guarantee_count {
+        let property = decode_tag(read_u32(reader)?)?;
+        let guard = read_optional_u32(reader)?.map(SymbolOrdinal::new);
+
+        guarantees.push(bray_symbols::CallableExecutionGuarantee::new(
+            property, guard,
+        ));
+    }
+
+    if !guarantees.windows(2).all(|pair| pair[0] < pair[1]) {
+        return Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Reference,
+        ));
+    }
+
+    Ok(bray_symbols::CallableConditionSet::new(decoded_clauses)
+        .with_execution_guarantees(guarantees))
 }
 
 fn decode_callable_clauses(
@@ -182,16 +438,11 @@ fn decode_callable_clauses(
 
     for _ in 0..count {
         let ordinal = SymbolOrdinal::new(read_u32(reader)?);
+        let guard = read_optional_u32(reader)?.map(SymbolOrdinal::new);
         let raw = read_u32(reader)?;
 
         let clause = match raw {
-            1 => InterfaceCallableContractClause::new(
-                ordinal,
-                kind,
-                InterfacePredicateSummary::new(InterfaceDependencyContractId::new(read_u32(
-                    reader,
-                )?)),
-            ),
+            1 => InterfaceCallableContractClause::new(ordinal, kind, decode_predicate(reader)?),
             2 if kind == CallableContractClauseKind::Static => {
                 InterfaceCallableContractClause::trait_satisfaction(
                     ordinal,
@@ -207,7 +458,7 @@ fn decode_callable_clauses(
             }
         };
 
-        clauses.push(clause);
+        clauses.push(clause.with_guard(guard));
     }
 
     Ok(clauses)

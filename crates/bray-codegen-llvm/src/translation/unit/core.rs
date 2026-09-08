@@ -1,5 +1,5 @@
 use super::edge::{checked_call_operations, reachable_blocks};
-use super::support::{llvm, nonzero_integer, physical_aggregate_element, pointer_value};
+use super::support::{llvm, physical_aggregate_element, pointer_value};
 use crate::mapping::{LlvmDebugInfo, LlvmTypeMappings, apply_instance_optimization_attributes};
 use crate::translation::frame::frame_storage_field_index;
 use bray_codegen::{
@@ -8,8 +8,7 @@ use bray_codegen::{
     CodegenTypeMapping,
 };
 use bray_ir::{
-    MirBlockId, MirOperationId, MirPlace, MirStorageId, MirStorageKind, MirTerminatorKind, MirUnit,
-    MirValueId,
+    MirBlockId, MirOperationId, MirPlace, MirStorageId, MirStorageKind, MirUnit, MirValueId,
 };
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
@@ -204,6 +203,8 @@ pub(crate) struct UnitTranslator<'context, 'module, 'request, 'types> {
     pub(super) phis: BTreeMap<MirValueId, PhiValue<'context>>,
     pub(super) storages: BTreeMap<MirStorageId, PointerValue<'context>>,
     pub(super) values: BTreeMap<MirValueId, BasicValueEnum<'context>>,
+    pub(super) run_result_transfers:
+        BTreeMap<bray_symbols::TypeId, (bray_ir::MirRunResultVariants, FunctionValue<'context>)>,
     pub(super) pending_moves: Vec<MirPlace>,
     pub(super) panic_report_context: Option<PointerValue<'context>>,
     pub(super) pending_call_panic_report_context: Option<PointerValue<'context>>,
@@ -327,6 +328,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             phis: BTreeMap::new(),
             storages: BTreeMap::new(),
             values: BTreeMap::new(),
+            run_result_transfers: BTreeMap::new(),
             pending_moves: Vec::new(),
             panic_report_context,
             pending_call_panic_report_context: None,
@@ -391,6 +393,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             values: BTreeMap::new(),
             pending_moves: Vec::new(),
             panic_report_context: None,
+            run_result_transfers: BTreeMap::new(),
             pending_call_panic_report_context: None,
             host_root: None,
             host_result: None,
@@ -430,7 +433,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.set_debug_location(operation.source());
 
-                self.translate_operation(*operation_id, operation)?;
+                self.translate_operation(*operation_id, operation).map_err(
+                    |failure| match failure {
+                        CodegenFailure::GeneratedModuleInvariant => {
+                            CodegenFailure::generated_module_invariant((
+                                operation.source(),
+                                operation_id,
+                                operation.kind(),
+                            ))
+                        }
+                        failure => failure,
+                    },
+                )?;
             }
 
             self.set_debug_location(block.terminator().source());
@@ -446,161 +460,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             (None, None) => {}
             (Some(_), None) | (None, Some(_)) => self.builder.unset_current_debug_location(),
         }
-    }
-
-    fn translate_frame_dispatch(&mut self) -> Result<(), CodegenFailure> {
-        let (Some(frame_context), Some(dispatch)) = (self.frame_context, self.frame_dispatch)
-        else {
-            return Ok(());
-        };
-
-        let descriptor = self
-            .unit
-            .frame_descriptor()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        let context = self.frame_context_argument()?;
-
-        self.builder.position_at_end(dispatch);
-
-        let pointer = llvm(
-            self.builder.build_int_to_ptr(
-                context,
-                self.types
-                    .context()
-                    .ptr_type(inkwell::AddressSpace::default()),
-                "frame.context",
-            ),
-        )?;
-
-        let state_pointer =
-            llvm(
-                self.builder
-                    .build_struct_gep(frame_context, pointer, 0, "frame.state.pointer"),
-            )?;
-
-        let state = llvm(self.builder.build_load(
-            self.types.context().i32_type(),
-            state_pointer,
-            "frame.state",
-        ))?
-        .into_int_value();
-
-        let cancellation_pointer = llvm(self.builder.build_struct_gep(
-            frame_context,
-            pointer,
-            2,
-            "frame.cancellation.pointer",
-        ))?;
-
-        let cancellation = llvm(self.builder.build_load(
-            self.types.context().i8_type(),
-            cancellation_pointer,
-            "frame.cancellation",
-        ))?
-        .into_int_value();
-
-        let mut cases = Vec::with_capacity(descriptor.states().len());
-
-        for state in descriptor.states() {
-            let entry = self.block(state.entry())?;
-
-            let cancellation_entry =
-                self.unit
-                    .blocks()
-                    .iter()
-                    .find_map(|block| match block.terminator().kind() {
-                        MirTerminatorKind::Suspend {
-                            resume_state,
-                            cancellation,
-                            ..
-                        } if *resume_state == state.state() => Some(cancellation.edge()),
-                        _ => None,
-                    });
-
-            let entry = if let Some(cancellation_entry) = cancellation_entry {
-                if !cancellation_entry.arguments().is_empty() {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
-                }
-
-                let state_dispatch = self
-                    .types
-                    .context()
-                    .append_basic_block(self.function, "frame.state.dispatch");
-
-                self.builder.position_at_end(state_dispatch);
-
-                let requested =
-                    nonzero_integer(&self.builder, cancellation, "frame.cancellation.requested")?;
-
-                llvm(self.builder.build_conditional_branch(
-                    requested,
-                    self.block(cancellation_entry.target())?,
-                    entry,
-                ))?;
-
-                state_dispatch
-            } else {
-                entry
-            };
-
-            cases.push((
-                self.types
-                    .context()
-                    .i32_type()
-                    .const_int(u64::from(state.state().raw()), false),
-                entry,
-            ));
-        }
-
-        let fallback = self
-            .types
-            .context()
-            .append_basic_block(self.function, "frame.invalid-state");
-
-        self.builder.position_at_end(dispatch);
-
-        llvm(self.builder.build_switch(state, fallback, &cases))?;
-
-        self.builder.position_at_end(fallback);
-
-        let failure =
-            crate::native::frame_progress_type(self.types.context()).const_named_struct(&[
-                self.types.context().i32_type().const_int(4, false).into(),
-                self.types.context().i32_type().const_zero().into(),
-                self.types.context().i64_type().const_zero().into(),
-            ]);
-
-        self.return_frame_progress(failure.into())?;
-
-        Ok(())
-    }
-
-    pub(super) fn return_frame_progress(
-        &self,
-        progress: BasicValueEnum<'context>,
-    ) -> Result<(), CodegenFailure> {
-        crate::native::return_frame_result(
-            self.types.context(),
-            &self.builder,
-            self.function,
-            self.request.target(),
-            bray_runtime_interface::ProtectedFrameOperation::Resume,
-            progress,
-        )
-    }
-
-    pub(super) fn frame_context_argument(
-        &self,
-    ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
-        self.function
-            .get_nth_param(crate::native::frame_parameter_index(
-                self.request.target(),
-                bray_runtime_interface::ProtectedFrameOperation::Resume,
-                0,
-            ))
-            .and_then(super::support::int_value)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
     }
 
     pub(super) fn create_block_parameters(&mut self) -> Result<(), CodegenFailure> {
@@ -774,12 +633,75 @@ fn create_blocks<'context>(
     function: FunctionValue<'context>,
     unit: &MirUnit,
 ) -> BTreeMap<MirBlockId, BasicBlock<'context>> {
-    unit.blocks_with_ids()
-        .enumerate()
-        .map(|(index, (id, _))| {
-            let block = context.append_basic_block(function, &format!("block.{index}"));
+    std::iter::once(unit.entry())
+        .chain(
+            unit.blocks_with_ids()
+                .map(|(id, _)| id)
+                .filter(|id| *id != unit.entry()),
+        )
+        .map(|id| {
+            let block = context.append_basic_block(function, &format!("block.{}", id.slot()));
 
             (id, block)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_ir::{
+        MirBlockKind, MirEdge, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder, MirUnitKind,
+    };
+    use inkwell::context::Context;
+
+    #[test]
+    fn native_block_order_starts_with_the_selected_mir_entry() {
+        let bound = bray_testing::test_bound_unit(42);
+        let source = MirSourceAnchor::from(bound.key().source());
+
+        let mut mir = MirUnitBuilder::for_bound(
+            bound.identity(),
+            MirUnitKind::Synchronous,
+            bray_testing::test_mir_target(),
+        );
+
+        let body = mir
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        let entry = mir
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        mir.set_terminator(body, source.clone(), MirTerminatorKind::Return(None))
+            .unwrap();
+
+        mir.set_terminator(
+            entry,
+            source,
+            MirTerminatorKind::Goto(MirEdge::new(body, [])),
+        )
+        .unwrap();
+
+        let mir = mir.finish(entry).unwrap();
+        let context = Context::create();
+        let module = context.create_module("reordered-entry");
+
+        let function =
+            module.add_function("destroy", context.void_type().fn_type(&[], false), None);
+
+        let blocks = super::create_blocks(&context, function, &mir);
+        let builder = context.create_builder();
+
+        assert_eq!(function.get_first_basic_block(), Some(blocks[&entry]));
+        assert_eq!(blocks[&body].get_name().to_str().unwrap(), "block.0");
+        assert_eq!(blocks[&entry].get_name().to_str().unwrap(), "block.1");
+
+        builder.position_at_end(blocks[&entry]);
+        builder.build_unconditional_branch(blocks[&body]).unwrap();
+        builder.position_at_end(blocks[&body]);
+        builder.build_return(None).unwrap();
+
+        module.verify().unwrap();
+    }
 }

@@ -47,7 +47,8 @@ pub(super) fn validate_public_expression_dependencies(
             continue;
         }
 
-        roots.push((owner, key));
+        // Scheduled work retains the shared unit identity independently of the inventory.
+        roots.push((owner, key.clone()));
     }
 
     let completed = compilation
@@ -133,6 +134,10 @@ fn selection_internal_dependency(
             dependencies.push(*symbol);
         }
         SemanticSelection::Reference(BoundReferenceTarget::Local(_)) => {}
+        SemanticSelection::Reference(BoundReferenceTarget::TypeQualifier(ty)) => {
+            semantic_internal =
+                resolved_type_internal_dependency(*ty, semantic_values, symbols, declarations)?;
+        }
         SemanticSelection::CallableReference(callable) => {
             dependencies.push(callable.definition().symbol());
 
@@ -617,6 +622,7 @@ fn push_conversion_dependencies(
             }
             ConversionTarget::Composite(children) => pending.extend(children.iter()),
             ConversionTarget::Identity
+            | ConversionTarget::CallableContract
             | ConversionTarget::NullablePresent
             | ConversionTarget::BuiltInScalar
             | ConversionTarget::CVariadicPromotion => {}

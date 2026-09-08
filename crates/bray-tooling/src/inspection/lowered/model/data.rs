@@ -1,5 +1,7 @@
 // rust-style: allow(module-too-large, reason = "the MIR inspection DTOs and exhaustive projection form one cohesive serialization contract")
 
+use bray_symbols::CallableConditions;
+
 use std::fmt::Write;
 
 use bray_bound_tree::{
@@ -178,6 +180,9 @@ impl InspectionMirUnit {
                         frame.result_type(),
                     )?,
                     states,
+                    inactive_cleanup: frame.inactive_cleanup().map(bray_ir::MirBlockId::slot),
+                    capture_quiescence: frame.capture_abandonment().map(|(entry, _)| entry.slot()),
+                    capture_destruction: frame.capture_abandonment().map(|(_, entry)| entry.slot()),
                 })
             })
             .transpose()?;
@@ -264,6 +269,9 @@ pub(crate) struct InspectionMirFrame {
     pub(crate) abi: String,
     pub(crate) result_type: InspectionType,
     pub(crate) states: Vec<InspectionMirFrameState>,
+    pub(crate) inactive_cleanup: Option<u32>,
+    pub(crate) capture_quiescence: Option<u32>,
+    pub(crate) capture_destruction: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -765,6 +773,7 @@ fn operation_parts(
         }
         MirOperationKind::PanicReport(cause) => {
             match cause {
+                MirPanicCause::TaskAdmission => parts.attribute("cause", "task_admission"),
                 MirPanicCause::Message(message) => parts.operand("message", message, context)?,
                 MirPanicCause::Assertion(message) => {
                     parts.attribute("cause", "assertion");
@@ -790,6 +799,17 @@ fn operation_parts(
             parts.place("place", place, context)?;
 
             "destroy"
+        }
+        MirOperationKind::Abandon { action, place } => {
+            parts.place("place", place, context)?;
+
+            bray_ir::MirGeneratedLifecycleRole::Abandon(*action).as_str()
+        }
+        MirOperationKind::DestructorRemainder { role, place } => {
+            parts.attribute("role", role.as_str());
+            parts.place("place", place, context)?;
+
+            "destructor_remainder"
         }
         MirOperationKind::Cleanup { phase, place } => {
             parts.attribute("phase", cleanup_phase(*phase));
@@ -1197,12 +1217,17 @@ fn call_parts(
 
                 parts.attribute(
                     "contract_precondition_count",
-                    compact_id(contract.invocation_preconditions().len()),
+                    compact_id(contract.conditions().invocation_preconditions().len()),
                 );
 
                 parts.attribute(
                     "contract_postcondition_count",
-                    compact_id(contract.normal_completion_postconditions().len()),
+                    compact_id(
+                        contract
+                            .conditions()
+                            .normal_completion_postconditions()
+                            .len(),
+                    ),
                 );
             }
         }
@@ -1341,26 +1366,6 @@ fn generator_operation(
             parts.attribute("step", "finish");
             parts.place("destination", destination, context)?;
         }
-        MirGeneratorOperation::CleanupBroadcast {
-            destination,
-            element,
-            runtime,
-        } => {
-            parts.attribute("step", "cleanup_broadcast");
-            parts.r#type("element_type", *element, context)?;
-            runtime_reference("runtime", *runtime, parts);
-            parts.place("destination", destination, context)?;
-        }
-        MirGeneratorOperation::Destroy {
-            destination,
-            element,
-            runtime,
-        } => {
-            parts.attribute("step", "destroy");
-            parts.r#type("element_type", *element, context)?;
-            runtime_reference("runtime", *runtime, parts);
-            parts.place("destination", destination, context)?;
-        }
     }
 
     Ok(())
@@ -1380,32 +1385,22 @@ fn async_operation(
                     parts.attribute("initializer", "callable");
                     call_parts(call, parts, context)?;
                 }
-                MirFrameInitializer::TaskObservation {
-                    task,
+                MirFrameInitializer::Lifecycle {
+                    role,
+                    ty,
+                    receiver,
                     result,
-                    request_cancellation,
-                    ..
                 } => {
-                    parts.attribute("initializer", "task_observation");
-                    parts.attribute("request_cancellation", *request_cancellation);
-                    parts.operand("task", task, context)?;
+                    parts.attribute("initializer", "lifecycle");
+                    parts.attribute("role", format!("{role:?}"));
+                    parts.r#type("owner", *ty, context)?;
+                    parts.operand("receiver", receiver, context)?;
                     parts.r#type("completion", result.completion_type(), context)?;
                     parts.r#type("result", result.future_type(), context)?;
                 }
             }
 
             "create_frame"
-        }
-        MirAsyncOperation::MoveInactiveFrame {
-            frame,
-            source,
-            destination,
-        } => {
-            frame_reference("frame", *frame, parts);
-            parts.place("source", source, context)?;
-            parts.place("destination", destination, context)?;
-
-            "move_inactive_frame"
         }
         MirAsyncOperation::ResumeFrame {
             state,
@@ -1424,21 +1419,19 @@ fn async_operation(
             parent,
             child,
             frame,
+            entry,
         } => {
             parts.attribute("parent_frame", digest_text(parent.digest()));
             frame_reference("child_frame", *child, parts);
             parts.operand("frame", frame, context)?;
+            parts.attribute("entry", entry.as_str());
 
             "compose_awaited_frame"
-        }
-        MirAsyncOperation::CommitAwaitedCompletion { child } => {
-            frame_reference("child_frame", *child, parts);
-
-            "commit_awaited_completion"
         }
         MirAsyncOperation::StartTask {
             frame,
             value,
+            destination,
             allocation,
             start,
         } => {
@@ -1446,6 +1439,7 @@ fn async_operation(
             runtime_reference("allocation_runtime", *allocation, parts);
             runtime_reference("start_runtime", *start, parts);
             parts.operand("frame", value, context)?;
+            parts.place("destination", destination, context)?;
 
             "start_task"
         }
@@ -1460,11 +1454,30 @@ fn async_operation(
 
             "observe_current_run_cancellation"
         }
-        MirAsyncOperation::ResolveTask { task, runtime, .. } => {
+        MirAsyncOperation::DestroyInactiveCaptures { frame, runtime } => {
+            runtime_reference("runtime", *runtime, parts);
+            parts.operand("frame", frame, context)?;
+
+            "destroy_inactive_captures"
+        }
+        MirAsyncOperation::ResolveTask { task, runtime, .. }
+        | MirAsyncOperation::BorrowTaskCompletion { task, runtime }
+        | MirAsyncOperation::ReleaseTaskCompletionBorrow { task, runtime } => {
             runtime_reference("runtime", *runtime, parts);
             parts.operand("task", task, context)?;
 
-            "resolve_task"
+            match operation {
+                MirAsyncOperation::BorrowTaskCompletion { .. } => "borrow_task_completion",
+                MirAsyncOperation::ReleaseTaskCompletionBorrow { .. } => {
+                    "release_task_completion_borrow"
+                }
+                _ => "resolve_task",
+            }
+        }
+        MirAsyncOperation::ResolveAwaitedFrame { runtime, .. } => {
+            runtime_reference("runtime", *runtime, parts);
+
+            "resolve_awaited_frame"
         }
         MirAsyncOperation::PublishTerminalState { state, runtime } => {
             runtime_reference("runtime", *runtime, parts);
@@ -1475,6 +1488,9 @@ fn async_operation(
                     parts.operand("value", value, context)?;
                 }
                 MirTaskTerminalState::Cancelled => parts.attribute("state", "cancelled"),
+                MirTaskTerminalState::CapturesCompleted => {
+                    parts.attribute("state", "captures_completed")
+                }
                 MirTaskTerminalState::Panicked(report) => {
                     parts.attribute("state", "panicked");
                     parts.operand("report", report, context)?;
@@ -1501,8 +1517,12 @@ fn async_operation(
 
             "transfer_cleanup_incident"
         }
-        MirAsyncOperation::DestroyTerminalTask { task } => {
+        MirAsyncOperation::DestroyTerminalTask { task, completion } => {
             parts.operand("task", task, context)?;
+
+            if let Some(ty) = completion {
+                parts.r#type("retained_completion", *ty, context)?;
+            }
 
             "destroy_terminal_task"
         }
@@ -1765,7 +1785,12 @@ fn inspection_terminator(
             parts.attribute("wake_runtime", wake.role().as_str());
             parts.attribute("wake_runtime_abi", runtime_abi_text(*wake));
             parts.edge("resume", resume, None, &context)?;
-            parts.cleanup_edge("cancellation", cancellation, &context)?;
+
+            if let Some(cancellation) = cancellation {
+                parts.cleanup_edge("cancellation", cancellation, &context)?;
+            } else {
+                parts.attribute("cancellation", "shielded");
+            }
 
             "suspend"
         }
@@ -2077,7 +2102,7 @@ fn inspection_unit_key(
             product: product.name().to_owned(),
         }),
         MirUnitKey::GeneratedLifecycle(key) => Ok(InspectionMirUnitKey::GeneratedLifecycle {
-            role: generated_lifecycle_role(key.role()),
+            role: key.role().as_str(),
             type_identity: digest_text(key.type_identity()),
         }),
         MirUnitKey::ImportedExecutable(key) => Ok(InspectionMirUnitKey::ImportedExecutable {
@@ -2367,6 +2392,7 @@ fn conversion_parts(
 
     match conversion.target() {
         ConversionTarget::Identity
+        | ConversionTarget::CallableContract
         | ConversionTarget::NullablePresent
         | ConversionTarget::BuiltInScalar
         | ConversionTarget::CVariadicPromotion => {}
@@ -2511,54 +2537,12 @@ fn mir_unit_kind(kind: &MirUnitKind) -> &'static str {
         MirUnitKind::Synchronous => "synchronous",
         MirUnitKind::ProtectedAsyncFrame(_) => "protected_async_frame",
         MirUnitKind::ExecutableHost(_) => "executable_host",
-        MirUnitKind::GeneratedLifecycle(_) => "generated_lifecycle",
     }
 }
 
-const fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'static str> {
-    match reference {
-        MirHelperReference::Finalize(_) => Some("finalize"),
-        MirHelperReference::StaticFinalize(_) => Some("static_finalize"),
-        MirHelperReference::Destroy(_) => Some("destroy"),
-        MirHelperReference::Cleanup {
-            phase: MirCleanupPhase::TaskCancellation,
-            ..
-        } => Some("cleanup_task_cancellation"),
-        MirHelperReference::Cleanup {
-            phase: MirCleanupPhase::LifecycleResolution,
-            ..
-        } => Some("cleanup_lifecycle_resolution"),
-        MirHelperReference::AnonymousCallable(_)
-        | MirHelperReference::DeclaredCallable(_)
-        | MirHelperReference::CallableDefault(_)
-        | MirHelperReference::ConstructionDefault(_)
-        | MirHelperReference::TypeForm(_)
-        | MirHelperReference::Conversion(_)
-        | MirHelperReference::BeginGenerator
-        | MirHelperReference::PushGenerator
-        | MirHelperReference::FinishGenerator
-        | MirHelperReference::PanicReport
-        | MirHelperReference::StandardLibrary(_)
-        | MirHelperReference::CreateFrame(_)
-        | MirHelperReference::MoveInactiveFrame(_)
-        | MirHelperReference::ComposeAwaitedFrame(_)
-        | MirHelperReference::CommitAwaitedCompletion(_)
-        | MirHelperReference::DestroyTerminalTask => None,
-    }
-}
-
-const fn generated_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &'static str {
-    match role {
-        bray_ir::MirGeneratedLifecycleRole::Finalize => "finalize",
-        bray_ir::MirGeneratedLifecycleRole::StaticFinalize => "static_finalize",
-        bray_ir::MirGeneratedLifecycleRole::Destroy => "destroy",
-        bray_ir::MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
-            "cleanup_task_cancellation"
-        }
-        bray_ir::MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::LifecycleResolution) => {
-            "cleanup_lifecycle_resolution"
-        }
-    }
+fn lifecycle_helper_role(reference: &MirHelperReference) -> Option<&'static str> {
+    bray_ir::MirGeneratedLifecycleRole::from_reference(reference)
+        .map(bray_ir::MirGeneratedLifecycleRole::as_str)
 }
 
 fn storage_kind(kind: &MirStorageKind) -> &'static str {
@@ -2567,7 +2551,6 @@ fn storage_kind(kind: &MirStorageKind) -> &'static str {
         MirStorageKind::Local => "local",
         MirStorageKind::Temporary => "temporary",
         MirStorageKind::Return => "return",
-        MirStorageKind::InactiveFrame => "inactive_frame",
         MirStorageKind::CurrentFrame => "current_frame",
         MirStorageKind::CurrentTask => "current_task",
         MirStorageKind::ChildTask => "child_task",
@@ -2654,6 +2637,7 @@ fn generator_kind(kind: MirGeneratorKind) -> &'static str {
 fn conversion_kind(target: &ConversionTarget) -> &'static str {
     match target {
         ConversionTarget::Identity => "identity",
+        ConversionTarget::CallableContract => "callable_contract",
         ConversionTarget::NullablePresent => "nullable_present",
         ConversionTarget::BuiltInScalar => "built_in_scalar",
         ConversionTarget::CVariadicPromotion => "c_variadic_promotion",

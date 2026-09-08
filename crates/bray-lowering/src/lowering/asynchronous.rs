@@ -61,6 +61,7 @@ impl Lowerer<'_> {
                 parent,
                 child,
                 frame,
+                entry: bray_ir::MirFrameEntry::Body,
             }),
             None,
         )?;
@@ -80,7 +81,7 @@ impl Lowerer<'_> {
                 payload: None,
                 resume_state: state,
                 resume: MirEdge::new(resume, []),
-                cancellation,
+                cancellation: Some(cancellation),
                 registration: self.runtime_reference(RuntimeAbiRole::SuspensionRegistration),
                 wake: self.runtime_reference(RuntimeAbiRole::Wake),
             },
@@ -98,14 +99,33 @@ impl Lowerer<'_> {
             .with_affinity(self.frame_affinity()),
         );
 
-        let value = self.push_value_operation(
+        let completion = self.expression_type(id)?;
+
+        let result = self.unary_representation_type(
+            bray_compiler_known::RepresentationRole::RunResult,
+            completion,
+        )?;
+
+        let representation = self.run_result_representation()?;
+
+        let variants = bray_ir::MirRunResultVariants::new(
+            representation.completed_variant,
+            representation.panicked_variant,
+            representation.cancelled_variant,
+        );
+
+        let value = self.push_typed_value_operation(
             id,
             resume,
             Self::retained_source(&source),
-            MirOperationKind::Async(MirAsyncOperation::CommitAwaitedCompletion { child }),
+            MirOperationKind::Async(MirAsyncOperation::ResolveAwaitedFrame {
+                variants,
+                runtime: self.runtime_reference(RuntimeAbiRole::AwaitedFrameResolution),
+            }),
+            result,
         )?;
 
-        Ok(LoweredExpression::continuing(resume, Some(value), source))
+        self.propagate_run_result(id, resume, source, value, result)
     }
 
     pub(super) fn lower_call_operation(
@@ -121,34 +141,16 @@ impl Lowerer<'_> {
             Some(AsyncTaskOperationKind::Start) => {
                 let frame = call_receiver(&call, expression)?;
 
-                MirOperationKind::Async(MirAsyncOperation::StartTask {
-                    frame: MirFrameReference::Erased,
-                    value: frame,
-                    allocation: self.runtime_reference(RuntimeAbiRole::TaskAllocation),
-                    start: self.runtime_reference(RuntimeAbiRole::TaskStart),
-                })
+                return self.lower_task_start(expression, block, source, frame);
             }
-            Some(kind @ (AsyncTaskOperationKind::Join | AsyncTaskOperationKind::Cancel)) => {
-                let task = call_receiver(&call, expression)?;
-                let variants = self.run_result_representation()?;
-
-                let BoundCallResult::LazyFuture(result) = call.result() else {
+            Some(AsyncTaskOperationKind::Join | AsyncTaskOperationKind::Cancel) => {
+                if !matches!(call.result(), BoundCallResult::LazyFuture(_)) {
                     return Err(LoweringError::InvalidTaskOperation(expression));
-                };
+                }
 
                 MirOperationKind::Async(MirAsyncOperation::CreateFrame {
                     frame: MirFrameReference::Erased,
-                    initializer: MirFrameInitializer::TaskObservation {
-                        task,
-                        result,
-                        variants: bray_ir::MirRunResultVariants::new(
-                            variants.completed_variant,
-                            variants.panicked_variant,
-                            variants.cancelled_variant,
-                        ),
-                        runtime: self.runtime_reference(RuntimeAbiRole::TaskObservationCreation),
-                        request_cancellation: kind == AsyncTaskOperationKind::Cancel,
-                    },
+                    initializer: MirFrameInitializer::Callable(call),
                 })
             }
             None => match call.result() {
@@ -165,6 +167,100 @@ impl Lowerer<'_> {
         let result_type = self.expression_type(expression)?;
 
         self.push_checked_value_operation(expression, block, source, operation, result_type)
+    }
+
+    fn lower_task_start(
+        &mut self,
+        expression: BoundExpressionId,
+        block: MirBlockId,
+        source: MirSourceAnchor,
+        frame: MirOperand,
+    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        let frame_type = self.builder.operand_type(&frame)?;
+        let task_type = self.expression_type(expression)?;
+
+        let boolean =
+            self.representation_type(bray_compiler_known::RepresentationRole::ScalarBool)?;
+
+        let frame_storage = self.builder.push_storage(
+            Self::retained_source(&source),
+            bray_ir::MirStorageKind::Temporary,
+            frame_type,
+        )?;
+
+        let task_storage = self.builder.push_storage(
+            Self::retained_source(&source),
+            bray_ir::MirStorageKind::Temporary,
+            task_type,
+        )?;
+
+        let retained = bray_ir::MirPlace::new(frame_storage, [], frame_type);
+        let task = bray_ir::MirPlace::new(task_storage, [], task_type);
+
+        self.push_operation(
+            block,
+            Self::retained_source(&source),
+            MirOperationKind::Store {
+                kind: bray_ir::MirStoreKind::Initialize,
+                destination: Self::retained_place(&retained),
+                value: frame,
+            },
+            None,
+        )?;
+
+        let admitted = self.push_typed_value_operation(
+            expression,
+            block,
+            Self::retained_source(&source),
+            MirOperationKind::Async(MirAsyncOperation::StartTask {
+                frame: MirFrameReference::Erased,
+                value: MirOperand::Copy(Self::retained_place(&retained)),
+                destination: Self::retained_place(&task),
+                allocation: self.runtime_reference(RuntimeAbiRole::TaskAllocation),
+                start: self.runtime_reference(RuntimeAbiRole::TaskStart),
+            }),
+            boolean,
+        )?;
+
+        let completed = self
+            .builder
+            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+        let rejected = self
+            .builder
+            .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
+
+        self.set_terminator(
+            block,
+            Self::retained_source(&source),
+            MirTerminatorKind::Branch {
+                condition: admitted,
+                then_edge: MirEdge::new(completed, []),
+                else_edge: MirEdge::new(rejected, []),
+            },
+        )?;
+
+        let report_type =
+            self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
+
+        let report = self.push_panic_report(
+            expression,
+            rejected,
+            &source,
+            bray_ir::MirPanicCause::TaskAdmission,
+            report_type,
+        )?;
+
+        self.finish_panic_to_active_catch(
+            expression,
+            rejected,
+            &source,
+            report,
+            report_type,
+            Some(&retained),
+        )?;
+
+        Ok((completed, MirOperand::Move(task)))
     }
 
     pub(super) fn runtime_reference(&self, role: RuntimeAbiRole) -> MirRuntimeReference {

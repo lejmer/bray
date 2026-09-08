@@ -7,6 +7,12 @@ use bray_ir::{
 use bray_runtime_interface::{RuntimeAbiRole, RuntimeAbiVersion};
 use bray_symbols::TypeId;
 
+/// Determines whether cancellation is an incident or the requested cleanup result.
+pub(crate) enum CleanupCancellation {
+    Propagate,
+    Resolved,
+}
+
 /// Retains cleanup incidents until every selected obligation has been resolved.
 pub(crate) struct CleanupOutcome {
     panicked: MirPlace,
@@ -99,6 +105,75 @@ impl CleanupOutcome {
         )
     }
 
+    /// Moves failed run outcomes into the retained incident state and exposes the completed branch.
+    pub(crate) fn resolve_run_result(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        result: MirPlace,
+        result_contract: (bray_ir::MirRunResultVariants, CleanupCancellation),
+    ) -> Result<(MirBlockId, MirBlockId), MirUnitBuildError> {
+        let (variants, cancellation) = result_contract;
+
+        let kind = builder.block_kind(block)?;
+        let completed = builder.push_block(source.clone(), kind)?;
+        let failed = builder.push_block(source.clone(), kind)?;
+        let panicked = builder.push_block(source.clone(), kind)?;
+        let cancelled = builder.push_block(source.clone(), kind)?;
+        let finished = builder.push_block(source.clone(), kind)?;
+
+        builder.set_terminator(
+            block,
+            source.clone(),
+            MirTerminatorKind::PatternBranch {
+                subject: MirOperand::Copy(result.clone()),
+                predicate: bray_ir::MirPatternPredicate::ActiveUnionVariant(variants.completed()),
+                matched: MirEdge::new(completed, []),
+                unmatched: MirEdge::new(failed, []),
+            },
+        )?;
+
+        builder.set_terminator(
+            failed,
+            source.clone(),
+            MirTerminatorKind::PatternBranch {
+                subject: MirOperand::Copy(result.clone()),
+                predicate: bray_ir::MirPatternPredicate::ActiveUnionVariant(variants.panicked()),
+                matched: MirEdge::new(panicked, []),
+                unmatched: MirEdge::new(cancelled, []),
+            },
+        )?;
+
+        let report = result.project(
+            bray_ir::MirProjectionKind::ActiveUnionPayloadElement {
+                variant: variants.panicked(),
+                ordinal: bray_symbols::SymbolOrdinal::new(0),
+            },
+            self.report.ty(),
+        );
+
+        self.retain_panic(
+            builder,
+            panicked,
+            source,
+            MirOperand::Move(report),
+            finished,
+        )?;
+
+        if matches!(cancellation, CleanupCancellation::Propagate) {
+            self.initialize_cancellation(builder, cancelled, source)?;
+        }
+
+        builder.set_terminator(
+            cancelled,
+            source.clone(),
+            MirTerminatorKind::Goto(MirEdge::new(finished, [])),
+        )?;
+
+        Ok((completed, finished))
+    }
+
     /// Adds incident continuations after the block's last fallible cleanup operation.
     pub(crate) fn check(
         &self,
@@ -108,6 +183,63 @@ impl CleanupOutcome {
     ) -> Result<MirBlockId, MirUnitBuildError> {
         let kind = builder.block_kind(block)?;
         let completed = builder.push_block(source.clone(), kind)?;
+
+        self.check_into(
+            builder,
+            block,
+            source,
+            MirEdge::new(completed, []),
+            completed,
+        )?;
+
+        Ok(completed)
+    }
+
+    /// Stores a successful call's result and exposes the continuation where that storage is initialized.
+    pub(crate) fn check_value(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        value: bray_ir::MirValueId,
+        failed: MirBlockId,
+    ) -> Result<(MirBlockId, MirPlace), MirUnitBuildError> {
+        let ty = builder.operand_type(&MirOperand::Value(value))?;
+        let kind = builder.block_kind(block)?;
+        let completed = builder.push_block(source.clone(), kind)?;
+        let parameter = builder.push_block_parameter(completed, source.clone(), ty)?;
+        let storage = builder.push_storage(source.clone(), MirStorageKind::Temporary, ty)?;
+        let place = MirPlace::new(storage, [], ty);
+
+        self.check_into(
+            builder,
+            block,
+            source,
+            MirEdge::new(completed, [MirOperand::Value(value)]),
+            failed,
+        )?;
+
+        self.store(
+            builder,
+            completed,
+            source,
+            &place,
+            MirOperand::Value(parameter),
+        )?;
+
+        Ok((completed, place))
+    }
+
+    /// Retains an incident before taking the failure path, without using a failed call's value.
+    pub(crate) fn check_into(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        completed: MirEdge,
+        failed: MirBlockId,
+    ) -> Result<(), MirUnitBuildError> {
+        let kind = builder.block_kind(block)?;
         let panicked = builder.push_block(source.clone(), kind)?;
         let cancelled = builder.push_block(source.clone(), kind)?;
         let report = builder.push_block_parameter(panicked, source.clone(), self.report.ty())?;
@@ -116,7 +248,7 @@ impl CleanupOutcome {
             block,
             source.clone(),
             MirTerminatorKind::CheckCallOutcome {
-                completed: MirEdge::new(completed, []),
+                completed,
                 panicked: MirCallPanicEdge::new(panicked, self.report.ty()),
                 cancelled: MirEdge::new(cancelled, []),
             },
@@ -133,18 +265,10 @@ impl CleanupOutcome {
         builder.set_terminator(
             cancelled,
             source.clone(),
-            MirTerminatorKind::Goto(MirEdge::new(completed, [])),
+            MirTerminatorKind::Goto(MirEdge::new(failed, [])),
         )?;
 
-        self.retain_panic(
-            builder,
-            panicked,
-            source,
-            MirOperand::Value(report),
-            completed,
-        )?;
-
-        Ok(completed)
+        self.retain_panic(builder, panicked, source, MirOperand::Value(report), failed)
     }
 
     fn retain_panic(
@@ -319,6 +443,85 @@ impl CleanupOutcome {
         MirOperand::Immediate {
             value: MirImmediateValue::Boolean(value),
             ty,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use bray_ir::{
+        MirBlockKind, MirImmediateValue, MirOperand, MirOperationKind, MirPlace,
+        MirRunResultVariants, MirSourceAnchor, MirStorageKind, MirTerminatorKind, MirUnitBuilder,
+        MirUnitKind,
+    };
+    use bray_symbols::{SemanticValueStore, SymbolId, TypeData, UnionVariantSymbolId};
+
+    use super::{CleanupCancellation, CleanupOutcome};
+
+    #[test]
+    fn requested_capture_resolution_does_not_cancel_the_owning_run() {
+        for (cancellation, expected) in [
+            (CleanupCancellation::Propagate, 1),
+            (CleanupCancellation::Resolved, 0),
+        ] {
+            let values = SemanticValueStore::try_new().unwrap();
+            let ty = values.intern_type(TypeData::tuple([])).unwrap();
+            let bound = bray_testing::test_bound_unit(916);
+            let source = MirSourceAnchor::from(bound.key().source());
+            let target = bray_testing::test_mir_target();
+            let abi = target.runtime_abi();
+
+            let mut builder =
+                MirUnitBuilder::for_bound(bound.identity(), MirUnitKind::Synchronous, target);
+
+            let entry = builder
+                .push_block(source.clone(), MirBlockKind::Ordinary)
+                .unwrap();
+
+            let outcome =
+                CleanupOutcome::new(&mut builder, entry, &source, ty, ty, ty, abi).unwrap();
+
+            let result = builder
+                .push_storage(source.clone(), MirStorageKind::Parameter(0), ty)
+                .unwrap();
+
+            let variants = MirRunResultVariants::new(
+                UnionVariantSymbolId::from_symbol_id(SymbolId::new(1)),
+                UnionVariantSymbolId::from_symbol_id(SymbolId::new(2)),
+                UnionVariantSymbolId::from_symbol_id(SymbolId::new(3)),
+            );
+
+            let (completed, finished) = outcome
+                .resolve_run_result(
+                    &mut builder,
+                    entry,
+                    &source,
+                    MirPlace::new(result, [], ty),
+                    (variants, cancellation),
+                )
+                .unwrap();
+
+            for block in [completed, finished] {
+                builder
+                    .set_terminator(block, source.clone(), MirTerminatorKind::Return(None))
+                    .unwrap();
+            }
+
+            let unit = builder.finish(entry).unwrap();
+
+            let cancellations = unit
+                .operations()
+                .iter()
+                .filter(|operation| {
+                    matches!(operation.kind(),
+                        MirOperationKind::Store { destination, value: MirOperand::Immediate {
+                            value: MirImmediateValue::Boolean(true), ..
+                        }, .. } if destination == &outcome.cancelled
+                    )
+                })
+                .count();
+
+            assert_eq!(cancellations, expected);
         }
     }
 }

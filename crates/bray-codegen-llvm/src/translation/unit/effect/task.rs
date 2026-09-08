@@ -1,98 +1,76 @@
 use super::super::core::UnitTranslator;
 use super::super::support::{extract_value, int_value, llvm};
-use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenSymbolKey, CodegenTypeKind};
+use bray_codegen::CodegenFailure;
 use bray_ir::MirRunResultVariants;
 use inkwell::IntPredicate;
-use inkwell::values::{BasicValueEnum, PointerValue};
+use inkwell::values::BasicValueEnum;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
-    pub(super) fn allocate_native_task(
+    pub(super) fn try_start_native_task(
         &mut self,
-        runtime: bray_ir::MirRuntimeReference,
-    ) -> Result<inkwell::values::IntValue<'context>, CodegenFailure> {
-        let allocation = self
-            .invoke_native_runtime(runtime, &[])?
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        let status = extract_value(&self.builder, allocation, 0)?;
-
-        self.require_runtime_success(status, "task.allocation")?;
-
-        int_value(extract_value(&self.builder, allocation, 1)?)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
-    }
-
-    pub(super) fn start_native_task(
-        &mut self,
-        runtime: bray_ir::MirRuntimeReference,
-        task: inkwell::values::IntValue<'context>,
+        allocation: bray_ir::MirRuntimeReference,
+        start: bray_ir::MirRuntimeReference,
         frame: BasicValueEnum<'context>,
-    ) -> Result<(), CodegenFailure> {
-        let status = self
-            .invoke_native_runtime(runtime, &[task.into(), frame])?
+        destination: &bray_ir::MirPlace,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let context = self.types.context();
+
+        let function = self.builder.get_insert_block().and_then(|block| block.get_parent())
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        self.require_runtime_success(status, "task.start")?;
+        let allocated = context.append_basic_block(function, "task.allocated");
+        let published = context.append_basic_block(function, "task.published");
+        let rejected = context.append_basic_block(function, "task.rejected");
+        let finished = context.append_basic_block(function, "task.admission.finished");
 
-        Ok(())
+        let allocation = self
+            .invoke_native_runtime(allocation, &[])?
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let status = int_value(extract_value(&self.builder, allocation, 0)?)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let task = extract_value(&self.builder, allocation, 1)?;
+
+        let success = llvm(self.builder.build_int_compare(IntPredicate::EQ, status,
+            status.get_type().const_zero(), "task.allocation.success"))?;
+
+        llvm(self.builder.build_conditional_branch(success, allocated, rejected))?;
+        self.builder.position_at_end(allocated);
+
+        let status = self
+            .invoke_native_runtime(start, &[task, frame])?
+            .and_then(int_value)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let success = llvm(self.builder.build_int_compare(IntPredicate::EQ, status,
+            status.get_type().const_zero(), "task.publication.success"))?;
+
+        llvm(self.builder.build_conditional_branch(success, published, rejected))?;
+        self.builder.position_at_end(published);
+
+        let destination = self.place(destination)?;
+
+        llvm(self.builder.build_store(destination, task))?;
+        llvm(self.builder.build_unconditional_branch(finished))?;
+        self.builder.position_at_end(rejected);
+        llvm(self.builder.build_unconditional_branch(finished))?;
+        self.builder.position_at_end(finished);
+
+        let result = llvm(self.builder.build_phi(context.bool_type(), "task.admitted"))?;
+
+        result.add_incoming(&[
+            (&context.bool_type().const_int(1, false), published),
+            (&context.bool_type().const_zero(), rejected),
+        ]);
+
+        Ok(result.as_basic_value())
     }
 
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "task observation creation retains its typed result and two cleanup phases"
-    )]
-    pub(super) fn create_task_observation_frame(
-        &mut self,
-        creation: &CodegenHelperMapping,
-        task: BasicValueEnum<'context>,
-        request_cancellation: bool,
-        result: bray_symbols::TypeId,
-        variants: MirRunResultVariants,
-        cancellation: &CodegenHelperMapping,
-        lifecycle: &CodegenHelperMapping,
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let Some(CodegenSymbolKey::Runtime(runtime)) = creation.symbol() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
-
-        let layout = self.run_result_layout(result, variants)?;
-        let task = int_value(task).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        let boolean = self
-            .types
-            .context()
-            .i8_type()
-            .const_int(u64::from(request_cancellation), false);
-
-        let callback_type = self
-            .types
-            .context()
-            .ptr_type(inkwell::AddressSpace::default());
-
-        let cancellation = self
-            .helper_address(cancellation)?
-            .unwrap_or_else(|| callback_type.const_null().into());
-
-        let lifecycle = self
-            .helper_address(lifecycle)?
-            .unwrap_or_else(|| callback_type.const_null().into());
-
-        let arguments = [
-            task.into(),
-            boolean.into(),
-            layout.into(),
-            cancellation.into(),
-            lifecycle.into(),
-        ];
-
-        self.invoke_native_runtime(*runtime, &arguments)?
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)
-    }
-
-    pub(super) fn resolve_native_task(
+    pub(super) fn resolve_native_run(
         &mut self,
         runtime: bray_ir::MirRuntimeReference,
-        task: inkwell::values::IntValue<'context>,
+        mut arguments: Vec<BasicValueEnum<'context>>,
         result: bray_symbols::TypeId,
         variants: MirRunResultVariants,
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
@@ -106,8 +84,13 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let storage = self.aligned_alloca(result, mapping.alignment().get(), "task.result")?;
         let layout = self.run_result_layout(result, variants)?;
 
+        arguments.extend([
+            BasicValueEnum::PointerValue(storage),
+            BasicValueEnum::PointerValue(layout),
+        ]);
+
         let status = self
-            .invoke_native_runtime(runtime, &[task.into(), storage.into(), layout.into()])?
+            .invoke_native_runtime(runtime, &arguments)?
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         self.require_runtime_success(status, "task.resolve")?;
@@ -118,110 +101,48 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )
     }
 
-    fn run_result_layout(
+    pub(super) fn borrow_native_task_completion(
         &mut self,
+        runtime: bray_ir::MirRuntimeReference,
+        task: BasicValueEnum<'context>,
         result: bray_symbols::TypeId,
-        selected: MirRunResultVariants,
-    ) -> Result<PointerValue<'context>, CodegenFailure> {
-        let mapping = self
-            .type_mapping(result)
-            .cloned()
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let context = self.types.context();
+        let usize = crate::native::pointer_integer_type(context, self.request.target());
+        let output = self.allocate_temporary(usize, "task.completion.address")?;
+
+        let status = self
+            .invoke_native_runtime(runtime, &[task, output.into()])?
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let represented = mapping
-            .layout()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        self.require_runtime_success(status, "task.completion.borrow")?;
 
-        let CodegenTypeKind::Union { tag, .. } = mapping.kind() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
+        let address = llvm(self.builder.build_load(
+            usize,
+            output,
+            "task.completion.address.value",
+        ))?
+        .into_int_value();
 
-        let variant = |identity| {
-            mapping
-                .kind()
-                .union_variant(identity)
-                .cloned()
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)
-        };
+        let pointer = llvm(self.builder.build_int_to_ptr(
+            address,
+            context.ptr_type(inkwell::AddressSpace::default()),
+            "task.completion.borrowed",
+        ))?;
 
-        let completed = variant(selected.completed())?;
-        let panicked = variant(selected.panicked())?;
-        let cancelled = variant(selected.cancelled())?;
+        let present = super::super::support::nonzero_integer(
+            &self.builder,
+            address,
+            "task.completion.present",
+        )?;
 
-        let completed_field = completed
-            .fields()
-            .first()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let value = self.construct_nullable_present(result, pointer.into())?;
+        let absent = self.types.map(result)?.const_zero();
 
-        let panicked_field = panicked
-            .fields()
-            .first()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        let completed_layout = self
-            .type_mapping(completed_field.ty())
-            .and_then(|mapping| mapping.layout())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        let tag = (*tag).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        let tag_size = self
-            .type_mapping(tag)
-            .and_then(|mapping| mapping.layout())
-            .map(|layout| layout.size())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        let layout_type =
-            crate::native::run_result_layout_type(self.types.context(), self.request.target());
-
-        let usize =
-            crate::native::pointer_integer_type(self.types.context(), self.request.target());
-
-        let usize_constant = |value| usize.const_int(value, false).into();
-
-        let tag_constant = |value: &bray_symbols::IntegerConstant| {
-            value
-                .to_u64()
-                .map(|value| {
-                    self.types
-                        .context()
-                        .i64_type()
-                        .const_int(value, false)
-                        .into()
-                })
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)
-        };
-
-        let value = layout_type.const_named_struct(&[
-            usize_constant(represented.size()),
-            usize_constant(represented.alignment().get()),
-            usize_constant(tag_size),
-            tag_constant(
-                completed
-                    .tag()
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
-            )?,
-            usize_constant(completed_field.offset_bytes()),
-            usize_constant(completed_layout.size()),
-            usize_constant(completed_layout.alignment().get()),
-            tag_constant(
-                panicked
-                    .tag()
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
-            )?,
-            usize_constant(panicked_field.offset_bytes()),
-            tag_constant(
-                cancelled
-                    .tag()
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
-            )?,
-        ]);
-
-        let storage = self.allocate_temporary(layout_type, "task.result.layout")?;
-
-        llvm(self.builder.build_store(storage, value))?;
-
-        Ok(storage)
+        llvm(
+            self.builder
+                .build_select(present, value, absent, "task.completion"),
+        )
     }
 
     pub(super) fn require_runtime_success(

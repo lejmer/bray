@@ -13,6 +13,24 @@ async func produce() -> Result<i32, i32>
     return Ok(42);
 }
 
+@layout(c, align = 32)
+struct Payload
+{
+    first: u64;
+    second: u64;
+    third: u64;
+}
+
+async func produce_payload() -> Payload
+{
+    return Payload
+    {
+        first = 17,
+        second = 29,
+        third = 41
+    };
+}
+
 async func fail()
 {
     panic("independent task panic");
@@ -31,6 +49,7 @@ async func main()
     let first: Task<unit> = complete().start();
     let second: Task<unit> = complete().start();
     let result_task: Task<Result<i32, i32>> = produce().start();
+    let payload_task: Task<Payload> = produce_payload().start();
     let failed: Task<unit> = fail().start();
     let cancelled: Task<unit> = await_cancellation().start();
 
@@ -40,6 +59,12 @@ async func main()
     let value: i32 = std.testing.assert_ok<i32, i32>(try await result_task.join());
 
     assert(value == 42);
+
+    let payload: Payload = try await payload_task.join();
+
+    assert(payload.first == 17);
+    assert(payload.second == 29);
+    assert(payload.third == 41);
 
     let _: PanicReport = std.testing.assert_panicked<unit>(await failed.join());
 

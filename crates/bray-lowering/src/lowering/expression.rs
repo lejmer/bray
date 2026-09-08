@@ -4,6 +4,7 @@ mod conversion;
 mod core;
 mod index;
 mod memory;
+mod memory_buffer;
 mod nullable;
 mod numeric;
 mod operand;

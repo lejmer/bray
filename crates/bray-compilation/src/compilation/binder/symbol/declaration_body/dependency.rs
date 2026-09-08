@@ -14,13 +14,14 @@ use crate::compilation::binder::CompilationBindingContext;
 
 pub(in crate::compilation::binder::symbol) fn portable_dependency_contract(
     context: &CompilationBindingContext<'_>,
+    bound: &bray_bound_tree::BoundUnit,
     storage: &StoragePlan,
     contract: &BoundDependencyContract,
 ) -> BindingQueryResult<DependencyContractTemplateId> {
     let mut requirements = Vec::new();
 
     for requirement in contract.requirements() {
-        if let Some(requirement) = portable_requirement(context, storage, requirement)? {
+        if let Some(requirement) = portable_requirement(context, bound, storage, requirement)? {
             requirements.push(requirement);
         }
     }
@@ -33,12 +34,13 @@ pub(in crate::compilation::binder::symbol) fn portable_dependency_contract(
 
 fn portable_requirement(
     context: &CompilationBindingContext<'_>,
+    bound: &bray_bound_tree::BoundUnit,
     storage: &StoragePlan,
     requirement: &BoundDependencyRequirement,
 ) -> BindingQueryResult<Option<DependencyRequirement>> {
     match requirement {
         BoundDependencyRequirement::Direct { subject, kind } => {
-            let Some(subject) = portable_bound_subject(context, storage, *subject)? else {
+            let Some(subject) = portable_bound_subject(context, bound, storage, *subject)? else {
                 return Ok(None);
             };
 
@@ -48,14 +50,15 @@ fn portable_requirement(
             )))
         }
         BoundDependencyRequirement::Guarded(guarded) => {
-            let Some(guard) = portable_guard(context, storage, guarded.guard())? else {
+            let Some(guard) = portable_guard(context, bound, storage, guarded.guard())? else {
                 return Ok(None);
             };
 
             let mut requirements = Vec::new();
 
             for requirement in guarded.requirements() {
-                let Some(requirement) = portable_requirement(context, storage, requirement)? else {
+                let Some(requirement) = portable_requirement(context, bound, storage, requirement)?
+                else {
                     return Ok(None);
                 };
 
@@ -69,20 +72,22 @@ fn portable_requirement(
 
 fn portable_guard(
     context: &CompilationBindingContext<'_>,
+    bound: &bray_bound_tree::BoundUnit,
     storage: &StoragePlan,
     guard: BoundDependencyGuard,
 ) -> BindingQueryResult<Option<DependencyGuard>> {
     match guard {
-        BoundDependencyGuard::NullablePresent(access) => Ok(portable_guard_subject(
-            context,
-            storage,
-            access,
-            |projection| matches!(projection, StorageProjection::NullableValue),
-        )?
-        .map(|subject| DependencyGuard::NullablePresent(subject.subject))),
+        BoundDependencyGuard::NullablePresent(access) => {
+            Ok(
+                portable_guard_subject(context, bound, storage, access, |projection| {
+                    matches!(projection, StorageProjection::NullableValue)
+                })?
+                .map(|subject| DependencyGuard::NullablePresent(subject.subject)),
+            )
+        }
         BoundDependencyGuard::ActiveUnionVariant { access, variant } => {
             Ok(
-                portable_guard_subject(context, storage, access, |projection| {
+                portable_guard_subject(context, bound, storage, access, |projection| {
                     matches!(
                         projection,
                         StorageProjection::ActiveUnionPayloadField {
@@ -104,14 +109,17 @@ fn portable_guard(
 
 fn portable_bound_subject(
     context: &CompilationBindingContext<'_>,
+    bound: &bray_bound_tree::BoundUnit,
     storage: &StoragePlan,
     subject: BoundDependencySubject,
 ) -> BindingQueryResult<Option<PortableSubject>> {
     match subject {
         BoundDependencySubject::Storage(identity) => {
-            portable_storage_identity(context, storage, identity)
+            portable_storage_identity(context, bound, storage, identity)
         }
-        BoundDependencySubject::StorageAccess(access) => portable_subject(context, storage, access),
+        BoundDependencySubject::StorageAccess(access) => {
+            portable_subject(context, bound, storage, access)
+        }
         BoundDependencySubject::BorrowCapability(capability) => {
             let capability = storage.borrow_capability(capability).ok_or_else(|| {
                 storage_flow_failure(
@@ -121,7 +129,7 @@ fn portable_bound_subject(
                 )
             })?;
 
-            portable_subject(context, storage, capability.access())
+            portable_subject(context, bound, storage, capability.access())
         }
         BoundDependencySubject::ImplementationWitness(witness) => Ok(Some(PortableSubject::root(
             DependencySubjectRoot::ImplementationWitness(witness),
@@ -139,6 +147,7 @@ fn portable_bound_subject(
 
 fn portable_subject(
     context: &CompilationBindingContext<'_>,
+    bound: &bray_bound_tree::BoundUnit,
     storage: &StoragePlan,
     access: StorageAccessId,
 ) -> BindingQueryResult<Option<PortableSubject>> {
@@ -147,11 +156,12 @@ fn portable_subject(
         .ok_or_else(|| missing_storage_access(access))?
         .len();
 
-    portable_subject_with_projection_count(context, storage, access, projection_count)
+    portable_subject_with_projection_count(context, bound, storage, access, projection_count)
 }
 
 fn portable_guard_subject(
     context: &CompilationBindingContext<'_>,
+    bound: &bray_bound_tree::BoundUnit,
     storage: &StoragePlan,
     access: StorageAccessId,
     is_guard_projection: impl FnOnce(&StorageProjection) -> bool,
@@ -166,11 +176,12 @@ fn portable_guard_subject(
         projections.len()
     };
 
-    portable_subject_with_projection_count(context, storage, access, projection_count)
+    portable_subject_with_projection_count(context, bound, storage, access, projection_count)
 }
 
 fn portable_subject_with_projection_count(
     context: &CompilationBindingContext<'_>,
+    bound: &bray_bound_tree::BoundUnit,
     storage: &StoragePlan,
     access: StorageAccessId,
     projection_count: usize,
@@ -179,7 +190,7 @@ fn portable_subject_with_projection_count(
         return Err(missing_storage_access(access));
     };
 
-    let Some(mut subject) = portable_storage_identity(context, storage, identity)? else {
+    let Some(mut subject) = portable_storage_identity(context, bound, storage, identity)? else {
         return Ok(None);
     };
 
@@ -217,6 +228,7 @@ fn portable_subject_with_projection_count(
 
 fn portable_storage_identity(
     context: &CompilationBindingContext<'_>,
+    bound: &bray_bound_tree::BoundUnit,
     storage: &StoragePlan,
     identity: bray_bound_tree::StorageIdentityId,
 ) -> BindingQueryResult<Option<PortableSubject>> {
@@ -240,6 +252,27 @@ fn portable_storage_identity(
             )?;
 
             DependencySubjectRoot::Parameter(SymbolOrdinal::new(parameter.ordinal()))
+        }
+        StorageIdentity::ContractParameter(parameter) => {
+            let index = bound
+                .contract_inputs()
+                .and_then(|inputs| {
+                    inputs
+                        .parameters()
+                        .iter()
+                        .position(|candidate| *candidate == parameter)
+                })
+                .ok_or_else(|| {
+                    BindingQueryError::Binding(BindingError::Assembly(
+                        bray_binder::BoundUnitAssemblyError::InvalidBoundUnit(
+                            bray_bound_tree::BoundUnitBuildError::MissingContractParameter {
+                                parameter,
+                            },
+                        ),
+                    ))
+                })?;
+
+            DependencySubjectRoot::Parameter(super::super::surface::symbol_ordinal(index)?)
         }
         StorageIdentity::Receiver(_) => DependencySubjectRoot::Receiver,
         StorageIdentity::Static(id) => {

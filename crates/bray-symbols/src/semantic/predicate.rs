@@ -66,6 +66,7 @@ impl GenericConstraintObligationKey {
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct PredicateSemanticSummary {
     dependency_contract: DependencyContractTemplateId,
+    condition: Option<crate::ConstantTermId>,
 }
 
 impl PredicateSemanticSummary {
@@ -73,7 +74,23 @@ impl PredicateSemanticSummary {
     pub const fn new(dependency_contract: DependencyContractTemplateId) -> Self {
         Self {
             dependency_contract,
+            condition: None,
         }
+    }
+
+    /// Retains bounded symbolic meaning without claiming that the predicate is true.
+    ///
+    /// Callable inputs use receiver-first argument ordinals. A postcondition's result follows
+    /// the ordinary parameters. Absence means that this summary supplies no logical evidence.
+    pub const fn with_condition(mut self, condition: Option<crate::ConstantTermId>) -> Self {
+        self.condition = condition;
+
+        self
+    }
+
+    /// Returns the retained condition, which still needs proof at each use.
+    pub const fn condition(self) -> Option<crate::ConstantTermId> {
+        self.condition
     }
 
     /// Returns the portable dependencies of the predicate expression.
@@ -253,6 +270,8 @@ pub enum CallableContractClauseKind {
     Requires,
     /// A postcondition established by successful completion.
     Ensures,
+    /// An execution-entry predicate guarding guarantees.
+    Guard,
     /// A static predicate required while selecting or instantiating the callable.
     Static,
 }
@@ -277,6 +296,7 @@ pub struct CallableContractClause {
     ordinal: SymbolOrdinal,
     kind: CallableContractClauseKind,
     value: CallableContractClauseValue,
+    guard: Option<SymbolOrdinal>,
 }
 
 impl CallableContractClause {
@@ -290,6 +310,7 @@ impl CallableContractClause {
             ordinal,
             kind,
             value: CallableContractClauseValue::Predicate(predicate),
+            guard: None,
         }
     }
 
@@ -302,6 +323,7 @@ impl CallableContractClause {
         Self {
             ordinal,
             kind: CallableContractClauseKind::Static,
+            guard: None,
             value: CallableContractClauseValue::TraitSatisfaction {
                 subject,
                 application,
@@ -312,6 +334,18 @@ impl CallableContractClause {
     /// Returns the stable declaration-order position within the owning contract list.
     pub const fn ordinal(self) -> SymbolOrdinal {
         self.ordinal
+    }
+
+    /// Attaches the immediate enclosing entry guard to a postcondition or nested guard.
+    pub const fn with_guard(mut self, guard: Option<SymbolOrdinal>) -> Self {
+        self.guard = guard;
+
+        self
+    }
+
+    /// Returns the immediate execution-entry guard controlling this clause.
+    pub const fn guard(self) -> Option<SymbolOrdinal> {
+        self.guard
     }
 
     /// Returns the semantic clause role.
@@ -371,40 +405,22 @@ impl TrustedCapabilityRequirement {
     }
 }
 
-/// Checked callable contracts, trusted obligations, and portable dependencies.
+/// Checked callable contracts and their invocation and deferred behavior.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CallableContractSet {
-    invocation_preconditions: Arc<[CallableContractClause]>,
-    static_constraints: Arc<[CallableContractClause]>,
-    normal_completion_postconditions: Arc<[CallableContractClause]>,
+    conditions: super::CallableConditionSet,
     phase_behaviors: super::CallablePhaseBehaviors,
 }
 
 impl CallableContractSet {
-    /// Creates a checked callable contract with explicit invocation and completion phases.
+    /// Combines checked declaration conditions with the callable's phase behavior.
     pub fn new(
-        clauses: impl IntoIterator<Item = CallableContractClause>,
+        conditions: super::CallableConditionSet,
         invocation_behavior: super::CallablePhaseBehavior,
         deferred_execution_behavior: Option<super::CallablePhaseBehavior>,
     ) -> Self {
-        let mut invocation_preconditions = Vec::new();
-        let mut static_constraints = Vec::new();
-        let mut normal_completion_postconditions = Vec::new();
-
-        for clause in clauses {
-            match clause.kind() {
-                CallableContractClauseKind::Requires => invocation_preconditions.push(clause),
-                CallableContractClauseKind::Ensures => {
-                    normal_completion_postconditions.push(clause);
-                }
-                CallableContractClauseKind::Static => static_constraints.push(clause),
-            }
-        }
-
         Self {
-            invocation_preconditions: shared_slice(invocation_preconditions),
-            static_constraints: shared_slice(static_constraints),
-            normal_completion_postconditions: shared_slice(normal_completion_postconditions),
+            conditions,
             phase_behaviors: match deferred_execution_behavior {
                 Some(deferred) => {
                     super::CallablePhaseBehaviors::asynchronous(invocation_behavior, deferred)
@@ -412,21 +428,6 @@ impl CallableContractSet {
                 None => super::CallablePhaseBehaviors::synchronous(invocation_behavior),
             },
         }
-    }
-
-    /// Returns preconditions checked before callable invocation.
-    pub fn invocation_preconditions(&self) -> &[CallableContractClause] {
-        &self.invocation_preconditions
-    }
-
-    /// Returns constraints checked while selecting or instantiating the callable.
-    pub fn static_constraints(&self) -> &[CallableContractClause] {
-        &self.static_constraints
-    }
-
-    /// Returns postconditions established exclusively after normal completion.
-    pub fn normal_completion_postconditions(&self) -> &[CallableContractClause] {
-        &self.normal_completion_postconditions
     }
 
     /// Returns behavior incurred while invoking the callable.
@@ -444,6 +445,18 @@ impl CallableContractSet {
     /// Returns behavior for every callable execution phase.
     pub const fn phase_behaviors(&self) -> &super::CallablePhaseBehaviors {
         &self.phase_behaviors
+    }
+}
+
+impl super::CallableConditions for CallableContractSet {
+    type Clause = CallableContractClause;
+
+    fn conditions(&self) -> &super::CallableConditionSet {
+        &self.conditions
+    }
+
+    fn conditions_mut(&mut self) -> &mut super::CallableConditionSet {
+        &mut self.conditions
     }
 }
 
@@ -488,6 +501,7 @@ mod tests {
         CallableContractClause, CallableContractClauseKind, CallableContractSet,
         GenericConstraintSet, PredicateDefinitionState, PredicateSemanticSummary, ProofOutcome,
     };
+    use crate::CallableConditions;
     use crate::{
         CallablePhaseBehavior, CurrentRunCancellation, DependencyContractTemplateData,
         SemanticValueStore, SymbolOrdinal,
@@ -556,7 +570,7 @@ mod tests {
         );
 
         let contract = CallableContractSet::new(
-            [
+            crate::CallableConditionSet::new([
                 CallableContractClause::new(
                     SymbolOrdinal::new(0),
                     CallableContractClauseKind::Requires,
@@ -567,13 +581,20 @@ mod tests {
                     CallableContractClauseKind::Ensures,
                     predicate,
                 ),
-            ],
+            ]),
             CallablePhaseBehavior::empty(dependencies),
             Some(behavior),
         );
 
-        assert_eq!(contract.invocation_preconditions().len(), 1);
-        assert_eq!(contract.normal_completion_postconditions().len(), 1);
+        assert_eq!(contract.conditions().invocation_preconditions().len(), 1);
+
+        assert_eq!(
+            contract
+                .conditions()
+                .normal_completion_postconditions()
+                .len(),
+            1
+        );
 
         assert_eq!(
             contract

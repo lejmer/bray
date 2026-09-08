@@ -438,7 +438,7 @@ mod tests {
                     None,
                     vec![
                         context.ptr_type(inkwell::AddressSpace::default()).into(),
-                        context.i64_type().into(),
+                        context.ptr_type(inkwell::AddressSpace::default()).into(),
                         context.ptr_type(inkwell::AddressSpace::default()).into(),
                     ],
                 ),
@@ -451,14 +451,22 @@ mod tests {
                             )
                             .into(),
                     ),
-                    vec![context.i64_type().into(); 3],
+                    vec![
+                        context.ptr_type(inkwell::AddressSpace::default()).into(),
+                        context.ptr_type(inkwell::AddressSpace::default()).into(),
+                        context.i64_type().into(),
+                        context.i64_type().into(),
+                    ],
                 ),
                 NativeTarget::Aarch64LinuxGnu
                 | NativeTarget::Aarch64WindowsMsvc
                 | NativeTarget::Aarch64MacOs => (
                     Some(context.i64_type().array_type(2).into()),
                     vec![
-                        context.i64_type().into(),
+                        context
+                            .ptr_type(inkwell::AddressSpace::default())
+                            .array_type(2)
+                            .into(),
                         context.i64_type().array_type(2).into(),
                     ],
                 ),

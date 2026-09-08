@@ -471,9 +471,8 @@ fn export_relationship(
         return Ok(None);
     }
 
-    let Some(kind) = SymbolRelationshipKind::between(owner.kind(), member.kind()) else {
-        return Ok(None);
-    };
+    let kind = SymbolRelationshipKind::between(owner.kind(), member.kind())
+        .ok_or(PackageInterfaceExportError::IncompletePublicDeclarationSemantics(member.kind()))?;
 
     let ordinal = exported_relationship_ordinal(graph, owner, member, selected)
         .map(SymbolOrdinal::raw)

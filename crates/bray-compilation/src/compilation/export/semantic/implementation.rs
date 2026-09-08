@@ -1,18 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use bray_binder::{SymbolQueryErrorProvider, SymbolQueryProvider};
+use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::CheckedTemplateKind;
 use bray_package_interface::{
     InterfaceCoherenceRecord, InterfaceDependencyRequirementKind, InterfaceImplementationRecord,
-    InterfacePredicateDefinitionState, InterfaceSymbolReference, InterfaceTraitApplicationId,
-    InterfaceTypeId,
+    InterfaceSymbolReference, InterfaceTraitApplicationId, InterfaceTypeId,
 };
 use bray_symbols::{
     AnySymbolId, ConstantDefinitionState, DependencyRequirementKind, ImplementationCoherenceQuery,
-    ImplementationSymbolId, PredicateDefinition, PredicateDefinitionQuery,
-    PredicateDefinitionState, StaticInstanceTemplateQuery, StaticStorageDuration, SymbolKind,
-    SymbolQueryContract, SymbolQueryRequest, TraitPredicateFulfillmentDefinitionQuery,
-    TraitPredicateMemberDefinitionQuery,
+    ImplementationSymbolId, StaticInstanceTemplateQuery, StaticStorageDuration, SymbolKind,
+    SymbolQueryRequest,
 };
 
 use super::super::PackageInterfaceExportError;
@@ -215,66 +212,6 @@ pub(super) const fn incomplete_type() -> PackageInterfaceExportError {
     PackageInterfaceExportError::IncompletePublicDeclarationSemantics(
         SymbolKind::TypeCallableMember,
     )
-}
-
-pub(super) fn predicate_definition(
-    binder: &CompilationBindingContext<'_>,
-    symbol: AnySymbolId,
-) -> Result<Option<InterfacePredicateDefinitionState>, PackageInterfaceExportError> {
-    let state = match symbol {
-        AnySymbolId::Predicate(predicate) => resolve_predicate_definition(
-            binder,
-            symbol,
-            SymbolQueryRequest::<PredicateDefinitionQuery>::new(predicate),
-        )?,
-        AnySymbolId::TraitPredicateMember(predicate) => resolve_predicate_definition(
-            binder,
-            symbol,
-            SymbolQueryRequest::<TraitPredicateMemberDefinitionQuery>::new(predicate),
-        )?,
-        AnySymbolId::TraitPredicateFulfillment(predicate) => resolve_predicate_definition(
-            binder,
-            symbol,
-            SymbolQueryRequest::<TraitPredicateFulfillmentDefinitionQuery>::new(predicate),
-        )?,
-        _ => return Ok(None),
-    };
-
-    Ok(Some(state))
-}
-
-fn resolve_predicate_definition<'a, C>(
-    binder: &CompilationBindingContext<'a>,
-    symbol: AnySymbolId,
-    request: SymbolQueryRequest<C>,
-) -> Result<InterfacePredicateDefinitionState, PackageInterfaceExportError>
-where
-    C: SymbolQueryContract<Value = PredicateDefinitionState<PredicateDefinition>>,
-    CompilationBindingContext<'a>: SymbolQueryErrorProvider<UpstreamError = crate::fact::FactQueryError>
-        + SymbolQueryProvider<C>,
-{
-    let semantics = binder
-        .resolve_symbol_query(request)
-        .map_err(super::super::binding_query_export_error)?;
-
-    if semantics.diagnostics().has_errors() {
-        return Err(incomplete(symbol));
-    }
-
-    predicate_definition_state(semantics.value()).ok_or_else(|| incomplete(symbol))
-}
-
-const fn predicate_definition_state<T>(
-    state: &PredicateDefinitionState<T>,
-) -> Option<InterfacePredicateDefinitionState> {
-    match state {
-        PredicateDefinitionState::Defined(_) => Some(InterfacePredicateDefinitionState::Defined),
-        PredicateDefinitionState::Required => Some(InterfacePredicateDefinitionState::Required),
-        PredicateDefinitionState::OpaqueTrusted => {
-            Some(InterfacePredicateDefinitionState::OpaqueTrusted)
-        }
-        PredicateDefinitionState::Error(_) => None,
-    }
 }
 
 pub(super) const fn dependency_requirement_kind(

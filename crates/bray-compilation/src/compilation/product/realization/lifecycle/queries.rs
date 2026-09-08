@@ -1,8 +1,6 @@
-use bray_binder::SymbolQueryProvider;
 use bray_ir::MirCallableReference;
 use bray_symbols::{
-    CallableExecution, CallableSignature, CallableSignatureQuery, SymbolQueryRequest,
-    TypeAssociatedLifecycleSlot, TypeData, TypeId,
+    CallableExecution, CallableSignature, TypeAssociatedLifecycleSlot, TypeData, TypeId,
 };
 
 use super::super::support::receiver_codegen_type;
@@ -15,7 +13,7 @@ use crate::fact::{CancellationToken, FactQueryError};
 use bray_compiler_known::CompilerKnownDeclarationKey;
 
 impl Compilation {
-    pub(in crate::compilation::product::realization) fn lifecycle_callable(
+    pub(in crate::compilation::product) fn lifecycle_callable(
         &self,
         ty: TypeId,
         slot: TypeAssociatedLifecycleSlot,
@@ -25,78 +23,23 @@ impl Compilation {
         CodegenPreparationError,
     > {
         let values = self.semantic_value_store()?;
-
-        let data = values
-            .type_data(ty)
-            .map_err(FactQueryError::SemanticValueStore)?;
-
-        let TypeData::Named {
-            definition,
-            substitution,
-        } = data.as_ref()
-        else {
-            return Ok(None);
-        };
-
-        let surface =
-            self.type_associated_surface_result_with_cancellation(*definition, cancellation)?;
-
-        let members = surface
-            .value()
-            .lifecycle_members()
-            .iter()
-            .filter(|member| member.slot() == slot)
-            .map(|member| member.id())
-            .collect::<Vec<_>>();
-
-        let [member] = members.as_slice() else {
-            if members.is_empty() {
-                return Ok(None);
-            }
-
-            return Err(ProductQueryFailure::count_mismatch(
-                ProductQueryContext::Type(ty),
-                ProductDataKind::LifecycleMember,
-                1,
-                members.len(),
-            )
-            .into());
-        };
-
-        let member = *member;
-
-        let callable =
-            crate::compilation::implementation::callable_instance(values, member, [*substitution])?;
-
         let binding_context = self.binding_context(cancellation)?;
 
-        let signature = binding_context
-            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
-                callable.definition().callable_symbol(),
-            ))
-            .map_err(crate::compilation::binder::binding_query_error)?;
+        let selected =
+            crate::compilation::operation::selected_lifecycle_callable(&binding_context, ty, slot)?;
 
-        let constants = self.checked_constant_terms_for_templates_with_cancellation(
-            [
-                signature.value().callable_type(),
-                signature.value().result(),
-            ],
-            cancellation,
-        )?;
+        if selected.diagnostics().has_errors() {
+            // The codegen failure retains the semantic selection's owned diagnostics.
+            return Err(CodegenPreparationError::Diagnostics(
+                selected.diagnostics().clone(),
+            ));
+        }
 
-        let signature = bray_checker::resolve_callable_signature_template(
-            values,
-            signature.value(),
-            callable.substitution(),
-            constants.value(),
-        )
-        .map_err(FactQueryError::from)?
-        .ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::CallableData(callable),
-                ProductDataKind::CallableSignature,
-            )
-        })?;
+        let (selected, _) = selected.into_parts();
+
+        let Some((callable, signature)) = selected else {
+            return Ok(None);
+        };
 
         let receiver = signature.receiver().ok_or_else(|| {
             ProductQueryFailure::missing(
@@ -105,14 +48,18 @@ impl Compilation {
             )
         })?;
 
-        let receiver_ty =
-            self.concrete_codegen_type(receiver.ty(), Some(*substitution), None, cancellation)?;
+        let receiver_ty = self.concrete_codegen_type(
+            receiver.ty(),
+            Some(callable.substitution()),
+            None,
+            cancellation,
+        )?;
 
         let receiver = receiver_codegen_type(values, receiver_ty, receiver.mode())?;
 
         let result = self.concrete_codegen_type(
             signature.result(),
-            Some(*substitution),
+            Some(callable.substitution()),
             None,
             cancellation,
         )?;

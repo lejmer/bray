@@ -138,9 +138,15 @@ func read_all(pos output: &mut std.process.ChildOutput) -> usize
 func required_close(pos mut output: std.process.ChildOutput)
 {
     std.testing.assert_ok<unit, std.io.IoError>(output.close());
+
+    assert(output.is_complete());
 }
 
 func required_wait(pos mut child: std.process.ChildProcess) -> std.process.ExitStatus
 {
-    return std.testing.assert_ok<std.process.ExitStatus, std.process.ChildError>(child.wait());
+    let status = std.testing.assert_ok<std.process.ExitStatus, std.process.ChildError>(child.wait());
+
+    assert(child.is_complete());
+
+    return status;
 }

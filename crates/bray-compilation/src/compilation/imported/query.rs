@@ -2291,7 +2291,7 @@ mod tests {
         expected_interface: &[u8],
         actual_interface: &[u8],
     ) -> StandardLibraryRoot {
-        let runtime_abi = bray_runtime_interface::RuntimeAbiVersion::new(1, 0);
+        let runtime_abi = bray_runtime_interface::RuntimeAbiVersion::CURRENT;
         let prefix = standard_library_target_artifact_directory(&target, runtime_abi);
 
         let interface = StandardLibraryArtifact::try_for_bytes(

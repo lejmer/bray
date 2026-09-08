@@ -150,6 +150,10 @@ impl Lowerer<'_> {
             (MirBlockId, MirBlockId, bray_symbols::TypeId),
         >,
     ) -> Result<MirBlockId, LoweringError> {
+        if let Some(place) = abandoned {
+            self.cleanup_retained_storages.push(place.storage());
+        }
+
         let mut lifecycle = self.builder.push_block(
             Self::retained_source(source),
             MirBlockKind::LifecycleResolution,
@@ -165,6 +169,7 @@ impl Lowerer<'_> {
                     None,
                     None,
                     None,
+                    false,
                 )?
                 .0;
         }
@@ -197,28 +202,48 @@ impl Lowerer<'_> {
                     None,
                     None,
                     None,
+                    false,
                 )?
                 .0;
         }
 
-        self.push_cleanup_operations(
-            lifecycle,
-            source,
-            MirCleanupPhase::LifecycleResolution,
-            plans,
-            None,
-            failures,
-        )
-        .map(|(block, _)| block)
+        let result = self
+            .push_cleanup_operations(
+                lifecycle,
+                source,
+                MirCleanupPhase::LifecycleResolution,
+                plans,
+                None,
+                failures,
+            )
+            .map(|(block, _)| block);
+
+        if abandoned.is_some() {
+            self.cleanup_retained_storages.pop();
+        }
+
+        result
     }
 
-    fn finish_cancelled_cleanup(
+    pub(super) fn finish_cancelled_cleanup(
         &mut self,
         lifecycle: MirBlockId,
         source: &MirSourceAnchor,
         outcome: CleanupOutcome,
         destination: CleanupDestination,
     ) -> Result<(), LoweringError> {
+        let completed = self.dispatch_cleanup_outcome(lifecycle, source, outcome, destination)?;
+
+        self.set_destination(completed, source, destination, None)
+    }
+
+    pub(super) fn dispatch_cleanup_outcome(
+        &mut self,
+        lifecycle: MirBlockId,
+        source: &MirSourceAnchor,
+        outcome: CleanupOutcome,
+        cancellation: CleanupDestination,
+    ) -> Result<MirBlockId, LoweringError> {
         let panicked = self.builder.push_block(
             Self::retained_source(source),
             MirBlockKind::LifecycleResolution,
@@ -232,13 +257,7 @@ impl Lowerer<'_> {
         let completed =
             outcome.dispatch(&mut self.builder, lifecycle, source, panicked, cancelled)?;
 
-        self.set_terminator(
-            completed,
-            Self::retained_source(source),
-            MirTerminatorKind::Goto(MirEdge::new(cancelled, [])),
-        )?;
-
-        self.set_destination(cancelled, source, destination, None)?;
+        self.set_destination(cancelled, source, cancellation, None)?;
 
         let panic_destination = if self.input.unit_kind().protected_frame().is_some() {
             let report = self.representation_type(RepresentationRole::PanicReport)?;
@@ -250,6 +269,8 @@ impl Lowerer<'_> {
             CleanupDestination::PropagatePanic
         };
 
-        self.set_destination(panicked, source, panic_destination, Some(outcome.report()))
+        self.set_destination(panicked, source, panic_destination, Some(outcome.report()))?;
+
+        Ok(completed)
     }
 }

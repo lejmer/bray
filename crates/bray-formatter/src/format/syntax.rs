@@ -46,6 +46,8 @@ pub(super) const fn is_declaration_clause_keyword(kind: SyntaxKind) -> bool {
         kind,
         SyntaxKind::RequiresKeyword
             | SyntaxKind::EnsuresKeyword
+            | SyntaxKind::ExecutesKeyword
+            | SyntaxKind::WhenKeyword
             | SyntaxKind::WithKeyword
             | SyntaxKind::UsesKeyword
     )

@@ -1,6 +1,6 @@
 use super::callable::{
-    format_english_callable_overload_problem, format_english_implementation_overload_problem,
-    format_english_trait_fulfillment_mismatch,
+    format_english_callable_contract_mismatch, format_english_callable_overload_problem,
+    format_english_implementation_overload_problem, format_english_trait_fulfillment_mismatch,
 };
 use super::emission::{
     format_english_artifact_requirement, format_english_assembly_syntax,
@@ -244,6 +244,9 @@ pub(crate) fn format_value(name: DiagnosticArgName, value: &DiagnosticArgValue) 
         }
         DiagnosticArgValue::TraitFulfillmentMismatch(mismatch) => {
             format_english_trait_fulfillment_mismatch(mismatch)
+        }
+        DiagnosticArgValue::CallableContractMismatch(mismatch) => {
+            format_english_callable_contract_mismatch(mismatch)
         }
         DiagnosticArgValue::ImplementationOverloadProblem(problem) => {
             format_english_implementation_overload_problem(problem)

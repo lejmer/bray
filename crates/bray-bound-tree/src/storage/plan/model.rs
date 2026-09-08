@@ -112,7 +112,7 @@ impl StoragePlan {
     /// Returns storage origins with their unit-local identities.
     pub fn identity_entries(
         &self,
-    ) -> impl Iterator<Item = (StorageIdentityId, StorageIdentity)> + '_ {
+    ) -> impl DoubleEndedIterator<Item = (StorageIdentityId, StorageIdentity)> + '_ {
         self.identities
             .iter()
             .copied()
@@ -249,12 +249,22 @@ impl StoragePlan {
         left: StorageAccessId,
         right: StorageAccessId,
     ) -> StorageRelationship {
+        self.projected_relationship(left, &[], right)
+    }
+
+    /// Compares a represented subpath of an evaluated access with another evaluated access.
+    pub fn projected_relationship(
+        &self,
+        left: StorageAccessId,
+        projections: &[StorageProjection],
+        right: StorageAccessId,
+    ) -> StorageRelationship {
         let (Some(left), Some(right)) = (self.resolved_access(left), self.resolved_access(right))
         else {
             return StorageRelationship::Error;
         };
 
-        if left == right {
+        if projections.is_empty() && left == right {
             return StorageRelationship::Identical;
         }
 
@@ -262,7 +272,7 @@ impl StoragePlan {
 
         for left in left.paths.iter() {
             for right in right.paths.iter() {
-                let current = self.path_relationship(left, right);
+                let current = self.path_relationship(left, projections, right);
 
                 relationship = Some(match relationship {
                     None => current,
@@ -343,6 +353,7 @@ impl StoragePlan {
     fn path_relationship(
         &self,
         left: &ResolvedStoragePath,
+        projections: &[StorageProjection],
         right: &ResolvedStoragePath,
     ) -> StorageRelationship {
         if left.root != right.root {
@@ -353,7 +364,18 @@ impl StoragePlan {
             };
         }
 
-        projection_relationship(&left.projections, &right.projections)
+        if projections.is_empty() {
+            projection_relationship(&left.projections, &right.projections)
+        } else {
+            let left = left
+                .projections
+                .iter()
+                .chain(projections)
+                .copied()
+                .collect::<Vec<_>>();
+
+            projection_relationship(&left, &right.projections)
+        }
     }
 }
 
@@ -596,6 +618,28 @@ mod tests {
         assert!(plan.access_contains(first, nested));
         assert!(!plan.access_contains(nested, first));
         assert!(!plan.access_contains(first, second));
+
+        let element = StorageProjection::Element(BoundExpressionId::from_slot(unit, 0));
+
+        assert_eq!(
+            plan.projected_relationship(first, &[element], nested),
+            StorageRelationship::Identical
+        );
+
+        assert_eq!(
+            plan.projected_relationship(first, &[element], second),
+            StorageRelationship::Disjoint
+        );
+
+        assert_eq!(
+            plan.projected_relationship(first, &[element], first),
+            StorageRelationship::PotentiallyOverlapping
+        );
+
+        assert_eq!(
+            plan.projected_relationship(first, &[element], StorageAccessId::from_slot(unit, 99)),
+            StorageRelationship::Error
+        );
 
         assert_eq!(
             plan.resolved_projections(nested),

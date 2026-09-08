@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use bray_runtime_interface::{BinarySymbolName, ExecutableEntryResult};
+use bray_runtime_interface::BinarySymbolName;
 use bray_symbols::{CallableExecution, ConstantValueId, StaticStorageDuration, SymbolKey};
 
 use crate::{CodegenImplementationWitness, CodegenInstanceKey, CodegenSpecialization};
@@ -153,59 +153,14 @@ pub struct CodegenStaticStorageMapping {
 pub struct CodegenStaticFinalization {
     execution: CallableExecution,
     instance: CodegenInstanceKey,
-    result: ExecutableEntryResult,
-    error_type_identity: Option<[u8; 32]>,
-    source: Option<bray_ir::MirSourceAnchor>,
-    incident_cleanup: Option<CodegenInstanceKey>,
-    incident_memory: Option<CodegenStaticIncidentMemory>,
-}
-
-/// Bray allocation helpers retained for one fallible static-finalization incident.
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct CodegenStaticIncidentMemory {
-    allocation: CodegenInstanceKey,
-    deallocation: CodegenInstanceKey,
-}
-
-impl CodegenStaticIncidentMemory {
-    /// Creates one paired allocation and deallocation contract.
-    pub const fn new(allocation: CodegenInstanceKey, deallocation: CodegenInstanceKey) -> Self {
-        Self {
-            allocation,
-            deallocation,
-        }
-    }
-
-    /// Returns the Bray allocation helper.
-    pub const fn allocation(&self) -> &CodegenInstanceKey {
-        &self.allocation
-    }
-
-    /// Returns the Bray deallocation helper.
-    pub const fn deallocation(&self) -> &CodegenInstanceKey {
-        &self.deallocation
-    }
 }
 
 impl CodegenStaticFinalization {
     /// Creates one closed finalizer mapping.
-    pub const fn new(
-        execution: CallableExecution,
-        instance: CodegenInstanceKey,
-        result: ExecutableEntryResult,
-        error_type_identity: Option<[u8; 32]>,
-        source: Option<bray_ir::MirSourceAnchor>,
-        incident_cleanup: Option<CodegenInstanceKey>,
-        incident_memory: Option<CodegenStaticIncidentMemory>,
-    ) -> Self {
+    pub const fn new(execution: CallableExecution, instance: CodegenInstanceKey) -> Self {
         Self {
             execution,
             instance,
-            result,
-            error_type_identity,
-            source,
-            incident_cleanup,
-            incident_memory,
         }
     }
 
@@ -217,31 +172,6 @@ impl CodegenStaticFinalization {
     /// Returns the generated static-finalizer instance.
     pub const fn instance(&self) -> &CodegenInstanceKey {
         &self.instance
-    }
-
-    /// Returns the permitted finalizer completion shape.
-    pub const fn result(&self) -> ExecutableEntryResult {
-        self.result
-    }
-
-    /// Returns the concrete error type identity for a fallible completion.
-    pub const fn error_type_identity(&self) -> Option<[u8; 32]> {
-        self.error_type_identity
-    }
-
-    /// Returns the selected finalizer source location when locally available.
-    pub const fn source(&self) -> Option<&bray_ir::MirSourceAnchor> {
-        self.source.as_ref()
-    }
-
-    /// Returns abandonment cleanup for an owned incident payload.
-    pub const fn incident_cleanup(&self) -> Option<&CodegenInstanceKey> {
-        self.incident_cleanup.as_ref()
-    }
-
-    /// Returns the Bray memory helpers used for a fallible incident payload.
-    pub const fn incident_memory(&self) -> Option<&CodegenStaticIncidentMemory> {
-        self.incident_memory.as_ref()
     }
 }
 

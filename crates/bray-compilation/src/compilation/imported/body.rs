@@ -575,7 +575,7 @@ mod tests {
             .unwrap_or_else(|error| panic!("imported constant body must be cached: {error:?}"));
 
         assert!(Arc::ptr_eq(&first, &second));
-        assert!(first.diagnostics().is_empty());
+        assert!(first.diagnostics().is_empty(), "{:?}", first.diagnostics());
 
         let Some(body) = first.value() else {
             panic!("matching implementation artifact must publish the requested body");
@@ -634,7 +634,9 @@ mod tests {
                 .diagnostics()
                 .by_kind(DiagnosticKind::InterfaceExecutableTemplateUnavailable)
                 .count(),
-            1
+            1,
+            "{:?}",
+            result.diagnostics()
         );
 
         bray_testing::assert_goal_state_diagnostic_kind(

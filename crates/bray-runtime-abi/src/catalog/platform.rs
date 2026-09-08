@@ -214,9 +214,9 @@ macro_rules! platform_role_catalog {
                 Process, [U64, ExitStatusPointer] -> Status, bootstrap: ()
             }
             ChildDispose {
-                "Forcefully resolves and consumes one child-process owner.", 0x0315, "platform.child.dispose",
+                "Attempts forced child-process resolution and reports whether ownership was released.", 0x0315, "platform.child.dispose",
                 PLATFORM_CHILD_DISPOSE_SYMBOL = "bray_platform_child_dispose",
-                Process, [U64] -> Status, bootstrap: ()
+                Process, [U64, PointerU32] -> Status, bootstrap: ()
             }
             ThreadCreate {
                 "Creates one operating-system thread and transfers its callback context.", 0x0321, "platform.thread.create",

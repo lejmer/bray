@@ -465,13 +465,16 @@ trusted internal func platform_directory_next(
     }
 }
 
-trusted internal func platform_directory_close(pos handle: u64) -> Result<unit, std.io.IoError>
+trusted internal func platform_directory_close(pos directory: &mut Directory) -> Result<unit, std.io.IoError>
+    ensures((result matches Error(_)) || Directory.complete(&directory))
     uses(foreign_call)
 {
-    if trusted std.os.windows.find_close(trusted internal std.platform.handle_pointer(handle)) == 0
+    if trusted std.os.windows.find_close(trusted internal std.platform.handle_pointer(directory.handle)) == 0
     {
         return Error(trusted internal windows_io_error());
     }
+
+    directory.is_open = false;
 
     return Ok(unit);
 }

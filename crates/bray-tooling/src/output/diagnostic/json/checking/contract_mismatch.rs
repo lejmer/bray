@@ -57,6 +57,15 @@ impl DiagnosticGenericConstraintMismatchJson {
 #[derive(Serialize)]
 #[serde(tag = "reason", rename_all = "snake_case")]
 pub(in crate::output::diagnostic::json) enum DiagnosticCallableContractMismatchJson {
+    PredicateImplication {
+        surface: &'static str,
+        index: u64,
+    },
+    ConditionReasoningLimit,
+    ExecutionGuarantee {
+        property: &'static str,
+        guard: Option<u64>,
+    },
     ClauseCount {
         surface: &'static str,
         required: u64,
@@ -98,6 +107,18 @@ impl DiagnosticCallableContractMismatchJson {
         use bray_diagnostics::DiagnosticCallableContractMismatch as Mismatch;
 
         match mismatch {
+            Mismatch::PredicateImplication { surface, index } => Self::PredicateImplication {
+                surface: callable_contract_surface_key(*surface),
+                index: *index,
+            },
+            Mismatch::ConditionReasoningLimit => Self::ConditionReasoningLimit,
+            Mismatch::ExecutionGuarantee { property, guard } => Self::ExecutionGuarantee {
+                property: match property {
+                    bray_diagnostics::DiagnosticExecutionProperty::Pure => "pure",
+                    bray_diagnostics::DiagnosticExecutionProperty::Total => "total",
+                },
+                guard: *guard,
+            },
             Mismatch::ClauseCount {
                 surface,
                 required,
@@ -271,6 +292,62 @@ pub(in crate::output::diagnostic::json) const fn callable_contract_surface_key(
         }
         bray_diagnostics::DiagnosticCallableContractSurface::CompletionPostconditions => {
             "completion_postconditions"
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DiagnosticCallableContractMismatchJson;
+    use bray_diagnostics::{
+        DiagnosticCallableContractMismatch as Mismatch, DiagnosticCallableContractSurface,
+        DiagnosticExecutionProperty,
+    };
+    use serde_json::json;
+
+    #[test]
+    fn conditional_contract_mismatches_preserve_exact_json_context() {
+        for (mismatch, expected) in [
+            (
+                Mismatch::PredicateImplication {
+                    surface: DiagnosticCallableContractSurface::InvocationPreconditions,
+                    index: 3,
+                },
+                json!({"reason": "predicate_implication", "surface": "invocation_preconditions", "index": 3}),
+            ),
+            (
+                Mismatch::PredicateImplication {
+                    surface: DiagnosticCallableContractSurface::CompletionPostconditions,
+                    index: 5,
+                },
+                json!({"reason": "predicate_implication", "surface": "completion_postconditions", "index": 5}),
+            ),
+            (
+                Mismatch::ConditionReasoningLimit,
+                json!({"reason": "condition_reasoning_limit"}),
+            ),
+            (
+                Mismatch::ExecutionGuarantee {
+                    property: DiagnosticExecutionProperty::Pure,
+                    guard: None,
+                },
+                json!({"reason": "execution_guarantee", "property": "pure", "guard": null}),
+            ),
+            (
+                Mismatch::ExecutionGuarantee {
+                    property: DiagnosticExecutionProperty::Total,
+                    guard: Some(7),
+                },
+                json!({"reason": "execution_guarantee", "property": "total", "guard": 7}),
+            ),
+        ] {
+            assert_eq!(
+                serde_json::to_value(DiagnosticCallableContractMismatchJson::from_mismatch(
+                    &mismatch
+                ))
+                .unwrap(),
+                expected,
+            );
         }
     }
 }

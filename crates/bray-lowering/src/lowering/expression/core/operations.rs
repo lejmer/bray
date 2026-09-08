@@ -674,7 +674,7 @@ impl Lowerer<'_> {
         let destination_type = destination.ty();
 
         value = self
-            .adapt_nullable_present(
+            .adapt_value(
                 *value_id,
                 current,
                 Self::retained_source(&source),
@@ -1389,7 +1389,8 @@ fn storage_kind(
         StorageIdentity::Parameter(_)
         | StorageIdentity::Receiver(_)
         | StorageIdentity::AnonymousParameter(_)
-        | StorageIdentity::PredicateParameter(_) => {
+        | StorageIdentity::PredicateParameter(_)
+        | StorageIdentity::ContractParameter(_) => {
             MirStorageKind::Parameter(parameter_position.unwrap_or(u32::MAX))
         }
         StorageIdentity::Static(_) => return Err(LoweringError::SemanticValueUnavailable),

@@ -21,6 +21,14 @@ struct DynamicLibrary
 {
     internal handle_value: u64;
     internal mut is_owned_value: bool;
+    predicate complete(value: &Self) = !value.is_owned_value;
+
+    func is_complete() -> bool
+        executes(pure, total)
+        ensures(!result || Self.complete(&self), result || !Self.complete(&self))
+    {
+        return !self.is_owned_value;
+    }
 
     internal construct open_path(pos path: &std.path.Path, pos policy: LoadPolicy) -> Result<Self, std.ffi.ForeignError>
         requires(blocking_execution())
@@ -59,12 +67,26 @@ struct DynamicLibrary
     }
 
     trusted finalize() -> Result<unit, std.ffi.ForeignError>
-        requires(blocking_execution())
+        requires(Self.complete(&self) || blocking_execution())
+        when(Self.complete(&self))
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
     {
+        if !self.is_owned_value
+        {
+            return Ok(unit);
+        }
+
         return trusted release_dynamic_library(&mut self);
     }
 
     trusted destruct()
+        when(Self.complete(&self))
+        {
+            executes(pure, total)
+        }
     {
         if self.is_owned_value
         {
@@ -72,8 +94,9 @@ struct DynamicLibrary
         }
     }
 
-    consume mut func close() -> Result<unit, std.ffi.ForeignError>
+    mut func close() -> Result<unit, std.ffi.ForeignError>
         requires(blocking_execution())
+        ensures((result matches Error(_)) || Self.complete(&self))
     {
         return trusted release_dynamic_library(&mut self);
     }
@@ -97,15 +120,16 @@ struct DynamicLibrary
     /// Success disables this owner's destruction and makes the caller responsible for closing the handle. Failure
     /// returns no handle.
     trusted consume mut func into_handle() -> Result<u64, std.ffi.ForeignError>
+        ensures(Self.complete(&self))
     {
-        let handle: u64 = try internal std.ffi.checked_owned_foreign_resource_handle(
+        let result: Result<u64, std.ffi.ForeignError> = internal std.ffi.checked_owned_foreign_resource_handle(
             self.handle_value,
             owned = self.is_owned_value,
         );
 
         self.is_owned_value = false;
 
-        return Ok(handle);
+        return result;
     }
 }
 

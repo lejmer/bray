@@ -2,8 +2,8 @@ use bray_bound_tree::{AnyBoundNodeId, BoundUnitId};
 
 use super::id::{AnalysisBlockId, AnalysisEdgeId, AnalysisOperationId, ProgramPointId};
 use super::model::{
-    AnalysisBlock, AnalysisCallPhase, AnalysisEdge, AnalysisEdgeKind, AnalysisExit,
-    AnalysisExitKind, AnalysisOperation, AnalysisOperationKind, AnalysisRefinement,
+    AnalysisBlock, AnalysisCallPhase, AnalysisCleanupKind, AnalysisEdge, AnalysisEdgeKind,
+    AnalysisExit, AnalysisExitKind, AnalysisOperation, AnalysisOperationKind, AnalysisRefinement,
     AnalysisScopeExitPhase, AnalysisSuspensionKind, AnalysisTaskOperationKind, ControlFlowGraph,
 };
 
@@ -82,6 +82,7 @@ impl ControlFlowGraphAssembler {
         current: AnalysisBlockId,
         block: bray_bound_tree::BoundBlockId,
         exit: bray_bound_tree::AnyBoundNodeId,
+        kind: AnalysisCleanupKind,
     ) -> AnalysisBlockId {
         let cancellation = self.push_block();
 
@@ -93,6 +94,7 @@ impl ControlFlowGraphAssembler {
                 block,
                 exit,
                 phase: AnalysisScopeExitPhase::TaskCancellationBroadcast,
+                kind,
             },
         );
 
@@ -106,6 +108,7 @@ impl ControlFlowGraphAssembler {
                 block,
                 exit,
                 phase: AnalysisScopeExitPhase::LifecycleResolution,
+                kind,
             },
         );
 
@@ -127,12 +130,18 @@ impl ControlFlowGraphAssembler {
             .push(AnalysisEdge::new(id, source, target, kind, refinement));
     }
 
-    pub(super) fn push_exit(&mut self, block: AnalysisBlockId, kind: AnalysisExitKind) {
+    pub(super) fn push_exit(
+        &mut self,
+        block: AnalysisBlockId,
+        kind: AnalysisExitKind,
+        origin: AnyBoundNodeId,
+        refinement: Option<AnalysisRefinement>,
+    ) {
         let exit = self.push_block();
         let edge = exit_edge_kind(kind);
 
-        self.push_edge(block, exit, edge, None);
-        self.exits.push(AnalysisExit::new(exit, kind));
+        self.push_edge(block, exit, edge, refinement);
+        self.exits.push(AnalysisExit::new(exit, kind, Some(origin)));
     }
 
     pub(super) fn finish(self, entry: AnalysisBlockId) -> ControlFlowGraph {

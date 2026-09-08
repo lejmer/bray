@@ -399,9 +399,15 @@ impl<'bytes> SelectionBuilder<'bytes> {
         }
 
         match constraint.kind {
-            crate::InterfaceConstraintKind::Predicate(predicate) => self.enqueue(
-                PendingRecord::DependencyContract(predicate.dependency_contract.raw()),
-            ),
+            crate::InterfaceConstraintKind::Predicate(predicate) => {
+                self.enqueue(PendingRecord::DependencyContract(
+                    predicate.dependency_contract.raw(),
+                ));
+
+                if let Some(condition) = predicate.condition {
+                    self.enqueue(PendingRecord::ConstantTerm(condition.raw()));
+                }
+            }
             crate::InterfaceConstraintKind::TraitSatisfaction {
                 subject,
                 application,
@@ -660,6 +666,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
             InterfaceType::Callable {
                 parameters,
                 result,
+                conditions,
                 invocation_behavior,
                 deferred_execution_behavior,
                 ..
@@ -669,6 +676,7 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 }
 
                 self.enqueue(PendingRecord::Type(result.raw()));
+                self.include_condition_values(conditions);
 
                 self.enqueue(PendingRecord::DependencyContract(
                     invocation_behavior.dependency_contract.raw(),
@@ -686,6 +694,34 @@ impl<'bytes> SelectionBuilder<'bytes> {
         self.records.types.insert(index, ty);
 
         Ok(())
+    }
+
+    fn include_condition_values(
+        &mut self,
+        conditions: &bray_symbols::CallableConditionSet<crate::InterfaceCallableContractClause>,
+    ) {
+        use bray_symbols::CallableConditions;
+
+        for clause in conditions.clauses() {
+            match clause.value {
+                crate::InterfaceCallableContractClauseValue::Predicate(predicate) => {
+                    self.enqueue(PendingRecord::DependencyContract(
+                        predicate.dependency_contract.raw(),
+                    ));
+
+                    if let Some(term) = predicate.condition {
+                        self.enqueue(PendingRecord::ConstantTerm(term.raw()));
+                    }
+                }
+                crate::InterfaceCallableContractClauseValue::TraitSatisfaction {
+                    subject,
+                    application,
+                } => {
+                    self.enqueue(PendingRecord::Type(subject.raw()));
+                    self.enqueue(PendingRecord::TraitApplication(application.raw()));
+                }
+            }
+        }
     }
 
     fn include_constant_value(&mut self, index: u32) -> Result<(), InterfaceValidationError> {
@@ -814,6 +850,9 @@ impl<'bytes> SelectionBuilder<'bytes> {
                 for argument in &**arguments {
                     self.enqueue(PendingRecord::ConstantTerm(argument.raw()));
                 }
+            }
+            InterfaceConstantTerm::Test { subject, .. } => {
+                self.enqueue(PendingRecord::ConstantTerm(subject.raw()));
             }
             InterfaceConstantTerm::Projection { subject, kind } => {
                 self.enqueue(PendingRecord::ConstantTerm(subject.raw()));

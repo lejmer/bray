@@ -278,7 +278,9 @@ impl Compilation {
             return Err(CodegenPreparationError::UnsizedTypeByValue(element));
         }
 
-        let data = self.indirection_metadata_pointer(element, BorrowKind::Mutable)?;
+        let data =
+            self.codegen_unary_representation_type(RepresentationRole::RawPointer, element)?;
+
         let length = self.compiler_known_type(RepresentationRole::ScalarUsize)?;
 
         self.codegen_aggregate_type(

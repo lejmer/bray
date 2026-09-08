@@ -79,12 +79,7 @@ pub(super) fn declaration_surface(
                 declaration.function_modifiers().tokens(),
                 function_directives(declaration.function_directives()),
                 [],
-                contract_clauses(
-                    declaration.requires_clauses(),
-                    declaration.ensures_clauses(),
-                    declaration.with_clauses(),
-                    declaration.uses_clauses(),
-                ),
+                contract_clauses(view),
             )
             .with_body_kind(body_kind(
                 declaration.callable_body_block_expression().is_some(),
@@ -235,12 +230,7 @@ pub(super) fn declaration_surface(
                 declaration.trait_callable_member_modifiers().tokens(),
                 [],
                 [],
-                contract_clauses(
-                    declaration.requires_clauses(),
-                    declaration.ensures_clauses(),
-                    declaration.with_clauses(),
-                    declaration.uses_clauses(),
-                ),
+                contract_clauses(view),
             )
             .with_body_kind(body_kind(
                 declaration.callable_body_block_expression().is_some(),
@@ -257,10 +247,7 @@ pub(super) fn declaration_surface(
                 declaration
                     .async_capable_lifecycle_member_modifiers()
                     .tokens(),
-                declaration.requires_clauses(),
-                declaration.ensures_clauses(),
-                declaration.with_clauses(),
-                declaration.uses_clauses(),
+                view,
             )
         }
         DeclarationKind::TraitDestructorRequirement => {
@@ -269,13 +256,7 @@ pub(super) fn declaration_surface(
                 "trait destructor requirement declaration",
             );
 
-            lifecycle_surface(
-                declaration.sync_lifecycle_member_modifiers().tokens(),
-                declaration.requires_clauses(),
-                declaration.ensures_clauses(),
-                declaration.with_clauses(),
-                declaration.uses_clauses(),
-            )
+            lifecycle_surface(declaration.sync_lifecycle_member_modifiers().tokens(), view)
         }
         DeclarationKind::TraitScopeEnterRequirement => {
             let declaration = cast_node::<TraitScopeEnterRequirementDeclarationSyntax>(
@@ -283,13 +264,7 @@ pub(super) fn declaration_surface(
                 "trait scope-enter requirement declaration",
             );
 
-            lifecycle_surface(
-                declaration.scope_enter_member_modifiers().tokens(),
-                declaration.requires_clauses(),
-                declaration.ensures_clauses(),
-                declaration.with_clauses(),
-                declaration.uses_clauses(),
-            )
+            lifecycle_surface(declaration.scope_enter_member_modifiers().tokens(), view)
         }
         DeclarationKind::TraitScopeExitRequirement => {
             let declaration = cast_node::<TraitScopeExitRequirementDeclarationSyntax>(
@@ -301,10 +276,7 @@ pub(super) fn declaration_surface(
                 declaration
                     .async_capable_lifecycle_member_modifiers()
                     .tokens(),
-                declaration.requires_clauses(),
-                declaration.ensures_clauses(),
-                declaration.with_clauses(),
-                declaration.uses_clauses(),
+                view,
             )
         }
         DeclarationKind::TypeConstructorMember => {
@@ -317,12 +289,7 @@ pub(super) fn declaration_surface(
                 declaration.constructor_member_modifiers().tokens(),
                 [],
                 [],
-                contract_clauses(
-                    declaration.requires_clauses(),
-                    declaration.ensures_clauses(),
-                    declaration.with_clauses(),
-                    declaration.uses_clauses(),
-                ),
+                contract_clauses(view),
             )
             .with_body_kind(DeclarationBodyKind::Block)
         }
@@ -334,10 +301,7 @@ pub(super) fn declaration_surface(
                 declaration
                     .async_capable_lifecycle_member_modifiers()
                     .tokens(),
-                declaration.requires_clauses(),
-                declaration.ensures_clauses(),
-                declaration.with_clauses(),
-                declaration.uses_clauses(),
+                view,
             )
             .with_body_kind(DeclarationBodyKind::Block)
         }
@@ -347,14 +311,8 @@ pub(super) fn declaration_surface(
                 "destructor member declaration",
             );
 
-            lifecycle_surface(
-                declaration.sync_lifecycle_member_modifiers().tokens(),
-                declaration.requires_clauses(),
-                declaration.ensures_clauses(),
-                declaration.with_clauses(),
-                declaration.uses_clauses(),
-            )
-            .with_body_kind(DeclarationBodyKind::Block)
+            lifecycle_surface(declaration.sync_lifecycle_member_modifiers().tokens(), view)
+                .with_body_kind(DeclarationBodyKind::Block)
         }
         DeclarationKind::ScopeEnterMember => {
             let declaration = cast_node::<ScopeEnterMemberDeclarationSyntax>(
@@ -362,14 +320,8 @@ pub(super) fn declaration_surface(
                 "scope-enter member declaration",
             );
 
-            lifecycle_surface(
-                declaration.scope_enter_member_modifiers().tokens(),
-                declaration.requires_clauses(),
-                declaration.ensures_clauses(),
-                declaration.with_clauses(),
-                declaration.uses_clauses(),
-            )
-            .with_body_kind(DeclarationBodyKind::Block)
+            lifecycle_surface(declaration.scope_enter_member_modifiers().tokens(), view)
+                .with_body_kind(DeclarationBodyKind::Block)
         }
         DeclarationKind::ScopeExitMember => {
             let declaration = cast_node::<ScopeExitMemberDeclarationSyntax>(
@@ -381,10 +333,7 @@ pub(super) fn declaration_surface(
                 declaration
                     .async_capable_lifecycle_member_modifiers()
                     .tokens(),
-                declaration.requires_clauses(),
-                declaration.ensures_clauses(),
-                declaration.with_clauses(),
-                declaration.uses_clauses(),
+                view,
             )
             .with_body_kind(DeclarationBodyKind::Block)
         }
@@ -398,12 +347,7 @@ pub(super) fn declaration_surface(
                 declaration.type_callable_member_modifiers().tokens(),
                 [],
                 [],
-                contract_clauses(
-                    declaration.requires_clauses(),
-                    declaration.ensures_clauses(),
-                    declaration.with_clauses(),
-                    declaration.uses_clauses(),
-                ),
+                contract_clauses(view),
             )
             .with_body_kind(DeclarationBodyKind::Block)
         }
@@ -497,30 +441,11 @@ where
     declaration_surface_from_parts([], [], syntax_anchors(constraints), [])
 }
 
-fn lifecycle_surface<R, E, W, U>(
+fn lifecycle_surface(
     modifiers: impl IntoIterator<Item = SyntaxToken>,
-    requires_clauses: impl IntoIterator<Item = R>,
-    ensures_clauses: impl IntoIterator<Item = E>,
-    with_clauses: impl IntoIterator<Item = W>,
-    uses_clauses: impl IntoIterator<Item = U>,
-) -> DeclarationSurface
-where
-    R: SourceSyntaxNode,
-    E: SourceSyntaxNode,
-    W: SourceSyntaxNode,
-    U: SourceSyntaxNode,
-{
-    declaration_surface_from_parts(
-        modifiers,
-        [],
-        [],
-        contract_clauses(
-            requires_clauses,
-            ensures_clauses,
-            with_clauses,
-            uses_clauses,
-        ),
-    )
+    syntax: SyntaxNodeView<'_>,
+) -> DeclarationSurface {
+    declaration_surface_from_parts(modifiers, [], [], contract_clauses(syntax))
 }
 
 fn declaration_surface_from_parts(
@@ -620,25 +545,22 @@ fn variant_directives(directives: bray_syntax::VariantDirectivesSyntax) -> Vec<S
     sorted_anchors(syntax_anchors(directives.tag_directives()))
 }
 
-fn contract_clauses<R, E, W, U>(
-    requires_clauses: impl IntoIterator<Item = R>,
-    ensures_clauses: impl IntoIterator<Item = E>,
-    with_clauses: impl IntoIterator<Item = W>,
-    uses_clauses: impl IntoIterator<Item = U>,
-) -> Vec<SyntaxAnchor>
-where
-    R: SourceSyntaxNode,
-    E: SourceSyntaxNode,
-    W: SourceSyntaxNode,
-    U: SourceSyntaxNode,
-{
-    let mut clauses = syntax_anchors(requires_clauses);
+fn contract_clauses(root: SyntaxNodeView<'_>) -> Vec<SyntaxAnchor> {
+    let mut clauses = Vec::new();
 
-    clauses.extend(syntax_anchors(ensures_clauses));
-    clauses.extend(syntax_anchors(with_clauses));
-    clauses.extend(syntax_anchors(uses_clauses));
+    bray_syntax::walk_direct_child_nodes(&root, |node| {
+        if node.kind().is_callable_contract_clause() {
+            clauses.push(SyntaxAnchor::from_node(&node));
+        }
 
-    sorted_anchors(clauses)
+        if node.kind() == SyntaxKind::WhenClause {
+            clauses.extend(contract_clauses(node));
+        }
+
+        bray_syntax::SyntaxWalkControl::Continue
+    });
+
+    clauses
 }
 
 fn syntax_anchors<N>(nodes: impl IntoIterator<Item = N>) -> Vec<SyntaxAnchor>

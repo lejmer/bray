@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
 use std::num::NonZeroU64;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::{self, JoinHandle, Thread};
@@ -14,22 +14,33 @@ static MAIN_RUNTIME_THREAD_ID: AtomicU64 = AtomicU64::new(0);
 
 thread_local! {
     static CURRENT_RUNTIME_THREAD: Cell<Option<RuntimeThreadId>> = const { Cell::new(None) };
-    static RUNTIME_THREAD_EXIT_CALLBACKS: RefCell<Vec<RuntimeThreadExitCallback>> =
-        const { RefCell::new(Vec::new()) };
+    static RUNTIME_THREAD_EXIT_CALLBACKS: RefCell<Weak<ThreadExitCallbacks>> =
+        const { RefCell::new(Weak::new()) };
 }
+
+type ThreadExitCallbacks = RefCell<Vec<RuntimeThreadExitCallback>>;
 
 /// One infallible native callback owned by an exact Bray thread attachment.
 pub type RuntimeThreadExitCallback = extern "C-unwind" fn();
 
 /// Registers cleanup to run in reverse order before the current attachment ends.
+/// Returns false outside an attachment or after attachment cleanup has started.
 pub fn register_runtime_thread_exit_callback(callback: RuntimeThreadExitCallback) -> bool {
     if current_runtime_thread().is_none() {
         return false;
     }
 
-    RUNTIME_THREAD_EXIT_CALLBACKS.with(|callbacks| callbacks.borrow_mut().push(callback));
+    RUNTIME_THREAD_EXIT_CALLBACKS
+        .try_with(|current| {
+            let Some(callbacks) = current.borrow().upgrade() else {
+                return false;
+            };
 
-    true
+            callbacks.borrow_mut().push(callback);
+
+            true
+        })
+        .unwrap_or(false)
 }
 
 /// Process-local identity of a native thread initialized for Bray execution.
@@ -90,6 +101,7 @@ pub fn main_runtime_thread() -> Option<RuntimeThread> {
 #[derive(Debug)]
 pub struct RuntimeThreadScope {
     runtime: RuntimeThread,
+    callbacks: Rc<ThreadExitCallbacks>,
     active: bool,
     thread_bound: PhantomData<Rc<()>>,
 }
@@ -152,10 +164,13 @@ impl RuntimeThreadScope {
             ));
         }
 
-        RUNTIME_THREAD_EXIT_CALLBACKS.with(|callbacks| callbacks.borrow_mut().clear());
+        let callbacks = Rc::new(RefCell::new(Vec::new()));
+
+        RUNTIME_THREAD_EXIT_CALLBACKS.with(|current| current.replace(Rc::downgrade(&callbacks)));
 
         Ok(Self {
             runtime: RuntimeThread::new(id),
+            callbacks,
             active: true,
             thread_bound: PhantomData,
         })
@@ -175,8 +190,9 @@ impl RuntimeThreadScope {
 
         let mut incidents = 0usize;
 
-        let mut callbacks = RUNTIME_THREAD_EXIT_CALLBACKS
-            .with(|callbacks| std::mem::take(&mut *callbacks.borrow_mut()));
+        // The attachment owns callbacks even when the registration TLS has already been destroyed.
+        let _ = RUNTIME_THREAD_EXIT_CALLBACKS.try_with(|current| current.replace(Weak::new()));
+        let mut callbacks = std::mem::take(&mut *self.callbacks.borrow_mut());
 
         while let Some(callback) = callbacks.pop() {
             if catch_unwind(AssertUnwindSafe(|| callback())).is_err() {
@@ -466,6 +482,47 @@ mod tests {
         drop(scope);
 
         assert_eq!(EXIT_ORDER.get(), 211);
+    }
+
+    #[test]
+    fn attachment_owns_callbacks_after_registration_tls_is_destroyed() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static EXITS: AtomicUsize = AtomicUsize::new(0);
+
+        extern "C-unwind" fn exit() {
+            assert!(current_runtime_thread().is_some());
+            assert!(!register_runtime_thread_exit_callback(exit));
+            EXITS.fetch_add(1, Ordering::Relaxed);
+        }
+
+        std::thread::spawn(|| {
+            thread_local! {
+                static RETAINED_SCOPE: std::cell::RefCell<Option<RuntimeThreadScope>> = const { std::cell::RefCell::new(None) };
+            }
+
+            RETAINED_SCOPE.with(|_| {});
+
+            let scope = RuntimeThreadScope::enter().unwrap();
+
+            assert!(register_runtime_thread_exit_callback(exit));
+            RETAINED_SCOPE.with(|retained| retained.replace(Some(scope)));
+        }).join().unwrap();
+
+        assert_eq!(EXITS.load(Ordering::Relaxed), 1);
+    }
+
+    #[test]
+    fn attachment_cleanup_closes_registration_before_running_callbacks() {
+        extern "C-unwind" fn exit() {
+            assert!(current_runtime_thread().is_some());
+            assert!(!register_runtime_thread_exit_callback(exit));
+        }
+
+        let scope = RuntimeThreadScope::enter().unwrap();
+
+        assert!(register_runtime_thread_exit_callback(exit));
+        assert_eq!(scope.finish(), 0);
     }
 
     #[test]

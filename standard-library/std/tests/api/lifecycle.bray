@@ -4,6 +4,7 @@ using std.bytes;
 using std.format;
 using std.io;
 using std.memory;
+using std.testing;
 
 @test
 func imported_buffer_is_destroyed() -> Result<unit, std.memory.MemoryLayoutError>
@@ -33,15 +34,15 @@ func imported_format_sinks_are_destroyed() -> Result<unit, std.memory.MemoryLayo
 @test
 func imported_buffered_streams_are_destroyed() -> Result<unit, std.io.IoError>
 {
-    let input: std.io.BufferedReader<std.io.StandardInput> = try std.io.BufferedReader<std.io.StandardInput>(
-        std.io.standard_input(),
-        capacity = 8,
-    );
+    let input: std.io.BufferedReader<std.io.StandardInput> = std.testing.assert_ok<
+        std.io.BufferedReader<std.io.StandardInput>,
+        (std.io.StandardInput, std.io.IoError)
+    >(std.io.BufferedReader<std.io.StandardInput>(std.io.standard_input(), capacity = 8));
 
-    let output: std.io.BufferedWriter<std.io.StandardOutput> = try std.io.BufferedWriter<std.io.StandardOutput>(
-        std.io.standard_output(),
-        capacity = 8,
-    );
+    let output: std.io.BufferedWriter<std.io.StandardOutput> = std.testing.assert_ok<
+        std.io.BufferedWriter<std.io.StandardOutput>,
+        (std.io.StandardOutput, std.io.IoError)
+    >(std.io.BufferedWriter<std.io.StandardOutput>(std.io.standard_output(), capacity = 8));
 
     return Ok(unit);
 }

@@ -89,6 +89,12 @@ pub enum SyntaxKind {
     RequiresClause,
     /// `ensures(...)` callable contract clause.
     EnsuresClause,
+    /// A guarded group of callable guarantees.
+    WhenClause,
+    /// Declared execution properties.
+    ExecutesClause,
+    /// One execution property name.
+    ExecutionProperty,
     /// `with(...)` static constraint clause.
     WithClause,
     /// `uses(...)` trusted capability clause.
@@ -371,6 +377,8 @@ pub enum SyntaxKind {
     EachKeyword,
     ElseKeyword,
     EnsuresKeyword,
+    /// The `executes` keyword.
+    ExecutesKeyword,
     EnterKeyword,
     ExitKeyword,
     ExportKeyword,
@@ -489,6 +497,19 @@ const DIRECTIVE_NAMES: &[(SyntaxKind, &str)] = &[
 ];
 
 impl SyntaxKind {
+    /// Returns whether this node is a callable contract clause or guarded guarantee group.
+    pub const fn is_callable_contract_clause(self) -> bool {
+        matches!(
+            self,
+            Self::RequiresClause
+                | Self::EnsuresClause
+                | Self::WithClause
+                | Self::UsesClause
+                | Self::ExecutesClause
+                | Self::WhenClause
+        )
+    }
+
     /// Resolves a language-defined directive name to its syntax kind.
     pub fn directive_from_name(name: &str) -> Option<Self> {
         DIRECTIVE_NAMES
@@ -553,6 +574,9 @@ impl SyntaxKind {
                 | Self::CallableContractModifiers
                 | Self::RequiresClause
                 | Self::EnsuresClause
+                | Self::WhenClause
+                | Self::ExecutesClause
+                | Self::ExecutionProperty
                 | Self::WithClause
                 | Self::UsesClause
                 | Self::OverloadModifiers
@@ -721,6 +745,7 @@ impl SyntaxKind {
                 | Self::EachKeyword
                 | Self::ElseKeyword
                 | Self::EnsuresKeyword
+                | Self::ExecutesKeyword
                 | Self::EnterKeyword
                 | Self::ExitKeyword
                 | Self::ExportKeyword
@@ -899,6 +924,9 @@ impl SyntaxKind {
             Self::CallableContractModifiers => "callable_contract_modifiers",
             Self::RequiresClause => "requires_clause",
             Self::EnsuresClause => "ensures_clause",
+            Self::WhenClause => "when_clause",
+            Self::ExecutesClause => "executes_clause",
+            Self::ExecutionProperty => "execution_property",
             Self::WithClause => "with_clause",
             Self::UsesClause => "uses_clause",
             Self::OverloadModifiers => "overload_modifiers",
@@ -1064,6 +1092,7 @@ impl SyntaxKind {
             Self::EachKeyword => "each_keyword",
             Self::ElseKeyword => "else_keyword",
             Self::EnsuresKeyword => "ensures_keyword",
+            Self::ExecutesKeyword => "executes_keyword",
             Self::EnterKeyword => "enter_keyword",
             Self::ExitKeyword => "exit_keyword",
             Self::ExportKeyword => "export_keyword",

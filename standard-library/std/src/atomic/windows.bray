@@ -1,5 +1,5 @@
 @target(target.identity.NAME == "x86_64-pc-windows-msvc" || target.identity.NAME == "aarch64-pc-windows-msvc")
-module std.atomic;
+trusted module std.atomic;
 
 using std.os.windows;
 

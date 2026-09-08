@@ -56,6 +56,8 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
         MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Finalize(place)
         | MirOperationKind::Destroy(place)
+        | MirOperationKind::Abandon { place, .. }
+        | MirOperationKind::DestructorRemainder { place, .. }
         | MirOperationKind::Cleanup { place, .. } => collect_place_types(place, types),
         MirOperationKind::Unary { operand, .. } => collect_operand_types(operand, types),
         MirOperationKind::Binary { left, right, .. } => {
@@ -286,7 +288,10 @@ fn collect_terminator_types(terminator: &MirTerminatorKind, types: &mut BTreeSet
             }
 
             collect_edge_types(resume, types);
-            collect_cleanup_edge_types(cancellation, types);
+
+            if let Some(cancellation) = cancellation {
+                collect_cleanup_edge_types(cancellation, types);
+            }
         }
         MirTerminatorKind::ForwardRunResult { result, edges } => {
             collect_operand_types(result, types);
@@ -326,16 +331,6 @@ fn collect_generator_types(operation: &MirGeneratorOperation, types: &mut BTreeS
             destination,
             element,
             ..
-        }
-        | MirGeneratorOperation::CleanupBroadcast {
-            destination,
-            element,
-            ..
-        }
-        | MirGeneratorOperation::Destroy {
-            destination,
-            element,
-            ..
         } => {
             collect_place_types(destination, types);
             types.insert(*element);
@@ -352,38 +347,52 @@ fn collect_async_types(operation: &MirAsyncOperation, types: &mut BTreeSet<TypeI
     match operation {
         MirAsyncOperation::CreateFrame { initializer, .. } => match initializer {
             MirFrameInitializer::Callable(call) => collect_call_types(call, types),
-            MirFrameInitializer::TaskObservation { task, result, .. } => {
-                collect_operand_types(task, types);
+            MirFrameInitializer::Lifecycle {
+                ty,
+                receiver,
+                result,
+                ..
+            } => {
+                types.insert(*ty);
+                types.insert(result.completion_type());
                 types.insert(result.future_type());
+
+                collect_operand_types(receiver, types);
             }
         },
-        MirAsyncOperation::MoveInactiveFrame {
-            source,
-            destination,
-            ..
-        } => {
-            collect_place_types(source, types);
-            collect_place_types(destination, types);
-        }
         MirAsyncOperation::ResumeFrame { .. }
-        | MirAsyncOperation::CommitAwaitedCompletion { .. }
+        | MirAsyncOperation::ResolveAwaitedFrame { .. }
         | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
         | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
         | MirAsyncOperation::ExecuteLifecycleResolution { .. } => {}
         MirAsyncOperation::ComposeAwaitedFrame { frame, .. }
-        | MirAsyncOperation::StartTask { value: frame, .. } => {
+        | MirAsyncOperation::DestroyInactiveCaptures { frame, .. } => {
             collect_operand_types(frame, types);
+        }
+        MirAsyncOperation::StartTask { value, destination, .. } => {
+            collect_operand_types(value, types);
+            collect_place_types(destination, types);
         }
         MirAsyncOperation::RequestTaskCancellation { task, .. }
         | MirAsyncOperation::ResolveTask { task, .. }
-        | MirAsyncOperation::DestroyTerminalTask { task } => {
+        | MirAsyncOperation::BorrowTaskCompletion { task, .. }
+        | MirAsyncOperation::ReleaseTaskCompletionBorrow { task, .. }
+        | MirAsyncOperation::DestroyTerminalTask { task, .. } => {
             collect_operand_types(task, types);
+
+            if let MirAsyncOperation::DestroyTerminalTask {
+                completion: Some(ty),
+                ..
+            } = operation
+            {
+                types.insert(*ty);
+            }
         }
         MirAsyncOperation::PublishTerminalState { state, .. } => match state {
             MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
                 collect_operand_types(value, types);
             }
-            MirTaskTerminalState::Cancelled => {}
+            MirTaskTerminalState::Cancelled | MirTaskTerminalState::CapturesCompleted => {}
         },
         MirAsyncOperation::TransferCleanupIncident { incident, .. } => {
             collect_operand_types(incident, types);
@@ -436,6 +445,7 @@ fn collect_conversion_types(conversion: &SelectedConversion, types: &mut BTreeSe
 
 fn collect_panic_types(cause: &MirPanicCause, types: &mut BTreeSet<TypeId>) {
     match cause {
+        MirPanicCause::TaskAdmission => {}
         MirPanicCause::Message(message) | MirPanicCause::ExplicitTestFailure(message) => {
             collect_operand_types(message, types);
         }
@@ -505,12 +515,47 @@ fn collect_operand_types(operand: &MirOperand, types: &mut BTreeSet<TypeId>) {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
+
+    use bray_runtime_interface::RuntimeAbiRole;
     use bray_testing::test_bound_unit;
 
     use crate::{
         MirBlockKind, MirEdge, MirImmediateValue, MirOperand, MirSourceAnchor, MirTerminatorKind,
         MirUnitBuilder, MirUnitKind,
     };
+
+    #[test]
+    fn completion_borrow_operations_reference_the_retained_task_type() {
+        let task = crate::test_support::test_type();
+
+        let runtime = |role| {
+            crate::MirRuntimeReference::new(role, crate::test_support::test_target().runtime_abi())
+        };
+
+        for operation in [
+            crate::MirAsyncOperation::BorrowTaskCompletion {
+                task: MirOperand::Immediate {
+                    value: MirImmediateValue::Unit,
+                    ty: task,
+                },
+                runtime: runtime(RuntimeAbiRole::TaskCompletionBorrow),
+            },
+            crate::MirAsyncOperation::ReleaseTaskCompletionBorrow {
+                task: MirOperand::Immediate {
+                    value: MirImmediateValue::Unit,
+                    ty: task,
+                },
+                runtime: runtime(RuntimeAbiRole::TaskCompletionBorrowRelease),
+            },
+        ] {
+            let mut types = BTreeSet::new();
+
+            super::collect_async_types(&operation, &mut types);
+
+            assert_eq!(types, [task].into_iter().collect());
+        }
+    }
 
     #[test]
     fn referenced_types_include_terminator_only_immediates() {

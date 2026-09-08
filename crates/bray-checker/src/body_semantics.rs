@@ -25,6 +25,7 @@ pub(crate) fn check_body_semantics<C>(
     patterns: &CheckedPatterns,
     storage: &StoragePlan,
     memory: &CheckedMemoryOperations,
+    guarantees: Option<&crate::ExecutionGuaranteeInput>,
 ) -> CheckerOutcome<CheckedBodySemantics, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
@@ -129,7 +130,22 @@ where
         &refinements,
         &flow,
         &graph,
+        guarantees,
     ));
+
+    let execution_guarantees = if let Some(guarantees) = guarantees {
+        complete!(crate::analysis::check_execution_guarantees(
+            request,
+            guarantees,
+            expressions.selections(),
+            patterns,
+            storage,
+            &asynchronous,
+            &graph,
+        ))
+    } else {
+        Vec::new()
+    };
 
     let behavior = complete!(
         collect_body_behavior(
@@ -148,6 +164,7 @@ where
         dependencies,
         asynchronous,
         behavior,
+        execution_guarantees,
     ) {
         Ok(semantics) => semantics,
         Err(error) => {

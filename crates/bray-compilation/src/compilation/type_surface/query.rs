@@ -4,10 +4,10 @@ use std::sync::Arc;
 use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationCoherenceQuery,
-    ImplementationSymbolId, InherentImplementationSymbol, InherentImplementationSymbolId,
-    NamedTypeSymbolId, StructSymbol, SymbolQueryRequest, TargetPropertyDependency,
-    TypeAssociatedImplementation, TypeAssociatedSurface, UnionSymbol,
+    GenericDeclarationTemplateQuery, ImplementationCoherenceQuery, ImplementationSymbolId,
+    InherentImplementationSymbol, InherentImplementationSymbolId, NamedTypeSymbolId, StructSymbol,
+    SymbolQueryRequest, TargetPropertyDependency, TypeAssociatedImplementation,
+    TypeAssociatedSurface, UnionSymbol,
 };
 
 use super::aggregation::{collect_implementation_members, collect_named_type_members};
@@ -19,7 +19,6 @@ use crate::compilation::source_graph::{
 };
 use crate::compilation::{
     SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
-    SemanticSymbolCategory,
 };
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
@@ -62,15 +61,7 @@ impl Compilation {
 
         let record = named_type_record(&binding_context, subject)?;
 
-        let generic_owner = GenericOwnerId::try_new(subject.into_any()).ok_or_else(|| {
-            SemanticQueryFailure::contract(
-                SemanticQueryContext::Symbol(subject.into_any()),
-                SemanticQueryViolation::UnexpectedSymbolKind {
-                    expected: SemanticSymbolCategory::GenericOwner,
-                    actual: subject.into_any().kind(),
-                },
-            )
-        })?;
+        let generic_owner = crate::compilation::substitution::generic_owner(subject.into_any())?;
 
         let generic = binding_context
             .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
@@ -100,15 +91,7 @@ impl Compilation {
             let implementation_symbol = implementation.into();
 
             let generic_owner =
-                GenericOwnerId::try_new(implementation_symbol).ok_or_else(|| {
-                    SemanticQueryFailure::contract(
-                        SemanticQueryContext::Symbol(implementation_symbol),
-                        SemanticQueryViolation::UnexpectedSymbolKind {
-                            expected: SemanticSymbolCategory::GenericOwner,
-                            actual: implementation_symbol.kind(),
-                        },
-                    )
-                })?;
+                crate::compilation::substitution::generic_owner(implementation_symbol)?;
 
             let implementation_generic = binding_context
                 .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(

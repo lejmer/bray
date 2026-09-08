@@ -550,6 +550,9 @@ impl Parser {
             SyntaxKind::SelfValueKeyword => {
                 builder.push_self_token(self.expect(SyntaxKind::SelfValueKeyword));
             }
+            SyntaxKind::SelfTypeKeyword => {
+                builder.push_self_type_token(self.expect(SyntaxKind::SelfTypeKeyword));
+            }
             SyntaxKind::InternalKeyword => {
                 builder.push_internal_token(self.expect(SyntaxKind::InternalKeyword));
                 builder.push_access_expression(self.parse_access_expression(at_boundary));

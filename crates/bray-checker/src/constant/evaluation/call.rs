@@ -1,6 +1,6 @@
 use bray_bound_tree::{
-    BoundCallResult, BoundCallableTarget, BoundExpressionId, ConversionTarget, SelectedArgument,
-    SelectedConversion, SemanticSelection,
+    BoundCallResult, BoundCallableTarget, BoundExpressionId, ConversionTarget, SelectedConversion,
+    SelectedOperation, SemanticSelection,
 };
 use bray_symbols::{
     CallableInstanceData, ConstantTermData, ConstantTermId, ImplementationInstanceId, TypeId,
@@ -9,8 +9,7 @@ use bray_symbols::{
 use crate::constant::diagnostic::{ConstantDiagnostic, ConstantLimitKind};
 
 use crate::{
-    CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext, ConstantCallRequest,
-    ConstantCallResolution,
+    CheckerInfrastructureError, CheckerRequestContext, ConstantCallRequest, ConstantCallResolution,
 };
 
 use super::engine::Evaluator;
@@ -25,50 +24,31 @@ where
         expression: BoundExpressionId,
         ty: TypeId,
     ) -> Result<ConstantTermId, EvaluationFailure> {
-        let Some(SemanticSelection::Call(call)) =
-            self.input.semantic_selections().expression(expression)
-        else {
-            return Err(EvaluationFailure::invalid_expression(expression));
+        let call = match self.input.semantic_selections().expression(expression) {
+            Some(SemanticSelection::Operation(SelectedOperation::Construction(_))) => {
+                return self.evaluate_construction(expression, ty);
+            }
+            Some(SemanticSelection::Call(call)) => call,
+            _ => return Err(EvaluationFailure::invalid_expression(expression)),
         };
 
         if !matches!(call.resolution().result(), BoundCallResult::Immediate(_)) {
             return Err(EvaluationFailure::invalid_expression(expression));
         }
 
-        let mut arguments =
-            Vec::with_capacity(call.arguments().len() + usize::from(call.receiver().is_some()));
-
-        if let Some(receiver) = call.receiver() {
-            arguments.push((None, receiver.expression(), None, receiver.source_type()));
-        }
-
-        for argument in call.arguments() {
-            let SelectedArgument::Explicit {
-                expression,
-                ordinal,
-                conversion,
-                ..
-            } = argument
-            else {
-                return Err(EvaluationFailure::invalid_expression(expression));
-            };
-
-            arguments.push((
-                Some(*ordinal),
-                *expression,
-                Some(conversion.clone()),
-                conversion.target_type(),
-            ));
-        }
-
-        arguments.sort_unstable_by_key(|(ordinal, ..)| *ordinal);
+        let arguments = call
+            .explicit_inputs()
+            .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?;
 
         let arguments = arguments
             .into_iter()
-            .map(|(_, argument, conversion, ty)| {
-                let term = match conversion {
-                    Some(conversion) => self.evaluate_selected_conversion(argument, &conversion)?,
-                    None => self.evaluate(argument)?,
+            .map(|(argument, conversion)| {
+                let (term, ty) = match conversion {
+                    Some(conversion) => (
+                        self.evaluate_selected_conversion(argument, conversion)?,
+                        conversion.target_type(),
+                    ),
+                    None => (self.evaluate(argument)?, self.expression_type(argument)?),
                 };
 
                 Ok((term, ty))
@@ -151,13 +131,14 @@ where
                             target: conversion.target_type(),
                         },
                     ),
-                ConversionTarget::Composite(_) => self.intern_typed_term(
-                    ty,
-                    ConstantTermData::Conversion {
-                        operand,
-                        target: conversion.target_type(),
-                    },
-                ),
+                ConversionTarget::Composite(_) | ConversionTarget::CallableContract => self
+                    .intern_typed_term(
+                        ty,
+                        ConstantTermData::Conversion {
+                            operand,
+                            target: conversion.target_type(),
+                        },
+                    ),
                 ConversionTarget::Trait { .. } | ConversionTarget::TraitConstraint { .. } => {
                     Err(EvaluationFailure::invalid_expression(expression))
                 }
@@ -210,9 +191,16 @@ where
         arguments: impl IntoIterator<Item = (ConstantTermId, TypeId)>,
         result_type: TypeId,
     ) -> Result<ConstantTermId, EvaluationFailure> {
+        let mut receiver_type = None;
+
         let arguments = arguments
             .into_iter()
-            .map(|(argument, ty)| {
+            .enumerate()
+            .map(|(index, (argument, ty))| {
+                if index == 0 {
+                    receiver_type = Some(ty);
+                }
+
                 if self.retain_open_terms() {
                     self.type_term(argument, ty)
                 } else {
@@ -226,18 +214,17 @@ where
                 return Err(EvaluationFailure::invalid_expression(expression));
             };
 
-            match resolver.is_constant_callable(callable) {
-                Ok(true) => {}
-                Ok(false) => return Err(EvaluationFailure::invalid_expression(expression)),
-                Err(CheckerQueryError::Cancelled) => return Err(EvaluationFailure::Cancelled),
-                Err(CheckerQueryError::Infrastructure(error)) => {
-                    return Err(EvaluationFailure::Infrastructure(error));
-                }
-                Err(CheckerQueryError::Upstream(error)) => {
-                    self.upstream_failure = Some(error);
+            if !resolver
+                .is_constant_callable(callable)
+                .map_err(|error| self.query_failure(error))?
+            {
+                return Err(EvaluationFailure::invalid_expression(expression));
+            }
 
-                    return Err(EvaluationFailure::Upstream);
-                }
+            if let Some(term) =
+                self.symbolic_presence_call(callable, &arguments, receiver_type, result_type)?
+            {
+                return Ok(term);
             }
 
             let callable = self
@@ -333,15 +320,75 @@ where
 
                 Err(EvaluationFailure::invalid_expression(expression))
             }
-            Err(CheckerQueryError::Cancelled) => Err(EvaluationFailure::Cancelled),
-            Err(CheckerQueryError::Infrastructure(error)) => {
-                Err(EvaluationFailure::Infrastructure(error))
-            }
-            Err(CheckerQueryError::Upstream(error)) => {
-                self.upstream_failure = Some(error);
+            Err(error) => Err(self.query_failure(error)),
+        }
+    }
 
-                Err(EvaluationFailure::Upstream)
-            }
+    fn symbolic_presence_call(
+        &mut self,
+        callable: CallableInstanceData,
+        arguments: &[ConstantTermId],
+        receiver_type: Option<TypeId>,
+        result_type: TypeId,
+    ) -> Result<Option<ConstantTermId>, EvaluationFailure> {
+        use bray_compiler_known::{ImplementationHook, RepresentationRole};
+
+        let hook = self
+            .request
+            .implementation_hook(callable.definition().callable_symbol().into_any())
+            .map_err(|error| self.query_failure(error))?;
+
+        let Some(hook) = hook.filter(|hook| hook.is_available()) else {
+            return Ok(None);
+        };
+
+        let present = match hook.hook() {
+            ImplementationHook::NullableIsPresent => true,
+            ImplementationHook::NullableIsAbsent => false,
+            _ => return Ok(None),
+        };
+
+        let ([receiver], Some(receiver_type)) = (arguments, receiver_type) else {
+            return Err(EvaluationFailure::invalid_input());
+        };
+
+        let values = self.request.semantic_values();
+
+        let receiver_type = values.unborrowed_type(receiver_type).map_err(|error| {
+            EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
+        })?;
+
+        let receiver_type = values.type_data(receiver_type).map_err(|error| {
+            EvaluationFailure::Infrastructure(CheckerInfrastructureError::SemanticValueStore(error))
+        })?;
+
+        if !matches!(receiver_type.as_ref(), bray_symbols::TypeData::Nullable(_))
+            || crate::representation::type_representation(self.request, result_type)
+                .map_err(EvaluationFailure::Infrastructure)?
+                != Some(RepresentationRole::ScalarBool)
+        {
+            return Err(EvaluationFailure::invalid_input());
+        }
+
+        let test = self.intern_typed_term(
+            result_type,
+            ConstantTermData::Test {
+                subject: *receiver,
+                kind: bray_symbols::ConstantTest::NullablePresent,
+            },
+        )?;
+
+        if present {
+            Ok(Some(test))
+        } else {
+            self.intern_typed_term(
+                result_type,
+                ConstantTermData::Unary {
+                    operation: bray_symbols::ConstantUnaryOperation::LogicalNot,
+                    operand: test,
+                },
+            )
+            .map(Some)
         }
     }
 }

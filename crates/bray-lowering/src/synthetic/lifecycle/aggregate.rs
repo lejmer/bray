@@ -21,6 +21,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     .representation_role(NamedTypeSymbolId::Struct(*structure))
                     .is_some()
                 {
+                    if self.context.cleanup_type_execution(place.ty())?.cleanup()
+                        == bray_bound_tree::AsyncStorageCleanupRequirement::None
+                    {
+                        return Ok(Vec::new());
+                    }
+
                     return Err(SyntheticLoweringError::UnsupportedType(place.ty()).into());
                 }
 

@@ -620,7 +620,7 @@
     },
     {
       "name": "MirFrameInitializer",
-      "variants": ["Callable", "TaskObservation"],
+      "variants": ["Callable", "Lifecycle", "TaskQuiescence"],
       "production": {
         "path": "crates/bray-codegen-llvm/src/translation/unit/effect/body.rs",
         "symbol": "translate_frame_creation"

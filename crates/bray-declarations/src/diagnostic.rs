@@ -29,9 +29,18 @@ pub(crate) fn declaration_diagnostics(
     table: &DeclarationTable,
     directives: DirectiveDiagnostics,
 ) -> DiagnosticBag {
-    let mut diagnostics = duplicate_name_diagnostics(table, directives);
+    let (excluded_declarations, excluded_containers) =
+        declaration_diagnostic_exclusions(table, directives);
 
-    diagnostics.extend(module_surface_diagnostics(table, directives));
+    let mut diagnostics =
+        duplicate_name_diagnostics(table, &excluded_declarations, &excluded_containers);
+
+    diagnostics.extend(module_surface_diagnostics(
+        table,
+        directives,
+        &excluded_declarations,
+    ));
+
     diagnostics.extend(declaration_form_diagnostics(table, directives));
 
     diagnostics.sort_by_key(|pending| {
@@ -53,12 +62,10 @@ pub(crate) fn declaration_diagnostics(
 
 fn duplicate_name_diagnostics(
     table: &DeclarationTable,
-    directives: DirectiveDiagnostics,
+    excluded_declarations: &BTreeSet<crate::DeclarationId>,
+    excluded_containers: &BTreeSet<crate::ContainerId>,
 ) -> Vec<PendingDiagnostic> {
     let mut diagnostics = Vec::new();
-
-    let (excluded_declarations, excluded_containers) =
-        declaration_diagnostic_exclusions(table, directives);
 
     for container in table.containers() {
         if excluded_containers.contains(&container.id()) {
@@ -168,6 +175,7 @@ pub(crate) fn module_part_diagnostics_are_indeterminate(
 fn module_surface_diagnostics(
     table: &DeclarationTable,
     directives: DirectiveDiagnostics,
+    excluded_declarations: &BTreeSet<crate::DeclarationId>,
 ) -> Vec<PendingDiagnostic> {
     let mut diagnostics = Vec::new();
 
@@ -189,6 +197,15 @@ fn module_surface_diagnostics(
             Some(path) => path.dotted(),
             None => panic!("module container must have a module path"),
         };
+
+        if expected_trust == DiagnosticModuleTrust::Ordinary {
+            diagnostics.extend(trusted_declaration_diagnostics(
+                table,
+                module,
+                &module_name,
+                excluded_declarations,
+            ));
+        }
 
         for part in parts {
             let actual_visibility = module_visibility(part);
@@ -213,6 +230,56 @@ fn module_surface_diagnostics(
                     expected_trust,
                     actual_trust,
                 ));
+            }
+        }
+    }
+
+    diagnostics
+}
+
+fn trusted_declaration_diagnostics(
+    table: &DeclarationTable,
+    module: &crate::ContainerRecord,
+    module_name: &str,
+    excluded_declarations: &BTreeSet<crate::DeclarationId>,
+) -> Vec<PendingDiagnostic> {
+    let mut pending = vec![module];
+    let mut diagnostics = Vec::new();
+
+    while let Some(container) = pending.pop() {
+        for id in container.declarations() {
+            let declaration = declaration(table, *id);
+
+            if declaration.kind() == DeclarationKind::Module || excluded_declarations.contains(id) {
+                continue;
+            }
+
+            if declaration
+                .surface()
+                .modifier_occurrences()
+                .contains(&SyntaxKind::TrustedKeyword)
+            {
+                let mut pending = crate::validation::declaration_diagnostic(
+                    declaration,
+                    DiagnosticKind::DeclarationTrustedDeclarationRequiresTrustedModule,
+                    [DiagnosticArg::declaration_name(module_name)],
+                );
+
+                pending.diagnostic =
+                    pending
+                        .diagnostic
+                        .with_note(bray_diagnostics::DiagnosticNote::new(
+                            bray_diagnostics::DiagnosticNoteKind::TrustedModuleRequired,
+                        ));
+
+                diagnostics.push(pending);
+            }
+
+            if let Some(child) = declaration
+                .child_container()
+                .and_then(|child| table.container(child))
+            {
+                pending.push(child);
             }
         }
     }
@@ -469,6 +536,123 @@ mod tests {
     };
 
     #[test]
+    fn trusted_declarations_require_their_own_logical_module_to_be_trusted() {
+        for (text, rejected) in [
+            ("module app; trusted func work() {}", 1),
+            ("trusted module app; trusted func work() {}", 0),
+            (
+                "module app; struct Value { trusted func work() {} trusted finalize() {} }",
+                2,
+            ),
+            (
+                "trusted module app; struct Value { trusted func work() {} trusted finalize() {} }",
+                0,
+            ),
+            ("module app; trusted predicate valid();", 1),
+            ("trusted module app; trusted predicate valid();", 0),
+            (
+                "trusted module app { trusted func work() {} } module app.nested { trusted func work() {} }",
+                1,
+            ),
+            (
+                "module app {} trusted module app.nested { trusted func work() {} }",
+                0,
+            ),
+        ] {
+            let sources = source_store([text]);
+
+            let chunk = discover_source_unit_declarations(&parse_valid_source_unit_for_test(
+                source(&sources, 0),
+            ));
+
+            let result = merge_selected_declaration_chunks([&chunk], |_| true, |_| true);
+
+            let diagnostics = diagnostics_of_kind(
+                result.diagnostics(),
+                DiagnosticKind::DeclarationTrustedDeclarationRequiresTrustedModule,
+            );
+
+            assert_eq!(
+                diagnostics.len(),
+                rejected,
+                "{text}: {:?}",
+                result.diagnostics()
+            );
+
+            if rejected > 0 {
+                bray_testing::assert_goal_state_diagnostic_kind(
+                    &diagnostics,
+                    DiagnosticKind::DeclarationTrustedDeclarationRequiresTrustedModule,
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn module_trust_validation_defers_gated_contributions_until_selection() {
+        let sources =
+            source_store(["module app {} @target(true) module app { trusted func work() {} }"]);
+
+        let chunk = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 0,
+        )));
+
+        let discovered = merge_declaration_chunks([&chunk]);
+
+        let excluded = merge_selected_declaration_chunks(
+            [&chunk],
+            |part| part.surface().directives().is_empty(),
+            |_| true,
+        );
+
+        let selected = merge_selected_declaration_chunks([&chunk], |_| true, |_| true);
+
+        assert!(
+            discovered.diagnostics().is_empty(),
+            "{:?}",
+            discovered.diagnostics()
+        );
+
+        assert!(
+            excluded.diagnostics().is_empty(),
+            "{:?}",
+            excluded.diagnostics()
+        );
+
+        bray_testing::assert_goal_state_diagnostic_kind(
+            selected.diagnostics(),
+            DiagnosticKind::DeclarationTrustedDeclarationRequiresTrustedModule,
+        );
+    }
+
+    #[test]
+    fn split_trusted_modules_share_permission_independently_of_chunk_order() {
+        let sources = source_store([
+            "trusted module app; struct Value { trusted func work() {} }",
+            "trusted module app; trusted predicate valid();",
+        ]);
+
+        let first = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 0,
+        )));
+
+        let second = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
+            &sources, 1,
+        )));
+
+        let forward = merge_selected_declaration_chunks([&first, &second], |_| true, |_| true);
+        let reverse = merge_selected_declaration_chunks([&second, &first], |_| true, |_| true);
+
+        assert_eq!(forward, reverse);
+
+        assert!(
+            forward.diagnostics().is_empty(),
+            "{:?}",
+            forward.diagnostics()
+        );
+    }
+
+    #[test]
     fn table_validation_reports_duplicate_names_in_each_declaration_domain() {
         let sources = source_store([
             "module core; struct Point {}",
@@ -659,7 +843,7 @@ mod tests {
     #[test]
     fn table_validation_reports_modifier_directive_and_body_form_errors() {
         let sources = source_store([concat!(
-            "module app;\n",
+            "trusted module app;\n",
             "public public func repeated()\n",
             "{\n",
             "}\n",
@@ -759,7 +943,7 @@ mod tests {
     #[test]
     fn table_validation_accepts_native_static_declaration_forms() {
         let sources = source_store([concat!(
-            "module app;\n",
+            "trusted module app;\n",
             "@symbol(name = \"foreign_value\")\n",
             "extern trusted static FOREIGN_VALUE: i32;\n",
             "@symbol(name = \"exported_value\")\n",

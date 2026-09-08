@@ -140,6 +140,7 @@ fn contract_clause_kind(
     match actual {
         SyntaxKind::RequiresClause => Ok(CallableContractClauseKind::Requires),
         SyntaxKind::EnsuresClause => Ok(CallableContractClauseKind::Ensures),
+        SyntaxKind::WhenClause => Ok(CallableContractClauseKind::Guard),
         SyntaxKind::WithClause => Ok(CallableContractClauseKind::Static),
         _ => Err(SemanticUnitContextError::InvalidContractClauseKind {
             unit: error_unit(unit),

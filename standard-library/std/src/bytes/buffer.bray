@@ -1,4 +1,4 @@
-module std.bytes;
+trusted module std.bytes;
 
 using std.memory;
 

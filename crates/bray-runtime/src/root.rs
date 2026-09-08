@@ -1,4 +1,4 @@
-use std::panic::{AssertUnwindSafe, catch_unwind, panic_any};
+use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU8, Ordering};
 
@@ -123,7 +123,7 @@ impl From<TaskObservationError> for RootExecutionError {
 pub(crate) struct PropagatedCancellation;
 
 pub(crate) fn propagate_current_run_cancellation() -> ! {
-    panic_any(PropagatedCancellation)
+    resume_unwind(Box::new(PropagatedCancellation))
 }
 
 pub(crate) fn is_propagated_cancellation(payload: &(dyn std::any::Any + Send)) -> bool {
@@ -222,7 +222,7 @@ where
             match status {
                 TaskResumeStatus::Suspended(suspension) => ready.suspend(suspension)?,
                 TaskResumeStatus::Terminal(_) => {
-                    drop(ready);
+                    ready.complete()?;
                     drop(registration);
 
                     return root.take_outcome().map_err(Into::into);
@@ -495,7 +495,7 @@ mod tests {
 
                 match status {
                     TaskResumeStatus::Suspended(suspension) => ready.suspend(suspension)?,
-                    TaskResumeStatus::Terminal(_) => drop(ready),
+                    TaskResumeStatus::Terminal(_) => ready.complete()?,
                 }
 
                 Ok(())

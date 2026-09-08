@@ -162,7 +162,7 @@ pub fn lower_executable_host(
                 ),
                 panic: runtime_reference(RuntimeAbiRole::PanicReporting, runtime_abi),
                 entry_failure: runtime_reference(
-                    RuntimeAbiRole::EntryFailureReporting,
+                    RuntimeAbiRole::EntryFailureResolution,
                     runtime_abi,
                 ),
             },
@@ -404,7 +404,7 @@ mod tests {
                 ),
                 panic: super::runtime_reference(RuntimeAbiRole::PanicReporting, runtime_abi),
                 entry_failure: super::runtime_reference(
-                    RuntimeAbiRole::EntryFailureReporting,
+                    RuntimeAbiRole::EntryFailureResolution,
                     runtime_abi,
                 ),
             },

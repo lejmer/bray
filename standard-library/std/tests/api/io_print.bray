@@ -260,10 +260,10 @@ func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<u
 {
     let sink: CountingWriter = CountingWriter(limit = 16);
 
-    let mut writer: std.io.BufferedWriter<CountingWriter> = try std.io.BufferedWriter<CountingWriter>(
-        sink,
-        capacity = 4
-    );
+    let mut writer: std.io.BufferedWriter<CountingWriter> = std.testing.assert_ok<
+        std.io.BufferedWriter<CountingWriter>,
+        (CountingWriter, std.io.IoError)
+    >(std.io.BufferedWriter<CountingWriter>(sink, capacity = 4));
 
     let pair: [u8; 2] = [1, 2];
     let single: [u8; 1] = [3];
@@ -272,7 +272,10 @@ func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<u
     let _: usize = try writer(std.io.Writer).write(&pair[..]);
     let _: usize = try writer(std.io.Writer).write(&single[..]);
 
-    let completed_sink: CountingWriter = try writer.into_sink();
+    let completed_sink: CountingWriter = std.testing.assert_ok<
+        CountingWriter,
+        (std.io.BufferedWriter<CountingWriter>, std.io.IoError)
+    >(writer.into_sink());
 
     assert(completed_sink.calls == 2);
     assert(completed_sink.flushes == 1);
@@ -280,15 +283,19 @@ func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<u
 
     let large_sink: CountingWriter = CountingWriter(limit = 16);
 
-    let mut large_writer: std.io.BufferedWriter<CountingWriter> = try std.io.BufferedWriter<CountingWriter>(
-        large_sink,
-        capacity = 4
-    );
+    let mut large_writer: std.io.BufferedWriter<CountingWriter> = std.testing.assert_ok<
+        std.io.BufferedWriter<CountingWriter>,
+        (CountingWriter, std.io.IoError)
+    >(std.io.BufferedWriter<CountingWriter>(large_sink, capacity = 4));
 
     let large: [u8; 8] = [7; 8];
 
     let written: usize = try large_writer(std.io.Writer).write(&large[..]);
-    let completed_large_sink: CountingWriter = try large_writer.into_sink();
+
+    let completed_large_sink: CountingWriter = std.testing.assert_ok<
+        CountingWriter,
+        (std.io.BufferedWriter<CountingWriter>, std.io.IoError)
+    >(large_writer.into_sink());
 
     assert(written == 8);
     assert(completed_large_sink.calls == 1);
@@ -297,10 +304,10 @@ func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<u
 
     let direct_source: CountingReader = CountingReader(remaining = 8, limit = 8);
 
-    let mut direct_reader: std.io.BufferedReader<CountingReader> = try std.io.BufferedReader<CountingReader>(
-        direct_source,
-        capacity = 4
-    );
+    let mut direct_reader: std.io.BufferedReader<CountingReader> = std.testing.assert_ok<
+        std.io.BufferedReader<CountingReader>,
+        (CountingReader, std.io.IoError)
+    >(std.io.BufferedReader<CountingReader>(direct_source, capacity = 4));
 
     let mut direct_destination: [u8; 8] = [0; 8];
 
@@ -313,10 +320,10 @@ func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<u
 
     let buffered_source: CountingReader = CountingReader(remaining = 4, limit = 4);
 
-    let mut buffered_reader: std.io.BufferedReader<CountingReader> = try std.io.BufferedReader<CountingReader>(
-        buffered_source,
-        capacity = 4
-    );
+    let mut buffered_reader: std.io.BufferedReader<CountingReader> = std.testing.assert_ok<
+        std.io.BufferedReader<CountingReader>,
+        (CountingReader, std.io.IoError)
+    >(std.io.BufferedReader<CountingReader>(buffered_source, capacity = 4));
 
     let mut buffered_destination: [u8; 2] = [0; 2];
 
@@ -335,10 +342,10 @@ func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<u
         fail_flush = true,
     };
 
-    let mut recovering: std.io.BufferedWriter<RecoveringWriter> = try std.io.BufferedWriter<RecoveringWriter>(
-        recovering_sink,
-        capacity = 4
-    );
+    let mut recovering: std.io.BufferedWriter<RecoveringWriter> = std.testing.assert_ok<
+        std.io.BufferedWriter<RecoveringWriter>,
+        (RecoveringWriter, std.io.IoError)
+    >(std.io.BufferedWriter<RecoveringWriter>(recovering_sink, capacity = 4));
 
     let full: [u8; 4] = [1, 2, 3, 4];
     let trailing: [u8; 1] = [5];
@@ -361,7 +368,10 @@ func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<u
 
     try recovering(std.io.Writer).flush();
 
-    let recovered: RecoveringWriter = try recovering.into_sink();
+    let recovered: RecoveringWriter = std.testing.assert_ok<
+        RecoveringWriter,
+        (std.io.BufferedWriter<RecoveringWriter>, std.io.IoError)
+    >(recovering.into_sink());
 
     assert(recovered.length == 5);
     assert(recovered.bytes[0] == 1);
@@ -371,4 +381,51 @@ func buffering_coalesces_small_writes_and_bypasses_large_transfers() -> Result<u
     assert(recovered.bytes[4] == 5);
 
     return Ok(unit);
+}
+
+@test
+func extracting_a_buffered_sink_preserves_ownership_and_partial_progress()
+{
+    let sink: RecoveringWriter =
+    {
+        bytes = [0; 8],
+        length = 0,
+        fail_drain = true,
+        fail_flush = true,
+    };
+
+    let mut writer: std.io.BufferedWriter<RecoveringWriter> = std.testing.assert_ok<
+        std.io.BufferedWriter<RecoveringWriter>,
+        (RecoveringWriter, std.io.IoError)
+    >(std.io.BufferedWriter<RecoveringWriter>(sink, capacity = 4));
+
+    let bytes: [u8; 4] = [1, 2, 3, 4];
+    let written: usize = std.testing.assert_ok<usize, std.io.IoError>(writer(std.io.Writer).write(&bytes[..]));
+
+    assert(written == 4);
+
+    let (after_drain, drain_error) = std.testing.assert_error<
+        RecoveringWriter,
+        (std.io.BufferedWriter<RecoveringWriter>, std.io.IoError)
+    >(writer.into_sink());
+
+    assert(drain_error.transferred == 2);
+
+    let (after_flush, flush_error) = std.testing.assert_error<
+        RecoveringWriter,
+        (std.io.BufferedWriter<RecoveringWriter>, std.io.IoError)
+    >(after_drain.into_sink());
+
+    assert(flush_error.transferred == 2);
+
+    let recovered: RecoveringWriter = std.testing.assert_ok<
+        RecoveringWriter,
+        (std.io.BufferedWriter<RecoveringWriter>, std.io.IoError)
+    >(after_flush.into_sink());
+
+    assert(recovered.length == 4);
+    assert(recovered.bytes[0] == 1);
+    assert(recovered.bytes[1] == 2);
+    assert(recovered.bytes[2] == 3);
+    assert(recovered.bytes[3] == 4);
 }

@@ -157,6 +157,8 @@ impl TaskSnapshot {
 /// Scheduler ownership of one registered task at observation time.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum ScheduledTaskState {
+    /// Execution has ended; result and registration ownership remain retained.
+    Terminal,
     /// The task is registered but not queued.
     Idle,
     /// The task is waiting in its selected lane.

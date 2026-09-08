@@ -1,11 +1,14 @@
 mod completion;
+mod condition;
 mod conformance;
 mod constant;
 mod contract;
 mod default;
 mod directive;
+mod evidence;
 mod execution;
 mod foreign;
+mod guarantee;
 mod implementation;
 mod module;
 mod predicate;
@@ -22,6 +25,7 @@ pub use completion::{
     SymbolCompletionPlan, SymbolCompletionPlanError, SymbolCompletionQuery, SymbolCompletionUnit,
     SymbolQueryKind,
 };
+pub use condition::{CallableConditionClause, CallableConditionSet, CallableConditions};
 pub use conformance::{
     TraitImplementationConformance, TraitMemberFulfillmentId, TraitMemberRequirementId,
     TraitRequirementConformance, TraitRequirementResolution,
@@ -30,8 +34,8 @@ pub use constant::{
     ConstantDefinition, ConstantDefinitionState, ConstantInstanceKey, ErrorConstantDefinition,
 };
 pub use contract::{
-    CallableContractTemplateQuery, CallableContractTypeQuery, CallableContractsQuery,
-    CallableOverloadTemplateQuery, CallableParameterDefaultQuery,
+    CallableConditionsQuery, CallableContractTemplateQuery, CallableContractTypeQuery,
+    CallableContractsQuery, CallableOverloadTemplateQuery, CallableParameterDefaultQuery,
     CallableParameterDefaultTemplateQuery, CallableSignatureQuery, ConstantDeclaredTypeQuery,
     ConstantDefinitionQuery, DeclarationDirectivesQuery, GenericConstParameterDeclaredTypeQuery,
     GenericConstraintSatisfactionQuery, GenericConstraintsQuery, GenericDeclarationTemplateQuery,
@@ -63,6 +67,7 @@ pub use directive::{
     CallableTypeDirectiveKey, DirectiveArgumentName, DirectiveArgumentTemplate,
     DirectiveAttachment, DirectiveKind, DirectiveSurface, DirectiveTemplate,
 };
+pub use evidence::{CallableContractEvidence, CallableContractObligation, CallableEvidenceOrigin};
 pub use execution::{
     CallableCapabilityRequirement, CallableEffectRequirement, CallableExecutionRequirement,
     CallablePhaseBehavior, CallablePhaseBehaviors, CurrentRunCancellation,
@@ -72,6 +77,7 @@ pub use foreign::{
     NativeLinkRequirement, NativeSymbolBinding, NativeSymbolContract, NativeSymbolIdentity,
     NativeSymbolPresence,
 };
+pub use guarantee::{CallableExecutionGuarantee, ExecutionProperty};
 pub use implementation::{
     ImplementationAmbiguity, ImplementationAmbiguityError, ImplementationCandidate,
     ImplementationCandidateError, ImplementationCandidateSet, ImplementationCandidateSetError,
@@ -107,10 +113,10 @@ pub use static_storage::{
 pub use target::{ModuleContributionGate, TargetPropertyDependency};
 pub use template::{
     CallableContractExpressionTemplate, CallableContractTemplate, DeclarationCapabilityTemplate,
-    DeclarationExpressionTemplate, DeclarationPredicateClauseKind, GenericConstraintTemplate,
-    GenericDeclarationTemplate, ImplementationHeadTemplate, OverloadArmTemplate,
-    OverloadSignatureTemplate, PredicateParameterTemplate, PredicateSignatureTemplate,
-    SourceCallableContractTemplate, UnevaluatedDefaultTemplate,
+    DeclarationExpressionTemplate, DeclarationPredicateClauseKind, ExecutionGuaranteeTemplate,
+    GenericConstraintTemplate, GenericDeclarationTemplate, ImplementationHeadTemplate,
+    OverloadArmTemplate, OverloadSignatureTemplate, PredicateParameterTemplate,
+    PredicateSignatureTemplate, SourceCallableContractTemplate, UnevaluatedDefaultTemplate,
 };
 pub use type_expression::{
     CallableParameterTypeTemplate, CallableTypeTemplate, ConstantExpressionExpectedType,

@@ -18,6 +18,7 @@ pub(in crate::unit) fn validate_unit(unit: &MirUnit) -> Result<(), MirUnitBuildE
     validate_frame_descriptor(unit)?;
     validate_value_definitions(unit)?;
     validate_blocks(unit)?;
+    super::capture::validate_capture_entries(unit)?;
     validate_host_sequence(unit)?;
 
     Ok(())
@@ -143,12 +144,7 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
         (crate::MirUnitKind::ProtectedAsyncFrame(_), None) => {
             return Err(MirUnitBuildError::MissingFrameDescriptor);
         }
-        (
-            crate::MirUnitKind::Synchronous
-            | crate::MirUnitKind::ExecutableHost(_)
-            | crate::MirUnitKind::GeneratedLifecycle(_),
-            Some(_),
-        ) => {
+        (crate::MirUnitKind::Synchronous | crate::MirUnitKind::ExecutableHost(_), Some(_)) => {
             return Err(MirUnitBuildError::UnexpectedFrameDescriptor);
         }
         (crate::MirUnitKind::ExecutableHost(host), None) => {
@@ -158,10 +154,36 @@ fn validate_frame_descriptor(unit: &MirUnit) -> Result<(), MirUnitBuildError> {
 
             return Ok(());
         }
-        (crate::MirUnitKind::Synchronous | crate::MirUnitKind::GeneratedLifecycle(_), None) => {
+        (crate::MirUnitKind::Synchronous, None) => {
             return Ok(());
         }
     };
+
+    if let Some(entry) = descriptor.inactive_cleanup() {
+        let block = unit
+            .block(entry)
+            .ok_or(MirUnitBuildError::InvalidFrameStateEntry(entry))?;
+
+        if block.kind() != MirBlockKind::CleanupBroadcast || !block.parameters().is_empty() {
+            return Err(MirUnitBuildError::InvalidFrameStateEntry(entry));
+        }
+    }
+
+    if let Some((quiescence, destruction)) = descriptor.capture_abandonment() {
+        if quiescence == destruction || quiescence == unit.entry() || destruction == unit.entry() {
+            return Err(MirUnitBuildError::ProtectedFrameMismatch);
+        }
+
+        for initial in [quiescence, destruction] {
+            let block = unit
+                .block(initial)
+                .ok_or(MirUnitBuildError::InvalidFrameStateEntry(initial))?;
+
+            if block.kind() != MirBlockKind::Ordinary || !block.parameters().is_empty() {
+                return Err(MirUnitBuildError::InvalidFrameStateEntry(initial));
+            }
+        }
+    }
 
     for state in descriptor.states() {
         if state.entry().unit() != unit.unit() || unit.block(state.entry()).is_none() {

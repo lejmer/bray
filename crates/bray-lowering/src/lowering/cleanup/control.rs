@@ -10,6 +10,7 @@ use crate::lowering::LoweringError;
 use crate::lowering::lowerer::Lowerer;
 use crate::plan::ScopeExitCleanupStatus;
 
+#[derive(Clone, Copy)]
 pub(super) enum CleanupDestination {
     Goto(MirBlockId),
     Return,
@@ -25,6 +26,7 @@ enum CleanupEntry {
 
 pub(super) enum TerminalState {
     Completed(TypeId),
+    CapturesCompleted,
     Panicked(TypeId),
     Cancelled,
 }
@@ -56,6 +58,7 @@ impl Lowerer<'_> {
             CleanupDestination::Goto(continuation),
             None,
             exit,
+            None,
         )?;
 
         Ok(continuation)
@@ -78,6 +81,7 @@ impl Lowerer<'_> {
             CleanupDestination::Goto(target),
             value,
             exit,
+            None,
         )
     }
 
@@ -114,6 +118,7 @@ impl Lowerer<'_> {
             destination,
             value,
             exit,
+            None,
         )
     }
 
@@ -130,6 +135,7 @@ impl Lowerer<'_> {
         catch: Option<MirBlockId>,
         scope_depth: usize,
         exit: AnyBoundNodeId,
+        abandoned: Option<&bray_ir::MirPlace>,
     ) -> Result<(), LoweringError> {
         let destination = match (catch, self.input.unit_kind().protected_frame()) {
             (Some(catch), _) => CleanupDestination::Goto(catch),
@@ -147,6 +153,7 @@ impl Lowerer<'_> {
             destination,
             Some((report, report_type)),
             exit,
+            abandoned,
         )
     }
 
@@ -170,6 +177,7 @@ impl Lowerer<'_> {
             destination,
             None,
             exit,
+            None,
         )
     }
 
@@ -202,6 +210,7 @@ impl Lowerer<'_> {
                 MirTaskTerminalState::Panicked(MirOperand::Value(report))
             }
             TerminalState::Cancelled => MirTaskTerminalState::Cancelled,
+            TerminalState::CapturesCompleted => MirTaskTerminalState::CapturesCompleted,
         };
 
         self.push_operation(
@@ -236,12 +245,15 @@ impl Lowerer<'_> {
         destination: CleanupDestination,
         value: Option<(MirOperand, TypeId)>,
         exit: AnyBoundNodeId,
+        abandoned: Option<&bray_ir::MirPlace>,
     ) -> Result<(), LoweringError> {
         let plans = self.cleanup_plans(scope_depth, exit)?;
 
-        if plans.iter().all(|plan| {
-            plan.cancellation_broadcast().is_empty() && plan.lifecycle_resolution().is_empty()
-        }) {
+        if abandoned.is_none()
+            && plans.iter().all(|plan| {
+                plan.cancellation_broadcast().is_empty() && plan.lifecycle_resolution().is_empty()
+            })
+        {
             return self.set_direct_exit(current, source, entry, destination, value);
         }
 
@@ -253,7 +265,7 @@ impl Lowerer<'_> {
                     Some(report),
                     destination,
                     &plans,
-                    None,
+                    abandoned,
                 );
             }
             CleanupEntry::Cancellation => {
@@ -263,7 +275,7 @@ impl Lowerer<'_> {
                     None,
                     destination,
                     &plans,
-                    None,
+                    abandoned,
                 );
             }
             CleanupEntry::Ordinary => {}
@@ -312,6 +324,18 @@ impl Lowerer<'_> {
             } {
                 let place = self.place_for_access(*access, false)?;
 
+                self.destructor_remainder = self
+                    .input
+                    .storage_plan()
+                    .root_identity(*access)
+                    .is_some_and(|identity| {
+                        bray_bound_tree::storage_identity_is_destructor_receiver(
+                            self.input.unit(),
+                            self.input.storage_plan(),
+                            identity,
+                        )
+                    });
+
                 let state = self.initialization_guards.get(&place.storage());
                 let guard = state.map(|state| Self::retained_place(&state.guard));
 
@@ -330,9 +354,40 @@ impl Lowerer<'_> {
                     })
                     .unwrap_or_default();
 
-                if parts.is_empty() {
-                    (block, value) =
-                        self.push_guarded_cleanup(block, source, phase, place, guard, None, value)?;
+                let completed = phase == MirCleanupPhase::LifecycleResolution
+                    && self.input.lowering_plans().finalizer_is_complete(
+                        plan.scope(),
+                        plan.exit(),
+                        *access,
+                    );
+
+                let synchronous = self.input.lowering_plans().destruction_is_synchronous(
+                    plan.scope(),
+                    plan.exit(),
+                    *access,
+                    None,
+                );
+
+                if parts.is_empty() && completed {
+                    (block, value) = self.push_guarded_destruction(
+                        block,
+                        source,
+                        place,
+                        guard,
+                        value,
+                        synchronous,
+                    )?;
+                } else if parts.is_empty() {
+                    (block, value) = self.push_guarded_cleanup(
+                        block,
+                        source,
+                        phase,
+                        place,
+                        guard,
+                        None,
+                        value,
+                        synchronous,
+                    )?;
                 } else {
                     (block, value) = self.guarded_cleanup_region(
                         block,
@@ -342,7 +397,15 @@ impl Lowerer<'_> {
                         value,
                         |lowerer, block, place, value| {
                             lowerer.push_part_cleanup(
-                                block, source, phase, *access, place, &parts, 0, value,
+                                block,
+                                source,
+                                phase,
+                                *access,
+                                place,
+                                &parts,
+                                0,
+                                value,
+                                Some((plan.scope(), plan.exit())),
                             )
                         },
                     )?;
@@ -351,6 +414,7 @@ impl Lowerer<'_> {
         }
 
         self.cleanup_failure_targets = None;
+        self.destructor_remainder = false;
 
         Ok((block, value))
     }
@@ -364,6 +428,7 @@ impl Lowerer<'_> {
         guard: Option<bray_ir::MirPlace>,
         release: Option<bray_bound_tree::StorageProtocolCall>,
         value: Option<(bray_ir::MirValueId, TypeId)>,
+        synchronous_destruction: bool,
     ) -> Result<(MirBlockId, Option<(bray_ir::MirValueId, TypeId)>), LoweringError> {
         self.guarded_cleanup_region(
             block,
@@ -372,17 +437,65 @@ impl Lowerer<'_> {
             guard,
             value,
             |lowerer, block, place, value| {
-                lowerer.push_cleanup_action(block, source, phase, place, release)?;
+                if let Some(release) = release {
+                    lowerer.set_storage_initialized(block, source, &place, false)?;
+                    lowerer.push_storage_protocol_call(block, source, &place, release)?;
 
-                let block = if let Some(outcome) = &lowerer.cleanup_outcome {
-                    outcome.check(&mut lowerer.builder, block, source)?
+                    Ok((lowerer.check_cleanup_action_outcome(block, source)?, value))
                 } else {
-                    lowerer.check_ordinary_cleanup(block, source)?
-                };
-
-                Ok((block, value))
+                    lowerer.push_lifecycle_cleanup(
+                        block,
+                        source,
+                        bray_ir::MirGeneratedLifecycleRole::Cleanup(phase),
+                        place,
+                        value,
+                        synchronous_destruction,
+                    )
+                }
             },
         )
+    }
+
+    pub(in crate::lowering) fn push_guarded_destruction(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        place: bray_ir::MirPlace,
+        guard: Option<bray_ir::MirPlace>,
+        value: Option<(bray_ir::MirValueId, TypeId)>,
+        synchronous_destruction: bool,
+    ) -> Result<(MirBlockId, Option<(bray_ir::MirValueId, TypeId)>), LoweringError> {
+        self.guarded_cleanup_region(
+            block,
+            source,
+            place,
+            guard,
+            value,
+            |lowerer, block, place, value| {
+                lowerer.push_lifecycle_cleanup(
+                    block,
+                    source,
+                    bray_ir::MirGeneratedLifecycleRole::Destroy,
+                    place,
+                    value,
+                    synchronous_destruction,
+                )
+            },
+        )
+    }
+
+    pub(super) fn check_cleanup_action_outcome(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+    ) -> Result<MirBlockId, LoweringError> {
+        if let Some(outcome) = &self.cleanup_outcome {
+            outcome
+                .check(&mut self.builder, block, source)
+                .map_err(Into::into)
+        } else {
+            self.check_ordinary_cleanup(block, source)
+        }
     }
 
     pub(in crate::lowering) fn guarded_cleanup_region(
@@ -459,29 +572,6 @@ impl Lowerer<'_> {
         }
 
         body(self, block, place, value)
-    }
-
-    fn push_cleanup_action(
-        &mut self,
-        block: MirBlockId,
-        source: &MirSourceAnchor,
-        phase: MirCleanupPhase,
-        place: bray_ir::MirPlace,
-        release: Option<bray_bound_tree::StorageProtocolCall>,
-    ) -> Result<(), LoweringError> {
-        if let Some(release) = release {
-            self.set_storage_initialized(block, source, &place, false)?;
-            self.push_storage_protocol_call(block, source, &place, release)?;
-        } else {
-            self.push_operation(
-                block,
-                Self::retained_source(source),
-                MirOperationKind::Cleanup { phase, place },
-                None,
-            )?;
-        }
-
-        Ok(())
     }
 
     pub(in crate::lowering) fn cleanup_parameter(

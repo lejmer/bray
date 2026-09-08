@@ -102,6 +102,21 @@ pub trait BindingQueryContext: Send + Sync {
         definition: CallableContractSymbolId,
     ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>, Self::UpstreamError>;
 
+    /// Binds the parameter and result types observed by a callable type's contract clauses.
+    fn callable_contract_input_signature(
+        &self,
+        owner: AnySymbolId,
+        source: bray_declarations::SyntaxAnchor,
+    ) -> BindingQueryResult<DiagnosticResult<bray_symbols::CallableTypeTemplate>, Self::UpstreamError>;
+
+    /// Checks the declared conditions and capability contract of one callable occurrence.
+    fn callable_type_contract(
+        &self,
+        owner: AnySymbolId,
+        source: bray_declarations::SyntaxAnchor,
+        signature: &bray_symbols::CallableTypeTemplate,
+    ) -> BindingQueryResult<DiagnosticResult<bray_symbols::CallableContractSet>, Self::UpstreamError>;
+
     /// Resolves one name introduced by a source module export declaration.
     fn module_re_export_lookup(
         &self,

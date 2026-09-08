@@ -135,12 +135,14 @@ impl CodegenCallableMapping {
     }
 }
 
-/// Ordered generated helpers required to realize one MIR operation.
+/// Generated helpers and payload ownership required to realize one MIR operation.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenOperationMapping {
     owner: CodegenInstanceKey,
     operation: MirOperationId,
     helpers: Arc<[CodegenHelperMapping]>,
+    incident: Option<crate::CodegenCleanupIncident>,
+    returned_error_identity: Option<[u8; 32]>,
 }
 
 /// Extra realization inputs required by one MIR terminator.
@@ -192,6 +194,8 @@ impl CodegenOperationMapping {
             owner,
             operation,
             helpers: shared_slice(helpers),
+            incident: None,
+            returned_error_identity: None,
         }
     }
 
@@ -208,6 +212,30 @@ impl CodegenOperationMapping {
     /// Returns helper symbols in semantic execution order.
     pub fn helpers(&self) -> &[CodegenHelperMapping] {
         &self.helpers
+    }
+
+    /// Retains the concrete ownership contract for a transferred cleanup error.
+    pub fn with_incident(mut self, incident: crate::CodegenCleanupIncident) -> Self {
+        self.incident = Some(incident);
+
+        self
+    }
+
+    /// Returns the cleanup error's concrete ownership contract when this operation transfers one.
+    pub const fn incident(&self) -> Option<&crate::CodegenCleanupIncident> {
+        self.incident.as_ref()
+    }
+
+    /// Retains the type identity reported for a recoverable entry error.
+    pub fn with_returned_error_identity(mut self, identity: [u8; 32]) -> Self {
+        self.returned_error_identity = Some(identity);
+
+        self
+    }
+
+    /// Returns entry error metadata without exposing its payload representation.
+    pub const fn returned_error_identity(&self) -> Option<[u8; 32]> {
+        self.returned_error_identity
     }
 }
 

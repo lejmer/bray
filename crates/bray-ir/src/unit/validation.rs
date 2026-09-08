@@ -1,3 +1,4 @@
+mod capture;
 mod control;
 mod core;
 mod host;

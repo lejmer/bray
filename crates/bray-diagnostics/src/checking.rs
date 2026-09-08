@@ -12,11 +12,11 @@ pub use callable::{
     DiagnosticCallableContractMismatch, DiagnosticCallableContractSurface,
     DiagnosticCallableExecution, DiagnosticCallableOverloadArm, DiagnosticCallableOverloadContext,
     DiagnosticCallableOverloadProblem, DiagnosticCallableParameterMode, DiagnosticCallablePosition,
-    DiagnosticCallableTrust, DiagnosticConstraintCategory, DiagnosticGenericConstraintMismatch,
-    DiagnosticGenericParameterCategory, DiagnosticImplementationBorrowKind,
-    DiagnosticImplementationFamily, DiagnosticImplementationFamilySubject,
-    DiagnosticImplementationOverloadProblem, DiagnosticReceiverMode,
-    DiagnosticTraitFulfillmentMismatch,
+    DiagnosticCallableTrust, DiagnosticConstraintCategory, DiagnosticExecutionProperty,
+    DiagnosticGenericConstraintMismatch, DiagnosticGenericParameterCategory,
+    DiagnosticImplementationBorrowKind, DiagnosticImplementationFamily,
+    DiagnosticImplementationFamilySubject, DiagnosticImplementationOverloadProblem,
+    DiagnosticReceiverMode, DiagnosticTraitFulfillmentMismatch,
 };
 pub use expression::{
     DiagnosticArrayGeneratorCardinalityProblem, DiagnosticArrayLength, DiagnosticConstantOperation,

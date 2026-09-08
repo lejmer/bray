@@ -50,7 +50,7 @@ pub enum TaskState {
 }
 
 impl TaskState {
-    const fn is_terminal(self) -> bool {
+    pub(crate) const fn is_terminal(self) -> bool {
         matches!(
             self,
             Self::Completed | Self::Cancelled | Self::Panicked | Self::Failed(_)
@@ -100,6 +100,62 @@ pub enum TaskResumeError {
 pub enum TaskStartError {
     /// Process-local task identities were exhausted.
     IdentityExhausted,
+}
+
+pub(crate) struct TaskAdmission {
+    id: TaskId,
+    cancellation: CancellationContext,
+    start_site: Option<TaskStartSite>,
+    output: TaskOutput,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TaskAdmissionKind {
+    Independent,
+    Continuation,
+}
+
+impl TaskAdmission {
+    pub(crate) fn reserve(cancellation: CancellationContext) -> Result<Self, TaskStartError> {
+        Ok(Self {
+            id: next_task_id()?,
+            cancellation,
+            start_site: current_task_start_site(),
+            output: current_task_output(),
+        })
+    }
+
+    pub(crate) const fn id(&self) -> TaskId {
+        self.id
+    }
+
+    pub(crate) const fn cancellation_context(&self) -> &CancellationContext {
+        &self.cancellation
+    }
+
+    pub(crate) fn publish<T: 'static, F>(self, frame: Pin<Box<F>>) -> Arc<TaskControlBlock<T, F>>
+    where
+        F: ?Sized + ProtectedFrame<Output = T>,
+    {
+        let descriptor = frame.descriptor().clone();
+
+        Arc::new(TaskControlBlock {
+            id: self.id,
+            start_site: self.start_site,
+            descriptor,
+            data: Mutex::new(TaskData {
+                frame: Some(frame),
+                state: TaskState::Ready,
+                frame_state: ProtectedFrameStateId::new(0),
+                outcome: None,
+                join_waiters: BTreeMap::new(),
+                next_join_waiter: 0,
+            }),
+            cancellation: self.cancellation,
+            output: self.output,
+            resuming: AtomicBool::new(false),
+        })
+    }
 }
 
 /// Failure to observe or register observation of one task outcome.
@@ -239,28 +295,7 @@ where
         frame: Pin<Box<F>>,
         cancellation: CancellationContext,
     ) -> Result<Arc<Self>, TaskStartError> {
-        let id = next_task_id()?;
-
-        let start_site = current_task_start_site();
-
-        let descriptor = frame.descriptor().clone();
-
-        Ok(Arc::new(Self {
-            id,
-            start_site,
-            descriptor,
-            data: Mutex::new(TaskData {
-                frame: Some(frame),
-                state: TaskState::Ready,
-                frame_state: ProtectedFrameStateId::new(0),
-                outcome: None,
-                join_waiters: BTreeMap::new(),
-                next_join_waiter: 0,
-            }),
-            cancellation,
-            output: current_task_output(),
-            resuming: AtomicBool::new(false),
-        }))
+        Ok(TaskAdmission::reserve(cancellation)?.publish(frame))
     }
 
     /// Returns the process-local task identity.

@@ -1,3 +1,5 @@
+use bray_symbols::CallableConditions;
+
 use bray_symbols::{
     CallableCapabilityRequirement, CallableContractClause, CallableContractSet,
     CallableEffectRequirement, CallableExecutionRequirement, CallableInstanceId,
@@ -91,6 +93,25 @@ impl InternState {
         })
     }
 
+    fn convert_predicate(
+        &self,
+        input: crate::InterfacePredicateSummary,
+    ) -> Result<PredicateSemanticSummary, InterfaceSemanticInternError> {
+        let dependency = self
+            .dependency_contract_id(input.dependency_contract)
+            .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
+
+        let condition = input
+            .condition
+            .map(|term| {
+                self.constant_term_id(term)
+                    .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)
+            })
+            .transpose()?;
+
+        Ok(PredicateSemanticSummary::new(dependency).with_condition(condition))
+    }
+
     pub(super) fn convert_constraints(
         &self,
         semantics: &InterfaceSemantics,
@@ -110,13 +131,9 @@ impl InternState {
                     owner,
                     constraint: match input.kind {
                         crate::InterfaceConstraintKind::Predicate(predicate) => {
-                            let dependency = self
-                                .dependency_contract_id(predicate.dependency_contract)
-                                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
-
                             CheckedConstraint::new(
                                 input.ordinal,
-                                PredicateSemanticSummary::new(dependency),
+                                self.convert_predicate(predicate)?,
                             )
                         }
                         crate::InterfaceConstraintKind::TraitSatisfaction {
@@ -153,44 +170,7 @@ impl InternState {
             .callable_contracts
             .iter()
             .map(|input| {
-                let clause_count = input.invocation_preconditions.len()
-                    + input.static_constraints.len()
-                    + input.normal_completion_postconditions.len();
-
-                let mut clauses = Vec::with_capacity(clause_count);
-
-                for clause in input
-                    .invocation_preconditions
-                    .iter()
-                    .chain(input.static_constraints.iter())
-                    .chain(input.normal_completion_postconditions.iter())
-                {
-                    let clause = match clause.value {
-                        crate::InterfaceCallableContractClauseValue::Predicate(predicate) => {
-                            let dependency = self
-                                .dependency_contract_id(predicate.dependency_contract)
-                                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
-
-                            CallableContractClause::new(
-                                clause.ordinal,
-                                clause.kind,
-                                PredicateSemanticSummary::new(dependency),
-                            )
-                        }
-                        crate::InterfaceCallableContractClauseValue::TraitSatisfaction {
-                            subject,
-                            application,
-                        } => CallableContractClause::trait_satisfaction(
-                            clause.ordinal,
-                            self.type_id(subject)
-                                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
-                            self.trait_application_id(application)
-                                .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
-                        ),
-                    };
-
-                    clauses.push(clause);
-                }
+                let conditions = self.convert_callable_conditions(input.conditions())?;
 
                 let invocation_behavior =
                     self.convert_callable_behavior(&input.invocation_behavior, symbols)?;
@@ -203,14 +183,52 @@ impl InternState {
 
                 Ok(ImportedCallableContract {
                     owner: resolve_family::<CallableSymbolId>(symbols, &input.owner)?,
+                    evidence: input
+                        .evidence()
+                        .iter()
+                        .map(|proof| {
+                            proof.try_map_symbols(|target| {
+                                resolve_family::<CallableSymbolId>(symbols, target)
+                            })
+                        })
+                        .collect::<Result<_, InterfaceSemanticInternError>>()?,
                     contract: CallableContractSet::new(
-                        clauses,
+                        conditions,
                         invocation_behavior,
                         deferred_execution_behavior,
                     ),
                 })
             })
             .collect()
+    }
+
+    pub(super) fn convert_callable_conditions(
+        &self,
+        input: &bray_symbols::CallableConditionSet<crate::InterfaceCallableContractClause>,
+    ) -> Result<bray_symbols::CallableConditionSet, InterfaceSemanticInternError> {
+        input.try_convert_conditions(|clause| {
+            let converted = match clause.value {
+                crate::InterfaceCallableContractClauseValue::Predicate(predicate) => {
+                    CallableContractClause::new(
+                        clause.ordinal,
+                        clause.kind,
+                        self.convert_predicate(predicate)?,
+                    )
+                }
+                crate::InterfaceCallableContractClauseValue::TraitSatisfaction {
+                    subject,
+                    application,
+                } => CallableContractClause::trait_satisfaction(
+                    clause.ordinal,
+                    self.type_id(subject)
+                        .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
+                    self.trait_application_id(application)
+                        .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
+                ),
+            };
+
+            Ok(converted.with_guard(clause.guard))
+        })
     }
 
     pub(super) fn convert_callable_behavior(

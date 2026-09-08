@@ -75,7 +75,8 @@ where
             BoundReferenceTarget::Local(
                 AnyLocalSymbolId::Constant(_) | AnyLocalSymbolId::AnonymousCallable(_),
             )
-            | BoundReferenceTarget::Surface(_) => None,
+            | BoundReferenceTarget::Surface(_)
+            | BoundReferenceTarget::TypeQualifier(_) => None,
         };
 
         match binding {

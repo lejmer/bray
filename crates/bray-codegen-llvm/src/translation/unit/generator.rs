@@ -27,16 +27,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirGeneratorOperation::Finish { destination } => {
                 self.translate_generator_finish(&helpers, destination)
             }
-            MirGeneratorOperation::CleanupBroadcast {
-                destination,
-                element,
-                runtime,
-            } => self.translate_generator_cleanup(&helpers, destination, *element, *runtime),
-            MirGeneratorOperation::Destroy {
-                destination,
-                element,
-                runtime,
-            } => self.translate_generator_destroy(&helpers, destination, *element, *runtime),
         }
     }
 
@@ -165,81 +155,5 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         ))?;
 
         Ok(Some(value))
-    }
-
-    fn translate_generator_cleanup(
-        &mut self,
-        helpers: &[CodegenHelperMapping],
-        destination: &MirPlace,
-        element: bray_symbols::TypeId,
-        runtime: bray_ir::MirRuntimeReference,
-    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
-        let [helper] = helpers else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
-
-        let expected = MirHelperReference::Cleanup {
-            phase: bray_ir::MirCleanupPhase::TaskCancellation,
-            ty: element,
-        };
-
-        if helper.reference() != &expected {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        }
-
-        let callback = self.generator_callback_argument(helper, runtime, 1)?;
-        let destination = self.place(destination)?.into();
-
-        if self
-            .invoke_runtime(runtime, &[destination, callback])?
-            .is_some()
-        {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        }
-
-        Ok(None)
-    }
-
-    fn translate_generator_destroy(
-        &mut self,
-        helpers: &[CodegenHelperMapping],
-        destination: &MirPlace,
-        element: bray_symbols::TypeId,
-        runtime: bray_ir::MirRuntimeReference,
-    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
-        let [finalize, destroy] = helpers else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
-
-        if finalize.reference() != &MirHelperReference::Finalize(element)
-            || destroy.reference() != &MirHelperReference::Destroy(element)
-        {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        }
-
-        let finalize = self.generator_callback_argument(finalize, runtime, 1)?;
-        let destroy = self.generator_callback_argument(destroy, runtime, 2)?;
-        let destination = self.place(destination)?.into();
-
-        if self
-            .invoke_runtime(runtime, &[destination, finalize, destroy])?
-            .is_some()
-        {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        }
-
-        Ok(None)
-    }
-
-    fn generator_callback_argument(
-        &mut self,
-        helper: &CodegenHelperMapping,
-        runtime: bray_ir::MirRuntimeReference,
-        parameter: usize,
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        self.helper_address(helper)?.map_or_else(
-            || self.runtime_null_pointer_argument(runtime, parameter),
-            Ok,
-        )
     }
 }

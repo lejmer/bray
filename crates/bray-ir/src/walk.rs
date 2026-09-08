@@ -117,6 +117,32 @@ pub fn walk_mir_unit<V: MirVisitor + ?Sized>(unit: &MirUnit, visitor: &mut V) {
     }
 }
 
+impl MirUnit {
+    /// Returns the control-flow closure of the selected entry blocks in identity order.
+    pub fn reachable_blocks(
+        &self,
+        entries: impl IntoIterator<Item = MirBlockId>,
+    ) -> std::collections::BTreeSet<MirBlockId> {
+        let mut reachable = std::collections::BTreeSet::new();
+        let mut pending = entries.into_iter().collect::<Vec<_>>();
+
+        while let Some(block) = pending.pop() {
+            if !reachable.insert(block) {
+                continue;
+            }
+
+            if let Some(block) = self.block(block) {
+                block
+                    .terminator()
+                    .kind()
+                    .for_each_successor(|successor| pending.push(successor));
+            }
+        }
+
+        reachable
+    }
+}
+
 impl MirOperationKind {
     /// Visits evaluated operands, including storage selectors, in execution order.
     ///
@@ -133,6 +159,8 @@ impl MirOperationKind {
             Self::Borrow { place, .. }
             | Self::Finalize(place)
             | Self::Destroy(place)
+            | Self::Abandon { place, .. }
+            | Self::DestructorRemainder { place, .. }
             | Self::Cleanup { place, .. } => visit_place_operands(place, &mut visit),
             Self::Unary { operand, .. }
             | Self::Convert { operand, .. }
@@ -161,9 +189,7 @@ impl MirOperationKind {
                     visit_operand(value, &mut visit);
                 }
                 MirGeneratorOperation::Begin { destination, .. }
-                | MirGeneratorOperation::Finish { destination }
-                | MirGeneratorOperation::CleanupBroadcast { destination, .. }
-                | MirGeneratorOperation::Destroy { destination, .. } => {
+                | MirGeneratorOperation::Finish { destination } => {
                     visit_place_operands(destination, &mut visit);
                 }
             },
@@ -179,6 +205,7 @@ impl MirOperationKind {
                 }
             }
             Self::PanicReport(cause) => match cause {
+                MirPanicCause::TaskAdmission => {}
                 MirPanicCause::Message(operand) | MirPanicCause::ExplicitTestFailure(operand) => {
                     visit_operand(operand, &mut visit);
                 }
@@ -222,32 +249,30 @@ fn visit_async_operands(operation: &MirAsyncOperation, visit: &mut impl FnMut(&M
     match operation {
         MirAsyncOperation::CreateFrame { initializer, .. } => match initializer {
             MirFrameInitializer::Callable(call) => visit_call_operands(call, visit),
-            MirFrameInitializer::TaskObservation { task, .. } => visit_operand(task, visit),
+            MirFrameInitializer::Lifecycle { receiver, .. } => visit_operand(receiver, visit),
         },
-        MirAsyncOperation::MoveInactiveFrame {
-            source,
-            destination,
-            ..
-        } => {
-            visit_place_operands(source, visit);
+        MirAsyncOperation::ComposeAwaitedFrame { frame, .. }
+        | MirAsyncOperation::DestroyInactiveCaptures { frame, .. } => visit_operand(frame, visit),
+        MirAsyncOperation::StartTask { value, destination, .. } => {
+            visit_operand(value, visit);
             visit_place_operands(destination, visit);
         }
-        MirAsyncOperation::ComposeAwaitedFrame { frame, .. } => visit_operand(frame, visit),
-        MirAsyncOperation::StartTask { value, .. } => visit_operand(value, visit),
         MirAsyncOperation::RequestTaskCancellation { task, .. }
         | MirAsyncOperation::ResolveTask { task, .. }
-        | MirAsyncOperation::DestroyTerminalTask { task } => visit_operand(task, visit),
+        | MirAsyncOperation::BorrowTaskCompletion { task, .. }
+        | MirAsyncOperation::ReleaseTaskCompletionBorrow { task, .. }
+        | MirAsyncOperation::DestroyTerminalTask { task, .. } => visit_operand(task, visit),
         MirAsyncOperation::PublishTerminalState { state, .. } => match state {
             MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
                 visit_operand(value, visit);
             }
-            MirTaskTerminalState::Cancelled => {}
+            MirTaskTerminalState::Cancelled | MirTaskTerminalState::CapturesCompleted => {}
         },
         MirAsyncOperation::TransferCleanupIncident { incident, .. } => {
             visit_operand(incident, visit)
         }
         MirAsyncOperation::ResumeFrame { .. }
-        | MirAsyncOperation::CommitAwaitedCompletion { .. }
+        | MirAsyncOperation::ResolveAwaitedFrame { .. }
         | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
         | MirAsyncOperation::ExecuteCleanupBroadcast { .. }
         | MirAsyncOperation::ExecuteLifecycleResolution { .. } => {}

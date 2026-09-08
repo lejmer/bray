@@ -4,6 +4,7 @@ mod flow;
 mod pattern;
 mod result;
 mod selected;
+mod shape;
 mod support;
 
 pub(crate) use engine::{

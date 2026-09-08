@@ -10,7 +10,8 @@ use crate::CheckerRequestContext;
 use super::build::ControlFlowGraphBuilder;
 use super::id::AnalysisBlockId;
 use super::model::{
-    AnalysisEdgeKind, AnalysisExitKind, AnalysisSuspensionKind, AnalysisTaskOperationKind,
+    AnalysisCallPhase, AnalysisEdgeKind, AnalysisExitKind, AnalysisSuspensionKind,
+    AnalysisTaskOperationKind,
 };
 
 impl<C> ControlFlowGraphBuilder<'_, C>
@@ -44,7 +45,7 @@ where
 
         self.push_exit(cancellation, AnalysisExitKind::Cancellation, id.into());
 
-        Some(Some(resume))
+        Some(Some(self.build_run_result_propagation(id, resume)))
     }
 
     pub(super) fn build_call(
@@ -102,12 +103,30 @@ where
             return Some(Some(resume));
         }
 
+        if hook == Some(ImplementationHook::FutureStart) {
+            let continuation = self.push_fallible_call_attempt(id, current);
+
+            self.push_task_operation(continuation, id, AnalysisTaskOperationKind::Start);
+
+            return Some(Some(continuation));
+        }
+
         if self.call_may_propagate_panic(id, hook) {
             return Some(Some(self.push_propagating_call(id, current)));
         }
 
         match hook.and_then(AnalysisTaskOperationKind::from_implementation_hook) {
             Some(kind) => self.push_task_operation(current, id, kind),
+            None if matches!(
+                self.selections()
+                    .and_then(|selections| selections.expression(id)),
+                Some(SemanticSelection::Call(_))
+            ) =>
+            {
+                // Contract entry and completion remain distinct even without a Bray panic edge.
+                self.push_call(current, id, AnalysisCallPhase::Attempt);
+                self.push_call(current, id, AnalysisCallPhase::Completion);
+            }
             None => self.push_bound(current, id.into()),
         }
 
@@ -162,7 +181,14 @@ const fn implementation_hook_may_propagate_synchronous_panic(
     matches!(
         hook,
         None | Some(
-            ImplementationHook::NativeThreadStart | ImplementationHook::BranchingInlineAssembly
+            ImplementationHook::NativeThreadStart
+                | ImplementationHook::BranchingInlineAssembly
+                | ImplementationHook::RawBufferRelease
+                | ImplementationHook::RawBufferReplace
+                | ImplementationHook::RawAllocate
+                | ImplementationHook::RawDeallocate
+                | ImplementationHook::Allocate
+                | ImplementationHook::Deallocate
         )
     )
 }
@@ -186,5 +212,21 @@ mod tests {
         assert!(!implementation_hook_may_propagate_synchronous_panic(Some(
             ImplementationHook::FutureStart,
         )));
+    }
+
+    #[test]
+    fn buffer_cleanup_retains_panic_and_cancellation_exit_plans() {
+        for hook in [
+            ImplementationHook::RawBufferRelease,
+            ImplementationHook::RawBufferReplace,
+            ImplementationHook::RawAllocate,
+            ImplementationHook::RawDeallocate,
+            ImplementationHook::Allocate,
+            ImplementationHook::Deallocate,
+        ] {
+            assert!(implementation_hook_may_propagate_synchronous_panic(Some(
+                hook
+            )));
+        }
     }
 }

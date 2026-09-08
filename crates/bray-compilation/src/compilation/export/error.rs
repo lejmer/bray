@@ -53,8 +53,6 @@ pub enum PackageInterfaceExportContract {
     MissingCompilerKnownTargetProperty,
     /// A nested executable-template key does not have an assigned identity.
     MissingNestedExecutableTemplate,
-    /// A runtime-default owner does not have a stable symbol key.
-    MissingRuntimeDefaultOwnerKey,
 }
 
 impl PackageInterfaceExportContract {
@@ -72,7 +70,6 @@ impl PackageInterfaceExportContract {
             Self::NonLocalExecutableTemplate => "non_local_executable_template",
             Self::MissingCompilerKnownTargetProperty => "missing_compiler_known_target_property",
             Self::MissingNestedExecutableTemplate => "missing_nested_executable_template",
-            Self::MissingRuntimeDefaultOwnerKey => "missing_runtime_default_owner_key",
         }
     }
 }

@@ -662,12 +662,14 @@ where
         ty: TypeId,
     ) -> Result<ConstantTermId, EvaluationFailure> {
         if let Some(bray_bound_tree::BoundReferenceTarget::Local(local)) = target {
-            return self
+            let term = self
                 .locals
                 .get(&local)
                 .copied()
                 .or_else(|| self.input.local_term(local))
-                .ok_or_else(|| EvaluationFailure::invalid_expression(expression));
+                .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?;
+
+            return self.type_term(term, ty);
         }
 
         self.evaluated_references.insert(expression);
@@ -769,6 +771,20 @@ where
             }
             BoundStructuredExpressionKind::ResultPropagation => {
                 Err(EvaluationFailure::invalid_expression(expression))
+            }
+            BoundStructuredExpressionKind::Borrow
+                if self.retain_target_literals
+                    && matches!(
+                        self.request.unit().key().kind(),
+                        bray_bound_tree::BoundUnitKind::PredicateDefinition
+                            | bray_bound_tree::BoundUnitKind::ContractClause
+                            | bray_bound_tree::BoundUnitKind::Constraint
+                    )
+                    && structured.borrow_kind() == Some(bray_symbols::BorrowKind::Shared)
+                    && operands.len() == 1 =>
+            {
+                // A symbolic predicate observes the referent. It does not materialize an address.
+                self.evaluate(operands[0])
             }
             BoundStructuredExpressionKind::Borrow
                 if self.input.allows_static_address_borrows()

@@ -122,6 +122,9 @@ pub(super) fn lowering_failure(
             Kind::InvalidTaskOperation(bound_identity(expression.unit(), expression.ordinal()))
         }
         LoweringError::MissingCallableResultType => Kind::MissingCallableResultType,
+        LoweringError::MissingCleanupExecution(storage) => {
+            Kind::MissingCleanupExecution(mir_local_identity(storage.unit(), storage.slot()))
+        }
         LoweringError::InvalidCleanupScopeDepth {
             scope_depth,
             active_scope_count,
@@ -336,6 +339,9 @@ pub(crate) const fn mir_unit_failure(error: &MirUnitBuildError) -> DiagnosticMir
         }
         MirUnitBuildError::InvalidAnonymousCallable(identity) => {
             mir_operation_failure(Kind::InvalidAnonymousCallable, *identity)
+        }
+        MirUnitBuildError::InvalidDestructorRemainder(identity) => {
+            mir_operation_failure(Kind::InvalidDestructorRemainder, *identity)
         }
         MirUnitBuildError::InvalidConstructionInput(identity) => {
             mir_operation_failure(Kind::InvalidConstructionInput, *identity)

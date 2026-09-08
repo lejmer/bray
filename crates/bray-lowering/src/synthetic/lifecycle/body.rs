@@ -1,10 +1,9 @@
-use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirBlockKind, MirCleanupEdge, MirEdge, MirHelperReference, MirOperand, MirPlace, MirProjection,
+    MirBlockKind, MirCleanupEdge, MirEdge, MirHelperReference, MirPlace, MirProjection,
     MirProjectionKind, MirSourceAnchor, MirStorageKind, MirTargetContract, MirTerminatorKind,
     MirUnit, MirUnitBuilder, MirUnitId, MirUnitKey,
 };
-use bray_symbols::{BorrowKind, TypeAssociatedLifecycleSlot, TypeData, TypeId};
+use bray_symbols::{BorrowKind, TypeData};
 
 use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
 
@@ -42,8 +41,25 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let source = MirSourceAnchor::generated_lifecycle(reference.clone());
 
-        let mut builder =
-            MirUnitBuilder::for_generated_lifecycle(unit, key, reference.clone(), target.clone());
+        let role = bray_ir::MirGeneratedLifecycleRole::from_reference(reference)
+            .ok_or_else(|| SyntheticLoweringError::MissingHelper(reference.clone()))?;
+
+        let cleanup = self.context.cleanup_type_execution(ty)?;
+
+        let execution = role
+            .execution(&cleanup)
+            .ok_or(SyntheticLoweringError::UnresolvedType(ty))?;
+
+        let frame = (execution == bray_symbols::CallableExecution::Asynchronous)
+            .then(|| crate::identity::protected_frame_identity(&key, target));
+
+        let mut builder = MirUnitBuilder::for_generated_lifecycle(
+            unit,
+            key,
+            reference.clone(),
+            frame,
+            target.clone(),
+        );
 
         let entry = builder
             .push_block(source.clone(), MirBlockKind::Ordinary)
@@ -75,57 +91,69 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     target.runtime_abi(),
                 )?;
             }
-            MirHelperReference::StaticFinalize(ty) => {
-                let return_value = if self.push_compiler_known_lifecycle_operations(
-                    &mut builder,
-                    entry,
-                    &source,
-                    reference,
-                    &place,
-                    target.runtime_abi(),
-                )? {
-                    None
-                } else if let Some(callable) = self
-                    .context
-                    .lifecycle_callable(*ty, TypeAssociatedLifecycleSlot::Finalizer)?
+            MirHelperReference::StaticFinalize(_) => {
+                if cleanup.finalization_execution()
+                    == Some(bray_symbols::CallableExecution::Asynchronous)
                 {
-                    let returns_void = callable.3 == bray_symbols::CallableExecution::Synchronous
-                        && self.is_void_result(callable.2)?;
-
-                    let value = self.push_static_finalizer_call(
+                    let value = self.create_lifecycle_frame(
                         &mut builder,
                         entry,
                         &source,
+                        bray_ir::MirGeneratedLifecycleRole::Finalize,
                         place,
-                        callable,
                     )?;
 
-                    (!returns_void).then_some(MirOperand::Value(value))
+                    builder
+                        .set_terminator(
+                            entry,
+                            source.clone(),
+                            MirTerminatorKind::Return(Some(value)),
+                        )
+                        .map_err(|cause| self.mir_error(&source, cause))?;
                 } else {
-                    None
-                };
-
-                builder
-                    .set_terminator(
+                    let end = self.push_generated_lifecycle_operations(
+                        &mut builder,
                         entry,
-                        source.clone(),
-                        MirTerminatorKind::Return(return_value),
-                    )
-                    .map_err(|cause| self.mir_error(&source, cause))?;
+                        &source,
+                        &MirHelperReference::Finalize(ty),
+                        place,
+                        target.runtime_abi(),
+                    )?;
+
+                    self.finish_lifecycle_body(&mut builder, end, &source)?;
+                }
             }
-            MirHelperReference::Finalize(_) | MirHelperReference::Destroy(_) => {
-                let end = self.push_generated_lifecycle_operations(
+            MirHelperReference::Abandon {
+                action: bray_ir::MirAbandonmentAction::Quiesce,
+                ..
+            } => {
+                self.lower_quiescence_body(
                     &mut builder,
                     entry,
+                    &source,
+                    place,
+                    target.runtime_abi(),
+                )?;
+            }
+            MirHelperReference::Finalize(_)
+            | MirHelperReference::Destroy(_)
+            | MirHelperReference::Abandon { .. } => {
+                let body_entry = if frame.is_some() {
+                    self.lifecycle_resolution_block(&mut builder, entry, &source)?
+                } else {
+                    entry
+                };
+
+                let end = self.push_generated_lifecycle_operations(
+                    &mut builder,
+                    body_entry,
                     &source,
                     reference,
                     place,
                     target.runtime_abi(),
                 )?;
 
-                builder
-                    .set_terminator(end, source.clone(), MirTerminatorKind::Return(None))
-                    .map_err(|cause| self.mir_error(&source, cause))?;
+                self.finish_lifecycle_body(&mut builder, end, &source)?;
             }
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::DeclaredCallable(_)
@@ -139,34 +167,25 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             | MirHelperReference::PanicReport
             | MirHelperReference::StandardLibrary(_)
             | MirHelperReference::CreateFrame(_)
-            | MirHelperReference::MoveInactiveFrame(_)
             | MirHelperReference::ComposeAwaitedFrame(_)
-            | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => {
                 return Err(SyntheticLoweringError::MissingHelper(reference.clone()).into());
             }
         }
 
+        if let Some(frame) = frame {
+            self.attach_lifecycle_frame(
+                &mut builder,
+                frame,
+                entry,
+                MirPlace::new(storage, [], pointer),
+                &source,
+            )?;
+        }
+
         builder
             .finish(entry)
             .map_err(|cause| self.mir_error(&source, cause))
-    }
-
-    fn is_void_result(&self, ty: TypeId) -> Result<bool, C::Error> {
-        let data = self
-            .context
-            .semantic_values()
-            .type_data(ty)
-            .map_err(SyntheticLoweringError::SemanticValue)?;
-
-        let TypeData::Named { definition, .. } = data.as_ref() else {
-            return Ok(false);
-        };
-
-        Ok(matches!(
-            self.context.representation_role(*definition),
-            Some(RepresentationRole::Unit | RepresentationRole::Never)
-        ))
     }
 
     #[expect(
@@ -238,15 +257,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )
             .map_err(|cause| self.mir_error(source, cause))?;
 
-        builder
-            .set_terminator(
-                lifecycle_end,
-                source.clone(),
-                MirTerminatorKind::Return(None),
-            )
-            .map_err(|cause| self.mir_error(source, cause))?;
-
-        Ok(())
+        self.finish_lifecycle_body(builder, lifecycle_end, source)
     }
 }
 
@@ -272,12 +283,36 @@ mod tests {
     impl SyntheticLoweringContext for TupleContext {
         type Error = SyntheticLoweringError;
 
+        fn finalization_complete(&self, _: TypeId) -> Result<bool, Self::Error> {
+            Ok(false)
+        }
+
         fn semantic_values(&self) -> &SemanticValueStore {
             &self.0
         }
 
         fn compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols {
             panic!("tuple lowering must not query compiler-known declarations");
+        }
+
+        fn cleanup_type_execution(
+            &self,
+            ty: TypeId,
+        ) -> Result<bray_bound_tree::StorageCleanupType, Self::Error> {
+            assert!(matches!(
+                self.0.type_data(ty).unwrap().as_ref(),
+                TypeData::Tuple(_) | TypeData::Nullable(_)
+            ));
+
+            Ok(bray_bound_tree::StorageCleanupType::new(
+                ty,
+                bray_bound_tree::AsyncStorageCleanupRequirement::None,
+            )
+            .with_execution(
+                Some(CallableExecution::Synchronous),
+                Some(CallableExecution::Synchronous),
+                Some(CallableExecution::Synchronous),
+            ))
         }
 
         fn lifecycle_callable(
@@ -318,7 +353,7 @@ mod tests {
             panic!("tuple lowering already has closed element types");
         }
 
-        fn imported_raw_buffer_element(
+        fn raw_buffer_element(
             &self,
             _: NamedTypeSymbolId,
             _: GenericSubstitutionId,
@@ -353,6 +388,22 @@ mod tests {
         ) -> Result<CallableInstanceData, Self::Error> {
             panic!("tuple lowering must not resolve standard-library helpers");
         }
+    }
+
+    #[test]
+    fn specialized_frame_errors_preserve_source_instead_of_panicking() {
+        let context = TupleContext(SemanticValueStore::try_new().unwrap());
+        let lowerer = crate::synthetic::SyntheticLowerer { context: &context };
+
+        let source =
+            bray_ir::MirSourceAnchor::from(bray_testing::test_bound_unit(27).key().source());
+
+        let cause = bray_ir::MirUnitBuildError::ProtectedFrameMismatch;
+
+        assert_eq!(
+            lowerer.mir_error(&source, cause),
+            SyntheticLoweringError::SpecializedMir { source, cause }
+        );
     }
 
     #[test]
@@ -404,6 +455,58 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(operations, [(true, 1), (false, 1), (true, 0), (false, 0)]);
+    }
+
+    #[test]
+    fn synchronous_nullable_quiescence_keeps_nested_branches_in_the_resolution_phase() {
+        let context = TupleContext(SemanticValueStore::try_new().unwrap());
+        let leaf = context.0.intern_type(TypeData::tuple([])).unwrap();
+        let nullable = context.0.intern_type(TypeData::Nullable(leaf)).unwrap();
+        let role = MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Quiesce);
+        let reference = role.reference(nullable);
+        let key = MirUnitKey::GeneratedLifecycle(MirGeneratedLifecycleKey::new(role, [8; 32]));
+
+        let mir = lower_lifecycle(
+            &context,
+            key,
+            &reference,
+            MirUnitId::new(6),
+            &bray_testing::test_mir_target(),
+        )
+        .unwrap();
+
+        assert!(mir.frame_descriptor().is_none());
+
+        assert!(mir.operations().iter().any(
+            |operation| matches!(operation.kind(), MirOperationKind::Abandon {
+            action: bray_ir::MirAbandonmentAction::Quiesce, place,
+        } if place.ty() == leaf)
+        ));
+
+        assert!(!mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::Finalize(_) | MirOperationKind::Destroy(_)
+        )));
+
+        let phases = mir
+            .blocks()
+            .iter()
+            .filter(|block| {
+                matches!(
+                    block.terminator().kind(),
+                    bray_ir::MirTerminatorKind::PatternBranch { .. }
+                )
+            })
+            .map(|block| block.kind())
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            phases,
+            [
+                bray_ir::MirBlockKind::CleanupBroadcast,
+                bray_ir::MirBlockKind::LifecycleResolution
+            ]
+        );
     }
 
     #[test]

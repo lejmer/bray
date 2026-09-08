@@ -311,7 +311,7 @@ impl ExecutableHostContract {
             .and_then(|entry| self.data.entries.get(entry))
     }
 
-    /// Returns the complete reachable runtime requirements.
+    /// Returns runtime requirements for the source roots and host operations.
     pub fn requirements(&self) -> &RuntimeRequirements {
         &self.data.requirements
     }
@@ -693,7 +693,7 @@ mod tests {
             RuntimeAbiRole::RootExecution,
             RuntimeAbiRole::RootCompletionResolution,
             RuntimeAbiRole::PanicReporting,
-            RuntimeAbiRole::EntryFailureReporting,
+            RuntimeAbiRole::EntryFailureResolution,
         ]
         .into_iter()
         .map(compiler_binding)

@@ -30,63 +30,77 @@ impl Compilation {
         limits: ConstantEvaluationLimits,
         cancellation: &CancellationToken,
     ) -> Result<DiagnosticResult<EvaluatedConstantCall>, FactQueryError> {
-        let declaration = instance.template().declaration();
+        crate::profile::profile_operation(
+            self.state.fact_runtime.profile(),
+            crate::profile::ProfileOperation::StaticEvaluation,
+            || {
+                let declaration = instance.template().declaration();
 
-        let Some(key) = self.static_initializer_key(declaration)? else {
-            return self.evaluate_imported_static_initializer(
-                instance,
-                duration,
-                result_type,
-                limits,
-                cancellation,
-            );
-        };
+                let Some(key) = self.static_initializer_key(declaration)? else {
+                    return self.evaluate_imported_static_initializer(
+                        instance,
+                        duration,
+                        result_type,
+                        limits,
+                        cancellation,
+                    );
+                };
 
-        let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
-        let semantics = self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
-        let context = self.checker_context_for(&key, cancellation)?;
+                let bound = self.bound_unit_with_cancellation(key.clone(), cancellation)?;
 
-        let semantic_context =
-            semantic_unit_context_for(context.symbols(), bound.result().value())?;
+                let semantics =
+                    self.expression_semantics_with_cancellation(key.clone(), cancellation)?;
 
-        let types = substitute_expression_types(
-            self.semantic_value_store()?,
-            semantics.result().value().types(),
-            instance.substitution().substitution(),
-        )?;
+                let context = self.checker_context_for(&key, cancellation)?;
 
-        let (references, dependency_diagnostics) = self.concrete_call_references(
-            bound.result().value(),
-            semantics.result().value().selections(),
-            instance.substitution().substitution(),
-            None,
-            &BTreeMap::new(),
-            limits,
-            cancellation,
-        )?;
+                let semantic_context =
+                    semantic_unit_context_for(context.symbols(), bound.result().value())?;
 
-        let resolver = CompilationConstantCallResolver::new(self, cancellation);
+                let types = substitute_expression_types(
+                    self.semantic_value_store()?,
+                    semantics.result().value().types(),
+                    instance.substitution().substitution(),
+                )?;
 
-        let input = ConstantEvaluationInput::new(&types, semantics.result().value().selections())
-            .with_references(references)
-            .with_call_resolver(&resolver)
-            .with_static_address_borrows()
-            .with_limits(limits);
+                let (references, dependency_diagnostics) = self.concrete_call_references(
+                    bound.result().value(),
+                    semantics.result().value().selections(),
+                    instance.substitution().substitution(),
+                    None,
+                    &BTreeMap::new(),
+                    limits,
+                    cancellation,
+                )?;
 
-        let unit = crate::compilation::unit::checker_unit_view(
-            bound.result().value(),
-            &semantic_context,
-            &context,
-        )?;
+                let resolver = CompilationConstantCallResolver::new(self, cancellation);
 
-        let evaluated = checker_result(
-            DefaultConstantEvaluator.evaluate_constant_with_references(unit, &input),
-        )?;
+                let input =
+                    ConstantEvaluationInput::new(&types, semantics.result().value().selections())
+                        .with_references(references)
+                        .with_call_resolver(&resolver)
+                        .with_static_address_borrows()
+                        .with_limits(limits);
 
-        Ok(DiagnosticResult::new(
-            EvaluatedConstantCall::new(evaluated.value().value(), evaluated.value().usage()),
-            dependency_diagnostics.merged(evaluated.diagnostics()),
-        ))
+                let unit = crate::compilation::unit::checker_unit_view(
+                    bound.result().value(),
+                    &semantic_context,
+                    &context,
+                )?;
+
+                let evaluated = checker_result(
+                    DefaultConstantEvaluator.evaluate_constant_with_references(unit, &input),
+                )?;
+
+                Ok(DiagnosticResult::new(
+                    EvaluatedConstantCall::new(
+                        evaluated.value().value(),
+                        evaluated.value().usage(),
+                    ),
+                    dependency_diagnostics.merged(evaluated.diagnostics()),
+                ))
+            },
+            crate::profile::result_outcome,
+        )
     }
 
     fn evaluate_imported_static_initializer(

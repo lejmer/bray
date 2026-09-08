@@ -13,9 +13,8 @@ use bray_runtime_abi::{
 use bray_runtime_model::RuntimeCapability;
 
 use crate::{
-    CleanupReportSink, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload,
-    JoinWaitRegistration, RuntimeEventRegistration, Scheduler, SchedulerLimits, TaskControlBlock,
-    TaskRegistration,
+    CleanupReportSink, ExecutionLanePlacement, ExecutionWorkload, JoinWaitRegistration,
+    RuntimeEventRegistration, Scheduler, SchedulerLimits, TaskControlBlock, TaskRegistration,
 };
 
 use super::super::frame::NativeTerminalState;
@@ -54,7 +53,8 @@ pub(in crate::native) struct TestRuntimeIsolation {
 #[cfg(test)]
 impl Drop for TestRuntimeIsolation {
     fn drop(&mut self) {
-        HOLDS_TEST_RUNTIME_ISOLATION.set(false);
+        // A failed test can release its runtime while this thread's TLS is already being destroyed.
+        let _ = HOLDS_TEST_RUNTIME_ISOLATION.try_with(|held| held.set(false));
     }
 }
 
@@ -81,14 +81,29 @@ pub(crate) struct NativeRuntimeCore {
     pub(in crate::native) owners: AtomicUsize,
     pub(in crate::native) tasks: Mutex<BTreeMap<NativeTaskHandle, NativeTaskSlot>>,
     pub(in crate::native) awaited: Mutex<BTreeMap<NativeTaskHandle, NativeTaskHandle>>,
-    pub(in crate::native) resolved_awaits: Mutex<BTreeMap<NativeTaskHandle, Vec<NativeTaskHandle>>>,
     pub(in crate::native) task_capacity: NonZeroUsize,
+    pub(in crate::native) independent_tasks: AtomicUsize,
     pub(in crate::native) next_task: AtomicU64,
     pub(in crate::native) cleanup_reports: CleanupReportSink,
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn isolation_guard_can_outlive_its_thread_local_flag() {
+        std::thread::spawn(|| {
+            thread_local! {
+                static RETAINED_ISOLATION: std::cell::RefCell<Option<super::TestRuntimeIsolation>> = const { std::cell::RefCell::new(None) };
+            }
+
+            RETAINED_ISOLATION.with(|_| {});
+
+            let isolation = super::test_runtime_isolation().unwrap();
+
+            RETAINED_ISOLATION.with(|retained| *retained.borrow_mut() = Some(isolation));
+        }).join().unwrap();
+    }
+
     #[test]
     fn callback_isolation_allows_nested_runtime_creation() {
         let isolation = super::test_runtime_isolation();
@@ -100,6 +115,7 @@ mod tests {
             .unwrap_or_else(|status| panic!("nested runtime must initialize: {status:?}"));
 
         retained.release();
+
         assert!(super::test_runtime_isolation().is_none());
 
         drop(isolation);
@@ -134,19 +150,16 @@ impl NativeRuntimeCore {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clear();
 
-        self.resolved_awaits
+        let mut tasks = self
+            .tasks
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clear();
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        let tasks = std::mem::take(
-            &mut *self
-                .tasks
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner),
-        );
+        let removed = std::mem::take(&mut *tasks);
+        self.independent_tasks.store(0, Ordering::Relaxed);
 
         drop(tasks);
+        drop(removed);
     }
 
     fn retain_owner(&self) -> bool {
@@ -210,21 +223,48 @@ impl RetainedRuntime {
 }
 
 pub(in crate::native) enum NativeTaskSlot {
-    Allocated,
+    Allocated(crate::task::TaskAdmissionKind),
+    Starting(crate::task::TaskAdmissionKind),
     Started(Arc<StartedTask>),
     Terminal {
-        outcome: NativeRunOutcome,
+        outcome: TerminalOutcome,
         _task: Arc<StartedTask>,
     },
 }
 
+impl NativeTaskSlot {
+    pub(in crate::native) fn admission(&self) -> crate::task::TaskAdmissionKind {
+        match self {
+            Self::Allocated(kind) | Self::Starting(kind) => *kind,
+            Self::Started(task) | Self::Terminal { _task: task, .. } => task.admission,
+        }
+    }
+}
+
+impl NativeRuntimeCore {
+    pub(in crate::native) fn release_admission(&self, slot: &NativeTaskSlot) {
+        if slot.admission() == crate::task::TaskAdmissionKind::Independent {
+            self.independent_tasks.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+}
+
+pub(in crate::native) enum TerminalOutcome {
+    Available(NativeRunOutcome),
+    Transferring,
+    Borrowed(NativeRunOutcome),
+    Consumed,
+}
+
 pub(in crate::native) struct StartedTask {
+    pub(in crate::native) admission: crate::task::TaskAdmissionKind,
     pub(in crate::native) task: Arc<NativeTask>,
     pub(in crate::native) registration: TaskRegistration,
     pub(in crate::native) waits: Mutex<Vec<JoinWaitRegistration<usize>>>,
     pub(in crate::native) event_wait: Mutex<Option<RuntimeEventRegistration>>,
     pub(in crate::native) observation_claimed: AtomicBool,
     pub(in crate::native) terminal: Arc<NativeTerminalState>,
+    pub(in crate::native) cleanup_parent: Option<Arc<NativeTerminalState>>,
 }
 
 pub(in crate::native) fn initialize(
@@ -287,8 +327,8 @@ fn initialize_with_capabilities(
             owners: AtomicUsize::new(1),
             tasks: Mutex::new(BTreeMap::new()),
             awaited: Mutex::new(BTreeMap::new()),
-            resolved_awaits: Mutex::new(BTreeMap::new()),
             task_capacity,
+            independent_tasks: AtomicUsize::new(0),
             next_task: AtomicU64::new(1),
             cleanup_reports: CleanupReportSink::new(),
         });
@@ -401,8 +441,25 @@ pub(in crate::native) fn run_worker(
         current.replace(Some(Rc::clone(&runtime)));
     });
 
-    let lane = ExecutionLane::new(ExecutionLanePlacement::Migratable, workload);
+    let mut lanes =
+        super::binding::current_thread_lanes(runtime.thread.runtime().id(), false, true);
+
+    // Affined children stay on this worker even when their workload differs from its pool.
+    // Only migratable work is restricted to the pool's workload class.
+    lanes.retain(|lane| {
+        lane.placement() != ExecutionLanePlacement::Migratable || lane.workload() == workload
+    });
+
     let mut accounted_as_idle = workload == ExecutionWorkload::Blocking;
+
+    let retain_thread = || {
+        // A failed affinity query cannot authorize retiring a thread with live owners.
+        // The next scheduler wait retains the synchronization failure path.
+        runtime
+            .scheduler
+            .retains_thread(runtime.thread.runtime().id())
+            .unwrap_or(true)
+    };
 
     while !runtime.workers.is_stopping() {
         control.drain();
@@ -410,7 +467,7 @@ pub(in crate::native) fn run_worker(
         let deadline =
             bray_platform::MonotonicClock.deadline_after(std::time::Duration::from_millis(50));
 
-        match runtime.scheduler.wait_ready(lane, deadline) {
+        match runtime.scheduler.wait_ready_from(&lanes, deadline) {
             Ok(Some(ready)) => {
                 if workload == ExecutionWorkload::Blocking {
                     runtime.workers.begin_blocking_work(&runtime.core);
@@ -420,14 +477,24 @@ pub(in crate::native) fn run_worker(
                 let _ = runtime.drive_ready(ready);
 
                 if workload == ExecutionWorkload::Blocking {
-                    if !runtime.workers.finish_blocking_work() {
+                    if !runtime.workers.finish_blocking_work(retain_thread) {
                         break;
                     }
 
                     accounted_as_idle = true;
                 }
             }
-            Ok(None) => {}
+            Ok(None) => {
+                if workload == ExecutionWorkload::Blocking
+                    && runtime
+                        .workers
+                        .try_retire_idle_blocking_worker(retain_thread)
+                {
+                    accounted_as_idle = false;
+
+                    break;
+                }
+            }
             Err(_) => break,
         }
     }

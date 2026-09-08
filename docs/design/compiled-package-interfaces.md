@@ -504,6 +504,18 @@ encoding, process-locality, and lifecycle dependencies. It does not re-check the
 trait. This representation is what permits ordinary separately compiled generic `std.channel`, `std.thread`,
 `std.process`, and `std.parallel` declarations to enforce cross-run safety without compiler recognition of their names.
 
+### Callable Execution Evidence
+
+Callable contract records retain provider-checked execution properties and postconditions separately from their
+declarations. Each checked promise identifies its exact execution-property domain or postcondition ordinal and the
+selected callable promises used to establish it. References use the interface's stable local and dependency identities.
+
+Providers publish evidence after verifying the body and its implementation dependencies. Consumers validate promise
+references and extend their proof graph with the imported dependencies. A required promise succeeds only when the
+graph supplies its evidence and a well-founded termination argument. Ordinary declaration conditions retain their
+meaning when a provider has no static proof of them. Foreign assertions retain their foreign-boundary provenance and
+caller obligations.
+
 ### Async Declaration Metadata
 
 An exported async callable records its declared completion type, async callable contract, normalized invocation
@@ -710,8 +722,9 @@ Readers do not depend on the encoder policy to decode a valid registered frame.
 The compiler accepts only exact format and section revisions it explicitly implements. It never attempts best-effort
 semantic decoding of another revision.
 
-Changing the meaning or required encoding of a semantic record increments the format revision. Compatibility shims are
-added only when explicitly required by distribution policy, not by default during greenfield development.
+The private format remains at revision 1 during greenfield development. Regenerate in-repository artifacts and
+disposable local caches in place after semantic or encoding changes. Later version increments require an explicitly
+supported compatibility contract for an earlier revision.
 
 Unknown required semantic sections, record tags, fields, flags, encodings, and section revisions are errors. An optional
 non-semantic directory entry declares either `discardable` or `preserve_opaque` compatibility. Readers validate its

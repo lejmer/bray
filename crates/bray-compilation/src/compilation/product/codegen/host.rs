@@ -202,6 +202,8 @@ impl Compilation {
 
         if has_statics {
             runtime_roles.insert(RuntimeAbiRole::ProductHostControl);
+            runtime_roles.insert(RuntimeAbiRole::CleanupIncidentDetailReporting);
+            runtime_roles.extend(bray_codegen::CLEANUP_RUNTIME_ROLES);
         }
 
         let has_exact_thread_statics = reachability
@@ -215,7 +217,6 @@ impl Compilation {
                 | bray_ir::MirStorageKind::Local
                 | bray_ir::MirStorageKind::Temporary
                 | bray_ir::MirStorageKind::Return
-                | bray_ir::MirStorageKind::InactiveFrame
                 | bray_ir::MirStorageKind::CurrentFrame
                 | bray_ir::MirStorageKind::CurrentTask
                 | bray_ir::MirStorageKind::ChildTask => None,
@@ -279,7 +280,7 @@ impl Compilation {
                 RuntimeAbiRole::CleanupIncidentReporting,
                 RuntimeAbiRole::RootCompletionResolution,
                 RuntimeAbiRole::PanicReporting,
-                RuntimeAbiRole::EntryFailureReporting,
+                RuntimeAbiRole::EntryFailureResolution,
                 RuntimeAbiRole::StructuredShutdown,
             ]);
         }
@@ -458,7 +459,7 @@ impl Compilation {
     }
 }
 
-fn demanded_product_runtime_roles(
+pub(super) fn demanded_product_runtime_roles(
     reachability: &bray_codegen::CodegenReachability,
 ) -> BTreeSet<RuntimeAbiRole> {
     reachability
@@ -467,4 +468,29 @@ fn demanded_product_runtime_roles(
         .flat_map(|instance| demanded_runtime_references_for_mir(instance.mir()))
         .map(|reference| reference.role())
         .collect()
+}
+
+pub(super) fn reachable_host_runtime_requirements(
+    host: &ExecutableHostContract,
+    roles: impl IntoIterator<Item = RuntimeAbiRole>,
+) -> RuntimeRequirements {
+    let requirements = host.requirements();
+
+    let roles = roles.into_iter().filter(|role| {
+        !host.role_binding(*role).is_some_and(|binding| {
+            binding.implementation() == RuntimeRoleImplementation::CompilerLowering
+        })
+    });
+
+    // Final selection owns the shared compatibility identities independently of the host stub.
+    RuntimeRequirements::new(
+        requirements.runtime().cloned(),
+        requirements.abi_version(),
+        requirements.frame_abi(),
+        requirements.target().clone(),
+        requirements.panic_abi().clone(),
+        requirements.roles().iter().copied().chain(roles),
+        requirements.capabilities().iter().copied(),
+        requirements.lanes().iter().copied(),
+    )
 }

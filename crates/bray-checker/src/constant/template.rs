@@ -1,3 +1,5 @@
+use bray_symbols::CallableConditions;
+
 use std::collections::BTreeMap;
 
 use bray_symbols::{
@@ -254,6 +256,8 @@ pub fn resolve_type_expression_template(
                 )
                 .with_variadic(callable.is_variadic())
                 // The instantiated callable owns the compiler-known template's phase snapshot.
+                // Conditions share immutable clause groups with the original callable.
+                .with_conditions(callable.conditions().clone())
                 .with_phase_behaviors(callable.phase_behaviors().clone()),
             )
         }

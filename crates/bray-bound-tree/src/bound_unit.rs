@@ -1,14 +1,15 @@
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use bray_symbols::{
-    AnonymousCallableSymbolId, CallableExecution, LocalSymbolRegionKey, LocalSymbolRegionRole,
-    LocalSymbolSnapshot, SymbolKind, SymbolQueryKind,
+    AnonymousCallableSymbolId, AnyLocalSymbolId, CallableExecution, LocalSymbolRegionKey,
+    LocalSymbolRegionRole, LocalSymbolSnapshot, SymbolKind, SymbolQueryKind,
 };
 
 use crate::{
-    AnyBoundNodeId, BoundBlockId, BoundCallableBodyId, BoundExpressionId, BoundNodeKind, BoundTree,
-    BoundUnitId, BoundUnitIdentity, BoundUnitKey, BoundUnitKeyData, BoundUnitKind, BoundUnitView,
-    DeclaredBoundUnitKey,
+    AnyBoundNodeId, BoundBlockId, BoundBlockItem, BoundCallableBodyId, BoundExpressionId,
+    BoundNodeKind, BoundTree, BoundUnitId, BoundUnitIdentity, BoundUnitKey, BoundUnitKeyData,
+    BoundUnitKind, BoundUnitView, DeclaredBoundUnitKey,
 };
 
 /// One immutable bound semantic unit and its exact root.
@@ -19,6 +20,7 @@ pub struct BoundUnit {
     local_symbols: LocalSymbolSnapshot,
     nested_units: Arc<[BoundUnitKey]>,
     root: BoundUnitRoot,
+    contract_inputs: Option<crate::BoundContractInputs>,
 }
 
 impl BoundUnit {
@@ -50,7 +52,55 @@ impl BoundUnit {
             local_symbols,
             nested_units,
             root,
+            contract_inputs: None,
         })
+    }
+
+    /// Attaches callable-type formals after checking their exact local identities and order.
+    pub fn try_with_contract_inputs(
+        mut self,
+        signature: bray_symbols::CallableTypeTemplate,
+        parameters: impl IntoIterator<Item = bray_symbols::LocalBindingSymbolId>,
+    ) -> Result<Self, BoundUnitBuildError> {
+        if self.key.kind() != BoundUnitKind::ContractClause {
+            return Err(BoundUnitBuildError::RootKindMismatch);
+        }
+
+        let parameters: Arc<[_]> = parameters.into_iter().collect();
+
+        if parameters.len() != signature.parameters().len() {
+            return Err(BoundUnitBuildError::ContractParameterCountMismatch {
+                expected: signature.parameters().len(),
+                actual: parameters.len(),
+            });
+        }
+
+        let mut seen = std::collections::BTreeSet::new();
+
+        for (index, (parameter, formal)) in
+            parameters.iter().zip(signature.parameters()).enumerate()
+        {
+            let valid = self
+                .local_symbols
+                .binding(*parameter)
+                .is_some_and(|binding| binding.name().as_str() == formal.name().as_str());
+
+            if !valid || !seen.insert(*parameter) {
+                return Err(BoundUnitBuildError::InvalidContractParameter {
+                    index,
+                    parameter: *parameter,
+                });
+            }
+        }
+
+        self.contract_inputs = Some(crate::BoundContractInputs::new(signature, parameters));
+
+        Ok(self)
+    }
+
+    /// Returns explicit callable-type inputs available at this contract unit's entry.
+    pub const fn contract_inputs(&self) -> Option<&crate::BoundContractInputs> {
+        self.contract_inputs.as_ref()
     }
 
     /// Returns this unit's stable semantic key.
@@ -71,6 +121,31 @@ impl BoundUnit {
     /// Returns the immutable source-shaped bound tree.
     pub const fn tree(&self) -> &BoundTree {
         &self.tree
+    }
+
+    /// Collects the initializer expression for every declared local binding and constant.
+    pub fn collect_local_initializers(&self) -> BTreeMap<AnyLocalSymbolId, BoundExpressionId> {
+        let mut initializers = BTreeMap::new();
+
+        for (_, block) in self.tree().blocks() {
+            for item in block.items() {
+                match item {
+                    BoundBlockItem::LocalBinding(binding) => {
+                        for symbol in binding.bindings() {
+                            initializers.insert((*symbol).into(), binding.initializer());
+                        }
+                    }
+                    BoundBlockItem::LocalConstant(constant) => {
+                        if let Some(symbol) = constant.symbol() {
+                            initializers.insert(symbol.into(), constant.initializer());
+                        }
+                    }
+                    BoundBlockItem::Expression(_) => {}
+                }
+            }
+        }
+
+        initializers
     }
 
     /// Returns a read-only view over the bound tree and unit key.
@@ -133,6 +208,25 @@ impl From<BoundUnitRoot> for AnyBoundNodeId {
 /// A contract violation that prevents creation of a bound unit.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum BoundUnitBuildError {
+    /// A referenced contract parameter is absent from the unit's declared inputs.
+    MissingContractParameter {
+        /// The exact local identity referenced by the contract.
+        parameter: bray_symbols::LocalBindingSymbolId,
+    },
+    /// The contract unit supplies a different number of formals than its callable signature.
+    ContractParameterCountMismatch {
+        /// The signature's parameter count.
+        expected: usize,
+        /// The number of supplied local identities.
+        actual: usize,
+    },
+    /// A contract formal is absent, repeated, or does not name its signature parameter.
+    InvalidContractParameter {
+        /// The position in signature order.
+        index: usize,
+        /// The exact local identity that failed validation.
+        parameter: bray_symbols::LocalBindingSymbolId,
+    },
     /// The root category does not match the semantic unit key.
     RootKindMismatch,
     /// The category-specific root does not name a node in the bound tree.
@@ -506,6 +600,162 @@ mod tests {
         };
 
         (key, tree.finish(), local_snapshot(unit, owner), root)
+    }
+
+    #[test]
+    fn callable_contract_inputs_validate_identity_order_and_count() {
+        let (unit, signature, parameters) = contract_input_parts(80);
+
+        let (foreign, _, foreign_parameters) = contract_input_parts(81);
+
+        assert_eq!(
+            unit.clone()
+                .try_with_contract_inputs(signature.clone(), [parameters[0]]),
+            Err(BoundUnitBuildError::ContractParameterCountMismatch {
+                expected: 2,
+                actual: 1
+            }),
+        );
+
+        assert_eq!(
+            unit.clone()
+                .try_with_contract_inputs(signature.clone(), [parameters[1], parameters[0]]),
+            Err(BoundUnitBuildError::InvalidContractParameter {
+                index: 0,
+                parameter: parameters[1]
+            }),
+        );
+
+        assert_eq!(
+            unit.clone()
+                .try_with_contract_inputs(signature.clone(), [parameters[0], parameters[0]]),
+            Err(BoundUnitBuildError::InvalidContractParameter {
+                index: 1,
+                parameter: parameters[0]
+            }),
+        );
+
+        assert_eq!(
+            unit.clone()
+                .try_with_contract_inputs(signature.clone(), foreign_parameters),
+            Err(BoundUnitBuildError::InvalidContractParameter {
+                index: 0,
+                parameter: foreign_parameters[0]
+            }),
+        );
+
+        let bound = unit
+            .try_with_contract_inputs(signature.clone(), parameters)
+            .unwrap();
+
+        assert_eq!(bound.contract_inputs().unwrap().signature(), &signature);
+        assert_eq!(bound.contract_inputs().unwrap().parameters(), &parameters);
+        assert_eq!(foreign.contract_inputs(), None);
+    }
+
+    fn contract_input_parts(
+        raw: u32,
+    ) -> (
+        BoundUnit,
+        bray_symbols::CallableTypeTemplate,
+        [bray_symbols::LocalBindingSymbolId; 2],
+    ) {
+        use bray_symbols::{
+            CallableAbi, CallableConstness, CallableDependencyContracts, CallableExecution,
+            CallableParameterMode, CallableParameterName, CallableParameterTypeTemplate,
+            CallablePosition, CallableTrust, CallableTypeTemplate, SymbolName, SymbolOrdinal,
+            SymbolQueryKind, TypeExpressionTemplate,
+        };
+
+        let source = source_anchor();
+        let owner = symbol_key(SymbolKind::Function, 0);
+        let key = BoundUnitKey::contract_clause(owner.clone(), source).unwrap();
+
+        let region = LocalSymbolRegionKey::try_new(
+            owner,
+            LocalSymbolRegionRole::DeclarationQuery(SymbolQueryKind::CallableContracts),
+            [source.syntax()],
+            None,
+        )
+        .unwrap();
+
+        let mut locals = LocalSymbolSnapshotBuilder::new(LocalSymbolRegionId::new(raw), region);
+
+        let scope = locals
+            .push_scope(
+                None,
+                LocalScopeBoundary::Root,
+                source.syntax(),
+                TextSize::ZERO,
+            )
+            .unwrap();
+
+        let first = locals
+            .push_binding(
+                scope,
+                SymbolName::try_new("first").unwrap(),
+                [source.syntax()],
+                Some(SymbolOrdinal::new(0)),
+                false,
+            )
+            .unwrap();
+
+        let second = locals
+            .push_binding(
+                scope,
+                SymbolName::try_new("second").unwrap(),
+                [source.syntax()],
+                Some(SymbolOrdinal::new(1)),
+                false,
+            )
+            .unwrap();
+
+        let mut tree = BoundTreeBuilder::new(BoundUnitId::new(raw));
+
+        let root = tree
+            .push_block(crate::BoundBlock::new(
+                BoundNodeOrigin::source(source),
+                [],
+                false,
+            ))
+            .unwrap();
+
+        let unit = BoundUnit::try_new(
+            key,
+            tree.finish(),
+            locals.finish().unwrap(),
+            [],
+            BoundUnitRoot::ExpressionSequence(root),
+        )
+        .unwrap();
+
+        let values = crate::test_support::semantic_values();
+        let ty = TypeExpressionTemplate::Resolved(crate::test_support::error_type_in(&values));
+        let dependency = values.empty_dependency_contract_template().unwrap();
+
+        let parameters = ["first", "second"].map(|name| {
+            CallableParameterTypeTemplate::new(
+                CallableParameterName::try_new(name).unwrap(),
+                CallablePosition::NamedOnly,
+                CallableParameterMode::Immutable,
+                ty.clone(),
+            )
+        });
+
+        let signature = CallableTypeTemplate::new(
+            parameters,
+            ty,
+            CallableConstness::Runtime,
+            CallableTrust::Safe,
+            CallableAbi::Bray,
+            CallableDependencyContracts::for_execution(
+                CallableExecution::Synchronous,
+                dependency,
+                dependency,
+            ),
+        );
+
+        (unit, signature, [first, second])
     }
 
     fn local_snapshot(unit: u32, owner: bray_symbols::SymbolKey) -> LocalSymbolSnapshot {

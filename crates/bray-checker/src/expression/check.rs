@@ -175,7 +175,7 @@ where
     ) {
         Ok(SessionProgress::Complete(prepared)) => prepared,
         Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(error) => return query_outcome(error),
+        Err(error) => return error.into(),
     };
 
     finish_expression_types_with_deferred(request, session, prepared.deferred(), &[])
@@ -213,7 +213,7 @@ where
     ) {
         Ok(SessionProgress::Complete(prepared)) => prepared,
         Ok(SessionProgress::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(error) => return query_outcome(error),
+        Err(error) => return error.into(),
     };
 
     finish_expression_check(
@@ -237,7 +237,7 @@ fn prepare_expression_check<'view, C>(
     operation_input: &crate::ExpressionTypeInput,
 ) -> Result<
     SessionProgress<(ExpressionTypeSession<'view, C>, PreparedExpressions)>,
-    crate::CheckerQueryError<C::UpstreamError>,
+    CheckerQueryError<C::UpstreamError>,
 >
 where
     C: CheckerRequestContext
@@ -399,14 +399,14 @@ where
     let (mut entries, selection_diagnostics) = match final_selections(request, &types, &prepared) {
         Ok(Some(result)) => result,
         Ok(None) => return CheckerOutcome::Cancelled,
-        Err(error) => return query_outcome(error),
+        Err(error) => return error.into(),
     };
 
     let (mut propagation_entries, propagation_diagnostics) =
         match crate::selection::select_propagations(request, &types) {
             Ok(Some(result)) => result,
             Ok(None) => return CheckerOutcome::Cancelled,
-            Err(error) => return query_outcome(error),
+            Err(error) => return error.into(),
         };
 
     entries.append(&mut propagation_entries);
@@ -459,14 +459,6 @@ where
             .merged(&supplemental_diagnostics)
             .merged(&literal_diagnostics),
     )
-}
-
-fn query_outcome<T, Upstream>(error: CheckerQueryError<Upstream>) -> CheckerOutcome<T, Upstream> {
-    match error {
-        CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-        CheckerQueryError::Infrastructure(error) => CheckerOutcome::InfrastructureFailure(error),
-        CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
-    }
 }
 
 #[cfg(test)]

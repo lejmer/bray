@@ -1,3 +1,4 @@
+use super::super::bound_unit::diagnostic_bound_unit_build_failure;
 use bray_diagnostics::{DiagnosticBindingFailure, DiagnosticFailureField, DiagnosticFailureValue};
 
 use super::diagnostic_context::{
@@ -437,45 +438,6 @@ fn diagnostic_bound_unit_assembly_failure(
     let bray_binder::BoundUnitAssemblyError::InvalidBoundUnit(error) = error;
 
     diagnostic_bound_unit_build_failure(*error)
-}
-
-fn diagnostic_bound_unit_build_failure(
-    error: bray_bound_tree::BoundUnitBuildError,
-) -> (&'static str, Vec<DiagnosticFailureField>) {
-    use bray_bound_tree::BoundUnitBuildError as Error;
-
-    match error {
-        Error::RootKindMismatch => ("binding_assembly_root_kind_mismatch", Vec::new()),
-        Error::MissingRoot { unit, kind } => (
-            "binding_assembly_missing_root",
-            vec![
-                count_field("unit", u64::from(unit.raw())),
-                text_field("root_kind", kind.as_str()),
-            ],
-        ),
-        Error::LocalSymbolRegionMismatch => {
-            ("binding_assembly_local_symbol_region_mismatch", Vec::new())
-        }
-        Error::AnonymousCallableRegionMismatch { expected, actual } => (
-            "binding_assembly_anonymous_callable_region_mismatch",
-            vec![
-                count_field("expected_region", u64::from(expected.raw())),
-                count_field("actual_region", u64::from(actual.raw())),
-            ],
-        ),
-        Error::MissingAnonymousCallable { callable } => (
-            "binding_assembly_missing_anonymous_callable",
-            vec![identity_field("callable", &callable)],
-        ),
-        Error::InvalidNestedUnit { index } => (
-            "binding_assembly_invalid_nested_unit",
-            vec![natural_field("index", index)],
-        ),
-        Error::NonCanonicalNestedUnits { index } => (
-            "binding_assembly_non_canonical_nested_units",
-            vec![natural_field("index", index)],
-        ),
-    }
 }
 
 fn push_receiver_context_flags(

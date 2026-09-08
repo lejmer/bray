@@ -43,18 +43,26 @@ trusted internal func open_dynamic_library_system(
 
 trusted internal func release_dynamic_library(pos library: &mut DynamicLibrary) -> Result<unit, std.ffi.ForeignError>
     requires(blocking_execution())
+    ensures((result matches Error(_)) || DynamicLibrary.complete(&library))
     uses(foreign_call)
 {
+    if !library.is_owned_value
+    {
+        return Ok(unit);
+    }
+
     let handle: u64 = try internal std.ffi.checked_owned_foreign_resource_handle(
         library.handle_value,
         owned = library.is_owned_value,
     );
 
-    library.is_owned_value = false;
-
     let status: std.platform.PlatformStatus = trusted platform_dynamic_library_close(handle);
 
-    return internal std.ffi.checked_foreign_status(status);
+    try internal std.ffi.checked_foreign_status(status);
+
+    library.is_owned_value = false;
+
+    return Ok(unit);
 }
 
 trusted internal func dynamic_library_handle(pos library: &DynamicLibrary) -> u64

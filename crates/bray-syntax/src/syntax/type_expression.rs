@@ -247,6 +247,22 @@ define_source_syntax_node! {
                 kind: SyntaxKind::EnsuresClause;
             },
             {
+                /// Returns direct `executes(...)` clauses in source order.
+                executes_clauses;
+                /// Appends an `executes(...)` clause.
+                push_executes_clause;
+                ty: crate::ExecutesClauseSyntax;
+                kind: SyntaxKind::ExecutesClause;
+            },
+            {
+                /// Returns direct `when(...)` clauses in source order.
+                when_clauses;
+                /// Appends an `when(...)` clause.
+                push_when_clause;
+                ty: crate::WhenClauseSyntax;
+                kind: SyntaxKind::WhenClause;
+            },
+            {
                 /// Returns direct `with(...)` clauses in source order.
                 with_clauses;
                 /// Appends a `with(...)` clause.

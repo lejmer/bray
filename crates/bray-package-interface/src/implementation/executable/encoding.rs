@@ -109,6 +109,14 @@ pub fn encode_executable_template<C: ExecutableTemplateEncodeContext>(
 
     encoder.wire.write_u32(FORMAT_VERSION);
     encoder.target(unit.target());
+
+    if matches!(
+        unit.source(),
+        bray_ir::MirSourceOrigin::GeneratedLifecycle(_)
+    ) {
+        return Err(ExecutableTemplateEncodeError::InvalidUnitKind);
+    }
+
     encoder.unit_kind(unit.kind())?;
     encoder.wire.write_u32(unit.entry().slot());
 
@@ -183,6 +191,36 @@ pub(super) fn encode_projection_for_test<C: ExecutableTemplateEncodeContext>(
     };
 
     encoder.projection_kind(projection)?;
+
+    Ok(encoder.wire.into_bytes())
+}
+
+#[cfg(test)]
+pub(super) fn encode_terminator_for_test<C: ExecutableTemplateEncodeContext>(
+    terminator: &MirTerminatorKind,
+    context: &mut C,
+) -> Result<Vec<u8>, ExecutableTemplateEncodeError<C::Error>> {
+    let mut encoder = Encoder {
+        wire: WireEncoder::new(),
+        context,
+    };
+
+    encoder.terminator(terminator)?;
+
+    Ok(encoder.wire.into_bytes())
+}
+
+#[cfg(test)]
+pub(super) fn encode_async_operation_for_test<C: ExecutableTemplateEncodeContext>(
+    operation: &bray_ir::MirAsyncOperation,
+    context: &mut C,
+) -> Result<Vec<u8>, ExecutableTemplateEncodeError<C::Error>> {
+    let mut encoder = Encoder {
+        wire: WireEncoder::new(),
+        context,
+    };
+
+    encoder.async_operation(operation)?;
 
     Ok(encoder.wire.into_bytes())
 }
@@ -317,7 +355,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(1);
                 self.wire.write_bytes(&frame.digest());
             }
-            MirUnitKind::ExecutableHost(_) | MirUnitKind::GeneratedLifecycle(_) => {
+            MirUnitKind::ExecutableHost(_) => {
                 return Err(ExecutableTemplateEncodeError::InvalidUnitKind);
             }
         }
@@ -342,7 +380,6 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirStorageKind::Local => (1, None),
             MirStorageKind::Temporary => (2, None),
             MirStorageKind::Return => (3, None),
-            MirStorageKind::InactiveFrame => (4, None),
             MirStorageKind::CurrentFrame => (5, None),
             MirStorageKind::CurrentTask => (6, None),
             MirStorageKind::ChildTask => (7, None),
@@ -494,6 +531,24 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(16);
                 self.place(place)?;
             }
+            MirOperationKind::Abandon { action, place } => {
+                self.wire.write_u32(22);
+                self.abandonment_action(*action);
+                self.place(place)?;
+            }
+            MirOperationKind::DestructorRemainder { role, place } => {
+                self.wire.write_u32(23);
+
+                self.wire.write_u32(match role {
+                    bray_ir::MirGeneratedLifecycleRole::Destroy => 0,
+                    bray_ir::MirGeneratedLifecycleRole::Cleanup(
+                        MirCleanupPhase::LifecycleResolution,
+                    ) => 1,
+                    _ => return Err(ExecutableTemplateEncodeError::InvalidUnitKind),
+                });
+
+                self.place(place)?;
+            }
             MirOperationKind::Cleanup { phase, place } => {
                 self.wire.write_u32(17);
                 self.cleanup_phase(*phase);
@@ -522,6 +577,14 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         }
 
         Ok(())
+    }
+
+    fn abandonment_action(&mut self, action: bray_ir::MirAbandonmentAction) {
+        self.wire.write_u32(match action {
+            bray_ir::MirAbandonmentAction::Quiesce => 0,
+            bray_ir::MirAbandonmentAction::Destroy => 1,
+            bray_ir::MirAbandonmentAction::Destructor => 2,
+        });
     }
 
     fn operand(
@@ -974,12 +1037,19 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                     bray_ir::MirSuspensionKind::Awaited => 0,
                     bray_ir::MirSuspensionKind::Yield => 1,
                     bray_ir::MirSuspensionKind::TaskEvent => 2,
+                    bray_ir::MirSuspensionKind::TaskCompletion => 3,
                 });
 
                 self.optional_operand(payload.as_ref())?;
                 self.wire.write_u32(resume_state.raw());
                 self.edge(resume)?;
-                self.cleanup_edge(cancellation)?;
+
+                write_bool(&mut self.wire, cancellation.is_some());
+
+                if let Some(cancellation) = cancellation {
+                    self.cleanup_edge(cancellation)?;
+                }
+
                 self.runtime_reference(*registration);
                 self.runtime_reference(*wake);
             }
@@ -1109,6 +1179,21 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         }
 
         self.ty(frame.result_type())?;
+
+        self.wire
+            .write_u32(u32::from(frame.inactive_cleanup().is_some()));
+
+        if let Some(entry) = frame.inactive_cleanup() {
+            self.wire.write_u32(entry.slot());
+        }
+
+        write_bool(&mut self.wire, frame.capture_abandonment().is_some());
+
+        if let Some((quiescence, destruction)) = frame.capture_abandonment() {
+            self.wire.write_u32(quiescence.slot());
+            self.wire.write_u32(destruction.slot());
+        }
+
         write_count(&mut self.wire, frame.states().len());
 
         for state in frame.states() {
@@ -1362,6 +1447,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
 
         match conversion.target() {
             ConversionTarget::Identity => self.wire.write_u32(0),
+            ConversionTarget::CallableContract => self.wire.write_u32(7),
             ConversionTarget::NullablePresent => self.wire.write_u32(6),
             ConversionTarget::BuiltInScalar => self.wire.write_u32(1),
             ConversionTarget::CVariadicPromotion => self.wire.write_u32(5),
@@ -1476,26 +1562,6 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
             MirGeneratorOperation::Finish { destination } => {
                 self.wire.write_u32(2);
                 self.place(destination)?;
-            }
-            MirGeneratorOperation::CleanupBroadcast {
-                destination,
-                element,
-                runtime,
-            } => {
-                self.wire.write_u32(3);
-                self.place(destination)?;
-                self.ty(*element)?;
-                self.runtime_reference(*runtime);
-            }
-            MirGeneratorOperation::Destroy {
-                destination,
-                element,
-                runtime,
-            } => {
-                self.wire.write_u32(4);
-                self.place(destination)?;
-                self.ty(*element)?;
-                self.runtime_reference(*runtime);
             }
         }
 
@@ -2006,6 +2072,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(2);
                 self.operand(message)?;
             }
+            MirPanicCause::TaskAdmission => self.wire.write_u32(3),
         }
 
         Ok(())
@@ -2027,32 +2094,36 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                         self.wire.write_u32(0);
                         self.call(call)?;
                     }
-                    bray_ir::MirFrameInitializer::TaskObservation {
-                        task,
+                    bray_ir::MirFrameInitializer::Lifecycle {
+                        role,
+                        ty,
+                        receiver,
                         result,
-                        variants,
-                        runtime,
-                        request_cancellation,
                     } => {
-                        self.wire.write_u32(1);
-                        self.operand(task)?;
+                        self.wire.write_u32(2);
+
+                        match role {
+                            bray_ir::MirGeneratedLifecycleRole::Finalize => self.wire.write_u32(0),
+                            bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
+                                self.wire.write_u32(1)
+                            }
+                            bray_ir::MirGeneratedLifecycleRole::Destroy => self.wire.write_u32(2),
+                            bray_ir::MirGeneratedLifecycleRole::Abandon(action) => {
+                                self.wire.write_u32(4);
+                                self.abandonment_action(*action);
+                            }
+                            bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => {
+                                self.wire.write_u32(3);
+                                self.cleanup_phase(*phase);
+                            }
+                        }
+
+                        self.ty(*ty)?;
+                        self.operand(receiver)?;
                         self.ty(result.completion_type())?;
                         self.ty(result.future_type())?;
-                        self.run_result_variants(*variants)?;
-                        self.runtime_reference(*runtime);
-                        write_bool(&mut self.wire, *request_cancellation);
                     }
                 }
-            }
-            Operation::MoveInactiveFrame {
-                frame,
-                source,
-                destination,
-            } => {
-                self.wire.write_u32(1);
-                self.frame_reference(*frame);
-                self.place(source)?;
-                self.place(destination)?;
             }
             Operation::ResumeFrame {
                 frame,
@@ -2070,25 +2141,25 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 parent,
                 child,
                 frame,
+                entry,
             } => {
                 self.wire.write_u32(3);
                 self.wire.write_bytes(&parent.digest());
                 self.frame_reference(*child);
                 self.operand(frame)?;
-            }
-            Operation::CommitAwaitedCompletion { child } => {
-                self.wire.write_u32(4);
-                self.frame_reference(*child);
+                self.wire.write_u32(u32::from(entry.code()));
             }
             Operation::StartTask {
                 frame,
                 value,
+                destination,
                 allocation,
                 start,
             } => {
                 self.wire.write_u32(5);
                 self.frame_reference(*frame);
                 self.operand(value)?;
+                self.place(destination)?;
                 self.runtime_reference(*allocation);
                 self.runtime_reference(*start);
             }
@@ -2120,6 +2191,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                         self.operand(value)?;
                     }
                     bray_ir::MirTaskTerminalState::Cancelled => self.wire.write_u32(1),
+                    bray_ir::MirTaskTerminalState::CapturesCompleted => self.wire.write_u32(3),
                     bray_ir::MirTaskTerminalState::Panicked(report) => {
                         self.wire.write_u32(2);
                         self.operand(report)?;
@@ -2143,9 +2215,37 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.operand(incident)?;
                 self.runtime_reference(*runtime);
             }
-            Operation::DestroyTerminalTask { task } => {
+            Operation::DestroyTerminalTask { task, completion } => {
                 self.wire.write_u32(13);
                 self.operand(task)?;
+                write_bool(&mut self.wire, completion.is_some());
+
+                if let Some(ty) = completion {
+                    self.ty(*ty)?;
+                }
+            }
+            Operation::ResolveAwaitedFrame { variants, runtime } => {
+                self.wire.write_u32(14);
+                self.run_result_variants(*variants)?;
+                self.runtime_reference(*runtime);
+            }
+            Operation::BorrowTaskCompletion { task, runtime }
+            | Operation::ReleaseTaskCompletionBorrow { task, runtime } => {
+                self.wire.write_u32(
+                    if matches!(operation, Operation::BorrowTaskCompletion { .. }) {
+                        15
+                    } else {
+                        16
+                    },
+                );
+
+                self.operand(task)?;
+                self.runtime_reference(*runtime);
+            }
+            Operation::DestroyInactiveCaptures { frame, runtime } => {
+                self.wire.write_u32(17);
+                self.operand(frame)?;
+                self.runtime_reference(*runtime);
             }
         }
 

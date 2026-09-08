@@ -1,3 +1,5 @@
+use bray_symbols::CallableConditions;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_diagnostics::DiagnosticBag;
@@ -190,6 +192,8 @@ where
                     callable.dependency_contracts(),
                 )
                 .with_variadic(callable.is_variadic())
+                // Conditions share immutable clause groups with the original callable.
+                .with_conditions(callable.conditions().clone())
                 .with_phase_behaviors(callable.phase_behaviors().clone());
 
                 self.intern(TypeData::Callable(callable))?

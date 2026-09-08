@@ -160,3 +160,8 @@ pub use walk::{
     syntax_node_view, walk_direct_child_nodes, walk_source_unit, walk_syntax_node,
     walk_syntax_tree,
 };
+
+pub use syntax::{
+    ExecutesClauseSyntax, ExecutesClauseSyntaxBuilder, ExecutionPropertySyntax,
+    ExecutionPropertySyntaxBuilder, WhenClauseSyntax, WhenClauseSyntaxBuilder,
+};

@@ -227,6 +227,59 @@ mod tests {
     };
 
     #[test]
+    fn current_execution_contract_rejects_mismatched_cleanup_callback_abis() {
+        let roles = [
+            RuntimeAbiRole::EntryFailureResolution,
+            RuntimeAbiRole::TaskDestruction,
+        ];
+
+        let mut current = runtime(roles.map(runtime_binding)).expect("current runtime contract");
+        current.abi_version = RuntimeAbiVersion::CURRENT;
+        current.frame_abi = ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::CURRENT);
+
+        let required = requirements(
+            None,
+            RuntimeAbiVersion::CURRENT,
+            current.frame_abi,
+            current.target.clone(),
+            current.panic_abi.clone(),
+            roles,
+            [],
+        );
+
+        assert_eq!(current.validate(&required), Ok(()));
+
+        for version in [
+            RuntimeAbiVersion::new(2, 0),
+            RuntimeAbiVersion::new(2, u16::MAX),
+        ] {
+            let mut mismatched = current.clone();
+            mismatched.abi_version = version;
+            mismatched.frame_abi = ProtectedFrameAbiVersions::uniform(version);
+
+            assert_eq!(
+                mismatched.validate(&required),
+                Err(RuntimeCompatibilityError::RuntimeAbi)
+            );
+
+            let required = requirements(
+                None,
+                version,
+                mismatched.frame_abi,
+                mismatched.target.clone(),
+                mismatched.panic_abi.clone(),
+                roles,
+                [],
+            );
+
+            assert_eq!(
+                current.validate(&required),
+                Err(RuntimeCompatibilityError::RuntimeAbi)
+            );
+        }
+    }
+
+    #[test]
     fn runtime_contracts_reject_duplicate_and_compiler_owned_roles() {
         assert_eq!(
             runtime([runtime_binding(RuntimeAbiRole::FrameResume)]),

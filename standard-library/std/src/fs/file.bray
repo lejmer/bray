@@ -4,6 +4,14 @@ struct File
 {
     internal handle: u64;
     internal mut is_open: bool;
+    predicate complete(value: &Self) = !value.is_open;
+
+    func is_complete() -> bool
+        executes(pure, total)
+        ensures(!result || Self.complete(&self), result || !Self.complete(&self))
+    {
+        return !self.is_open;
+    }
 
     construct open(pos path: &std.path.Path, options: OpenOptions) -> Result<Self, std.io.IoError>
         requires(blocking_execution())
@@ -12,12 +20,26 @@ struct File
     }
 
     trusted finalize() -> Result<unit, std.io.IoError>
-        requires(blocking_execution())
+        requires(Self.complete(&self) || blocking_execution())
+        when(Self.complete(&self))
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
     {
+        if !self.is_open
+        {
+            return Ok(unit);
+        }
+
         return trusted close_file(&mut self);
     }
 
     trusted destruct()
+        when(Self.complete(&self))
+        {
+            executes(pure, total)
+        }
     {
         if self.is_open
         {
@@ -28,6 +50,11 @@ struct File
     func metadata() -> Result<FileMetadata, std.io.IoError>
         requires(blocking_execution())
     {
+        if !self.is_open
+        {
+            return Error(internal std.io.invalid_transfer_error());
+        }
+
         return trusted file_metadata(handle = self.handle);
     }
 
@@ -85,14 +112,16 @@ struct File
         return trusted seek_file(&mut self, offset = offset, origin = origin);
     }
 
-    consume mut func close() -> Result<unit, std.io.IoError>
+    mut func close() -> Result<unit, std.io.IoError>
         requires(blocking_execution())
+        ensures((result matches Error(_)) || Self.complete(&self))
     {
         return trusted close_file(&mut self);
     }
 
-    consume mut async func close_async() -> Result<unit, std.io.IoError>
+    mut async func close_async() -> Result<unit, std.io.IoError>
         requires(blocking_execution())
+        ensures((result matches Error(_)) || Self.complete(&self))
     {
         return self.close();
     }
@@ -138,26 +167,18 @@ trusted internal func file_metadata(handle: u64) -> Result<FileMetadata, std.io.
 
 trusted internal func close_file(pos file: &mut File) -> Result<unit, std.io.IoError>
     requires(blocking_execution())
+    ensures((result matches Error(_)) || File.complete(&file))
 {
     if !file.is_open
     {
         return Ok(unit);
     }
 
-    let result: Result<unit, std.io.IoError> = checked_platform_status(
-        trusted platform_file_close(handle = file.handle)
-    );
+    let status: std.platform.PlatformStatus = trusted platform_file_close(handle = file.handle);
 
-    match consume result
-    {
-        case Ok(_)
-        {
-            file.is_open = false;
+    file.is_open = !internal std.platform.file_close_completed(status);
 
-            return Ok(unit);
-        }
-        case Error(error) { return Error(error); }
-    }
+    return checked_platform_status(status);
 }
 
 impl FileReader = File(std.io.Reader)
@@ -196,6 +217,11 @@ impl FileSeeker = File(std.io.Seeker)
 trusted internal func read_file(pos file: &mut File, pos destination: &mut [u8]) -> Result<usize, std.io.IoError>
     requires(blocking_execution())
 {
+    if !file.is_open
+    {
+        return Error(internal std.io.invalid_transfer_error());
+    }
+
     let maximum: usize = destination.length();
     let destination_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer_mut(destination);
     let mut transferred: u64 = 0;
@@ -219,6 +245,11 @@ trusted internal func read_file(pos file: &mut File, pos destination: &mut [u8])
 trusted internal func write_file(pos file: &mut File, pos source: &[u8]) -> Result<usize, std.io.IoError>
     requires(blocking_execution())
 {
+    if !file.is_open
+    {
+        return Error(internal std.io.invalid_transfer_error());
+    }
+
     let maximum: usize = source.length();
     let source_pointer: RawPointer<u8> = internal std.memory.byte_slice_pointer(source);
     let mut transferred: u64 = 0;
@@ -242,6 +273,11 @@ trusted internal func write_file(pos file: &mut File, pos source: &[u8]) -> Resu
 trusted internal func flush_file(pos file: &mut File) -> Result<unit, std.io.IoError>
     requires(blocking_execution())
 {
+    if !file.is_open
+    {
+        return Error(internal std.io.invalid_transfer_error());
+    }
+
     let status: std.platform.PlatformStatus = trusted platform_file_flush(handle = file.handle);
 
     return checked_platform_status(status);
@@ -254,6 +290,11 @@ trusted internal func seek_file(
 ) -> Result<u64, std.io.IoError>
     requires(blocking_execution())
 {
+    if !file.is_open
+    {
+        return Error(internal std.io.invalid_transfer_error());
+    }
+
     let mut position: u64 = 0;
     let position_pointer: RawPointer<u64> = std.memory.address_of_mut(&mut position);
 

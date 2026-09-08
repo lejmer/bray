@@ -174,7 +174,7 @@ impl Lowerer<'_> {
             let initializer_type = self.expression_type(binding.initializer())?;
 
             value = self
-                .adapt_nullable_present(
+                .adapt_value(
                     binding.initializer(),
                     current,
                     Self::retained_source(&source),

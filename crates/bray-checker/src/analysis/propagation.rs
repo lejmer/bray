@@ -22,13 +22,24 @@ where
         let success = self.push_block();
         let failure = self.push_block();
 
-        self.push_edge(current, success, AnalysisEdgeKind::ResultSuccess, None);
+        self.push_edge(
+            current,
+            success,
+            AnalysisEdgeKind::ResultSuccess,
+            Some(AnalysisRefinement::ResultOutcome {
+                expression,
+                is_success: true,
+            }),
+        );
 
         self.push_edge(
             current,
             failure,
             AnalysisEdgeKind::ResultErrorPropagation,
-            None,
+            Some(AnalysisRefinement::ResultOutcome {
+                expression,
+                is_success: false,
+            }),
         );
 
         self.push_exit(
@@ -140,7 +151,7 @@ where
         type_representation(self.request(), operand_type)
     }
 
-    fn build_run_result_propagation(
+    pub(super) fn build_run_result_propagation(
         &mut self,
         expression: BoundExpressionId,
         current: AnalysisBlockId,

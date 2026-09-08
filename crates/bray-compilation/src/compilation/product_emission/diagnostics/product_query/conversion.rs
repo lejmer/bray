@@ -204,40 +204,6 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
             "product_query_invalid_compiler_known_declaration_key",
             vec![text_field("declaration_key", key)],
         ),
-        Failure::InvalidRecognizedStandardLibraryDeclarationKey { key } => (
-            "product_query_invalid_recognized_standard_library_declaration_key",
-            vec![text_field("declaration_key", key)],
-        ),
-        Failure::InvalidPackageIdentity { identity } => (
-            "product_query_invalid_package_identity",
-            vec![text_field("package_identity", identity)],
-        ),
-        Failure::UnexpectedEntryResult { actual } => (
-            "product_query_unexpected_entry_result",
-            vec![text_field(
-                "actual_entry_result",
-                executable_entry_result(actual),
-            )],
-        ),
-        Failure::CompilerKnownRepresentationMismatch {
-            ty,
-            expected,
-            actual,
-        } => {
-            let mut fields = vec![
-                identity_field("semantic_type", ty),
-                text_field("expected_representation", expected.as_str()),
-            ];
-
-            if let Some(actual) = actual {
-                fields.push(text_field("actual_representation", actual.as_str()));
-            }
-
-            (
-                "product_query_compiler_known_representation_mismatch",
-                fields,
-            )
-        }
         Failure::NativeBoundaryKindMismatch { reference, actual } => (
             "product_query_native_boundary_kind_mismatch",
             vec![
@@ -300,11 +266,11 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
                 identity_field("instance", instance),
                 text_field(
                     "expected_lifecycle_role",
-                    expected.map_or("none", mir_lifecycle_role),
+                    expected.map_or("none", bray_ir::MirGeneratedLifecycleRole::as_str),
                 ),
                 text_field(
                     "actual_lifecycle_role",
-                    actual.map_or("none", mir_lifecycle_role),
+                    actual.map_or("none", bray_ir::MirGeneratedLifecycleRole::as_str),
                 ),
             ];
 
@@ -346,7 +312,7 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
         }
         Failure::UnsupportedLifecycleRole { role } => (
             "product_query_unsupported_lifecycle_role",
-            vec![text_field("lifecycle_role", mir_lifecycle_role(*role))],
+            vec![text_field("lifecycle_role", role.as_str())],
         ),
         Failure::SourceSnapshotMismatch {
             source,
@@ -408,15 +374,6 @@ pub(in crate::compilation::product_emission::diagnostics) fn diagnostic_product_
                 ),
             ],
         ),
-        Failure::UnsupportedEntryResultType { ty, actual } => {
-            let mut fields = vec![identity_field("semantic_type", ty)];
-
-            if let Some(actual) = actual {
-                fields.push(text_field("actual_representation", actual.as_str()));
-            }
-
-            ("product_query_unsupported_entry_result_type", fields)
-        }
         Failure::InvalidCodegenRequest { unit, cause } => (
             "product_query_invalid_codegen_request",
             vec![
@@ -564,16 +521,6 @@ const fn product_synchronization_component(
     }
 }
 
-const fn executable_entry_result(
-    result: &bray_runtime_interface::ExecutableEntryResult,
-) -> &'static str {
-    match result {
-        bray_runtime_interface::ExecutableEntryResult::Unit => "unit",
-        bray_runtime_interface::ExecutableEntryResult::I32 => "i32",
-        bray_runtime_interface::ExecutableEntryResult::Fallible { .. } => "fallible",
-    }
-}
-
 const fn native_boundary_kind(
     kind: &bray_package_interface::InterfaceNativeBoundaryKind,
 ) -> &'static str {
@@ -606,23 +553,13 @@ const fn mir_operation_kind(operation: &bray_ir::MirOperationKind) -> &'static s
         Operation::PanicReport(_) => "panic_report",
         Operation::Finalize(_) => "finalize",
         Operation::Destroy(_) => "destroy",
+        Operation::Abandon { action, .. } => {
+            bray_ir::MirGeneratedLifecycleRole::Abandon(*action).as_str()
+        }
+        Operation::DestructorRemainder { .. } => "destructor_remainder",
         Operation::Cleanup { .. } => "cleanup",
         Operation::Async(_) => "async",
         Operation::Host(_) => "host",
-    }
-}
-
-const fn mir_lifecycle_role(role: bray_ir::MirGeneratedLifecycleRole) -> &'static str {
-    match role {
-        bray_ir::MirGeneratedLifecycleRole::Finalize => "finalize",
-        bray_ir::MirGeneratedLifecycleRole::StaticFinalize => "static_finalize",
-        bray_ir::MirGeneratedLifecycleRole::Destroy => "destroy",
-        bray_ir::MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::TaskCancellation) => {
-            "cleanup_task_cancellation"
-        }
-        bray_ir::MirGeneratedLifecycleRole::Cleanup(
-            bray_ir::MirCleanupPhase::LifecycleResolution,
-        ) => "cleanup_lifecycle_resolution",
     }
 }
 
@@ -668,7 +605,6 @@ const fn product_data_kind(kind: ProductDataKind) -> &'static str {
         ProductDataKind::ConversionPlan => "conversion_plan",
         ProductDataKind::CompilerKnownRepresentation => "compiler_known_representation",
         ProductDataKind::LifecycleRole => "lifecycle_role",
-        ProductDataKind::LifecycleMember => "lifecycle_member",
         ProductDataKind::LifecycleType => "lifecycle_type",
         ProductDataKind::RealizedStatic => "realized_static",
         ProductDataKind::StaticDependencyCounter => "static_dependency_counter",

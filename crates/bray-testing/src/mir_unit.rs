@@ -59,7 +59,7 @@ pub fn test_mir_unit_with_declaration_for_target(
 pub fn test_mir_target() -> MirTargetContract {
     MirTargetContract::new(
         bray_target::test_support::test_target_profile(),
-        RuntimeAbiVersion::new(1, 0),
+        RuntimeAbiVersion::CURRENT,
     )
 }
 
@@ -156,7 +156,7 @@ fn test_host_contract(
         RuntimeAbiRole::RootTerminalObservation,
         RuntimeAbiRole::RootCompletionResolution,
         RuntimeAbiRole::PanicReporting,
-        RuntimeAbiRole::EntryFailureReporting,
+        RuntimeAbiRole::EntryFailureResolution,
         RuntimeAbiRole::StructuredShutdown,
     ];
 
@@ -226,7 +226,7 @@ fn test_runtime_requirements(target: TargetIdentity, is_async: bool) -> RuntimeR
     let runtime = is_async.then(test_runtime_identity);
 
     let frame_abi =
-        is_async.then(|| ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)));
+        is_async.then(|| ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::CURRENT));
 
     let roles = is_async
         .then_some([
@@ -246,7 +246,7 @@ fn test_runtime_requirements(target: TargetIdentity, is_async: bool) -> RuntimeR
 
     RuntimeRequirements::new(
         runtime,
-        RuntimeAbiVersion::new(1, 0),
+        RuntimeAbiVersion::CURRENT,
         frame_abi,
         target,
         panic_abi,
@@ -264,8 +264,8 @@ fn test_runtime_contract(target: TargetIdentity, artifact: RuntimeArtifactId) ->
     RuntimeContract::try_new(
         test_runtime_identity(),
         artifact,
-        RuntimeAbiVersion::new(1, 0),
-        ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)),
+        RuntimeAbiVersion::CURRENT,
+        ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::CURRENT),
         target,
         panic_abi,
         [

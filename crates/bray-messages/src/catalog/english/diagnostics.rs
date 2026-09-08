@@ -1212,6 +1212,24 @@ const CHECKING_UNAVAILABLE_NATIVE_LINK_INPUT: &[MessageTemplatePart] = &[
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
 ];
 
+const CHECKING_UNKNOWN_EXECUTION_PROPERTY: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("unknown execution property: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(". Expected pure or total"),
+];
+
+const CHECKING_CALLABLE_CONTRACT_MISMATCH: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("callable value "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+    MessageTemplatePart::Text(" cannot satisfy the required contract: "),
+    MessageTemplatePart::Arg(DiagnosticArgName::CallableContractMismatch),
+];
+
+const CHECKING_UNPROVEN_EXECUTION_GUARANTEE: &[MessageTemplatePart] = &[
+    MessageTemplatePart::Text("this operation cannot establish the declared execution guarantee "),
+    MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
+];
+
 const CHECKING_UNDECLARED_TRUSTED_CAPABILITY: &[MessageTemplatePart] = &[
     MessageTemplatePart::Text("trusted capability is used but not declared: "),
     MessageTemplatePart::Arg(DiagnosticArgName::ReferencedName),
@@ -2002,6 +2020,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         DiagnosticNoteKind::RebuildRetainedProduct => RenderedDiagnosticNoteKind::Help,
         DiagnosticNoteKind::DocumentFailureLocation => RenderedDiagnosticNoteKind::Note,
         DiagnosticNoteKind::SourceFileMustBeReadable
+        | DiagnosticNoteKind::TrustedModuleRequired
         | DiagnosticNoteKind::SourceMustBeUtf8
         | DiagnosticNoteKind::SourceMustMatchFormatterOutput
         | DiagnosticNoteKind::SourceInputRequired
@@ -2019,6 +2038,7 @@ pub(crate) const fn note_kind(kind: DiagnosticNoteKind) -> RenderedDiagnosticNot
         | DiagnosticNoteKind::CallableAbiDirectiveMustNameSupportedAbi
         | DiagnosticNoteKind::DirectiveArgumentMustHaveCompleteForm
         | DiagnosticNoteKind::TypeInferenceNeedsConstraint
+        | DiagnosticNoteKind::TypeQualifierRequiresValue
         | DiagnosticNoteKind::ConstantExpressionMustBeEvaluable
         | DiagnosticNoteKind::ConstantEvaluationMustFitLimits
         | DiagnosticNoteKind::TypeLayoutDirectiveForms
@@ -2305,6 +2325,15 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::DeclarationConflictingModuleTrust => {
             MessageTemplate::new(DECLARATION_CONFLICTING_MODULE_TRUST)
         }
+        DiagnosticKind::DeclarationTrustedDeclarationRequiresTrustedModule => {
+            MessageTemplate::new(&[
+                MessageTemplatePart::Text("module "),
+                MessageTemplatePart::Arg(DiagnosticArgName::DeclarationName),
+                MessageTemplatePart::Text(
+                    " is not trusted and cannot contain this trusted declaration",
+                ),
+            ])
+        }
         DiagnosticKind::DeclarationDuplicateModifier => {
             MessageTemplate::new(DECLARATION_DUPLICATE_MODIFIER)
         }
@@ -2517,6 +2546,42 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
         DiagnosticKind::CheckingUnavailableNativeLinkInput => {
             MessageTemplate::new(CHECKING_UNAVAILABLE_NATIVE_LINK_INPUT)
         }
+        DiagnosticKind::CheckingUnknownExecutionProperty => {
+            MessageTemplate::new(CHECKING_UNKNOWN_EXECUTION_PROPERTY)
+        }
+        DiagnosticKind::CheckingCallableContractMismatch => {
+            MessageTemplate::new(CHECKING_CALLABLE_CONTRACT_MISMATCH)
+        }
+        DiagnosticKind::CheckingUnprovenExecutionGuarantee => {
+            MessageTemplate::new(CHECKING_UNPROVEN_EXECUTION_GUARANTEE)
+        }
+        DiagnosticKind::CheckingUnprovenPostcondition => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "normal completion does not establish the declared postcondition",
+            )])
+        }
+        DiagnosticKind::CheckingUnprovenFinalizationCompletion => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "finalization completion requires verified implementation contracts",
+            )])
+        }
+        DiagnosticKind::CheckingUnresolvedFinalization => MessageTemplate::new(&[
+            MessageTemplatePart::Text(
+                "ordinary ownership end requires proven finalization completion for ",
+            ),
+            MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+        ]),
+        DiagnosticKind::CheckingAsyncFinalizationInSynchronousContext => MessageTemplate::new(&[
+            MessageTemplatePart::Text(
+                "synchronous ownership end requires proven completion of asynchronous finalization for ",
+            ),
+            MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+        ]),
+        DiagnosticKind::CheckingTypeQualifierUsedAsValue => MessageTemplate::new(&[
+            MessageTemplatePart::Text("the type "),
+            MessageTemplatePart::Arg(DiagnosticArgName::ActualType),
+            MessageTemplatePart::Text(" is used where a runtime value is required"),
+        ]),
         DiagnosticKind::CheckingUndeclaredTrustedCapability => {
             MessageTemplate::new(CHECKING_UNDECLARED_TRUSTED_CAPABILITY)
         }
@@ -2934,6 +2999,11 @@ pub(crate) const fn diagnostic_template(kind: DiagnosticKind) -> MessageTemplate
 
 pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
     match kind {
+        DiagnosticNoteKind::TrustedModuleRequired => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "declare the logical module as trusted in all of its contributions, or move this declaration to a trusted module",
+            )])
+        }
         DiagnosticNoteKind::SourceFileMustBeReadable => {
             MessageTemplate::new(NOTE_SOURCE_FILE_MUST_BE_READABLE)
         }
@@ -3002,6 +3072,11 @@ pub(crate) const fn note_template(kind: DiagnosticNoteKind) -> MessageTemplate {
         }
         DiagnosticNoteKind::TypeInferenceNeedsConstraint => {
             MessageTemplate::new(NOTE_TYPE_INFERENCE_NEEDS_CONSTRAINT)
+        }
+        DiagnosticNoteKind::TypeQualifierRequiresValue => {
+            MessageTemplate::new(&[MessageTemplatePart::Text(
+                "provide a value expression, construct a value, or select an associated member",
+            )])
         }
         DiagnosticNoteKind::ConstantExpressionMustBeEvaluable => {
             MessageTemplate::new(NOTE_CONSTANT_EXPRESSION_MUST_BE_EVALUABLE)

@@ -1,0 +1,98 @@
+module owned_finalizer_error;
+
+using std.atomic;
+
+func record(pos trace: &std.atomic.Atomic<usize>, pos value: usize)
+{
+    let previous = trace.load(order = std.atomic.LoadOrder.Acquire);
+
+    trace.store(previous * 10 + value, order = std.atomic.StoreOrder.Release);
+}
+
+struct Capture
+{
+    trace: &std.atomic.Atomic<usize>;
+
+    finalize()
+    {
+        panic("abandoned capture was finalized");
+    }
+
+    destruct()
+    {
+        record(self.trace, 3);
+    }
+}
+
+async func inactive(pos capture: Capture)
+{
+    panic("inactive error payload entered its body");
+}
+
+struct Failure
+{
+    trace: &std.atomic.Atomic<usize>;
+    pending: Future<unit>;
+
+    finalize()
+    {
+        panic("retained error was finalized");
+    }
+
+    destruct()
+    {
+        record(self.trace, 2);
+    }
+}
+
+struct Resource
+{
+    trace: &std.atomic.Atomic<usize>;
+
+    async finalize() -> Result<unit, Failure>
+    {
+        return Error(
+            Failure
+            {
+                trace = self.trace,
+                pending = inactive(
+                    Capture
+                    {
+                        trace = self.trace
+                    }
+                ),
+            }
+        );
+    }
+
+    destruct()
+    {
+        record(self.trace, 1);
+    }
+}
+
+async func fail(pos trace: &std.atomic.Atomic<usize>)
+{
+    let resource = Resource
+    {
+        trace = trace
+    };
+
+    panic("scope failure");
+}
+
+async func main() -> i32
+{
+    let trace = std.atomic.Atomic<usize>(0);
+
+    {
+        let result = catch await fail(&trace);
+
+        assert(result matches Error(_));
+        assert(trace.load(order = std.atomic.LoadOrder.Acquire) == 1);
+    }
+
+    assert(trace.load(order = std.atomic.LoadOrder.Acquire) == 123);
+
+    return 0;
+}

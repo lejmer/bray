@@ -28,6 +28,7 @@ pub(super) struct StaticFinalizerCallbacks<'context> {
     pub(super) result_alignment: u64,
     pub(super) start: FunctionValue<'context>,
     pub(super) resolve: FunctionValue<'context>,
+    pub(super) panics: inkwell::values::StructValue<'context>,
 }
 
 pub(super) fn declare_thread_static_registration<'context>(
@@ -42,15 +43,11 @@ pub(super) fn declare_thread_static_registration<'context>(
     let usize = usize_type(types)?;
     let descriptor_type = product_host_descriptor_type(context, pointer, usize);
 
-    let descriptor = module
-        .get_global(product_host.descriptor_symbol().as_str())
-        .unwrap_or_else(|| {
-            module.add_global(
-                descriptor_type,
-                None,
-                product_host.descriptor_symbol().as_str(),
-            )
-        });
+    let descriptor = super::super::global::declare_global(
+        module,
+        product_host.descriptor_symbol().as_str(),
+        descriptor_type,
+    );
 
     let entry = product_host
         .statics()
@@ -278,15 +275,11 @@ pub(super) fn declare_product_host<'context>(
     let usize = usize_type(types)?;
     let descriptor_type = product_host_descriptor_type(context, pointer, usize);
 
-    let descriptor = module
-        .get_global(product_host.descriptor_symbol().as_str())
-        .unwrap_or_else(|| {
-            module.add_global(
-                descriptor_type,
-                None,
-                product_host.descriptor_symbol().as_str(),
-            )
-        });
+    let descriptor = super::super::global::declare_global(
+        module,
+        product_host.descriptor_symbol().as_str(),
+        descriptor_type,
+    );
 
     if product_host.owner() != mappings.unit() {
         return Ok(());
@@ -562,6 +555,7 @@ fn static_finalizer_type<'context>(
             usize.into(),
             pointer.into(),
             pointer.into(),
+            super::super::boundary::panic_report_callbacks_type(context).into(),
         ],
         false,
     )
@@ -587,7 +581,33 @@ fn static_finalizer_value<'context>(
             .as_global_value()
             .as_pointer_value()
             .into(),
+        finalizer.panics.into(),
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn finalizer_layout_includes_panic_payload_ownership() {
+        let fixture = bray_codegen::test_support::codegen_request();
+        let request = fixture.request();
+        let machine = crate::machine::LlvmTargetMachine::create(request.target()).unwrap();
+        let data = machine.target_data();
+        let context = inkwell::context::Context::create();
+        let word = crate::native::pointer_integer_type(&context, request.target());
+        let bytes = u64::from(word.get_bit_width() / 8);
+
+        let ty = super::static_finalizer_type(
+            &context,
+            context.ptr_type(inkwell::AddressSpace::default()),
+            word,
+        );
+
+        assert_eq!(data.offset_of_element(&ty, 4), Some(8 + 2 * bytes));
+        assert_eq!(data.offset_of_element(&ty, 5), Some(8 + 3 * bytes));
+        assert_eq!(data.offset_of_element(&ty, 6), Some(8 + 4 * bytes));
+        assert_eq!(data.get_store_size(&ty), 8 + 8 * bytes);
+    }
 }
 
 fn product_host_descriptor_type<'context>(
@@ -615,24 +635,21 @@ fn product_identity_type(context: &inkwell::context::Context) -> ArrayType<'_> {
     context.i8_type().array_type(32)
 }
 
-fn static_identity_value<'context>(
-    context: &'context inkwell::context::Context,
+fn static_identity_value(
+    context: &inkwell::context::Context,
     identity: bray_runtime_abi::NativeStaticIdentity,
-) -> ArrayValue<'context> {
+) -> ArrayValue<'_> {
     byte_array(context, identity.bytes())
 }
 
-fn product_identity_value<'context>(
-    context: &'context inkwell::context::Context,
+fn product_identity_value(
+    context: &inkwell::context::Context,
     identity: bray_runtime_abi::NativeProductIdentity,
-) -> ArrayValue<'context> {
+) -> ArrayValue<'_> {
     byte_array(context, identity.bytes())
 }
 
-fn byte_array<'context>(
-    context: &'context inkwell::context::Context,
-    bytes: [u8; 32],
-) -> ArrayValue<'context> {
+fn byte_array(context: &inkwell::context::Context, bytes: [u8; 32]) -> ArrayValue<'_> {
     let values = bytes
         .into_iter()
         .map(|byte| context.i8_type().const_int(u64::from(byte), false))

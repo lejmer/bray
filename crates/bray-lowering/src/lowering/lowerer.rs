@@ -70,6 +70,8 @@ pub(super) struct Lowerer<'unit> {
     pub(super) catch_targets: Vec<CatchTarget>,
     pub(super) frame_states: Vec<MirFrameState>,
     pub(super) cleanup_outcome: Option<crate::cleanup_outcome::CleanupOutcome>,
+    pub(super) destructor_remainder: bool,
+    pub(super) cleanup_retained_storages: Vec<MirStorageId>,
     pub(super) cleanup_failure_targets: Option<(MirBlockId, MirBlockId, bray_symbols::TypeId)>,
 }
 
@@ -99,6 +101,8 @@ impl<'unit> Lowerer<'unit> {
             catch_targets: Vec::new(),
             frame_states: Vec::new(),
             cleanup_outcome: None,
+            destructor_remainder: false,
+            cleanup_retained_storages: Vec::new(),
             cleanup_failure_targets: None,
         }
     }
@@ -193,6 +197,10 @@ impl<'unit> Lowerer<'unit> {
         }
 
         if let Some(frame) = self.input.unit_kind().protected_frame() {
+            let inactive_cleanup = self.lower_inactive_cleanup(&source)?;
+
+            let (quiescence, destruction) = self.lower_capture_abandonment(&source)?;
+
             let result_type = self
                 .input
                 .expression_types()
@@ -208,7 +216,9 @@ impl<'unit> Lowerer<'unit> {
                 result_type,
                 self.frame_states,
             )
-            .map_err(LoweringError::InvalidFrameDescriptor)?;
+            .map_err(LoweringError::InvalidFrameDescriptor)?
+            .with_inactive_cleanup(inactive_cleanup)
+            .with_capture_abandonment(quiescence, destruction);
 
             self.builder.set_frame_descriptor(descriptor)?;
         }
@@ -246,7 +256,7 @@ impl<'unit> Lowerer<'unit> {
 fn parameter_positions(plan: &bray_bound_tree::StoragePlan) -> BTreeMap<StorageIdentityId, u32> {
     let entries = plan
         .identity_entries()
-        .filter(|(_, identity)| is_parameter_identity(*identity))
+        .filter(|(_, identity)| identity.is_parameter())
         .collect::<Vec<_>>();
 
     entries
@@ -262,16 +272,6 @@ fn parameter_positions(plan: &bray_bound_tree::StoragePlan) -> BTreeMap<StorageI
         .enumerate()
         .map(|(position, (identity, _))| (identity, u32::try_from(position).unwrap_or(u32::MAX)))
         .collect()
-}
-
-const fn is_parameter_identity(identity: StorageIdentity) -> bool {
-    matches!(
-        identity,
-        StorageIdentity::Parameter(_)
-            | StorageIdentity::Receiver(_)
-            | StorageIdentity::AnonymousParameter(_)
-            | StorageIdentity::PredicateParameter(_)
-    )
 }
 
 #[cfg(test)]
@@ -882,6 +882,25 @@ mod tests {
 
             let mir = lower_unit(fixture.input())
                 .unwrap_or_else(|error| panic!("checked memory call must lower: {error:?}"));
+
+            let calls = mir
+                .blocks()
+                .iter()
+                .filter(|block| {
+                    matches!(
+                        block.terminator().kind(),
+                        bray_ir::MirTerminatorKind::CheckCallOutcome { .. }
+                    )
+                })
+                .count();
+
+            assert_eq!(
+                calls,
+                usize::from(matches!(
+                    kind,
+                    Kind::RawAllocate | Kind::RawDeallocate | Kind::Allocate | Kind::Deallocate
+                ))
+            );
 
             assert!(matches!(
                 mir.operations()[0].kind(),

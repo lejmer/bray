@@ -137,7 +137,7 @@ impl Lowerer<'_> {
                         payload,
                         resume_state: state,
                         resume: MirEdge::new(resume, []),
-                        cancellation,
+                        cancellation: Some(cancellation),
                         registration: self
                             .runtime_reference(RuntimeAbiRole::SuspensionRegistration),
                         wake: self.runtime_reference(RuntimeAbiRole::Wake),

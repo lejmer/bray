@@ -1,5 +1,5 @@
 @target(target.c.WCHAR == "i32")
-module std.ffi.c;
+trusted module std.ffi.c;
 
 /// Returns `StringError.InvalidEncoding` for a non-Unicode scalar value and
 /// `StringError.Allocation` when the decoded Bray string cannot be allocated.

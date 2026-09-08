@@ -370,7 +370,8 @@ mod tests {
     use bray_testing::{assert_goal_state_diagnostic_kind, assert_goal_state_diagnostics};
 
     use crate::test_support::{
-        compilation, compilation_with_options, package_identity, source_function, source_input,
+        compilation, compilation_with_native_link, compilation_with_options, package_identity,
+        source_function, source_input,
     };
     use crate::{CompilationOptions, CompilationRequest, WorkerBudget};
 
@@ -761,7 +762,7 @@ extern trusted func native_read() -> i32
 
     #[test]
     fn omitted_link_kinds_use_the_supplied_input_kind() {
-        let compilation = compilation_with_link_kind(
+        let compilation = compilation_with_native_link(
             r#"trusted module app;
 
 @link(name = "native")
@@ -1257,7 +1258,7 @@ func third()
     }
 
     fn compilation_with_link(source: &str, name: &str) -> crate::Compilation {
-        compilation_with_link_kind(source, name, NativeLinkKind::Dynamic)
+        compilation_with_native_link(source, name, NativeLinkKind::Dynamic)
     }
 
     fn compilation_with_platform_service(
@@ -1302,25 +1303,6 @@ func third()
 
         crate::Compilation::load(request)
             .unwrap_or_else(|error| panic!("test compilation must load: {error:?}"))
-    }
-
-    fn compilation_with_link_kind(
-        source: &str,
-        name: &str,
-        kind: NativeLinkKind,
-    ) -> crate::Compilation {
-        let Some(name) = NonEmptySharedStr::try_new(name) else {
-            panic!("test link input name must be valid");
-        };
-
-        let options = CompilationOptions::new(
-            WorkerBudget::serial(),
-            bray_symbols::ProductKind::Library,
-            crate::SelectedTarget::baseline(),
-        )
-        .with_native_link_inputs([NativeLinkRequirement::new(name, kind)]);
-
-        compilation_with_options(source, options)
     }
 
     fn compilation_with_foreign_alignment(source: &str, maximum: u64) -> crate::Compilation {

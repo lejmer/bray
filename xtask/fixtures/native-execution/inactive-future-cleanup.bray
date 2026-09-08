@@ -1,0 +1,100 @@
+module inactive_future_cleanup;
+
+struct Counter
+{
+    mut value: i32;
+}
+
+async func complete() {}
+
+struct Guard
+{
+    mut counter: &mut Counter;
+
+    async finalize()
+    {
+        self.counter.value += 1;
+        await complete();
+        self.counter.value += 10;
+    }
+
+    destruct()
+    {
+        self.counter.value += 100;
+    }
+}
+
+async func forbidden_body(pos guard: Guard)
+{
+    panic("discarded future entered its body");
+}
+
+async func return_guard(pos guard: Guard) -> Guard
+{
+    return guard;
+}
+
+async func discard_inactive(pos counter: &mut Counter)
+{
+    let pending = forbidden_body(
+        Guard
+        {
+            counter = counter
+        }
+    );
+}
+
+async func discard_join(pos counter: &mut Counter)
+{
+    let task = return_guard(
+        Guard
+        {
+            counter = counter
+        }
+    ).start();
+
+    let pending = task.join();
+}
+
+async func discard_cancellation(pos counter: &mut Counter)
+{
+    let task = return_guard(
+        Guard
+        {
+            counter = counter
+        }
+    ).start();
+
+    let pending = task.cancel();
+}
+
+async func main() -> i32
+{
+    let mut counter = Counter
+    {
+        value = 0
+    };
+
+    await discard_inactive(&mut counter);
+
+    if counter.value != 111
+    {
+        return 1;
+    }
+
+    await discard_join(&mut counter);
+
+    if counter.value != 222
+    {
+        return 2;
+    }
+
+    await discard_cancellation(&mut counter);
+
+    if counter.value != 333
+    {
+        return 3;
+    }
+
+    return 0;
+}

@@ -414,7 +414,7 @@ where
     };
 
     let complete = crate::representation::type_supports_complete_fixed_layout(request, pointee)
-        .map_err(query_outcome)?;
+        .map_err(CheckerOutcome::from)?;
 
     let data = request
         .semantic_values()
@@ -476,10 +476,10 @@ where
     };
 
     let fixed = crate::representation::type_supports_complete_fixed_layout(request, *ty)
-        .map_err(query_outcome)?;
+        .map_err(CheckerOutcome::from)?;
 
     let flexible = crate::representation::type_supports_flexible_c_layout(request, *ty)
-        .map_err(query_outcome)?;
+        .map_err(CheckerOutcome::from)?;
 
     let valid = match kind {
         MemoryLayoutQueryKind::Alignment => fixed || flexible,
@@ -525,18 +525,6 @@ where
     diagnostics.add(diagnostic);
 
     Ok(false)
-}
-
-fn query_outcome<Upstream>(
-    error: crate::CheckerQueryError<Upstream>,
-) -> CheckerOutcome<CheckedMemoryOperations, Upstream> {
-    match error {
-        crate::CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-        crate::CheckerQueryError::Infrastructure(error) => {
-            CheckerOutcome::InfrastructureFailure(error)
-        }
-        crate::CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
-    }
 }
 
 fn validate_callable_address_type<C>(

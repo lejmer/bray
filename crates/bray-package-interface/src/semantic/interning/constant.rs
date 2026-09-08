@@ -255,15 +255,12 @@ impl InternState {
                     return Ok(None);
                 };
 
-                let selected_implementation = match selected_implementation {
-                    Some(id) => {
-                        let Some(id) = self.implementation_instance_id(*id) else {
-                            return Ok(None);
-                        };
-
-                        Some(id)
-                    }
-                    None => None,
+                let Some(selected_implementation) =
+                    super::common::resolve_optional_id(*selected_implementation, |id| {
+                        self.implementation_instance_id(id)
+                    })
+                else {
+                    return Ok(None);
                 };
 
                 Some(ConstantTermData::DefinitionApplication {
@@ -281,15 +278,12 @@ impl InternState {
                     return Ok(None);
                 };
 
-                let selected_implementation = match selected_implementation {
-                    Some(id) => {
-                        let Some(id) = self.implementation_instance_id(*id) else {
-                            return Ok(None);
-                        };
-
-                        Some(id)
-                    }
-                    None => None,
+                let Some(selected_implementation) =
+                    super::common::resolve_optional_id(*selected_implementation, |id| {
+                        self.implementation_instance_id(id)
+                    })
+                else {
+                    return Ok(None);
                 };
 
                 let Some(arguments) = collect_ids(arguments, |id| self.constant_term_id(*id))
@@ -327,6 +321,26 @@ impl InternState {
                     bray_symbols::PredicateInstanceData::new(predicate, substitution),
                     arguments,
                 ))
+            }
+            InterfaceConstantTerm::Test { subject, kind } => {
+                let Some(subject) = self.constant_term_id(*subject) else {
+                    return Ok(None);
+                };
+
+                let kind = match kind {
+                    bray_symbols::ConstantTest::NullablePresent => {
+                        bray_symbols::ConstantTest::NullablePresent
+                    }
+                    bray_symbols::ConstantTest::ActiveUnionVariant(variant) => {
+                        bray_symbols::ConstantTest::ActiveUnionVariant(resolve_exact::<
+                            UnionVariantSymbolId,
+                        >(
+                            symbols, variant
+                        )?)
+                    }
+                };
+
+                Some(ConstantTermData::Test { subject, kind })
             }
             InterfaceConstantTerm::Projection { subject, kind } => {
                 let Some(subject) = self.constant_term_id(*subject) else {
@@ -373,6 +387,7 @@ impl InternState {
             InterfaceConstantProjection::NullableValue => {
                 Some(ConstantProjectionKind::NullableValue)
             }
+            InterfaceConstantProjection::OwnedTarget => Some(ConstantProjectionKind::OwnedTarget),
         })
     }
 }

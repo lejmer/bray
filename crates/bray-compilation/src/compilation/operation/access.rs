@@ -9,7 +9,7 @@ use bray_bound_tree::{
 };
 use bray_checker::{
     ImplementationSelectionEvidence, OperationCandidate, OperationCandidateState,
-    resolve_callable_signature_template, resolve_type_expression_template,
+    resolve_type_expression_template,
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticId, DiagnosticKind, DiagnosticLabel,
@@ -19,12 +19,11 @@ use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, BorrowKind, CallableDefinitionId, CallableInstanceData,
     CallableParameterDefaultProviderSymbolId, CallableParameterDefaultTemplateQuery,
-    CallableParameterSymbolId, CallableSignature, CallableSignatureQuery, CheckedConstraintKind,
-    ExactSymbolId, GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationSelection,
+    CallableParameterSymbolId, CallableSignature, CheckedConstraintKind, ExactSymbolId,
+    GenericDeclarationTemplateQuery, GenericOwnerId, ImplementationSelection,
     ImplementationSubjectQuery, MemberLookupResult, NamedTypeSymbolId, SelfTypeContext,
     StructFieldTypeQuery, SymbolQueryContract, SymbolQueryRequest, TraitApplicationId,
-    TraitCallableMemberSymbolId, TraitConstraintDispatch, TypeAssociatedMemberOrigin, TypeData,
-    TypeExpressionTemplate, TypeId,
+    TraitCallableMemberSymbolId, TraitConstraintDispatch, TypeData, TypeExpressionTemplate, TypeId,
 };
 use bray_syntax::{GenericArgumentSyntax, TraitApplicationSyntax};
 
@@ -256,46 +255,16 @@ impl Compilation {
                 (result_type, Some(operation))
             }
             member if CallableDefinitionId::try_new(member).is_some() => {
-                let member_substitution = match member_origin {
-                    TypeAssociatedMemberOrigin::Direct => substitution,
-                    TypeAssociatedMemberOrigin::InherentImplementation(implementation) => {
-                        let contribution = surface
-                            .value()
-                            .implementations()
-                            .iter()
-                            .find(|candidate| candidate.implementation() == implementation)
-                            .ok_or_else(|| {
-                                symbol_contract_failure(
-                                    implementation.into(),
-                                    SemanticQueryViolation::Missing(
-                                        SemanticDataKind::ImplementationUsing,
-                                    ),
-                                )
-                            })?;
-
-                        let pattern = self.resolve_implementation_self_type(
-                            binding_context,
-                            implementation.into(),
-                            diagnostics,
-                        )?;
-
-                        match match_implementation_subject(
-                            implementation.into(),
-                            contribution.generic().parameters(),
-                            pattern,
-                            receiver_type,
-                            binding_context.semantic_values(),
-                        ) {
-                            Ok(Some(substitution)) => substitution,
-                            Ok(None) => return Ok(None),
-                            Err(error) => {
-                                return Err(implementation_match_query_error(
-                                    implementation.into(),
-                                    error,
-                                ));
-                            }
-                        }
-                    }
+                let Some(member_substitution) = super::signature::associated_member_substitution(
+                    binding_context,
+                    surface.value(),
+                    member_origin,
+                    receiver_type,
+                    substitution,
+                    diagnostics,
+                )?
+                else {
+                    return Ok(None);
                 };
 
                 let Some(callable) = self.resolve_callable_member_signature(
@@ -682,15 +651,7 @@ impl Compilation {
             return Ok(None);
         };
 
-        let owner = GenericOwnerId::try_new(trait_definition.into()).ok_or_else(|| {
-            symbol_contract_failure(
-                trait_definition.into(),
-                SemanticQueryViolation::UnexpectedSymbolKind {
-                    expected: SemanticSymbolCategory::GenericOwner,
-                    actual: trait_definition.kind(),
-                },
-            )
-        })?;
+        let owner = crate::compilation::substitution::generic_owner(trait_definition.into())?;
 
         let parameters =
             visible_generic_parameters(binding_context.symbols(), trait_definition.into());
@@ -913,7 +874,7 @@ impl Compilation {
         }
     }
 
-    fn resolve_implementation_self_type(
+    pub(super) fn resolve_implementation_self_type(
         &self,
         binding_context: &CompilationBindingContext<'_>,
         implementation: bray_symbols::ImplementationSymbolId,
@@ -1145,15 +1106,7 @@ impl Compilation {
     ) -> Result<Option<bray_bound_tree::CallableDeclarationTemplate>, FactQueryError> {
         let arguments = member_call_generic_arguments(self, unit, expression)?;
 
-        let member_owner = GenericOwnerId::try_new(member).ok_or_else(|| {
-            symbol_contract_failure(
-                member,
-                SemanticQueryViolation::UnexpectedSymbolKind {
-                    expected: SemanticSymbolCategory::GenericOwner,
-                    actual: member.kind(),
-                },
-            )
-        })?;
+        let member_owner = crate::compilation::substitution::generic_owner(member)?;
 
         let direct_generic = binding_context
             .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(
@@ -1290,28 +1243,10 @@ impl Compilation {
         instance: CallableInstanceData,
         diagnostics: &mut DiagnosticBag,
     ) -> Result<Option<ResolvedCallableMember>, FactQueryError> {
-        let callable = instance.definition().callable_symbol();
+        let signature = super::signature::selected_callable_signature(binding_context, instance)?;
+        *diagnostics = diagnostics.merged(signature.diagnostics());
 
-        let result = binding_context
-            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(callable))
-            .map_err(binding_query_error)?;
-
-        *diagnostics = diagnostics.merged(result.diagnostics());
-
-        let checked = self.checked_constant_terms_for_templates_with_cancellation(
-            [result.value().callable_type(), result.value().result()],
-            binding_context.cancellation(),
-        )?;
-
-        *diagnostics = diagnostics.merged(checked.diagnostics());
-
-        let signature = resolve_callable_signature_template(
-            binding_context.semantic_values(),
-            result.value(),
-            instance.substitution(),
-            checked.value(),
-        )
-        .map_err(FactQueryError::from)?;
+        let (signature, _) = signature.into_parts();
 
         Ok(signature.map(|signature| ResolvedCallableMember {
             signature,

@@ -52,4 +52,5 @@ pub use role_artifact::RuntimeRoleArtifact;
 
 pub use signature::{RuntimeAbiType, RuntimeNativeSignature};
 
+pub use bray_runtime_abi::NativeFrameEntry;
 pub use bray_runtime_abi::runtime_role_catalog;

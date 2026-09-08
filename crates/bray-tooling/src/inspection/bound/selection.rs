@@ -51,6 +51,9 @@ impl InspectionSelectionEntry {
 #[derive(Serialize)]
 #[serde(tag = "target_kind", rename_all = "snake_case")]
 enum InspectionSelectionTarget {
+    TypeQualifier {
+        r#type: InspectionType,
+    },
     Surface {
         symbol: InspectionSymbolIdentity,
     },
@@ -116,6 +119,7 @@ enum InspectionSelectionTarget {
 impl InspectionSelectionTarget {
     fn text(&self) -> String {
         match self {
+            Self::TypeQualifier { r#type } => format!("type {}", r#type.text()),
             Self::Surface { symbol } => symbol.text(),
             Self::Local {
                 symbol_kind,
@@ -236,6 +240,7 @@ impl InspectionConversion {
 #[serde(tag = "rule_kind", rename_all = "snake_case")]
 enum InspectionConversionRule {
     Identity,
+    CallableContract,
     NullablePresent,
     BuiltInScalar,
     CVariadicPromotion,
@@ -258,6 +263,7 @@ impl InspectionConversionRule {
     const fn kind_name(&self) -> &'static str {
         match self {
             Self::Identity => "identity",
+            Self::CallableContract => "callable contract",
             Self::NullablePresent => "nullable present",
             Self::BuiltInScalar => "built-in scalar",
             Self::CVariadicPromotion => "C variadic promotion",
@@ -308,7 +314,7 @@ fn selection_target(
 ) -> Result<Option<InspectionSelectionTarget>, SelectionInspectionError> {
     match selection {
         SemanticSelection::Reference(target) => {
-            reference_target(*target, locals, symbols).map(Some)
+            reference_target(*target, locals, symbols, semantic_values).map(Some)
         }
         SemanticSelection::CallableReference(callable) => {
             Ok(Some(InspectionSelectionTarget::Surface {
@@ -380,8 +386,12 @@ fn reference_target(
     target: BoundReferenceTarget,
     locals: &LocalSymbolSnapshot,
     symbols: &SymbolGraph,
+    semantic_values: &SemanticValueStore,
 ) -> Result<InspectionSelectionTarget, SelectionInspectionError> {
     match target {
+        BoundReferenceTarget::TypeQualifier(ty) => Ok(InspectionSelectionTarget::TypeQualifier {
+            r#type: InspectionType::from_type(semantic_values, symbols, ty)?,
+        }),
         BoundReferenceTarget::Local(local) => local_target(local, locals),
         BoundReferenceTarget::Surface(symbol) => Ok(InspectionSelectionTarget::Surface {
             symbol: InspectionSymbolIdentity::from_symbol(symbols, symbol),
@@ -567,6 +577,7 @@ fn inspection_conversion(
 ) -> Result<InspectionConversion, SelectionInspectionError> {
     let rule = match conversion.target() {
         ConversionTarget::Identity => InspectionConversionRule::Identity,
+        ConversionTarget::CallableContract => InspectionConversionRule::CallableContract,
         ConversionTarget::NullablePresent => InspectionConversionRule::NullablePresent,
         ConversionTarget::BuiltInScalar => InspectionConversionRule::BuiltInScalar,
         ConversionTarget::CVariadicPromotion => InspectionConversionRule::CVariadicPromotion,

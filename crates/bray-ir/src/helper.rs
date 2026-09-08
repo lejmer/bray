@@ -42,6 +42,13 @@ pub enum MirHelperReference {
     StaticFinalize(TypeId),
     /// Destroy a value of the retained type.
     Destroy(TypeId),
+    /// Resolve one ownership step for an abandoned cleanup error.
+    Abandon {
+        /// Ownership step being executed.
+        action: crate::MirAbandonmentAction,
+        /// Type whose ownership is resolved.
+        ty: TypeId,
+    },
     /// Run one checked cleanup phase for a value of the retained type.
     Cleanup {
         /// Cleanup phase being executed.
@@ -51,17 +58,42 @@ pub enum MirHelperReference {
     },
     /// Create one inactive protected frame.
     CreateFrame(MirFrameReference),
-    /// Move one inactive protected frame before its first resume.
-    MoveInactiveFrame(MirFrameReference),
     /// Compose one directly awaited child frame.
     ComposeAwaitedFrame(MirFrameReference),
-    /// Move one awaited completion result.
-    CommitAwaitedCompletion(MirFrameReference),
     /// Destroy one terminal task control record.
     DestroyTerminalTask,
 }
 
 impl MirHelperReference {
+    /// Returns the stable category name used in MIR inspection and diagnostic context.
+    pub const fn kind_name(&self) -> &'static str {
+        use crate::MirHelperReference as Helper;
+
+        match self {
+            Helper::AnonymousCallable(_) => "anonymous_callable",
+            Helper::DeclaredCallable(_) => "declared_callable",
+            Helper::CallableDefault(_) => "callable_default",
+            Helper::ConstructionDefault(_) => "construction_default",
+            Helper::TypeForm(_) => "type_form",
+            Helper::Conversion(_) => "conversion",
+            Helper::BeginGenerator => "begin_generator",
+            Helper::PushGenerator => "push_generator",
+            Helper::FinishGenerator => "finish_generator",
+            Helper::PanicReport => "panic_report",
+            Helper::StandardLibrary(_) => "standard_library",
+            Helper::Finalize(_) => "finalize",
+            Helper::StaticFinalize(_) => "static_finalize",
+            Helper::Destroy(_) => "destroy",
+            Helper::Abandon { action, .. } => {
+                crate::MirGeneratedLifecycleRole::Abandon(*action).as_str()
+            }
+            Helper::Cleanup { .. } => "cleanup",
+            Helper::CreateFrame(_) => "create_frame",
+            Helper::ComposeAwaitedFrame(_) => "compose_awaited_frame",
+            Helper::DestroyTerminalTask => "destroy_terminal_task",
+        }
+    }
+
     /// Returns the calling convention required by this helper role.
     pub const fn abi(&self) -> CallableAbi {
         match self {
@@ -79,11 +111,10 @@ impl MirHelperReference {
             | Self::Finalize(_)
             | Self::StaticFinalize(_)
             | Self::Destroy(_)
+            | Self::Abandon { .. }
             | Self::Cleanup { .. }
             | Self::CreateFrame(_)
-            | Self::MoveInactiveFrame(_)
             | Self::ComposeAwaitedFrame(_)
-            | Self::CommitAwaitedCompletion(_)
             | Self::DestroyTerminalTask => CallableAbi::Bray,
         }
     }
@@ -94,6 +125,7 @@ impl MirHelperReference {
             Self::Finalize(ty)
             | Self::StaticFinalize(ty)
             | Self::Destroy(ty)
+            | Self::Abandon { ty, .. }
             | Self::Cleanup { ty, .. } => Some(*ty),
             Self::AnonymousCallable(_)
             | Self::DeclaredCallable(_)
@@ -107,9 +139,7 @@ impl MirHelperReference {
             | Self::PanicReport
             | Self::StandardLibrary(_)
             | Self::CreateFrame(_)
-            | Self::MoveInactiveFrame(_)
             | Self::ComposeAwaitedFrame(_)
-            | Self::CommitAwaitedCompletion(_)
             | Self::DestroyTerminalTask => None,
         }
     }
@@ -121,13 +151,7 @@ impl MirHelperReference {
             Self::PushGenerator => Some(RuntimeAbiRole::GeneratorPush),
             Self::FinishGenerator => Some(RuntimeAbiRole::GeneratorFinish),
             Self::PanicReport => Some(RuntimeAbiRole::PanicReportConstruction),
-            Self::MoveInactiveFrame(MirFrameReference::Erased) => {
-                Some(RuntimeAbiRole::InactiveFrameMove)
-            }
             Self::ComposeAwaitedFrame(_) => Some(RuntimeAbiRole::AwaitedFrameComposition),
-            Self::CommitAwaitedCompletion(MirFrameReference::Erased) => {
-                Some(RuntimeAbiRole::FrameCompletionMove)
-            }
             Self::DestroyTerminalTask => Some(RuntimeAbiRole::TaskDestruction),
             Self::AnonymousCallable(_)
             | Self::DeclaredCallable(_)
@@ -139,10 +163,9 @@ impl MirHelperReference {
             | Self::Finalize(_)
             | Self::StaticFinalize(_)
             | Self::Destroy(_)
+            | Self::Abandon { .. }
             | Self::Cleanup { .. }
-            | Self::CreateFrame(_)
-            | Self::MoveInactiveFrame(MirFrameReference::Known(_))
-            | Self::CommitAwaitedCompletion(MirFrameReference::Known(_)) => None,
+            | Self::CreateFrame(_) => None,
         }
     }
 }
@@ -183,16 +206,6 @@ impl MirOperationKind {
                 MirGeneratorOperation::Finish { .. } => {
                     helpers.push(MirHelperReference::FinishGenerator);
                 }
-                MirGeneratorOperation::CleanupBroadcast { element, .. } => {
-                    helpers.push(MirHelperReference::Cleanup {
-                        phase: MirCleanupPhase::TaskCancellation,
-                        ty: *element,
-                    });
-                }
-                MirGeneratorOperation::Destroy { element, .. } => {
-                    helpers.push(MirHelperReference::Finalize(*element));
-                    helpers.push(MirHelperReference::Destroy(*element));
-                }
             },
             Self::Memory(memory) => collect_memory_helpers(memory, &mut helpers),
             Self::Text(operation) => collect_text_helpers(operation, &mut helpers),
@@ -200,6 +213,11 @@ impl MirOperationKind {
             Self::Call(call) => collect_call_defaults(call, &mut helpers),
             Self::Finalize(place) => helpers.push(MirHelperReference::Finalize(place.ty())),
             Self::Destroy(place) => helpers.push(MirHelperReference::Destroy(place.ty())),
+            Self::DestructorRemainder { role, place } => helpers.push(role.reference(place.ty())),
+            Self::Abandon { action, place } => helpers.push(MirHelperReference::Abandon {
+                action: *action,
+                ty: place.ty(),
+            }),
             Self::Cleanup { phase, place } => helpers.push(MirHelperReference::Cleanup {
                 phase: *phase,
                 ty: place.ty(),
@@ -209,38 +227,35 @@ impl MirOperationKind {
                     MirFrameInitializer::Callable(call) => {
                         collect_call_defaults(call, &mut helpers);
                     }
-                    MirFrameInitializer::TaskObservation { result, .. } => {
-                        for phase in [
-                            MirCleanupPhase::TaskCancellation,
-                            MirCleanupPhase::LifecycleResolution,
-                        ] {
-                            helpers.push(MirHelperReference::Cleanup {
-                                phase,
-                                ty: result.completion_type(),
-                            });
-                        }
+                    MirFrameInitializer::Lifecycle { role, ty, .. } => {
+                        helpers.push(role.reference(*ty));
                     }
                 }
 
                 helpers.push(MirHelperReference::CreateFrame(*frame));
             }
-            Self::Async(MirAsyncOperation::MoveInactiveFrame { frame, .. }) => {
-                helpers.push(MirHelperReference::MoveInactiveFrame(*frame));
-            }
             Self::Async(MirAsyncOperation::ComposeAwaitedFrame { child, .. }) => {
                 helpers.push(MirHelperReference::ComposeAwaitedFrame(*child));
             }
-            Self::Async(MirAsyncOperation::CommitAwaitedCompletion { child }) => {
-                helpers.push(MirHelperReference::CommitAwaitedCompletion(*child));
-            }
-            Self::Async(MirAsyncOperation::DestroyTerminalTask { .. }) => {
+            Self::Async(MirAsyncOperation::DestroyTerminalTask { completion, .. }) => {
+                if let Some(ty) = completion {
+                    helpers.push(MirHelperReference::Abandon {
+                        action: crate::MirAbandonmentAction::Destroy,
+                        ty: *ty,
+                    });
+                }
+
                 helpers.push(MirHelperReference::DestroyTerminalTask);
             }
             Self::Host(crate::MirHostOperation::ResolveRootTerminal {
                 error: Some(error), ..
             }) => {
-                helpers.push(MirHelperReference::Finalize(*error));
-                helpers.push(MirHelperReference::Destroy(*error));
+                for phase in [
+                    MirCleanupPhase::TaskCancellation,
+                    MirCleanupPhase::LifecycleResolution,
+                ] {
+                    helpers.push(MirHelperReference::Cleanup { phase, ty: *error });
+                }
             }
             Self::Store { .. }
             | Self::Borrow { .. }
@@ -262,33 +277,25 @@ fn collect_memory_helpers(
     memory: &crate::MirMemoryOperation,
     helpers: &mut Vec<MirHelperReference>,
 ) {
-    let standard = match memory.kind() {
-        bray_bound_tree::CheckedMemoryOperationKind::RawAllocate
-        | bray_bound_tree::CheckedMemoryOperationKind::Allocate => {
-            Some(MirStandardLibraryHelper::MemoryAllocate)
-        }
-        bray_bound_tree::CheckedMemoryOperationKind::RawDeallocate
-        | bray_bound_tree::CheckedMemoryOperationKind::Deallocate => {
-            Some(MirStandardLibraryHelper::MemoryDeallocate)
-        }
-        _ => None,
-    };
-
-    if let Some(standard) = standard {
+    if let Some(standard) = memory.standard_library_helper() {
         helpers.push(MirHelperReference::StandardLibrary(standard));
     }
+}
 
-    if let bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { element }
-    | bray_bound_tree::CheckedMemoryOperationKind::RawBufferReplace { element } = memory.kind()
-    {
-        helpers.push(MirHelperReference::Cleanup {
-            phase: MirCleanupPhase::LifecycleResolution,
-            ty: element,
-        });
-
-        helpers.push(MirHelperReference::StandardLibrary(
-            MirStandardLibraryHelper::MemoryDeallocate,
-        ));
+impl crate::MirMemoryOperation {
+    /// Returns the selected standard-library operation whose call outcome must be preserved.
+    pub const fn standard_library_helper(&self) -> Option<MirStandardLibraryHelper> {
+        match self.kind() {
+            bray_bound_tree::CheckedMemoryOperationKind::RawAllocate
+            | bray_bound_tree::CheckedMemoryOperationKind::Allocate => {
+                Some(MirStandardLibraryHelper::MemoryAllocate)
+            }
+            bray_bound_tree::CheckedMemoryOperationKind::RawDeallocate
+            | bray_bound_tree::CheckedMemoryOperationKind::Deallocate => {
+                Some(MirStandardLibraryHelper::MemoryDeallocate)
+            }
+            _ => None,
+        }
     }
 }
 
@@ -406,6 +413,7 @@ fn collect_conversion_helpers(
             helpers.push(MirHelperReference::Conversion(*member));
         }
         ConversionTarget::Identity
+        | ConversionTarget::CallableContract
         | ConversionTarget::NullablePresent
         | ConversionTarget::BuiltInScalar
         | ConversionTarget::CVariadicPromotion => {}

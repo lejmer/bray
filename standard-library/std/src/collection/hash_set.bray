@@ -1,4 +1,4 @@
-module std.collection;
+trusted module std.collection;
 
 using std.hash;
 
@@ -20,7 +20,6 @@ struct HashSet<Value>
         while true
         {
             let index: usize = (trusted hash_table_find_hash<SetItem<Value>>(&self.table, previous, hash = hash))?;
-
             let item: &SetItem<Value> = trusted hash_table_item<SetItem<Value>>(&self.table, index = index);
 
             if item.value.equals(value)
@@ -77,7 +76,6 @@ struct HashSet<Value>
         with(Value: std.hash.Hashable<std.hash.StableHasher>, Value: Equatable<Value>)
     {
         let hash: u128 = std.hash.stable_hash<Value>(value);
-
         let index: usize = (trusted self.find(value, hash = hash))?;
 
         let item: &SetItem<Value> = trusted hash_table_item<SetItem<Value>>(&self.table, index = index);
@@ -174,9 +172,7 @@ struct HashSet<Value>
         with(Value: std.hash.Hashable<std.hash.StableHasher>, Value: Equatable<Value>)
     {
         let hash: u128 = std.hash.stable_hash<Value>(value);
-
         let index: usize = (trusted self.find(value, hash = hash))?;
-
         let item: SetItem<Value> = trusted hash_table_remove_at<SetItem<Value>>(&mut self.table, index = index);
 
         let mut result: Value? = none;

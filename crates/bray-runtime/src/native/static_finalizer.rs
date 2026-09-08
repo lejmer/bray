@@ -1,79 +1,101 @@
 pub(crate) fn run_static_finalizer(
     frame: bray_runtime_abi::NativeInactiveFrame,
     resolve: bray_runtime_abi::NativeStaticFinalizerResolveCallback,
-) -> Vec<crate::product::CleanupIncident> {
-    use std::panic::{AssertUnwindSafe, catch_unwind};
+    panics: bray_runtime_abi::NativePanicReportCallbacks,
+) -> Vec<crate::incident::OwnedCleanupIncident> {
+    run_cleanup_frame(frame, panics, |payload| {
+        let mut incident = crate::product::empty_native_incident();
+        let destination = (&raw mut incident).addr();
+        let mut boundary = bray_runtime_abi::NativeBrayCallOutcome::completed();
 
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            resolve(payload, destination, &mut boundary)
+        }));
+
+        crate::product::finish_finalizer_callback(result, boundary, incident, panics)
+    })
+}
+
+pub(super) fn run_cleanup_frame(
+    frame: bray_runtime_abi::NativeInactiveFrame,
+    panics: bray_runtime_abi::NativePanicReportCallbacks,
+    resolve: impl FnOnce(usize) -> Vec<crate::incident::OwnedCleanupIncident>,
+) -> Vec<crate::incident::OwnedCleanupIncident> {
     use bray_runtime_abi::{NativeRootHandle, NativeRunState};
 
+    let mut transfer = super::frame::NativeFrameTransfer::new(
+        frame.into_protected(bray_runtime_abi::NativeFrameEntry::Body),
+    );
+
     let incidents = super::state::with_runtime(|runtime| {
-        let allocation = runtime.allocate();
+        let allocation = runtime.allocate_continuation();
 
         let Some(task) = allocation.task() else {
-            return vec![crate::product::CleanupIncident::runtime_failure()];
+            return vec![crate::incident::OwnedCleanupIncident::runtime_failure()];
         };
 
-        if !runtime.start(task, frame.into_protected()).is_success() {
-            return vec![crate::product::CleanupIncident::runtime_failure()];
+        if !runtime.start(task, &mut transfer, None).is_success() {
+            return vec![crate::incident::OwnedCleanupIncident::runtime_failure()];
         }
 
         let Some(root) = NativeRootHandle::new(task.raw()) else {
-            return vec![crate::product::CleanupIncident::runtime_failure()];
+            return vec![crate::incident::OwnedCleanupIncident::runtime_failure()];
         };
 
         let outcome = runtime.observe_root(root);
 
         let mut incidents = match outcome.state() {
-            NativeRunState::COMPLETED => {
-                let mut incident = crate::product::empty_native_incident();
-                let destination = (&raw mut incident).addr();
-
-                match catch_unwind(AssertUnwindSafe(|| resolve(outcome.payload(), destination))) {
-                    Ok(status) => crate::product::incidents_from_status(status, incident),
-                    Err(payload) => vec![crate::product::CleanupIncident::panic(payload)],
-                }
-            }
+            NativeRunState::COMPLETED => resolve(outcome.payload()),
             NativeRunState::PANICKED => {
-                let _ = super::export::bray_runtime_panic_reporting(outcome.payload());
-
-                vec![crate::product::CleanupIncident::runtime_failure()]
+                bray_runtime_abi::NativeBrayCallOutcome::panicked(outcome.payload())
+                    .and_then(|outcome| {
+                        crate::incident::OwnedCleanupIncident::boundary(outcome, panics)
+                    })
+                    .map_or_else(
+                        || vec![crate::incident::OwnedCleanupIncident::runtime_failure()],
+                        |incident| vec![incident],
+                    )
             }
-            NativeRunState::CANCELLED
-            | NativeRunState::PENDING
-            | NativeRunState::RUNTIME_FAILURE => {
-                vec![crate::product::CleanupIncident::runtime_failure()]
+            NativeRunState::CANCELLED => crate::incident::OwnedCleanupIncident::boundary(
+                bray_runtime_abi::NativeBrayCallOutcome::cancelled(),
+                panics,
+            )
+            .into_iter()
+            .collect(),
+            NativeRunState::PENDING | NativeRunState::RUNTIME_FAILURE => {
+                vec![crate::incident::OwnedCleanupIncident::runtime_failure()]
             }
-            _ => vec![crate::product::CleanupIncident::runtime_failure()],
+            _ => vec![crate::incident::OwnedCleanupIncident::runtime_failure()],
         };
 
         if !runtime.resolve_root_completion(root).is_success() {
-            incidents.push(crate::product::CleanupIncident::runtime_failure());
+            incidents.push(crate::incident::OwnedCleanupIncident::runtime_failure());
         }
 
         incidents
     })
-    .unwrap_or_else(|_| vec![crate::product::CleanupIncident::runtime_failure()]);
+    .unwrap_or_else(|_| vec![crate::incident::OwnedCleanupIncident::runtime_failure()]);
 
     incidents
 }
 
 pub(crate) fn with_static_cleanup_runtime<T>(
     callback: impl FnOnce() -> T,
-) -> (T, Vec<crate::product::CleanupIncident>) {
+) -> (T, Vec<crate::incident::OwnedCleanupIncident>) {
     with_selected_static_cleanup_runtime(None, callback)
 }
 
 pub(crate) fn with_retained_static_cleanup_runtime<T>(
     runtime: &super::state::RetainedRuntime,
     callback: impl FnOnce() -> T,
-) -> (T, Vec<crate::product::CleanupIncident>) {
+) -> (T, Vec<crate::incident::OwnedCleanupIncident>) {
     with_selected_static_cleanup_runtime(Some(runtime), callback)
 }
 
 fn with_selected_static_cleanup_runtime<T>(
     runtime: Option<&super::state::RetainedRuntime>,
     callback: impl FnOnce() -> T,
-) -> (T, Vec<crate::product::CleanupIncident>) {
+) -> (T, Vec<crate::incident::OwnedCleanupIncident>) {
     let mut callback = Some(callback);
     let mut result = None;
     let mut incidents = Vec::new();
@@ -101,7 +123,7 @@ fn with_selected_static_cleanup_runtime<T>(
     }
 
     if !runtime_succeeded {
-        incidents.push(crate::product::CleanupIncident::runtime_failure());
+        incidents.push(crate::incident::OwnedCleanupIncident::runtime_failure());
     }
 
     let Some(result) = result else {
@@ -114,12 +136,101 @@ fn with_selected_static_cleanup_runtime<T>(
 #[cfg(test)]
 mod tests {
     use bray_runtime_abi::{
-        NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
-        NativeFrameState, NativeInactiveFrame, NativeLaneRequirements, NativeProtectedFrame,
+        NativeBrayCallOutcome, NativeFrameAffinity, NativeFrameExit, NativeFrameProgress,
+        NativeFrameProgressKind, NativeFrameState, NativeInactiveFrame, NativeLaneRequirements,
+        NativePanicReportCallbacks, NativeProtectedFrame, NativeRuntimeStatus,
         NativeStaticFinalizerStatus,
     };
 
     use super::{run_static_finalizer, with_static_cleanup_runtime};
+
+    #[test]
+    fn cleanup_continuations_remain_admissible_at_the_independent_task_limit() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        static DESTROYED: AtomicUsize = AtomicUsize::new(0);
+        static ENTERED: AtomicUsize = AtomicUsize::new(0);
+
+        extern "C-unwind" fn destroy(_: usize) {
+            DESTROYED.fetch_add(1, Ordering::SeqCst);
+        }
+
+        extern "C-unwind" fn resume(_: usize) -> NativeFrameProgress {
+            ENTERED.fetch_add(1, Ordering::SeqCst);
+
+            assert_eq!(
+                super::super::state::with_runtime(|runtime| runtime.allocate().status()).unwrap(),
+                NativeRuntimeStatus::RUNTIME_FAILURE
+            );
+
+            NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0)
+        }
+
+        extern "C" fn move_rejected(
+            _: usize,
+            _: bray_runtime_abi::NativeFrameEntry,
+        ) -> NativeProtectedFrame {
+            NativeProtectedFrame::new(
+                0,
+                [42; 32],
+                1,
+                1,
+                1,
+                0,
+                1,
+                state,
+                resume,
+                resume,
+                ignore_action,
+                ignore_resolution,
+                ignore_completion_move,
+                destroy,
+            )
+        }
+
+        let _isolation = super::super::state::test_runtime_isolation();
+
+        DESTROYED.store(0, Ordering::SeqCst);
+        ENTERED.store(0, Ordering::SeqCst);
+
+        // Without an attached runtime the cleanup entry cannot execute.
+        let incidents = super::run_cleanup_frame(
+            NativeInactiveFrame::new(0, move_rejected),
+            panic_callbacks(),
+            |_| Vec::new(),
+        );
+
+        assert_eq!(incidents.len(), 1);
+        assert_eq!(DESTROYED.load(Ordering::SeqCst), 1);
+        assert_eq!(ENTERED.load(Ordering::SeqCst), 0);
+
+        assert_eq!(
+            super::super::state::initialize(bray_runtime_abi::NativeRuntimeConfiguration::new(
+                1, 1
+            )),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        super::super::state::with_runtime(|runtime| {
+            assert!(runtime.allocate().task().is_some());
+        })
+        .unwrap();
+
+        let incidents = super::run_cleanup_frame(
+            NativeInactiveFrame::new(0, move_rejected),
+            panic_callbacks(),
+            |_| Vec::new(),
+        );
+
+        assert!(incidents.is_empty());
+        assert_eq!(DESTROYED.load(Ordering::SeqCst), 2);
+        assert_eq!(ENTERED.load(Ordering::SeqCst), 1);
+
+        assert_eq!(
+            super::super::state::shutdown(),
+            NativeRuntimeStatus::SUCCESS
+        );
+    }
 
     #[test]
     fn cleanup_runtime_reuses_an_active_foreign_thread_attachment() {
@@ -133,6 +244,7 @@ mod tests {
                     NativeLaneRequirements::NONE,
                 ),
                 resolve,
+                panic_callbacks(),
             )
         });
 
@@ -158,7 +270,11 @@ mod tests {
             cases
                 .into_iter()
                 .flat_map(|(affinity, requirements)| {
-                    run_static_finalizer(inactive_frame(affinity, requirements), resolve)
+                    run_static_finalizer(
+                        inactive_frame(affinity, requirements),
+                        resolve,
+                        panic_callbacks(),
+                    )
                 })
                 .collect::<Vec<_>>()
         });
@@ -176,8 +292,9 @@ mod tests {
             )
         };
 
-        let (incidents, runtime_incidents) =
-            with_static_cleanup_runtime(|| run_static_finalizer(main_frame(), resolve));
+        let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
+            run_static_finalizer(main_frame(), resolve, panic_callbacks())
+        });
 
         assert_eq!(incidents.len(), 1);
         assert!(runtime_incidents.is_empty());
@@ -189,8 +306,9 @@ mod tests {
             .is_success()
         );
 
-        let (incidents, runtime_incidents) =
-            with_static_cleanup_runtime(|| run_static_finalizer(main_frame(), resolve));
+        let (incidents, runtime_incidents) = with_static_cleanup_runtime(|| {
+            run_static_finalizer(main_frame(), resolve, panic_callbacks())
+        });
 
         assert!(incidents.is_empty());
         assert!(runtime_incidents.is_empty());
@@ -208,7 +326,10 @@ mod tests {
         NativeInactiveFrame::new(context, move_before_start)
     }
 
-    extern "C" fn move_before_start(context: usize) -> NativeProtectedFrame {
+    extern "C" fn move_before_start(
+        context: usize,
+        _: bray_runtime_abi::NativeFrameEntry,
+    ) -> NativeProtectedFrame {
         NativeProtectedFrame::new(
             context,
             [9; 32],
@@ -258,7 +379,19 @@ mod tests {
 
     extern "C-unwind" fn ignore_completion_move(_: usize, _: usize) {}
 
-    extern "C-unwind" fn resolve(_: usize, _: usize) -> NativeStaticFinalizerStatus {
+    fn panic_callbacks() -> NativePanicReportCallbacks {
+        crate::test_support::panic_callbacks(unexpected_panic, unexpected_panic)
+    }
+
+    extern "C-unwind" fn unexpected_panic(_: usize) -> NativeRuntimeStatus {
+        panic!("successful cleanup must not report or destroy a panic");
+    }
+
+    extern "C-unwind" fn resolve(
+        _: usize,
+        _: usize,
+        _: &mut NativeBrayCallOutcome,
+    ) -> NativeStaticFinalizerStatus {
         NativeStaticFinalizerStatus::SUCCESS
     }
 }

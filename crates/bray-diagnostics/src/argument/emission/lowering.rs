@@ -179,6 +179,8 @@ pub enum DiagnosticLoweringFailureKind {
     InvalidTaskOperation(DiagnosticLoweringIdentity),
     /// The lowered callable has no result type.
     MissingCallableResultType,
+    /// A cleanup storage has no checked execution mode.
+    MissingCleanupExecution(DiagnosticMirUnitLocalIdentity),
     /// Active lexical scopes do not contain the requested cleanup depth.
     InvalidCleanupScopeDepth {
         /// First active scope position that must be cleaned.
@@ -260,6 +262,7 @@ impl DiagnosticLoweringFailureKind {
             Self::MissingSuspensionPoint(_) => "code_production_await_resume_path_unavailable",
             Self::InvalidTaskOperation(_) => "code_production_task_call_type_mismatch",
             Self::MissingCallableResultType => "code_production_callable_result_type_unavailable",
+            Self::MissingCleanupExecution(_) => "code_production_cleanup_execution_unavailable",
             Self::InvalidCleanupScopeDepth { .. } => "code_production_cleanup_scope_depth_invalid",
             Self::MissingScopeExitPlan { .. } => "code_production_scope_exit_plan_unavailable",
             Self::MissingLiteralValue(_) => "code_production_literal_value_unavailable",
@@ -504,6 +507,8 @@ pub enum DiagnosticMirUnitBuildFailureKind {
     InvalidMemoryOperation,
     /// An anonymous-callable operation violates its callable contract.
     InvalidAnonymousCallable,
+    /// An implicit destructor remainder selects an incompatible lifecycle role.
+    InvalidDestructorRemainder,
     /// A construction operation has incompatible inputs.
     InvalidConstructionInput,
     /// A call operation violates its callable contract.
@@ -580,6 +585,7 @@ impl DiagnosticMirUnitBuildFailureKind {
             Self::InvalidAggregateOperation => "executable_code_aggregate_value_mismatch",
             Self::InvalidMemoryOperation => "executable_code_value_access_mismatch",
             Self::InvalidAnonymousCallable => "executable_code_invalid_anonymous_callable",
+            Self::InvalidDestructorRemainder => "executable_code_invalid_destructor_remainder",
             Self::InvalidConstructionInput => "executable_code_construction_value_mismatch",
             Self::InvalidCall => "executable_code_invalid_call",
             Self::InvalidHostOperation => "executable_code_program_lifecycle_mismatch",

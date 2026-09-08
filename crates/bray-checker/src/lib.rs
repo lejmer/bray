@@ -9,13 +9,20 @@ mod behavior;
 mod body_semantics;
 mod constant;
 mod context;
+mod contract;
+mod contract_implication;
 mod dependency;
 mod diagnostic;
+mod execution;
 mod expression;
+mod finalization;
+mod guarantee;
 mod memory;
 mod memory_diagnostics;
 mod outcome;
 mod pattern;
+mod predicate;
+mod proof_dependency;
 mod representation;
 mod selection;
 mod semantic_context;
@@ -34,6 +41,10 @@ mod unit;
 mod test_support;
 
 pub use analysis::{closed_type_is_copyable, type_is_copyable, type_is_copyable_in_context};
+pub use asynchronous::{
+    CleanupExecutionStep, cleanup_type_execution, cleanup_type_execution_with,
+    owned_cleanup_type_dependencies,
+};
 pub use atomic::atomic_target_representation;
 pub use constant::{
     ArrayLengthError, CheckedConstantTerms, CheckedConstantTermsBuildError, ConstantCallRequest,
@@ -53,12 +64,28 @@ pub use context::{
     CheckerSemanticQueryProvider, CheckerSource, CheckerStorageFlowFailure,
     ImplementationHookResolution, StorageFlowInputKind,
 };
+pub use contract::{instantiate_condition, prove_condition};
+pub use contract_implication::{
+    CallableConditionMismatch, CallableTypeContractMismatch, callable_type_contract_is_compatible,
+    check_callable_condition_implication, check_callable_type_contract,
+};
 pub use diagnostic::diagnostic_type;
+pub use execution::{
+    ExecutionCallArgument, ExecutionCallInput, ExecutionGuaranteeInput, ExecutionLifecycleInput,
+    check_execution_property,
+};
 pub use expression::{NestedCallableEvidence, check_generic_arguments};
+pub use finalization::prove_finalizer_completion;
+pub use guarantee::{
+    check_execution_guarantee_implication, compiler_projection_guarantees,
+    contract_guard_conditions, storage_projection_proof_dependencies,
+};
 pub use outcome::{CheckerOutcome, ControlFlowCheckResult};
 pub use pattern::{
     GuardConstantEvidence, IterationPatternType, PatternCheckInput, PatternConstantEvidence,
 };
+pub use predicate::{PredicateConditionResolution, expand_predicate_condition};
+pub use proof_dependency::{CallableProofFailure, check_callable_proof_dependencies};
 pub use selection::{
     CallableCandidate, CallableCandidateState, CallableCandidateTemplate,
     CallableCandidateTemplateState, CallableCandidateTemplates,

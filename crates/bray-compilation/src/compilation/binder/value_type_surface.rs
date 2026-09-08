@@ -415,6 +415,28 @@ impl DeclaredValueTypeBinding<'_> {
     }
 
     fn bind_contract_surface(&mut self) -> BindingQueryResult<()> {
+        if let Some(inputs) = self.unit.contract_inputs() {
+            for (parameter, formal) in inputs
+                .parameters()
+                .iter()
+                .zip(inputs.signature().parameters())
+            {
+                self.add_evidence(
+                    local_value((*parameter).into()),
+                    owned_template(formal.ty()),
+                );
+            }
+
+            for result in self.unit.local_symbols().postcondition_results() {
+                self.add_evidence(
+                    local_value(result.id().into()),
+                    owned_template(inputs.signature().result()),
+                );
+            }
+
+            return Ok(());
+        }
+
         self.bind_callable_surface(self.owner, false)?;
 
         let result = self
@@ -658,6 +680,15 @@ impl DeclaredValueTypeBinding<'_> {
         &mut self,
         target: BoundReferenceTarget,
     ) -> BindingQueryResult<()> {
+        if let BoundReferenceTarget::TypeQualifier(ty) = target {
+            self.add_evidence(
+                DeclaredValueTypeTerm::Value(target),
+                TypeExpressionTemplate::Resolved(ty),
+            );
+
+            return Ok(());
+        }
+
         let BoundReferenceTarget::Surface(symbol) = target else {
             return Ok(());
         };

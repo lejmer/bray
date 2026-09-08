@@ -1,1 +1,2 @@
 mod binding;
+mod contract;

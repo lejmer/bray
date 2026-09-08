@@ -28,10 +28,16 @@ pub(crate) enum ProfileOperation {
     NativePlanFinalization,
     InterfaceFragmentDiscovery,
     InterfaceCommit,
+    NativeStaticRealization,
+    StaticEvaluation,
+    InterfaceConstantBodies,
+    InterfaceExecutableTemplates,
+    InterfaceTemplateEncoding,
+    InterfaceBundleValidation,
 }
 
 impl ProfileOperation {
-    pub(crate) const COUNT: usize = 21;
+    pub(crate) const COUNT: usize = 27;
 
     pub(crate) const fn index(self) -> usize {
         self as usize
@@ -60,6 +66,12 @@ impl ProfileOperation {
             Self::NativePartitioning => "compiler.native.partition",
             Self::NativeMapping => "compiler.native.mapping",
             Self::NativePlanFinalization => "compiler.native.finalize",
+            Self::NativeStaticRealization => "compiler.native.static",
+            Self::StaticEvaluation => "compiler.constant.static",
+            Self::InterfaceConstantBodies => "compiler.interface.constants",
+            Self::InterfaceExecutableTemplates => "compiler.interface.templates",
+            Self::InterfaceTemplateEncoding => "compiler.interface.template.encode",
+            Self::InterfaceBundleValidation => "compiler.interface.validate",
         }
     }
 
@@ -86,6 +98,12 @@ impl ProfileOperation {
             Self::NativePartitioning => 17,
             Self::NativeMapping => 18,
             Self::NativePlanFinalization => 19,
+            Self::NativeStaticRealization => 22,
+            Self::StaticEvaluation => 23,
+            Self::InterfaceConstantBodies => 24,
+            Self::InterfaceExecutableTemplates => 25,
+            Self::InterfaceTemplateEncoding => 26,
+            Self::InterfaceBundleValidation => 27,
         }
     }
 
@@ -110,7 +128,13 @@ impl ProfileOperation {
             | Self::NativeHostPreparation
             | Self::NativePartitioning
             | Self::NativeMapping
-            | Self::NativePlanFinalization => CompilationProfileCategory::Work,
+            | Self::NativePlanFinalization
+            | Self::NativeStaticRealization
+            | Self::StaticEvaluation
+            | Self::InterfaceConstantBodies
+            | Self::InterfaceExecutableTemplates
+            | Self::InterfaceTemplateEncoding
+            | Self::InterfaceBundleValidation => CompilationProfileCategory::Work,
         }
     }
 
@@ -142,7 +166,13 @@ impl ProfileOperation {
             | Self::NativeHostPreparation
             | Self::NativePartitioning
             | Self::NativeMapping
-            | Self::NativePlanFinalization => &[Product],
+            | Self::NativePlanFinalization
+            | Self::NativeStaticRealization
+            | Self::StaticEvaluation
+            | Self::InterfaceConstantBodies
+            | Self::InterfaceExecutableTemplates
+            | Self::InterfaceTemplateEncoding
+            | Self::InterfaceBundleValidation => &[Product],
             Self::Emission | Self::LinkInputStaging | Self::ArtifactPublication => {
                 &[Product, Artifact]
             }
@@ -172,6 +202,12 @@ impl ProfileOperation {
             Self::NativePlanFinalization,
             Self::InterfaceFragmentDiscovery,
             Self::InterfaceCommit,
+            Self::NativeStaticRealization,
+            Self::StaticEvaluation,
+            Self::InterfaceConstantBodies,
+            Self::InterfaceExecutableTemplates,
+            Self::InterfaceTemplateEncoding,
+            Self::InterfaceBundleValidation,
         ]
     }
 }
@@ -486,9 +522,7 @@ define_profile_query_kinds! {
     CallableTypeDirectives = 1003 => "callable_type_directives",
     BoundUnit = 1006 => "bound_unit",
     CheckDiagnostics = 1007 => "check_diagnostics",
-    ConstantTemplateKeys = 1008 => "constant_template_keys",
-    CallableBodyKeys = 1009 => "callable_body_keys",
-    PredicateDefinitionKeys = 1010 => "predicate_definition_keys",
+    DeclaredUnits = 1008 => "declared_units",
     ConstantInstance = 1011 => "constant_instance",
     ConstantCall = 1012 => "constant_call",
     ConstantCallCycle = 1013 => "constant_call_cycle",
@@ -542,6 +576,7 @@ define_profile_query_kinds! {
     SyntaxTree = 1071 => "syntax_tree",
     ForeignStaticContract = 1072 => "foreign_static_contract",
     BodySemantics = 1073 => "body_semantics",
+    CallableProofs = 1074 => "callable_proofs",
 }
 
 impl ProfileQueryKind {
@@ -560,9 +595,7 @@ impl ProfileQueryKind {
             CompilationFactKey::CallableTypeDirectives(_) => Self::CallableTypeDirectives,
             CompilationFactKey::BoundUnit(_) => Self::BoundUnit,
             CompilationFactKey::CheckDiagnostics => Self::CheckDiagnostics,
-            CompilationFactKey::ConstantTemplateKeys => Self::ConstantTemplateKeys,
-            CompilationFactKey::CallableBodyKeys => Self::CallableBodyKeys,
-            CompilationFactKey::PredicateDefinitionKeys => Self::PredicateDefinitionKeys,
+            CompilationFactKey::DeclaredUnits => Self::DeclaredUnits,
             CompilationFactKey::ConstantInstance(_) => Self::ConstantInstance,
             CompilationFactKey::ConstantCall(_) => Self::ConstantCall,
             CompilationFactKey::ConstantCallCycle(_) => Self::ConstantCallCycle,
@@ -571,6 +604,7 @@ impl ProfileQueryKind {
             CompilationFactKey::StoragePlan(_) => Self::StoragePlan,
             CompilationFactKey::MemoryOperations(_) => Self::MemoryOperations,
             CompilationFactKey::BodySemantics(_) => Self::BodySemantics,
+            CompilationFactKey::CallableProofs(_) => Self::CallableProofs,
             CompilationFactKey::CheckedBodyBehavior(_) => Self::CheckedBodyBehavior,
             CompilationFactKey::LoweredUnit(_) => Self::LoweredUnit,
             CompilationFactKey::CodegenArtifact(_) => Self::CodegenArtifact,
@@ -651,7 +685,8 @@ mod tests {
         assert_eq!(
             ProfileOperation::all().map(ProfileOperation::id),
             [
-                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21
+                1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23,
+                24, 25, 26, 27
             ]
         );
 
@@ -667,12 +702,11 @@ mod tests {
         assert_eq!(
             ProfileQueryKind::all().map(ProfileQueryKind::id),
             [
-                1_001, 1_002, 1_003, 1_006, 1_007, 1_008, 1_009, 1_010, 1_011, 1_012, 1_013, 1_014,
-                1_017, 1_019, 1_024, 1_027, 1_028, 1_029, 1_030, 1_031, 1_032, 1_033, 1_034, 1_035,
-                1_036, 1_037, 1_038, 1_039, 1_040, 1_041, 1_042, 1_043, 1_044, 1_045, 1_046, 1_047,
-                1_048, 1_049, 1_050, 1_051, 1_052, 1_053, 1_054, 1_055, 1_056, 1_057, 1_058, 1_059,
-                1_060, 1_061, 1_062, 1_063, 1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071, 1_072,
-                1_073,
+                1_001, 1_002, 1_003, 1_006, 1_007, 1_008, 1_011, 1_012, 1_013, 1_014, 1_017, 1_019,
+                1_024, 1_027, 1_028, 1_029, 1_030, 1_031, 1_032, 1_033, 1_034, 1_035, 1_036, 1_037,
+                1_038, 1_039, 1_040, 1_041, 1_042, 1_043, 1_044, 1_045, 1_046, 1_047, 1_048, 1_049,
+                1_050, 1_051, 1_052, 1_053, 1_054, 1_055, 1_056, 1_057, 1_058, 1_059, 1_060, 1_061,
+                1_062, 1_063, 1_064, 1_066, 1_067, 1_068, 1_069, 1_070, 1_071, 1_072, 1_073, 1_074,
             ]
         );
     }

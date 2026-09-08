@@ -138,7 +138,15 @@ impl Lowerer<'_> {
         let completed =
             outcome.dispatch(&mut self.builder, installed, source, panicked, cancelled)?;
 
-        self.finish_panic_to_active_catch(expression, panicked, source, outcome.report(), report)?;
+        self.finish_panic_to_active_catch(
+            expression,
+            panicked,
+            source,
+            outcome.report(),
+            report,
+            None,
+        )?;
+
         self.finish_cancellation(cancelled, source, expression.into())?;
 
         Ok(completed)
@@ -200,6 +208,7 @@ impl Lowerer<'_> {
                     guard,
                     None,
                     None,
+                    false,
                 )
                 .map(|(block, _)| block);
         }
@@ -232,6 +241,7 @@ impl Lowerer<'_> {
             Self::retained_place(place),
             &parts,
             owned.projections().len(),
+            None,
             None,
         )
         .map(|(block, _)| block)

@@ -355,6 +355,8 @@ pub enum ConstantProjectionKind {
     UnionPayloadField(UnionPayloadFieldSymbolId),
     /// The present value of a nullable subject.
     NullableValue,
+    /// The initialized value reached through an owned indirection.
+    OwnedTarget,
 }
 
 /// A checked projection from one open constant term.
@@ -379,6 +381,15 @@ impl ConstantProjection {
     pub const fn kind(self) -> ConstantProjectionKind {
         self.kind
     }
+}
+
+/// An observational shape test with the exact identity of a tested union variant.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum ConstantTest<V = UnionVariantSymbolId> {
+    /// Whether a nullable subject contains a value.
+    NullablePresent,
+    /// Whether the subject has this active union variant.
+    ActiveUnionVariant(V),
 }
 
 /// The restricted canonical representation of a checked open constant expression.
@@ -471,6 +482,13 @@ pub enum ConstantTermData {
     },
     /// A checked projection from another term.
     Projection(ConstantProjection),
+    /// A Boolean observation of an open or closed subject's shape.
+    Test {
+        /// Observed subject.
+        subject: ConstantTermId,
+        /// Checked shape test.
+        kind: ConstantTest,
+    },
 }
 
 impl ConstantTermData {

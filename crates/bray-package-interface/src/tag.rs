@@ -273,6 +273,11 @@ wire_tags!(LifecycleObligationKind {
     4 => LifecycleObligationKind::Joining,
 });
 
+wire_tags!(bray_symbols::ExecutionProperty {
+    1 => bray_symbols::ExecutionProperty::Pure,
+    2 => bray_symbols::ExecutionProperty::Total,
+});
+
 wire_tags!(CurrentRunCancellation {
     1 => CurrentRunCancellation::NotEntered,
     2 => CurrentRunCancellation::MayEnter,

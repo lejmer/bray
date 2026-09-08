@@ -31,6 +31,15 @@ fn hash_bound_unit_error<H: Hasher>(error: BoundUnitBuildError, state: &mut H) {
     std::mem::discriminant(&error).hash(state);
 
     match error {
+        BoundUnitBuildError::MissingContractParameter { parameter } => parameter.hash(state),
+        BoundUnitBuildError::ContractParameterCountMismatch { expected, actual } => {
+            expected.hash(state);
+            actual.hash(state);
+        }
+        BoundUnitBuildError::InvalidContractParameter { index, parameter } => {
+            index.hash(state);
+            parameter.hash(state);
+        }
         BoundUnitBuildError::RootKindMismatch | BoundUnitBuildError::LocalSymbolRegionMismatch => {}
         BoundUnitBuildError::MissingRoot { unit, kind } => {
             unit.hash(state);
@@ -111,11 +120,16 @@ fn assemble_bound_unit(
     nested_units: Vec<BoundUnitKey>,
     root: BoundUnitRoot,
 ) -> Result<BoundUnitComputation, BoundUnitAssemblyError> {
-    let (unit, diagnostics, dependencies) = output.into_parts();
+    let (unit, diagnostics, dependencies, contract_inputs) = output.into_parts();
 
     let (key, tree, local_symbols, _) = unit.into_parts();
 
     let bound = BoundUnit::try_new(key, tree, local_symbols, nested_units, root)?;
+
+    let bound = match contract_inputs {
+        Some((signature, parameters)) => bound.try_with_contract_inputs(signature, parameters)?,
+        None => bound,
+    };
 
     Ok(BoundUnitComputation::new(
         DiagnosticResult::new(bound, diagnostics),

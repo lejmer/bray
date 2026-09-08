@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use bray_bound_tree::{
-    BoundUnit, BoundUnitKey, CheckedBodyBehavior, CheckedBodySemantics, CheckedControlFlow,
+    BoundUnit, CheckedBodyBehavior, CheckedBodySemantics, CheckedControlFlow,
     CheckedExpressionSemantics, CheckedMemoryOperations, CheckedPatterns,
     DeclaredValueTypeTemplates, SelectedIterationSource, StoragePlan,
 };
@@ -16,14 +16,13 @@ use bray_package_interface::{
 use bray_parser::{SourceUnitSyntaxResult, SyntaxTreeResult};
 use bray_source::SourceStore;
 use bray_symbols::{
-    AnyConstantDefinitionId, CallableDefinitionId, CallableTypeDirectiveKey,
-    CompilerKnownSymbolProvider, ConstantExpressionExpectedType, ConstantExpressionOccurrenceKey,
-    ConstantTermId, DeclaredTypeRepresentation, DirectiveSurface, ForeignCallableContract,
-    ForeignStaticContract, FunctionSymbolId, GenericConstraintObligationKey,
-    ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationParticipationQuery,
-    ImplementationRequirementKey, ImplementationSelection, ImplementationSymbolId,
-    ImportedSemanticAddress, ImportedSymbolSkeleton, NamedTypeSymbolId, PackageIdentity,
-    ProductIdentity, ProductSemantics, ProofOutcome, SemanticValueStore,
+    CallableTypeDirectiveKey, CompilerKnownSymbolProvider, ConstantExpressionExpectedType,
+    ConstantExpressionOccurrenceKey, ConstantTermId, DeclaredTypeRepresentation, DirectiveSurface,
+    ForeignCallableContract, ForeignStaticContract, FunctionSymbolId,
+    GenericConstraintObligationKey, ImplementationCandidateSet, ImplementationCoherenceDomainKey,
+    ImplementationParticipationQuery, ImplementationRequirementKey, ImplementationSelection,
+    ImplementationSymbolId, ImportedSemanticAddress, ImportedSymbolSkeleton, NamedTypeSymbolId,
+    PackageIdentity, ProductIdentity, ProductSemantics, ProofOutcome, SemanticValueStore,
     SemanticValueStoreCreateError, StaticSymbolId, SymbolGraph,
     TraitImplementationConformanceQuery, TypeAssociatedSurface, TypeId,
 };
@@ -177,6 +176,8 @@ pub(in crate::compilation) struct CompilationState {
     pub(in crate::compilation) storage_plans: UnitQueryCache<StoragePlan>,
     pub(in crate::compilation) memory_operations: UnitQueryCache<CheckedMemoryOperations>,
     pub(in crate::compilation) body_semantics: UnitQueryCache<CheckedBodySemantics>,
+    pub(in crate::compilation) callable_proofs:
+        UnitQueryCache<Vec<bray_bound_tree::CallableProofObligation>>,
     pub(in crate::compilation) checked_body_behaviors: UnitQueryCache<CheckedBodyBehavior>,
     pub(in crate::compilation) lowered_units: UnitQueryCache<Option<bray_lowering::LoweredUnit>>,
     pub(in crate::compilation) codegen: Option<CodegenConfiguration>,
@@ -189,13 +190,8 @@ pub(in crate::compilation) struct CompilationState {
             Arc<crate::compilation::NativeProductPlanningError>,
         >,
     >,
-    pub(in crate::compilation) constant_template_keys:
-        FactCell<Result<BTreeMap<AnyConstantDefinitionId, BoundUnitKey>, FactQueryError>>,
-    pub(in crate::compilation) callable_body_keys:
-        FactCell<Result<BTreeMap<CallableDefinitionId, BoundUnitKey>, FactQueryError>>,
-    pub(in crate::compilation) predicate_definition_keys: FactCell<
-        Result<BTreeMap<bray_symbols::PredicateDefinitionSymbolId, BoundUnitKey>, FactQueryError>,
-    >,
+    pub(in crate::compilation) declared_units:
+        FactCell<Result<crate::compilation::unit::DeclaredUnitIndex, FactQueryError>>,
     pub(in crate::compilation) symbolic_constant_terms: UnitQueryCache<ConstantTermId>,
     pub(in crate::compilation) embedded_constant_expectations:
         Mutex<BTreeMap<ConstantExpressionOccurrenceKey, ConstantExpressionExpectedType>>,

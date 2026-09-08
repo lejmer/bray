@@ -12,19 +12,63 @@ use super::{
 };
 use crate::fact::FactQueryError;
 
+pub(super) fn generic_owner(symbol: AnySymbolId) -> Result<GenericOwnerId, SemanticQueryFailure> {
+    GenericOwnerId::try_new(symbol).ok_or_else(|| {
+        SemanticQueryFailure::contract(
+            SemanticQueryContext::Symbol(symbol),
+            SemanticQueryViolation::UnexpectedSymbolKind {
+                expected: SemanticSymbolCategory::GenericOwner,
+                actual: symbol.kind(),
+            },
+        )
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        GenericOwnerId, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
+        SemanticSymbolCategory, generic_owner,
+    };
+
+    #[test]
+    fn generic_owners_preserve_the_rejected_symbol_and_category() {
+        let compilation = crate::test_support::compilation("module app; func invoke() {}");
+        let symbols = compilation.symbol_graph().unwrap();
+
+        let function = symbols
+            .functions()
+            .iter()
+            .find(|symbol| symbol.origin() == bray_symbols::SymbolOrigin::Source)
+            .unwrap();
+
+        let callable = function.id().into();
+
+        assert_eq!(
+            generic_owner(callable),
+            Ok(GenericOwnerId::try_new(callable).unwrap())
+        );
+
+        let unsupported = symbols.compiler_known_environment().id().into();
+
+        assert_eq!(
+            generic_owner(unsupported),
+            Err(SemanticQueryFailure::contract(
+                SemanticQueryContext::Symbol(unsupported),
+                SemanticQueryViolation::UnexpectedSymbolKind {
+                    expected: SemanticSymbolCategory::GenericOwner,
+                    actual: unsupported.kind(),
+                },
+            ))
+        );
+    }
+}
+
 pub(super) fn empty_substitution(
     values: &bray_symbols::SemanticValueStore,
     definition: AnySymbolId,
 ) -> Result<GenericSubstitutionId, FactQueryError> {
-    let owner = GenericOwnerId::try_new(definition).ok_or_else(|| {
-        SemanticQueryFailure::contract(
-            SemanticQueryContext::Symbol(definition),
-            SemanticQueryViolation::UnexpectedSymbolKind {
-                expected: SemanticSymbolCategory::GenericOwner,
-                actual: definition.kind(),
-            },
-        )
-    })?;
+    let owner = generic_owner(definition)?;
 
     let substitution = GenericSubstitutionData::try_new(owner, [], []).map_err(|cause| {
         SemanticQueryFailure::GenericSubstitution {
@@ -43,17 +87,7 @@ pub(super) fn substitution_for_owner(
     owner: AnySymbolId,
     substitutions: impl IntoIterator<Item = GenericSubstitutionId>,
 ) -> Result<GenericSubstitutionId, FactQueryError> {
-    let symbol = owner;
-
-    let owner = GenericOwnerId::try_new(symbol).ok_or_else(|| {
-        SemanticQueryFailure::contract(
-            SemanticQueryContext::Symbol(symbol),
-            SemanticQueryViolation::UnexpectedSymbolKind {
-                expected: SemanticSymbolCategory::GenericOwner,
-                actual: symbol.kind(),
-            },
-        )
-    })?;
+    let owner = generic_owner(owner)?;
 
     let mut parameters = Vec::new();
     let mut arguments = Vec::new();

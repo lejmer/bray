@@ -3,12 +3,15 @@ use bray_codegen::{
     CodegenTarget,
 };
 use inkwell::module::{Linkage, Module};
-use inkwell::types::{BasicTypeEnum, FunctionType, PointerType};
+use inkwell::types::{BasicTypeEnum, PointerType};
 use inkwell::values::{BasicValueEnum, FunctionValue, GlobalValue, PointerValue};
 use inkwell::{DLLStorageClass, GlobalVisibility, IntPredicate};
 
 use super::super::LlvmTypeMappings;
-use super::boundary::{invoke_static_boundary, mapped_instance_function};
+use super::super::boundary::{
+    declare_generated_callback, invoke_generated_call, load_boundary_outcome,
+    mapped_instance_function,
+};
 use super::constant::static_initializer;
 use super::finalization::declare_static_finalizer;
 use super::host::{
@@ -470,7 +473,11 @@ fn declare_static_lifecycle_phase<'context>(
         return Ok(callback);
     }
 
-    let callback = declare_static_callback(module, name, block_name, types);
+    let usize = crate::native::pointer_integer_type(types.context(), types.target());
+
+    let callback =
+        declare_generated_callback(module, name, block_name, usize.fn_type(&[], false), types);
+
     let builder = types.context().create_builder();
 
     let entry = callback
@@ -479,24 +486,21 @@ fn declare_static_lifecycle_phase<'context>(
 
     builder.position_at_end(entry);
 
-    if let Some(instance) = instance {
+    let outcome = if let Some(instance) = instance {
         let (function, signature) = mapped_instance_function(module, mappings, instance)?;
 
-        invoke_static_boundary(
-            module,
-            mappings,
-            instance,
-            &builder,
-            function,
-            signature,
-            &[storage.into()],
-            "",
-            types,
-        )?;
-    }
+        let (_, outcome) =
+            invoke_generated_call(&builder, function, signature, &[storage.into()], "", types)?;
+
+        outcome
+    } else {
+        None
+    };
+
+    let outcome = load_boundary_outcome(&builder, outcome, types)?;
 
     builder
-        .build_return(None)
+        .build_return(Some(&outcome))
         .map_err(CodegenFailure::backend_library)?;
 
     Ok(callback)
@@ -549,42 +553,13 @@ fn declare_static_callback<'context>(
     block_name: &str,
     types: &LlvmTypeMappings<'context, '_>,
 ) -> FunctionValue<'context> {
-    declare_static_callback_with_type(
+    declare_generated_callback(
         module,
         name,
         block_name,
         types.context().void_type().fn_type(&[], false),
         types,
     )
-}
-
-pub(super) fn declare_static_callback_with_type<'context>(
-    module: &Module<'context>,
-    name: &str,
-    block_name: &str,
-    ty: FunctionType<'context>,
-    types: &LlvmTypeMappings<'context, '_>,
-) -> FunctionValue<'context> {
-    let callback = module.add_function(name, ty, None);
-
-    callback.set_linkage(Linkage::WeakODR);
-
-    callback
-        .as_global_value()
-        .set_visibility(GlobalVisibility::Hidden);
-
-    crate::comdat::attach_any(
-        module,
-        callback.as_global_value(),
-        name,
-        types.target().machine().object_format(),
-    );
-
-    module
-        .get_context()
-        .append_basic_block(callback, block_name);
-
-    callback
 }
 
 pub(super) fn pointer_type<'context>(

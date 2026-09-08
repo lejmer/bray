@@ -149,6 +149,10 @@ fn validate_signature(role: RuntimeAbiRole, signature: &syn::Signature) -> Resul
 }
 
 fn native_type(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
+    if let Some(reference) = optional_reference(ty) {
+        return pointer_kind(&reference.elem);
+    }
+
     let name = match ty {
         syn::Type::Never(_) => return Ok(RuntimeAbiType::Never),
         syn::Type::Ptr(pointer) => return pointer_kind(&pointer.elem),
@@ -177,7 +181,6 @@ fn native_type(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
         Some("NativeExecutionLaneResult") => RuntimeAbiType::LaneResult,
         Some("NativeProductHostObservation") => RuntimeAbiType::ProductObservation,
         Some("NativeWakeCallback" | "NativeRuntimeEventCallback") => RuntimeAbiType::Pointer,
-        Some("Option") if is_optional_cleanup_callback(ty) => RuntimeAbiType::Pointer,
         _ => {
             return Err(format!(
                 "unsupported native adapter type {}",
@@ -204,21 +207,29 @@ fn pointer_kind(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
     }
 }
 
-fn is_optional_cleanup_callback(ty: &syn::Type) -> bool {
+fn optional_reference(ty: &syn::Type) -> Option<&syn::TypeReference> {
     let syn::Type::Path(path) = ty else {
-        return false;
+        return None;
     };
 
-    let Some(segment) = path.path.segments.last() else {
-        return false;
-    };
+    let segment = path.path.segments.last()?;
+
+    if segment.ident != "Option" {
+        return None;
+    }
 
     let syn::PathArguments::AngleBracketed(arguments) = &segment.arguments else {
-        return false;
+        return None;
     };
 
-    matches!(arguments.args.first(), Some(syn::GenericArgument::Type(syn::Type::Path(path)))
-        if arguments.args.len() == 1 && path.path.is_ident("NativeValueCleanupCallback"))
+    match arguments.args.first() {
+        Some(syn::GenericArgument::Type(syn::Type::Reference(reference)))
+            if arguments.args.len() == 1 =>
+        {
+            Some(reference)
+        }
+        _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -251,10 +262,44 @@ mod tests {
 
     #[test]
     fn wide_pointers_are_not_native_addresses() {
-        for source in ["*const [u8]", "&str", "*mut dyn Send"] {
+        for source in [
+            "*const [u8]",
+            "&str",
+            "*mut dyn Send",
+            "Option<&[u8]>",
+            "Option<&str>",
+            "Option<&mut dyn Send>",
+        ] {
             let ty = syn::parse_str::<syn::Type>(source).expect("type parses");
 
             assert!(native_type(&ty).is_err(), "{source} is a wide pointer");
+        }
+    }
+
+    #[test]
+    fn nullable_references_preserve_the_pointee_abi_category() {
+        use bray_runtime_interface::RuntimeAbiType;
+
+        for (source, expected) in [
+            (
+                "Option<&bray_runtime_abi::NativeValueCleanup>",
+                RuntimeAbiType::Pointer,
+            ),
+            ("std::option::Option<&mut u8>", RuntimeAbiType::Pointer),
+            ("Option<&usize>", RuntimeAbiType::PointerUsize),
+        ] {
+            let ty = syn::parse_str::<syn::Type>(source).unwrap();
+
+            assert_eq!(native_type(&ty), Ok(expected));
+        }
+
+        for source in ["Option<*const u8>", "Option<usize>", "Vec<&u8>"] {
+            let ty = syn::parse_str::<syn::Type>(source).unwrap();
+
+            assert!(
+                native_type(&ty).is_err(),
+                "{source} has no guaranteed nullable-reference ABI"
+            );
         }
     }
 

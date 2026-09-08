@@ -204,6 +204,17 @@ impl AvailableCompilerKnownSymbols {
         role: RepresentationRole,
         ty: crate::TypeId,
     ) -> Result<Option<crate::TypeId>, crate::SemanticValueStoreError> {
+        self.representation_type_arguments(values, role, ty)
+            .map(|arguments| arguments.map(|[argument]| argument))
+    }
+
+    /// Decomposes an available generic representation with exactly `COUNT` type arguments.
+    pub fn representation_type_arguments<const COUNT: usize>(
+        &self,
+        values: &crate::SemanticValueStore,
+        role: RepresentationRole,
+        ty: crate::TypeId,
+    ) -> Result<Option<[crate::TypeId; COUNT]>, crate::SemanticValueStoreError> {
         let Some(RepresentationTarget::Symbol(symbol)) = self.representation_target(role) else {
             return Ok(None);
         };
@@ -228,14 +239,21 @@ impl AvailableCompilerKnownSymbols {
 
         let substitution = values.generic_substitution_data(*substitution)?;
 
-        let [binding] = substitution.bindings() else {
+        if substitution.bindings().len() != COUNT {
             return Ok(None);
-        };
-
-        match binding.argument() {
-            crate::GenericArgument::Type(argument) => Ok(Some(argument)),
-            crate::GenericArgument::Constant(_) => Ok(None),
         }
+
+        let mut arguments = [ty; COUNT];
+
+        for (destination, binding) in arguments.iter_mut().zip(substitution.bindings()) {
+            let crate::GenericArgument::Type(argument) = binding.argument() else {
+                return Ok(None);
+            };
+
+            *destination = argument;
+        }
+
+        Ok(Some(arguments))
     }
 
     /// Returns an available special value carrying a representation role.
@@ -572,6 +590,16 @@ mod tests {
         assert_eq!(
             view.unary_representation_argument(&values, RepresentationRole::RunResult, run_result,),
             Ok(Some(completion))
+        );
+
+        assert_eq!(
+            view.representation_type_arguments::<0>(&values, RepresentationRole::Future, future),
+            Ok(None)
+        );
+
+        assert_eq!(
+            view.representation_type_arguments::<2>(&values, RepresentationRole::Future, future),
+            Ok(None)
         );
     }
 

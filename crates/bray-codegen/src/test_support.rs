@@ -404,7 +404,7 @@ pub fn contribution(
 }
 
 fn codegen_unit(seed: u8, target: &CodegenTarget) -> CodegenUnit {
-    let mir_target = MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0));
+    let mir_target = MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::CURRENT);
 
     let Ok(unit) = CodegenUnit::try_new(
         CodegenPartitionPolicy::NATIVE_BALANCED,
@@ -448,7 +448,7 @@ pub fn codegen_backend_capabilities() -> BackendCapabilities {
             target.relocation_model(),
             target.code_model(),
         )]),
-        BackendRuntimeCapabilities::new([RuntimeAbiVersion::new(1, 0)], true, true),
+        BackendRuntimeCapabilities::new([RuntimeAbiVersion::CURRENT], true, true),
         BackendOptimizationCapabilities::new(
             [
                 OptimizationLevel::None,

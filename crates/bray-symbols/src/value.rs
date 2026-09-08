@@ -4,6 +4,7 @@ mod contextual_self;
 mod dependency;
 mod error;
 mod id;
+mod rewriting;
 mod store;
 mod substitution;
 mod substitution_apply;
@@ -15,8 +16,9 @@ pub use application::{
 };
 pub use constant::{
     AnyConstantDefinitionId, ConstantBinaryOperation, ConstantField, ConstantProjection,
-    ConstantProjectionKind, ConstantTermData, ConstantUnaryOperation, ConstantValueData,
-    ConstantValueKind, IntegerConstant, IntegerSign, RealConstantBits, TargetSizedIntegerType,
+    ConstantProjectionKind, ConstantTermData, ConstantTest, ConstantUnaryOperation,
+    ConstantValueData, ConstantValueKind, IntegerConstant, IntegerSign, RealConstantBits,
+    TargetSizedIntegerType,
 };
 pub use dependency::{
     DependencyContractTemplateData, DependencyGuard, DependencyProjection, DependencyRequirement,

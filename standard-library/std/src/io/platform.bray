@@ -162,6 +162,7 @@ func standard_error() -> StandardError
 }
 
 internal func platform_error_kind(pos category: u32) -> IoErrorKind
+    executes(pure, total)
 {
     match category
     {
@@ -179,13 +180,16 @@ internal func platform_error_kind(pos category: u32) -> IoErrorKind
 }
 
 internal func io_error(kind: IoErrorKind, native_code: i64, transferred: usize) -> IoError
+    executes(pure, total)
 {
-    let mut platform_code: i64? = none;
-
-    if native_code != 0
+    let platform_code: i64? = if native_code != 0
     {
-        platform_code = native_code;
+        yield native_code;
     }
+    else
+    {
+        yield none;
+    };
 
     return IoError
     {
@@ -196,6 +200,7 @@ internal func io_error(kind: IoErrorKind, native_code: i64, transferred: usize) 
 }
 
 internal func platform_status_error(pos status: std.platform.PlatformStatus, transferred: usize = 0) -> IoError
+    executes(pure, total)
 {
     let category: u32 = status.category;
     let kind: IoErrorKind = platform_error_kind(category);
@@ -205,6 +210,7 @@ internal func platform_status_error(pos status: std.platform.PlatformStatus, tra
 }
 
 internal func invalid_transfer_error(transferred: usize = 0) -> IoError
+    executes(pure, total)
 {
     return io_error(kind = Other, native_code = 0, transferred = transferred);
 }
@@ -252,6 +258,8 @@ internal func checked_transfer(
 }
 
 internal func checked_status(pos status: std.platform.PlatformStatus) -> Result<unit, IoError>
+    executes(pure, total)
+    ensures((result matches Error(_)) || (status.category == 0 && status.reserved == 0))
 {
     if status.reserved != 0
     {

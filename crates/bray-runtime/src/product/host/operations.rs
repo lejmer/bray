@@ -613,7 +613,7 @@ fn read_descriptor(
         let execution = finalizer.execution();
 
         let valid_result_layout = finalizer.result_alignment().is_power_of_two()
-            && (execution != bray_runtime_abi::NativeStaticFinalizerExecution::NONE
+            && (execution != bray_runtime_abi::NativeCleanupExecution::NONE
                 || (finalizer.result_size() == 0 && finalizer.result_alignment() == 1));
 
         if entry.abi_version() != PRODUCT_HOST_ABI_VERSION
@@ -733,14 +733,16 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use bray_runtime_abi::{
-        NativeProductHostDescriptor, NativeProductHostOperation, NativeProductHostState,
-        NativeProductHostStatus, NativeProductIdentity, NativeStaticDuration,
-        NativeStaticFinalizer, NativeStaticFinalizerExecution, NativeStaticFinalizerStartCallback,
+        NativeCleanupExecution, NativeProductHostDescriptor, NativeProductHostOperation,
+        NativeProductHostState, NativeProductHostStatus, NativeProductIdentity,
+        NativeStaticDuration, NativeStaticFinalizer, NativeStaticFinalizerStartCallback,
         NativeStaticFinalizerStatus, NativeStaticHostEntry, NativeStaticIdentity,
         NativeThreadStaticCleanupRegistration,
     };
 
     use super::{control, register_thread_static, thread_attachment_identity};
+
+    use bray_runtime_abi::NativeBrayCallOutcome;
 
     static CLEANUPS: AtomicUsize = AtomicUsize::new(0);
     static CONTINUING_PRODUCT_CLEANUPS: AtomicUsize = AtomicUsize::new(0);
@@ -755,61 +757,92 @@ mod tests {
         1
     }
 
-    extern "C-unwind" fn cleanup(_: usize) -> NativeStaticFinalizerStatus {
+    extern "C-unwind" fn cleanup(
+        _: usize,
+        _: &mut NativeBrayCallOutcome,
+    ) -> NativeStaticFinalizerStatus {
         CLEANUPS.fetch_add(1, Ordering::SeqCst);
 
         NativeStaticFinalizerStatus::SUCCESS
     }
 
-    extern "C-unwind" fn first_thread_cleanup(_: usize) -> NativeStaticFinalizerStatus {
+    extern "C-unwind" fn first_thread_cleanup(
+        _: usize,
+        _: &mut NativeBrayCallOutcome,
+    ) -> NativeStaticFinalizerStatus {
         append_thread_cleanup(1);
 
         NativeStaticFinalizerStatus::SUCCESS
     }
 
-    extern "C-unwind" fn second_thread_cleanup(_: usize) -> NativeStaticFinalizerStatus {
+    extern "C-unwind" fn second_thread_cleanup(
+        _: usize,
+        _: &mut NativeBrayCallOutcome,
+    ) -> NativeStaticFinalizerStatus {
         append_thread_cleanup(2);
 
         NativeStaticFinalizerStatus::SUCCESS
     }
 
-    extern "C-unwind" fn panicking_thread_cleanup(_: usize) -> NativeStaticFinalizerStatus {
+    extern "C-unwind" fn panicking_thread_cleanup(
+        _: usize,
+        _: &mut NativeBrayCallOutcome,
+    ) -> NativeStaticFinalizerStatus {
         panic!("test thread-static cleanup incident");
     }
 
-    extern "C-unwind" fn panicking_product_cleanup(_: usize) -> NativeStaticFinalizerStatus {
+    extern "C-unwind" fn panicking_product_cleanup(
+        _: usize,
+        _: &mut NativeBrayCallOutcome,
+    ) -> NativeStaticFinalizerStatus {
         record_product_phase(1);
         panic!("test product-static cleanup incident");
     }
 
-    extern "C-unwind" fn continuing_product_cleanup(_: usize) -> NativeStaticFinalizerStatus {
+    extern "C-unwind" fn continuing_product_cleanup(
+        _: usize,
+        _: &mut NativeBrayCallOutcome,
+    ) -> NativeStaticFinalizerStatus {
         record_product_phase(1);
         CONTINUING_PRODUCT_CLEANUPS.fetch_add(1, Ordering::SeqCst);
 
         NativeStaticFinalizerStatus::SUCCESS
     }
 
-    extern "C-unwind" fn resolve_success(_: usize, _: usize) -> NativeStaticFinalizerStatus {
+    extern "C-unwind" fn resolve_success(
+        _: usize,
+        _: usize,
+        _: &mut NativeBrayCallOutcome,
+    ) -> NativeStaticFinalizerStatus {
         NativeStaticFinalizerStatus::SUCCESS
     }
 
     const fn finalizer(start: NativeStaticFinalizerStartCallback) -> NativeStaticFinalizer {
         NativeStaticFinalizer::new(
-            NativeStaticFinalizerExecution::SYNCHRONOUS,
+            NativeCleanupExecution::SYNCHRONOUS,
             0,
             1,
             start,
             resolve_success,
+            crate::test_support::panic_callbacks(unexpected_panic, unexpected_panic),
         )
     }
 
     extern "C" fn detach_thread_static() {}
 
-    extern "C-unwind" fn no_cleanup() {}
+    extern "C-unwind" fn unexpected_panic(_: usize) -> bray_runtime_abi::NativeRuntimeStatus {
+        panic!("this fixture does not return a native panic payload");
+    }
 
-    extern "C-unwind" fn record_product_destruction() {
+    extern "C-unwind" fn no_cleanup() -> NativeBrayCallOutcome {
+        NativeBrayCallOutcome::completed()
+    }
+
+    extern "C-unwind" fn record_product_destruction() -> NativeBrayCallOutcome {
         record_product_phase(2);
         PRODUCT_DESTRUCTIONS.fetch_add(1, Ordering::SeqCst);
+
+        NativeBrayCallOutcome::completed()
     }
 
     fn record_product_phase(phase: usize) {

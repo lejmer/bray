@@ -8,25 +8,18 @@ use inkwell::values::{BasicValueEnum, PhiValue};
 use super::core::UnitTranslator;
 
 pub(super) fn reachable_blocks(unit: &MirUnit) -> BTreeSet<MirBlockId> {
-    let mut reachable = BTreeSet::new();
     let mut pending = vec![unit.entry()];
 
-    while let Some(block) = pending.pop() {
-        if !reachable.insert(block) {
-            continue;
+    if let Some(frame) = unit.frame_descriptor() {
+        pending.extend(frame.states().iter().map(bray_ir::MirFrameState::entry));
+        pending.extend(frame.inactive_cleanup());
+
+        if let Some((quiescence, destruction)) = frame.capture_abandonment() {
+            pending.extend([quiescence, destruction]);
         }
-
-        let Some(block) = unit.block(block) else {
-            continue;
-        };
-
-        block
-            .terminator()
-            .kind()
-            .for_each_successor(|successor| pending.push(successor));
     }
 
-    reachable
+    unit.reachable_blocks(pending)
 }
 
 pub(super) fn checked_call_operations(unit: &MirUnit) -> BTreeSet<MirOperationId> {
@@ -42,6 +35,97 @@ pub(super) fn checked_call_operations(unit: &MirUnit) -> BTreeSet<MirOperationId
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    use bray_ir::{
+        MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge, MirFrameDescriptor, MirFrameState,
+        MirFrameStateId, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder, MirUnitKind,
+    };
+    use bray_runtime_interface::{ProtectedAsyncFrameId, ProtectedFrameAbiVersions};
+
+    #[test]
+    fn frame_dispatch_entries_and_capture_cleanup_are_reachable() {
+        let bound = bray_testing::test_bound_unit(918);
+        let source = MirSourceAnchor::from(bound.key().source());
+        let target = bray_testing::test_mir_target();
+        let abi = target.runtime_abi();
+        let frame = ProtectedAsyncFrameId::new([9; 32]);
+        let values = bray_symbols::SemanticValueStore::try_new().unwrap();
+
+        let ty = values
+            .intern_type(bray_symbols::TypeData::tuple([]))
+            .unwrap();
+
+        let mut builder = MirUnitBuilder::for_bound(
+            bound.identity(),
+            MirUnitKind::ProtectedAsyncFrame(frame),
+            target,
+        );
+
+        let body = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        let resumed = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        let unrelated = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        let captures = builder
+            .push_block(source.clone(), MirBlockKind::CleanupBroadcast)
+            .unwrap();
+
+        let finished = builder
+            .push_block(source.clone(), MirBlockKind::LifecycleResolution)
+            .unwrap();
+
+        for block in [body, resumed, unrelated, finished] {
+            builder
+                .set_terminator(block, source.clone(), MirTerminatorKind::Return(None))
+                .unwrap();
+        }
+
+        builder
+            .set_terminator(
+                captures,
+                source,
+                MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
+                    MirCleanupPhase::LifecycleResolution,
+                    MirEdge::new(finished, []),
+                )),
+            )
+            .unwrap();
+
+        builder
+            .set_frame_descriptor(
+                MirFrameDescriptor::try_new(
+                    frame,
+                    abi,
+                    ProtectedFrameAbiVersions::uniform(abi),
+                    ty,
+                    [
+                        MirFrameState::new(MirFrameStateId::new(0), body, [], []),
+                        MirFrameState::new(MirFrameStateId::new(1), resumed, [], []),
+                    ],
+                )
+                .unwrap()
+                .with_inactive_cleanup(captures),
+            )
+            .unwrap();
+
+        let unit = builder.finish(body).unwrap();
+
+        assert_eq!(
+            super::reachable_blocks(&unit),
+            [body, resumed, captures, finished].into_iter().collect()
+        );
+    }
+}
+
 use super::support::llvm;
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
@@ -72,7 +156,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
     pub(super) fn route_target(
         &mut self,
-        target: bray_ir::MirBlockId,
+        target: MirBlockId,
         name: &str,
         pending_moves: &[MirPlace],
     ) -> Result<BasicBlock<'context>, CodegenFailure> {
@@ -124,7 +208,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         route
     }
 
-    fn finish_route(&mut self, target: bray_ir::MirBlockId) -> Result<(), CodegenFailure> {
+    fn finish_route(&mut self, target: MirBlockId) -> Result<(), CodegenFailure> {
         self.clear_moved_places()?;
 
         llvm(self.builder.build_unconditional_branch(self.block(target)?))?;

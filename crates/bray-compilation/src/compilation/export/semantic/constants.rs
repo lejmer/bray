@@ -167,6 +167,19 @@ impl<'a> SemanticExporter<'a> {
                             .collect::<Result<Vec<_>, _>>()?
                             .into(),
                     },
+                    ConstantTermData::Test { subject, kind } => InterfaceConstantTerm::Test {
+                        subject: self.constant_term_id(*subject)?,
+                        kind: match kind {
+                            bray_symbols::ConstantTest::NullablePresent => {
+                                bray_symbols::ConstantTest::NullablePresent
+                            }
+                            bray_symbols::ConstantTest::ActiveUnionVariant(variant) => {
+                                bray_symbols::ConstantTest::ActiveUnionVariant(
+                                    self.symbol_reference((*variant).into())?,
+                                )
+                            }
+                        },
+                    },
                     ConstantTermData::Projection(projection) => InterfaceConstantTerm::Projection {
                         subject: self.constant_term_id(projection.subject())?,
                         kind: match projection.kind() {
@@ -190,6 +203,9 @@ impl<'a> SemanticExporter<'a> {
                             }
                             ConstantProjectionKind::NullableValue => {
                                 InterfaceConstantProjection::NullableValue
+                            }
+                            ConstantProjectionKind::OwnedTarget => {
+                                InterfaceConstantProjection::OwnedTarget
                             }
                         },
                     },

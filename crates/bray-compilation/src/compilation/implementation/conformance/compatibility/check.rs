@@ -1,5 +1,7 @@
 // rust-style: allow(module-too-large, reason = "trait fulfillment compatibility is one recursive structural comparison across every contract surface")
 
+use bray_symbols::CallableConditions;
+
 use std::collections::BTreeMap;
 
 use bray_binder::{BindingQueryContext, SymbolQueryProvider};
@@ -22,8 +24,8 @@ use crate::fact::FactQueryError;
 use super::constraint::{constraints_are_compatible, substitute_requirement_trait_application};
 use super::mismatch::{
     CallableBehaviorComponent, CallableBehaviorPhase, CallableContractClauseCategory,
-    CallableContractMismatch, CallableContractSurface, GenericParameterCategory,
-    GenericSurfaceMismatch, TraitFulfillmentMismatch,
+    CallableContractMismatch, GenericParameterCategory, GenericSurfaceMismatch,
+    TraitFulfillmentMismatch,
 };
 use super::types::{
     dependency_contracts_are_compatible, substitute_requirement_type, type_templates_are_compatible,
@@ -52,6 +54,8 @@ pub(in crate::compilation::implementation::conformance) struct CompatibilityCont
     trait_application: TraitApplicationId,
     type_bindings:
         &'binding_context BTreeMap<bray_symbols::TraitTypeMemberSymbolId, TypeExpressionTemplate>,
+    matched_fulfillments:
+        &'binding_context BTreeMap<TraitMemberRequirementId, TraitMemberFulfillmentId>,
 }
 
 impl<'binding_context, 'compilation> CompatibilityContext<'binding_context, 'compilation> {
@@ -66,6 +70,10 @@ impl<'binding_context, 'compilation> CompatibilityContext<'binding_context, 'com
             bray_symbols::TraitTypeMemberSymbolId,
             TypeExpressionTemplate,
         >,
+        matched_fulfillments: &'binding_context BTreeMap<
+            TraitMemberRequirementId,
+            TraitMemberFulfillmentId,
+        >,
     ) -> Self {
         Self {
             symbols,
@@ -75,6 +83,7 @@ impl<'binding_context, 'compilation> CompatibilityContext<'binding_context, 'com
             subject,
             trait_application,
             type_bindings,
+            matched_fulfillments,
         }
     }
 }
@@ -396,6 +405,7 @@ fn callable_is_compatible(
         binding_context,
         trait_application,
         generic_substitution,
+        context.matched_fulfillments,
         requirement,
         fulfillment,
         diagnostics,
@@ -450,6 +460,8 @@ fn callable_type_template(
                 callable_data.dependency_contracts(),
             )
             .with_variadic(callable_data.is_variadic())
+            // Conditions share immutable clause groups with the original callable.
+            .with_conditions(callable_data.conditions().clone())
             .with_phase_behaviors(callable_data.phase_behaviors().clone()))
         }
         _ => Err(callable_signature_error(
@@ -727,10 +739,13 @@ fn callable_contract_mismatch(
     binding_context: &CompilationBindingContext<'_>,
     trait_application: TraitApplicationId,
     generic_substitution: Option<GenericSubstitutionId>,
+    matched_fulfillments: &BTreeMap<TraitMemberRequirementId, TraitMemberFulfillmentId>,
     requirement: CallableSymbolId,
     fulfillment: CallableSymbolId,
     diagnostics: &mut DiagnosticBag,
 ) -> Result<Option<CallableContractMismatch>, FactQueryError> {
+    let fulfillment_context = fulfillment_self_context(binding_context, fulfillment.into_any())?;
+
     let requirement = resolve_query!(
         binding_context,
         diagnostics,
@@ -744,6 +759,20 @@ fn callable_contract_mismatch(
         CallableContractsQuery,
         fulfillment
     );
+
+    if let Some(mismatch) = super::condition::condition_contract_mismatch(
+        values,
+        subject,
+        binding_context,
+        trait_application,
+        fulfillment_context,
+        generic_substitution,
+        matched_fulfillments,
+        requirement.value(),
+        fulfillment.value(),
+    )? {
+        return Ok(Some(mismatch));
+    }
 
     contract_set_mismatch(
         values,
@@ -763,38 +792,13 @@ fn contract_set_mismatch(
     requirement: &CallableContractSet,
     fulfillment: &CallableContractSet,
 ) -> Result<Option<CallableContractMismatch>, FactQueryError> {
-    if let Some(mismatch) = contract_clause_mismatch(
+    if let Some(mismatch) = static_contract_clause_mismatch(
         values,
         subject,
         trait_application,
         generic_substitution,
-        requirement.invocation_preconditions(),
-        fulfillment.invocation_preconditions(),
-        CallableContractSurface::InvocationPreconditions,
-    )? {
-        return Ok(Some(mismatch));
-    }
-
-    if let Some(mismatch) = contract_clause_mismatch(
-        values,
-        subject,
-        trait_application,
-        generic_substitution,
-        requirement.static_constraints(),
-        fulfillment.static_constraints(),
-        CallableContractSurface::StaticConstraints,
-    )? {
-        return Ok(Some(mismatch));
-    }
-
-    if let Some(mismatch) = contract_clause_mismatch(
-        values,
-        subject,
-        trait_application,
-        generic_substitution,
-        requirement.normal_completion_postconditions(),
-        fulfillment.normal_completion_postconditions(),
-        CallableContractSurface::CompletionPostconditions,
+        requirement.conditions().static_constraints(),
+        fulfillment.conditions().static_constraints(),
     )? {
         return Ok(Some(mismatch));
     }
@@ -832,18 +836,16 @@ fn contract_set_mismatch(
     }
 }
 
-fn contract_clause_mismatch(
+fn static_contract_clause_mismatch(
     values: &bray_symbols::SemanticValueStore,
     subject: bray_symbols::TypeId,
     trait_application: TraitApplicationId,
     generic_substitution: Option<GenericSubstitutionId>,
     requirement: &[CallableContractClause],
     fulfillment: &[CallableContractClause],
-    surface: CallableContractSurface,
 ) -> Result<Option<CallableContractMismatch>, FactQueryError> {
     if requirement.len() != fulfillment.len() {
         return Ok(Some(CallableContractMismatch::ClauseCount {
-            surface,
             required: requirement.len(),
             provided: fulfillment.len(),
         }));
@@ -851,17 +853,11 @@ fn contract_clause_mismatch(
 
     for (index, (requirement, fulfillment)) in requirement.iter().zip(fulfillment).enumerate() {
         if requirement.ordinal() != fulfillment.ordinal() {
-            return Ok(Some(CallableContractMismatch::ClauseOrdinal {
-                surface,
-                index,
-            }));
+            return Ok(Some(CallableContractMismatch::ClauseOrdinal { index }));
         }
 
         if requirement.kind() != fulfillment.kind() {
-            return Ok(Some(CallableContractMismatch::ClauseKind {
-                surface,
-                index,
-            }));
+            return Ok(Some(CallableContractMismatch::ClauseKind { index }));
         }
 
         let mismatch = match (requirement.value(), fulfillment.value()) {
@@ -875,7 +871,7 @@ fn contract_clause_mismatch(
                 requirement.dependency_contract(),
                 fulfillment.dependency_contract(),
             )?)
-            .then_some(CallableContractMismatch::PredicateDependencies { surface, index }),
+            .then_some(CallableContractMismatch::PredicateDependencies { index }),
             (
                 bray_symbols::CallableContractClauseValue::TraitSatisfaction {
                     subject: requirement_subject,
@@ -898,9 +894,8 @@ fn contract_clause_mismatch(
                     generic_substitution,
                     requirement_application,
                 )? == fulfillment_application))
-                .then_some(CallableContractMismatch::TraitSatisfaction { surface, index }),
+                .then_some(CallableContractMismatch::TraitSatisfaction { index }),
             (required, provided) => Some(CallableContractMismatch::ClauseCategory {
-                surface,
                 index,
                 required: callable_clause_category(&required),
                 provided: callable_clause_category(&provided),

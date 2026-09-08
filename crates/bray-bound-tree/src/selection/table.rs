@@ -427,13 +427,14 @@ fn call_matches_expression(
         return false;
     }
 
-    let source_receiver = source_call_receiver(unit, source.callee());
+    let source_receiver = unit.view().value_receiver(source.callee());
 
     if call.receiver().map(crate::SelectedReceiver::expression) != source_receiver {
         return false;
     }
 
     let declaration_backed = matches!(call.target(), crate::BoundCallableTarget::Declaration(_));
+
     let mut parameters = BTreeSet::new();
     let mut ordinals = BTreeSet::new();
     let mut saw_default = false;
@@ -481,21 +482,6 @@ fn call_matches_expression(
                 .arguments()
                 .iter()
                 .map(crate::BoundArgument::expression))
-}
-
-fn source_call_receiver(unit: &BoundUnit, callee: BoundExpressionId) -> Option<BoundExpressionId> {
-    let receiver = match unit.view().expression(callee) {
-        Some(BoundExpression::MemberAccess(member)) => member.receiver(),
-        Some(BoundExpression::TraitQualifiedMember(member)) => member.receiver(),
-        _ => return None,
-    };
-
-    let is_compile_time_qualifier = matches!(
-        unit.view().expression(receiver),
-        Some(BoundExpression::Name(name)) if name.target().is_compile_time_qualifier()
-    );
-
-    (!is_compile_time_qualifier).then_some(receiver)
 }
 
 fn construction_inputs_are_valid(construction: &crate::SelectedConstruction) -> bool {

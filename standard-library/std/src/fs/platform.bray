@@ -61,6 +61,8 @@ internal func seek_origin_value(pos value: std.io.SeekOrigin) -> u32
 }
 
 internal func checked_platform_status(pos value: std.platform.PlatformStatus) -> Result<unit, std.io.IoError>
+    executes(pure, total)
+    ensures((result matches Error(_)) || (value.category == 0 && value.reserved == 0))
 {
     return internal std.io.checked_status(value);
 }

@@ -38,3 +38,41 @@ define_analysis_ids! {
     AnalysisOperationId,
     ProgramPointId,
 }
+
+/// A distinct observation epoch after an effect or a control-flow merge.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum AnalysisObservationSite {
+    Operation(AnalysisOperationId),
+    BlockEntry(AnalysisBlockId),
+}
+
+impl AnalysisObservationSite {
+    pub(crate) fn to_index(self) -> Option<usize> {
+        match self {
+            Self::Operation(operation) => operation.to_index()?.checked_mul(2),
+            Self::BlockEntry(block) => block.to_index()?.checked_mul(2)?.checked_add(1),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AnalysisBlockId, AnalysisObservationSite, AnalysisOperationId};
+
+    #[test]
+    fn operation_and_join_observations_have_disjoint_identities() {
+        let unit = bray_bound_tree::BoundUnitId::new(1);
+        let mut identities = std::collections::BTreeSet::new();
+
+        for slot in 0..8 {
+            for site in [
+                AnalysisObservationSite::Operation(AnalysisOperationId::from_slot(unit, slot)),
+                AnalysisObservationSite::BlockEntry(AnalysisBlockId::from_slot(unit, slot)),
+            ] {
+                assert!(identities.insert(site.to_index().unwrap()));
+            }
+        }
+
+        assert_eq!(identities.len(), 16);
+    }
+}

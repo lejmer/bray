@@ -277,9 +277,7 @@ mod tests {
 
         let descriptor = ProtectedAsyncFrameMetadata::new(
             frame,
-            ProtectedFrameAbiVersions::uniform(bray_runtime_interface::RuntimeAbiVersion::new(
-                1, 0,
-            )),
+            ProtectedFrameAbiVersions::uniform(bray_runtime_interface::RuntimeAbiVersion::CURRENT),
             operations.clone(),
         );
 
@@ -295,9 +293,7 @@ mod tests {
 
         let conflicting = ProtectedAsyncFrameMetadata::new(
             frame,
-            ProtectedFrameAbiVersions::uniform(bray_runtime_interface::RuntimeAbiVersion::new(
-                1, 0,
-            )),
+            ProtectedFrameAbiVersions::uniform(bray_runtime_interface::RuntimeAbiVersion::CURRENT),
             ProtectedFrameOperations::new(
                 binary_symbol_name("different_move"),
                 binary_symbol_name("frame_state"),
@@ -358,10 +354,8 @@ mod tests {
 
         match MirFrameDescriptor::try_new(
             frame,
-            bray_runtime_interface::RuntimeAbiVersion::new(1, 0),
-            ProtectedFrameAbiVersions::uniform(bray_runtime_interface::RuntimeAbiVersion::new(
-                1, 0,
-            )),
+            bray_runtime_interface::RuntimeAbiVersion::CURRENT,
+            ProtectedFrameAbiVersions::uniform(bray_runtime_interface::RuntimeAbiVersion::CURRENT),
             test_mir_type(),
             [state],
         ) {

@@ -37,15 +37,138 @@ pub struct MirUnitBuilder {
 }
 
 impl MirUnitBuilder {
+    /// Reopens a template under a specialization identity while preserving source provenance and local IDs.
+    pub fn for_specialization(unit: MirUnit, key: MirUnitKey, kind: MirUnitKind) -> Self {
+        let mut builder = Self::from_unit(unit);
+
+        builder.key = key;
+        builder.kind = kind;
+
+        builder
+    }
+
+    /// Reopens an immutable template for a transformation that preserves existing identities.
+    /// The transformed unit is validated again by `finish`.
+    pub fn from_unit(unit: MirUnit) -> Self {
+        // Templates remain shared by other concrete instances. Each transformation owns its tables.
+        let blocks = unit
+            .blocks
+            .iter()
+            .map(|block| MirBlockBuilder {
+                source: block.source().clone(),
+                kind: block.kind(),
+                parameters: block.parameters().to_vec(),
+                operations: block.operations().to_vec(),
+                terminator: Some(block.terminator().clone()),
+            })
+            .collect();
+
+        Self {
+            key: unit.key,
+            unit: unit.unit,
+            source: unit.source,
+            target: unit.target,
+            kind: unit.kind,
+            frame_descriptor: unit.frame_descriptor,
+            blocks,
+            operations: unit.operations.to_vec(),
+            storages: unit.storages.to_vec(),
+            values: unit.values.to_vec(),
+        }
+    }
+
+    /// Removes a block's terminator so lowering can extend its control flow.
+    pub fn take_terminator(
+        &mut self,
+        block: MirBlockId,
+    ) -> Result<MirTerminator, MirUnitBuildError> {
+        let index = self.block_index(block)?;
+
+        self.blocks[index]
+            .terminator
+            .take()
+            .ok_or(MirUnitBuildError::MissingTerminator(block))
+    }
+
+    /// Detaches the frame descriptor while a transformation adds suspension states.
+    pub fn take_frame_descriptor(&mut self) -> Option<MirFrameDescriptor> {
+        self.frame_descriptor.take()
+    }
+
+    /// Replaces a resultless operation without changing its identity or position in its block.
+    /// A newly declared result receives a fresh value identity.
+    pub fn replace_effect(
+        &mut self,
+        operation: MirOperationId,
+        kind: MirOperationKind,
+        result_type: Option<TypeId>,
+    ) -> Result<MirOperationCommit, MirUnitBuildError> {
+        if operation.unit() != self.unit {
+            return Err(MirUnitBuildError::ForeignOperation(operation));
+        }
+
+        let existing = operation
+            .to_index()
+            .and_then(|index| self.operations.get_mut(index))
+            .ok_or(MirUnitBuildError::MissingOperation(operation))?;
+
+        if existing.result().is_some() {
+            return Err(MirUnitBuildError::UnexpectedOperationResult(operation));
+        }
+
+        let result = match result_type {
+            Some(ty) => {
+                let value = MirValueId::from_slot(self.unit, compact_slot(self.values.len())?);
+
+                // The replacement operation and its result independently retain source provenance.
+                self.values.push(MirValue::new(
+                    existing.source().clone(),
+                    ty,
+                    MirValueOrigin::Operation(operation),
+                ));
+
+                Some(value)
+            }
+            None => None,
+        };
+
+        // Replacing an operation preserves the original template's source correlation.
+        *existing = MirOperation::new(existing.source().clone(), kind, result);
+
+        Ok(MirOperationCommit::new(operation, result))
+    }
+
     /// Returns the target contract retained by the body under construction.
     pub const fn target(&self) -> &MirTargetContract {
         &self.target
     }
 
-    /// Starts construction of a compiler-provided body with ordinary synchronous calling semantics.
+    /// Returns the protected frame owned by the body under construction.
+    pub const fn protected_frame(&self) -> Option<bray_runtime_interface::ProtectedAsyncFrameId> {
+        self.kind.protected_frame()
+    }
+
+    /// Enumerates committed suspension state identities and their resumption blocks.
+    pub fn suspension_states(
+        &self,
+    ) -> impl Iterator<Item = (crate::MirFrameStateId, MirBlockId)> + '_ {
+        self.blocks
+            .iter()
+            .filter_map(|block| match block.terminator.as_ref()?.kind() {
+                MirTerminatorKind::Suspend {
+                    resume_state,
+                    resume,
+                    ..
+                } => Some((*resume_state, resume.target())),
+                _ => None,
+            })
+    }
+
+    /// Starts construction of a compiler-provided body with its selected execution mode.
     pub fn for_compiler_provided_callable(
         unit: MirUnitId,
         definition: bray_symbols::CallableDefinitionId,
+        kind: MirUnitKind,
         target: MirTargetContract,
     ) -> Self {
         Self {
@@ -53,7 +176,7 @@ impl MirUnitBuilder {
             unit,
             source: MirSourceOrigin::CompilerProvidedCallable(definition),
             target,
-            kind: MirUnitKind::Synchronous,
+            kind,
             frame_descriptor: None,
             blocks: Vec::new(),
             operations: Vec::new(),
@@ -136,14 +259,15 @@ impl MirUnitBuilder {
         unit: MirUnitId,
         key: MirUnitKey,
         reference: MirHelperReference,
+        frame: Option<bray_runtime_interface::ProtectedAsyncFrameId>,
         target: MirTargetContract,
     ) -> Self {
         Self {
             key,
             unit,
-            source: MirSourceOrigin::GeneratedLifecycle(reference.clone()),
+            source: MirSourceOrigin::GeneratedLifecycle(reference),
             target,
-            kind: MirUnitKind::GeneratedLifecycle(reference),
+            kind: frame.map_or(MirUnitKind::Synchronous, MirUnitKind::ProtectedAsyncFrame),
             frame_descriptor: None,
             blocks: Vec::new(),
             operations: Vec::new(),
@@ -166,9 +290,7 @@ impl MirUnitBuilder {
             MirUnitKind::ProtectedAsyncFrame(_) => {
                 return Err(MirUnitBuildError::ProtectedFrameMismatch);
             }
-            MirUnitKind::Synchronous
-            | MirUnitKind::ExecutableHost(_)
-            | MirUnitKind::GeneratedLifecycle(_) => {
+            MirUnitKind::Synchronous | MirUnitKind::ExecutableHost(_) => {
                 return Err(MirUnitBuildError::UnexpectedFrameDescriptor);
             }
         }
@@ -246,6 +368,26 @@ impl MirUnitBuilder {
         self.storages.push(MirStorage::new(source, kind, ty));
 
         Ok(id)
+    }
+
+    /// Changes a storage allocation's role while retaining its identity, type, and provenance.
+    pub fn replace_storage_kind(
+        &mut self,
+        storage: MirStorageId,
+        kind: MirStorageKind,
+    ) -> Result<(), MirUnitBuildError> {
+        if storage.unit() != self.unit {
+            return Err(MirUnitBuildError::ForeignStorage(storage));
+        }
+
+        let existing = storage
+            .to_index()
+            .and_then(|index| self.storages.get_mut(index))
+            .ok_or(MirUnitBuildError::MissingStorage(storage))?;
+
+        *existing = MirStorage::new(existing.source().clone(), kind, existing.ty());
+
+        Ok(())
     }
 
     /// Adds one operation and its optional result value to a block.
@@ -466,6 +608,195 @@ mod tests {
     };
 
     #[test]
+    fn reopening_templates_preserves_identities_and_validates_replacements() {
+        let bound = test_bound_unit(19);
+        let source = MirSourceAnchor::from(bound.key().source());
+
+        let mut builder = MirUnitBuilder::for_bound(
+            bound.identity(),
+            MirUnitKind::Synchronous,
+            crate::test_support::test_target(),
+        );
+
+        let entry = builder
+            .push_block(source.clone(), MirBlockKind::Ordinary)
+            .unwrap();
+
+        let ty = crate::test_support::test_type();
+
+        let storage = builder
+            .push_storage(source.clone(), MirStorageKind::Temporary, ty)
+            .unwrap();
+
+        let place = MirPlace::new(storage, [], ty);
+
+        let effect = builder
+            .push_operation(
+                entry,
+                source.clone(),
+                MirOperationKind::Destroy(place.clone()),
+                None,
+            )
+            .unwrap();
+
+        builder
+            .set_terminator(entry, source.clone(), MirTerminatorKind::Return(None))
+            .unwrap();
+
+        let original = builder.finish(entry).unwrap();
+        let mut builder = MirUnitBuilder::from_unit(original.clone());
+        let terminator = builder.take_terminator(entry).unwrap();
+
+        assert_eq!(
+            builder.take_terminator(entry),
+            Err(MirUnitBuildError::MissingTerminator(entry))
+        );
+
+        assert!(builder.take_frame_descriptor().is_none());
+
+        let replacement = builder
+            .replace_effect(
+                effect.operation(),
+                MirOperationKind::Borrow {
+                    kind: BorrowKind::Mutable,
+                    place,
+                },
+                Some(ty),
+            )
+            .unwrap();
+
+        assert_eq!(replacement.operation(), effect.operation());
+        assert!(replacement.result().is_some());
+
+        assert_eq!(
+            builder.replace_effect(
+                effect.operation(),
+                MirOperationKind::Destroy(MirPlace::new(storage, [], ty)),
+                None
+            ),
+            Err(MirUnitBuildError::UnexpectedOperationResult(
+                effect.operation()
+            ))
+        );
+
+        builder
+            .set_terminator(entry, source, terminator.kind().clone())
+            .unwrap();
+
+        let rewritten = builder.finish(entry).unwrap();
+
+        assert_eq!(rewritten.entry(), original.entry());
+        assert_eq!(rewritten.key(), original.key());
+        assert_eq!(rewritten.storages(), original.storages());
+
+        assert_eq!(
+            rewritten.block(entry).unwrap().operations(),
+            original.block(entry).unwrap().operations()
+        );
+
+        assert!(matches!(
+            original.operation(effect.operation()).unwrap().kind(),
+            MirOperationKind::Destroy(_)
+        ));
+
+        assert!(matches!(
+            rewritten.operation(effect.operation()).unwrap().kind(),
+            MirOperationKind::Borrow { .. }
+        ));
+    }
+
+    #[test]
+    fn destructor_remainders_accept_only_receiver_destruction_roles() {
+        use crate::{MirAbandonmentAction, MirGeneratedLifecycleRole};
+
+        for role in [
+            MirGeneratedLifecycleRole::Finalize,
+            MirGeneratedLifecycleRole::StaticFinalize,
+            MirGeneratedLifecycleRole::Destroy,
+            MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation),
+            MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::LifecycleResolution),
+            MirGeneratedLifecycleRole::Abandon(MirAbandonmentAction::Quiesce),
+            MirGeneratedLifecycleRole::Abandon(MirAbandonmentAction::Destroy),
+            MirGeneratedLifecycleRole::Abandon(MirAbandonmentAction::Destructor),
+        ] {
+            let bound = test_bound_unit(20);
+            let source = MirSourceAnchor::from(bound.key().source());
+            let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
+
+            let entry = builder
+                .push_block(source.clone(), MirBlockKind::Ordinary)
+                .unwrap();
+
+            let broadcast = builder
+                .push_block(source.clone(), MirBlockKind::CleanupBroadcast)
+                .unwrap();
+
+            let cleanup = builder
+                .push_block(source.clone(), MirBlockKind::LifecycleResolution)
+                .unwrap();
+
+            let ty = crate::test_support::test_type();
+
+            let storage = builder
+                .push_storage(source.clone(), MirStorageKind::Temporary, ty)
+                .unwrap();
+
+            let operation = builder
+                .push_operation(
+                    cleanup,
+                    source.clone(),
+                    MirOperationKind::DestructorRemainder {
+                        role,
+                        place: MirPlace::new(storage, [], ty),
+                    },
+                    None,
+                )
+                .unwrap();
+
+            builder
+                .set_terminator(
+                    entry,
+                    source.clone(),
+                    MirTerminatorKind::BeginCleanup(MirCleanupEdge::new(
+                        MirCleanupPhase::TaskCancellation,
+                        MirEdge::new(broadcast, []),
+                    )),
+                )
+                .unwrap();
+
+            builder
+                .set_terminator(
+                    broadcast,
+                    source.clone(),
+                    MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
+                        MirCleanupPhase::LifecycleResolution,
+                        MirEdge::new(cleanup, []),
+                    )),
+                )
+                .unwrap();
+
+            builder
+                .set_terminator(cleanup, source, MirTerminatorKind::Return(None))
+                .unwrap();
+
+            let result = builder.finish(entry);
+
+            if matches!(
+                role,
+                MirGeneratedLifecycleRole::Destroy
+                    | MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::LifecycleResolution)
+            ) {
+                assert!(result.is_ok(), "{role:?}: {result:?}");
+            } else {
+                assert_eq!(
+                    result.unwrap_err(),
+                    MirUnitBuildError::InvalidDestructorRemainder(operation.operation())
+                );
+            }
+        }
+    }
+
+    #[test]
     fn compiler_provided_bodies_reject_other_declarations_and_source_anchors() {
         let definition = |ordinal| {
             bray_symbols::CallableDefinitionId::try_new(
@@ -483,6 +814,7 @@ mod tests {
         let mut builder = MirUnitBuilder::for_compiler_provided_callable(
             crate::MirUnitId::new(9),
             owner,
+            crate::MirUnitKind::Synchronous,
             crate::test_support::test_target(),
         );
 
@@ -517,6 +849,47 @@ mod tests {
             unit.source(),
             &crate::MirSourceOrigin::CompilerProvidedCallable(owner)
         );
+    }
+
+    #[test]
+    fn storage_role_replacement_preserves_identity_and_rejects_invalid_storage() {
+        let bound = test_bound_unit(4);
+        let source = MirSourceAnchor::from(bound.key().source());
+        let ty = crate::test_support::test_type();
+        let mut builder = unit_builder(&bound, MirUnitKind::Synchronous);
+        let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+
+        let storage = builder
+            .push_storage(source.clone(), MirStorageKind::Parameter(0), ty)
+            .unwrap();
+
+        builder
+            .replace_storage_kind(storage, MirStorageKind::Temporary)
+            .unwrap();
+
+        let missing = crate::MirStorageId::from_slot(storage.unit(), 9);
+        let foreign = crate::MirStorageId::from_slot(crate::MirUnitId::new(99), 0);
+
+        assert_eq!(
+            builder.replace_storage_kind(missing, MirStorageKind::Local),
+            Err(MirUnitBuildError::MissingStorage(missing))
+        );
+
+        assert_eq!(
+            builder.replace_storage_kind(foreign, MirStorageKind::Local),
+            Err(MirUnitBuildError::ForeignStorage(foreign))
+        );
+
+        builder
+            .set_terminator(entry, source.clone(), MirTerminatorKind::Return(None))
+            .unwrap();
+
+        let unit = builder.finish(entry).unwrap();
+        let stored = unit.storage(storage).unwrap();
+
+        assert_eq!(stored.kind(), &MirStorageKind::Temporary);
+        assert_eq!(stored.source(), &source);
+        assert_eq!(stored.ty(), ty);
     }
 
     #[test]
@@ -1227,6 +1600,72 @@ mod tests {
     }
 
     #[test]
+    fn generated_lifecycle_provenance_is_independent_of_frame_execution() {
+        let ty = crate::test_support::test_type();
+        let reference = crate::MirHelperReference::Finalize(ty);
+
+        let key = crate::MirUnitKey::GeneratedLifecycle(crate::MirGeneratedLifecycleKey::new(
+            crate::MirGeneratedLifecycleRole::Finalize,
+            [8; 32],
+        ));
+
+        let frame = ProtectedAsyncFrameId::new([9; 32]);
+
+        for execution in [None, Some(frame)] {
+            for attach_descriptor in [false, true] {
+                let source = MirSourceAnchor::generated_lifecycle(reference.clone());
+
+                let mut builder = MirUnitBuilder::for_generated_lifecycle(
+                    crate::MirUnitId::new(10),
+                    key.clone(),
+                    reference.clone(),
+                    execution,
+                    crate::test_support::test_target(),
+                );
+
+                let entry = builder
+                    .push_block(source.clone(), MirBlockKind::Ordinary)
+                    .unwrap();
+
+                builder
+                    .set_terminator(entry, source, MirTerminatorKind::Return(None))
+                    .unwrap();
+
+                if attach_descriptor {
+                    let result = builder.set_frame_descriptor(frame_descriptor(frame, entry, ty));
+
+                    if execution.is_none() {
+                        assert_eq!(result, Err(MirUnitBuildError::UnexpectedFrameDescriptor));
+
+                        continue;
+                    }
+
+                    result.unwrap();
+                }
+
+                let result = builder.finish(entry);
+
+                if execution.is_some() && !attach_descriptor {
+                    assert_eq!(result, Err(MirUnitBuildError::MissingFrameDescriptor));
+
+                    continue;
+                }
+
+                let unit = result.unwrap();
+
+                assert_eq!(unit.key(), &key);
+
+                assert_eq!(
+                    unit.source(),
+                    &crate::MirSourceOrigin::GeneratedLifecycle(reference.clone())
+                );
+
+                assert_eq!(unit.kind().protected_frame(), execution);
+            }
+        }
+    }
+
+    #[test]
     fn mir_units_are_safe_to_share_between_workers() {
         fn assert_send_sync<T: Send + Sync>() {}
 
@@ -1235,6 +1674,129 @@ mod tests {
         assert_send_sync::<crate::MirOperationId>();
         assert_send_sync::<crate::MirStorageId>();
         assert_send_sync::<crate::MirValueId>();
+    }
+
+    #[test]
+    fn shielded_suspension_preserves_the_lifecycle_phase() {
+        let kinds = [
+            MirBlockKind::Ordinary,
+            MirBlockKind::CleanupBroadcast,
+            MirBlockKind::LifecycleResolution,
+        ];
+
+        for current_kind in kinds {
+            for resume_kind in kinds {
+                let bound = test_bound_unit(11);
+                let source = MirSourceAnchor::from(bound.key().source());
+                let frame = ProtectedAsyncFrameId::new([11; 32]);
+                let ty = crate::test_support::test_type();
+                let abi = RuntimeAbiVersion::new(1, 0);
+                let mut builder = unit_builder(&bound, MirUnitKind::ProtectedAsyncFrame(frame));
+                let entry = push_block(&mut builder, source.clone(), MirBlockKind::Ordinary);
+                let current = push_block(&mut builder, source.clone(), current_kind);
+                let resume = push_block(&mut builder, source.clone(), resume_kind);
+
+                let entry_edge = match current_kind {
+                    MirBlockKind::Ordinary => MirTerminatorKind::Goto(MirEdge::new(current, [])),
+                    MirBlockKind::CleanupBroadcast => {
+                        MirTerminatorKind::BeginCleanup(MirCleanupEdge::new(
+                            MirCleanupPhase::TaskCancellation,
+                            MirEdge::new(current, []),
+                        ))
+                    }
+                    MirBlockKind::LifecycleResolution => {
+                        let broadcast = push_block(
+                            &mut builder,
+                            source.clone(),
+                            MirBlockKind::CleanupBroadcast,
+                        );
+
+                        set_terminator(
+                            &mut builder,
+                            broadcast,
+                            source.clone(),
+                            MirTerminatorKind::ContinueCleanup(MirCleanupEdge::new(
+                                MirCleanupPhase::LifecycleResolution,
+                                MirEdge::new(current, []),
+                            )),
+                        );
+
+                        MirTerminatorKind::BeginCleanup(MirCleanupEdge::new(
+                            MirCleanupPhase::TaskCancellation,
+                            MirEdge::new(broadcast, []),
+                        ))
+                    }
+                };
+
+                set_terminator(&mut builder, entry, source.clone(), entry_edge);
+
+                set_terminator(
+                    &mut builder,
+                    current,
+                    source.clone(),
+                    MirTerminatorKind::Suspend {
+                        kind: crate::MirSuspensionKind::Awaited,
+                        payload: None,
+                        resume_state: MirFrameStateId::new(1),
+                        resume: MirEdge::new(resume, []),
+                        cancellation: None,
+                        registration: MirRuntimeReference::new(
+                            RuntimeAbiRole::SuspensionRegistration,
+                            abi,
+                        ),
+                        wake: MirRuntimeReference::new(RuntimeAbiRole::Wake, abi),
+                    },
+                );
+
+                set_terminator(
+                    &mut builder,
+                    resume,
+                    source,
+                    MirTerminatorKind::Return(None),
+                );
+
+                builder
+                    .set_frame_descriptor(
+                        MirFrameDescriptor::try_new(
+                            frame,
+                            abi,
+                            ProtectedFrameAbiVersions::uniform(abi),
+                            ty,
+                            [
+                                MirFrameState::new(MirFrameStateId::new(0), entry, [], []),
+                                MirFrameState::new(MirFrameStateId::new(1), resume, [], []),
+                            ],
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap();
+
+                let result = builder.finish(entry);
+
+                if current_kind != MirBlockKind::LifecycleResolution {
+                    assert_eq!(
+                        result,
+                        Err(MirUnitBuildError::CleanupPhaseOrderViolation(current))
+                    );
+                } else if resume_kind != current_kind {
+                    assert_eq!(
+                        result,
+                        Err(MirUnitBuildError::CleanupPhaseOrderViolation(resume))
+                    );
+                } else {
+                    let unit = result.unwrap();
+                    let mut successors = Vec::new();
+
+                    unit.block(current)
+                        .unwrap()
+                        .terminator()
+                        .kind()
+                        .for_each_successor(|block| successors.push(block));
+
+                    assert_eq!(successors, [resume]);
+                }
+            }
+        }
     }
 
     fn unit_builder(bound: &bray_bound_tree::BoundUnit, kind: MirUnitKind) -> MirUnitBuilder {

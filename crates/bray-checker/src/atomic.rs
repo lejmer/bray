@@ -361,7 +361,7 @@ where
                     .map(AtomicGenericArgument::Order))
             }
         })
-        .collect::<Result<Option<Vec<_>>, _>>()?;
+        .collect::<Result<Option<Vec<_>>, CheckerOutcome<CheckedMemoryOperations, C::UpstreamError>>>()?;
 
     Ok(parsed)
 }
@@ -454,10 +454,11 @@ where
 
     let representation = request
         .declared_type_representation(*definition)
-        .map_err(atomic_query_outcome)?;
+        .map_err(CheckerOutcome::from)?;
 
     // The support remains available to other consumers, so retain its diagnostics here.
     diagnostics.add_range(representation.diagnostics().clone());
+
     let representation = representation.value();
 
     if representation.is_recovered() || !representation.has_finite_size() {
@@ -477,7 +478,7 @@ where
     } else if representation.is_plain_storage() {
         request
             .plain_storage_atomic_representation(value)
-            .map_err(atomic_query_outcome)?
+            .map_err(CheckerOutcome::from)?
             .map(|target| {
                 AtomicRepresentationResolution::Known(AtomicValueRepresentation {
                     target,
@@ -516,7 +517,7 @@ where
 
     let constants = request
         .checked_constant_terms(member.ty())
-        .map_err(atomic_query_outcome)?;
+        .map_err(CheckerOutcome::from)?;
 
     // The support remains available to other consumers, so retain its diagnostics here.
     diagnostics.add_range(constants.diagnostics().clone());
@@ -541,18 +542,6 @@ where
         })?;
 
     atomic_value_representation(request, member_type, diagnostics, pending)
-}
-
-fn atomic_query_outcome<Upstream>(
-    error: crate::CheckerQueryError<Upstream>,
-) -> CheckerOutcome<CheckedMemoryOperations, Upstream> {
-    match error {
-        crate::CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-        crate::CheckerQueryError::Infrastructure(error) => {
-            CheckerOutcome::InfrastructureFailure(error)
-        }
-        crate::CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
-    }
 }
 
 fn atomic_value_type(arguments: &[AtomicGenericArgument]) -> Option<TypeId> {

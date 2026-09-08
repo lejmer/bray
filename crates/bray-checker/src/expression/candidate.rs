@@ -12,8 +12,8 @@ use bray_bound_tree::{
 };
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    AnySymbolId, CallableParameterMode, CallableSignatureQuery, CallableSymbolId,
-    CheckedConstraintKind, GenericConstraintObligationKey, GenericConstraintsQuery, GenericOwnerId,
+    AnySymbolId, CallableParameterMode, CallableSignatureQuery, CheckedConstraintKind,
+    GenericConstraintObligationKey, GenericConstraintsQuery, GenericOwnerId,
     ImplementationRequirementKey, ImplementationSelection, ProofOutcome, ReceiverMode,
     SymbolQueryRequest, TypeData, TypeExpressionTemplate, TypeId,
 };
@@ -455,8 +455,8 @@ where
     let mut active = BTreeSet::new();
 
     let Some(mut owner) = request
-        .containing_callable()
-        .map(CallableSymbolId::into_any)
+        .symbols()
+        .symbol_for_key(request.unit().key().declared_owner())
     else {
         return Ok(active);
     };
@@ -821,6 +821,7 @@ where
     let member = member_targets.get(&call.callee());
 
     let member_template = member
+        .filter(|_| !prepared.values.is_empty())
         .and_then(bray_bound_tree::MemberTarget::callable_template)
         .cloned()
         .map(|template| {
@@ -1331,11 +1332,7 @@ where
 
     let receiver = member
         .as_ref()
-        .and_then(|_| match request.view().expression(call.callee()) {
-            Some(BoundExpression::MemberAccess(member)) => Some(member.receiver()),
-            Some(BoundExpression::TraitQualifiedMember(member)) => Some(member.receiver()),
-            _ => None,
-        });
+        .and_then(|_| request.view().value_receiver(call.callee()));
 
     let receiver = receiver
         .map(|receiver| {
@@ -1595,9 +1592,9 @@ where
                 CallableParameterMode::Mutable => crate::ReceiverCapability::OwnedMutable,
             })
         }
-        BoundReferenceTarget::Local(_) | BoundReferenceTarget::Surface(_) => {
-            Ok(crate::ReceiverCapability::Owned)
-        }
+        BoundReferenceTarget::Local(_)
+        | BoundReferenceTarget::Surface(_)
+        | BoundReferenceTarget::TypeQualifier(_) => Ok(crate::ReceiverCapability::Owned),
     }
 }
 

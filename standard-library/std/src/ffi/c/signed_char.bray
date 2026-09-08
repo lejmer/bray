@@ -1,5 +1,5 @@
 @target(target.c.SIGNED_CHAR == "i8")
-module std.ffi.c;
+trusted module std.ffi.c;
 
 @copy
 @layout(transparent)

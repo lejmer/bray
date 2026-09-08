@@ -1,4 +1,4 @@
-module std.random;
+trusted module std.random;
 
 const SEED_BYTES: usize = 32;
 

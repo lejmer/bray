@@ -350,6 +350,13 @@ lifecycle entry points. An erased generic cleanup callback is insufficient.
 The baseline ABI supports co-allocation of the task control block and frame. Separate allocation is permitted as an
 implementation strategy but is not part of the source contract.
 
+Until publication succeeds, a caller-owned temporary retains the inactive frame. Admission failure branches into the
+caller's shielded cleanup with that temporary as an owned cleanup input, preserving capture quiescence before destruction.
+The native start boundary consumes frame ownership only when it reports successful publication.
+
+Independent-task limits govern new starts. Direct-await and cleanup continuations retain the admission of their existing
+run. A new source-level start requests independent admission even when it occurs inside a finalizer.
+
 The runtime can retain internal scheduler and wake references. Those references are not source owners, cannot detach the
 task, and cannot outlive terminal task storage except through the ABI's internal reclamation protocol.
 

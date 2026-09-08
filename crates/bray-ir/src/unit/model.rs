@@ -18,17 +18,61 @@ pub enum MirGeneratedLifecycleRole {
     StaticFinalize,
     /// Runs semantic destruction.
     Destroy,
+    /// Resolves one abandonment ownership step.
+    Abandon(crate::MirAbandonmentAction),
     /// Runs one checked cleanup phase.
     Cleanup(MirCleanupPhase),
 }
 
 impl MirGeneratedLifecycleRole {
+    /// Returns the stable inspection and diagnostic tag for this lifecycle role.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Finalize => "finalize",
+            Self::StaticFinalize => "static_finalize",
+            Self::Destroy => "destroy",
+            Self::Cleanup(MirCleanupPhase::TaskCancellation) => "cleanup_task_cancellation",
+            Self::Cleanup(MirCleanupPhase::LifecycleResolution) => "cleanup_lifecycle_resolution",
+            Self::Abandon(crate::MirAbandonmentAction::Quiesce) => "abandon_quiesce",
+            Self::Abandon(crate::MirAbandonmentAction::Destroy) => "abandon_destroy",
+            Self::Abandon(crate::MirAbandonmentAction::Destructor) => "abandon_destructor",
+        }
+    }
+
+    /// Returns the helper's execution mode from independently checked lifecycle steps.
+    pub fn execution(
+        self,
+        cleanup: &bray_bound_tree::StorageCleanupType,
+    ) -> Option<bray_symbols::CallableExecution> {
+        match self {
+            Self::Finalize => cleanup.finalization_execution(),
+            Self::Destroy => cleanup.destruction_execution(),
+            Self::Abandon(action) => action.execution(cleanup),
+            Self::Cleanup(MirCleanupPhase::LifecycleResolution) => cleanup.lifecycle_execution(),
+            Self::StaticFinalize | Self::Cleanup(MirCleanupPhase::TaskCancellation) => {
+                Some(bray_symbols::CallableExecution::Synchronous)
+            }
+        }
+    }
+
+    /// Selects the helper implementing this role for one semantic type.
+    pub const fn reference(self, ty: bray_symbols::TypeId) -> MirHelperReference {
+        match self {
+            Self::Finalize => MirHelperReference::Finalize(ty),
+            Self::StaticFinalize => MirHelperReference::StaticFinalize(ty),
+            Self::Destroy => MirHelperReference::Destroy(ty),
+            Self::Abandon(action) => MirHelperReference::Abandon { action, ty },
+            Self::Cleanup(phase) => MirHelperReference::Cleanup { phase, ty },
+        }
+    }
+
     /// Returns the stable role represented by an exact lifecycle helper reference.
     pub const fn from_reference(reference: &MirHelperReference) -> Option<Self> {
         match reference {
             MirHelperReference::Finalize(_) => Some(Self::Finalize),
             MirHelperReference::StaticFinalize(_) => Some(Self::StaticFinalize),
             MirHelperReference::Destroy(_) => Some(Self::Destroy),
+            MirHelperReference::Abandon { action, .. } => Some(Self::Abandon(*action)),
             MirHelperReference::Cleanup { phase, .. } => Some(Self::Cleanup(*phase)),
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::DeclaredCallable(_)
@@ -42,9 +86,7 @@ impl MirGeneratedLifecycleRole {
             | MirHelperReference::PanicReport
             | MirHelperReference::StandardLibrary(_)
             | MirHelperReference::CreateFrame(_)
-            | MirHelperReference::MoveInactiveFrame(_)
             | MirHelperReference::ComposeAwaitedFrame(_)
-            | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => None,
         }
     }
@@ -320,7 +362,8 @@ impl MirUnit {
             .and_then(|index| self.values.get(index))
     }
 
-    pub(crate) fn operand_type(
+    /// Resolves an operand's checked type, validating referenced values against this unit.
+    pub fn operand_type(
         &self,
         operand: &crate::MirOperand,
     ) -> Result<bray_symbols::TypeId, super::MirUnitBuildError> {

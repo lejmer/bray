@@ -360,7 +360,7 @@ fn capabilities(supports_thin_lto: bool) -> Result<BackendCapabilities, CodegenF
             ProductKind::Test,
         ],
         BackendTargetCapabilities::new(targets),
-        BackendRuntimeCapabilities::new([RuntimeAbiVersion::new(1, 0)], true, true),
+        BackendRuntimeCapabilities::new([RuntimeAbiVersion::CURRENT], true, true),
         BackendOptimizationCapabilities::new(
             [
                 OptimizationLevel::None,

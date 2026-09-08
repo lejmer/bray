@@ -8,6 +8,7 @@ mod expression;
 mod field;
 mod function;
 mod generic;
+mod guarantee;
 mod implementation;
 mod list;
 mod member;
@@ -207,4 +208,9 @@ pub use variant::{
     UnionPayloadFieldSyntaxBuilder, UnionVariantDeclarationSyntax,
     UnionVariantDeclarationSyntaxBuilder, UnionVariantPayloadSyntax,
     UnionVariantPayloadSyntaxBuilder, VariantDirectivesSyntax, VariantDirectivesSyntaxBuilder,
+};
+
+pub use guarantee::{
+    ExecutesClauseSyntax, ExecutesClauseSyntaxBuilder, ExecutionPropertySyntax,
+    ExecutionPropertySyntaxBuilder, WhenClauseSyntax, WhenClauseSyntaxBuilder,
 };

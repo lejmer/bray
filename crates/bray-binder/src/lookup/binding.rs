@@ -88,13 +88,13 @@ pub(crate) fn lookup_unqualified_name(
         current = unit.scope_parent(scope)?;
     }
 
-    let generic_lookup = symbols
+    let declaration_lookup = symbols
         .symbol_for_key(unit.key().declared_owner())
-        .map(|owner| lookup_visible_generic_parameter(symbols, owner, name))
+        .map(|owner| lookup_visible_contract_member(symbols, owner, name))
         .unwrap_or(MemberLookupResult::NotFound);
 
-    if !matches!(generic_lookup, MemberLookupResult::NotFound) {
-        return Ok(generic_lookup);
+    if !matches!(declaration_lookup, MemberLookupResult::NotFound) {
+        return Ok(declaration_lookup);
     }
 
     let module_lookup = module
@@ -111,7 +111,7 @@ pub(crate) fn lookup_unqualified_name(
     Ok(combine_name_lookups(module_lookup, ambient_lookup))
 }
 
-fn lookup_visible_generic_parameter(
+fn lookup_visible_contract_member(
     symbols: &SymbolGraph,
     owner: AnySymbolId,
     name: &str,
@@ -124,7 +124,13 @@ fn lookup_visible_generic_parameter(
                 match candidate {
                     ResolvedName::Surface(
                         AnySymbolId::GenericTypeParameter(_)
-                        | AnySymbolId::GenericConstParameter(_),
+                        | AnySymbolId::GenericConstParameter(_)
+                        | AnySymbolId::TraitPredicateMember(_)
+                        | AnySymbolId::TraitPredicateFulfillment(_)
+                        | AnySymbolId::TraitConstantMember(_)
+                        | AnySymbolId::TraitConstantFulfillment(_)
+                        | AnySymbolId::TraitTypeMember(_)
+                        | AnySymbolId::TraitTypeFulfillment(_),
                     ) => Some(candidate),
                     ResolvedName::Local(_) | ResolvedName::Surface(_) => None,
                 }

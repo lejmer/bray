@@ -12,6 +12,14 @@ struct Directory
     internal mut state: std.memory.RawBuffer<u64>;
     internal mut first: u8;
     internal mut is_open: bool;
+    predicate complete(value: &Self) = !value.is_open;
+
+    func is_complete() -> bool
+        executes(pure, total)
+        ensures(!result || Self.complete(&self), result || !Self.complete(&self))
+    {
+        return !self.is_open;
+    }
 
     construct open(pos path: &std.path.Path) -> Result<Self, std.io.IoError>
         requires(blocking_execution())
@@ -43,8 +51,18 @@ struct Directory
     }
 
     trusted finalize() -> Result<unit, std.io.IoError>
-        requires(blocking_execution())
+        requires(Self.complete(&self) || blocking_execution())
+        when(Self.complete(&self))
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
     {
+        if !self.is_open
+        {
+            return Ok(unit);
+        }
+
         return trusted close_directory(&mut self);
     }
 
@@ -77,14 +95,16 @@ struct Directory
         return self.next();
     }
 
-    consume mut func close() -> Result<unit, std.io.IoError>
+    mut func close() -> Result<unit, std.io.IoError>
         requires(blocking_execution())
+        ensures((result matches Error(_)) || Self.complete(&self))
     {
         return trusted close_directory(&mut self);
     }
 
-    consume mut async func close_async() -> Result<unit, std.io.IoError>
+    mut async func close_async() -> Result<unit, std.io.IoError>
         requires(blocking_execution())
+        ensures((result matches Error(_)) || Self.complete(&self))
     {
         return self.close();
     }
@@ -92,15 +112,12 @@ struct Directory
 
 trusted internal func close_directory(pos directory: &mut Directory) -> Result<unit, std.io.IoError>
     requires(blocking_execution())
+    ensures((result matches Error(_)) || Directory.complete(&directory))
 {
     if !directory.is_open
     {
         return Ok(unit);
     }
 
-    try trusted platform_directory_close(handle = directory.handle);
-
-    directory.is_open = false;
-
-    return Ok(unit);
+    return trusted platform_directory_close(directory);
 }

@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::path::Path;
 
 use bray_parser::{
     DeclarationFragmentContext, DeclarationFragmentSyntax, parse_declaration_fragment,
@@ -16,7 +15,7 @@ use super::{
     CatalogSurfaceToken, CatalogTypeSurface, CatalogTypeSurfaceSyntax, build_catalog,
     generator_input_inventory,
 };
-use crate::catalog_digest::source_digest;
+use crate::catalog_digest::source_digest_with;
 
 const MANIFEST: &str = include_str!("../../catalog/catalog.braydef-manifest");
 
@@ -25,15 +24,17 @@ const MANIFEST: &str = include_str!("../../catalog/catalog.braydef-manifest");
 pub enum CatalogGenerationError {
     /// Catalog parsing or structural validation failed.
     Catalog(CatalogDiagnostics),
-    /// One canonical catalog input could not be read for digesting.
-    Io(std::io::Error),
+    /// A manifested input is absent from the embedded generation inventory.
+    MissingSource(String),
 }
 
 impl std::fmt::Display for CatalogGenerationError {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Catalog(diagnostics) => write!(formatter, "{diagnostics:#?}"),
-            Self::Io(error) => error.fmt(formatter),
+            Self::MissingSource(path) => {
+                write!(formatter, "missing embedded catalog source: {path}")
+            }
         }
     }
 }
@@ -43,12 +44,6 @@ impl std::error::Error for CatalogGenerationError {}
 impl From<CatalogDiagnostics> for CatalogGenerationError {
     fn from(diagnostics: CatalogDiagnostics) -> Self {
         Self::Catalog(diagnostics)
-    }
-}
-
-impl From<std::io::Error> for CatalogGenerationError {
-    fn from(error: std::io::Error) -> Self {
-        Self::Io(error)
     }
 }
 
@@ -80,17 +75,19 @@ impl GeneratedCatalogOutput {
 /// Parses, validates, and deterministically renders the canonical catalog.
 pub fn generate_catalog_output() -> Result<GeneratedCatalogOutput, CatalogGenerationError> {
     let mut validator = BrayFragmentValidator::default();
-    let mut catalog = build_catalog(generator_input_inventory(), &mut validator)?;
+    let inventory = generator_input_inventory();
+    let mut catalog = build_catalog(inventory, &mut validator)?;
 
     let (declaration_surfaces, type_surfaces) = validator.into_surfaces();
 
-    let catalog_directory = Path::new(env!("CARGO_MANIFEST_DIR")).join("catalog");
-
-    let digest = source_digest(
-        crate::CatalogGrammarRevision::SUPPORTED,
-        MANIFEST,
-        &catalog_directory,
-    )?;
+    let digest = source_digest_with(crate::CatalogGrammarRevision::SUPPORTED, MANIFEST, |path| {
+        inventory
+            .sources()
+            .iter()
+            .find(|source| source.relative_path().strip_prefix("catalog/") == Some(path))
+            .map(|source| source.text().as_bytes())
+            .ok_or_else(|| CatalogGenerationError::MissingSource(path.to_owned()))
+    })?;
 
     catalog.declaration_surfaces = declaration_surfaces.into();
     catalog.type_surfaces = type_surfaces.into();

@@ -1,5 +1,5 @@
 @target(target.c.UNSIGNED_LONG_LONG == "u64")
-module std.ffi.c;
+trusted module std.ffi.c;
 
 @copy
 @layout(transparent)

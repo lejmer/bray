@@ -189,7 +189,11 @@ impl GenericSubstitutionData {
             .map(|binding| binding.argument)
     }
 
-    pub(super) fn with_owner(&self, owner: GenericOwnerId) -> Self {
+    /// Retains the exact parameter bindings for an application of another declaration.
+    ///
+    /// This preserves parameter identities and does not rename or reorder them. The caller must
+    /// supply bindings appropriate to the selected declaration and its enclosing generic context.
+    pub fn with_owner(&self, owner: GenericOwnerId) -> Self {
         Self {
             owner,
             bindings: Arc::clone(&self.bindings),

@@ -465,17 +465,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "index.byte_offset",
         ))?;
 
-        let address = llvm(
-            self.builder
-                .build_ptr_to_int(pointer, integer_type, "index.base"),
-        )?;
-
-        let address = llvm(self.builder.build_int_add(address, offset, "index.address"))?;
-
-        llvm(
-            self.builder
-                .build_int_to_ptr(address, pointer.get_type(), "index.pointer"),
-        )
+        super::support::offset_pointer(&self.builder, pointer, offset)
     }
 
     pub(super) fn pointer_sized_integer(

@@ -62,13 +62,6 @@ pub(in crate::compilation::implementation::conformance) enum GenericConstraintMi
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(in crate::compilation::implementation::conformance) enum CallableContractSurface {
-    InvocationPreconditions,
-    StaticConstraints,
-    CompletionPostconditions,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(in crate::compilation::implementation::conformance) enum CallableContractClauseCategory {
     Predicate,
     TraitSatisfaction,
@@ -92,31 +85,26 @@ pub(in crate::compilation::implementation::conformance) enum CallableBehaviorCom
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(in crate::compilation::implementation::conformance) enum CallableContractMismatch {
+    ConditionImplication(bray_checker::CallableConditionMismatch),
     ClauseCount {
-        surface: CallableContractSurface,
         required: usize,
         provided: usize,
     },
     ClauseOrdinal {
-        surface: CallableContractSurface,
         index: usize,
     },
     ClauseKind {
-        surface: CallableContractSurface,
         index: usize,
     },
     ClauseCategory {
-        surface: CallableContractSurface,
         index: usize,
         required: CallableContractClauseCategory,
         provided: CallableContractClauseCategory,
     },
     PredicateDependencies {
-        surface: CallableContractSurface,
         index: usize,
     },
     TraitSatisfaction {
-        surface: CallableContractSurface,
         index: usize,
     },
     Behavior {

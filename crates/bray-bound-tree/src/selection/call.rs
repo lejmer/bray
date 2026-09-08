@@ -206,6 +206,44 @@ impl SelectedCall {
         &self.arguments
     }
 
+    /// Returns argument mappings in declaration parameter order, excluding the receiver.
+    /// Evaluation order remains available through `arguments`.
+    pub fn parameter_arguments(&self) -> Vec<&SelectedArgument> {
+        let mut arguments = self.arguments().iter().collect::<Vec<_>>();
+
+        arguments.sort_unstable_by_key(|argument| match argument {
+            SelectedArgument::Explicit { ordinal, .. }
+            | SelectedArgument::Default { ordinal, .. } => *ordinal,
+        });
+
+        arguments
+    }
+
+    /// Returns explicit value inputs in parameter order, with the receiver first.
+    /// Returns `None` when a declaration-owned default must supply an input.
+    pub fn explicit_inputs(&self) -> Option<Vec<(BoundExpressionId, Option<&SelectedConversion>)>> {
+        let arguments = self
+            .parameter_arguments()
+            .into_iter()
+            .map(|argument| match argument {
+                SelectedArgument::Explicit {
+                    expression,
+                    conversion,
+                    ..
+                } => Some((*expression, Some(conversion))),
+                SelectedArgument::Default { .. } => None,
+            })
+            .collect::<Option<Vec<_>>>()?;
+
+        Some(
+            self.receiver()
+                .map(|receiver| (receiver.expression(), None))
+                .into_iter()
+                .chain(arguments)
+                .collect(),
+        )
+    }
+
     /// Returns exact implementation requirements and witnesses in canonical order.
     pub fn witnesses(&self) -> &[SelectedImplementationWitness] {
         &self.witnesses

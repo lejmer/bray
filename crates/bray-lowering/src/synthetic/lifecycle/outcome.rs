@@ -53,11 +53,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let outcome = self.cleanup_outcome(builder, block, source)?;
 
         for operation in operations {
-            self.push_lifecycle_operation(builder, block, source, operation)?;
-
-            block = outcome
-                .check(builder, block, source)
-                .map_err(|cause| self.mir_error(source, cause))?;
+            block = self.resolve_lifecycle_action(builder, block, source, operation, &outcome)?;
         }
 
         self.finish_cleanup_outcome(builder, block, source, &outcome)

@@ -55,7 +55,7 @@ impl Lowerer<'_> {
                         let operand_type = self.expression_type(operand)?;
 
                         let value = match self.input.expression_types().callable_result_type() {
-                            Some(result_type) => self.adapt_nullable_present(
+                            Some(result_type) => self.adapt_value(
                                 operand,
                                 current,
                                 Self::retained_source(&source),
@@ -218,7 +218,7 @@ impl Lowerer<'_> {
 
         let operand_type = self.expression_type(operand)?;
 
-        self.adapt_nullable_present(
+        self.adapt_value(
             operand,
             current,
             Self::retained_source(source),

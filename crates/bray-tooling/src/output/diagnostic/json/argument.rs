@@ -1,6 +1,8 @@
 use bray_diagnostics::DiagnosticArgValue;
 use serde::Serialize;
 
+use super::checking::DiagnosticCallableContractMismatchJson;
+
 use super::emission::{
     DiagnosticEmissionFieldJson, checker_failure_context, diagnostic_failure_context,
     fact_runtime_failure_context, foreign_query_failure_context, lowering_failure_context,
@@ -121,6 +123,7 @@ pub(in crate::output::diagnostic::json) enum DiagnosticArgValueJson {
     NativeSymbolDirectiveProblem(DiagnosticProblemJson),
     PlatformServiceSignatureProblem(DiagnosticProblemJson),
     TraitFulfillmentMismatch(DiagnosticTraitFulfillmentMismatchJson),
+    CallableContractMismatch(DiagnosticCallableContractMismatchJson),
     ImplementationOverloadProblem(DiagnosticImplementationOverloadProblemJson),
     CallableOverloadProblem(DiagnosticCallableOverloadProblemJson),
     ExpressionCategory(&'static str),
@@ -140,6 +143,7 @@ pub(in crate::output::diagnostic::json) enum DiagnosticArgValueJson {
 }
 
 impl DiagnosticArgValueJson {
+    // rust-style: allow(function-too-large, reason = "exhaustive argument-to-JSON variant mapping is one flat catalog with domain conversions delegated to their owning helpers")
     pub(in crate::output::diagnostic::json) fn from_value(
         value: &DiagnosticArgValue,
         source_map: &DiagnosticSourceMap<'_>,
@@ -333,6 +337,11 @@ impl DiagnosticArgValueJson {
             DiagnosticArgValue::TraitFulfillmentMismatch(mismatch) => {
                 Self::TraitFulfillmentMismatch(
                     DiagnosticTraitFulfillmentMismatchJson::from_mismatch(mismatch),
+                )
+            }
+            DiagnosticArgValue::CallableContractMismatch(mismatch) => {
+                Self::CallableContractMismatch(
+                    DiagnosticCallableContractMismatchJson::from_mismatch(mismatch),
                 )
             }
             DiagnosticArgValue::ImplementationOverloadProblem(problem) => {

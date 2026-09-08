@@ -357,6 +357,44 @@ impl AsyncScopeExitPlan {
     }
 }
 
+/// Cleanup of the values owned by an async call before its body has entered.
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
+pub struct AsyncCaptureCleanup {
+    captures: Arc<[StorageAccessId]>,
+    execution: Option<bray_symbols::CallableExecution>,
+    is_recovered: bool,
+}
+
+impl AsyncCaptureCleanup {
+    /// Creates a dependency-ordered capture plan with its checked execution requirement.
+    pub fn new(
+        captures: impl IntoIterator<Item = StorageAccessId>,
+        execution: Option<bray_symbols::CallableExecution>,
+        is_recovered: bool,
+    ) -> Self {
+        Self {
+            captures: shared_slice(captures),
+            execution,
+            is_recovered,
+        }
+    }
+
+    /// Returns initialized entry captures in cleanup dependency order.
+    pub fn captures(&self) -> &[StorageAccessId] {
+        &self.captures
+    }
+
+    /// Returns whether resolving the captures can suspend, once all types are known.
+    pub const fn execution(&self) -> Option<bray_symbols::CallableExecution> {
+        self.execution
+    }
+
+    /// Returns whether recovery prevented a complete capture plan.
+    pub const fn is_recovered(&self) -> bool {
+        self.is_recovered
+    }
+}
+
 /// A malformed async analysis table.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum AsyncAnalysisBuildError {
@@ -378,6 +416,7 @@ pub struct CheckedAsync {
     cleanup_types: Arc<[crate::StorageCleanupType]>,
     scope_exits: Arc<[AsyncScopeExitPlan]>,
     replacements: Arc<[crate::StorageReplacementPlan]>,
+    capture_cleanup: Option<AsyncCaptureCleanup>,
     is_recovered: bool,
 }
 
@@ -469,8 +508,37 @@ impl CheckedAsync {
             cleanup_types,
             scope_exits,
             replacements: Arc::from([]),
+            capture_cleanup: None,
             is_recovered,
         })
+    }
+
+    /// Attaches cleanup for the inactive computation's initialized captures.
+    pub fn with_capture_cleanup(
+        mut self,
+        cleanup: Option<AsyncCaptureCleanup>,
+    ) -> Result<Self, AsyncAnalysisBuildError> {
+        if cleanup.as_ref().is_some_and(|cleanup| {
+            cleanup
+                .captures()
+                .iter()
+                .any(|access| access.unit() != self.unit)
+        }) {
+            return Err(AsyncAnalysisBuildError::ForeignUnit);
+        }
+
+        self.is_recovered |= cleanup
+            .as_ref()
+            .is_some_and(AsyncCaptureCleanup::is_recovered);
+
+        self.capture_cleanup = cleanup;
+
+        Ok(self)
+    }
+
+    /// Returns the cleanup required if ownership ends before the async body starts.
+    pub const fn capture_cleanup(&self) -> Option<&AsyncCaptureCleanup> {
+        self.capture_cleanup.as_ref()
     }
 
     /// Adds complete replacement cleanup selections in source-identity order.
@@ -629,6 +697,59 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<CheckedAsync>();
+    }
+
+    #[test]
+    fn inactive_capture_plans_preserve_order_and_recovery_and_reject_foreign_units() {
+        let unit = BoundUnitId::new(7);
+        let second = StorageAccessId::from_slot(unit, 2);
+        let first = StorageAccessId::from_slot(unit, 1);
+
+        let analysis = CheckedAsync::try_new(
+            unit,
+            BoundUnitKind::CallableBody,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+        )
+        .unwrap();
+
+        for recovered in [false, true] {
+            let cleanup = super::AsyncCaptureCleanup::new(
+                [second, first],
+                Some(bray_symbols::CallableExecution::Asynchronous),
+                recovered,
+            );
+
+            let checked = analysis
+                .clone()
+                .with_capture_cleanup(Some(cleanup))
+                .unwrap();
+
+            assert_eq!(
+                checked.capture_cleanup().unwrap().captures(),
+                &[second, first]
+            );
+
+            assert_eq!(
+                checked.capture_cleanup().unwrap().execution(),
+                Some(bray_symbols::CallableExecution::Asynchronous)
+            );
+
+            assert_eq!(checked.is_recovered(), recovered);
+        }
+
+        let foreign = StorageAccessId::from_slot(BoundUnitId::new(8), 0);
+        let cleanup = super::AsyncCaptureCleanup::new([foreign], None, false);
+
+        assert_eq!(
+            analysis.with_capture_cleanup(Some(cleanup)),
+            Err(super::AsyncAnalysisBuildError::ForeignUnit)
+        );
     }
 
     #[test]

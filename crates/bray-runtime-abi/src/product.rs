@@ -1,4 +1,5 @@
-use super::runtime::{NativeRuntimeStatus, NativeSourceAnchor};
+use super::cleanup::NativeCleanupExecution;
+use super::runtime::{NativeBrayCallOutcome, NativeRuntimeStatus, NativeSourceAnchor};
 
 /// Version of the native product-host descriptor and static-entry records.
 pub const PRODUCT_HOST_ABI_VERSION: u32 = 1;
@@ -171,17 +172,68 @@ impl NativeProductHostOperation {
 pub type NativeStaticAccessCallback = extern "C" fn() -> usize;
 
 /// Compiler-generated callback cleaning one initialized static instance.
-pub type NativeStaticCleanupCallback = extern "C-unwind" fn();
+pub type NativeStaticCleanupCallback = extern "C-unwind" fn() -> NativeBrayCallOutcome;
 
 /// Compiler-generated callback starting finalization into caller-owned storage.
 pub type NativeStaticFinalizerStartCallback =
-    extern "C-unwind" fn(usize) -> NativeStaticFinalizerStatus;
+    extern "C-unwind" fn(usize, &mut NativeBrayCallOutcome) -> NativeStaticFinalizerStatus;
 
-/// Compiler-generated callback reporting one owned cleanup incident payload.
-pub type NativeCleanupIncidentReportCallback = extern "C-unwind" fn(usize) -> NativeRuntimeStatus;
+/// Callback borrowing one incident's metadata and owned payload for reporting.
+pub type NativeCleanupIncidentReportCallback =
+    extern "C-unwind" fn(&NativeCleanupIncident) -> NativeRuntimeStatus;
 
 /// Compiler-generated callback destroying and releasing one owned cleanup incident payload.
-pub type NativeCleanupIncidentDestroyCallback = extern "C-unwind" fn(usize);
+pub type NativeCleanupIncidentDestroyCallback =
+    extern "C-unwind" fn(usize) -> NativeBrayCallOutcome;
+
+/// Compiler-selected operations over one opaque panic-report representation.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct NativePanicReportCallbacks {
+    report: extern "C-unwind" fn(usize) -> NativeRuntimeStatus,
+    destroy: extern "C-unwind" fn(usize) -> NativeRuntimeStatus,
+    construct_cleanup: extern "C" fn(&NativeCleanupIncident) -> usize,
+    suppress: extern "C" fn(usize, usize) -> usize,
+}
+
+impl NativePanicReportCallbacks {
+    /// Supplies reporting, destruction, cleanup wrapping, and ordered report composition.
+    /// Construction consumes the incident payload and returns an owned report. Suppression consumes
+    /// both reports, preserves the first report as primary, and returns their combined owner.
+    pub const fn new(
+        report: extern "C-unwind" fn(usize) -> NativeRuntimeStatus,
+        destroy: extern "C-unwind" fn(usize) -> NativeRuntimeStatus,
+        construct_cleanup: extern "C" fn(&NativeCleanupIncident) -> usize,
+        suppress: extern "C" fn(usize, usize) -> usize,
+    ) -> Self {
+        Self {
+            report,
+            destroy,
+            construct_cleanup,
+            suppress,
+        }
+    }
+
+    /// Returns the operation reporting a live payload without releasing it.
+    pub const fn report(self) -> extern "C-unwind" fn(usize) -> NativeRuntimeStatus {
+        self.report
+    }
+
+    /// Returns the operation consuming and releasing the exact payload representation.
+    pub const fn destroy(self) -> extern "C-unwind" fn(usize) -> NativeRuntimeStatus {
+        self.destroy
+    }
+
+    /// Returns the consuming operation that wraps an error in its report representation.
+    pub const fn construct_cleanup(self) -> extern "C" fn(&NativeCleanupIncident) -> usize {
+        self.construct_cleanup
+    }
+
+    /// Returns the consuming operation that appends a secondary report to the primary report.
+    pub const fn suppress(self) -> extern "C" fn(usize, usize) -> usize {
+        self.suppress
+    }
+}
 
 /// Owned type-erased finalizer error transferred to its cleanup domain.
 #[repr(C)]
@@ -192,6 +244,7 @@ pub struct NativeCleanupIncident {
     source: NativeSourceAnchor,
     report: NativeCleanupIncidentReportCallback,
     destroy: NativeCleanupIncidentDestroyCallback,
+    panics: NativePanicReportCallbacks,
 }
 
 impl NativeCleanupIncident {
@@ -202,6 +255,7 @@ impl NativeCleanupIncident {
         source: NativeSourceAnchor,
         report: NativeCleanupIncidentReportCallback,
         destroy: NativeCleanupIncidentDestroyCallback,
+        panics: NativePanicReportCallbacks,
     ) -> Self {
         Self {
             payload,
@@ -209,6 +263,7 @@ impl NativeCleanupIncident {
             source,
             report,
             destroy,
+            panics,
         }
     }
 
@@ -241,35 +296,16 @@ impl NativeCleanupIncident {
     pub const fn destroy(self) -> NativeCleanupIncidentDestroyCallback {
         self.destroy
     }
+
+    /// Returns ownership operations for panics produced while destroying this payload.
+    pub const fn panics(self) -> NativePanicReportCallbacks {
+        self.panics
+    }
 }
 
 /// Compiler-generated callback consuming one completed finalizer result.
 pub type NativeStaticFinalizerResolveCallback =
-    extern "C-unwind" fn(usize, usize) -> NativeStaticFinalizerStatus;
-
-/// How one static finalizer reaches completion.
-#[repr(transparent)]
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct NativeStaticFinalizerExecution(u32);
-
-impl NativeStaticFinalizerExecution {
-    /// The static has no semantic finalizer.
-    pub const NONE: Self = Self(0);
-    /// Finalization completes during its start callback.
-    pub const SYNCHRONOUS: Self = Self(1);
-    /// Finalization produces an inactive protected frame.
-    pub const ASYNCHRONOUS: Self = Self(2);
-
-    /// Returns whether the value belongs to this ABI version.
-    pub const fn is_known(self) -> bool {
-        matches!(self.0, 0..=2)
-    }
-
-    /// Returns the stable integer representation.
-    pub const fn code(self) -> u32 {
-        self.0
-    }
-}
+    extern "C-unwind" fn(usize, usize, &mut NativeBrayCallOutcome) -> NativeStaticFinalizerStatus;
 
 /// Outcome of consuming one completed static finalizer result.
 #[repr(transparent)]
@@ -297,22 +333,24 @@ impl NativeStaticFinalizerStatus {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct NativeStaticFinalizer {
-    execution: NativeStaticFinalizerExecution,
+    execution: NativeCleanupExecution,
     reserved: u32,
     result_size: usize,
     result_alignment: usize,
     start: NativeStaticFinalizerStartCallback,
     resolve: NativeStaticFinalizerResolveCallback,
+    panics: NativePanicReportCallbacks,
 }
 
 impl NativeStaticFinalizer {
     /// Creates one immutable compiler-generated finalizer contract.
     pub const fn new(
-        execution: NativeStaticFinalizerExecution,
+        execution: NativeCleanupExecution,
         result_size: usize,
         result_alignment: usize,
         start: NativeStaticFinalizerStartCallback,
         resolve: NativeStaticFinalizerResolveCallback,
+        panics: NativePanicReportCallbacks,
     ) -> Self {
         Self {
             execution,
@@ -321,11 +359,12 @@ impl NativeStaticFinalizer {
             result_alignment,
             start,
             resolve,
+            panics,
         }
     }
 
     /// Returns how finalization reaches completion.
-    pub const fn execution(self) -> NativeStaticFinalizerExecution {
+    pub const fn execution(self) -> NativeCleanupExecution {
         self.execution
     }
 
@@ -347,6 +386,11 @@ impl NativeStaticFinalizer {
     /// Returns the callback consuming the completed result.
     pub const fn resolve(self) -> NativeStaticFinalizerResolveCallback {
         self.resolve
+    }
+
+    /// Returns ownership operations for panics produced by this static owner's cleanup.
+    pub const fn panics(self) -> NativePanicReportCallbacks {
+        self.panics
     }
 }
 
@@ -700,33 +744,59 @@ mod tests {
     #[test]
     fn product_host_records_keep_native_pointer_alignment() {
         assert_eq!(
-            std::mem::align_of::<NativeProductHostDescriptor>(),
-            std::mem::align_of::<usize>()
+            align_of::<NativeProductHostDescriptor>(),
+            align_of::<usize>()
+        );
+
+        assert_eq!(align_of::<NativeStaticHostEntry>(), align_of::<usize>());
+
+        assert_eq!(
+            align_of::<NativeThreadStaticCleanupRegistration>(),
+            align_of::<usize>()
         );
 
         assert_eq!(
-            std::mem::align_of::<NativeStaticHostEntry>(),
-            std::mem::align_of::<usize>()
+            align_of::<NativeProductHostObservation>(),
+            align_of::<usize>()
+        );
+
+        assert_eq!(align_of::<NativeCleanupIncident>(), align_of::<usize>());
+
+        assert_eq!(align_of::<NativeStaticFinalizer>(), align_of::<usize>());
+    }
+
+    #[test]
+    fn cleanup_records_append_panic_ownership_callbacks_without_changing_payload_offsets() {
+        use super::NativePanicReportCallbacks;
+        use std::mem::{offset_of, size_of};
+
+        let word = size_of::<usize>();
+
+        assert_eq!(size_of::<NativePanicReportCallbacks>(), 4 * word);
+        assert_eq!(offset_of!(NativePanicReportCallbacks, report), 0);
+        assert_eq!(offset_of!(NativePanicReportCallbacks, destroy), word);
+
+        assert_eq!(
+            offset_of!(NativePanicReportCallbacks, construct_cleanup),
+            2 * word
+        );
+
+        assert_eq!(offset_of!(NativePanicReportCallbacks, suppress), 3 * word);
+        assert_eq!(offset_of!(NativeStaticFinalizer, start), 8 + 2 * word);
+        assert_eq!(offset_of!(NativeStaticFinalizer, resolve), 8 + 3 * word);
+        assert_eq!(offset_of!(NativeStaticFinalizer, panics), 8 + 4 * word);
+        assert_eq!(size_of::<NativeStaticFinalizer>(), 8 + 8 * word);
+        assert_eq!(offset_of!(NativeCleanupIncident, payload), 0);
+        assert_eq!(offset_of!(NativeCleanupIncident, type_identity), word);
+
+        assert_eq!(
+            offset_of!(NativeCleanupIncident, panics),
+            offset_of!(NativeCleanupIncident, destroy) + word
         );
 
         assert_eq!(
-            std::mem::align_of::<NativeThreadStaticCleanupRegistration>(),
-            std::mem::align_of::<usize>()
-        );
-
-        assert_eq!(
-            std::mem::align_of::<NativeProductHostObservation>(),
-            std::mem::align_of::<usize>()
-        );
-
-        assert_eq!(
-            std::mem::align_of::<NativeCleanupIncident>(),
-            std::mem::align_of::<usize>()
-        );
-
-        assert_eq!(
-            std::mem::align_of::<NativeStaticFinalizer>(),
-            std::mem::align_of::<usize>()
+            size_of::<NativeCleanupIncident>(),
+            offset_of!(NativeCleanupIncident, panics) + 4 * word
         );
     }
 }

@@ -120,6 +120,16 @@ impl<T> CheckerOutcome<T> {
     }
 }
 
+impl<T, Upstream> From<crate::CheckerQueryError<Upstream>> for CheckerOutcome<T, Upstream> {
+    fn from(error: crate::CheckerQueryError<Upstream>) -> Self {
+        match error {
+            crate::CheckerQueryError::Cancelled => Self::Cancelled,
+            crate::CheckerQueryError::Infrastructure(error) => Self::InfrastructureFailure(error),
+            crate::CheckerQueryError::Upstream(error) => Self::UpstreamFailure(error),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bray_bound_tree::{BoundUnitId, BoundUnitKind, ControlCompletion, ControlCompletionKind};
@@ -127,6 +137,23 @@ mod tests {
 
     use super::{CheckerOutcome, ControlFlowCheckResult};
     use crate::CheckerInfrastructureError;
+
+    #[test]
+    fn query_failures_preserve_upstream_identity_and_cancellation() {
+        let upstream: CheckerOutcome<(), u32> = crate::CheckerQueryError::Upstream(17).into();
+        let cancelled: CheckerOutcome<(), u32> = crate::CheckerQueryError::Cancelled.into();
+
+        let error = CheckerInfrastructureError::MissingSource {
+            source_id: bray_source::SourceId::new(7),
+        };
+
+        let infrastructure: CheckerOutcome<(), u32> =
+            crate::CheckerQueryError::Infrastructure(error).into();
+
+        assert_eq!(upstream, CheckerOutcome::UpstreamFailure(17));
+        assert_eq!(cancelled, CheckerOutcome::Cancelled);
+        assert_eq!(infrastructure, CheckerOutcome::InfrastructureFailure(error));
+    }
 
     #[test]
     fn control_flow_results_keep_unit_category_completion_and_recovery_together() {

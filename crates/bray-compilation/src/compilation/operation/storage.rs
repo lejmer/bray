@@ -1,15 +1,14 @@
-use bray_binder::{BindingQueryContext, SymbolQueryProvider};
-use bray_checker::resolve_callable_signature_template;
+use bray_binder::BindingQueryContext;
 use bray_compiler_known::{CompilerKnownDeclarationKey, CompilerKnownOperationRole};
 use bray_diagnostics::{DiagnosticBag, DiagnosticResult};
 use bray_symbols::{
-    CallableInstanceData, CallableSignature, CallableSignatureQuery, GenericArgument,
-    GenericParameterSymbolId, ImplementationInstanceId, ImplementationRequirementKey,
-    ImplementationSelection, SymbolQueryRequest, TraitCallableMemberSymbolId, TypeId,
+    CallableInstanceData, CallableSignature, GenericArgument, GenericParameterSymbolId,
+    ImplementationInstanceId, ImplementationRequirementKey, ImplementationSelection,
+    TraitCallableMemberSymbolId, TypeId,
 };
 
 use super::super::Compilation;
-use super::super::binder::{CompilationBindingContext, binding_query_error};
+use super::super::binder::CompilationBindingContext;
 use super::super::implementation::{
     implementation_callable_instance, implementation_fulfillments, implementation_requirement,
 };
@@ -109,32 +108,11 @@ pub(in crate::compilation) fn selected_storage_callable(
     };
 
     let callable = callable.instance();
-
-    let signature = binding_context
-        .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
-            callable.definition().callable_symbol(),
-        ))
-        .map_err(binding_query_error)?;
+    let signature = super::signature::selected_callable_signature(binding_context, callable)?;
 
     diagnostics = diagnostics.merged(signature.diagnostics());
 
-    let checked = compilation.checked_constant_terms_for_templates_with_cancellation(
-        [
-            signature.value().callable_type(),
-            signature.value().result(),
-        ],
-        cancellation,
-    )?;
-
-    diagnostics = diagnostics.merged(checked.diagnostics());
-
-    let signature = resolve_callable_signature_template(
-        binding_context.semantic_values(),
-        signature.value(),
-        callable.substitution(),
-        checked.value(),
-    )
-    .map_err(FactQueryError::from)?;
+    let (signature, _) = signature.into_parts();
 
     let signature = signature
         .map(|signature| {

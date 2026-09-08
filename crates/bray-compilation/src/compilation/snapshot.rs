@@ -238,17 +238,7 @@ fn reuse_fixed_cells(
         CompilationFactKey::SemanticDiagnostics
     );
 
-    reuse!(
-        constant_template_keys,
-        CompilationFactKey::ConstantTemplateKeys
-    );
-
-    reuse!(callable_body_keys, CompilationFactKey::CallableBodyKeys);
-
-    reuse!(
-        predicate_definition_keys,
-        CompilationFactKey::PredicateDefinitionKeys
-    );
+    reuse!(declared_units, CompilationFactKey::DeclaredUnits);
 
     reuse!(check_diagnostics, CompilationFactKey::CheckDiagnostics);
 
@@ -399,6 +389,10 @@ fn reuse_mapped_cells(
 
     reuse!(checked_body_behaviors, |key| {
         CompilationFactKey::CheckedBodyBehavior(key.clone())
+    });
+
+    reuse!(callable_proofs, |key| {
+        CompilationFactKey::CallableProofs(key.clone())
     });
 
     reuse!(lowered_units, |key| {
@@ -882,7 +876,7 @@ mod tests {
 
         assert_eq!(
             previous.selected_target().target().runtime_abi(),
-            RuntimeAbiVersion::new(1, 0)
+            RuntimeAbiVersion::CURRENT
         );
 
         assert_eq!(

@@ -2,8 +2,8 @@ use bray_compiler_known::RepresentationRole;
 use bray_declarations::SyntaxAnchor;
 use bray_diagnostics::DiagnosticResult;
 use bray_symbols::{
-    CallableConstness, CallableDependencyContracts, CallableExecution, CallableParameterData,
-    CallableParameterMode, CallableParameterName, CallableParameterSymbolId,
+    CallableConditions, CallableConstness, CallableDependencyContracts, CallableExecution,
+    CallableParameterData, CallableParameterMode, CallableParameterName, CallableParameterSymbolId,
     CallableParameterTypeTemplate, CallablePosition, CallableSignatureTemplate, CallableSymbolId,
     CallableTrust, CallableTypeData, CallableTypeTemplate, ReceiverParameterSignature,
     ReceiverParameterSymbolId, TypeData, TypeExpressionTemplate,
@@ -36,6 +36,8 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             Some(&syntax.callable_modifiers()),
             Some(&syntax.callable_directives()),
         )?;
+
+        let ty = self.bind_occurrence_conditions(ty, syntax)?;
 
         self.check_cancellation()?;
 
@@ -207,6 +209,8 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             directives.as_ref(),
         )?;
 
+        let ty = self.bind_occurrence_conditions(ty, syntax)?;
+
         let variadic = parameters
             .as_ref()
             .is_some_and(|parameters| parameters.ellipsis_token().is_some());
@@ -239,13 +243,13 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         Ok(ty)
     }
 
-    fn bind_callable_type_surface(
+    pub(super) fn bind_callable_type_surface(
         &mut self,
         parameters: Option<&ParameterListSyntax>,
         result: Option<&TypeExpressionSyntax>,
         modifiers: Option<&CallableModifiersSyntax>,
         directives: Option<&CallableDirectivesSyntax>,
-    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
+    ) -> BindingQueryResult<CallableTypeTemplate, Upstream> {
         let variadic = parameters.is_some_and(|parameters| parameters.ellipsis_token().is_some());
 
         let parameters = parameters
@@ -286,14 +290,9 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
             dependency_contract,
         );
 
-        self.make_callable_type_template(
-            parameters,
-            variadic,
-            result,
-            constness,
-            trust,
-            abi,
-            dependencies,
+        Ok(
+            CallableTypeTemplate::new(parameters, result, constness, trust, abi, dependencies)
+                .with_variadic(variadic),
         )
     }
 
@@ -307,37 +306,59 @@ impl<Upstream> TypeExpressionBinder<'_, Upstream> {
         abi: bray_symbols::CallableAbi,
         dependencies: CallableDependencyContracts,
     ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
-        let parameters_are_resolved = parameters
+        self.finish_callable_type(
+            CallableTypeTemplate::new(parameters, result, constness, trust, abi, dependencies)
+                .with_variadic(variadic),
+        )
+    }
+
+    pub(super) fn finish_callable_type(
+        &self,
+        template: CallableTypeTemplate,
+    ) -> BindingQueryResult<TypeExpressionTemplate, Upstream> {
+        let parameters_are_resolved = template
+            .parameters()
             .iter()
             .all(|parameter| parameter.ty().resolved_type().is_some());
 
-        if parameters_are_resolved && result.resolved_type().is_some() {
-            let parameters = parameters
-                .into_iter()
+        if parameters_are_resolved && template.result().resolved_type().is_some() {
+            let parameters = template
+                .parameters()
+                .iter()
                 .map(|parameter| {
-                    let (name, position, mode, ty) = parameter.into_parts();
+                    let ty = self.require_resolved_type(parameter.ty())?;
 
-                    let ty = self.require_resolved_type(&ty)?;
-
-                    Ok(CallableParameterData::new(name, position, mode, ty))
+                    // Parameter names are immutable shared identities retained by the resolved type.
+                    Ok(CallableParameterData::new(
+                        parameter.name().clone(),
+                        parameter.position(),
+                        parameter.mode(),
+                        ty,
+                    ))
                 })
                 .collect::<BindingQueryResult<Vec<_>, Upstream>>()?;
 
-            let result = self.require_resolved_type(&result)?;
+            let result = self.require_resolved_type(template.result())?;
 
-            let callable =
-                CallableTypeData::new(parameters, result, constness, trust, abi, dependencies)
-                    .with_variadic(variadic);
+            let callable = CallableTypeData::new(
+                parameters,
+                result,
+                template.constness(),
+                template.trust(),
+                template.abi(),
+                template.dependencies(),
+            )
+            .with_variadic(template.is_variadic())
+            // Both forms retain the same immutable behavior and condition records.
+            .with_phase_behaviors(template.phase_behaviors().clone())
+            .with_conditions(template.conditions().clone());
 
             return self
                 .intern_type(TypeData::Callable(callable))
                 .map(TypeExpressionTemplate::Resolved);
         }
 
-        Ok(TypeExpressionTemplate::Callable(
-            CallableTypeTemplate::new(parameters, result, constness, trust, abi, dependencies)
-                .with_variadic(variadic),
-        ))
+        Ok(TypeExpressionTemplate::Callable(template))
     }
 
     fn bind_callable_parameter(

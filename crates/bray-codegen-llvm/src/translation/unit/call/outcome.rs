@@ -23,10 +23,31 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
+        self.checked_call_panic_report_context()
+    }
+
+    pub(in crate::translation::unit) fn checked_call_panic_report_context(
+        &mut self,
+    ) -> Result<PointerValue<'context>, CodegenFailure> {
         match self.panic_report_context {
             Some(context) => Ok(context),
             None => self.allocate_panic_report_context(),
         }
+    }
+
+    pub(in crate::translation::unit) fn retain_checked_call_context(
+        &mut self,
+        context: PointerValue<'context>,
+    ) -> Result<(), CodegenFailure> {
+        if self
+            .pending_call_panic_report_context
+            .replace(context)
+            .is_some()
+        {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        }
+
+        Ok(())
     }
 
     pub(in crate::translation::unit) fn allocate_panic_report_context(

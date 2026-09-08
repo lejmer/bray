@@ -54,7 +54,7 @@ impl Compilation {
                             host_mir.clone()
                         } else if matches!(key.template(), MirUnitKey::CompilerProvidedCallable(_))
                         {
-                            self.codegen_heap_method_mir(
+                            self.codegen_compiler_provided_mir(
                                 &realization,
                                 MirUnitId::new(0),
                                 cancellation,
@@ -75,6 +75,9 @@ impl Compilation {
                                 ),
                             }?
                         };
+
+                        let mir =
+                            self.specialize_codegen_lifecycle_mir(&realization, mir, cancellation)?;
 
                         let mut concrete_dependencies = self
                             .concrete_codegen_dependencies_for_mir(

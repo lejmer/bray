@@ -8,12 +8,12 @@ use bray_codegen::{
     TargetAddressSpaceKind, mapped_runtime_references,
 };
 use bray_compiler_known::RepresentationRole;
-use bray_ir::{MirFrameReference, MirHelperReference, MirOperation, MirRuntimeReference, MirUnit};
-use bray_runtime_interface::{BinarySymbolName, ProtectedFrameOperation, RuntimeAbiRole};
+use bray_ir::{MirHelperReference, MirOperation, MirRuntimeReference, MirUnit};
+use bray_runtime_interface::{BinarySymbolName, RuntimeAbiRole};
 use bray_symbols::{
-    BorrowKind, CallableAbi, CallableExecution, ConstantTermData, ConstantValueKind,
-    DeclaredLayoutMode, ForeignCallableDirection, NamedTypeSymbolId, NativeSymbolBinding,
-    ReceiverMode, SemanticValueStore, StructSymbolId, SymbolKey, SymbolKeyData, TypeData, TypeId,
+    BorrowKind, CallableAbi, CallableExecution, ConstantTermData, DeclaredLayoutMode,
+    ForeignCallableDirection, NamedTypeSymbolId, NativeSymbolBinding, ReceiverMode,
+    SemanticValueStore, StructSymbolId, SymbolKey, SymbolKeyData, TypeData, TypeId,
 };
 use bray_target::{
     TargetAtomicRepresentation, TargetLayoutContract, TargetScalarKind, TargetValueLayout,
@@ -50,17 +50,21 @@ impl Compilation {
     pub(super) fn codegen_opaque_pointer_type(&self) -> Result<TypeId, FactQueryError> {
         let element = self.codegen_representation_type(RepresentationRole::ScalarU8)?;
 
+        self.codegen_unary_representation_type(RepresentationRole::RawPointer, element)
+    }
+
+    pub(super) fn codegen_unary_representation_type(
+        &self,
+        role: RepresentationRole,
+        element: TypeId,
+    ) -> Result<TypeId, FactQueryError> {
         self.available_compiler_known_symbols()
-            .unary_representation_type(
-                self.semantic_value_store()?,
-                RepresentationRole::RawPointer,
-                element,
-            )
+            .unary_representation_type(self.semantic_value_store()?, role, element)
             .map_err(FactQueryError::SemanticValueStore)?
             .ok_or_else(|| {
                 ProductQueryFailure::missing(
                     ProductQueryContext::UnaryRepresentation {
-                        role: RepresentationRole::RawPointer,
+                        role,
                         argument: element,
                     },
                     ProductDataKind::CompilerKnownRepresentation,
@@ -236,28 +240,23 @@ pub(in crate::compilation::product) fn closed_array_length(
     values: &SemanticValueStore,
     term_id: bray_symbols::ConstantTermId,
 ) -> Result<u64, CodegenPreparationError> {
+    let integer = values
+        .constant_term_integer(term_id)
+        .map_err(FactQueryError::SemanticValueStore)?;
+
+    if let Some(integer) = integer {
+        return integer
+            .to_u64()
+            .ok_or(CodegenPreparationError::InvalidArrayLength(term_id));
+    }
+
     let term = values
         .constant_term_data(term_id)
         .map_err(FactQueryError::SemanticValueStore)?;
 
     match term.as_ref() {
         ConstantTermData::Typed { term, .. } => closed_array_length(values, *term),
-        ConstantTermData::Value(value) => {
-            let data = values
-                .constant_value_data(*value)
-                .map_err(FactQueryError::SemanticValueStore)?;
-
-            let ConstantValueKind::Integer(value) = data.kind() else {
-                return Err(CodegenPreparationError::InvalidArrayLength(term_id));
-            };
-
-            value
-                .to_u64()
-                .ok_or(CodegenPreparationError::InvalidArrayLength(term_id))
-        }
-        ConstantTermData::IntegerLiteral { value, .. } => value
-            .to_u64()
-            .ok_or(CodegenPreparationError::InvalidArrayLength(term_id)),
+        ConstantTermData::Value(_) => Err(CodegenPreparationError::InvalidArrayLength(term_id)),
         _ => Err(CodegenPreparationError::OpenConstantTerm(term_id)),
     }
 }
@@ -501,46 +500,9 @@ pub(super) fn direct_helper_symbol(
     owner: &CodegenInstance,
     reference: &MirHelperReference,
 ) -> Option<CodegenSymbolKey> {
-    if let Some(role) = reference.runtime_role() {
-        return Some(helper_runtime_symbol(owner, role));
-    }
-
-    let symbol = match reference {
-        MirHelperReference::MoveInactiveFrame(frame) => match frame {
-            MirFrameReference::Known(frame) => CodegenSymbolKey::ProtectedFrame {
-                frame: *frame,
-                operation: ProtectedFrameOperation::MoveBeforeStart,
-            },
-            MirFrameReference::Erased => return None,
-        },
-        MirHelperReference::CommitAwaitedCompletion(frame) => match frame {
-            MirFrameReference::Known(frame) => CodegenSymbolKey::ProtectedFrame {
-                frame: *frame,
-                operation: ProtectedFrameOperation::CompletionMove,
-            },
-            MirFrameReference::Erased => return None,
-        },
-        MirHelperReference::AnonymousCallable(_)
-        | MirHelperReference::DeclaredCallable(_)
-        | MirHelperReference::CallableDefault(_)
-        | MirHelperReference::ConstructionDefault(_)
-        | MirHelperReference::TypeForm(_)
-        | MirHelperReference::Conversion(_)
-        | MirHelperReference::BeginGenerator
-        | MirHelperReference::PushGenerator
-        | MirHelperReference::FinishGenerator
-        | MirHelperReference::PanicReport
-        | MirHelperReference::StandardLibrary(_)
-        | MirHelperReference::Finalize(_)
-        | MirHelperReference::StaticFinalize(_)
-        | MirHelperReference::Destroy(_)
-        | MirHelperReference::Cleanup { .. }
-        | MirHelperReference::CreateFrame(_)
-        | MirHelperReference::ComposeAwaitedFrame(_)
-        | MirHelperReference::DestroyTerminalTask => return None,
-    };
-
-    Some(symbol)
+    reference
+        .runtime_role()
+        .map(|role| helper_runtime_symbol(owner, role))
 }
 
 pub(super) fn codegen_runtime_references(
@@ -728,18 +690,6 @@ pub(super) fn nonzero_width(width: u16) -> NonZeroU16 {
     NonZeroU16::new(width).unwrap_or(NonZeroU16::MIN)
 }
 
-pub(super) fn codegen_checker_error(
-    error: bray_checker::CheckerQueryError<FactQueryError>,
-) -> CodegenPreparationError {
-    match error {
-        bray_checker::CheckerQueryError::Cancelled => FactQueryError::Cancelled.into(),
-        bray_checker::CheckerQueryError::Infrastructure(error) => {
-            FactQueryError::CheckerInfrastructure(error).into()
-        }
-        bray_checker::CheckerQueryError::Upstream(error) => error.into(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
@@ -753,13 +703,11 @@ mod tests {
     };
     use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
     use bray_ir::{
-        MirBlockKind, MirCallTarget, MirCleanupPhase, MirFrameReference, MirGeneratorOperation,
-        MirHelperReference, MirOperationKind, MirProjectionKind, MirRuntimeReference,
-        MirTerminatorKind, MirUnit, MirUnitId,
+        MirBlockKind, MirCallTarget, MirCleanupPhase, MirFrameReference, MirHelperReference,
+        MirOperationKind, MirProjectionKind, MirRuntimeReference, MirTerminatorKind, MirUnit,
+        MirUnitId,
     };
-    use bray_runtime_interface::{
-        ProtectedAsyncFrameId, ProtectedFrameOperation, RuntimeAbiRole, RuntimeRoleContractEffect,
-    };
+    use bray_runtime_interface::RuntimeAbiRole;
     use bray_symbols::testing::intern_type;
     use bray_symbols::{
         BorrowKind, CallableAbi, NamedTypeSymbolId, ProductKind, ReceiverMode, SymbolOrigin,
@@ -781,7 +729,6 @@ mod tests {
     #[test]
     fn generated_helpers_map_to_exact_runtime_and_frame_roles() {
         let owner = CodegenInstance::non_generic(test_mir_unit(1));
-        let frame = ProtectedAsyncFrameId::new([7; 32]);
 
         let runtime = |role| {
             CodegenSymbolKey::Runtime(MirRuntimeReference::new(
@@ -808,30 +755,8 @@ mod tests {
                 runtime(RuntimeAbiRole::PanicReportConstruction),
             ),
             (
-                MirHelperReference::MoveInactiveFrame(MirFrameReference::Known(frame)),
-                CodegenSymbolKey::ProtectedFrame {
-                    frame,
-                    operation: ProtectedFrameOperation::MoveBeforeStart,
-                },
-            ),
-            (
-                MirHelperReference::MoveInactiveFrame(MirFrameReference::Erased),
-                runtime(RuntimeAbiRole::InactiveFrameMove),
-            ),
-            (
                 MirHelperReference::ComposeAwaitedFrame(MirFrameReference::Erased),
                 runtime(RuntimeAbiRole::AwaitedFrameComposition),
-            ),
-            (
-                MirHelperReference::CommitAwaitedCompletion(MirFrameReference::Known(frame)),
-                CodegenSymbolKey::ProtectedFrame {
-                    frame,
-                    operation: ProtectedFrameOperation::CompletionMove,
-                },
-            ),
-            (
-                MirHelperReference::CommitAwaitedCompletion(MirFrameReference::Erased),
-                runtime(RuntimeAbiRole::FrameCompletionMove),
             ),
             (
                 MirHelperReference::DestroyTerminalTask,
@@ -1159,8 +1084,8 @@ mod tests {
         entry: bray_ir::MirBlockId,
     ) -> Vec<&MirOperationKind> {
         let mut pending = vec![entry];
-        let mut visited = std::collections::BTreeSet::new();
-        let mut operations = std::collections::BTreeMap::new();
+        let mut visited = BTreeSet::new();
+        let mut operations = BTreeMap::new();
 
         while let Some(id) = pending.pop() {
             if !visited.insert(id) {
@@ -1455,8 +1380,79 @@ mod tests {
     }
 
     #[test]
+    fn type_wide_completion_omits_generated_finalizer_but_retains_destruction() {
+        for declaration in [
+            "struct Resource { finalize() executes(pure, total) {} destruct() {} }",
+            "struct Resource { async finalize() executes(pure, total) {} destruct() {} }",
+            "struct Resource { async finalize() -> Result<unit, unit> executes(pure, total) ensures(result matches Ok(_)) { return Ok(unit); } destruct() {} }",
+        ] {
+            let compilation = compilation(&format!("module app; {declaration}"));
+            let target = codegen_target(&compilation);
+            let symbols = compilation.symbol_graph().unwrap();
+
+            let resource = symbols
+                .structures()
+                .iter()
+                .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+                .unwrap();
+
+            let ty = compilation
+                .semantic_value_store()
+                .unwrap()
+                .intern_open_named_type(symbols, resource.id().into())
+                .unwrap()
+                .unwrap();
+
+            let finalizer =
+                generated_lifecycle(&compilation, &target, MirHelperReference::Finalize(ty), 90);
+
+            assert!(finalizer.frame_descriptor().is_none(), "{declaration}");
+
+            assert!(
+                finalizer.operations().is_empty(),
+                "{declaration}: {:?}",
+                finalizer.operations()
+            );
+
+            let cleanup = generated_lifecycle(
+                &compilation,
+                &target,
+                MirHelperReference::Cleanup {
+                    phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                    ty,
+                },
+                91,
+            );
+
+            let helpers = cleanup
+                .operations()
+                .iter()
+                .flat_map(|operation| operation.kind().helper_references())
+                .collect::<Vec<_>>();
+
+            assert!(
+                !helpers.contains(&MirHelperReference::Finalize(ty)),
+                "{declaration}: {helpers:?}"
+            );
+
+            assert!(
+                helpers.contains(&MirHelperReference::Destroy(ty)),
+                "{declaration}: {helpers:?}"
+            );
+        }
+    }
+
+    #[test]
     fn generator_destruction_reaches_required_element_lifecycle_and_releases_storage() {
-        let compilation = compilation("module app; func main() {}");
+        let dependency = crate::test_support::runtime_standard_library_dependency(
+            &crate::SelectedTarget::baseline(),
+        );
+
+        let compilation = crate::test_support::compilation_with_dependencies(
+            "module app; func main() {}",
+            [dependency],
+        );
+
         let target = codegen_target(&compilation);
 
         let values = compilation
@@ -1482,33 +1478,24 @@ mod tests {
             80,
         );
 
-        let [operation] = generated.operations() else {
-            panic!("generator destruction must contain one represented operation");
-        };
-
-        let MirOperationKind::Generator(MirGeneratorOperation::Destroy {
-            element: operation_element,
-            runtime,
-            ..
-        }) = operation.kind()
-        else {
-            panic!("generator destruction must use the generator destruction ABI");
-        };
-
-        assert_eq!(*operation_element, element);
-        assert_eq!(runtime.role(), RuntimeAbiRole::GeneratorDestruction);
-
-        assert_eq!(
-            runtime.role().contract().effects(),
-            &[RuntimeRoleContractEffect::DestroyGenerator]
+        assert!(
+            generated
+                .operations()
+                .iter()
+                .any(|operation| matches!(operation.kind(),
+                    MirOperationKind::Destroy(place) if place.ty() == element
+                ))
         );
 
-        assert_eq!(
-            operation.kind().helper_references(),
-            [
-                MirHelperReference::Finalize(element),
-                MirHelperReference::Destroy(element),
-            ]
+        assert!(generated.operations().iter().any(|operation| matches!(operation.kind(),
+            MirOperationKind::Memory(memory) if memory.kind() == bray_bound_tree::CheckedMemoryOperationKind::RawDeallocate
+        )));
+
+        assert!(
+            !generated
+                .operations()
+                .iter()
+                .any(|operation| matches!(operation.kind(), MirOperationKind::Generator(_)))
         );
 
         let owner = compilation
@@ -1524,13 +1511,11 @@ mod tests {
             )
             .expect("element lifecycle dependencies must realize");
 
-        let [dependency] = dependencies.as_slice() else {
-            panic!("only nontrivial element lifecycle dependencies must remain");
-        };
-
-        assert_eq!(
-            dependency.generated_lifecycle_reference(),
-            Some(&MirHelperReference::Destroy(element))
+        assert!(
+            dependencies
+                .iter()
+                .any(|dependency| dependency.generated_lifecycle_reference()
+                    == Some(&MirHelperReference::Destroy(element)))
         );
     }
 
@@ -1565,35 +1550,19 @@ mod tests {
             83,
         );
 
-        let operation = generated
-            .operations()
-            .iter()
-            .find(|operation| {
-                matches!(
-                    operation.kind(),
-                    MirOperationKind::Generator(MirGeneratorOperation::CleanupBroadcast { .. })
-                )
-            })
-            .expect("generator cleanup must contain one broadcast operation");
+        assert!(generated.operations().iter().any(|operation| matches!(operation.kind(),
+            MirOperationKind::Cleanup { phase: MirCleanupPhase::TaskCancellation, place } if place.ty() == element
+        )));
 
-        let MirOperationKind::Generator(MirGeneratorOperation::CleanupBroadcast {
-            element: operation_element,
-            runtime,
-            ..
-        }) = operation.kind()
-        else {
-            unreachable!("the operation was selected by its exact variant");
-        };
+        assert!(!generated.operations().iter().any(|operation| matches!(operation.kind(),
+            MirOperationKind::Memory(memory) if memory.kind() == bray_bound_tree::CheckedMemoryOperationKind::RawDeallocate
+        )));
 
-        assert_eq!(*operation_element, element);
-        assert_eq!(runtime.role(), RuntimeAbiRole::GeneratorCleanupBroadcast);
-
-        assert_eq!(
-            operation.kind().helper_references(),
-            [MirHelperReference::Cleanup {
-                phase: MirCleanupPhase::TaskCancellation,
-                ty: element,
-            }]
+        assert!(
+            !generated
+                .operations()
+                .iter()
+                .any(|operation| matches!(operation.kind(), MirOperationKind::Generator(_)))
         );
     }
 
@@ -1605,14 +1574,8 @@ mod tests {
             .codegen_runtime_signature(RuntimeAbiRole::GeneratorBegin)
             .expect("generator begin signature must realize");
 
-        let destruction = compilation
-            .codegen_runtime_signature(RuntimeAbiRole::GeneratorDestruction)
-            .expect("generator destruction signature must realize");
-
         assert_eq!(begin.parameters().len(), 6);
-        assert_eq!(destruction.parameters().len(), 3);
         assert_eq!(begin.result(), &CodegenResultMapping::Void);
-        assert_eq!(destruction.result(), &CodegenResultMapping::Void);
     }
 
     #[test]
@@ -1838,6 +1801,714 @@ mod tests {
     }
 
     #[test]
+    fn finalizer_incidents_quiesce_returned_owners_before_transfer() {
+        use bray_ir::{
+            MirAbandonmentAction, MirAsyncOperation, MirFrameInitializer,
+            MirGeneratedLifecycleRole, MirOperand,
+        };
+
+        use bray_lowering::SyntheticLoweringContext;
+
+        for (error, value, asynchronous) in [
+            ("unit", "unit", false),
+            ("i32", "42", false),
+            ("bool", "true", false),
+            ("Task<unit>", "work().start()", true),
+            ("Future<unit>", "work()", true),
+        ] {
+            let mode = if error == "Task<unit>" { "async " } else { "" };
+
+            let compilation = compilation(&format!(
+                "module app; struct Resource {{ {mode}finalize() -> Result<unit, {error}> {{ return Error({value}); }} }} async func work() {{}} func main() {{}}"
+            ));
+
+            let target = codegen_target(&compilation);
+            let symbols = compilation.symbol_graph().unwrap();
+
+            let resource = symbols
+                .structures()
+                .iter()
+                .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+                .unwrap();
+
+            let ty = named_type(
+                compilation.semantic_value_store().unwrap(),
+                NamedTypeSymbolId::Struct(resource.id()),
+            )
+            .unwrap();
+
+            let context = super::super::synthetic::CompilationSyntheticLoweringContext::new(
+                &compilation,
+                &compilation.state.cancellation,
+            )
+            .unwrap();
+
+            let cleanup = context.cleanup_type_execution(ty).unwrap();
+
+            assert_eq!(
+                cleanup.finalization_execution(),
+                Some(if asynchronous {
+                    bray_symbols::CallableExecution::Asynchronous
+                } else {
+                    bray_symbols::CallableExecution::Synchronous
+                }),
+                "{error}"
+            );
+
+            let error_type = context
+                .lifecycle_callable(ty, bray_symbols::TypeAssociatedLifecycleSlot::Finalizer)
+                .unwrap()
+                .unwrap()
+                .2;
+
+            let [_, error_type] = context
+                .compiler_known_symbols()
+                .representation_type_arguments(
+                    context.semantic_values(),
+                    RepresentationRole::Result,
+                    error_type,
+                )
+                .unwrap()
+                .unwrap();
+
+            let destruction = generated_lifecycle(
+                &compilation,
+                &target,
+                MirHelperReference::Abandon {
+                    action: MirAbandonmentAction::Destroy,
+                    ty: error_type,
+                },
+                89,
+            );
+
+            assert!(destruction.frame_descriptor().is_none(), "{error}");
+
+            let generated =
+                generated_lifecycle(&compilation, &target, MirHelperReference::Finalize(ty), 87);
+
+            assert_eq!(
+                generated.frame_descriptor().is_some(),
+                asynchronous,
+                "{error}"
+            );
+
+            let (transfer_block, transfer) = generated
+                .blocks_with_ids()
+                .find_map(|(id, block)| {
+                    block.operations().iter().find_map(|operation| {
+                        match generated.operation(*operation).unwrap().kind() {
+                            MirOperationKind::Async(
+                                MirAsyncOperation::TransferCleanupIncident { incident, .. },
+                            ) => Some((id, incident)),
+                            _ => None,
+                        }
+                    })
+                })
+                .expect("finalizer error must transfer to an owned incident");
+
+            assert!(matches!(transfer, MirOperand::Move(_)));
+
+            assert!(
+                generated
+                    .operations()
+                    .iter()
+                    .any(|operation| match operation.kind() {
+                        MirOperationKind::Abandon {
+                            action: MirAbandonmentAction::Quiesce,
+                            ..
+                        } => !asynchronous,
+                        MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+                            initializer:
+                                MirFrameInitializer::Lifecycle {
+                                    role:
+                                        MirGeneratedLifecycleRole::Abandon(
+                                            MirAbandonmentAction::Quiesce,
+                                        ),
+                                    ..
+                                },
+                            ..
+                        }) => asynchronous,
+                        _ => false,
+                    }),
+                "{error}"
+            );
+
+            assert!(!generated.operations().iter().any(|operation| matches!(
+                operation.kind(),
+                MirOperationKind::Destroy(_)
+                    | MirOperationKind::Abandon {
+                        action: MirAbandonmentAction::Destroy,
+                        ..
+                    }
+            )));
+
+            // Failure propagation must not continue to the ownership-transfer block.
+            for (id, block) in generated.blocks_with_ids().filter(|(_, block)| {
+                matches!(
+                    block.terminator().kind(),
+                    MirTerminatorKind::PropagatePanic { .. }
+                        | MirTerminatorKind::PropagateCancellation { .. }
+                )
+            }) {
+                assert!(
+                    !generated.reachable_blocks([id]).contains(&transfer_block),
+                    "{error}: {block:?}"
+                );
+            }
+
+            let wrapper = generated_lifecycle(
+                &compilation,
+                &target,
+                MirHelperReference::StaticFinalize(ty),
+                88,
+            );
+
+            assert!(wrapper.frame_descriptor().is_none());
+
+            assert_eq!(
+                wrapper
+                    .operations()
+                    .iter()
+                    .filter(|operation| matches!(
+                        operation.kind(),
+                        MirOperationKind::Async(MirAsyncOperation::TransferCleanupIncident { .. })
+                    ))
+                    .count(),
+                usize::from(!asynchronous)
+            );
+
+            let generator = context
+                .semantic_values()
+                .intern_type(TypeData::Generator(ty))
+                .unwrap();
+
+            let accumulated = generated_lifecycle(
+                &compilation,
+                &target,
+                MirHelperReference::Destroy(generator),
+                90,
+            );
+
+            assert_eq!(
+                accumulated.frame_descriptor().is_some(),
+                asynchronous,
+                "{error}"
+            );
+
+            assert!(
+                accumulated
+                    .operations()
+                    .iter()
+                    .any(|operation| match operation.kind() {
+                        MirOperationKind::Finalize(place) => !asynchronous && place.ty() == ty,
+                        MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+                            initializer:
+                                MirFrameInitializer::Lifecycle {
+                                    role: MirGeneratedLifecycleRole::Finalize,
+                                    ty: element,
+                                    ..
+                                },
+                            ..
+                        }) => asynchronous && *element == ty,
+                        _ => false,
+                    }),
+                "{error}"
+            );
+
+            let abandoned = generated_lifecycle(
+                &compilation,
+                &target,
+                MirHelperReference::Abandon {
+                    action: MirAbandonmentAction::Destroy,
+                    ty: generator,
+                },
+                91,
+            );
+
+            assert!(abandoned.frame_descriptor().is_none());
+
+            assert!(
+                !abandoned
+                    .operations()
+                    .iter()
+                    .any(|operation| matches!(operation.kind(), MirOperationKind::Finalize(_)))
+            );
+        }
+    }
+
+    #[test]
+    fn task_result_cleanup_checks_each_outcome_before_resolving_its_owner() {
+        let compilation = compilation("module app; func main() {}");
+        let target = codegen_target(&compilation);
+        let values = compilation.semantic_value_store().unwrap();
+        let payload = values.intern_type(TypeData::tuple([])).unwrap();
+
+        let task = compilation
+            .available_compiler_known_symbols()
+            .unary_representation_type(values, RepresentationRole::Task, payload)
+            .unwrap()
+            .unwrap();
+
+        for reference in [
+            MirHelperReference::Finalize(task),
+            MirHelperReference::StaticFinalize(task),
+            MirHelperReference::Cleanup {
+                phase: MirCleanupPhase::LifecycleResolution,
+                ty: task,
+            },
+        ] {
+            let combined = matches!(reference, MirHelperReference::Cleanup { .. });
+            let static_wrapper = matches!(reference, MirHelperReference::StaticFinalize(_));
+            let generated = generated_lifecycle(&compilation, &target, reference, 82);
+
+            assert_eq!(generated.frame_descriptor().is_some(), !static_wrapper);
+
+            assert_eq!(
+                generated
+                    .operations()
+                    .iter()
+                    .filter(|operation| matches!(
+                        operation.kind(),
+                        MirOperationKind::Async(bray_ir::MirAsyncOperation::ResolveTask { .. })
+                    ))
+                    .count(),
+                usize::from(!static_wrapper)
+            );
+
+            assert_eq!(
+                generated
+                    .blocks()
+                    .iter()
+                    .filter(|block| matches!(
+                        block.terminator().kind(),
+                        MirTerminatorKind::Suspend {
+                            kind: bray_ir::MirSuspensionKind::TaskCompletion,
+                            cancellation: None,
+                            ..
+                        }
+                    ))
+                    .count(),
+                usize::from(!static_wrapper)
+            );
+
+            assert_eq!(
+                generated
+                    .operations()
+                    .iter()
+                    .filter(|operation| matches!(
+                        operation.kind(),
+                        MirOperationKind::Async(
+                            bray_ir::MirAsyncOperation::DestroyTerminalTask { .. }
+                        )
+                    ))
+                    .count(),
+                usize::from(combined),
+            );
+        }
+    }
+
+    #[test]
+    fn task_quiescence_borrows_terminal_values_until_nested_cleanup_rejoins() {
+        let compilation = compilation("module app; func main() {}");
+        let target = codegen_target(&compilation);
+        let values = compilation.semantic_value_store().unwrap();
+        let payload = values.intern_type(TypeData::tuple([])).unwrap();
+
+        let task_type = |payload| {
+            compilation
+                .available_compiler_known_symbols()
+                .unary_representation_type(values, RepresentationRole::Task, payload)
+                .unwrap()
+                .unwrap()
+        };
+
+        for completion in [payload, task_type(payload)] {
+            let task = task_type(completion);
+
+            let generated = generated_lifecycle(
+                &compilation,
+                &target,
+                MirHelperReference::Abandon {
+                    action: bray_ir::MirAbandonmentAction::Quiesce,
+                    ty: task,
+                },
+                84,
+            );
+
+            assert!(generated.frame_descriptor().is_some());
+
+            assert_eq!(
+                generated
+                    .operations()
+                    .iter()
+                    .filter(|operation| matches!(
+                        operation.kind(),
+                        MirOperationKind::Async(
+                            bray_ir::MirAsyncOperation::BorrowTaskCompletion { .. }
+                        )
+                    ))
+                    .count(),
+                1
+            );
+
+            assert_eq!(
+                generated
+                    .operations()
+                    .iter()
+                    .filter(|operation| matches!(
+                        operation.kind(),
+                        MirOperationKind::Async(
+                            bray_ir::MirAsyncOperation::ReleaseTaskCompletionBorrow { .. }
+                        )
+                    ))
+                    .count(),
+                1
+            );
+
+            assert!(!generated.operations().iter().any(|operation| matches!(
+                operation.kind(),
+                MirOperationKind::Async(
+                    bray_ir::MirAsyncOperation::ResolveTask { .. }
+                        | bray_ir::MirAsyncOperation::DestroyTerminalTask { .. }
+                )
+            )));
+
+            assert_eq!(
+                generated
+                    .blocks()
+                    .iter()
+                    .filter(|block| matches!(
+                        block.terminator().kind(),
+                        MirTerminatorKind::Suspend {
+                            kind: bray_ir::MirSuspensionKind::TaskCompletion,
+                            cancellation: None,
+                            ..
+                        }
+                    ))
+                    .count(),
+                1
+            );
+
+            let release = generated
+                .blocks()
+                .iter()
+                .find(|block| {
+                    block.operations().iter().any(|id| {
+                        matches!(
+                            generated.operation(*id).unwrap().kind(),
+                            MirOperationKind::Async(
+                                bray_ir::MirAsyncOperation::ReleaseTaskCompletionBorrow { .. }
+                            )
+                        )
+                    })
+                })
+                .unwrap();
+
+            assert!(matches!(
+                release.terminator().kind(),
+                MirTerminatorKind::Goto(_)
+            ));
+
+            assert_eq!(
+                generated
+                    .blocks()
+                    .iter()
+                    .filter(|block| matches!(
+                        block.terminator().kind(),
+                        MirTerminatorKind::Suspend {
+                            kind: bray_ir::MirSuspensionKind::Awaited,
+                            cancellation: None,
+                            ..
+                        }
+                    ))
+                    .count(),
+                usize::from(completion != payload)
+            );
+        }
+    }
+
+    #[test]
+    fn future_abandonment_borrows_for_quiescence_and_consumes_for_synchronous_destruction() {
+        let compilation = compilation("module app; func main() {}");
+        let target = codegen_target(&compilation);
+        let values = compilation.semantic_value_store().unwrap();
+        let payload = values.intern_type(TypeData::tuple([])).unwrap();
+
+        let future = compilation
+            .available_compiler_known_symbols()
+            .unary_representation_type(values, RepresentationRole::Future, payload)
+            .unwrap()
+            .unwrap();
+
+        let quiescence = generated_lifecycle(
+            &compilation,
+            &target,
+            MirHelperReference::Abandon {
+                action: bray_ir::MirAbandonmentAction::Quiesce,
+                ty: future,
+            },
+            85,
+        );
+
+        assert!(
+            quiescence
+                .frame_descriptor()
+                .unwrap()
+                .capture_abandonment()
+                .is_some()
+        );
+
+        assert!(quiescence.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+                frame: bray_ir::MirOperand::Copy(_),
+                entry: bray_ir::MirFrameEntry::CaptureQuiescence,
+                ..
+            })
+        )));
+
+        assert!(!quiescence.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::Async(
+                bray_ir::MirAsyncOperation::DestroyInactiveCaptures { .. }
+                    | bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+                        entry: bray_ir::MirFrameEntry::Body
+                            | bray_ir::MirFrameEntry::CaptureCleanup,
+                        ..
+                    }
+            )
+        )));
+
+        let destruction = generated_lifecycle(
+            &compilation,
+            &target,
+            MirHelperReference::Abandon {
+                action: bray_ir::MirAbandonmentAction::Destroy,
+                ty: future,
+            },
+            86,
+        );
+
+        assert!(destruction.frame_descriptor().is_none());
+
+        assert!(destruction.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::DestroyInactiveCaptures {
+                frame: bray_ir::MirOperand::Move(_),
+                ..
+            })
+        )));
+
+        assert!(
+            destruction.blocks().iter().all(|block| !matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::Suspend { .. }
+            ))
+        );
+    }
+
+    #[test]
+    fn owned_buffer_cleanup_covers_synchronous_and_asynchronous_elements() {
+        use bray_checker::CheckerRequestContext;
+        use bray_ir::MirAbandonmentAction;
+        use bray_symbols::{GenericArgument, GenericOwnerId, GenericSubstitutionData};
+
+        for (authorized, asynchronous) in
+            [(false, false), (false, true), (true, false), (true, true)]
+        {
+            let request = crate::CompilationRequest::new(
+                bray_symbols::PackageIdentity::try_new("std").unwrap(),
+                vec![crate::test_support::source_input(
+                    "module std.memory; struct RawBuffer<T> { pointer: RawPointer<T>; capacity: usize; initialized: usize; }",
+                    0,
+                )],
+            );
+
+            let request = if authorized {
+                request.with_standard_library_source_authority()
+            } else {
+                request
+            };
+
+            let compilation = Compilation::load(request).unwrap();
+            let symbols = compilation.symbol_graph().unwrap();
+
+            let buffer = symbols
+                .structures()
+                .iter()
+                .find(|symbol| symbol.origin() == SymbolOrigin::Source)
+                .unwrap();
+
+            let definition = NamedTypeSymbolId::Struct(buffer.id());
+            let values = compilation.semantic_value_store().unwrap();
+
+            let unit = compilation
+                .compiler_known_type(RepresentationRole::Unit)
+                .unwrap();
+
+            let element = if asynchronous {
+                compilation
+                    .available_compiler_known_symbols()
+                    .unary_representation_type(values, RepresentationRole::Task, unit)
+                    .unwrap()
+                    .unwrap()
+            } else {
+                compilation
+                    .compiler_known_type(RepresentationRole::ScalarU8)
+                    .unwrap()
+            };
+
+            let substitution = values
+                .intern_generic_substitution(
+                    GenericSubstitutionData::try_new(
+                        GenericOwnerId::try_new(buffer.id().into()).unwrap(),
+                        buffer
+                            .generic_type_parameters()
+                            .iter()
+                            .copied()
+                            .map(Into::into),
+                        [GenericArgument::Type(element)],
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+
+            let ty = values
+                .intern_type(TypeData::Named {
+                    definition,
+                    substitution,
+                })
+                .unwrap();
+
+            let cancellation = CancellationToken::new();
+
+            let context = crate::compilation::checker::CompilationCheckerContext::new(
+                compilation.binding_context(&cancellation).unwrap(),
+            );
+
+            assert_eq!(
+                context
+                    .raw_buffer_element(definition, substitution)
+                    .unwrap(),
+                authorized.then_some(element)
+            );
+
+            let checked = bray_checker::cleanup_type_execution(&context, ty).unwrap();
+
+            assert!(
+                !checked.diagnostics().has_errors(),
+                "{:?}",
+                checked.diagnostics()
+            );
+
+            assert_eq!(
+                checked.value().quiescence_execution(),
+                Some(if authorized && asynchronous {
+                    bray_symbols::CallableExecution::Asynchronous
+                } else {
+                    bray_symbols::CallableExecution::Synchronous
+                })
+            );
+
+            if !authorized {
+                continue;
+            }
+
+            let target = codegen_target(&compilation);
+
+            for ty in [
+                ty,
+                values.intern_type(TypeData::Generator(element)).unwrap(),
+            ] {
+                let quiescence = generated_lifecycle(
+                    &compilation,
+                    &target,
+                    MirHelperReference::Abandon {
+                        action: MirAbandonmentAction::Quiesce,
+                        ty,
+                    },
+                    87,
+                );
+
+                let destruction = generated_lifecycle(
+                    &compilation,
+                    &target,
+                    MirHelperReference::Abandon {
+                        action: MirAbandonmentAction::Destroy,
+                        ty,
+                    },
+                    88,
+                );
+
+                let ordinary =
+                    generated_lifecycle(&compilation, &target, MirHelperReference::Destroy(ty), 89);
+
+                assert_eq!(quiescence.frame_descriptor().is_some(), asynchronous);
+                assert_eq!(ordinary.frame_descriptor().is_some(), asynchronous);
+                assert!(destruction.frame_descriptor().is_none());
+
+                assert!(!quiescence.operations().iter().any(|operation| match operation.kind() {
+                MirOperationKind::Destroy(_) | MirOperationKind::Finalize(_)
+                | MirOperationKind::Abandon { action: MirAbandonmentAction::Destroy | MirAbandonmentAction::Destructor, .. } => true,
+                MirOperationKind::Memory(memory) => matches!(memory.kind(),
+                    bray_bound_tree::CheckedMemoryOperationKind::RawDeallocate | bray_bound_tree::CheckedMemoryOperationKind::RawBufferSetInitializedCount),
+                _ => false,
+            }));
+
+                assert!(!destruction.blocks().iter().any(|block| matches!(
+                    block.terminator().kind(),
+                    MirTerminatorKind::Suspend { .. }
+                )));
+
+                assert!(
+                    !destruction
+                        .operations()
+                        .iter()
+                        .any(|operation| matches!(operation.kind(), MirOperationKind::Finalize(_)))
+                );
+
+                let element_cleanup = destruction.blocks().iter().find(|block| block.operations().iter().any(|id| matches!(
+                destruction.operation(*id).unwrap().kind(), MirOperationKind::Abandon { action: MirAbandonmentAction::Destroy, place } if place.ty() == element,
+            ))).unwrap();
+
+                let operations = element_cleanup
+                    .operations()
+                    .iter()
+                    .map(|id| destruction.operation(*id).unwrap().kind())
+                    .collect::<Vec<_>>();
+
+                let count = operations.iter().position(|operation| matches!(operation, MirOperationKind::Memory(memory)
+                if memory.kind() == bray_bound_tree::CheckedMemoryOperationKind::RawBufferSetInitializedCount)).unwrap();
+
+                let destroy = operations
+                    .iter()
+                    .position(|operation| matches!(operation, MirOperationKind::Abandon { .. }))
+                    .unwrap();
+
+                assert!(count < destroy);
+
+                for mir in [&destruction, &ordinary] {
+                    let release = mir
+                        .blocks()
+                        .iter()
+                        .find(|block| {
+                            block.operations().iter().any(|id| matches!(
+                    mir.operation(*id).unwrap().kind(), MirOperationKind::Memory(memory)
+                    if memory.kind() == bray_bound_tree::CheckedMemoryOperationKind::RawDeallocate,
+                ))
+                        })
+                        .unwrap();
+
+                    assert!(matches!(
+                        release.terminator().kind(),
+                        MirTerminatorKind::CheckCallOutcome { .. }
+                    ));
+                }
+            }
+        }
+    }
+
+    #[test]
     fn owned_indirection_uses_storage_policy_teardown() {
         let compilation = compilation("module app; func main() {}");
         let target = codegen_target(&compilation);
@@ -1893,6 +2564,50 @@ mod tests {
                 _ => false,
             }
         }));
+
+        let policy_calls = generated
+            .blocks()
+            .iter()
+            .filter(|block| {
+                block.operations().iter().any(|id| {
+                    matches!(
+                        generated.operation(*id).map(|operation| operation.kind()),
+                        Some(MirOperationKind::Call(call)) if matches!(call.target(), MirCallTarget::Direct(_))
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+
+        for block in &policy_calls {
+            assert!(
+                matches!(
+                    block.terminator().kind(),
+                    MirTerminatorKind::CheckCallOutcome { .. }
+                ),
+                "every storage policy call must retain its outcome: {block:?}",
+            );
+        }
+
+        let MirTerminatorKind::CheckCallOutcome { completed, .. } =
+            policy_calls[0].terminator().kind()
+        else {
+            panic!("storage projection must check the call before using its pointer");
+        };
+
+        assert_eq!(
+            completed.arguments().len(),
+            1,
+            "only successful projection transfers its pointer",
+        );
+
+        let projected = generated.block(completed.target()).unwrap();
+
+        assert_eq!(projected.parameters().len(), 1);
+
+        assert!(projected.operations().iter().any(|id| matches!(
+            generated.operation(*id).map(|operation| operation.kind()),
+            Some(MirOperationKind::Finalize(_))
+        )));
     }
 
     #[test]

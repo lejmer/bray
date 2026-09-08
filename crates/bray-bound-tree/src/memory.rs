@@ -1058,6 +1058,16 @@ pub enum CheckedMemoryOperationKind {
 }
 
 impl CheckedMemoryOperationKind {
+    /// Returns the initialized element type whose lifecycle this intrinsic resolves.
+    pub const fn cleanup_element(self) -> Option<TypeId> {
+        match self {
+            Self::RawBufferRelease { element } | Self::RawBufferReplace { element } => {
+                Some(element)
+            }
+            _ => None,
+        }
+    }
+
     /// Returns whether every atomic ordering carried by this operation is legal for its role.
     pub const fn has_valid_atomic_ordering(self) -> bool {
         match self {

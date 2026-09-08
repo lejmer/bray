@@ -1,4 +1,5 @@
 mod check;
+mod condition;
 mod constraint;
 mod mismatch;
 mod types;
@@ -8,7 +9,6 @@ pub(super) use check::{
 };
 pub(super) use mismatch::{
     CallableBehaviorComponent, CallableBehaviorPhase, CallableContractClauseCategory,
-    CallableContractMismatch, CallableContractSurface, ConstraintCategory,
-    GenericConstraintMismatch, GenericParameterCategory, GenericSurfaceMismatch,
-    TraitFulfillmentMismatch,
+    CallableContractMismatch, ConstraintCategory, GenericConstraintMismatch,
+    GenericParameterCategory, GenericSurfaceMismatch, TraitFulfillmentMismatch,
 };

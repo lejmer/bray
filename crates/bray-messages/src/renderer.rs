@@ -319,6 +319,134 @@ mod tests {
     }
 
     #[test]
+    fn callable_value_condition_failures_identify_the_callable_and_exact_obligation() {
+        use bray_diagnostics::{
+            DiagnosticCallableContractMismatch as Mismatch, DiagnosticCallableContractSurface,
+            DiagnosticExecutionProperty,
+        };
+
+        for (mismatch, reason) in [
+            (
+                Mismatch::ExecutionGuarantee {
+                    property: DiagnosticExecutionProperty::Pure,
+                    guard: None,
+                },
+                "the provided callable does not establish unconditional `pure` execution",
+            ),
+            (
+                Mismatch::ExecutionGuarantee {
+                    property: DiagnosticExecutionProperty::Total,
+                    guard: Some(2),
+                },
+                "the provided callable does not establish `total` under required entry guard 3",
+            ),
+            (
+                Mismatch::PredicateImplication {
+                    surface: DiagnosticCallableContractSurface::InvocationPreconditions,
+                    index: 0,
+                },
+                "provided precondition 1 does not follow from the required contract's preconditions",
+            ),
+            (
+                Mismatch::PredicateImplication {
+                    surface: DiagnosticCallableContractSurface::CompletionPostconditions,
+                    index: 1,
+                },
+                "required postcondition 2 does not follow from the provided guarantees on the required entry domain",
+            ),
+            (
+                Mismatch::ConditionReasoningLimit,
+                "bounded contract reasoning could not establish callable compatibility",
+            ),
+        ] {
+            let diagnostic = Diagnostic::new(
+                DiagnosticId::new(0),
+                DiagnosticKind::CheckingCallableContractMismatch,
+                SeverityKind::Error,
+            )
+            .with_arg(DiagnosticArg::referenced_name("close_input"))
+            .with_arg(DiagnosticArg::callable_contract_mismatch(mismatch));
+
+            let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+            assert_eq!(
+                rendered.message(),
+                format!(
+                    "callable value 'close_input' cannot satisfy the required contract: {reason}"
+                )
+            );
+        }
+    }
+
+    #[test]
+    fn execution_guarantee_failure_identifies_the_promised_property() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::CheckingUnprovenExecutionGuarantee,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::referenced_name("pure"));
+
+        assert_eq!(
+            DiagnosticRenderer::english().render(&diagnostic).message(),
+            "this operation cannot establish the declared execution guarantee 'pure'"
+        );
+    }
+
+    #[test]
+    fn postcondition_failure_describes_normal_completion() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::CheckingUnprovenPostcondition,
+            SeverityKind::Error,
+        );
+
+        assert_eq!(
+            DiagnosticRenderer::english().render(&diagnostic).message(),
+            "normal completion does not establish the declared postcondition"
+        );
+    }
+
+    #[test]
+    fn type_qualifier_failure_identifies_the_type() {
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::CheckingTypeQualifierUsedAsValue,
+            SeverityKind::Error,
+        )
+        .with_arg(DiagnosticArg::actual_type(
+            bray_diagnostics::DiagnosticType::Named(bray_diagnostics::DiagnosticNamedType::new(
+                ["app".to_owned(), "Buffer".to_owned()],
+                [],
+            )),
+        ))
+        .with_note(bray_diagnostics::DiagnosticNote::new(
+            bray_diagnostics::DiagnosticNoteKind::TypeQualifierRequiresValue,
+        ));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(
+            rendered.message(),
+            "the type app.Buffer is used where a runtime value is required"
+        );
+
+        let [note] = rendered.notes() else {
+            panic!("qualifier diagnostic must offer value-producing alternatives");
+        };
+
+        assert_eq!(
+            note.message(),
+            "provide a value expression, construct a value, or select an associated member"
+        );
+
+        assert_eq!(
+            note.rendered_kind(),
+            crate::rendered_diagnostic::RenderedDiagnosticNoteKind::Help
+        );
+    }
+
+    #[test]
     fn renderer_renders_every_diagnostic_kind() {
         let renderer = DiagnosticRenderer::english();
 
@@ -1580,6 +1708,45 @@ mod tests {
         assert_eq!(
             renderer.render(&directives).message(),
             "entrypoint and test directives cannot be combined"
+        );
+    }
+
+    #[test]
+    fn renderer_identifies_the_module_that_rejects_a_trusted_declaration() {
+        let span = SourceSpan::new(
+            SourceId::new(0),
+            TextRange::new(TextSize::new(12), TextSize::new(33)),
+        );
+
+        let diagnostic = Diagnostic::new(
+            DiagnosticId::new(0),
+            DiagnosticKind::DeclarationTrustedDeclarationRequiresTrustedModule,
+            SeverityKind::Error,
+        )
+        .with_primary_span(span)
+        .with_arg(DiagnosticArg::declaration_name("app.native"))
+        .with_label(DiagnosticLabel::primary(
+            DiagnosticLabelKind::InvalidDeclaration,
+            span,
+        ))
+        .with_note(DiagnosticNote::new(
+            DiagnosticNoteKind::TrustedModuleRequired,
+        ));
+
+        let rendered = DiagnosticRenderer::english().render(&diagnostic);
+
+        assert_eq!(
+            rendered.message(),
+            "module 'app.native' is not trusted and cannot contain this trusted declaration"
+        );
+
+        assert_eq!(rendered.primary_span(), Some(span));
+        assert_eq!(rendered.labels().len(), 1);
+        assert_eq!(rendered.notes().len(), 1);
+
+        assert_eq!(
+            rendered.notes()[0].message(),
+            "declare the logical module as trusted in all of its contributions, or move this declaration to a trusted module"
         );
     }
 

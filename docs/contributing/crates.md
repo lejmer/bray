@@ -38,6 +38,9 @@ Compiler libraries and installed Bray tools.
 - `bray-package-interface`
     - Deterministic encoding, bounded decoding, validation, and semantic access for compiled package interfaces.
 
+- `bray-package-interface-model`
+    - Dependency-free package-interface record categories shared by semantic records and diagnostic arguments.
+
 - `bray-project`
     - Bray workspace and package manifests, project-owned source discovery, and immutable deterministic package build
       graphs.
@@ -162,7 +165,8 @@ Compiler libraries and installed Bray tools.
 Contributor-only development tools.
 
 - `rust-style`
-    - Reusable Rust source-style enforcement used by `xtask`, with no dependencies on Bray compiler crates.
+    - Project-independent Rust source-style enforcement used by `xtask`. It must remain usable outside Bray
+      and must not depend on Bray crates.
 
 - `bray-llvm-toolchain`
     - Dependency-light provisioning and validation of the pinned LLVM development toolchain.

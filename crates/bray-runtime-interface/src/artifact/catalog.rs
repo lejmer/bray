@@ -838,6 +838,26 @@ mod tests {
     }
 
     #[test]
+    fn removed_private_cleanup_roles_are_rejected_before_runtime_selection() {
+        let encoded = String::from_utf8(metadata().encode_json().unwrap()).unwrap();
+
+        for role in [
+            "frame_completion_move",
+            "generator_cleanup_broadcast",
+            "generator_destruction",
+        ] {
+            let document = encoded.replace("\"main_thread_lane_startup\"", &format!("\"{role}\""));
+
+            assert_ne!(document, encoded);
+
+            assert_eq!(
+                RuntimeArtifactMetadata::decode_json(document.as_bytes()),
+                Err(RuntimeArtifactMetadataDecodeError::UnknownRole)
+            );
+        }
+    }
+
+    #[test]
     fn runtime_selection_uses_exact_purpose_and_requirement_owners() {
         let directory = tempfile::tempdir()
             .unwrap_or_else(|error| panic!("test runtime directory must exist: {error}"));

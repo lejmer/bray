@@ -197,6 +197,8 @@ define_diagnostic_kinds! {
     DeclarationConflictingModuleVisibility,
     /// Split declarations of one module disagree on trusted-module state.
     DeclarationConflictingModuleTrust,
+    /// A trusted declaration is contained in an ordinary module.
+    DeclarationTrustedDeclarationRequiresTrustedModule,
     /// A declaration repeats one modifier.
     DeclarationDuplicateModifier,
     /// A declaration combines modifiers that cannot apply together.
@@ -341,6 +343,22 @@ define_diagnostic_kinds! {
     CheckingMutableIndexContractRequired,
     /// A contextually selected union does not declare the requested variant.
     CheckingUnknownUnionVariant,
+    /// An execution guarantee names a property outside the language vocabulary.
+    CheckingUnknownExecutionProperty,
+    /// A named function cannot satisfy the required callable-value contract.
+    CheckingCallableContractMismatch,
+    /// A reachable body operation has no proof of its declared execution property.
+    CheckingUnprovenExecutionGuarantee,
+    /// A normal body exit does not establish a declared postcondition.
+    CheckingUnprovenPostcondition,
+    /// A type qualifier occurs where a runtime value is required.
+    CheckingTypeQualifierUsedAsValue,
+    /// A finalization completion proof depends on an unverified implementation contract.
+    CheckingUnprovenFinalizationCompletion,
+    /// Ordinary ownership end retains a possibly fallible finalization obligation.
+    CheckingUnresolvedFinalization,
+    /// Synchronous ownership end retains an asynchronous finalization obligation.
+    CheckingAsyncFinalizationInSynchronousContext,
     /// More than one candidate can perform the requested semantic operation.
     CheckingAmbiguousCandidate,
     /// Candidate parameter or operand types do not accept the supplied expressions.
@@ -753,6 +771,7 @@ impl DiagnosticKind {
             Self::DeclarationDuplicateName => 4001,
             Self::DeclarationConflictingModuleVisibility => 4002,
             Self::DeclarationConflictingModuleTrust => 4003,
+            Self::DeclarationTrustedDeclarationRequiresTrustedModule => 4015,
             Self::DeclarationDuplicateModifier => 4004,
             Self::DeclarationIncompatibleModifiers => 4005,
             Self::DeclarationBodyRequired => 4006,
@@ -824,6 +843,14 @@ impl DiagnosticKind {
             Self::CheckingConstantValueNotRepresentable => 7019,
             Self::CheckingNoApplicableCandidate => 7009,
             Self::CheckingMutableIndexContractRequired => 7094,
+            Self::CheckingUnknownExecutionProperty => 7117,
+            Self::CheckingCallableContractMismatch => 7118,
+            Self::CheckingUnprovenExecutionGuarantee => 7119,
+            Self::CheckingUnprovenPostcondition => 7120,
+            Self::CheckingTypeQualifierUsedAsValue => 7121,
+            Self::CheckingUnprovenFinalizationCompletion => 7122,
+            Self::CheckingUnresolvedFinalization => 7123,
+            Self::CheckingAsyncFinalizationInSynchronousContext => 7124,
             Self::CheckingUnknownUnionVariant => 7088,
             Self::CheckingAmbiguousCandidate => 7010,
             Self::CheckingIncompatibleCandidate => 7012,
@@ -990,6 +1017,18 @@ impl DiagnosticKind {
     // rust-style: allow(function-too-large, reason = "diagnostic kind keys form one exhaustive flat mapping")
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::CheckingUnknownExecutionProperty => "checking_unknown_execution_property",
+            Self::CheckingUnprovenExecutionGuarantee => "checking_unproven_execution_guarantee",
+            Self::CheckingUnprovenPostcondition => "checking_unproven_postcondition",
+            Self::CheckingTypeQualifierUsedAsValue => "checking_type_qualifier_used_as_value",
+            Self::CheckingUnprovenFinalizationCompletion => {
+                "checking_unproven_finalization_completion"
+            }
+            Self::CheckingUnresolvedFinalization => "checking_unresolved_finalization",
+            Self::CheckingAsyncFinalizationInSynchronousContext => {
+                "checking_async_finalization_in_synchronous_context"
+            }
+            Self::CheckingCallableContractMismatch => "checking_callable_contract_mismatch",
             Self::SourceFileReadFailed => "source_file_read_failed",
             Self::SourceInvalidUtf8 => "source_invalid_utf8",
             Self::SourceTooManyInputs => "source_too_many_inputs",
@@ -1112,6 +1151,9 @@ impl DiagnosticKind {
             Self::DeclarationDuplicateName => "declaration_duplicate_name",
             Self::DeclarationConflictingModuleVisibility => DECLARATION_VISIBILITY_KEY,
             Self::DeclarationConflictingModuleTrust => "declaration_conflicting_module_trust",
+            Self::DeclarationTrustedDeclarationRequiresTrustedModule => {
+                "declaration_trusted_declaration_requires_trusted_module"
+            }
             Self::DeclarationDuplicateModifier => "declaration_duplicate_modifier",
             Self::DeclarationIncompatibleModifiers => "declaration_incompatible_modifiers",
             Self::DeclarationBodyRequired => "declaration_body_required",

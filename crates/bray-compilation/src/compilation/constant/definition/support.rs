@@ -214,14 +214,18 @@ pub(in crate::compilation) fn collect_constant_references_from(
                     Some(name.target())
                 }
                 BoundReferenceTarget::Surface(
-                    AnySymbolId::CallableParameter(_) | AnySymbolId::ReceiverParameter(_),
+                    AnySymbolId::CallableParameter(_)
+                    | AnySymbolId::ReceiverParameter(_)
+                    | AnySymbolId::PredicateParameter(_),
                 ) => Some(name.target()),
                 BoundReferenceTarget::Surface(symbol)
                     if constant_definition_id(symbol).is_some() =>
                 {
                     Some(name.target())
                 }
-                BoundReferenceTarget::Surface(_) | BoundReferenceTarget::Local(_) => None,
+                BoundReferenceTarget::Surface(_)
+                | BoundReferenceTarget::Local(_)
+                | BoundReferenceTarget::TypeQualifier(_) => None,
             },
             BoundExpression::MemberAccess(_) => match selections.expression(expression) {
                 Some(SemanticSelection::Operation(SelectedOperation::Member(member))) => {

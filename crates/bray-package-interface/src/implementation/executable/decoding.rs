@@ -586,6 +586,20 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             14 => Ok(MirOperationKind::PanicReport(self.panic_cause()?)),
             15 => Ok(MirOperationKind::Finalize(self.place()?)),
             16 => Ok(MirOperationKind::Destroy(self.place()?)),
+            22 => Ok(MirOperationKind::Abandon {
+                action: self.abandonment_action()?,
+                place: self.place()?,
+            }),
+            23 => Ok(MirOperationKind::DestructorRemainder {
+                role: match read_u32(&mut self.reader)? {
+                    0 => bray_ir::MirGeneratedLifecycleRole::Destroy,
+                    1 => bray_ir::MirGeneratedLifecycleRole::Cleanup(
+                        MirCleanupPhase::LifecycleResolution,
+                    ),
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                },
+                place: self.place()?,
+            }),
             17 => Ok(MirOperationKind::Cleanup {
                 phase: self.cleanup_phase()?,
                 place: self.place()?,
@@ -636,6 +650,17 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     ),
                 ))
             }
+            _ => Err(ExecutableTemplateDecodeError::Malformed),
+        }
+    }
+
+    fn abandonment_action(
+        &mut self,
+    ) -> Result<bray_ir::MirAbandonmentAction, ExecutableTemplateDecodeError> {
+        match read_u32(&mut self.reader)? {
+            0 => Ok(bray_ir::MirAbandonmentAction::Quiesce),
+            1 => Ok(bray_ir::MirAbandonmentAction::Destroy),
+            2 => Ok(bray_ir::MirAbandonmentAction::Destructor),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }
@@ -1115,6 +1140,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             },
             5 => ConversionTarget::CVariadicPromotion,
             6 => ConversionTarget::NullablePresent,
+            7 => ConversionTarget::CallableContract,
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 
@@ -1183,16 +1209,6 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             }),
             2 => Ok(MirGeneratorOperation::Finish {
                 destination: self.place()?,
-            }),
-            3 => Ok(MirGeneratorOperation::CleanupBroadcast {
-                destination: self.place()?,
-                element: self.ty()?,
-                runtime: self.runtime_reference()?,
-            }),
-            4 => Ok(MirGeneratorOperation::Destroy {
-                destination: self.place()?,
-                element: self.ty()?,
-                runtime: self.runtime_reference()?,
             }),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
@@ -1701,6 +1717,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             0 => Ok(MirPanicCause::Message(self.operand()?)),
             1 => Ok(MirPanicCause::Assertion(self.optional_operand()?)),
             2 => Ok(MirPanicCause::ExplicitTestFailure(self.operand()?)),
+            3 => Ok(MirPanicCause::TaskAdmission),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }
@@ -1716,23 +1733,26 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
 
                 let initializer = match read_u32(&mut self.reader)? {
                     0 => bray_ir::MirFrameInitializer::Callable(self.call()?),
-                    1 => bray_ir::MirFrameInitializer::TaskObservation {
-                        task: self.operand()?,
+                    2 => bray_ir::MirFrameInitializer::Lifecycle {
+                        role: match read_u32(&mut self.reader)? {
+                            0 => bray_ir::MirGeneratedLifecycleRole::Finalize,
+                            1 => bray_ir::MirGeneratedLifecycleRole::StaticFinalize,
+                            2 => bray_ir::MirGeneratedLifecycleRole::Destroy,
+                            4 => bray_ir::MirGeneratedLifecycleRole::Abandon(
+                                self.abandonment_action()?,
+                            ),
+                            3 => bray_ir::MirGeneratedLifecycleRole::Cleanup(self.cleanup_phase()?),
+                            _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                        },
+                        ty: self.ty()?,
+                        receiver: self.operand()?,
                         result: BoundFutureConstruction::new(self.ty()?, self.ty()?),
-                        variants: self.run_result_variants()?,
-                        runtime: self.runtime_reference()?,
-                        request_cancellation: read_bool(&mut self.reader)?,
                     },
                     _ => return Err(ExecutableTemplateDecodeError::Malformed),
                 };
 
                 Ok(Operation::CreateFrame { frame, initializer })
             }
-            1 => Ok(Operation::MoveInactiveFrame {
-                frame: self.frame_reference()?,
-                source: self.place()?,
-                destination: self.place()?,
-            }),
             2 => Ok(Operation::ResumeFrame {
                 frame: self.frame_id()?,
                 state: bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?),
@@ -1743,13 +1763,16 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 parent: self.frame_id()?,
                 child: self.frame_reference()?,
                 frame: self.operand()?,
-            }),
-            4 => Ok(Operation::CommitAwaitedCompletion {
-                child: self.frame_reference()?,
+                entry: bray_ir::MirFrameEntry::from_code(
+                    u8::try_from(read_u32(&mut self.reader)?)
+                        .map_err(|_| ExecutableTemplateDecodeError::Malformed)?,
+                )
+                .ok_or(ExecutableTemplateDecodeError::Malformed)?,
             }),
             5 => Ok(Operation::StartTask {
                 frame: self.frame_reference()?,
                 value: self.operand()?,
+                destination: self.place()?,
                 allocation: self.runtime_reference()?,
                 start: self.runtime_reference()?,
             }),
@@ -1770,6 +1793,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     0 => bray_ir::MirTaskTerminalState::Completed(self.operand()?),
                     1 => bray_ir::MirTaskTerminalState::Cancelled,
                     2 => bray_ir::MirTaskTerminalState::Panicked(self.operand()?),
+                    3 => bray_ir::MirTaskTerminalState::CapturesCompleted,
                     _ => return Err(ExecutableTemplateDecodeError::Malformed),
                 };
 
@@ -1792,6 +1816,27 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             }),
             13 => Ok(Operation::DestroyTerminalTask {
                 task: self.operand()?,
+                completion: if read_bool(&mut self.reader)? {
+                    Some(self.ty()?)
+                } else {
+                    None
+                },
+            }),
+            14 => Ok(Operation::ResolveAwaitedFrame {
+                variants: self.run_result_variants()?,
+                runtime: self.runtime_reference()?,
+            }),
+            15 => Ok(Operation::BorrowTaskCompletion {
+                task: self.operand()?,
+                runtime: self.runtime_reference()?,
+            }),
+            16 => Ok(Operation::ReleaseTaskCompletionBorrow {
+                task: self.operand()?,
+                runtime: self.runtime_reference()?,
+            }),
+            17 => Ok(Operation::DestroyInactiveCaptures {
+                frame: self.operand()?,
+                runtime: self.runtime_reference()?,
             }),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
@@ -1859,6 +1904,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     0 => bray_ir::MirSuspensionKind::Awaited,
                     1 => bray_ir::MirSuspensionKind::Yield,
                     2 => bray_ir::MirSuspensionKind::TaskEvent,
+                    3 => bray_ir::MirSuspensionKind::TaskCompletion,
                     _ => return Err(ExecutableTemplateDecodeError::Malformed),
                 };
 
@@ -1867,7 +1913,11 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     payload: self.optional_operand()?,
                     resume_state: bray_ir::MirFrameStateId::new(read_u32(&mut self.reader)?),
                     resume: self.edge()?,
-                    cancellation: self.cleanup_edge()?,
+                    cancellation: if read_bool(&mut self.reader)? {
+                        Some(self.cleanup_edge()?)
+                    } else {
+                        None
+                    },
                     registration: self.runtime_reference()?,
                     wake: self.runtime_reference()?,
                 })
@@ -2038,6 +2088,19 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 );
 
                 let result_type = self.ty()?;
+
+                let inactive_cleanup = match read_u32(&mut self.reader)? {
+                    0 => None,
+                    1 => Some(self.block_id()?),
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                };
+
+                let capture_abandonment = if read_bool(&mut self.reader)? {
+                    Some((self.block_id()?, self.block_id()?))
+                } else {
+                    None
+                };
+
                 let state_count = self.count()?;
                 let mut states = self.items(state_count)?;
 
@@ -2070,6 +2133,16 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 }
 
                 MirFrameDescriptor::try_new(frame, abi_version, frame_abi, result_type, states)
+                    .map(|frame| match inactive_cleanup {
+                        Some(entry) => frame.with_inactive_cleanup(entry),
+                        None => frame,
+                    })
+                    .map(|frame| match capture_abandonment {
+                        Some((quiescence, destruction)) => {
+                            frame.with_capture_abandonment(quiescence, destruction)
+                        }
+                        None => frame,
+                    })
                     .map(Some)
                     .map_err(|_| ExecutableTemplateDecodeError::Malformed)
             }
@@ -2099,7 +2172,6 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             1 => Ok(MirStorageKind::Local),
             2 => Ok(MirStorageKind::Temporary),
             3 => Ok(MirStorageKind::Return),
-            4 => Ok(MirStorageKind::InactiveFrame),
             5 => Ok(MirStorageKind::CurrentFrame),
             6 => Ok(MirStorageKind::CurrentTask),
             7 => Ok(MirStorageKind::ChildTask),
@@ -2691,10 +2763,13 @@ mod tests {
         }
     }
 
-    fn decode_projection(
+    fn decode_test_item<T>(
         bytes: &[u8],
         symbols: &ProjectionSymbols,
-    ) -> Result<bray_ir::MirProjectionKind, ExecutableTemplateDecodeError> {
+        read: impl FnOnce(
+            &mut super::Decoder<'_, '_, ProjectionSymbols>,
+        ) -> Result<T, ExecutableTemplateDecodeError>,
+    ) -> Result<T, ExecutableTemplateDecodeError> {
         let values = SemanticValueStore::try_new().unwrap();
 
         let semantics = crate::InterfaceSemantics::new()
@@ -2715,7 +2790,7 @@ mod tests {
             target: bray_target::TargetIdentity::try_new("x86_64-pc-windows-msvc").unwrap(),
         };
 
-        decoder.projection_kind()
+        read(&mut decoder)
     }
 
     #[test]
@@ -2735,10 +2810,14 @@ mod tests {
                 super::super::encoding::encode_projection_for_test(&projection, &mut symbols)
                     .unwrap();
 
-            assert_eq!(decode_projection(&bytes, &symbols), Ok(projection));
+            assert_eq!(
+                decode_test_item(&bytes, &symbols, |decoder| decoder.projection_kind()),
+                Ok(projection)
+            );
 
             assert!(matches!(
-                decode_projection(&bytes[..bytes.len() - 1], &symbols),
+                decode_test_item(&bytes[..bytes.len() - 1], &symbols, |decoder| decoder
+                    .projection_kind()),
                 Err(ExecutableTemplateDecodeError::Validation(
                     crate::InterfaceValidationError::Truncated {
                         expected_length: 4,
@@ -2754,7 +2833,7 @@ mod tests {
             );
 
             assert_eq!(
-                decode_projection(&bytes, &wrong_kind),
+                decode_test_item(&bytes, &wrong_kind, |decoder| decoder.projection_kind()),
                 Err(ExecutableTemplateDecodeError::Malformed)
             );
         }
@@ -2764,6 +2843,179 @@ mod tests {
         CheckedMemoryOperationKind, InlineAssemblyOperand, InlineAssemblyOperandKind,
         MAX_INLINE_ASSEMBLY_OPERANDS, MemoryAddressKind, MemoryOrder,
     };
+
+    #[test]
+    fn frame_entry_selection_survives_executable_encoding() {
+        let mut symbols = ProjectionSymbols(
+            bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(7)).into(),
+        );
+
+        let unit = bray_ir::MirUnitId::new(1);
+        let parent = bray_runtime_interface::ProtectedAsyncFrameId::new([7; 32]);
+
+        for entry in [
+            bray_ir::MirFrameEntry::Body,
+            bray_ir::MirFrameEntry::CaptureCleanup,
+            bray_ir::MirFrameEntry::CaptureQuiescence,
+            bray_ir::MirFrameEntry::CaptureDestruction,
+        ] {
+            let operation = bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+                parent,
+                child: bray_ir::MirFrameReference::Erased,
+                frame: bray_ir::MirOperand::Value(bray_ir::MirValueId::from_slot(unit, 0)),
+                entry,
+            };
+
+            let bytes =
+                super::super::encoding::encode_async_operation_for_test(&operation, &mut symbols)
+                    .unwrap();
+
+            assert_eq!(
+                decode_test_item(&bytes, &symbols, |decoder| decoder.async_operation()),
+                Ok(operation)
+            );
+
+            assert!(
+                decode_test_item(&bytes[..bytes.len() - 1], &symbols, |decoder| decoder
+                    .async_operation())
+                .is_err()
+            );
+
+            for invalid in [4u32, 256, u32::MAX] {
+                let mut invalid_bytes = bytes.clone();
+                let offset = invalid_bytes.len() - size_of::<u32>();
+
+                invalid_bytes[offset..].copy_from_slice(&invalid.to_le_bytes());
+
+                assert_eq!(
+                    decode_test_item(&invalid_bytes, &symbols, |decoder| decoder
+                        .async_operation()),
+                    Err(ExecutableTemplateDecodeError::Malformed)
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn abandonment_ownership_operations_preserve_operands_and_abi_in_executable_encoding() {
+        let mut symbols = ProjectionSymbols(
+            bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(7)).into(),
+        );
+
+        let unit = bray_ir::MirUnitId::new(1);
+        let owner = bray_ir::MirOperand::Value(bray_ir::MirValueId::from_slot(unit, 0));
+
+        let runtime = |role| {
+            bray_ir::MirRuntimeReference::new(
+                role,
+                bray_runtime_interface::RuntimeAbiVersion::CURRENT,
+            )
+        };
+
+        for operation in [
+            bray_ir::MirAsyncOperation::BorrowTaskCompletion {
+                task: owner.clone(),
+                runtime: runtime(bray_runtime_interface::RuntimeAbiRole::TaskCompletionBorrow),
+            },
+            bray_ir::MirAsyncOperation::ReleaseTaskCompletionBorrow {
+                task: owner.clone(),
+                runtime: runtime(
+                    bray_runtime_interface::RuntimeAbiRole::TaskCompletionBorrowRelease,
+                ),
+            },
+            bray_ir::MirAsyncOperation::DestroyInactiveCaptures {
+                frame: owner,
+                runtime: runtime(
+                    bray_runtime_interface::RuntimeAbiRole::InactiveCaptureDestruction,
+                ),
+            },
+        ] {
+            let bytes =
+                super::super::encoding::encode_async_operation_for_test(&operation, &mut symbols)
+                    .unwrap();
+
+            assert_eq!(
+                decode_test_item(&bytes, &symbols, |decoder| decoder.async_operation()),
+                Ok(operation)
+            );
+
+            for length in 0..bytes.len() {
+                assert!(
+                    decode_test_item(&bytes[..length], &symbols, |decoder| decoder
+                        .async_operation())
+                    .is_err()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn obsolete_inactive_move_and_storage_records_are_rejected() {
+        let symbols = ProjectionSymbols(
+            bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(7)).into(),
+        );
+
+        assert_eq!(
+            decode_test_item(&1u32.to_le_bytes(), &symbols, |decoder| decoder
+                .async_operation()),
+            Err(ExecutableTemplateDecodeError::Malformed)
+        );
+
+        assert_eq!(
+            decode_test_item(&4u32.to_le_bytes(), &symbols, |decoder| decoder
+                .storage_kind()),
+            Err(ExecutableTemplateDecodeError::Malformed)
+        );
+    }
+
+    #[test]
+    fn suspension_cancellation_policy_survives_executable_encoding() {
+        let mut symbols = ProjectionSymbols(
+            bray_symbols::FunctionSymbolId::from_symbol_id(bray_symbols::SymbolId::new(7)).into(),
+        );
+
+        let unit = bray_ir::MirUnitId::new(1);
+        let block = bray_ir::MirBlockId::from_slot(unit, 1);
+        let abi = bray_runtime_interface::RuntimeAbiVersion::new(1, 0);
+
+        for cancellation in [
+            None,
+            Some(bray_ir::MirCleanupEdge::new(
+                bray_ir::MirCleanupPhase::TaskCancellation,
+                bray_ir::MirEdge::new(block, []),
+            )),
+        ] {
+            let terminator = bray_ir::MirTerminatorKind::Suspend {
+                kind: bray_ir::MirSuspensionKind::Awaited,
+                payload: None,
+                resume_state: bray_ir::MirFrameStateId::new(1),
+                resume: bray_ir::MirEdge::new(block, []),
+                cancellation,
+                registration: bray_ir::MirRuntimeReference::new(
+                    bray_runtime_interface::RuntimeAbiRole::SuspensionRegistration,
+                    abi,
+                ),
+                wake: bray_ir::MirRuntimeReference::new(
+                    bray_runtime_interface::RuntimeAbiRole::Wake,
+                    abi,
+                ),
+            };
+
+            let bytes =
+                super::super::encoding::encode_terminator_for_test(&terminator, &mut symbols)
+                    .unwrap();
+
+            let decoded = decode_test_item(&bytes, &symbols, |decoder| decoder.terminator());
+
+            assert_eq!(decoded, Ok(terminator));
+
+            assert!(
+                decode_test_item(&bytes[..bytes.len() - 1], &symbols, |decoder| decoder
+                    .terminator())
+                .is_err()
+            );
+        }
+    }
     use bray_symbols::{
         BorrowKind, ConstantValueData, ConstantValueKind, IntegerConstant, SemanticValueStore,
         TypeData, TypeId,

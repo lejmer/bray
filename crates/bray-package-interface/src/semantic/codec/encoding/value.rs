@@ -145,6 +145,7 @@ pub(super) fn encode_type(encoder: &mut WireEncoder, ty: &InterfaceType) {
             constness,
             trust,
             abi,
+            conditions,
             invocation_behavior,
             deferred_execution_behavior,
         } => {
@@ -165,6 +166,8 @@ pub(super) fn encode_type(encoder: &mut WireEncoder, ty: &InterfaceType) {
             encoder.write_u32((*constness).to_wire());
             encoder.write_u32((*trust).to_wire());
             encoder.write_u32((*abi).to_wire());
+
+            super::contract::encode_callable_conditions(encoder, conditions);
             super::contract::encode_callable_behavior(encoder, invocation_behavior);
 
             match deferred_execution_behavior {
@@ -360,6 +363,18 @@ pub(super) fn encode_constant_term(encoder: &mut WireEncoder, term: &InterfaceCo
             encoder.write_u32(substitution.raw());
             write_ids(encoder, arguments, |id| id.raw());
         }
+        InterfaceConstantTerm::Test { subject, kind } => {
+            encoder.write_u32(19);
+            encoder.write_u32(subject.raw());
+
+            match kind {
+                bray_symbols::ConstantTest::NullablePresent => encoder.write_u32(1),
+                bray_symbols::ConstantTest::ActiveUnionVariant(variant) => {
+                    encoder.write_u32(2);
+                    write_symbol_reference(encoder, variant);
+                }
+            }
+        }
         InterfaceConstantTerm::Projection { subject, kind } => {
             encoder.write_u32(8);
             encoder.write_u32(subject.raw());
@@ -399,6 +414,7 @@ pub(super) fn encode_constant_projection(
             write_symbol_reference(encoder, field);
         }
         InterfaceConstantProjection::NullableValue => encoder.write_u32(5),
+        InterfaceConstantProjection::OwnedTarget => encoder.write_u32(6),
     }
 }
 

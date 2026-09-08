@@ -1,5 +1,5 @@
 use super::super::core::UnitTranslator;
-use super::super::support::{int_value, llvm, pointer_value};
+use super::super::support::{insert_value, int_value, llvm, pointer_value};
 use bray_codegen::CodegenFailure;
 use bray_ir::{BoundUnitKey, MirHostOperation};
 use bray_runtime_interface::{ProtectedFrameOperation, RootExecution, RuntimeRoleImplementation};
@@ -53,7 +53,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     return Ok(None);
                 }
 
-                if let RootExecution::Asynchronous { frame } = execution {
+                if let RootExecution::Asynchronous { .. } = execution {
                     let (constructor, signature) =
                         self.root_entry(root, RootExecution::Synchronous)?;
 
@@ -65,15 +65,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         .and_then(|value| {
                             pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)
                         })?;
-
-                    let context = llvm(self.builder.build_ptr_to_int(
-                        context,
-                        crate::native::pointer_integer_type(
-                            self.types.context(),
-                            self.request.target(),
-                        ),
-                        "root.frame.context",
-                    ))?;
 
                     let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
                         return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -99,26 +90,21 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                             )
                         });
 
-                    let adapter_key = bray_codegen::CodegenSymbolKey::ProtectedFrame {
-                        frame: *frame,
-                        operation: ProtectedFrameOperation::MoveBeforeStart,
-                    };
-
-                    let frame = crate::native::invoke_function(
-                        self.types.context(),
+                    let frame_transfer = insert_value(
                         &self.builder,
-                        self.request.target(),
-                        &adapter_key,
-                        adapter,
-                        &[context.into()],
-                        "root.frame.adapter",
-                    )?
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                        crate::native::inactive_frame_type(self.types.context())
+                            .const_zero()
+                            .into(),
+                        context.into(),
+                        0,
+                    )?;
 
-                    let frame_storage =
-                        self.allocate_temporary(frame.get_type(), "root.frame.transfer.storage")?;
-
-                    llvm(self.builder.build_store(frame_storage, frame))?;
+                    let frame_transfer = insert_value(
+                        &self.builder,
+                        frame_transfer,
+                        adapter.as_global_value().as_pointer_value().into(),
+                        1,
+                    )?;
 
                     let capacity = host
                         .capacity_limits()
@@ -129,12 +115,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         self.types.context(),
                         self.request.target(),
                     );
-
-                    let frame_transfer = llvm(self.builder.build_ptr_to_int(
-                        frame_storage,
-                        usize,
-                        "root.frame.transfer",
-                    ))?;
 
                     let configuration = crate::native::runtime_configuration_type(
                         self.types.context(),
@@ -586,6 +566,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             }
             bray_ir::MirTaskTerminalState::Cancelled => {
                 (2, self.types.context().i64_type().const_zero())
+            }
+            bray_ir::MirTaskTerminalState::CapturesCompleted => {
+                (1, self.types.context().i64_type().const_zero())
             }
             bray_ir::MirTaskTerminalState::Panicked(value) => {
                 let payload = match self.operand(value)? {

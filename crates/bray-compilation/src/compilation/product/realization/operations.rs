@@ -44,7 +44,15 @@ impl Compilation {
             for (operation, data) in instance.mir().operations_with_ids() {
                 let references = data.kind().helper_references();
 
-                if references.is_empty() {
+                let incident = self.concrete_operation_incident(
+                    realization,
+                    instance.mir(),
+                    data,
+                    target,
+                    cancellation,
+                )?;
+
+                if references.is_empty() && incident.is_none() {
                     continue;
                 }
 
@@ -64,11 +72,20 @@ impl Compilation {
                     })
                     .collect::<Result<Vec<_>, _>>()?;
 
-                mappings.push(CodegenOperationMapping::new(
-                    instance.key().clone(),
-                    operation,
-                    helpers,
-                ));
+                let mut mapping =
+                    CodegenOperationMapping::new(instance.key().clone(), operation, helpers);
+
+                if let Some(incident) = incident {
+                    mapping = mapping.with_incident(incident.into_mapping());
+                }
+
+                if let Some(identity) =
+                    self.concrete_operation_error_identity(realization, data, cancellation)?
+                {
+                    mapping = mapping.with_returned_error_identity(identity);
+                }
+
+                mappings.push(mapping);
             }
         }
 
@@ -253,6 +270,7 @@ impl Compilation {
             MirHelperReference::Finalize(_)
             | MirHelperReference::StaticFinalize(_)
             | MirHelperReference::Destroy(_)
+            | MirHelperReference::Abandon { .. }
             | MirHelperReference::Cleanup { .. } => {
                 if self.codegen_lifecycle_is_trivial(&concrete_reference, cancellation)? {
                     return Ok(None);
@@ -265,9 +283,7 @@ impl Compilation {
             | MirHelperReference::FinishGenerator
             | MirHelperReference::PanicReport
             | MirHelperReference::CreateFrame(_)
-            | MirHelperReference::MoveInactiveFrame(_)
             | MirHelperReference::ComposeAwaitedFrame(_)
-            | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => return Ok(None),
         };
 
@@ -296,6 +312,10 @@ impl Compilation {
                 phase: *phase,
                 ty: self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
             },
+            MirHelperReference::Abandon { action, ty } => MirHelperReference::Abandon {
+                action: *action,
+                ty: self.concrete_codegen_type(*ty, substitution, Some(owner), cancellation)?,
+            },
             MirHelperReference::AnonymousCallable(_)
             | MirHelperReference::DeclaredCallable(_)
             | MirHelperReference::CallableDefault(_)
@@ -308,9 +328,7 @@ impl Compilation {
             | MirHelperReference::FinishGenerator
             | MirHelperReference::PanicReport
             | MirHelperReference::CreateFrame(_)
-            | MirHelperReference::MoveInactiveFrame(_)
             | MirHelperReference::ComposeAwaitedFrame(_)
-            | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => reference.clone(),
         })
     }
@@ -333,6 +351,17 @@ impl Compilation {
         };
 
         match initializer {
+            MirFrameInitializer::Lifecycle { role, ty, .. } => {
+                let lifecycle = self.concrete_codegen_helper_reference(
+                    owner_realization,
+                    &role.reference(*ty),
+                    cancellation,
+                )?;
+
+                let dependency = self.concrete_codegen_lifecycle(lifecycle, target)?;
+
+                dependency_symbol(owner, dependency.key(), reference)
+            }
             MirFrameInitializer::Callable(call) => match call.target() {
                 MirCallTarget::Direct(_) => {
                     let demand = demanded_callable_instance_for_call(
@@ -365,10 +394,6 @@ impl Compilation {
                     reference.clone(),
                 )),
             },
-            MirFrameInitializer::TaskObservation { .. } => Ok(helper_runtime_symbol(
-                owner,
-                RuntimeAbiRole::TaskObservationCreation,
-            )),
         }
     }
 
@@ -400,6 +425,44 @@ impl Compilation {
 
         let context =
             super::synthetic::CompilationSyntheticLoweringContext::new(self, cancellation)?;
+
+        let destructor_type = match reference {
+            MirHelperReference::Destroy(ty)
+            | MirHelperReference::Abandon {
+                action: bray_ir::MirAbandonmentAction::Destructor,
+                ty,
+            } => Some(*ty),
+            _ => None,
+        };
+
+        if let Some(ty) = destructor_type
+            && !matches!(self.semantic_value_store()?.type_data(ty).map_err(crate::fact::FactQueryError::SemanticValueStore)?.as_ref(),
+                bray_symbols::TypeData::Named { definition, substitution }
+                if self.raw_buffer_element(*definition, *substitution, cancellation)?.is_some())
+            && let Some((callable, _, _, _)) = self.lifecycle_callable(
+                ty,
+                bray_symbols::TypeAssociatedLifecycleSlot::Destructor,
+                cancellation,
+            )?
+        {
+            let template =
+                self.codegen_callable_template(callable.instance().definition(), cancellation)?;
+
+            let source = instance.with_template(template);
+            let mir = self.codegen_mir_for_plan(&source, unit, None, cancellation)?;
+
+            return if matches!(reference, MirHelperReference::Destroy(_)) {
+                bray_lowering::specialize_destruction_body(
+                    &context,
+                    mir,
+                    instance.template().clone(),
+                    ty,
+                )
+            } else {
+                bray_lowering::specialize_destructor_body(mir, instance.template().clone())
+                    .map_err(CodegenPreparationError::from)
+            };
+        }
 
         bray_lowering::lower_lifecycle(
             &context,

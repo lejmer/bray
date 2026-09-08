@@ -19,6 +19,16 @@ pub trait SyntheticLoweringContext {
     /// Returns exact compiler-known identities and representation contracts.
     fn compiler_known_symbols(&self) -> &AvailableCompilerKnownSymbols;
 
+    /// Resolves checked finalization and represented destruction execution for a closed type.
+    fn cleanup_type_execution(
+        &self,
+        ty: TypeId,
+    ) -> Result<bray_bound_tree::StorageCleanupType, Self::Error>;
+
+    /// Returns whether certified contracts prove no-work whole-value completion for every receiver.
+    /// Receiver acquisition, destruction, represented owners, and release retain their obligations.
+    fn finalization_complete(&self, ty: TypeId) -> Result<bool, Self::Error>;
+
     /// Resolves the callable, receiver argument type, completion type, and execution mode.
     fn lifecycle_callable(
         &self,
@@ -47,8 +57,8 @@ pub trait SyntheticLoweringContext {
         substitution: GenericSubstitutionId,
     ) -> Result<TypeId, Self::Error>;
 
-    /// Resolves the element of the recognized imported standard-library raw buffer, if applicable.
-    fn imported_raw_buffer_element(
+    /// Resolves the element of the recognized standard-library raw buffer, if applicable.
+    fn raw_buffer_element(
         &self,
         definition: NamedTypeSymbolId,
         substitution: GenericSubstitutionId,
@@ -72,4 +82,40 @@ pub trait SyntheticLoweringContext {
 
 pub(crate) struct SyntheticLowerer<'context, C: SyntheticLoweringContext + ?Sized> {
     pub(crate) context: &'context C,
+}
+
+impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
+    pub(super) fn run_result(
+        &self,
+        completion: TypeId,
+    ) -> Result<(TypeId, bray_ir::MirRunResultVariants), C::Error> {
+        let symbols = self.context.compiler_known_symbols();
+
+        let result = symbols
+            .unary_representation_type(
+                self.context.semantic_values(),
+                RepresentationRole::RunResult,
+                completion,
+            )
+            .map_err(SyntheticLoweringError::SemanticValue)?
+            .ok_or(SyntheticLoweringError::MissingRepresentation {
+                role: RepresentationRole::RunResult,
+                argument: Some(completion),
+            })?;
+
+        let representation = symbols.run_result_representation().ok_or(
+            SyntheticLoweringError::MissingRepresentation {
+                role: RepresentationRole::RunResult,
+                argument: None,
+            },
+        )?;
+
+        let variants = bray_ir::MirRunResultVariants::new(
+            representation.completed_variant(),
+            representation.panicked_variant(),
+            representation.cancelled_variant(),
+        );
+
+        Ok((result, variants))
+    }
 }

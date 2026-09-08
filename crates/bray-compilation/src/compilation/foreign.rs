@@ -1,6 +1,7 @@
 pub(in crate::compilation) mod diagnostic;
 mod directive;
 mod error;
+mod evidence;
 mod layout;
 pub(in crate::compilation) mod platform;
 mod query;

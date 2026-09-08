@@ -44,6 +44,10 @@ where
         })
         .collect::<Vec<_>>();
 
+    inference.register_implicit_compatibilities(|expected, actual| {
+        crate::selection::callable_contract_conversion_is_valid(request.context(), actual, expected)
+    })?;
+
     inference.check_expectations(&ordered_variables);
 
     if !propagate_blocks(
@@ -229,6 +233,19 @@ where
     Ok(())
 }
 
+fn nullable_expectation(
+    values: &bray_symbols::SemanticValueStore,
+    inference: &mut TypeInferenceContext,
+    variable: InferenceTypeId,
+) -> Result<Option<bray_symbols::TypeId>, CheckerInfrastructureError> {
+    inference.try_unique_matching_expectation(variable, |ty| {
+        values
+            .type_data(ty)
+            .map(|data| matches!(data.as_ref(), TypeData::Nullable(_)))
+            .map_err(CheckerInfrastructureError::SemanticValueStore)
+    })
+}
+
 fn infer_absence<C>(
     request: CheckerUnitView<'_, C>,
     expression_id: BoundExpressionId,
@@ -242,13 +259,7 @@ where
         return Ok(());
     };
 
-    let expected = inference.try_unique_matching_expectation(variable, |ty| {
-        request
-            .semantic_values()
-            .type_data(ty)
-            .map(|data| matches!(data.as_ref(), TypeData::Nullable(_)))
-            .map_err(CheckerInfrastructureError::SemanticValueStore)
-    })?;
+    let expected = nullable_expectation(request.semantic_values(), inference, variable)?;
 
     if let Some(expected) = expected {
         inference.add_evidence(variable, expected, expression_id);
@@ -556,19 +567,25 @@ fn add_transfer_value<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let nullable_expectation = inference
-        .unique_expectation(target)
-        .map(|expected| {
-            request
-                .semantic_values()
-                .type_data(expected)
-                .map(|data| matches!(data.as_ref(), TypeData::Nullable(_)).then_some(expected))
-                .map_err(CheckerInfrastructureError::SemanticValueStore)
-        })
-        .transpose()?
-        .flatten();
+    let nullable_expectation = nullable_expectation(request.semantic_values(), inference, target)?;
 
-    if let (Some(expected), Some(operand)) = (nullable_expectation, operand) {
+    let nullable_target = match inference.evidence(target) {
+        Some(ty)
+            if matches!(
+                request
+                    .semantic_values()
+                    .type_data(ty)
+                    .map_err(CheckerInfrastructureError::SemanticValueStore)?
+                    .as_ref(),
+                TypeData::Nullable(_)
+            ) =>
+        {
+            Some(ty)
+        }
+        _ => nullable_expectation,
+    };
+
+    if let (Some(expected), Some(operand)) = (nullable_target, operand) {
         add_expectations(
             request,
             [ExpressionTypeExpectation::new(operand, expected)],

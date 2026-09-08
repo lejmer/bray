@@ -12,8 +12,14 @@ impl From<SyntheticLoweringError> for CodegenPreparationError {
             SyntheticLoweringError::SemanticValue(cause) => {
                 FactQueryError::SemanticValueStore(cause).into()
             }
-            SyntheticLoweringError::LifecycleMir(cause) => {
-                Self::InvalidGeneratedLifecycleMir(cause)
+            SyntheticLoweringError::LifecycleMir { owner, cause } => {
+                Self::InvalidGeneratedLifecycleMir { owner, cause }
+            }
+            SyntheticLoweringError::SpecializedMir { source, cause } => {
+                Self::InvalidSpecializedMir { source, cause }
+            }
+            SyntheticLoweringError::FrameDescriptor(cause) => {
+                Self::InvalidGeneratedLifecycleFrame(cause)
             }
             SyntheticLoweringError::CompilerProvidedMir { definition, cause } => {
                 Self::InvalidCompilerProvidedMir { definition, cause }
@@ -118,10 +124,28 @@ mod tests {
             CodegenPreparationError::InvalidCompilerProvidedMir { definition, cause }
         );
 
-        assert_eq!(
-            CodegenPreparationError::from(SyntheticLoweringError::LifecycleMir(cause)),
-            CodegenPreparationError::InvalidGeneratedLifecycleMir(cause)
+        let owner = bray_ir::MirSourceOrigin::GeneratedLifecycle(
+            bray_ir::MirHelperReference::Destroy(bray_testing::test_mir_type()),
         );
+
+        let lifecycle = CodegenPreparationError::from(SyntheticLoweringError::LifecycleMir {
+            owner: owner.clone(),
+            cause,
+        });
+
+        assert_eq!(
+            lifecycle,
+            CodegenPreparationError::InvalidGeneratedLifecycleMir { owner, cause }
+        );
+
+        let bray_diagnostics::DiagnosticNativeProductFailureKind::CodegenInvalidLifecycleMir(
+            detail,
+        ) = codegen_preparation_failure_kind(&lifecycle).unwrap()
+        else {
+            panic!("expected lifecycle failure");
+        };
+
+        assert!(detail.context().iter().any(|field| field.name() == "owner"));
 
         let failure = codegen_preparation_failure_kind(&error).unwrap();
 

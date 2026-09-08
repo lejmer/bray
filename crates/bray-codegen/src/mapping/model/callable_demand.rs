@@ -139,6 +139,8 @@ fn operation_callable_instances(
         | MirOperationKind::PanicReport(_)
         | MirOperationKind::Finalize(_)
         | MirOperationKind::Destroy(_)
+        | MirOperationKind::Abandon { .. }
+        | MirOperationKind::DestructorRemainder { .. }
         | MirOperationKind::Cleanup { .. }
         | MirOperationKind::Async(_)
         | MirOperationKind::Host(_) => return Vec::new(),

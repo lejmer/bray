@@ -1,3 +1,4 @@
+use bray_symbols::CallableConditions;
 use std::sync::Arc;
 
 use super::mapping::RecordMaps;
@@ -116,6 +117,11 @@ pub(super) fn remap_selected_records(
                 crate::InterfaceConstraintKind::Predicate(predicate) => {
                     predicate.dependency_contract =
                         maps.dependency_contract_id(predicate.dependency_contract)?;
+
+                    predicate.condition = predicate
+                        .condition
+                        .map(|term| maps.constant_term_id(term))
+                        .transpose()?;
                 }
                 crate::InterfaceConstraintKind::TraitSatisfaction {
                     subject,
@@ -259,6 +265,7 @@ fn remap_type(ty: &mut InterfaceType, maps: &RecordMaps) -> Result<(), Interface
         InterfaceType::Callable {
             parameters,
             result,
+            conditions,
             invocation_behavior,
             deferred_execution_behavior,
             ..
@@ -268,6 +275,15 @@ fn remap_type(ty: &mut InterfaceType, maps: &RecordMaps) -> Result<(), Interface
             }
 
             *result = maps.type_id(*result)?;
+
+            conditions.try_map_clauses(|clause| {
+                clause.try_map_ids(
+                    |id| maps.dependency_contract_id(id),
+                    |id| maps.constant_term_id(id),
+                    |id| maps.type_id(id),
+                    |id| maps.trait_application_id(id),
+                )
+            })?;
 
             invocation_behavior.dependency_contract =
                 maps.dependency_contract_id(invocation_behavior.dependency_contract)?;
@@ -381,6 +397,9 @@ fn remap_constant_term(
         } => {
             *substitution = maps.substitution_id(*substitution)?;
             remap_constant_term_ids(Arc::make_mut(arguments), maps)?;
+        }
+        InterfaceConstantTerm::Test { subject, .. } => {
+            *subject = maps.constant_term_id(*subject)?;
         }
         InterfaceConstantTerm::Projection { subject, kind } => {
             *subject = maps.constant_term_id(*subject)?;

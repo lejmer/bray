@@ -1,3 +1,5 @@
+use bray_symbols::CallableConditions;
+
 use std::hash::{Hash, Hasher};
 
 use bray_base::StableDigestHasher;
@@ -186,6 +188,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
                 self.callable_constness(callable.constness());
                 self.callable_trust(callable.trust());
                 self.callable_abi(callable.abi());
+                self.callable_conditions(callable.conditions())?;
 
                 self.callable_phase_behavior(callable.phase_behaviors().invocation())?;
 
@@ -200,6 +203,72 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
         }
 
         Ok(())
+    }
+
+    fn callable_conditions(
+        &mut self,
+        conditions: &bray_symbols::CallableConditionSet,
+    ) -> Result<(), FactQueryError> {
+        self.length(conditions.clauses().count());
+
+        for clause in conditions.clauses() {
+            self.ordinal(clause.ordinal());
+
+            self.tag(match clause.kind() {
+                bray_symbols::CallableContractClauseKind::Requires => 0,
+                bray_symbols::CallableContractClauseKind::Ensures => 1,
+                bray_symbols::CallableContractClauseKind::Static => 2,
+                bray_symbols::CallableContractClauseKind::Guard => 3,
+            });
+
+            self.optional_ordinal(clause.guard());
+
+            match clause.value() {
+                bray_symbols::CallableContractClauseValue::Predicate(predicate) => {
+                    self.tag(0);
+                    self.dependency_contract(predicate.dependency_contract())?;
+
+                    match predicate.condition() {
+                        Some(term) => {
+                            self.tag(1);
+                            self.constant_term(term)?;
+                        }
+                        None => self.tag(0),
+                    }
+                }
+                bray_symbols::CallableContractClauseValue::TraitSatisfaction {
+                    subject,
+                    application,
+                } => {
+                    self.tag(1);
+                    self.ty(subject)?;
+                    self.trait_application(application)?;
+                }
+            }
+        }
+
+        self.length(conditions.execution_guarantees().len());
+
+        for guarantee in conditions.execution_guarantees() {
+            self.tag(match guarantee.property() {
+                bray_symbols::ExecutionProperty::Pure => 0,
+                bray_symbols::ExecutionProperty::Total => 1,
+            });
+
+            self.optional_ordinal(guarantee.guard());
+        }
+
+        Ok(())
+    }
+
+    fn optional_ordinal(&mut self, ordinal: Option<bray_symbols::SymbolOrdinal>) {
+        match ordinal {
+            Some(ordinal) => {
+                self.tag(1);
+                self.ordinal(ordinal);
+            }
+            None => self.tag(0),
+        }
     }
 
     fn constant_term(&mut self, id: ConstantTermId) -> Result<(), FactQueryError> {
@@ -314,6 +383,18 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
                 self.symbol(predicate.definition().into_any())?;
                 self.substitution(predicate.substitution())?;
                 self.constant_terms(arguments)?;
+            }
+            ConstantTermData::Test { subject, kind } => {
+                self.tag(18);
+                self.constant_term(*subject)?;
+
+                match kind {
+                    bray_symbols::ConstantTest::NullablePresent => self.tag(0),
+                    bray_symbols::ConstantTest::ActiveUnionVariant(variant) => {
+                        self.tag(1);
+                        self.symbol((*variant).into())?;
+                    }
+                }
             }
             ConstantTermData::Projection(projection) => {
                 self.tag(14);
@@ -662,6 +743,7 @@ impl<'binding_context, 'compilation> StructuralValueEncoder<'binding_context, 'c
                 self.symbol(field.into())?;
             }
             ConstantProjectionKind::NullableValue => self.tag(4),
+            ConstantProjectionKind::OwnedTarget => self.tag(5),
         }
 
         Ok(())

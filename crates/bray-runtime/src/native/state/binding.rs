@@ -13,7 +13,7 @@ use crate::{
     CleanupIncidentProducer, ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, RunOutcome,
 };
 
-use super::super::frame::{NativeTerminalPayload, NativeTerminalState};
+use super::super::frame::NativeTerminalState;
 use super::core::{
     CURRENT_NATIVE_TASK, NATIVE_RUNTIME, NativeRuntime, RetainedRuntime, retain_runtime,
 };
@@ -143,6 +143,21 @@ pub(in crate::native) fn current_native_task() -> Option<NativeTaskHandle> {
     CURRENT_NATIVE_TASK.with(Cell::get)
 }
 
+pub(super) fn with_native_task<T>(task: NativeTaskHandle, operation: impl FnOnce() -> T) -> T {
+    let previous = CURRENT_NATIVE_TASK.with(|current| current.replace(Some(task)));
+    let _binding = NativeTaskBindingScope(previous);
+
+    operation()
+}
+
+struct NativeTaskBindingScope(Option<NativeTaskHandle>);
+
+impl Drop for NativeTaskBindingScope {
+    fn drop(&mut self) {
+        CURRENT_NATIVE_TASK.with(|current| current.set(self.0));
+    }
+}
+
 pub(in crate::native) fn write_cleanup_incident_report(
     writer: &mut dyn Write,
     incident: &crate::CleanupIncident,
@@ -158,31 +173,41 @@ pub(in crate::native) fn write_cleanup_incident_report(
         CleanupIncidentProducer::Task(task) => write!(writer, "task:{}", task.raw())?,
     }
 
-    write!(writer, " frame=")?;
+    match incident.origin() {
+        crate::CleanupIncidentOrigin::SynchronousRoot => writeln!(writer),
+        crate::CleanupIncidentOrigin::ProtectedFrame { frame, state } => {
+            write!(writer, " frame=")?;
 
-    for byte in incident.origin().frame().digest() {
-        write!(writer, "{byte:02x}")?;
+            for byte in frame.digest() {
+                write!(writer, "{byte:02x}")?;
+            }
+
+            writeln!(writer, " state={}", state.raw())
+        }
     }
-
-    writeln!(writer, " state={}", incident.origin().state().raw())
 }
 
 pub(in crate::native) fn task_outcome(
     outcome: RunOutcome<usize>,
     terminal: &NativeTerminalState,
-) -> NativeRunOutcome {
-    match outcome {
+) -> Result<NativeRunOutcome, crate::RuntimePanic> {
+    let outcome = match outcome {
         RunOutcome::Completed(payload) => NativeRunOutcome::new(NativeRunState::COMPLETED, payload),
         RunOutcome::Cancelled => NativeRunOutcome::new(NativeRunState::CANCELLED, 0),
-        RunOutcome::Panicked(_) => NativeRunOutcome::new(
-            NativeRunState::PANICKED,
-            terminal
-                .take_payload()
-                .as_ref()
-                .map(NativeTerminalPayload::handle)
-                .unwrap_or(0),
-        ),
-    }
+        RunOutcome::Panicked(mut panic) => {
+            let Some(payload) = terminal.take_panic_payload() else {
+                return Err(panic);
+            };
+
+            for incident in panic.take_suppressed() {
+                terminal.record_cleanup_incident(incident);
+            }
+
+            NativeRunOutcome::new(NativeRunState::PANICKED, payload)
+        }
+    };
+
+    Ok(terminal.resolve_cleanup_outcome(outcome))
 }
 
 pub(in crate::native) fn lane_result(lane: ExecutionLane) -> NativeExecutionLaneResult {
@@ -205,8 +230,35 @@ pub(in crate::native) fn runtime_failure(status: NativeRuntimeStatus) -> NativeR
 
 #[cfg(test)]
 mod tests {
-    use super::write_cleanup_incident_report;
+    use super::{current_native_task, with_native_task, write_cleanup_incident_report};
     use crate::{CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink};
+
+    #[test]
+    fn nested_native_task_bindings_restore_the_parent_even_after_unwind() {
+        let parent = bray_runtime_abi::NativeTaskHandle::new(1).unwrap();
+        let child = bray_runtime_abi::NativeTaskHandle::new(2).unwrap();
+
+        assert_eq!(current_native_task(), None);
+
+        with_native_task(parent, || {
+            assert_eq!(current_native_task(), Some(parent));
+            with_native_task(child, || assert_eq!(current_native_task(), Some(child)));
+            assert_eq!(current_native_task(), Some(parent));
+
+            let failure = std::panic::catch_unwind(|| {
+                with_native_task(child, || {
+                    assert_eq!(current_native_task(), Some(child));
+
+                    panic!("nested native task failed");
+                });
+            });
+
+            assert!(failure.is_err());
+            assert_eq!(current_native_task(), Some(parent));
+        });
+
+        assert_eq!(current_native_task(), None);
+    }
 
     #[test]
     fn cleanup_incident_reports_are_stable_and_observable() {
@@ -236,5 +288,25 @@ mod tests {
         );
 
         assert_eq!(String::from_utf8(output), Ok(expected));
+    }
+
+    #[test]
+    fn synchronous_incident_reports_do_not_invent_a_frame_or_state() {
+        let reports = CleanupReportSink::new();
+
+        reports.transfer(
+            CleanupIncidentProducer::SynchronousRoot,
+            CleanupIncidentOrigin::SynchronousRoot,
+            "cleanup failed",
+        );
+
+        let mut output = Vec::new();
+
+        reports.drain(|incident| write_cleanup_incident_report(&mut output, &incident).unwrap());
+
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            "cleanup_incident ordinal=0 producer=synchronous_root\n"
+        );
     }
 }

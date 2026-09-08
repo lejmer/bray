@@ -8,6 +8,8 @@ use bray_bound_tree::{
 pub enum LoweringPlanKind {
     /// The complete async analysis table.
     Analysis,
+    /// Cleanup of the values captured before an async body starts.
+    CaptureCleanup,
     /// One suspension point.
     Suspension,
     /// One future or task operation.
@@ -29,6 +31,7 @@ impl LoweringPlanKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Analysis => "analysis",
+            Self::CaptureCleanup => "capture_cleanup",
             Self::Suspension => "suspension",
             Self::TaskOperation => "task_operation",
             Self::Replacement => "replacement",
@@ -98,6 +101,21 @@ pub struct LoweringPlanFailure {
 }
 
 impl LoweringPlanFailure {
+    pub(crate) const fn capture_cleanup(
+        cause: LoweringPlanFailureCause,
+        access: Option<StorageAccessId>,
+    ) -> Self {
+        Self::new(
+            LoweringPlanKind::CaptureCleanup,
+            cause,
+            None,
+            None,
+            None,
+            None,
+            access,
+        )
+    }
+
     pub(super) const fn analysis(cause: LoweringPlanFailureCause) -> Self {
         Self::new(
             LoweringPlanKind::Analysis,

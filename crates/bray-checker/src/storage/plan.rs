@@ -276,7 +276,19 @@ where
                 self.install_declared_inputs(context.declaration())?;
             }
             SemanticUnitContext::ContractClause(context) => {
-                self.install_declared_inputs(context.declaration().declaration())?;
+                if let Some(inputs) = self.request.unit().contract_inputs() {
+                    for parameter in inputs.parameters() {
+                        let reference = BoundReferenceTarget::Local((*parameter).into());
+
+                        self.bind_entry(
+                            StorageBindingTarget::Local(*parameter),
+                            StorageIdentity::ContractParameter(*parameter),
+                            self.entry_storage(reference)?,
+                        )?;
+                    }
+                } else {
+                    self.install_declared_inputs(context.declaration().declaration())?;
+                }
             }
         }
 

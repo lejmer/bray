@@ -234,6 +234,7 @@ fn collect_conversion_behavior(
             }
         }
         ConversionTarget::Identity
+        | ConversionTarget::CallableContract
         | ConversionTarget::NullablePresent
         | ConversionTarget::BuiltInScalar
         | ConversionTarget::CVariadicPromotion => {}

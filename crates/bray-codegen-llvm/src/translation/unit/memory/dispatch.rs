@@ -199,15 +199,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 Ok(None)
             }
-            CheckedMemoryOperationKind::RawBufferRelease { element } => {
-                self.translate_raw_buffer_release(id, memory, element)?;
-
-                Ok(None)
-            }
-            CheckedMemoryOperationKind::RawBufferReplace { element } => {
-                self.translate_raw_buffer_replace(id, memory, element)?;
-
-                Ok(None)
+            CheckedMemoryOperationKind::RawBufferRelease { .. }
+            | CheckedMemoryOperationKind::RawBufferReplace { .. } => {
+                Err(CodegenFailure::GeneratedModuleInvariant)
             }
             CheckedMemoryOperationKind::RawBufferRelocate { element } => {
                 self.translate_raw_buffer_relocate(memory, element)?;
@@ -496,10 +490,10 @@ mod tests {
         TargetAddressSpaceKind,
     };
     use bray_ir::{
-        MirAggregate, MirAggregateKind, MirBlockKind, MirCleanupPhase, MirHelperReference,
-        MirMemoryOperation, MirOperand, MirOperationCommit, MirOperationId, MirOperationKind,
-        MirPlace, MirSourceAnchor, MirStandardLibraryHelper, MirStorageKind, MirTargetContract,
-        MirTerminatorKind, MirUnitBuilder, MirUnitKind, MirValueId,
+        MirAggregate, MirAggregateKind, MirBlockKind, MirHelperReference, MirMemoryOperation,
+        MirOperand, MirOperationCommit, MirOperationKind, MirPlace, MirSourceAnchor,
+        MirStandardLibraryHelper, MirStorageKind, MirTargetContract, MirTerminatorKind,
+        MirUnitBuilder, MirUnitKind, MirValueId,
     };
     use bray_runtime_interface::{BinarySymbolName, RuntimeAbiVersion};
     use bray_symbols::{
@@ -518,7 +512,6 @@ mod tests {
 
     const MEMORY_ALLOCATION_HELPER_SYMBOL: &str = "bray_standard_memory_allocate";
     const MEMORY_DEALLOCATION_HELPER_SYMBOL: &str = "bray_standard_memory_deallocate";
-    const MEMORY_VALUE_CLEANUP_HELPER_SYMBOL: &str = "bray_test_memory_value_cleanup";
 
     #[derive(Clone, Copy)]
     struct MemoryTypes {
@@ -550,7 +543,7 @@ mod tests {
     }
 
     #[test]
-    fn every_memory_operation_family_generates_verified_llvm() {
+    fn every_primitive_memory_operation_family_generates_verified_llvm() {
         let Ok(backend) = LlvmCodeGenerator::try_new() else {
             panic!("LLVM backend constants must be valid");
         };
@@ -664,17 +657,7 @@ mod tests {
             })
             .count();
 
-        assert_eq!(deallocations, 4);
-
-        assert!(
-            ir.lines().any(|line| {
-                line.contains("memory.buffer.previous_index")
-                    && line.contains("sub i64 %memory.buffer.index, 1")
-            }),
-            "raw-buffer destruction did not walk the initialized prefix in reverse order: {ir}"
-        );
-
-        assert!(!ir.contains("memory.buffer.next_index"));
+        assert_eq!(deallocations, 2);
     }
 
     #[test]
@@ -790,7 +773,7 @@ mod tests {
         let types = memory_types();
 
         let mir_target =
-            MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0));
+            MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::CURRENT);
 
         let bound = bray_testing::test_bound_unit(171);
         let source = MirSourceAnchor::from(bound.key().source());
@@ -1187,7 +1170,6 @@ mod tests {
 
         let allocation = helper_instance_key(172, 1, mir.target());
         let deallocation = helper_instance_key(173, 2, mir.target());
-        let cleanup = helper_instance_key(174, 3, mir.target());
 
         let instance = CodegenInstance::try_new(
             CodegenInstanceKey::non_generic(&mir),
@@ -1195,7 +1177,6 @@ mod tests {
             [
                 CodegenInstanceDependency::definition(allocation.clone()),
                 CodegenInstanceDependency::definition(deallocation.clone()),
-                CodegenInstanceDependency::definition(cleanup.clone()),
             ],
         )
         .unwrap_or_else(|error| panic!("memory test instance must be valid: {error:?}"));
@@ -1207,15 +1188,7 @@ mod tests {
         )
         .unwrap_or_else(|error| panic!("memory test codegen unit must be valid: {error:?}"));
 
-        let mappings = memory_mappings(
-            &unit,
-            &target,
-            types,
-            source,
-            &allocation,
-            &deallocation,
-            &cleanup,
-        );
+        let mappings = memory_mappings(&unit, &target, types, source, &allocation, &deallocation);
 
         codegen_request_for_unit(unit, target, mappings, backend.identity().clone())
     }
@@ -1381,7 +1354,7 @@ mod tests {
         address: MirValueId,
         null: MirValueId,
         size: MirValueId,
-    ) -> Vec<MirOperationId> {
+    ) {
         let buffer = push_borrowed_storage(builder, block, source, types);
         let source_buffer = push_borrowed_storage(builder, block, source, types);
 
@@ -1518,18 +1491,6 @@ mod tests {
             Some(types.borrow),
         );
 
-        let release = push_memory(
-            builder,
-            block,
-            source,
-            CheckedMemoryOperationKind::RawBufferRelease {
-                element: types.value,
-            },
-            [MirOperand::Value(buffer)],
-            [types.raw_buffer_borrow],
-            None,
-        );
-
         let source_pointer = push_memory(
             builder,
             block,
@@ -1567,20 +1528,6 @@ mod tests {
             [types.raw_buffer_borrow, types.raw_buffer_borrow],
             None,
         );
-
-        let replace = push_memory(
-            builder,
-            block,
-            source,
-            CheckedMemoryOperationKind::RawBufferReplace {
-                element: types.value,
-            },
-            [MirOperand::Value(buffer), MirOperand::Value(source_buffer)],
-            [types.raw_buffer_borrow, types.raw_buffer_borrow],
-            None,
-        );
-
-        vec![release.operation(), replace.operation()]
     }
 
     fn push_borrowed_storage(
@@ -1937,7 +1884,6 @@ mod tests {
         source: MirSourceAnchor,
         allocation: &CodegenInstanceKey,
         deallocation: &CodegenInstanceKey,
-        cleanup: &CodegenInstanceKey,
     ) -> CodegenMappings {
         let align1 = NonZeroU64::MIN;
         let align8 = NonZeroU64::new(8).unwrap_or(NonZeroU64::MIN);
@@ -2193,17 +2139,6 @@ mod tests {
             ),
         );
 
-        let cleanup_symbol = helper_symbol(
-            cleanup,
-            MEMORY_VALUE_CLEANUP_HELPER_SYMBOL,
-            CodegenCallableSignature::new(
-                [CodegenParameterMapping::direct(types.pointer, None, [])],
-                CodegenResultMapping::Void,
-                CallableAbi::Bray,
-                false,
-            ),
-        );
-
         let operation_mappings =
             instance
                 .mir()
@@ -2226,13 +2161,6 @@ mod tests {
                                 reference,
                                 CodegenSymbolKey::Instance(deallocation.clone()),
                             ),
-                            MirHelperReference::Cleanup {
-                                phase: MirCleanupPhase::LifecycleResolution,
-                                ty,
-                            } if *ty == types.value => CodegenHelperMapping::new(
-                                reference,
-                                CodegenSymbolKey::Instance(cleanup.clone()),
-                            ),
                             _ => panic!(
                                 "memory fixture contains an unexpected helper: {reference:?}"
                             ),
@@ -2254,12 +2182,7 @@ mod tests {
             target,
             type_mappings,
             [],
-            [
-                owner_symbol,
-                allocation_symbol,
-                deallocation_symbol,
-                cleanup_symbol,
-            ],
+            [owner_symbol, allocation_symbol, deallocation_symbol],
             [],
             [],
             [],

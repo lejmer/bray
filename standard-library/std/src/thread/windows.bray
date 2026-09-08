@@ -59,11 +59,15 @@ trusted internal func windows_thread_entry(pos context: RawPointer<u8>) -> u32
 
 trusted internal func native_thread_entry() -> RawPointer<u8>
 {
-    let entry: std.os.windows.BeginThreadRoutine = windows_thread_entry;
-    let pointer: RawPointer<std.os.windows.BeginThreadRoutine> = trusted std.memory.pointer_from_callable(entry);
+    let entry: WindowsThreadEntry = windows_thread_entry;
+    let pointer: RawPointer<WindowsThreadEntry> = trusted std.memory.pointer_from_callable(entry);
 
-    return trusted std.memory.reinterpret<u8, std.os.windows.BeginThreadRoutine>(pointer);
+    return trusted std.memory.reinterpret<u8, WindowsThreadEntry>(pointer);
 }
+
+internal callable WindowsThreadEntry = @abi(system)
+trusted func(pos context: RawPointer<u8>) -> u32
+    requires(blocking_execution(), compute_execution());
 
 @abi(c)
 trusted internal func platform_thread_create(

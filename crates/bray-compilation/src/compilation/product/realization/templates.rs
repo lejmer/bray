@@ -16,7 +16,9 @@ impl Compilation {
             return Ok(MirUnitKey::Bound(body));
         }
 
-        if self.compiler_provided_heap_method(definition)?.is_some() {
+        if self.compiler_provided_task_method(definition).is_some()
+            || self.compiler_provided_heap_method(definition)?.is_some()
+        {
             return Ok(MirUnitKey::CompilerProvidedCallable(definition));
         }
 

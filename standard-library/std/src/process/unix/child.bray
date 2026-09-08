@@ -258,9 +258,25 @@ trusted internal func platform_child_reap(
     return internal std.platform.success_status();
 }
 
-@abi(c)
-trusted internal func platform_child_dispose(pos child: u64) -> std.platform.PlatformStatus
+internal func platform_child_wait_completed(pos status: std.platform.PlatformStatus) -> bool
 {
+    // waitpid reaps on success; ECHILD means this process no longer owns a waitable child.
+    return status.category == 0 || status.native_code == 10;
+}
+
+@abi(c)
+trusted internal func platform_child_dispose(
+    pos child: u64,
+    pos released: RawPointer<u32>
+) -> std.platform.PlatformStatus
+{
+    if std.memory.is_null<u32>(released)
+    {
+        return internal std.platform.invalid_input_status();
+    }
+
+    trusted std.memory.write<u32>(released, value = 0);
+
     let process: i32 = match internal std.platform.checked_descriptor(child)
     {
         case Ok(value) { yield value; }
@@ -276,6 +292,8 @@ trusted internal func platform_child_dispose(pos child: u64) -> std.platform.Pla
 
         if waited == process
         {
+            trusted std.memory.write<u32>(released, value = 1);
+
             return internal std.platform.success_status();
         }
 
@@ -284,6 +302,13 @@ trusted internal func platform_child_dispose(pos child: u64) -> std.platform.Pla
             continue;
         }
 
-        return trusted internal std.platform.unix_error_status();
+        let failure: std.platform.PlatformStatus = trusted internal std.platform.unix_error_status();
+
+        if internal platform_child_wait_completed(failure)
+        {
+            trusted std.memory.write<u32>(released, value = 1);
+        }
+
+        return failure;
     }
 }

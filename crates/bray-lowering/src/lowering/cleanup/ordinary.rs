@@ -53,6 +53,10 @@ impl Lowerer<'_> {
             None => None,
         };
 
+        if let Some(pending) = &pending {
+            self.cleanup_retained_storages.push(pending.storage());
+        }
+
         let failures = self.ordinary_cleanup_failures(source, exit, plans, pending.as_ref())?;
 
         let broadcast = self.builder.push_block(
@@ -70,6 +74,10 @@ impl Lowerer<'_> {
         )?;
 
         let lifecycle = self.resolve_cleanup(broadcast, source, plans, None, &failures)?;
+
+        if pending.is_some() {
+            self.cleanup_retained_storages.pop();
+        }
 
         self.set_destination(
             lifecycle,

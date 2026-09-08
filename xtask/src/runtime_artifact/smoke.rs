@@ -314,7 +314,7 @@ fn audit_bootstrap_link_map(map: &Path) -> Result<(), CommandError> {
         bray_runtime_abi::symbols::CURRENT_NATIVE_THREAD_IDENTITY_SYMBOL,
         bray_runtime_abi::symbols::MAIN_NATIVE_THREAD_IDENTITY_SYMBOL,
         bray_runtime_abi::symbols::AWAITED_FRAME_COMPOSITION_SYMBOL,
-        bray_runtime_abi::symbols::FRAME_COMPLETION_MOVE_SYMBOL,
+        bray_runtime_abi::symbols::AWAITED_FRAME_RESOLUTION_SYMBOL,
         "__rust_alloc",
         "__rust_dealloc",
         "rust_eh_personality",

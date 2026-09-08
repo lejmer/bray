@@ -37,7 +37,7 @@ where
         + SymbolQueryProvider<CallableParameterDefaultTemplateQuery>
         + SymbolQueryProvider<CallableOverloadTemplateQuery>,
 {
-    let Some(subject) = type_member_subject(unit, callee) else {
+    let Some(subject) = type_member_subject(context, unit, callee)? else {
         return Ok(CandidateAbsence::UnavailableDeclarationSemantics);
     };
 
@@ -47,9 +47,29 @@ where
 
     let inherited_arguments = receiver_generic_arguments(context, unit, member.receiver())?;
 
-    let inherited = InheritedGenericContext {
-        owner: subject,
-        arguments: &inherited_arguments,
+    let inherited = match unit.view().expression(member.receiver()) {
+        Some(BoundExpression::Name(name))
+            if matches!(name.target(), BoundReferenceTarget::TypeQualifier(_)) =>
+        {
+            let BoundReferenceTarget::TypeQualifier(ty) = name.target() else {
+                return Err(crate::BindingQueryError::DependencyUnavailable);
+            };
+
+            let data = context
+                .semantic_values()
+                .type_data(ty)
+                .map_err(crate::BindingQueryError::SemanticValue)?;
+
+            let bray_symbols::TypeData::Named { substitution, .. } = data.as_ref() else {
+                return Err(crate::BindingQueryError::DependencyUnavailable);
+            };
+
+            InheritedGenericContext::Instantiated(*substitution)
+        }
+        _ => InheritedGenericContext::Written {
+            owner: subject,
+            arguments: &inherited_arguments,
+        },
     };
 
     let Some(BoundMemberSelector::Name(name)) = member.selector() else {
@@ -122,23 +142,33 @@ where
     Ok(arguments.generic_arguments().collect())
 }
 
-pub(super) fn type_member_subject(
+pub(super) fn type_member_subject<C>(
+    context: &C,
     unit: &BoundUnit,
     expression: BoundExpressionId,
-) -> Option<NamedTypeSymbolId> {
+) -> BindingQueryResult<Option<NamedTypeSymbolId>, C::UpstreamError>
+where
+    C: BindingQueryContext + ?Sized,
+{
     let Some(BoundExpression::MemberAccess(member)) = unit.view().expression(expression) else {
-        return None;
+        return Ok(None);
     };
 
     let Some(BoundExpression::Name(receiver)) = unit.view().expression(member.receiver()) else {
-        return None;
+        return Ok(None);
     };
 
-    let BoundReferenceTarget::Surface(receiver) = receiver.target() else {
-        return None;
+    let owner = match receiver.target() {
+        BoundReferenceTarget::Surface(owner) => Some(owner),
+        BoundReferenceTarget::TypeQualifier(ty) => context
+            .semantic_values()
+            .type_data(ty)
+            .map_err(crate::BindingQueryError::SemanticValue)?
+            .declaration_owner(),
+        BoundReferenceTarget::Local(_) => None,
     };
 
-    NamedTypeSymbolId::try_from_any(receiver)
+    Ok(owner.and_then(NamedTypeSymbolId::try_from_any))
 }
 
 pub(super) fn bind_primary_constructor_candidates<C>(
@@ -175,7 +205,7 @@ where
                 arguments: &[],
                 scope: generic.scope,
             },
-            Some(InheritedGenericContext {
+            Some(InheritedGenericContext::Written {
                 owner: subject,
                 arguments: generic.arguments,
             }),

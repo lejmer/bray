@@ -2,12 +2,11 @@ use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, CallableSignatureQuery,
-    ExternalDeclarationIdentity, ExternalSymbolKeyData, GenericArgument, GenericOwnerId,
-    GenericSubstitutionData, ImplementationCoherenceQuery, ImplementationInstanceId,
-    ImplementationRequirementKey, ImplementationSymbolId, SymbolKeyData, SymbolQueryRequest,
-    TraitApplicationData, TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId,
-    TraitSymbolId, TraitTypeFulfillmentSymbolId, TraitTypeFulfillmentValueQuery,
-    TraitTypeMemberSymbolId, TypeId,
+    ExternalDeclarationIdentity, ExternalSymbolKeyData, GenericArgument, GenericSubstitutionData,
+    ImplementationCoherenceQuery, ImplementationInstanceId, ImplementationRequirementKey,
+    ImplementationSymbolId, SymbolKeyData, SymbolQueryRequest, TraitApplicationData,
+    TraitCallableFulfillmentSymbolId, TraitCallableMemberSymbolId, TraitSymbolId,
+    TraitTypeFulfillmentSymbolId, TraitTypeFulfillmentValueQuery, TraitTypeMemberSymbolId, TypeId,
 };
 
 use super::super::binder::{CompilationBindingContext, binding_query_error};
@@ -34,15 +33,7 @@ pub(in crate::compilation) fn implementation_requirement(
 ) -> Result<bray_symbols::ImplementationRequirementKey, FactQueryError> {
     let symbol = definition.into();
 
-    let owner = GenericOwnerId::try_new(symbol).ok_or_else(|| {
-        crate::compilation::SemanticQueryFailure::contract(
-            crate::compilation::SemanticQueryContext::Symbol(symbol),
-            crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
-                expected: crate::compilation::SemanticSymbolCategory::GenericOwner,
-                actual: symbol.kind(),
-            },
-        )
-    })?;
+    let owner = crate::compilation::substitution::generic_owner(symbol)?;
 
     let substitution =
         GenericSubstitutionData::try_new(owner, parameters, arguments).map_err(|cause| {

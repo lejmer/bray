@@ -1,7 +1,7 @@
 use bray_binder::SymbolQueryProvider;
 use bray_diagnostics::DiagnosticBag;
 use bray_symbols::{
-    AnySymbolId, CallableContractSymbolId, CallableContractTemplateQuery,
+    AnySymbolId, CallableConditionsQuery, CallableContractSymbolId, CallableContractTemplateQuery,
     CallableContractTypeQuery, CallableContractsQuery, CallableOverloadTemplateQuery,
     CallableParameterDefaultQuery, CallableParameterDefaultTemplateQuery,
     CallableParameterSymbolId, CallableSignatureQuery, CallableSymbolId, ConstantDeclaredTypeQuery,
@@ -65,6 +65,13 @@ impl SymbolCompletionEvaluator for CompilationBindingContext<'_> {
                 })?;
 
                 evaluate_typed::<CallableSignatureQuery>(self, owner)
+            }
+            SymbolQueryKind::CallableConditions => {
+                let owner = CallableSymbolId::try_from_any(request.symbol()).ok_or_else(|| {
+                    unexpected_symbol_category(request, SemanticSymbolCategory::Callable)
+                })?;
+
+                evaluate_typed::<CallableConditionsQuery>(self, owner)
             }
             SymbolQueryKind::CallableContracts => {
                 let owner = CallableSymbolId::try_from_any(request.symbol()).ok_or_else(|| {

@@ -1,3 +1,5 @@
+use bray_symbols::CallableConditions;
+
 use bray_binder::SymbolQueryProvider;
 use bray_bound_tree::{BoundUnitKey, CheckedTemplateKind};
 use bray_package_interface::{
@@ -18,6 +20,7 @@ use bray_symbols::{
 
 use super::super::PackageInterfaceExportError;
 use super::super::template::export_checked_source_template;
+use super::evidence::export_callable_evidence;
 use crate::compilation::Compilation;
 use crate::compilation::binder::CompilationBindingContext;
 
@@ -26,7 +29,6 @@ use super::defaults::{
     callable_template_inputs, generic_parameters, generic_template_inputs,
     push_declaration_template, runtime_default_inputs,
 };
-use super::implementation::predicate_definition;
 use super::templates::{checked_constraint_expression, incomplete, index};
 
 #[derive(Default)]
@@ -76,9 +78,11 @@ pub(super) fn export_callable_semantics(
         return Err(incomplete(symbol));
     }
 
-    semantics
-        .callable_contracts
-        .push(export.callable_contract(symbol, contracts.value())?);
+    semantics.callable_contracts.push(
+        export
+            .callable_contract(symbol, contracts.value())?
+            .with_evidence(export_callable_evidence(compilation, symbol, export)?),
+    );
 
     let template = binder
         .resolve_symbol_query(SymbolQueryRequest::<CallableContractTemplateQuery>::new(
@@ -101,10 +105,8 @@ pub(super) fn export_callable_semantics(
 
         let clause = contracts
             .value()
-            .invocation_preconditions()
-            .iter()
-            .chain(contracts.value().static_constraints())
-            .chain(contracts.value().normal_completion_postconditions())
+            .conditions()
+            .clauses()
             .find(|clause| clause.ordinal() == expression.ordinal())
             .ok_or_else(|| incomplete(symbol))?;
 
@@ -242,11 +244,91 @@ pub(super) fn export_generic_semantics(
 pub(super) fn export_predicate_semantics(
     binder: &CompilationBindingContext<'_>,
     symbol: AnySymbolId,
-    export: &SemanticExporter<'_>,
+    export: &mut SemanticExporter<'_>,
     semantics: &mut ExportedDeclarations,
 ) -> Result<(), PackageInterfaceExportError> {
-    let Some(state) = predicate_definition(binder, symbol)? else {
+    let Some(owner) = bray_symbols::PredicateDefinitionSymbolId::try_from_any(symbol) else {
         return Ok(());
+    };
+
+    let compilation = binder.compilation();
+
+    let definition = compilation
+        .predicate_definition(owner)
+        .map_err(super::super::invalid_compilation_fact_error)?;
+
+    if definition.diagnostics().has_errors() {
+        return Err(incomplete(symbol));
+    }
+
+    let state = match definition.value() {
+        bray_symbols::PredicateDefinitionState::Required => {
+            bray_package_interface::InterfacePredicateDefinitionState::Required
+        }
+        bray_symbols::PredicateDefinitionState::OpaqueTrusted => {
+            bray_package_interface::InterfacePredicateDefinitionState::OpaqueTrusted
+        }
+        bray_symbols::PredicateDefinitionState::Error(_) => return Err(incomplete(symbol)),
+        bray_symbols::PredicateDefinitionState::Defined(definition) => {
+            let key = crate::compilation::binder::predicate_definition_key(binder, owner)
+                .map_err(super::super::binding_query_export_error)?
+                .ok_or_else(|| incomplete(symbol))?;
+
+            let signature = binder
+                .resolve_symbol_query(SymbolQueryRequest::<
+                    bray_symbols::PredicateSignatureTemplateQuery,
+                >::new(owner))
+                .map_err(super::super::binding_query_export_error)?;
+
+            if signature.diagnostics().has_errors() {
+                return Err(incomplete(symbol));
+            }
+
+            let mut inputs = Vec::new();
+
+            for (ordinal, parameter) in signature.value().parameters().iter().enumerate() {
+                inputs.push(super::super::template::SourceTemplateInput::new(
+                    bray_package_interface::InterfaceCheckedTemplateInputKind::Parameter(
+                        bray_symbols::SymbolOrdinal::new(index(ordinal)?),
+                    ),
+                    Some(bray_bound_tree::BoundReferenceTarget::Surface(
+                        parameter.parameter().into(),
+                    )),
+                    export.resolve_type_template(parameter.parameter().into(), parameter.ty())?,
+                ));
+            }
+
+            inputs.extend(generic_template_inputs(
+                compilation,
+                export,
+                generic_parameters(binder, symbol)?,
+            )?);
+
+            let expression = key.source().syntax();
+
+            let checked = export_checked_source_template(
+                compilation,
+                export,
+                key,
+                CheckedTemplateKind::PredicateDefinition,
+                expression,
+                inputs,
+                definition.semantic().dependency_contract(),
+            )?;
+
+            push_declaration_template(
+                export,
+                symbol,
+                CheckedTemplateKind::PredicateDefinition,
+                bray_symbols::SymbolOrdinal::new(0),
+                checked,
+                &mut semantics.checked_templates,
+                &mut semantics.declaration_templates,
+                &mut semantics.support_entities,
+            )?;
+
+            bray_package_interface::InterfacePredicateDefinitionState::Defined
+        }
     };
 
     semantics

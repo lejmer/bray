@@ -41,7 +41,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )?;
 
         let pointer = self
-            .invoke_helper(helper, &[bytes.into(), alignment.into()])?
+            .invoke_memory_helper(operation_id, helper, &[bytes.into(), alignment.into()])?
             .and_then(pointer_value)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
@@ -71,7 +71,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )?;
 
         if self
-            .invoke_helper(helper, &[pointer.into(), bytes.into(), alignment.into()])?
+            .invoke_memory_helper(
+                operation_id,
+                helper,
+                &[pointer.into(), bytes.into(), alignment.into()],
+            )?
             .is_some()
         {
             return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -119,7 +123,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )?;
 
         let pointer = self
-            .invoke_helper(helper, &[bytes.into(), alignment.into()])?
+            .invoke_memory_helper(operation_id, helper, &[bytes.into(), alignment.into()])?
             .and_then(pointer_value)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
@@ -167,13 +171,35 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )?;
 
         if self
-            .invoke_helper(helper, &[pointer.into(), bytes.into(), alignment.into()])?
+            .invoke_memory_helper(
+                operation_id,
+                helper,
+                &[pointer.into(), bytes.into(), alignment.into()],
+            )?
             .is_some()
         {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
         Ok(())
+    }
+
+    fn invoke_memory_helper(
+        &mut self,
+        operation: MirOperationId,
+        helper: &bray_codegen::CodegenHelperMapping,
+        arguments: &[BasicValueEnum<'context>],
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        if !self.checked_call_operations.contains(&operation) {
+            return self.invoke_helper(helper, arguments);
+        }
+
+        let context = self.checked_call_panic_report_context()?;
+        let result = self.invoke_helper_with_panic_report_context(helper, arguments, context)?;
+
+        self.retain_checked_call_context(context)?;
+
+        Ok(result)
     }
 
     pub(super) fn memory_aggregate_operand(

@@ -25,6 +25,7 @@ members = [
     "crates/bray-lowering",
     "crates/bray-messages",
     "crates/bray-package-interface",
+    "crates/bray-package-interface-model",
     "crates/bray-parser",
     "crates/bray-platform",
     "crates/bray-platform-abi",

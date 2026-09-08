@@ -3,8 +3,7 @@ use bray_binder::{TypeExpressionBinder, TypeExpressionScope, TypeParameterBindin
 use bray_compiler_known::CatalogGenericParameterKind;
 use bray_symbols::{
     AnySymbolId, GenericConstParameterSymbolId, GenericParameterSymbolId,
-    GenericTypeParameterSymbolId, ImportedSymbolSkeleton, SelfTypeContext, SymbolGraph, SymbolName,
-    SymbolOrigin,
+    GenericTypeParameterSymbolId, ImportedSymbolSkeleton, SymbolGraph, SymbolName, SymbolOrigin,
 };
 
 use super::super::context::CompilationBindingContext;
@@ -37,7 +36,7 @@ pub(in crate::compilation) fn type_scope(
         .containing_module(symbol)
         .map(|module| module.id());
 
-    let self_type = self_type_context(context.symbols, symbol);
+    let self_type = context.symbols.contextual_self_scope(symbol);
 
     Ok(TypeExpressionScope::new(
         symbol,
@@ -202,9 +201,9 @@ fn parameter_name(
 
             let ordinal = usize::try_from(ordinal).map_err(|_| {
                 crate::compilation::binder::semantic_contract_binding_error(
-                    crate::compilation::SemanticQueryContext::Symbol(owner),
-                    crate::compilation::SemanticQueryViolation::CountOverflow {
-                        data: crate::compilation::SemanticDataKind::GenericSubstitution,
+                    SemanticQueryContext::Symbol(owner),
+                    SemanticQueryViolation::CountOverflow {
+                        data: SemanticDataKind::GenericSubstitution,
                         value: u64::from(ordinal),
                     },
                 )
@@ -411,21 +410,4 @@ pub(in crate::compilation) fn generic_parameter_ids(
     }
 
     Ok(parameters)
-}
-
-pub(in crate::compilation) fn self_type_context(
-    symbols: &SymbolGraph,
-    symbol: AnySymbolId,
-) -> Option<SelfTypeContext> {
-    let mut current = symbols.containing_symbol(symbol);
-
-    while let Some(owner) = current {
-        if let Some(context) = SelfTypeContext::try_new(owner) {
-            return Some(context);
-        }
-
-        current = symbols.containing_symbol(owner);
-    }
-
-    None
 }

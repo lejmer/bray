@@ -179,15 +179,19 @@ async func asynchronous_bulk_transfers_and_buffering_share_the_cost_model() -> R
 
     let sink: AsyncCountingWriter = AsyncCountingWriter(limit = 16);
 
-    let mut buffered: std.io.BufferedWriter<AsyncCountingWriter> = try std.io.BufferedWriter<AsyncCountingWriter>(
-        sink,
-        capacity = 4
-    );
+    let mut buffered: std.io.BufferedWriter<AsyncCountingWriter> = std.testing.assert_ok<
+        std.io.BufferedWriter<AsyncCountingWriter>,
+        (AsyncCountingWriter, std.io.IoError)
+    >(std.io.BufferedWriter<AsyncCountingWriter>(sink, capacity = 4));
 
     let large: [u8; 8] = [9; 8];
 
     let written: usize = try await buffered(std.io.AsyncWriter).write_async(&large[..]);
-    let completed_sink: AsyncCountingWriter = try await buffered.into_sink_async();
+
+    let completed_sink: AsyncCountingWriter = std.testing.assert_ok<
+        AsyncCountingWriter,
+        (std.io.BufferedWriter<AsyncCountingWriter>, std.io.IoError)
+    >(await buffered.into_sink_async());
 
     assert(written == 8);
     assert(completed_sink.calls == 1);
@@ -196,10 +200,10 @@ async func asynchronous_bulk_transfers_and_buffering_share_the_cost_model() -> R
 
     let source: AsyncCountingReader = AsyncCountingReader(remaining = 8, limit = 8);
 
-    let mut reader: std.io.BufferedReader<AsyncCountingReader> = try std.io.BufferedReader<AsyncCountingReader>(
-        source,
-        capacity = 4
-    );
+    let mut reader: std.io.BufferedReader<AsyncCountingReader> = std.testing.assert_ok<
+        std.io.BufferedReader<AsyncCountingReader>,
+        (AsyncCountingReader, std.io.IoError)
+    >(std.io.BufferedReader<AsyncCountingReader>(source, capacity = 4));
 
     let mut destination: [u8; 8] = [0; 8];
 
@@ -218,10 +222,10 @@ async func asynchronous_bulk_transfers_and_buffering_share_the_cost_model() -> R
         fail_flush = true,
     };
 
-    let mut recovering: std.io.BufferedWriter<AsyncRecoveringWriter> = try std.io.BufferedWriter<AsyncRecoveringWriter>(
-        recovering_sink,
-        capacity = 4
-    );
+    let mut recovering: std.io.BufferedWriter<AsyncRecoveringWriter> = std.testing.assert_ok<
+        std.io.BufferedWriter<AsyncRecoveringWriter>,
+        (AsyncRecoveringWriter, std.io.IoError)
+    >(std.io.BufferedWriter<AsyncRecoveringWriter>(recovering_sink, capacity = 4));
 
     let full: [u8; 4] = [1, 2, 3, 4];
     let trailing: [u8; 1] = [5];
@@ -246,7 +250,10 @@ async func asynchronous_bulk_transfers_and_buffering_share_the_cost_model() -> R
 
     try await recovering(std.io.AsyncWriter).flush_async();
 
-    let recovered: AsyncRecoveringWriter = try await recovering.into_sink_async();
+    let recovered: AsyncRecoveringWriter = std.testing.assert_ok<
+        AsyncRecoveringWriter,
+        (std.io.BufferedWriter<AsyncRecoveringWriter>, std.io.IoError)
+    >(await recovering.into_sink_async());
 
     assert(recovered.length == 5);
     assert(recovered.bytes[0] == 1);
@@ -256,4 +263,54 @@ async func asynchronous_bulk_transfers_and_buffering_share_the_cost_model() -> R
     assert(recovered.bytes[4] == 5);
 
     return Ok(unit);
+}
+
+@test
+async func extracting_an_async_buffered_sink_preserves_ownership_and_partial_progress()
+{
+    let sink: AsyncRecoveringWriter =
+    {
+        bytes = [0; 8],
+        length = 0,
+        fail_drain = true,
+        fail_flush = true,
+    };
+
+    let mut writer: std.io.BufferedWriter<AsyncRecoveringWriter> = std.testing.assert_ok<
+        std.io.BufferedWriter<AsyncRecoveringWriter>,
+        (AsyncRecoveringWriter, std.io.IoError)
+    >(std.io.BufferedWriter<AsyncRecoveringWriter>(sink, capacity = 4));
+
+    let bytes: [u8; 4] = [1, 2, 3, 4];
+
+    let written: usize = std.testing.assert_ok<usize, std.io.IoError>(
+        await writer(std.io.AsyncWriter).write_async(&bytes[..])
+    );
+
+    assert(written == 4);
+
+    let (after_drain, drain_error) = std.testing.assert_error<
+        AsyncRecoveringWriter,
+        (std.io.BufferedWriter<AsyncRecoveringWriter>, std.io.IoError)
+    >(await writer.into_sink_async());
+
+    assert(drain_error.transferred == 2);
+
+    let (after_flush, flush_error) = std.testing.assert_error<
+        AsyncRecoveringWriter,
+        (std.io.BufferedWriter<AsyncRecoveringWriter>, std.io.IoError)
+    >(await after_drain.into_sink_async());
+
+    assert(flush_error.transferred == 2);
+
+    let recovered: AsyncRecoveringWriter = std.testing.assert_ok<
+        AsyncRecoveringWriter,
+        (std.io.BufferedWriter<AsyncRecoveringWriter>, std.io.IoError)
+    >(await after_flush.into_sink_async());
+
+    assert(recovered.length == 4);
+    assert(recovered.bytes[0] == 1);
+    assert(recovered.bytes[1] == 2);
+    assert(recovered.bytes[2] == 3);
+    assert(recovered.bytes[3] == 4);
 }

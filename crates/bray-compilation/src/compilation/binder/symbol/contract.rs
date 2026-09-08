@@ -21,8 +21,9 @@ use bray_symbols::{
     TrustedCapabilitySymbolId, TypeData,
 };
 use bray_syntax::{
-    EnsuresClauseSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxNodeView, SyntaxWalkControl,
-    UsesClauseSyntax, WithClauseSyntax, syntax_node_view, walk_direct_child_nodes,
+    EnsuresClauseSyntax, ExecutesClauseSyntax, RequiresClauseSyntax, SyntaxKind, SyntaxNodeView,
+    SyntaxWalkControl, UsesClauseSyntax, WhenClauseSyntax, WithClauseSyntax, syntax_node_view,
+    walk_direct_child_nodes,
 };
 
 use super::binding::CompilationSymbolQueryEvaluator;
@@ -50,11 +51,8 @@ impl CompilationSymbolQueryEvaluator<GenericConstraintsQuery> for CompilationSym
         &self,
         context: &CompilationBindingContext<'_>,
         request: SymbolQueryRequest<GenericConstraintsQuery>,
-    ) -> BindingQueryResult<
-        bray_diagnostics::DiagnosticResult<
-            <GenericConstraintsQuery as bray_symbols::SymbolQueryContract>::Value,
-        >,
-    > {
+    ) -> BindingQueryResult<DiagnosticResult<<GenericConstraintsQuery as SymbolQueryContract>::Value>>
+    {
         bind_generic_constraints(context, request.symbol())
     }
 }
@@ -68,11 +66,8 @@ impl CompilationSymbolQueryEvaluator<CallableContractsQuery> for CompilationSymb
         &self,
         context: &CompilationBindingContext<'_>,
         request: SymbolQueryRequest<CallableContractsQuery>,
-    ) -> BindingQueryResult<
-        bray_diagnostics::DiagnosticResult<
-            <CallableContractsQuery as bray_symbols::SymbolQueryContract>::Value,
-        >,
-    > {
+    ) -> BindingQueryResult<DiagnosticResult<<CallableContractsQuery as SymbolQueryContract>::Value>>
+    {
         bind_callable_contracts(context, request.owner())
     }
 }
@@ -80,11 +75,7 @@ impl CompilationSymbolQueryEvaluator<CallableContractsQuery> for CompilationSymb
 fn bind_generic_constraints(
     context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
-) -> BindingQueryResult<
-    bray_diagnostics::DiagnosticResult<
-        <GenericConstraintsQuery as bray_symbols::SymbolQueryContract>::Value,
-    >,
-> {
+) -> BindingQueryResult<DiagnosticResult<<GenericConstraintsQuery as SymbolQueryContract>::Value>> {
     let generic_owner = GenericOwnerId::try_new(owner).ok_or_else(|| {
         query_contract(
             owner,
@@ -204,59 +195,27 @@ fn bind_callable_contracts(
     context: &CompilationBindingContext<'_>,
     owner: CallableSymbolId,
 ) -> BindingQueryResult<
-    bray_diagnostics::DiagnosticResult<
-        <CallableContractsQuery as bray_symbols::SymbolQueryContract>::Value,
-    >,
+    DiagnosticResult<<CallableContractsQuery as bray_symbols::SymbolQueryContract>::Value>,
 > {
     if let Some(address) = context.imported_semantic_address(owner.into_any())? {
         return super::imported::imported_callable_contracts(context, address);
     }
 
-    let clauses = with_declaration_root(context, owner.into_any(), |root| {
-        Ok(direct_contract_clauses(root))
-    })?;
+    let conditions = context.resolve_symbol_query(SymbolQueryRequest::<
+        bray_symbols::CallableConditionsQuery,
+    >::new(owner))?;
 
-    let mut predicates = Vec::new();
-    let mut declared_execution_requirements = Vec::new();
-    let mut uses_clauses = Vec::new();
-    let mut diagnostics = DiagnosticBag::new();
+    let requirements = bind_declared_execution_requirements(context, owner)?;
 
-    for clause in clauses {
-        match clause {
-            ContractClauseSyntax::Requires(clause) => bind_callable_predicates(
-                context,
-                owner.into_any(),
-                syntax_node_view(&clause),
-                clause.expressions(),
-                CallableContractClauseKind::Requires,
-                &mut predicates,
-                &mut declared_execution_requirements,
-                &mut diagnostics,
-            )?,
-            ContractClauseSyntax::Ensures(clause) => bind_callable_predicates(
-                context,
-                owner.into_any(),
-                syntax_node_view(&clause),
-                clause.expressions(),
-                CallableContractClauseKind::Ensures,
-                &mut predicates,
-                &mut declared_execution_requirements,
-                &mut diagnostics,
-            )?,
-            ContractClauseSyntax::With(clause) => bind_callable_static_constraints(
-                context,
-                owner.into_any(),
-                clause.expressions(),
-                &mut predicates,
-                &mut diagnostics,
-            )?,
-            ContractClauseSyntax::Uses(clause) => uses_clauses.push(clause),
-        }
-    }
+    let (declared_execution_requirements, requirement_diagnostics) = requirements.into_parts();
 
-    let capabilities = bind_trusted_capability_clauses(context, owner, uses_clauses)?;
+    let capabilities = bind_declared_trusted_capabilities(context, owner)?;
 
-    diagnostics = diagnostics.merged(capabilities.diagnostics());
+    let mut diagnostics = DiagnosticBag::merged_all([
+        conditions.diagnostics(),
+        &requirement_diagnostics,
+        capabilities.diagnostics(),
+    ]);
 
     let dependency = context
         .semantic_values
@@ -346,7 +305,18 @@ fn bind_callable_contracts(
 
     validate_trusted_capabilities(
         context,
-        owner,
+        || {
+            context
+                .symbols
+                .declaration_syntax_anchor(owner.into_any())
+                .ok_or_else(|| {
+                    query_contract(
+                        owner.into_any(),
+                        CallableContractsQuery::KIND,
+                        SemanticQueryViolation::Missing(SemanticDataKind::SourceAnchor),
+                    )
+                })
+        },
         trust,
         capabilities.value(),
         used_capabilities,
@@ -355,7 +325,12 @@ fn bind_callable_contracts(
     )?;
 
     publish_catalog_result(
-        CallableContractSet::new(predicates, invocation_behavior, deferred_execution_behavior),
+        CallableContractSet::new(
+            // The aggregate contract independently retains the cached immutable declaration conditions.
+            conditions.value().clone(),
+            invocation_behavior,
+            deferred_execution_behavior,
+        ),
         diagnostics,
     )
 }
@@ -372,6 +347,14 @@ pub(in crate::compilation) fn bind_declared_execution_requirements(
         Ok(direct_contract_clauses(root))
     })?;
 
+    bind_execution_requirement_clauses(context, owner.into_any(), &clauses)
+}
+
+pub(super) fn bind_execution_requirement_clauses(
+    context: &CompilationBindingContext<'_>,
+    owner: AnySymbolId,
+    clauses: &[ContractClauseSyntax],
+) -> BindingQueryResult<DiagnosticResult<Vec<CallableExecutionRequirement>>> {
     let mut requirements = Vec::new();
     let mut diagnostics = DiagnosticBag::new();
 
@@ -384,8 +367,8 @@ pub(in crate::compilation) fn bind_declared_execution_requirements(
 
         let checked = checked_callable_predicates(
             context,
-            owner.into_any(),
-            syntax_node_view(&clause),
+            owner,
+            syntax_node_view(clause),
             expressions.len(),
         )?;
 
@@ -406,26 +389,77 @@ pub(in crate::compilation) fn bind_declared_trusted_capabilities(
 
     bind_trusted_capability_clauses(
         context,
-        owner,
+        owner.into_any(),
         clauses.into_iter().filter_map(|clause| match clause {
             ContractClauseSyntax::Uses(clause) => Some(clause),
             ContractClauseSyntax::Requires(_)
             | ContractClauseSyntax::Ensures(_)
-            | ContractClauseSyntax::With(_) => None,
+            | ContractClauseSyntax::With(_)
+            | ContractClauseSyntax::When(_)
+            | ContractClauseSyntax::Executes(_) => None,
         }),
     )
 }
 
-fn bind_trusted_capability_clauses(
+pub(in crate::compilation) fn bind_declared_callable_phase_behaviors(
     context: &CompilationBindingContext<'_>,
     owner: CallableSymbolId,
+    execution: CallableExecution,
+) -> BindingQueryResult<DiagnosticResult<bray_symbols::CallablePhaseBehaviors>> {
+    if let Some(address) = context.imported_semantic_address(owner.into_any())? {
+        let contract = super::imported::imported_callable_contracts(context, address)?;
+
+        let (contract, diagnostics) = contract.into_parts();
+
+        // The callable value independently retains the imported immutable phase contract.
+        return Ok(DiagnosticResult::new(
+            contract.phase_behaviors().clone(),
+            diagnostics,
+        ));
+    }
+
+    let capabilities = bind_declared_trusted_capabilities(context, owner)?;
+    let requirements = bind_declared_execution_requirements(context, owner)?;
+
+    let dependencies = context
+        .semantic_values
+        .empty_dependency_contract_template()
+        .map_err(crate::compilation::binder::semantic_value_binding_error)?;
+
+    let (invocation, deferred) = callable_phase_behaviors(
+        execution,
+        capabilities
+            .value()
+            .iter()
+            .map(|capability| capability.requirement()),
+        dependencies,
+        requirements.value().iter().copied(),
+        None,
+    );
+
+    let behavior = match deferred {
+        Some(deferred) => bray_symbols::CallablePhaseBehaviors::asynchronous(invocation, deferred),
+        None => bray_symbols::CallablePhaseBehaviors::synchronous(invocation),
+    };
+
+    Ok(DiagnosticResult::new(
+        behavior,
+        capabilities
+            .diagnostics()
+            .merged(requirements.diagnostics()),
+    ))
+}
+
+pub(super) fn bind_trusted_capability_clauses(
+    context: &CompilationBindingContext<'_>,
+    owner: AnySymbolId,
     clauses: impl IntoIterator<Item = UsesClauseSyntax>,
 ) -> BindingQueryResult<DiagnosticResult<Vec<DeclaredTrustedCapability>>> {
     let mut capabilities = Vec::new();
     let mut diagnostics = DiagnosticBag::new();
 
     for clause in clauses {
-        let result = bind_trusted_capability_clause(context, owner.into_any(), &clause)?;
+        let result = bind_trusted_capability_clause(context, owner, &clause)?;
 
         let (symbols, clause_diagnostics) = result.into_parts();
 
@@ -474,7 +508,7 @@ impl DeclaredTrustedCapability {
     }
 }
 
-fn callable_phase_behaviors(
+pub(super) fn callable_phase_behaviors(
     execution: CallableExecution,
     trusted_capabilities: impl IntoIterator<Item = TrustedCapabilityRequirement>,
     dependencies: DependencyContractTemplateId,
@@ -526,9 +560,9 @@ fn callable_phase_behaviors(
     }
 }
 
-fn validate_trusted_capabilities(
+pub(super) fn validate_trusted_capabilities(
     context: &CompilationBindingContext<'_>,
-    owner: CallableSymbolId,
+    source: impl FnOnce() -> BindingQueryResult<bray_declarations::SyntaxAnchor>,
     trust: CallableTrust,
     declared: &[DeclaredTrustedCapability],
     used: Option<&[bray_bound_tree::TrustedCapabilityUse]>,
@@ -562,18 +596,13 @@ fn validate_trusted_capabilities(
         return Ok(());
     }
 
-    if trust != CallableTrust::Trusted {
-        let anchor = context
-            .symbols
-            .declaration_syntax_anchor(owner.into_any())
-            .ok_or_else(|| {
-                query_contract(
-                    owner.into_any(),
-                    CallableContractsQuery::KIND,
-                    SemanticQueryViolation::Missing(SemanticDataKind::SourceAnchor),
-                )
-            })?;
+    if trust == CallableTrust::Trusted && !has_body {
+        return Ok(());
+    }
 
+    let anchor = source()?;
+
+    if trust != CallableTrust::Trusted {
         for capability in declared.union(&used) {
             diagnostics.add(trusted_capability_diagnostic(
                 context,
@@ -590,21 +619,6 @@ fn validate_trusted_capabilities(
 
         return Ok(());
     }
-
-    if !has_body {
-        return Ok(());
-    }
-
-    let anchor = context
-        .symbols
-        .declaration_syntax_anchor(owner.into_any())
-        .ok_or_else(|| {
-            query_contract(
-                owner.into_any(),
-                CallableContractsQuery::KIND,
-                SemanticQueryViolation::Missing(SemanticDataKind::SourceAnchor),
-            )
-        })?;
 
     for capability in used.difference(&declared) {
         diagnostics.add(trusted_capability_diagnostic(
@@ -693,26 +707,27 @@ fn trusted_capability_origins<'a>(
         )
 }
 
-enum ContractClauseSyntax {
+pub(super) enum ContractClauseSyntax {
+    Executes(ExecutesClauseSyntax),
+    When(WhenClauseSyntax),
     Requires(RequiresClauseSyntax),
     Ensures(EnsuresClauseSyntax),
     With(WithClauseSyntax),
     Uses(UsesClauseSyntax),
 }
 
-fn bind_callable_predicates(
+pub(super) fn bind_callable_predicates(
     context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
     syntax: SyntaxNodeView<'_>,
     expressions: impl IntoIterator<Item = bray_syntax::ExpressionSyntax>,
     kind: CallableContractClauseKind,
     predicates: &mut Vec<CallableContractClause>,
-    execution_requirements: &mut Vec<CallableExecutionRequirement>,
     diagnostics: &mut DiagnosticBag,
 ) -> BindingQueryResult<()> {
     let expressions = expressions.into_iter().collect::<Vec<_>>();
 
-    if context.symbols.symbol_origin(owner) != Some(bray_symbols::SymbolOrigin::Source) {
+    if context.symbols.symbol_origin(owner) != Some(SymbolOrigin::Source) {
         let result = bind_predicate_clause(
             context,
             owner,
@@ -738,18 +753,10 @@ fn bind_callable_predicates(
 
     *diagnostics = diagnostics.merged(&checked.diagnostics);
 
-    if kind == CallableContractClauseKind::Requires {
-        execution_requirements.extend(checked.execution_requirements);
-    }
-
-    for dependency in checked.dependency_contracts {
+    for predicate in checked.predicates {
         let ordinal = symbol_ordinal(predicates.len())?;
 
-        predicates.push(CallableContractClause::new(
-            ordinal,
-            kind,
-            bray_symbols::PredicateSemanticSummary::new(dependency),
-        ));
+        predicates.push(CallableContractClause::new(ordinal, kind, predicate));
     }
 
     Ok(())
@@ -780,14 +787,14 @@ fn checked_callable_predicates(
 
     let checked = checked_source_predicate_sequence(context, key)?;
 
-    if checked.dependency_contracts.len() != expression_count {
+    if checked.predicates.len() != expression_count {
         return Err(query_contract(
             owner,
             CallableContractsQuery::KIND,
             SemanticQueryViolation::CountMismatch {
                 data: SemanticDataKind::DependencyContract,
                 expected: expression_count,
-                actual: checked.dependency_contracts.len(),
+                actual: checked.predicates.len(),
             },
         ));
     }
@@ -851,7 +858,7 @@ fn resolve_type_equality_constraint(
 fn resolve_type_template(
     context: &CompilationBindingContext<'_>,
     template: &bray_symbols::TypeExpressionTemplate,
-    query_context: crate::compilation::SemanticQueryContext,
+    query_context: SemanticQueryContext,
     diagnostics: &mut DiagnosticBag,
 ) -> BindingQueryResult<bray_symbols::TypeId> {
     let mut terms = BTreeMap::new();
@@ -871,16 +878,14 @@ fn resolve_type_template(
 
     bray_checker::resolve_type_expression_template(context.semantic_values, template, &constants)
         .map_err(BindingQueryError::CheckerInfrastructure)?
-        .ok_or_else(|| {
-            missing_semantic_data(query_context, crate::compilation::SemanticDataKind::Type)
-        })
+        .ok_or_else(|| missing_semantic_data(query_context, SemanticDataKind::Type))
 }
 
 fn resolve_trait_satisfaction_templates(
     context: &CompilationBindingContext<'_>,
     subject: &bray_symbols::TypeExpressionTemplate,
     application: &bray_symbols::TraitApplicationTemplate,
-    query_context: crate::compilation::SemanticQueryContext,
+    query_context: SemanticQueryContext,
     diagnostics: &mut DiagnosticBag,
 ) -> BindingQueryResult<(bray_symbols::TypeId, bray_symbols::TraitApplicationId)> {
     let mut terms = BTreeMap::new();
@@ -908,12 +913,7 @@ fn resolve_trait_satisfaction_templates(
         &constants,
     )
     .map_err(BindingQueryError::CheckerInfrastructure)?
-    .ok_or_else(|| {
-        missing_semantic_data(
-            query_context.clone(),
-            crate::compilation::SemanticDataKind::Type,
-        )
-    })?;
+    .ok_or_else(|| missing_semantic_data(query_context.clone(), SemanticDataKind::Type))?;
 
     let application = bray_checker::resolve_trait_application_template(
         context.semantic_values,
@@ -921,12 +921,7 @@ fn resolve_trait_satisfaction_templates(
         &constants,
     )
     .map_err(BindingQueryError::CheckerInfrastructure)?
-    .ok_or_else(|| {
-        missing_semantic_data(
-            query_context,
-            crate::compilation::SemanticDataKind::TraitApplication,
-        )
-    })?;
+    .ok_or_else(|| missing_semantic_data(query_context, SemanticDataKind::TraitApplication))?;
 
     Ok((subject, application))
 }
@@ -941,26 +936,26 @@ fn checked_constant_terms_binding_error(
 
 fn constraint_context(
     constraint: &bray_symbols::GenericConstraintTemplate,
-) -> crate::compilation::SemanticQueryContext {
+) -> SemanticQueryContext {
     constraint
         .unit_syntax()
-        .map(|unit| crate::compilation::SemanticQueryContext::Source(unit.source_id()))
-        .unwrap_or(crate::compilation::SemanticQueryContext::Fact(
+        .map(|unit| SemanticQueryContext::Source(unit.source_id()))
+        .unwrap_or(SemanticQueryContext::Fact(
             crate::fact::CompilationFactKey::CheckDiagnostics,
         ))
 }
 
 fn missing_semantic_data(
-    context: crate::compilation::SemanticQueryContext,
-    data: crate::compilation::SemanticDataKind,
+    context: SemanticQueryContext,
+    data: SemanticDataKind,
 ) -> BindingQueryError<crate::fact::FactQueryError> {
     crate::compilation::binder::semantic_contract_binding_error(
         context,
-        crate::compilation::SemanticQueryViolation::Missing(data),
+        SemanticQueryViolation::Missing(data),
     )
 }
 
-fn bind_callable_static_constraints(
+pub(super) fn bind_callable_static_constraints(
     context: &CompilationBindingContext<'_>,
     owner: AnySymbolId,
     expressions: impl IntoIterator<Item = bray_syntax::ExpressionSyntax>,
@@ -984,7 +979,7 @@ fn bind_callable_static_constraints(
                 context,
                 subject.value(),
                 application.value(),
-                crate::compilation::SemanticQueryContext::Symbol(owner),
+                SemanticQueryContext::Symbol(owner),
                 diagnostics,
             )?;
 
@@ -1044,11 +1039,17 @@ fn direct_with_clauses(root: SyntaxNodeView<'_>) -> Vec<WithClauseSyntax> {
     children
 }
 
-fn direct_contract_clauses(root: SyntaxNodeView<'_>) -> Vec<ContractClauseSyntax> {
+pub(super) fn direct_contract_clauses(root: SyntaxNodeView<'_>) -> Vec<ContractClauseSyntax> {
     let mut clauses = Vec::new();
 
     walk_direct_child_nodes(&root, |node| {
         let clause = match node.kind() {
+            SyntaxKind::ExecutesClause => node
+                .cast::<ExecutesClauseSyntax>()
+                .map(ContractClauseSyntax::Executes),
+            SyntaxKind::WhenClause => node
+                .cast::<WhenClauseSyntax>()
+                .map(ContractClauseSyntax::When),
             SyntaxKind::RequiresClause => node
                 .cast::<RequiresClauseSyntax>()
                 .map(ContractClauseSyntax::Requires),
@@ -1086,6 +1087,7 @@ fn publish_catalog_result<T>(
 
 #[cfg(test)]
 mod tests {
+    use bray_symbols::CallableConditions;
     use std::sync::Arc;
 
     use bray_base::NonEmptySharedStr;
@@ -1294,7 +1296,7 @@ mod tests {
 
         let contracts = callable_contracts(&compilation, "checked");
 
-        let [precondition] = contracts.value().invocation_preconditions() else {
+        let [precondition] = contracts.value().conditions().invocation_preconditions() else {
             panic!("requires clause must publish one precondition");
         };
 

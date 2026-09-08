@@ -211,6 +211,9 @@ impl SemanticUnifier<'_> {
 
                 Ok(false)
             }
+            ConstantTermData::Test { subject, .. } => {
+                self.constant_contains_parameter(*subject, parameter, visited)
+            }
             ConstantTermData::Projection(projection) => {
                 self.constant_contains_parameter(projection.subject(), parameter, visited)
             }

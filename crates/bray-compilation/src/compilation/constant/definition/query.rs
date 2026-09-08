@@ -41,7 +41,6 @@ use crate::compilation::substitution::empty_substitution;
 use crate::compilation::unit::semantic_unit_context_for;
 use crate::compilation::{
     SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
-    SemanticSymbolCategory,
 };
 use crate::fact::{
     CancellationToken, CompilationFactKey, ConstantInstanceQueryKey, FactQueryError,
@@ -656,7 +655,7 @@ impl Compilation {
         collect_constant_references(bound, selections, |_, target| {
             if let Some(ordinal) = match target {
                 BoundReferenceTarget::Surface(symbol) => arguments.get(&symbol),
-                BoundReferenceTarget::Local(_) => None,
+                BoundReferenceTarget::Local(_) | BoundReferenceTarget::TypeQualifier(_) => None,
             } {
                 return values
                     .intern_constant_term(ConstantTermData::CallableArgument(*ordinal))
@@ -688,7 +687,9 @@ impl Compilation {
 
                     Ok(ConstantReferenceResolution::Term(term))
                 }
-                BoundReferenceTarget::Local(_) => Ok(ConstantReferenceResolution::Invalid),
+                BoundReferenceTarget::Local(_) | BoundReferenceTarget::TypeQualifier(_) => {
+                    Ok(ConstantReferenceResolution::Invalid)
+                }
             }
         })
     }
@@ -914,14 +915,16 @@ impl Compilation {
                         Err(error) => Err(error),
                     }
                 }
-                BoundReferenceTarget::Local(_) => Err(SemanticQueryFailure::contract(
-                    SemanticQueryContext::Expression {
-                        unit: unit.clone(),
-                        expression,
-                    },
-                    SemanticQueryViolation::Unsupported(SemanticDataKind::ConstantDefinition),
-                )
-                .into()),
+                BoundReferenceTarget::Local(_) | BoundReferenceTarget::TypeQualifier(_) => {
+                    Err(SemanticQueryFailure::contract(
+                        SemanticQueryContext::Expression {
+                            unit: unit.clone(),
+                            expression,
+                        },
+                        SemanticQueryViolation::Unsupported(SemanticDataKind::ConstantDefinition),
+                    )
+                    .into())
+                }
             })?;
 
         Ok((references, dependency_diagnostics))
@@ -931,7 +934,7 @@ impl Compilation {
         &self,
         definition: AnyConstantDefinitionId,
     ) -> Result<Option<BoundUnitKey>, FactQueryError> {
-        Ok(self.constant_template_keys()?.get(&definition).cloned())
+        self.declared_unit_key(definition.into_any(), BoundUnitKind::ConstantTemplate)
     }
 
     pub(in crate::compilation) fn constant_definition_span(
@@ -971,109 +974,10 @@ impl Compilation {
         &self,
         definition: CallableDefinitionId,
     ) -> Result<Option<BoundUnitKey>, FactQueryError> {
-        let result = self.evaluate_query(
-            CompilationFactKey::CallableBodyKeys,
-            &self.state.callable_body_keys,
-            || {
-                let symbols = self.symbol_graph()?;
-                let mut bodies = BTreeMap::new();
-
-                for key in self.declared_unit_keys()? {
-                    if key.kind() != BoundUnitKind::CallableBody {
-                        continue;
-                    }
-
-                    let symbol = symbols
-                        .symbol_for_key(key.declared_owner())
-                        .ok_or_else(|| {
-                            SemanticQueryFailure::contract(
-                                SemanticQueryContext::Unit(key.clone()),
-                                SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
-                            )
-                        })?;
-
-                    let definition = CallableDefinitionId::try_new(symbol).ok_or_else(|| {
-                        SemanticQueryFailure::contract(
-                            SemanticQueryContext::Unit(key.clone()),
-                            SemanticQueryViolation::UnexpectedSymbolKind {
-                                expected: SemanticSymbolCategory::Callable,
-                                actual: symbol.kind(),
-                            },
-                        )
-                    })?;
-
-                    if bodies.insert(definition, key).is_some() {
-                        return Err(SemanticQueryFailure::contract(
-                            SemanticQueryContext::Symbol(definition.callable_symbol().into_any()),
-                            SemanticQueryViolation::CountMismatch {
-                                data: SemanticDataKind::BoundUnit,
-                                expected: 1,
-                                actual: 2,
-                            },
-                        )
-                        .into());
-                    }
-                }
-
-                Ok(bodies)
-            },
-        );
-
-        match result {
-            Ok(bodies) => Ok(bodies.get(&definition).cloned()),
-            Err(error) => Err(error.clone()),
-        }
-    }
-
-    fn constant_template_keys(
-        &self,
-    ) -> Result<&BTreeMap<AnyConstantDefinitionId, BoundUnitKey>, FactQueryError> {
-        let result = self.evaluate_query(
-            CompilationFactKey::ConstantTemplateKeys,
-            &self.state.constant_template_keys,
-            || {
-                let symbols = self.symbol_graph()?;
-                let mut templates = BTreeMap::new();
-
-                for key in self.declared_unit_keys()? {
-                    if key.kind() != BoundUnitKind::ConstantTemplate {
-                        continue;
-                    }
-
-                    let symbol = symbols
-                        .symbol_for_key(key.declared_owner())
-                        .ok_or_else(|| {
-                            SemanticQueryFailure::contract(
-                                SemanticQueryContext::Unit(key.clone()),
-                                SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
-                            )
-                        })?;
-
-                    let Some(definition) = constant_definition_id(symbol) else {
-                        continue;
-                    };
-
-                    if templates.insert(definition, key).is_some() {
-                        return Err(SemanticQueryFailure::contract(
-                            SemanticQueryContext::Symbol(definition.into_any()),
-                            SemanticQueryViolation::CountMismatch {
-                                data: SemanticDataKind::BoundUnit,
-                                expected: 1,
-                                actual: 2,
-                            },
-                        )
-                        .into());
-                    }
-                }
-
-                Ok(templates)
-            },
-        );
-
-        match result {
-            Ok(templates) => Ok(templates),
-            Err(error) => Err(error.clone()),
-        }
+        self.declared_unit_key(
+            definition.callable_symbol().into_any(),
+            BoundUnitKind::CallableBody,
+        )
     }
 }
 
@@ -1282,6 +1186,141 @@ mod tests {
         };
 
         assert_eq!(integer_value(&compilation, value.value()), 42);
+    }
+
+    #[test]
+    fn symbolic_pattern_templates_preserve_case_tests_and_short_circuit_payloads() {
+        use crate::compilation::constant::call::CompilationConstantTemplateResolver;
+        use bray_binder::SymbolQueryProvider;
+
+        use bray_bound_tree::{
+            CheckedTemplateBehavior, CheckedTemplateBuilder, CheckedTemplateCompletion,
+            CheckedTemplateConstantUsage, CheckedTemplateExecution, CheckedTemplateKind,
+            CheckedTemplateNode, CheckedTemplateOperation,
+        };
+
+        use bray_symbols::{
+            CallableSignatureQuery, CurrentRunCancellation, SymbolOrdinal, SymbolQueryRequest,
+        };
+
+        let compilation = compilation(
+            "module app; const func choose(pos input: Result<i32, i32>) -> bool { return input matches Ok(0); }",
+        );
+
+        let result_ty = bool_type(&compilation);
+        let payload_ty = i32_type(&compilation);
+        let input_ty = result_type(&compilation, payload_ty, payload_ty);
+
+        let (_, request) = source_constant_call_request(&compilation, [], result_ty);
+
+        let cancellation = &compilation.state.cancellation;
+        let binding = compilation.binding_context(cancellation).unwrap();
+
+        let signature = binding
+            .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(
+                request.callable().definition().callable_symbol(),
+            ))
+            .unwrap();
+
+        let arguments = signature
+            .value()
+            .parameters()
+            .iter()
+            .enumerate()
+            .map(|(index, parameter)| {
+                (
+                    (*parameter).into(),
+                    SymbolOrdinal::new(u32::try_from(index).unwrap()),
+                )
+            })
+            .collect();
+
+        let term = compilation
+            .symbolic_constant_callable_body(
+                request.callable(),
+                result_ty,
+                &arguments,
+                cancellation,
+            )
+            .unwrap();
+
+        assert!(term.diagnostics().is_empty(), "{:?}", term.diagnostics());
+
+        let values = compilation.semantic_value_store().unwrap();
+
+        let behavior = CheckedTemplateBehavior::new(
+            [],
+            [],
+            [],
+            CheckedTemplateExecution::new([], CurrentRunCancellation::NotEntered),
+            [],
+            values.empty_dependency_contract_template().unwrap(),
+            [],
+        );
+
+        let mut builder =
+            CheckedTemplateBuilder::new(CheckedTemplateKind::ConstantCallableBody, behavior);
+
+        let result = builder
+            .push_node(CheckedTemplateNode::new(
+                CheckedTemplateOperation::Constant {
+                    term: *term.value(),
+                    usage: CheckedTemplateConstantUsage::default(),
+                },
+                result_ty,
+            ))
+            .unwrap();
+
+        let template = builder
+            .finish(result, CheckedTemplateCompletion::Complete)
+            .unwrap();
+
+        let key = compilation
+            .callable_body_key(request.callable().definition())
+            .unwrap()
+            .unwrap();
+
+        let context = compilation.checker_context_for(&key, cancellation).unwrap();
+
+        let imported = compilation
+            .imported_symbol_skeleton_result_with_cancellation(cancellation)
+            .unwrap();
+
+        let resolver = CompilationConstantTemplateResolver::new(
+            &compilation,
+            cancellation,
+            imported.value().as_deref().unwrap(),
+        );
+
+        for (error, payload, expected) in [(false, 0, true), (false, 1, false), (true, 0, false)] {
+            let input = result_value(&compilation, input_ty, payload_ty, error, payload);
+
+            let request = ConstantCallRequest::new(
+                request.callable(),
+                None,
+                [input],
+                result_ty,
+                ConstantEvaluationLimits::default(),
+            );
+
+            let evaluated = crate::compilation::checker::checker_result(
+                bray_checker::evaluate_constant_callable_template(
+                    &context, &template, &request, &resolver, None,
+                ),
+            )
+            .unwrap();
+
+            assert!(
+                evaluated.diagnostics().is_empty(),
+                "{:?}",
+                evaluated.diagnostics()
+            );
+
+            assert_eq!(
+                constant_value(&compilation, evaluated.value().value()).kind(),
+                &ConstantValueKind::Boolean(expected)
+            );
+        }
     }
 
     #[test]

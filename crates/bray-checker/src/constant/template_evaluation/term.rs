@@ -11,9 +11,7 @@ use super::super::diagnostic::{ConstantDiagnostic, ConstantLimitKind, diagnostic
 use super::super::integer::fits_integer_representation;
 use super::super::operation::fold_binary;
 use super::evaluator::TemplateEvaluator;
-use super::support::{
-    TemplateEvaluationFailure, binary_operator, integer_index, operation_failure,
-};
+use super::support::{TemplateEvaluationFailure, binary_operator, operation_failure};
 use crate::CheckerRequestContext;
 
 pub(super) fn evaluate_term<C>(
@@ -58,9 +56,23 @@ where
             left,
             right,
         } => {
-            let left = evaluator.evaluate_term(*left, ty)?;
+            let left_value = evaluator.evaluate_term(*left, ty)?;
+            let left = evaluator.constant_value(left_value)?;
+
+            if matches!(
+                (operation, left.kind()),
+                (
+                    bray_symbols::ConstantBinaryOperation::LogicalAnd,
+                    ConstantValueKind::Boolean(false)
+                ) | (
+                    bray_symbols::ConstantBinaryOperation::LogicalOr,
+                    ConstantValueKind::Boolean(true)
+                )
+            ) {
+                return Ok(left_value);
+            }
+
             let right = evaluator.evaluate_term(*right, ty)?;
-            let left = evaluator.constant_value(left)?;
             let right = evaluator.constant_value(right)?;
 
             let kind = fold_binary(
@@ -202,6 +214,15 @@ where
 
             evaluator.resolve_call(&request, ty)
         }
+        ConstantTermData::Test { subject, kind } => {
+            let subject = evaluator.evaluate_term(*subject, ty)?;
+            let subject = evaluator.constant_value(subject)?;
+
+            let matched = super::super::shape::test_value_shape(*kind, subject.kind())
+                .ok_or_else(TemplateEvaluationFailure::invalid_input)?;
+
+            evaluator.intern_value(ty, ConstantValueKind::Boolean(matched))
+        }
         ConstantTermData::Projection(projection) => evaluate_projection(evaluator, projection, ty),
         ConstantTermData::IntegerLiteral {
             ty: integer_type,
@@ -248,37 +269,20 @@ where
     let subject = evaluator.evaluate_term(projection.subject(), ty)?;
     let subject = evaluator.constant_value(subject)?;
 
-    let value = match (subject.kind(), projection.kind()) {
-        (ConstantValueKind::Tuple(elements), ConstantProjectionKind::TupleElement(ordinal)) => {
-            ordinal
-                .to_index()
-                .and_then(|index| elements.get(index))
-                .copied()
-        }
-        (ConstantValueKind::Array(elements), ConstantProjectionKind::ArrayElement(index)) => {
+    let index = match projection.kind() {
+        ConstantProjectionKind::ArrayElement(index) => {
             let index = evaluator.evaluate_term(index, ty)?;
             let index = evaluator.constant_value(index)?;
 
-            integer_index(index.kind())
-                .and_then(|index| elements.get(index))
-                .copied()
-        }
-        (ConstantValueKind::Product(fields), ConstantProjectionKind::ProductField(field)) => fields
-            .iter()
-            .find(|entry| *entry.field() == field)
-            .map(|entry| *entry.value()),
-        (
-            ConstantValueKind::Union { fields, .. },
-            ConstantProjectionKind::UnionPayloadField(field),
-        ) => fields
-            .iter()
-            .find(|entry| *entry.field() == field)
-            .map(|entry| *entry.value()),
-        (ConstantValueKind::NullablePresent(value), ConstantProjectionKind::NullableValue) => {
-            Some(*value)
+            match index.kind() {
+                ConstantValueKind::Integer(value) => super::super::integer_to_usize(value),
+                _ => None,
+            }
         }
         _ => None,
     };
+
+    let value = super::super::shape::project_value(subject.kind(), projection.kind(), index);
 
     value.ok_or_else(TemplateEvaluationFailure::invalid_input)
 }

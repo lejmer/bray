@@ -449,9 +449,11 @@ trait Storage<T>
     trusted static func create(pos value: T) -> Self
         uses(manual_alloc, raw_memory, unchecked_init);
 
-    static func borrow(pos storage: &Self) -> &T;
+    static func borrow(pos storage: &Self) -> &T
+        executes(pure, total);
 
-    static func borrow_mut(pos storage: &mut Self) -> &mut T;
+    static func borrow_mut(pos storage: &mut Self) -> &mut T
+        executes(pure, total);
 
     trusted static func destroy(pos storage: &mut Self)
         uses(raw_memory, unchecked_init);
@@ -466,6 +468,15 @@ trait Storage<T>
 `Storage<T>.borrow` projects a shared borrow of the stored `T`.
 
 `Storage<T>.borrow_mut` projects a mutable borrow of the stored `T`.
+
+Both projections execute [purely and totally](../contracts-and-trust/execution-guarantees.md) for
+valid storage. They reach the already-initialized stored value and preserve its identity and
+ownership and capability dependencies. The returned mutable borrow grants authority for later
+mutation under the ordinary borrowing rules.
+
+Effectful acquisition, such as locking or mapping, belongs in ordinary operations or
+[scoped use](../lifecycle/scoped-use.md). The acquired capability retains the dependencies needed
+for access throughout the borrow and any cleanup that uses it.
 
 `Storage<T>.destroy` destroys the stored `T` without releasing the storage object itself.
 

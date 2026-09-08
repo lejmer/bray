@@ -58,11 +58,13 @@ fn operation_text(operation: &InspectionMirOperation) -> String {
         | "move_inactive_frame"
         | "resume_frame"
         | "compose_awaited_frame"
-        | "commit_awaited_completion"
         | "start_task"
         | "request_task_cancellation"
         | "observe_current_run_cancellation"
         | "resolve_task"
+        | "borrow_task_completion"
+        | "release_task_completion_borrow"
+        | "resolve_awaited_frame"
         | "publish_terminal_state"
         | "execute_cleanup_broadcast"
         | "execute_lifecycle_resolution"
@@ -248,8 +250,6 @@ fn generator_operation(operation: &InspectionMirOperation) -> String {
             operand_for(operation, "value")
         ),
         "finish" => format!("generator finish {destination}"),
-        "cleanup_broadcast" => format!("generator cleanup {destination}"),
-        "destroy" => format!("generator destroy {destination}"),
         _ => generic_operation(operation),
     }
 }
@@ -356,27 +356,14 @@ fn cleanup_operation(operation: &InspectionMirOperation) -> String {
 fn async_operation(operation: &InspectionMirOperation) -> String {
     match operation.operation_kind {
         "create_frame" => {
-            if attribute_text(operation, "initializer").as_deref() == Some("task_observation") {
-                let task = operand_for(operation, "task");
-                let completion = type_for(operation, "completion").unwrap_or("<completion>");
-                let result = type_for(operation, "result").unwrap_or("<result>");
+            let target = operation
+                .symbols
+                .iter()
+                .find(|symbol| symbol.role == "callee")
+                .map(|symbol| format!("@{}", symbol.symbol.display_name()))
+                .unwrap_or_else(|| String::from("<frame>"));
 
-                let cancellation = attribute_text(operation, "request_cancellation")
-                    .unwrap_or_else(|| "false".into());
-
-                format!(
-                    "async observe_task {task} -> {result} completion {completion} cancel={cancellation}"
-                )
-            } else {
-                let target = operation
-                    .symbols
-                    .iter()
-                    .find(|symbol| symbol.role == "callee")
-                    .map(|symbol| format!("@{}", symbol.symbol.display_name()))
-                    .unwrap_or_else(|| String::from("<frame>"));
-
-                format!("async create_frame {target}")
-            }
+            format!("async create_frame {target}")
         }
         "move_inactive_frame" => format!(
             "async move_frame {} -> {}",
@@ -390,13 +377,19 @@ fn async_operation(operation: &InspectionMirOperation) -> String {
         "compose_awaited_frame" => {
             format!("async await {}", operand_for(operation, "frame"))
         }
-        "commit_awaited_completion" => String::from("async commit_awaited_completion"),
         "start_task" => format!("async start_task {}", operand_for(operation, "frame")),
         "request_task_cancellation" => {
             format!("async cancel_task {}", operand_for(operation, "task"))
         }
         "observe_current_run_cancellation" => String::from("async cancellation_requested"),
-        "resolve_task" => format!("async resolve_task {}", operand_for(operation, "task")),
+        "resolve_task" | "borrow_task_completion" | "release_task_completion_borrow" => {
+            format!(
+                "async {} {}",
+                operation.operation_kind,
+                operand_for(operation, "task")
+            )
+        }
+        "resolve_awaited_frame" => String::from("async resolve_awaited_frame"),
         "publish_terminal_state" => {
             let state = attribute_text(operation, "state").unwrap_or_else(|| "<missing>".into());
 
@@ -594,17 +587,16 @@ mod tests {
     }
 
     #[test]
-    fn task_observation_frames_show_the_observed_task() {
-        let operation = operation(
-            "create_frame",
-            vec![attribute("initializer", "task_observation")],
-            vec![value("task", 4)],
-        );
+    fn terminal_task_operations_show_the_retained_owner() {
+        for kind in [
+            "resolve_task",
+            "borrow_task_completion",
+            "release_task_completion_borrow",
+        ] {
+            let operation = operation(kind, Vec::new(), vec![value("task", 4)]);
 
-        assert_eq!(
-            operation_text(&operation),
-            "async observe_task %4 -> <result> completion <completion> cancel=false"
-        );
+            assert_eq!(operation_text(&operation), format!("async {kind} %4"));
+        }
     }
 
     #[test]

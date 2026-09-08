@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use bray_ir::{
-    MirAsyncOperation, MirGeneratorOperation, MirHostOperation, MirOperationKind,
-    MirRuntimeReference, MirSourceAnchor, MirTerminatorKind,
+    MirAsyncOperation, MirHostOperation, MirOperationKind, MirRuntimeReference, MirSourceAnchor,
+    MirTerminatorKind,
 };
 use bray_symbols::TypeId;
 
@@ -51,6 +51,27 @@ pub fn demanded_runtime_references_for_mir(
 ) -> BTreeSet<MirRuntimeReference> {
     let runtime_abi = mir.target().runtime_abi();
 
+    let cleanup_incidents = mir.operations().iter().any(|operation| {
+        matches!(
+            operation.kind(),
+            MirOperationKind::Async(MirAsyncOperation::TransferCleanupIncident { .. })
+        )
+    });
+
+    let cleanup_callbacks = cleanup_incidents
+        || mir.operations().iter().any(|operation| {
+            matches!(
+                operation.kind(),
+                MirOperationKind::Async(MirAsyncOperation::DestroyTerminalTask {
+                    completion: Some(_),
+                    ..
+                }) | MirOperationKind::Host(MirHostOperation::ResolveRootTerminal {
+                    error: Some(_),
+                    ..
+                })
+            )
+        });
+
     mir.operations()
         .iter()
         .flat_map(|operation| operation_runtime_references(operation.kind()))
@@ -73,6 +94,17 @@ pub fn demanded_runtime_references_for_mir(
                 runtime_abi,
             ),
         )))
+        .chain(
+            cleanup_callbacks
+                .then_some(crate::CLEANUP_RUNTIME_ROLES)
+                .into_iter()
+                .flatten()
+                .map(|role| Some(MirRuntimeReference::new(role, runtime_abi))),
+        )
+        .chain(cleanup_incidents.then_some(Some(MirRuntimeReference::new(
+            bray_runtime_interface::RuntimeAbiRole::CleanupIncidentDetailReporting,
+            runtime_abi,
+        ))))
         .chain(
             (checked_call_cancellation_propagation_is_demanded(mir)
                 || boundary_panic_propagation_is_demanded(mir))
@@ -350,10 +382,6 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
         MirOperationKind::Async(MirAsyncOperation::StartTask {
             allocation, start, ..
         }) => [Some(*allocation), Some(*start), None],
-        MirOperationKind::Async(MirAsyncOperation::CreateFrame {
-            initializer: bray_ir::MirFrameInitializer::TaskObservation { runtime, .. },
-            ..
-        }) => [Some(*runtime), None, None],
         MirOperationKind::Host(MirHostOperation::ExecuteRoot { runtime, .. }) => [
             Some(*runtime),
             Some(MirRuntimeReference::new(
@@ -370,9 +398,13 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
         }) => [Some(*completion), Some(*panic), Some(*entry_failure)],
         MirOperationKind::Async(
             MirAsyncOperation::ResumeFrame { runtime, .. }
+            | MirAsyncOperation::DestroyInactiveCaptures { runtime, .. }
             | MirAsyncOperation::RequestTaskCancellation { runtime, .. }
             | MirAsyncOperation::ObserveCurrentRunCancellation { runtime }
             | MirAsyncOperation::ResolveTask { runtime, .. }
+            | MirAsyncOperation::BorrowTaskCompletion { runtime, .. }
+            | MirAsyncOperation::ReleaseTaskCompletionBorrow { runtime, .. }
+            | MirAsyncOperation::ResolveAwaitedFrame { runtime, .. }
             | MirAsyncOperation::PublishTerminalState { runtime, .. }
             | MirAsyncOperation::ExecuteCleanupBroadcast { runtime, .. }
             | MirAsyncOperation::ExecuteLifecycleResolution { runtime, .. }
@@ -383,10 +415,6 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
             | MirHostOperation::ObserveRootTerminal { runtime, .. }
             | MirHostOperation::ReportCleanupIncidents { runtime }
             | MirHostOperation::StructuredShutdown { runtime },
-        )
-        | MirOperationKind::Generator(
-            MirGeneratorOperation::CleanupBroadcast { runtime, .. }
-            | MirGeneratorOperation::Destroy { runtime, .. },
         ) => [Some(*runtime), None, None],
         MirOperationKind::AnonymousCallable(_)
         | MirOperationKind::DeclaredCallable(_)
@@ -400,28 +428,26 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
         | MirOperationKind::NumericConversion { .. }
         | MirOperationKind::NullableQuery(_)
         | MirOperationKind::PatternProjection { .. }
-        | MirOperationKind::Generator(
-            MirGeneratorOperation::Begin { .. }
-            | MirGeneratorOperation::Push { .. }
-            | MirGeneratorOperation::Finish { .. },
-        )
+        | MirOperationKind::Generator(_)
         | MirOperationKind::Memory(_)
         | MirOperationKind::Text(_)
         | MirOperationKind::PanicReport(_)
         | MirOperationKind::Finalize(_)
         | MirOperationKind::Destroy(_)
+        | MirOperationKind::Abandon { .. }
+        | MirOperationKind::DestructorRemainder { .. }
         | MirOperationKind::Cleanup { .. }
         | MirOperationKind::Host(
             MirHostOperation::MaterializeStatic { .. } | MirHostOperation::BeginStaticCleanup,
         )
         | MirOperationKind::Async(
             MirAsyncOperation::CreateFrame {
-                initializer: bray_ir::MirFrameInitializer::Callable(_),
+                initializer:
+                    bray_ir::MirFrameInitializer::Callable(_)
+                    | bray_ir::MirFrameInitializer::Lifecycle { .. },
                 ..
             }
-            | MirAsyncOperation::MoveInactiveFrame { .. }
             | MirAsyncOperation::ComposeAwaitedFrame { .. }
-            | MirAsyncOperation::CommitAwaitedCompletion { .. }
             | MirAsyncOperation::DestroyTerminalTask { .. },
         ) => [None, None, None],
     }

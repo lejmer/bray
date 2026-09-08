@@ -95,7 +95,7 @@ pub(super) fn validate_host_operation(
             validate_runtime_role(unit, *completion, RuntimeAbiRole::RootCompletionResolution)?;
             validate_runtime_role(unit, *panic, RuntimeAbiRole::PanicReporting)?;
 
-            validate_runtime_role(unit, *entry_failure, RuntimeAbiRole::EntryFailureReporting)
+            validate_runtime_role(unit, *entry_failure, RuntimeAbiRole::EntryFailureResolution)
         }
         MirHostOperation::BeginStaticCleanup => Ok(()),
         MirHostOperation::ReportCleanupIncidents { runtime } => {

@@ -65,6 +65,20 @@ impl<'unit> BoundUnitView<'unit> {
         }
     }
 
+    /// Returns a member expression's runtime receiver, excluding namespace and type qualifiers.
+    pub fn value_receiver(self, member: BoundExpressionId) -> Option<BoundExpressionId> {
+        let receiver = match self.expression(member)? {
+            BoundExpression::MemberAccess(member) => member.receiver(),
+            BoundExpression::TraitQualifiedMember(member) => member.receiver(),
+            _ => return None,
+        };
+
+        let qualifier = matches!(self.expression(receiver),
+            Some(BoundExpression::Name(name)) if name.target().is_compile_time_qualifier());
+
+        (!qualifier).then_some(receiver)
+    }
+
     /// Returns one committed pattern through checked typed access.
     pub fn pattern(self, id: BoundPatternId) -> Option<&'unit BoundPattern> {
         match self.storage {

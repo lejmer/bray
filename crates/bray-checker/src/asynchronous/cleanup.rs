@@ -8,9 +8,7 @@ use bray_bound_tree::{
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::DiagnosticBag;
-use bray_symbols::{
-    DeclaredStorageShape, GenericArgument, TypeData, TypeExpressionTemplate, TypeId,
-};
+use bray_symbols::{DeclaredStorageShape, TypeData, TypeExpressionTemplate, TypeId};
 
 use super::parts::CleanupExpansion;
 use crate::storage::storage_scope_owners;
@@ -26,7 +24,7 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     let owners = storage_scope_owners(request).map_err(CheckerQueryError::with_upstream)?;
-    let mut resolver = CleanupShapeResolver::new(request);
+    let mut resolver = CleanupShapeResolver::new(request.context());
     let mut scopes = BTreeSet::new();
 
     for (id, identity) in storage.identity_entries() {
@@ -45,11 +43,34 @@ where
     Ok(scopes)
 }
 
+/// Resolves the direct owned cleanup dependencies of each reachable substituted storage type.
+pub fn owned_cleanup_type_dependencies<C>(
+    request: CheckerUnitView<'_, C>,
+    roots: impl IntoIterator<Item = TypeId>,
+) -> Result<
+    bray_diagnostics::DiagnosticResult<BTreeMap<TypeId, BTreeSet<TypeId>>>,
+    CheckerQueryError<C::UpstreamError>,
+>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut resolver = CleanupShapeResolver::new(request.context());
+
+    for ty in roots {
+        resolver.resolve(ty)?;
+    }
+
+    Ok(bray_diagnostics::DiagnosticResult::new(
+        resolver.dependencies,
+        resolver.diagnostics,
+    ))
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct CleanupShape {
     pub(super) cancellation: bool,
     pub(super) lifecycle: bool,
-    recovered: bool,
+    pub(super) recovered: bool,
 }
 impl CleanupShape {
     const BOTH: Self = Self {
@@ -75,10 +96,12 @@ pub(super) struct CleanupShapeResolver<'request, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    pub(super) request: CheckerUnitView<'request, C>,
-    completed: BTreeMap<TypeId, CleanupShape>,
+    pub(super) context: &'request C,
+    pub(super) completed: BTreeMap<TypeId, CleanupShape>,
     pub(super) cleanup_types: BTreeMap<TypeId, StorageCleanupType>,
     active: BTreeSet<TypeId>,
+    parent: Option<TypeId>,
+    pub(super) dependencies: BTreeMap<TypeId, BTreeSet<TypeId>>,
     // Query diagnostics are cloned because the cleanup result owns them independently.
     pub(super) diagnostics: DiagnosticBag,
 }
@@ -87,12 +110,14 @@ impl<'request, C> CleanupShapeResolver<'request, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    pub(super) fn new(request: CheckerUnitView<'request, C>) -> Self {
+    pub(super) fn new(context: &'request C) -> Self {
         Self {
-            request,
+            context,
             completed: BTreeMap::new(),
             cleanup_types: BTreeMap::new(),
             active: BTreeSet::new(),
+            parent: None,
+            dependencies: BTreeMap::new(),
             diagnostics: DiagnosticBag::new(),
         }
     }
@@ -101,6 +126,16 @@ where
         &mut self,
         ty: TypeId,
     ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
+        if self.context.cancellation().is_cancelled() {
+            return Err(CheckerQueryError::Cancelled);
+        }
+
+        if let Some(parent) = self.parent {
+            self.dependencies.entry(parent).or_default().insert(ty);
+        }
+
+        self.dependencies.entry(ty).or_default();
+
         if let Some(shape) = self.completed.get(&ty) {
             return Ok(*shape);
         }
@@ -109,8 +144,10 @@ where
             return Ok(CleanupShape::BOTH);
         }
 
+        let parent = self.parent.replace(ty);
+
         let data = self
-            .request
+            .context
             .semantic_values()
             .type_data(ty)
             .map_err(|error| {
@@ -127,17 +164,28 @@ where
             TypeData::TypeParameter(_)
             | TypeData::ContextualSelf(_)
             | TypeData::TypeValuedMemberProjection { .. }
-            | TypeData::Generator(_)
             | TypeData::Callable(_) => CleanupShape::BOTH,
             TypeData::Named {
                 definition,
                 substitution,
             } => self.named_shape(*definition, *substitution)?,
             TypeData::Tuple(elements) => self.aggregate(elements.iter().copied())?,
-            TypeData::Array { element, .. } | TypeData::Nullable(element) => {
-                self.resolve(*element)?
+            TypeData::Array { element, length } => {
+                let length = self
+                    .context
+                    .semantic_values()
+                    .constant_term_integer(*length)
+                    .map_err(CheckerInfrastructureError::SemanticValueStore)
+                    .map_err(CheckerQueryError::Infrastructure)?;
+
+                if length.is_some_and(|length| length.to_u64() == Some(0)) {
+                    CleanupShape::default()
+                } else {
+                    self.resolve(*element)?
+                }
             }
-            TypeData::OwnedIndirection { target, .. } => {
+            TypeData::Nullable(element) => self.resolve(*element)?,
+            TypeData::OwnedIndirection { target, .. } | TypeData::Generator(target) => {
                 let mut shape = self.resolve(*target)?;
 
                 shape.lifecycle = true;
@@ -151,6 +199,7 @@ where
         };
 
         self.active.remove(&ty);
+        self.parent = parent;
         self.completed.insert(ty, shape);
 
         Ok(shape)
@@ -161,20 +210,15 @@ where
         definition: bray_symbols::NamedTypeSymbolId,
         substitution: bray_symbols::GenericSubstitutionId,
     ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
-        let role = match definition {
-            bray_symbols::NamedTypeSymbolId::Struct(definition) => self
-                .request
-                .available_compiler_known_symbols()
-                .provider()
-                .role_registry()
-                .symbol_representation(definition),
-            bray_symbols::NamedTypeSymbolId::Union(definition) => self
-                .request
-                .available_compiler_known_symbols()
-                .provider()
-                .role_registry()
-                .symbol_representation(definition),
-        };
+        let role = self.representation_role(definition);
+
+        if let Some(element) = self.context.raw_buffer_element(definition, substitution)? {
+            let mut shape = self.resolve(element)?;
+
+            shape.lifecycle = true;
+
+            return Ok(shape);
+        }
 
         match role {
             Some(RepresentationRole::Future | RepresentationRole::Task) => Ok(CleanupShape::BOTH),
@@ -185,26 +229,29 @@ where
                 RepresentationRole::Result
                 | RepresentationRole::RunResult
                 | RepresentationRole::ConversionError,
-            ) => {
-                let substitution = self
-                    .request
-                    .semantic_values()
-                    .generic_substitution_data(substitution)
-                    .map_err(|error| {
-                        CheckerQueryError::Infrastructure(
-                            CheckerInfrastructureError::SemanticValueStore(error),
-                        )
-                    })?;
-
-                self.aggregate(substitution.bindings().iter().filter_map(|binding| {
-                    match binding.argument() {
-                        GenericArgument::Type(ty) => Some(ty),
-                        GenericArgument::Constant(_) => None,
-                    }
-                }))
-            }
+            ) => self.declared_shape(definition, substitution),
             Some(_) => Ok(CleanupShape::default()),
             None => self.declared_shape(definition, substitution),
+        }
+    }
+
+    pub(super) fn representation_role(
+        &self,
+        definition: bray_symbols::NamedTypeSymbolId,
+    ) -> Option<RepresentationRole> {
+        match definition {
+            bray_symbols::NamedTypeSymbolId::Struct(definition) => self
+                .context
+                .available_compiler_known_symbols()
+                .provider()
+                .role_registry()
+                .symbol_representation(definition),
+            bray_symbols::NamedTypeSymbolId::Union(definition) => self
+                .context
+                .available_compiler_known_symbols()
+                .provider()
+                .role_registry()
+                .symbol_representation(definition),
         }
     }
 
@@ -213,8 +260,8 @@ where
         definition: bray_symbols::NamedTypeSymbolId,
         substitution: bray_symbols::GenericSubstitutionId,
     ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
-        let representation = self.request.declared_type_representation(definition)?;
-        let lifecycle = self.request.declared_type_has_lifecycle(definition)?;
+        let representation = self.context.declared_type_representation(definition)?;
+        let lifecycle = self.context.declared_type_has_lifecycle(definition)?;
 
         let mut shape = CleanupShape {
             lifecycle: *lifecycle.value(),
@@ -264,11 +311,12 @@ where
         template: &TypeExpressionTemplate,
         substitution: bray_symbols::GenericSubstitutionId,
     ) -> Result<Option<TypeId>, CheckerQueryError<C::UpstreamError>> {
-        let constants = self.request.checked_constant_terms(template)?;
+        let constants = self.context.checked_constant_terms(template)?;
+
         self.diagnostics.add_range(constants.diagnostics().clone());
 
         let Some(ty) = crate::resolve_type_expression_template(
-            self.request.semantic_values(),
+            self.context.semantic_values(),
             template,
             constants.value(),
         )
@@ -278,7 +326,7 @@ where
         };
 
         let ty = self
-            .request
+            .context
             .semantic_values()
             .substitute_type(ty, substitution)
             .map_err(|error| {
@@ -313,8 +361,8 @@ where
             SeverityKind,
         };
 
-        let span = self.request.source(source)?.span();
-        let ty = crate::diagnostic::diagnostic_type(self.request.context(), ty)?;
+        let span = self.context.source(source)?.span();
+        let ty = crate::diagnostic::diagnostic_type(self.context, ty)?;
 
         self.diagnostics.add(
             Diagnostic::new(
@@ -339,12 +387,16 @@ pub(super) fn scope_exit_plans<C>(
     storage: &StoragePlan,
     flow: &StorageFlow,
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
+    guarantees: Option<&crate::ExecutionGuaranteeInput>,
+    captures: bool,
+    result_type: Option<TypeId>,
 ) -> Result<
     (
         Vec<AsyncStorageRequirement>,
         Vec<StorageCleanupType>,
         Vec<AsyncScopeExitPlan>,
         Vec<bray_bound_tree::StorageReplacementPlan>,
+        Option<bray_bound_tree::AsyncCaptureCleanup>,
         DiagnosticBag,
     ),
     CheckerQueryError<C::UpstreamError>,
@@ -352,11 +404,25 @@ pub(super) fn scope_exit_plans<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut cleanup_shapes = CleanupShapeResolver::new(request);
+    let mut cleanup_shapes = CleanupShapeResolver::new(request.context());
     let owners = storage_scope_owners(request).map_err(CheckerQueryError::with_upstream)?;
 
-    let requirements = storage_requirements(request, storage, flow, &owners, &mut cleanup_shapes)?;
+    let requirements = storage_requirements(
+        request,
+        storage,
+        flow,
+        &owners,
+        &mut cleanup_shapes,
+        guarantees,
+    )?;
+
     let replacements = super::replacement::replacement_plans(storage, flow, &mut cleanup_shapes)?;
+
+    // A converted return value remains owned while ordinary cleanup runs and must
+    // participate in abnormal cleanup if that cleanup fails.
+    if let Some(ty) = result_type {
+        cleanup_shapes.resolve(ty)?;
+    }
 
     let requirements_by_identity = requirements
         .iter()
@@ -430,11 +496,25 @@ where
         ));
     }
 
+    let captures = if captures {
+        Some(super::capture::capture_cleanup(
+            request,
+            storage,
+            dependencies,
+            &mut cleanup_shapes,
+        )?)
+    } else {
+        cleanup_shapes.resolve_execution()?;
+
+        None
+    };
+
     Ok((
         requirements,
         cleanup_shapes.cleanup_types.into_values().collect(),
         plans,
         replacements,
+        captures,
         cleanup_shapes.diagnostics,
     ))
 }
@@ -445,6 +525,7 @@ fn storage_requirements<C>(
     flow: &StorageFlow,
     owners: &bray_bound_tree::StorageScopeOwners,
     cleanup_shapes: &mut CleanupShapeResolver<'_, C>,
+    guarantees: Option<&crate::ExecutionGuaranteeInput>,
 ) -> Result<Vec<AsyncStorageRequirement>, CheckerQueryError<C::UpstreamError>>
 where
     C: CheckerRequestContext + ?Sized,
@@ -501,6 +582,13 @@ where
                     },
                     root.source(),
                 )?,
+            (Some(ty), Some(root))
+                if guarantees.is_some_and(|input| input.requires_completion_plan(ty)) =>
+            {
+                cleanup_shapes
+                    .represented_parts(ty, &[], CleanupExpansion::Completion, root.source())?
+                    .filter(|parts| parts.iter().any(|part| !part.projections().is_empty()))
+            }
             _ => None,
         };
 

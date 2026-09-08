@@ -5,7 +5,7 @@ mod signature;
 
 pub use contract::{
     CallableContractExpressionTemplate, CallableContractTemplate, DeclarationCapabilityTemplate,
-    DeclarationPredicateClauseKind, SourceCallableContractTemplate,
+    DeclarationPredicateClauseKind, ExecutionGuaranteeTemplate, SourceCallableContractTemplate,
 };
 pub use expression::{DeclarationExpressionTemplate, UnevaluatedDefaultTemplate};
 pub use generic::{GenericConstraintTemplate, GenericDeclarationTemplate};

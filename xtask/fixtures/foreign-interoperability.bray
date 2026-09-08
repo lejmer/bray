@@ -489,6 +489,8 @@ trusted func audit_dynamic_library()
     }
 
     std.testing.assert_ok<unit, std.ffi.ForeignError>(library.close());
+
+    assert(library.is_complete());
 }
 
 trusted func audit_native_data()

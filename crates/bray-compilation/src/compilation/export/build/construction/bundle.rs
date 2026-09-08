@@ -133,16 +133,23 @@ impl Compilation {
                 )
             })?;
 
-        PackageInterfaceExportBundle::try_new(
-            surface,
-            semantics,
-            request.language_revision(),
-            implementation_configuration,
+        crate::profile::profile_operation(
+            self.state.fact_runtime.profile(),
+            crate::profile::ProfileOperation::InterfaceBundleValidation,
+            || {
+                PackageInterfaceExportBundle::try_new(
+                    surface,
+                    semantics,
+                    request.language_revision(),
+                    implementation_configuration,
+                )
+                .and_then(|bundle| bundle.with_constant_callable_bodies(constant_callable_bodies))
+                .and_then(|bundle| bundle.with_executable_templates(executable_templates))
+                .and_then(|bundle| bundle.with_native_boundaries(native_boundaries))
+                .map(Arc::new)
+                .map_err(PackageInterfaceExportError::Bundle)
+            },
+            crate::profile::result_outcome,
         )
-        .and_then(|bundle| bundle.with_constant_callable_bodies(constant_callable_bodies))
-        .and_then(|bundle| bundle.with_executable_templates(executable_templates))
-        .and_then(|bundle| bundle.with_native_boundaries(native_boundaries))
-        .map(Arc::new)
-        .map_err(PackageInterfaceExportError::Bundle)
     }
 }

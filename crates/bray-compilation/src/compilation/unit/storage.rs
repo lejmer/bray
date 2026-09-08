@@ -90,6 +90,14 @@ impl Compilation {
 
                 let unit = checker_unit_view(bound.result().value(), &semantic_context, &context)?;
 
+                let guarantees = self.execution_guarantee_input(
+                    unit,
+                    expressions.result().value(),
+                    storage.result().value(),
+                    memory.result().value(),
+                    cancellation,
+                )?;
+
                 let result = checker_result(DefaultBodySemanticChecker.check_body_semantics(
                     unit,
                     control_flow.result().value(),
@@ -97,12 +105,16 @@ impl Compilation {
                     patterns.result().value(),
                     storage.result().value(),
                     memory.result().value(),
+                    guarantees.value().as_ref(),
                 ))?;
 
                 let (semantics, semantic_diagnostics) = result.into_parts();
 
                 Ok((
-                    DiagnosticResult::new(semantics, semantic_diagnostics),
+                    DiagnosticResult::new(
+                        semantics,
+                        semantic_diagnostics.merged(guarantees.diagnostics()),
+                    ),
                     Box::new([]),
                 ))
             },

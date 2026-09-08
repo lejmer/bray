@@ -326,6 +326,8 @@ fn translate_frame_adapter<'context>(
     let block = context.append_basic_block(function, "frame.adapter");
     builder.position_at_end(block);
 
+    initialize_frame_entry(&builder, function, request, context_type, types)?;
+
     let completion = types.map(descriptor.result_type())?;
 
     let frame_layout = (
@@ -426,6 +428,46 @@ fn translate_frame_adapter<'context>(
         ProtectedFrameOperation::MoveBeforeStart,
         frame.into(),
     )?;
+
+    Ok(())
+}
+
+fn initialize_frame_entry<'context>(
+    builder: &inkwell::builder::Builder<'context>,
+    function: FunctionValue<'context>,
+    request: CodegenRequest<'_>,
+    context_type: StructType<'context>,
+    types: &LlvmTypeMappings<'context, '_>,
+) -> Result<(), CodegenFailure> {
+    let parameter = |index| {
+        crate::native::frame_parameter_index(
+            request.target(),
+            ProtectedFrameOperation::MoveBeforeStart,
+            index,
+        )
+    };
+
+    let context = integer_pointer(builder, function, parameter(0), types)?;
+
+    let entry = function
+        .get_nth_param(parameter(1))
+        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+    let state = builder
+        .build_struct_gep(context_type, context, 0, "frame.entry.state")
+        .map_err(CodegenFailure::backend_library)?;
+
+    let selection = builder
+        .build_struct_gep(context_type, context, 2, "frame.entry.selection")
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder
+        .build_store(state, types.context().i32_type().const_zero())
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder
+        .build_store(selection, entry)
+        .map_err(CodegenFailure::backend_library)?;
 
     Ok(())
 }

@@ -247,6 +247,8 @@ pub enum DiagnosticArgName {
     /// Exact compiler-defined platform-service signature mismatch.
     PlatformServiceSignatureProblem,
     TraitFulfillmentMismatch,
+    /// A callable value's contract fails substitution.
+    CallableContractMismatch,
     ImplementationOverloadProblem,
     CallableOverloadProblem,
     /// Source-level expression category participating in checking.
@@ -410,6 +412,7 @@ impl DiagnosticArgName {
             Self::NativeSymbolDirectiveProblem => "native_symbol_directive_problem",
             Self::PlatformServiceSignatureProblem => "platform_service_signature_problem",
             Self::TraitFulfillmentMismatch => "trait_fulfillment_mismatch",
+            Self::CallableContractMismatch => "callable_contract_mismatch",
             Self::ImplementationOverloadProblem => "implementation_overload_problem",
             Self::CallableOverloadProblem => "callable_overload_problem",
             Self::ExpressionCategory => "expression_category",
@@ -606,6 +609,8 @@ pub enum DiagnosticArgValue {
     PlatformServiceSignatureProblem(crate::DiagnosticPlatformServiceSignatureProblem),
     /// Exact semantic difference between a trait member requirement and fulfillment.
     TraitFulfillmentMismatch(crate::DiagnosticTraitFulfillmentMismatch),
+    /// The exact incompatible condition or guarantee on a callable value.
+    CallableContractMismatch(crate::DiagnosticCallableContractMismatch),
     /// Exact invalid implementation-overload header or arm problem.
     ImplementationOverloadProblem(crate::DiagnosticImplementationOverloadProblem),
     /// Exact invalid callable-overload arm, family, or signature problem.

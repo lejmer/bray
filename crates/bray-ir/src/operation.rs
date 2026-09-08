@@ -32,6 +32,8 @@ pub enum MirPanicCause {
     Assertion(Option<MirOperand>),
     /// An explicit test failure with its evaluated message.
     ExplicitTestFailure(MirOperand),
+    /// Runtime admission rejected an independent task before publication.
+    TaskAdmission,
 }
 
 /// Typed unary operation selected during lowering.
@@ -283,24 +285,6 @@ pub enum MirGeneratorOperation {
         /// Completed result storage.
         destination: MirPlace,
     },
-    /// Broadcast task cleanup through initialized accumulated elements.
-    CleanupBroadcast {
-        /// Generator value storage retaining the accumulation.
-        destination: MirPlace,
-        /// Checked yielded-element type whose cleanup helper is invoked.
-        element: TypeId,
-        /// Runtime operation that visits initialized elements without releasing storage.
-        runtime: MirRuntimeReference,
-    },
-    /// Destroy initialized accumulated elements and release their storage.
-    Destroy {
-        /// Generator value storage retaining the accumulation.
-        destination: MirPlace,
-        /// Checked yielded-element type whose lifecycle helpers are invoked.
-        element: TypeId,
-        /// Runtime operation that visits elements in reverse and releases storage.
-        runtime: MirRuntimeReference,
-    },
 }
 
 /// One aggregate construction with operands in evaluation order.
@@ -404,6 +388,8 @@ impl MirConstruction {
 pub enum MirTaskTerminalState {
     /// The task completed with a value.
     Completed(MirOperand),
+    /// Complete a capture entry with `unit`, preserving the ordinary body's result storage.
+    CapturesCompleted,
     /// The task observed current-run cancellation.
     Cancelled,
     /// The task panicked with ownership of a panic report.
@@ -415,18 +401,16 @@ pub enum MirTaskTerminalState {
 pub enum MirFrameInitializer {
     /// Invoke an async callable when the frame is first driven.
     Callable(MirCall),
-    /// Observe a task terminal result, optionally requesting cancellation first.
-    TaskObservation {
-        /// Owned task whose terminal result is observed.
-        task: MirOperand,
-        /// Checked lazy future produced by the task operation.
+    /// Resolve generated lifecycle work when the frame is first driven.
+    Lifecycle {
+        /// Lifecycle step implemented by the generated frame.
+        role: crate::MirGeneratedLifecycleRole,
+        /// Concrete or substituted owner type.
+        ty: TypeId,
+        /// Receiver borrowed by the deferred lifecycle computation.
+        receiver: MirOperand,
+        /// Inactive future and its normal completion type.
         result: bray_bound_tree::BoundFutureConstruction,
-        /// Exact compiler-known variants used to form the observed result.
-        variants: crate::MirRunResultVariants,
-        /// Selected private observation-frame creation ABI role.
-        runtime: MirRuntimeReference,
-        /// Whether driving the frame first requests task cancellation.
-        request_cancellation: bool,
     },
 }
 
@@ -438,7 +422,7 @@ impl MirFrameInitializer {
                 BoundCallResult::LazyFuture(result) => Some(result.future_type()),
                 BoundCallResult::Immediate(_) => None,
             },
-            Self::TaskObservation { result, .. } => Some(result.future_type()),
+            Self::Lifecycle { result, .. } => Some(result.future_type()),
         }
     }
 }
@@ -452,15 +436,6 @@ pub enum MirAsyncOperation {
         frame: MirFrameReference,
         /// Deferred work captured by the frame.
         initializer: MirFrameInitializer,
-    },
-    /// Move an inactive frame before its first resume.
-    MoveInactiveFrame {
-        /// Static or existential frame representation.
-        frame: MirFrameReference,
-        /// Source frame storage.
-        source: MirPlace,
-        /// Destination frame storage.
-        destination: MirPlace,
     },
     /// Enter or resume a protected frame state.
     ResumeFrame {
@@ -481,18 +456,24 @@ pub enum MirAsyncOperation {
         child: MirFrameReference,
         /// Inactive child frame value.
         frame: MirOperand,
+        /// Ordinary execution or cleanup of the inactive captures.
+        entry: crate::MirFrameEntry,
     },
-    /// Move a directly awaited child's completion into the operation result.
-    CommitAwaitedCompletion {
-        /// Static or existential child frame representation.
-        child: MirFrameReference,
+    /// Synchronously destroy the captures of a successfully quiesced inactive frame.
+    DestroyInactiveCaptures {
+        /// Inactive frame whose capture ownership is consumed.
+        frame: MirOperand,
+        /// Selected private destruction ABI role.
+        runtime: MirRuntimeReference,
     },
-    /// Transfer an inactive frame into a newly started task.
+    /// Attempt to publish a task, returning whether its ownership was transferred.
     StartTask {
         /// Static or existential frame representation.
         frame: MirFrameReference,
-        /// Inactive frame value.
+        /// Inactive frame borrowed for admission and consumed only on success.
         value: MirOperand,
+        /// Task storage initialized only on success.
+        destination: MirPlace,
         /// Selected private task-allocation ABI role.
         allocation: MirRuntimeReference,
         /// Selected private task-start ABI role.
@@ -510,13 +491,34 @@ pub enum MirAsyncOperation {
         /// Selected private cancellation-observation ABI role.
         runtime: MirRuntimeReference,
     },
-    /// Register and resolve terminal task observation.
+    /// Transfer a task's terminal result after its completion suspension has resumed.
     ResolveTask {
         /// Owned task control state.
         task: MirOperand,
         /// Exact compiler-known variants used to form the terminal result.
         variants: crate::MirRunResultVariants,
         /// Selected private terminal-resolution ABI role.
+        runtime: MirRuntimeReference,
+    },
+    /// Exclusively borrow a completed task value, returning a nullable mutable borrow.
+    BorrowTaskCompletion {
+        /// Borrowed task control state retaining the terminal outcome.
+        task: MirOperand,
+        /// Selected private completion-borrow ABI role.
+        runtime: MirRuntimeReference,
+    },
+    /// Restore the original task owner's access after its completion borrow ends.
+    ReleaseTaskCompletionBorrow {
+        /// Task control state whose non-null completion borrow is being released.
+        task: MirOperand,
+        /// Selected private completion-borrow release ABI role.
+        runtime: MirRuntimeReference,
+    },
+    /// Moves the awaited child's terminal outcome into a represented `RunResult`.
+    ResolveAwaitedFrame {
+        /// Exact compiler-known variants used to preserve completion, panic, and cancellation.
+        variants: crate::MirRunResultVariants,
+        /// Selected private awaited-resolution ABI role.
         runtime: MirRuntimeReference,
     },
     /// Publish exactly one task terminal state.
@@ -551,6 +553,8 @@ pub enum MirAsyncOperation {
     DestroyTerminalTask {
         /// Terminal task control state.
         task: MirOperand,
+        /// Retained completion to abandon in place; absent when its owner already consumed it.
+        completion: Option<TypeId>,
     },
 }
 
@@ -696,6 +700,20 @@ pub enum MirOperationKind {
     Finalize(MirPlace),
     /// Destroy a storage place after its value is no longer live.
     Destroy(MirPlace),
+    /// Retains guarded implicit receiver cleanup until its destructor invocation is specialized.
+    DestructorRemainder {
+        /// Ordinary destruction or lifecycle resolution required for this represented part.
+        role: crate::MirGeneratedLifecycleRole,
+        /// Initialized represented part reached through the checked receiver decomposition.
+        place: MirPlace,
+    },
+    /// Resolves ownership of an abandoned cleanup error without graceful finalization.
+    Abandon {
+        /// Exact ownership step selected by lowering.
+        action: crate::MirAbandonmentAction,
+        /// Initialized storage retained or consumed by the selected step.
+        place: MirPlace,
+    },
     /// Perform one checked cleanup phase for a storage place.
     Cleanup {
         /// Exact cleanup phase selected by checking.

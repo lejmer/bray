@@ -108,20 +108,21 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     error_field,
                 )?;
 
-                let error_handle = llvm(self.builder.build_ptr_to_int(
-                    error,
-                    crate::native::pointer_integer_type(
-                        self.types.context(),
-                        self.request.target(),
-                    ),
-                    "entry.error",
-                ))?;
+                let skip_error = if let Some(completed) = completed {
+                    let abnormal = llvm(self.builder.build_not(completed, "entry.abnormal"))?;
+
+                    llvm(
+                        self.builder
+                            .build_or(succeeded, abnormal, "entry.skip.error"),
+                    )?
+                } else {
+                    succeeded
+                };
 
                 self.resolve_entry_failure(
                     operation_id,
-                    succeeded,
+                    skip_error,
                     error,
-                    error_handle,
                     error_type,
                     entry_failure,
                 )?;
@@ -292,22 +293,24 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     fn resolve_entry_failure(
         &mut self,
         operation: bray_ir::MirOperationId,
-        succeeded: inkwell::values::IntValue<'context>,
+        skip_error: inkwell::values::IntValue<'context>,
         error: inkwell::values::PointerValue<'context>,
-        error_handle: inkwell::values::IntValue<'context>,
         error_type: bray_symbols::TypeId,
         reporter: bray_ir::MirRuntimeReference,
     ) -> Result<(), CodegenFailure> {
         let helpers = self.operation_helpers(operation)?;
 
-        let [finalize, destroy] = helpers.as_slice() else {
+        let [broadcast, lifecycle] = helpers.as_slice() else {
             return Err(CodegenFailure::GeneratedModuleInvariant);
         };
 
-        if finalize.reference() != &bray_ir::MirHelperReference::Finalize(error_type)
-            || destroy.reference() != &bray_ir::MirHelperReference::Destroy(error_type)
-        {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+        for (helper, phase) in [
+            (broadcast, bray_ir::MirCleanupPhase::TaskCancellation),
+            (lifecycle, bray_ir::MirCleanupPhase::LifecycleResolution),
+        ] {
+            if helper.reference() != &(bray_ir::MirHelperReference::Cleanup { phase, ty: error_type }) {
+                return Err(CodegenFailure::GeneratedModuleInvariant);
+            }
         }
 
         let function = self
@@ -328,30 +331,71 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         llvm(
             self.builder
-                .build_conditional_branch(succeeded, resolved, failed),
+                .build_conditional_branch(skip_error, resolved, failed),
         )?;
 
         self.builder.position_at_end(failed);
 
         if self.host_role_implementation(reporter)? != RuntimeRoleImplementation::CompilerLowering {
-            let size =
-                crate::native::pointer_integer_type(self.types.context(), self.request.target())
-                    .const_int(
-                        self.types
-                            .target_data()
-                            .get_store_size(&self.types.map(error_type)?),
-                        false,
-                    );
+            let identity = self
+                .request
+                .mappings()
+                .operation(self.instance.key(), operation)
+                .and_then(bray_codegen::CodegenOperationMapping::returned_error_identity)
+                .ok_or_else(|| {
+                    CodegenFailure::generated_module_invariant((operation, error_type))
+                })?;
 
-            self.invoke_native_runtime(reporter, &[error_handle.into(), size.into()])?;
-        }
+            let source = self
+                .unit
+                .operation(operation)
+                .ok_or(CodegenFailure::GeneratedModuleInvariant)?
+                .source();
 
-        if finalize.symbol().is_some() {
-            self.invoke_helper(finalize, &[error.into()])?;
-        }
+            let identity = crate::native::type_identity_value(self.types.context(), identity);
+            let source = crate::native::source_anchor_from_mir(self.types.context(), Some(source));
+            let index = operation.slot();
+            let name = format!("{}.entry.{index}", function.get_name().to_string_lossy());
 
-        if destroy.symbol().is_some() && self.invoke_helper(destroy, &[error.into()])?.is_some() {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
+            let identity = crate::mapping::publish_immutable_global(
+                self.module,
+                self.types.target(),
+                &format!("{name}.error_type"),
+                identity.into(),
+            );
+
+            let source = crate::mapping::publish_immutable_global(
+                self.module,
+                self.types.target(),
+                &format!("{name}.error_source"),
+                source.into(),
+            );
+
+            let broadcast = self.value_cleanup_descriptor(broadcast)?;
+            let lifecycle = self.value_cleanup_descriptor(lifecycle)?;
+
+            let address = llvm(self.builder.build_ptr_to_int(
+                error,
+                crate::native::pointer_integer_type(self.types.context(), self.request.target()),
+                "entry.error.address",
+            ))?;
+
+            self.invoke_native_runtime(
+                reporter,
+                &[
+                    identity.as_pointer_value().into(),
+                    source.as_pointer_value().into(),
+                    address.into(),
+                    broadcast,
+                    lifecycle,
+                ],
+            )?;
+        } else {
+            for helper in [broadcast, lifecycle] {
+                if helper.symbol().is_some() && self.invoke_helper(helper, &[error.into()])?.is_some() {
+                    return Err(CodegenFailure::generated_module_invariant((operation, error_type)));
+                }
+            }
         }
 
         llvm(self.builder.build_unconditional_branch(resolved))?;

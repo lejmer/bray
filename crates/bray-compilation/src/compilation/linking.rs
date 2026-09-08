@@ -559,7 +559,7 @@ mod tests {
             }
         );
 
-        assert_eq!(executable_host.abi_version(), RuntimeAbiVersion::new(1, 0));
+        assert_eq!(executable_host.abi_version(), RuntimeAbiVersion::CURRENT);
 
         assert_eq!(executable_host.runtime_artifact(), Some(&runtime));
 
@@ -567,7 +567,7 @@ mod tests {
             executable_host
                 .runtime()
                 .map(|runtime| runtime.abi_version()),
-            Some(RuntimeAbiVersion::new(1, 0))
+            Some(RuntimeAbiVersion::CURRENT)
         );
 
         assert_eq!(

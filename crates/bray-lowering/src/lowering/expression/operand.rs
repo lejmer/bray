@@ -78,15 +78,7 @@ impl Lowerer<'_> {
                     .storage_plan()
                     .root_identity(decision.access())
                     .and_then(|identity| lowerer.input.storage_plan().identity(identity))
-                    .is_some_and(|identity| {
-                        matches!(
-                            identity,
-                            StorageIdentity::Parameter(_)
-                                | StorageIdentity::Receiver(_)
-                                | StorageIdentity::AnonymousParameter(_)
-                                | StorageIdentity::PredicateParameter(_)
-                        )
-                    });
+                    .is_some_and(StorageIdentity::is_parameter);
 
                 if entry_borrow && place.projections().is_empty() {
                     let expression_type = lowerer.expression_type(expression)?;

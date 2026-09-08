@@ -12,6 +12,7 @@ test-support = []
 bray-base = { path = "../bray-base" }
 bray-compiler-known = { path = "../bray-compiler-known" }
 bray-declarations = { path = "../bray-declarations" }
+bray-diagnostics = { path = "../bray-diagnostics" }
 bray-source = { path = "../bray-source" }
 bray-symbols = { path = "../bray-symbols" }
 

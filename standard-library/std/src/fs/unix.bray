@@ -456,9 +456,17 @@ trusted internal func platform_directory_next(
     }
 }
 
-trusted internal func platform_directory_close(pos handle: u64) -> Result<unit, std.io.IoError>
+trusted internal func platform_directory_close(pos directory: &mut Directory) -> Result<unit, std.io.IoError>
+    ensures(Directory.complete(&directory))
 {
-    if trusted std.os.unix.close_directory(trusted internal std.platform.handle_pointer(handle)) != 0
+    let status: i32 = trusted std.os.unix.close_directory(
+        trusted internal std.platform.handle_pointer(directory.handle)
+    );
+
+    // closedir releases the traversal allocation even when closing its descriptor reports an error.
+    directory.is_open = false;
+
+    if status != 0
     {
         return Error(trusted internal unix_io_error());
     }

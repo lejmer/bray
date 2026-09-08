@@ -108,6 +108,12 @@ maps:
 - `RunResult.Panicked(report)` to panic termination and panic reporting,
 - `RunResult.Cancelled` to the product's interrupted or cancelled termination policy.
 
+Returning `Result.Error(error)` transfers the error owner to the product host. The host reports the entry failure,
+broadcasts cancellation to child runs owned by the error, and resolves its finalization and destruction before releasing
+the root's result storage. Asynchronous cleanup runs under a cancellation shield. Cleanup failures become owned cleanup
+incidents, and the terminal boundary applies the abandonment fallback while preserving represented-part obligations.
+Runtime services and provider products remain available until this cleanup completes.
+
 An `i32` normal result supplies the numeric exit result. The host never resumes the root continuation after observing a
 terminal outcome.
 

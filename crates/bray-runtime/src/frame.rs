@@ -43,6 +43,8 @@ pub enum FrameSuspensionKind {
     Yield,
     /// The frame waits for one runtime task event.
     TaskEvent,
+    /// The frame waits for the terminal state of an existing native task.
+    TaskCompletion,
 }
 
 impl FrameSuspension {
@@ -70,6 +72,15 @@ impl FrameSuspension {
             kind: FrameSuspensionKind::TaskEvent,
             state,
             payload: Some(event),
+        }
+    }
+
+    /// Creates a suspension awaiting the terminal state of an existing native task.
+    pub const fn task_completion(state: ProtectedFrameStateId, task: usize) -> Self {
+        Self {
+            kind: FrameSuspensionKind::TaskCompletion,
+            state,
+            payload: Some(task),
         }
     }
 
@@ -148,6 +159,10 @@ impl RuntimePanic {
 
     pub(crate) fn push_suppressed(&mut self, payload: Box<dyn Any + Send>) {
         self.suppressed.push(payload);
+    }
+
+    pub(crate) fn take_suppressed(&mut self) -> Vec<Box<dyn Any + Send>> {
+        std::mem::take(&mut self.suppressed)
     }
 }
 

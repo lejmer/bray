@@ -4,7 +4,7 @@ mod inventory;
 mod problem;
 mod validation;
 
-pub use context::{DiagnosticInterfaceSemanticRecordKind, DiagnosticInterfaceValidationContext};
+pub use context::DiagnosticInterfaceValidationContext;
 pub use identity::{
     DiagnosticInterfaceDependency, DiagnosticInterfaceProductKind,
     DiagnosticPackageInterfaceIdentity,

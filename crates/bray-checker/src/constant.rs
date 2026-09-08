@@ -10,6 +10,8 @@ mod integer;
 mod limits;
 mod literal;
 mod operation;
+pub(crate) mod pattern;
+pub(crate) mod shape;
 mod template;
 mod template_evaluation;
 

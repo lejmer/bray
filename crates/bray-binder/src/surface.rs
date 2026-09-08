@@ -72,7 +72,9 @@ where
         }
         PredicateClauseBindingContext::GenericConstraint
         | PredicateClauseBindingContext::CallableContract(
-            CallableContractClauseKind::Requires | CallableContractClauseKind::Static,
+            CallableContractClauseKind::Requires
+            | CallableContractClauseKind::Static
+            | CallableContractClauseKind::Guard,
         ) => false,
     };
 
@@ -207,7 +209,10 @@ where
     let mut binder = Binder::new(binding_context, builder);
     let scope = binder.unit().root_scope();
 
+    // Capability paths name declarations and have no callable-input scope. Loading the
+    // enclosing signature here would recurse when the clause belongs to a parameter type.
     if matches!(unit_kind, SurfaceUnitKind::ContractClause)
+        && syntax.kind() != bray_syntax::SyntaxKind::UsesClause
         && let Some(callable) = CallableSymbolId::try_from_any(owner)
     {
         crate::entry::push_callable_inputs_for(&mut binder, scope, callable)
@@ -226,10 +231,9 @@ where
     };
 
     let value = bind(&mut binder, path).map_err(binding_error)?;
-
     let output = binder.finish().map_err(BindingQueryError::Construction)?;
 
-    let (_, diagnostics, _) = output.into_parts();
+    let (_, diagnostics, _, _) = output.into_parts();
 
     Ok(DiagnosticResult::new(value, diagnostics))
 }

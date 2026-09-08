@@ -2,14 +2,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AnyBoundNodeId, BoundExpression, BoundExpressionId, CheckedPatterns, PatternPredicate,
-    Refinement, RefinementKind, StorageAccessId, StorageAccessPurpose, StoragePlan,
-    StorageRelationship,
+    Refinement, RefinementKind, StorageAccessId, StoragePlan,
 };
 use bray_diagnostics::{DiagnosticRefinementCapacity, DiagnosticRefinementCapacitySurface};
 
 use crate::{CheckerRequestContext, CheckerUnitView};
 
 use super::super::model::{AnalysisRefinement, ControlFlowGraph};
+use super::super::storage_index::{accesses_are_disjoint, invalidating_operation_accesses};
 use super::evidence::{
     condition_refinements, equivalent_pattern_accesses, expression_dependencies,
     pattern_refinements,
@@ -173,6 +173,10 @@ impl RefinementUniverse {
         dependencies: &BTreeMap<BoundExpressionId, BTreeSet<StorageAccessId>>,
     ) -> Vec<Refinement> {
         match refinement {
+            AnalysisRefinement::CleanupFailure { .. }
+            | AnalysisRefinement::CallFailure(_)
+            | AnalysisRefinement::MatchExhaustion(_)
+            | AnalysisRefinement::ResultOutcome { .. } => Vec::new(),
             AnalysisRefinement::Condition { expression, value } => {
                 condition_refinements(view, patterns, storage, dependencies, expression, value)
             }
@@ -309,12 +313,11 @@ impl RefinementUniverse {
 
         set.retain(|index| {
             self.refinements.get(index).is_none_or(|refinement| {
-                refinement.dependencies().iter().all(|dependency| {
-                    mutations.iter().all(|mutation| {
-                        storage.relationship(*dependency, *mutation)
-                            == StorageRelationship::Disjoint
-                    })
-                })
+                accesses_are_disjoint(
+                    storage,
+                    refinement.dependencies().iter().copied(),
+                    mutations,
+                )
             })
         });
     }
@@ -378,25 +381,6 @@ fn direct_expression_dependencies(
     dependencies
 }
 
-fn invalidating_operation_accesses(
-    storage: &StoragePlan,
-) -> BTreeMap<AnyBoundNodeId, Box<[StorageAccessId]>> {
-    let mut accesses = BTreeMap::<AnyBoundNodeId, Vec<StorageAccessId>>::new();
-
-    for plan in storage
-        .access_plans()
-        .iter()
-        .filter(|plan| access_invalidates_refinements(plan.purpose()))
-    {
-        accesses.entry(plan.node()).or_default().push(plan.access());
-    }
-
-    accesses
-        .into_iter()
-        .map(|(expression, accesses)| (expression, accesses.into_boxed_slice()))
-        .collect()
-}
-
 fn expression_completes_normally(
     view: bray_bound_tree::BoundUnitView<'_>,
     expression: BoundExpressionId,
@@ -404,18 +388,6 @@ fn expression_completes_normally(
     matches!(
         view.expression(expression),
         Some(BoundExpression::Call(_) | BoundExpression::Await(_))
-    )
-}
-
-const fn access_invalidates_refinements(purpose: StorageAccessPurpose) -> bool {
-    matches!(
-        purpose,
-        StorageAccessPurpose::Write
-            | StorageAccessPurpose::Initialize
-            | StorageAccessPurpose::Move
-            | StorageAccessPurpose::ValueTransfer
-            | StorageAccessPurpose::Borrow(bray_symbols::BorrowKind::Mutable)
-            | StorageAccessPurpose::Assignment
     )
 }
 

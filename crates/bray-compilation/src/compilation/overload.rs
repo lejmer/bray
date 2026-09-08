@@ -11,7 +11,7 @@ use bray_diagnostics::{
 use bray_source::SourceSpan;
 use bray_symbols::{
     AnySymbolId, CallableOverloadSymbolId, CallableSignatureQuery, CallableSignatureTemplate,
-    CallableSymbolId, GenericDeclarationTemplate, GenericDeclarationTemplateQuery, GenericOwnerId,
+    CallableSymbolId, GenericDeclarationTemplate, GenericDeclarationTemplateQuery,
     ImplementationSymbolId, ImportedSymbolSkeleton, MemberLookupResult, NamedTypeSymbolId,
     SymbolGraph, SymbolOrigin, SymbolQueryRequest, TraitSymbolId, diagnostic_symbol_kind,
 };
@@ -25,7 +25,6 @@ use super::limits::try_count_comparison;
 use super::overlap::callable_selection_surfaces_overlap;
 use crate::compilation::{
     SemanticDataKind, SemanticQueryContext, SemanticQueryFailure, SemanticQueryViolation,
-    SemanticSymbolCategory,
 };
 use crate::fact::{CancellationToken, CompilationFactKey, FactQueryError};
 
@@ -298,16 +297,7 @@ impl Compilation {
 
         diagnostics.add_range(signature.diagnostics().iter().cloned());
 
-        let Some(owner) = GenericOwnerId::try_new(callable.into_any()) else {
-            return Err(SemanticQueryFailure::contract(
-                SemanticQueryContext::Symbol(callable.into_any()),
-                SemanticQueryViolation::UnexpectedSymbolKind {
-                    expected: SemanticSymbolCategory::GenericOwner,
-                    actual: callable.kind(),
-                },
-            )
-            .into());
-        };
+        let owner = crate::compilation::substitution::generic_owner(callable.into_any())?;
 
         let generic = binding_context
             .resolve_symbol_query(SymbolQueryRequest::<GenericDeclarationTemplateQuery>::new(

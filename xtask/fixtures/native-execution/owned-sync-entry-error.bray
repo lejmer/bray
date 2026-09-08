@@ -1,0 +1,29 @@
+module owned_sync_entry_error;
+
+using std.task;
+
+struct Failure
+{
+    mut complete: bool;
+
+    async finalize()
+    {
+        await std.task.yield_now();
+        self.complete = true;
+    }
+
+    destruct()
+    {
+        assert(self.complete);
+    }
+}
+
+func main() -> Result<unit, Failure>
+{
+    return Error(
+        Failure
+        {
+            complete = false
+        }
+    );
+}

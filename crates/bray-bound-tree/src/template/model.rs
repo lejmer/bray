@@ -56,9 +56,7 @@ impl CheckedTemplateKind {
                     | SymbolKind::TraitPredicateFulfillment
             ),
             Self::GenericConstraint => owner.can_be_source_declared(),
-            Self::CallableContract => {
-                matches!(owner, SymbolKind::CallableContract) || owner.is_callable()
-            }
+            Self::CallableContract => owner.can_be_source_declared(),
             Self::ConstantCallableBody => owner.is_callable(),
         }
     }

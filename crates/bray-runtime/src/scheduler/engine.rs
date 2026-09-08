@@ -6,7 +6,6 @@ use bray_platform::{MonotonicDeadline, MonotonicInstant, NativeEvent, RuntimeThr
 use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId, RuntimeCapability};
 
 use crate::cancellation::CancellationWakeRegistration;
-use crate::lane::select_execution_lane;
 use crate::{
     CancellationContext, ExecutionLane, FrameSuspension, SchedulerSnapshot, TaskId, TaskWakeCause,
 };
@@ -33,6 +32,7 @@ pub(super) struct SchedulerData {
 #[derive(Debug, Default)]
 pub(super) struct SchedulerState {
     pub(super) tasks: BTreeMap<TaskId, RegisteredTask>,
+    pub(super) independent_tasks: usize,
     pub(super) queues: BTreeMap<ExecutionLane, VecDeque<QueuedTask>>,
     pub(super) timers: BTreeMap<MonotonicDeadline, BTreeMap<u64, TimerWake>>,
     next_timer: u64,
@@ -41,6 +41,7 @@ pub(super) struct SchedulerState {
 
 #[derive(Debug)]
 pub(super) struct RegisteredTask {
+    pub(super) admission: crate::task::TaskAdmissionKind,
     pub(super) descriptor: ProtectedFrameDescriptor,
     pub(super) origin: RuntimeThreadId,
     pub(super) cancellation: CancellationContext,
@@ -51,6 +52,7 @@ pub(super) struct RegisteredTask {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(super) enum DispatchState {
     Idle(ProtectedFrameStateId),
+    Terminal(ProtectedFrameStateId),
     Queued(ProtectedFrameStateId),
     Running {
         state: ProtectedFrameStateId,
@@ -125,71 +127,6 @@ impl Scheduler {
         }
     }
 
-    /// Registers one runtime-owned task without making it ready.
-    pub fn register_task(
-        &self,
-        task: TaskId,
-        descriptor: ProtectedFrameDescriptor,
-        origin: RuntimeThreadId,
-        initial_state: ProtectedFrameStateId,
-        cancellation: &CancellationContext,
-    ) -> Result<TaskRegistration, SchedulerError> {
-        let Some(frame_state) = descriptor.state(initial_state) else {
-            return Err(SchedulerError::UnknownFrameState(initial_state));
-        };
-
-        select_execution_lane(
-            frame_state.lane_requirements(),
-            frame_state.affinity(),
-            &self.data.capabilities,
-            origin,
-            self.data.main_thread,
-        )?;
-
-        {
-            let mut state = self.lock_state()?;
-
-            if state.tasks.contains_key(&task) {
-                return Err(SchedulerError::TaskAlreadyRegistered(task));
-            }
-
-            if state.tasks.len() >= self.data.limits.tasks().get() {
-                return Err(SchedulerError::TaskCapacityReached);
-            }
-
-            state.tasks.insert(
-                task,
-                RegisteredTask {
-                    descriptor,
-                    origin,
-                    // Dispatch release must observe cancellation after registration returns.
-                    cancellation: cancellation.clone(),
-                    dispatch: DispatchState::Idle(initial_state),
-                    wake_count: 0,
-                },
-            );
-        }
-
-        let scheduler = Arc::downgrade(&self.data);
-
-        let cancellation_wake = match cancellation
-            .register_wake(Arc::new(move || wake_cancelled_task(&scheduler, task)))
-        {
-            Ok(registration) => registration,
-            Err(error) => {
-                self.lock_state()?.tasks.remove(&task);
-
-                return Err(error.into());
-            }
-        };
-
-        Ok(TaskRegistration {
-            task,
-            scheduler: Arc::downgrade(&self.data),
-            _cancellation_wake: cancellation_wake,
-        })
-    }
-
     /// Registers a timer that wakes one task state after its deadline.
     pub fn register_timer(
         &self,
@@ -260,6 +197,24 @@ impl Scheduler {
     /// Returns the current registered-task count.
     pub fn task_count(&self) -> Result<usize, SchedulerError> {
         self.lock_state().map(|state| state.tasks.len())
+    }
+
+    pub(crate) fn retains_thread(&self, thread: RuntimeThreadId) -> Result<bool, SchedulerError> {
+        let state = self.lock_state()?;
+
+        for task in state.tasks.values().filter(|task| task.origin == thread) {
+            for frame_state in task.descriptor.states() {
+                let lane = select_task_lane(&self.data, task, frame_state.state())?;
+
+                if matches!(lane.placement(), crate::ExecutionLanePlacement::OriginThread(origin)
+                    | crate::ExecutionLanePlacement::PinnedWorker(origin) if origin == thread)
+                {
+                    return Ok(true);
+                }
+            }
+        }
+
+        Ok(false)
     }
 
     /// Captures registered tasks and timers in deterministic identity order.
@@ -362,9 +317,9 @@ impl Drop for TimerRegistration {
 /// Registration whose lifetime keeps one task known to the scheduler.
 #[derive(Debug)]
 pub struct TaskRegistration {
-    task: TaskId,
-    scheduler: Weak<SchedulerData>,
-    _cancellation_wake: CancellationWakeRegistration,
+    pub(super) task: TaskId,
+    pub(super) scheduler: Weak<SchedulerData>,
+    pub(super) _cancellation_wake: CancellationWakeRegistration,
 }
 
 impl TaskRegistration {
@@ -410,7 +365,7 @@ impl Drop for TaskRegistration {
             return;
         };
 
-        state.tasks.remove(&self.task);
+        state.remove_task(self.task);
 
         for queue in state.queues.values_mut() {
             queue.retain(|queued| queued.task != self.task);
@@ -470,7 +425,7 @@ impl TaskWakeHandle {
     }
 }
 
-fn wake_cancelled_task(scheduler: &Weak<SchedulerData>, task_id: TaskId) {
+pub(super) fn wake_cancelled_task(scheduler: &Weak<SchedulerData>, task_id: TaskId) {
     let Some(scheduler) = scheduler.upgrade() else {
         return;
     };
@@ -514,6 +469,33 @@ pub struct ReadyTask {
 }
 
 impl ReadyTask {
+    /// Ends terminal execution while retaining the registered task's ownership metadata.
+    pub fn complete(mut self) -> Result<(), SchedulerError> {
+        let scheduler = self
+            .scheduler
+            .upgrade()
+            .ok_or(SchedulerError::UnknownTask(self.task))?;
+
+        let mut state = scheduler
+            .state
+            .lock()
+            .map_err(|_| SchedulerError::SynchronizationPoisoned)?;
+
+        let task = state
+            .tasks
+            .get_mut(&self.task)
+            .ok_or(SchedulerError::UnknownTask(self.task))?;
+
+        if !matches!(task.dispatch, DispatchState::Running { state, .. } if state == self.state) {
+            return Err(SchedulerError::TaskNotRunning(self.task));
+        }
+
+        task.dispatch = DispatchState::Terminal(self.state);
+        self.released = true;
+
+        Ok(())
+    }
+
     /// Returns the task selected for this dispatch.
     pub const fn task(&self) -> TaskId {
         self.task
@@ -685,6 +667,7 @@ fn enqueue_task(
     let lane = select_task_lane(scheduler, task, state_id)?;
 
     match task.dispatch {
+        DispatchState::Terminal(_) => return Ok(false),
         DispatchState::Queued(retained) => {
             if retained == state_id {
                 return Ok(false);
@@ -769,6 +752,47 @@ mod tests {
     };
 
     #[test]
+    fn terminal_dispatch_discards_pending_wakes_and_retains_ownership_metadata() {
+        for cancellation_stage in 0..3 {
+            let runtime = RuntimeThreadScope::enter().unwrap();
+            let scheduler = scheduler(runtime.runtime().id());
+            let task = TaskControlBlock::start(TestFrame::completing(1)).unwrap();
+            let registration = register_task(&scheduler, &task, runtime.runtime().id());
+            let wake = registration.wake_handle();
+            let state = ProtectedFrameStateId::new(0);
+
+            if cancellation_stage == 0 {
+                task.request_cancellation();
+            }
+
+            wake.wake(state).unwrap();
+            let ready = scheduler.take_ready(cooperative_lane()).unwrap().unwrap();
+            wake.wake(state).unwrap();
+
+            if cancellation_stage == 1 {
+                task.request_cancellation();
+            }
+
+            assert!(matches!(task.resume(), Ok(TaskResumeStatus::Terminal(_))));
+            ready.complete().unwrap();
+
+            if cancellation_stage == 2 {
+                task.request_cancellation();
+            }
+
+            assert!(!wake.wake(state).unwrap());
+            assert!(scheduler.take_ready(cooperative_lane()).unwrap().is_none());
+            let snapshot = scheduler.snapshot().unwrap();
+            assert_eq!(snapshot.tasks().len(), 1);
+            assert_eq!(snapshot.tasks()[0].dispatch(), ScheduledTaskState::Terminal);
+            assert!(task.has_unobserved_outcome().unwrap());
+
+            drop(registration);
+            assert!(scheduler.snapshot().unwrap().tasks().is_empty());
+        }
+    }
+
+    #[test]
     fn observed_schedulers_publish_structured_queue_observations_on_demand() {
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must initialize: {error:?}"));
@@ -813,6 +837,82 @@ mod tests {
 
         assert_eq!(ready.wake_cause(), TaskWakeCause::Explicit);
         assert!(ready.queue_latency().is_some());
+    }
+
+    #[test]
+    fn registered_affinity_retains_its_origin_until_registration_is_released() {
+        use bray_runtime_model::{
+            ProtectedFrameAffinity, ProtectedFrameDescriptor, ProtectedFrameStateDescriptor,
+        };
+
+        let runtime = RuntimeThreadScope::enter().unwrap();
+        let origin = runtime.runtime().id();
+
+        let other = std::thread::spawn(|| RuntimeThreadScope::enter().unwrap().runtime().id())
+            .join()
+            .unwrap();
+
+        for (affinity, migratable, expected) in [
+            (ProtectedFrameAffinity::Movable, true, false),
+            (ProtectedFrameAffinity::Movable, false, true),
+            (ProtectedFrameAffinity::OriginThread, true, true),
+            (ProtectedFrameAffinity::MainThread, true, false),
+        ] {
+            let mut capabilities = vec![
+                RuntimeCapability::CooperativeExecution,
+                RuntimeCapability::LocalLanes,
+                RuntimeCapability::MainThreadLane,
+            ];
+
+            if migratable {
+                capabilities.push(RuntimeCapability::MigratableLanes);
+            }
+
+            let scheduler = Scheduler::new(
+                capabilities,
+                origin,
+                SchedulerLimits::new(nonzero(8), nonzero(8)),
+            );
+
+            let task = TaskControlBlock::start(TestFrame::completing(1)).unwrap();
+            let source = task.descriptor();
+
+            let descriptor = ProtectedFrameDescriptor::try_new(
+                source.frame(),
+                source.abi_version(),
+                source.frame_abi(),
+                source.layout(),
+                source.completion_layout(),
+                source.operations().clone(),
+                [ProtectedFrameStateDescriptor::new(
+                    ProtectedFrameStateId::new(0),
+                    [],
+                    [],
+                    [],
+                    affinity,
+                )],
+            )
+            .unwrap();
+
+            assert!(!scheduler.retains_thread(origin).unwrap());
+
+            let registration = scheduler
+                .register_task(
+                    task.id(),
+                    descriptor,
+                    origin,
+                    ProtectedFrameStateId::new(0),
+                    task.cancellation_context(),
+                )
+                .unwrap();
+
+            assert_eq!(scheduler.retains_thread(origin).unwrap(), expected);
+            assert!(!scheduler.retains_thread(other).unwrap());
+
+            drop(registration);
+
+            assert!(!scheduler.retains_thread(origin).unwrap());
+        }
     }
 
     #[test]
@@ -1162,7 +1262,7 @@ mod tests {
         let second = TaskControlBlock::start(TestFrame::completing(2))
             .unwrap_or_else(|error| panic!("second task must start: {error:?}"));
 
-        let _registration = register_task(&scheduler, &first, runtime.runtime().id());
+        let registration = register_task(&scheduler, &first, runtime.runtime().id());
 
         assert!(matches!(
             scheduler.register_task(
@@ -1181,6 +1281,37 @@ mod tests {
                 .unwrap_or_else(|error| panic!("task count must be available: {error:?}")),
             1
         );
+
+        let continuation = scheduler
+            .register_admitted_task(
+                second.id(),
+                second.descriptor().clone(),
+                runtime.runtime().id(),
+                ProtectedFrameStateId::new(0),
+                second.cancellation_context(),
+                crate::task::TaskAdmissionKind::Continuation,
+            )
+            .unwrap();
+
+        assert_eq!(scheduler.task_count().unwrap(), 2);
+        drop(continuation);
+
+        assert!(matches!(
+            scheduler.register_task(
+                second.id(),
+                second.descriptor().clone(),
+                runtime.runtime().id(),
+                ProtectedFrameStateId::new(0),
+                second.cancellation_context(),
+            ),
+            Err(SchedulerError::TaskCapacityReached)
+        ));
+
+        drop(registration);
+
+        let _replacement = register_task(&scheduler, &second, runtime.runtime().id());
+
+        assert_eq!(scheduler.task_count().unwrap(), 1);
     }
 
     #[test]

@@ -525,8 +525,12 @@ where
             let member = bray_compiler_known::CompilerKnownDeclarationKey::try_new(member)
                 .ok_or(CheckerInfrastructureError::InvalidStoragePlan)?;
 
-            let selected =
-                super::selected_storage_protocol_call(self.request, *storage, *target, &member)?;
+            let selected = super::selected_storage_protocol_call(
+                self.request.context(),
+                *storage,
+                *target,
+                &member,
+            )?;
 
             let (call, diagnostics) = selected.into_parts();
 

@@ -215,6 +215,7 @@ where
         | StorageIdentity::Static(_)
         | StorageIdentity::AnonymousParameter(_)
         | StorageIdentity::PredicateParameter(_)
+        | StorageIdentity::ContractParameter(_)
         | StorageIdentity::PostconditionResult(_)
         | StorageIdentity::Result(_)
         | StorageIdentity::Temporary(_)

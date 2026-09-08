@@ -12,14 +12,31 @@ internal struct ChildInputState
 struct ChildInput
 {
     internal mut state: ChildInputState;
+    predicate complete(value: &Self) = !value.state.is_open;
+
+    func is_complete() -> bool
+        executes(pure, total)
+        ensures(!result || Self.complete(&self), result || !Self.complete(&self))
+    {
+        return !self.state.is_open;
+    }
 
     trusted finalize() -> Result<unit, std.io.IoError>
-        requires(blocking_execution())
+        requires(Self.complete(&self) || blocking_execution())
+        when(Self.complete(&self))
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
     {
         return trusted close_child_input(&mut self);
     }
 
     trusted destruct()
+        when(Self.complete(&self))
+        {
+            executes(pure, total)
+        }
     {
         if self.state.is_open
         {
@@ -29,8 +46,9 @@ struct ChildInput
         }
     }
 
-    consume mut func close() -> Result<unit, std.io.IoError>
+    mut func close() -> Result<unit, std.io.IoError>
         requires(blocking_execution())
+        ensures((result matches Error(_)) || Self.complete(&self))
     {
         return trusted close_child_input(&mut self);
     }
@@ -45,14 +63,31 @@ internal struct ChildOutputState
 struct ChildOutput
 {
     internal mut state: ChildOutputState;
+    predicate complete(value: &Self) = !value.state.is_open;
+
+    func is_complete() -> bool
+        executes(pure, total)
+        ensures(!result || Self.complete(&self), result || !Self.complete(&self))
+    {
+        return !self.state.is_open;
+    }
 
     trusted finalize() -> Result<unit, std.io.IoError>
-        requires(blocking_execution())
+        requires(Self.complete(&self) || blocking_execution())
+        when(Self.complete(&self))
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
     {
         return trusted close_child_output(&mut self);
     }
 
     trusted destruct()
+        when(Self.complete(&self))
+        {
+            executes(pure, total)
+        }
     {
         if self.state.is_open
         {
@@ -62,8 +97,9 @@ struct ChildOutput
         }
     }
 
-    consume mut func close() -> Result<unit, std.io.IoError>
+    mut func close() -> Result<unit, std.io.IoError>
         requires(blocking_execution())
+        ensures((result matches Error(_)) || Self.complete(&self))
     {
         return trusted close_child_output(&mut self);
     }
@@ -205,35 +241,45 @@ trusted internal func child_output_read(
 }
 
 trusted internal func close_child_input(pos input: &mut ChildInput) -> Result<unit, std.io.IoError>
-    requires(blocking_execution())
+    requires(ChildInput.complete(&input) || blocking_execution())
+    when(ChildInput.complete(&input))
+    {
+        executes(pure, total)
+        ensures(result matches Ok(_))
+    }
+    ensures((result matches Error(_)) || ChildInput.complete(&input))
 {
     if !input.state.is_open
     {
         return Ok(unit);
     }
 
-    let result: Result<unit, std.io.IoError> = internal std.io.checked_status(
-        trusted internal platform_process_pipe_close(handle = input.state.handle)
-    );
+    let status: std.platform.PlatformStatus = trusted internal platform_process_pipe_close(handle = input.state.handle);
 
-    input.state.is_open = false;
+    input.state.is_open = !internal std.platform.file_close_completed(status);
 
-    return result;
+    return internal std.io.checked_status(status);
 }
 
 trusted internal func close_child_output(pos output: &mut ChildOutput) -> Result<unit, std.io.IoError>
-    requires(blocking_execution())
+    requires(ChildOutput.complete(&output) || blocking_execution())
+    when(ChildOutput.complete(&output))
+    {
+        executes(pure, total)
+        ensures(result matches Ok(_))
+    }
+    ensures((result matches Error(_)) || ChildOutput.complete(&output))
 {
     if !output.state.is_open
     {
         return Ok(unit);
     }
 
-    let result: Result<unit, std.io.IoError> = internal std.io.checked_status(
-        trusted internal platform_process_pipe_close(handle = output.state.handle)
+    let status: std.platform.PlatformStatus = trusted internal platform_process_pipe_close(
+        handle = output.state.handle
     );
 
-    output.state.is_open = false;
+    output.state.is_open = !internal std.platform.file_close_completed(status);
 
-    return result;
+    return internal std.io.checked_status(status);
 }

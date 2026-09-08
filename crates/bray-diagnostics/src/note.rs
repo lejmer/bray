@@ -37,6 +37,8 @@ impl DiagnosticNote {
 /// Stable category for a diagnostic note.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticNoteKind {
+    /// A trusted declaration needs explicit permission from its logical module.
+    TrustedModuleRequired,
     /// Location reported by a structured-document parser.
     DocumentFailureLocation,
     /// Recover an expired or cleaned retained product.
@@ -91,6 +93,8 @@ pub enum DiagnosticNoteKind {
     DirectiveArgumentMustHaveCompleteForm,
     /// Type-inference recovery guidance.
     TypeInferenceNeedsConstraint,
+    /// Type qualifiers require a member selection or a value-producing construction.
+    TypeQualifierRequiresValue,
     /// Compile-time expression recovery guidance.
     ConstantExpressionMustBeEvaluable,
     /// Constant-evaluation resource-limit recovery guidance.
@@ -154,6 +158,7 @@ impl DiagnosticNoteKind {
             Self::DocumentFailureLocation => "document_failure_location",
             Self::RebuildRetainedProduct => "rebuild_retained_product",
             Self::SourceFileMustBeReadable => "source_file_must_be_readable",
+            Self::TrustedModuleRequired => "trusted_module_required",
             Self::SourceMustBeUtf8 => "source_must_be_utf8",
             Self::SourceMustMatchFormatterOutput => "source_must_match_formatter_output",
             Self::SourceIdsAreCompact => "source_ids_are_compact",
@@ -184,6 +189,7 @@ impl DiagnosticNoteKind {
                 "directive_argument_must_have_complete_form"
             }
             Self::TypeInferenceNeedsConstraint => "type_inference_needs_constraint",
+            Self::TypeQualifierRequiresValue => "type_qualifier_requires_value",
             Self::ConstantExpressionMustBeEvaluable => "constant_expression_must_be_evaluable",
             Self::ConstantEvaluationMustFitLimits => "constant_evaluation_must_fit_limits",
             Self::TypeLayoutDirectiveForms => "type_layout_directive_forms",

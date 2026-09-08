@@ -40,6 +40,8 @@ pub enum SchedulerError {
     TimerIdentityExhausted,
     /// The task identity is already registered.
     TaskAlreadyRegistered(TaskId),
+    /// Terminal completion requires ownership of the task's current running dispatch.
+    TaskNotRunning(TaskId),
     /// The task is no longer registered with this scheduler.
     UnknownTask(TaskId),
     /// A wake named a state absent from the task's protected-frame descriptor.

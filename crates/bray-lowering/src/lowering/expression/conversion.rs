@@ -31,6 +31,7 @@ impl Lowerer<'_> {
                 Ok((current, value))
             }
             ConversionTarget::BuiltInScalar
+            | ConversionTarget::CallableContract
             | ConversionTarget::CVariadicPromotion
             | ConversionTarget::Composite(_) => self
                 .push_converted_value(

@@ -1,3 +1,5 @@
+use bray_symbols::CallableConditions;
+
 use std::collections::BTreeSet;
 
 use bray_symbols::SymbolKind;
@@ -232,24 +234,8 @@ impl InterfaceSemantics {
         dependency_count: usize,
     ) -> Result<(), InterfaceValidationError> {
         validate_symbol(&contract.owner, symbol_count, dependency_count)?;
-        self.validate_callable_clauses(&contract.invocation_preconditions)?;
-        self.validate_callable_clauses(&contract.static_constraints)?;
-        self.validate_callable_clauses(&contract.normal_completion_postconditions)?;
-
-        let mut clause_ordinals = BTreeSet::new();
-
-        for clause in contract
-            .invocation_preconditions
-            .iter()
-            .chain(contract.static_constraints.iter())
-            .chain(contract.normal_completion_postconditions.iter())
-        {
-            if !clause_ordinals.insert(clause.ordinal) {
-                return Err(crate::semantic::codec::invalid_value(
-                    crate::InterfaceValidationField::Reference,
-                ));
-            }
-        }
+        self.validate_callable_conditions(contract.conditions())?;
+        self.validate_callable_evidence(contract, symbol_count, dependency_count)?;
 
         self.validate_callable_behavior(
             &contract.invocation_behavior,
@@ -260,6 +246,100 @@ impl InterfaceSemantics {
         if let Some(behavior) = &contract.deferred_execution_behavior {
             self.validate_callable_behavior(behavior, symbol_count, dependency_count)?;
         }
+
+        Ok(())
+    }
+
+    fn validate_callable_evidence(
+        &self,
+        contract: &InterfaceCallableContract,
+        symbol_count: usize,
+        dependency_count: usize,
+    ) -> Result<(), InterfaceValidationError> {
+        if !contract
+            .evidence()
+            .windows(2)
+            .all(|pair| pair[0].obligation() < pair[1].obligation())
+        {
+            return Err(crate::semantic::codec::invalid_value(
+                crate::InterfaceValidationField::Reference,
+            ));
+        }
+
+        for proof in contract.evidence() {
+            if contract
+                .evidence()
+                .first()
+                .is_some_and(|first| first.origin() != proof.origin())
+            {
+                return Err(crate::semantic::codec::invalid_value(
+                    crate::InterfaceValidationField::Reference,
+                ));
+            }
+
+            validate_evidence_obligation(contract, proof.obligation())?;
+
+            for (target, obligation) in proof.dependencies() {
+                validate_symbol(target, symbol_count, dependency_count)?;
+
+                if let InterfaceSymbolReference::Local(_) = target {
+                    let dependency = self
+                        .callable_contracts
+                        .binary_search_by(|candidate| candidate.owner().cmp(target))
+                        .ok()
+                        .and_then(|index| self.callable_contracts.get(index));
+
+                    let Some(dependency) = dependency else {
+                        return Err(crate::semantic::codec::invalid_value(
+                            crate::InterfaceValidationField::Reference,
+                        ));
+                    };
+
+                    validate_evidence_obligation(dependency, *obligation)?;
+
+                    if dependency
+                        .evidence()
+                        .binary_search_by_key(
+                            obligation,
+                            bray_symbols::CallableContractEvidence::obligation,
+                        )
+                        .is_err()
+                    {
+                        return Err(crate::semantic::codec::invalid_value(
+                            crate::InterfaceValidationField::Reference,
+                        ));
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub(in crate::semantic::validation) fn validate_callable_conditions(
+        &self,
+        contract: &bray_symbols::CallableConditionSet<InterfaceCallableContractClause>,
+    ) -> Result<(), InterfaceValidationError> {
+        self.validate_callable_clauses(contract.invocation_preconditions())?;
+        self.validate_callable_clauses(contract.static_constraints())?;
+        self.validate_callable_clauses(contract.normal_completion_postconditions())?;
+        self.validate_callable_clauses(contract.entry_guards())?;
+        self.validate_callable_clauses(contract.guarded_postconditions())?;
+
+        let mut clause_ordinals = BTreeSet::new();
+
+        for clause in contract.clauses() {
+            if !clause_ordinals.insert(clause.ordinal) {
+                return Err(crate::semantic::codec::malformed(
+                    crate::InterfaceMalformedCause::Duplicate {
+                        field: crate::InterfaceValidationField::Reference,
+                        index: u64::from(clause.ordinal.raw()),
+                    },
+                ));
+            }
+        }
+
+        validate_guard_references(contract)?;
 
         Ok(())
     }
@@ -280,10 +360,7 @@ impl InterfaceSemantics {
         for clause in clauses {
             match clause.value {
                 crate::InterfaceCallableContractClauseValue::Predicate(predicate) => {
-                    validate_index(
-                        predicate.dependency_contract.to_index(),
-                        self.dependency_contracts.len(),
-                    )?;
+                    self.validate_predicate_summary(predicate)?;
                 }
                 crate::InterfaceCallableContractClauseValue::TraitSatisfaction {
                     subject,
@@ -353,6 +430,31 @@ impl InterfaceSemantics {
     }
 }
 
+fn validate_evidence_obligation(
+    contract: &InterfaceCallableContract,
+    obligation: bray_symbols::CallableContractObligation,
+) -> Result<(), InterfaceValidationError> {
+    let declared = match obligation {
+        bray_symbols::CallableContractObligation::Execution(guarantee) => {
+            contract.execution_guarantees().contains(&guarantee)
+        }
+        bray_symbols::CallableContractObligation::Postcondition(ordinal) => {
+            contract.clauses().any(|clause| {
+                clause.kind == bray_symbols::CallableContractClauseKind::Ensures
+                    && clause.ordinal == ordinal
+            })
+        }
+    };
+
+    if declared {
+        Ok(())
+    } else {
+        Err(crate::semantic::codec::invalid_value(
+            crate::InterfaceValidationField::Reference,
+        ))
+    }
+}
+
 fn validate_callable_parameter_default(
     default: &crate::InterfaceCallableParameterDefault,
     surface: &PackageInterfaceSurface,
@@ -377,4 +479,244 @@ fn validate_callable_parameter_default(
     }
 
     Ok(())
+}
+
+fn validate_guard_references(
+    contract: &impl CallableConditions<Clause = InterfaceCallableContractClause>,
+) -> Result<(), InterfaceValidationError> {
+    use crate::semantic::codec::malformed;
+    use crate::{InterfaceMalformedCause, InterfaceValidationField};
+
+    let guards = contract
+        .entry_guards()
+        .iter()
+        .map(|clause| clause.ordinal)
+        .collect::<BTreeSet<_>>();
+
+    for clause in contract.clauses() {
+        let Some(guard) = clause.guard else {
+            continue;
+        };
+
+        if !matches!(
+            clause.kind,
+            bray_symbols::CallableContractClauseKind::Guard
+                | bray_symbols::CallableContractClauseKind::Ensures
+        ) {
+            return Err(malformed(InterfaceMalformedCause::ValueMismatch {
+                field: InterfaceValidationField::Reference,
+                expected: 0,
+                actual: 1,
+            }));
+        }
+
+        validate_entry_guard(guard, &guards)?;
+
+        if guard >= clause.ordinal {
+            return Err(malformed(InterfaceMalformedCause::OrderingViolation {
+                field: InterfaceValidationField::Reference,
+                previous: u64::from(guard.raw()),
+                actual: u64::from(clause.ordinal.raw()),
+            }));
+        }
+    }
+
+    for guarantee in contract.execution_guarantees() {
+        if let Some(guard) = guarantee.guard() {
+            validate_entry_guard(guard, &guards)?;
+        }
+    }
+
+    Ok(())
+}
+
+fn validate_entry_guard(
+    guard: bray_symbols::SymbolOrdinal,
+    guards: &BTreeSet<bray_symbols::SymbolOrdinal>,
+) -> Result<(), InterfaceValidationError> {
+    if guards.contains(&guard) {
+        return Ok(());
+    }
+
+    // Distinct u32 ordinals bound this count below the u64 range.
+    let available = guards.iter().map(|_| 1_u64).sum();
+
+    Err(crate::semantic::codec::malformed(
+        crate::InterfaceMalformedCause::InvalidReference {
+            field: crate::InterfaceValidationField::Reference,
+            index: u64::from(guard.raw()),
+            available,
+        },
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_guard_references;
+    use crate::{
+        InterfaceCallableContract, InterfaceCallableContractClause, InterfaceDependencyContractId,
+        InterfacePredicateSummary, InterfaceSymbolReference,
+    };
+    use bray_symbols::CallableConditions;
+    use bray_symbols::{
+        CallableContractClauseKind, CallableExecutionGuarantee, ExecutionProperty,
+        InterfaceSymbolId, SymbolOrdinal,
+    };
+
+    fn clause(
+        ordinal: u32,
+        kind: CallableContractClauseKind,
+        guard: Option<u32>,
+    ) -> InterfaceCallableContractClause {
+        InterfaceCallableContractClause::new(
+            SymbolOrdinal::new(ordinal),
+            kind,
+            InterfacePredicateSummary::new(InterfaceDependencyContractId::new(0)),
+        )
+        .with_guard(guard.map(SymbolOrdinal::new))
+    }
+
+    fn contract(
+        clauses: impl IntoIterator<Item = InterfaceCallableContractClause>,
+    ) -> InterfaceCallableContract {
+        InterfaceCallableContract::new(
+            InterfaceSymbolReference::Local(InterfaceSymbolId::new(0)),
+            clauses,
+            crate::test_support::callable_phase_behavior(),
+            None,
+        )
+    }
+
+    #[test]
+    fn a_callable_has_one_evidence_authority_and_one_record_per_promise() {
+        use CallableEvidenceOrigin::{CheckedBody, ForeignAssertion};
+
+        use bray_symbols::{
+            CallableContractEvidence, CallableContractObligation, CallableEvidenceOrigin,
+        };
+
+        let guarantees = [
+            CallableExecutionGuarantee::new(ExecutionProperty::Pure, None),
+            CallableExecutionGuarantee::new(ExecutionProperty::Total, None),
+        ];
+
+        for (origins, accepted) in [
+            ([CheckedBody, CheckedBody], true),
+            ([ForeignAssertion, ForeignAssertion], true),
+            ([CheckedBody, ForeignAssertion], false),
+        ] {
+            let evidence = guarantees
+                .into_iter()
+                .zip(origins)
+                .map(|(guarantee, origin)| {
+                    let obligation = CallableContractObligation::Execution(guarantee);
+
+                    match origin {
+                        CheckedBody => CallableContractEvidence::new(obligation, []),
+                        ForeignAssertion => CallableContractEvidence::foreign_assertion(obligation),
+                    }
+                });
+
+            let contract = contract([])
+                .with_execution_guarantees(guarantees)
+                .with_evidence(evidence);
+
+            assert_eq!(
+                crate::InterfaceSemantics::new()
+                    .validate_callable_evidence(&contract, 1, 0)
+                    .is_ok(),
+                accepted
+            );
+        }
+
+        let proof =
+            CallableContractEvidence::new(CallableContractObligation::Execution(guarantees[0]), []);
+
+        let duplicate = contract([])
+            .with_execution_guarantees(guarantees)
+            .with_evidence([proof.clone(), proof]);
+
+        assert!(
+            crate::InterfaceSemantics::new()
+                .validate_callable_evidence(&duplicate, 1, 0)
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn body_evidence_requires_the_exact_declared_promise() {
+        use bray_symbols::CallableContractObligation::{Execution, Postcondition};
+
+        let guarded =
+            CallableExecutionGuarantee::new(ExecutionProperty::Pure, Some(SymbolOrdinal::new(0)));
+
+        let contract = contract([
+            clause(0, CallableContractClauseKind::Guard, None),
+            clause(1, CallableContractClauseKind::Ensures, Some(0)),
+        ])
+        .with_execution_guarantees([guarded]);
+
+        for (obligation, accepted) in [
+            (Execution(guarded), true),
+            (
+                Execution(CallableExecutionGuarantee::new(
+                    ExecutionProperty::Pure,
+                    None,
+                )),
+                false,
+            ),
+            (
+                Execution(CallableExecutionGuarantee::new(
+                    ExecutionProperty::Total,
+                    Some(SymbolOrdinal::new(0)),
+                )),
+                false,
+            ),
+            (Postcondition(SymbolOrdinal::new(0)), false),
+            (Postcondition(SymbolOrdinal::new(1)), true),
+            (Postcondition(SymbolOrdinal::new(2)), false),
+        ] {
+            assert_eq!(
+                super::validate_evidence_obligation(&contract, obligation).is_ok(),
+                accepted
+            );
+        }
+    }
+
+    #[test]
+    fn guard_references_reject_missing_self_and_forward_domains() {
+        use CallableContractClauseKind::{Ensures, Guard, Requires};
+
+        for clauses in [
+            vec![clause(0, Ensures, Some(9))],
+            vec![clause(0, Guard, Some(0))],
+            vec![clause(0, Guard, Some(1)), clause(1, Guard, None)],
+            vec![clause(0, Requires, None), clause(1, Ensures, Some(0))],
+            vec![clause(0, Guard, None), clause(1, Requires, Some(0))],
+        ] {
+            assert!(validate_guard_references(&contract(clauses)).is_err());
+        }
+    }
+
+    #[test]
+    fn execution_property_guards_must_name_entry_conditions() {
+        let invalid = contract([]).with_execution_guarantees([CallableExecutionGuarantee::new(
+            ExecutionProperty::Pure,
+            Some(SymbolOrdinal::new(0)),
+        )]);
+
+        assert!(validate_guard_references(&invalid).is_err());
+
+        let valid = contract([
+            clause(0, CallableContractClauseKind::Guard, None),
+            clause(1, CallableContractClauseKind::Guard, Some(0)),
+            clause(2, CallableContractClauseKind::Ensures, Some(1)),
+        ])
+        .with_execution_guarantees([CallableExecutionGuarantee::new(
+            ExecutionProperty::Total,
+            Some(SymbolOrdinal::new(1)),
+        )]);
+
+        assert_eq!(validate_guard_references(&valid), Ok(()));
+    }
 }

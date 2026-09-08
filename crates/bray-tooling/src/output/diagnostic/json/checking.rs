@@ -5,6 +5,8 @@ mod overload;
 mod selection;
 mod trait_mismatch;
 
+pub(super) use contract_mismatch::DiagnosticCallableContractMismatchJson;
+
 pub(super) use analysis::{
     DiagnosticPatternCoverageJson, DiagnosticStorageAccessJson, array_generator_problem_json,
     callback_state_problem_json, copy_contract_problem_json, layout_problem_json,

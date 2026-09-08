@@ -11,6 +11,8 @@ use crate::{BoundExpressionId, BoundNodeOrigin, BoundPatternId, BoundUnresolvedR
 /// The exact semantic identity reached by a bound reference expression.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum BoundReferenceTarget {
+    /// A checked type used to qualify associated declarations, without a runtime value.
+    TypeQualifier(TypeId),
     /// A body-local identity.
     Local(AnyLocalSymbolId),
     /// A compilation-wide identity.
@@ -21,6 +23,10 @@ impl BoundReferenceTarget {
     /// Returns whether this target qualifies a path or type-associated member without producing a
     /// runtime value.
     pub fn is_compile_time_qualifier(self) -> bool {
+        if matches!(self, Self::TypeQualifier(_)) {
+            return true;
+        }
+
         let Self::Surface(symbol) = self else {
             return false;
         };

@@ -153,9 +153,34 @@ pub enum DiagnosticCallableBehaviorComponent {
     Dependencies,
 }
 
+/// A language-defined execution property in a callable contract.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum DiagnosticExecutionProperty {
+    /// Execution has no runtime effects.
+    Pure,
+    /// Execution terminates normally, including cleanup.
+    Total,
+}
+
 /// Exact difference between required and provided callable contracts.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum DiagnosticCallableContractMismatch {
+    /// Required and provided predicate meaning does not satisfy callable substitution.
+    PredicateImplication {
+        /// The input or completion phase being checked.
+        surface: DiagnosticCallableContractSurface,
+        /// Ordinal of the unsupported condition on the relevant declaration.
+        index: u64,
+    },
+    /// Bounded contract reasoning could not establish compatibility.
+    ConditionReasoningLimit,
+    /// A required execution property is not established on its required entry domain.
+    ExecutionGuarantee {
+        /// Required property.
+        property: DiagnosticExecutionProperty,
+        /// Required entry guard ordinal, or an unconditional domain.
+        guard: Option<u64>,
+    },
     /// Clause counts differ on one contract surface.
     ClauseCount {
         /// Contract surface containing the clauses.

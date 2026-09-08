@@ -1,6 +1,6 @@
 use bray_syntax::SyntaxKind;
 
-pub(in crate::parser) const EXPRESSION_START_KINDS: [SyntaxKind; 45] = [
+pub(in crate::parser) const EXPRESSION_START_KINDS: [SyntaxKind; 46] = [
     SyntaxKind::AllKeyword,
     SyntaxKind::AmpersandToken,
     SyntaxKind::AnyKeyword,
@@ -36,6 +36,7 @@ pub(in crate::parser) const EXPRESSION_START_KINDS: [SyntaxKind; 45] = [
     SyntaxKind::RealLiteralToken,
     SyntaxKind::ReturnKeyword,
     SyntaxKind::SelfValueKeyword,
+    SyntaxKind::SelfTypeKeyword,
     SyntaxKind::StringLiteralToken,
     SyntaxKind::TildeToken,
     SyntaxKind::TrueKeyword,
@@ -94,7 +95,10 @@ pub(in crate::parser::expression) fn at_literal_expression_start(kind: SyntaxKin
 pub(in crate::parser::expression) fn at_access_expression_start(kind: SyntaxKind) -> bool {
     matches!(
         kind,
-        SyntaxKind::IdentifierToken | SyntaxKind::InternalKeyword | SyntaxKind::SelfValueKeyword
+        SyntaxKind::IdentifierToken
+            | SyntaxKind::InternalKeyword
+            | SyntaxKind::SelfValueKeyword
+            | SyntaxKind::SelfTypeKeyword
     )
 }
 

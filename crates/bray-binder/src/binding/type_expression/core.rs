@@ -39,6 +39,14 @@ pub trait TypeExpressionImports<Upstream = std::convert::Infallible> {
         &self,
         definition: CallableContractSymbolId,
     ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>, Upstream>;
+
+    /// Checks declared conditions and capabilities while preserving the lexical owner.
+    fn callable_type_contract(
+        &self,
+        owner: AnySymbolId,
+        source: SyntaxAnchor,
+        signature: &bray_symbols::CallableTypeTemplate,
+    ) -> BindingQueryResult<DiagnosticResult<bray_symbols::CallableContractSet>, Upstream>;
 }
 
 impl<T> TypeExpressionImports<T::UpstreamError> for T
@@ -64,6 +72,16 @@ where
         definition: CallableContractSymbolId,
     ) -> BindingQueryResult<Arc<DiagnosticResult<TypeExpressionTemplate>>, T::UpstreamError> {
         BindingQueryContext::callable_contract_type(self, definition)
+    }
+
+    fn callable_type_contract(
+        &self,
+        owner: AnySymbolId,
+        source: SyntaxAnchor,
+        signature: &bray_symbols::CallableTypeTemplate,
+    ) -> BindingQueryResult<DiagnosticResult<bray_symbols::CallableContractSet>, T::UpstreamError>
+    {
+        BindingQueryContext::callable_type_contract(self, owner, source, signature)
     }
 }
 

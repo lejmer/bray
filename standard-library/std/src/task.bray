@@ -1,4 +1,4 @@
-module std.task;
+trusted module std.task;
 
 using std.run;
 

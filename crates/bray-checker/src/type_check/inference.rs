@@ -348,6 +348,34 @@ impl TypeInferenceContext {
         }
     }
 
+    pub(super) fn register_implicit_compatibilities<E>(
+        &mut self,
+        mut accepts: impl FnMut(TypeId, TypeId) -> Result<bool, E>,
+    ) -> Result<(), E> {
+        for node in &self.nodes {
+            let Some(actual) = node.evidence else {
+                continue;
+            };
+
+            if node.is_recovered || actual == self.error_type || actual == self.never_type {
+                continue;
+            }
+
+            for expectation in &node.expectations {
+                let pair = (expectation.ty, actual);
+
+                if expectation.ty != actual
+                    && !self.implicit_compatibilities.contains(&pair)
+                    && accepts(expectation.ty, actual)?
+                {
+                    self.implicit_compatibilities.insert(pair);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub(super) fn finish(
         mut self,
         expressions: &[(BoundExpressionId, InferenceTypeId)],

@@ -359,6 +359,7 @@ fn collect_liveness(
                 block,
                 exit,
                 phase: AnalysisScopeExitPhase::LifecycleResolution,
+                ..
             } = operation.kind()
             {
                 live_across_scopes.extend(

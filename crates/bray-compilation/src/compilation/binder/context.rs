@@ -405,6 +405,35 @@ impl BindingQueryContext for CompilationBindingContext<'_> {
         )
     }
 
+    fn callable_contract_input_signature(
+        &self,
+        owner: AnySymbolId,
+        source: bray_declarations::SyntaxAnchor,
+    ) -> BindingQueryResult<DiagnosticResult<bray_symbols::CallableTypeTemplate>> {
+        let root = self
+            .syntax()
+            .find_node(
+                source.source_id(),
+                source.syntax_kind(),
+                source.full_range(),
+                source.is_recovered(),
+            )
+            .ok_or(BindingQueryError::Binding(BindingError::SyntaxContract(
+                source,
+            )))?;
+
+        super::type_binder(self, owner)?.bind_callable_contract_input_signature(root)
+    }
+
+    fn callable_type_contract(
+        &self,
+        owner: AnySymbolId,
+        source: bray_declarations::SyntaxAnchor,
+        signature: &bray_symbols::CallableTypeTemplate,
+    ) -> BindingQueryResult<DiagnosticResult<bray_symbols::CallableContractSet>> {
+        super::symbol::bind_callable_type_contract(self, owner, source, signature)
+    }
+
     fn module_re_export_lookup(
         &self,
         module: ModuleSymbolId,

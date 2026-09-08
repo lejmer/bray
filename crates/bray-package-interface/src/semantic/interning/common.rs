@@ -129,6 +129,33 @@ pub(super) fn lookup<I: Copy>(table: &[Option<I>], index: Option<usize>) -> Opti
     table.get(index?)?.as_ref().copied()
 }
 
+pub(super) fn resolve_optional_id<I, O>(
+    id: Option<I>,
+    resolve: impl FnOnce(I) -> Option<O>,
+) -> Option<Option<O>> {
+    match id {
+        Some(id) => resolve(id).map(Some),
+        None => Some(None),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_optional_id;
+
+    #[test]
+    fn optional_identity_resolution_distinguishes_absence_from_an_unresolved_reference() {
+        assert_eq!(resolve_optional_id(None::<u32>, |_| Some(1)), Some(None));
+
+        assert_eq!(
+            resolve_optional_id(Some(2), |id| Some(id + 1)),
+            Some(Some(3))
+        );
+
+        assert_eq!(resolve_optional_id(Some(2), |_| None::<u32>), None);
+    }
+}
+
 pub(super) fn finish_table<I>(
     table: Vec<Option<I>>,
 ) -> Result<Arc<[I]>, InterfaceSemanticInternError> {

@@ -254,17 +254,6 @@ impl Lowerer<'_> {
             return Err(LoweringError::MissingSemanticSelection(id));
         }
 
-        let arguments = self.named_type_arguments(operand_type)?;
-
-        let [value_type] = arguments.as_slice() else {
-            return Err(LoweringError::UnsupportedExpression(id));
-        };
-
-        let representation = self.run_result_representation()?;
-
-        let report_type =
-            self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
-
         let operand = self.lower_expression(operand_id, current)?;
 
         let Some(current) = operand.block else {
@@ -276,6 +265,26 @@ impl Lowerer<'_> {
         };
 
         let source = self.source(expression.origin());
+
+        self.propagate_run_result(id, current, source, operand, operand_type)
+    }
+
+    pub(in crate::lowering) fn propagate_run_result(
+        &mut self,
+        id: BoundExpressionId,
+        current: MirBlockId,
+        source: MirSourceAnchor,
+        operand: MirOperand,
+        operand_type: TypeId,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let arguments = self.named_type_arguments(operand_type)?;
+
+        let [value_type] = arguments.as_slice() else {
+            return Err(LoweringError::UnsupportedExpression(id));
+        };
+
+        let representation = self.run_result_representation()?;
+        let report_type = self.representation_type(RepresentationRole::PanicReport)?;
 
         let (completed, completed_operand) = self.propagation_branch(&source, operand_type)?;
 
@@ -335,7 +344,7 @@ impl Lowerer<'_> {
             report_type,
         )?;
 
-        self.finish_panic_to_active_catch(id, panicked, &source, report, report_type)?;
+        self.finish_panic_to_active_catch(id, panicked, &source, report, report_type, None)?;
         self.finish_cancellation(cancelled, &source, id.into())?;
 
         Ok(LoweredExpression::continuing(

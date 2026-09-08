@@ -516,6 +516,24 @@ pub(crate) fn compilation_with_options(source: &str, options: CompilationOptions
     compilation_with_sources_and_options(&[source], options)
 }
 
+pub(crate) fn compilation_with_native_link(
+    source: &str,
+    name: &str,
+    kind: bray_symbols::NativeLinkKind,
+) -> Compilation {
+    let name = bray_base::NonEmptySharedStr::try_new(name)
+        .unwrap_or_else(|| panic!("test link input name must be valid"));
+
+    let options = CompilationOptions::new(
+        WorkerBudget::serial(),
+        bray_symbols::ProductKind::Library,
+        crate::SelectedTarget::baseline(),
+    )
+    .with_native_link_inputs([bray_symbols::NativeLinkRequirement::new(name, kind)]);
+
+    compilation_with_options(source, options)
+}
+
 fn compilation_with_sources_and_options(
     sources: &[&str],
     options: CompilationOptions,

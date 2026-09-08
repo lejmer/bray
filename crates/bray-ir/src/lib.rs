@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod abandonment;
 mod block;
 mod control;
 mod frame;
@@ -20,6 +21,7 @@ mod unit;
 mod value;
 mod walk;
 
+pub use abandonment::MirAbandonmentAction;
 pub use block::{MirBlock, MirBlockKind};
 pub use bray_bound_tree::{
     BoundUnitKey, ConstructionInputId, ConstructionTarget, ConversionTarget, PatternOperation,
@@ -31,7 +33,8 @@ pub use control::{
     MirTerminator, MirTerminatorKind,
 };
 pub use frame::{
-    MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameReference, MirFrameState,
+    MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameEntry, MirFrameReference,
+    MirFrameState,
 };
 pub use helper::{MirHelperReference, MirStandardLibraryHelper};
 pub use id::{MirBlockId, MirFrameStateId, MirOperationId, MirStorageId, MirUnitId, MirValueId};

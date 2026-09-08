@@ -177,6 +177,23 @@ impl CheckerRequestContext for TestCheckerContext {
         ))
     }
 
+    fn lifecycle_callable(
+        &self,
+        _: TypeId,
+        _: bray_symbols::TypeAssociatedLifecycleSlot,
+    ) -> CheckerQueryResult<
+        bray_diagnostics::DiagnosticResult<
+            Option<(
+                bray_symbols::CallableInstanceData,
+                bray_symbols::CallableSignature,
+            )>,
+        >,
+    > {
+        Ok(bray_diagnostics::DiagnosticResult::without_diagnostics(
+            None,
+        ))
+    }
+
     fn declared_type_has_lifecycle(
         &self,
         _subject: bray_symbols::NamedTypeSymbolId,

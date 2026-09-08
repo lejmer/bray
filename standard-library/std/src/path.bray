@@ -1,4 +1,4 @@
-module std.path;
+trusted module std.path;
 
 using std.bytes;
 using std.collection;

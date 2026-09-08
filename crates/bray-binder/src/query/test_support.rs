@@ -142,6 +142,23 @@ impl BindingQueryContext for TestContext<'_> {
         Err(BindingQueryError::DependencyUnavailable)
     }
 
+    fn callable_contract_input_signature(
+        &self,
+        _: AnySymbolId,
+        _: bray_declarations::SyntaxAnchor,
+    ) -> BindingQueryResult<DiagnosticResult<bray_symbols::CallableTypeTemplate>> {
+        Err(BindingQueryError::DependencyUnavailable)
+    }
+
+    fn callable_type_contract(
+        &self,
+        _: AnySymbolId,
+        _: bray_declarations::SyntaxAnchor,
+        _: &bray_symbols::CallableTypeTemplate,
+    ) -> BindingQueryResult<DiagnosticResult<bray_symbols::CallableContractSet>> {
+        Err(BindingQueryError::DependencyUnavailable)
+    }
+
     fn module_re_export_lookup(
         &self,
         _module: ModuleSymbolId,

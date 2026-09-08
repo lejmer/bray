@@ -1,0 +1,29 @@
+module quiet_cancellation;
+
+using std.atomic;
+using std.task;
+
+async func wait_for_cancellation(pos started: &std.atomic.Atomic<bool>)
+{
+    started.store(true, order = std.atomic.StoreOrder.Release);
+
+    loop
+    {
+        await std.task.yield_now();
+    }
+}
+
+async func main()
+{
+    let started = std.atomic.Atomic<bool>(false);
+    let task = wait_for_cancellation(&started).start();
+
+    while !started.load(order = std.atomic.LoadOrder.Acquire)
+    {
+        await std.task.yield_now();
+    }
+
+    let result = await task.cancel();
+
+    assert(result matches Cancelled);
+}

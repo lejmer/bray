@@ -1,3 +1,5 @@
+use bray_symbols::CallableConditions;
+
 use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_diagnostics::DiagnosticBag;
 use std::collections::BTreeSet;
@@ -198,6 +200,8 @@ fn normalize_type(
                 callable.dependency_contracts(),
             )
             .with_variadic(callable.is_variadic())
+            // Conditions share immutable clause groups with the original callable.
+            .with_conditions(callable.conditions().clone())
             .with_phase_behaviors(callable.phase_behaviors().clone());
 
             values

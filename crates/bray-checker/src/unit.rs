@@ -134,8 +134,12 @@ where
         self.context
     }
 
-    /// Returns the callable declaration that semantically contains this unit, when any.
+    /// Returns the declared callable whose runtime inputs are available to this unit.
     pub(crate) fn containing_callable(self) -> Option<CallableSymbolId> {
+        if self.unit.contract_inputs().is_some() {
+            return None;
+        }
+
         let mut symbol = match self.semantic_context {
             SemanticUnitContext::CallableBody(context)
             | SemanticUnitContext::RuntimeDefault(context)
@@ -284,13 +288,6 @@ where
         self.context.plain_storage_atomic_representation(ty)
     }
 
-    pub(crate) fn declared_type_has_lifecycle(
-        self,
-        subject: bray_symbols::NamedTypeSymbolId,
-    ) -> CheckerQueryResult<bray_diagnostics::DiagnosticResult<bool>, C::UpstreamError> {
-        self.context.declared_type_has_lifecycle(subject)
-    }
-
     /// Checks every source constant expression embedded in one type template.
     pub(crate) fn checked_constant_terms(
         self,
@@ -299,27 +296,7 @@ where
         bray_diagnostics::DiagnosticResult<crate::CheckedConstantTerms>,
         C::UpstreamError,
     > {
-        let mut terms = BTreeMap::new();
-        let mut diagnostics = bray_diagnostics::DiagnosticBag::new();
-
-        for occurrence in template.constant_expressions() {
-            let result = self.checked_constant_expression(occurrence)?;
-
-            // The aggregate result owns diagnostics after this dependency result drops.
-            diagnostics.add_range(result.diagnostics().clone());
-            terms.insert(occurrence.key(), *result.value());
-        }
-
-        let checked = crate::CheckedConstantTerms::try_from_terms(terms).map_err(|error| {
-            crate::CheckerQueryError::Infrastructure(
-                CheckerInfrastructureError::CheckedConstantTerms(error),
-            )
-        })?;
-
-        Ok(bray_diagnostics::DiagnosticResult::new(
-            checked,
-            diagnostics,
-        ))
+        self.context.checked_constant_terms(template)
     }
 
     /// Resolves a bound source anchor without exposing its source snapshot.

@@ -339,27 +339,31 @@ impl ExpressionBinder {
             None
         };
 
-        let mut current = match (route, root_token) {
-            (Some((module, _)), _) => self.push_resolved_reference(
-                binder,
-                syntax,
-                bray_bound_tree::BoundReferenceTarget::Surface(module.into()),
-            )?,
-            (None, Some(token)) => {
-                self.bind_root_reference(binder, scope, syntax, token, access)?
-            }
-            (None, None) => match syntax.access_expressions().next() {
-                Some(nested) => {
-                    let nested_access = if syntax.internal_token().is_some() {
-                        NameAccess::Internal
-                    } else {
-                        access
-                    };
-
-                    self.bind_access_with_access(binder, scope, &nested, nested_access)?
+        let mut current = if syntax.self_type_token().is_some() {
+            self.bind_contextual_self_reference(binder, syntax)?
+        } else {
+            match (route, root_token) {
+                (Some((module, _)), _) => self.push_resolved_reference(
+                    binder,
+                    syntax,
+                    bray_bound_tree::BoundReferenceTarget::Surface(module.into()),
+                )?,
+                (None, Some(token)) => {
+                    self.bind_root_reference(binder, scope, syntax, token, access)?
                 }
-                None => self.push_error(binder, Some(syntax))?,
-            },
+                (None, None) => match syntax.access_expressions().next() {
+                    Some(nested) => {
+                        let nested_access = if syntax.internal_token().is_some() {
+                            NameAccess::Internal
+                        } else {
+                            access
+                        };
+
+                        self.bind_access_with_access(binder, scope, &nested, nested_access)?
+                    }
+                    None => self.push_error(binder, Some(syntax))?,
+                },
+            }
         };
 
         let mut failure = None;
@@ -406,6 +410,50 @@ impl ExpressionBinder {
         });
 
         failure.map_or(Ok(current), Err)
+    }
+
+    fn bind_contextual_self_reference<C>(
+        &mut self,
+        binder: &mut Binder<'_, C>,
+        syntax: &AccessExpressionSyntax,
+    ) -> BindingResult<BoundExpressionId, C::UpstreamError>
+    where
+        C: BindingQueryContext + ?Sized,
+    {
+        let symbols = binder.binding_context().symbols();
+
+        let owner = symbols
+            .symbol_for_key(binder.unit().key().declared_owner())
+            .ok_or_else(|| BindingError::MissingOwner {
+                source: binder.source_origin(syntax).source_anchor(),
+                owner: binder.unit().key().declared_owner().clone(),
+                symbol: None,
+            })?;
+
+        let context = symbols.contextual_self_scope(owner).ok_or_else(|| {
+            BindingError::ContextualSelfUnavailable(bray_declarations::SyntaxAnchor::from_node(
+                syntax,
+            ))
+        })?;
+
+        let values = binder.binding_context().semantic_values();
+
+        let ty = match context {
+            bray_symbols::SelfTypeContext::NamedType(definition) => values
+                .intern_open_named_type(symbols, definition)?
+                .ok_or(BindingError::DependencyUnavailable)?,
+            _ => values.intern_type(bray_symbols::TypeData::ContextualSelf(context))?,
+        };
+
+        self.push(
+            binder,
+            BoundExpression::Name(BoundNameExpression::new(
+                binder.source_origin(syntax),
+                bray_bound_tree::BoundReferenceTarget::TypeQualifier(ty),
+                Some(ty),
+                syntax.is_recovered(),
+            )),
+        )
     }
 
     fn bind_root_reference<C>(

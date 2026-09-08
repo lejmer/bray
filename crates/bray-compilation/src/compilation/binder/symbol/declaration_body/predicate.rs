@@ -1,5 +1,4 @@
 use crate::compilation::binder::BindingQueryResult;
-use std::collections::BTreeMap;
 
 use bray_binder::{BindingError, BindingQueryContext, BindingQueryError, SymbolQueryProvider};
 use bray_bound_tree::{BoundUnitKey, CheckedTemplateKind};
@@ -20,7 +19,7 @@ use super::super::imported::{
 };
 use super::shared::{checked_source_expression, syntax_diagnostics};
 use crate::compilation::binder::CompilationBindingContext;
-use crate::fact::{CompilationFactKey, SymbolQueryCache};
+use crate::fact::SymbolQueryCache;
 
 impl_declaration_body_query!(
     PredicateDefinitionQuery,
@@ -107,9 +106,10 @@ fn predicate_definition(
     let state = if checked.is_recovered || diagnostics.has_errors() {
         PredicateDefinitionState::Error(ErrorPredicateDefinition)
     } else {
-        PredicateDefinitionState::Defined(PredicateDefinition::new(PredicateSemanticSummary::new(
-            checked.dependency_contract,
-        )))
+        PredicateDefinitionState::Defined(PredicateDefinition::new(
+            PredicateSemanticSummary::new(checked.dependency_contract)
+                .with_condition(checked.condition),
+        ))
     };
 
     Ok(DiagnosticResult::new(state, diagnostics))
@@ -162,9 +162,25 @@ fn imported_predicate_definition(
 
             let diagnostics = state.diagnostics().merged(template_result.diagnostics());
 
-            let definition = PredicateDefinition::new(PredicateSemanticSummary::new(
-                template.template().behavior().dependency_contract(),
-            ));
+            let definition = PredicateDefinition::new(
+                PredicateSemanticSummary::new(template.template().behavior().dependency_contract())
+                    .with_condition(
+                        template
+                            .template()
+                            .result()
+                            .raw()
+                            .try_into()
+                            .ok()
+                            .and_then(|index: usize| template.template().nodes().get(index))
+                            .and_then(|node| match node.operation() {
+                                bray_bound_tree::CheckedTemplateOperation::Constant {
+                                    term,
+                                    ..
+                                } => Some(*term),
+                                _ => None,
+                            }),
+                    ),
+            );
 
             Ok(DiagnosticResult::new(
                 PredicateDefinitionState::Defined(definition),
@@ -174,68 +190,17 @@ fn imported_predicate_definition(
     }
 }
 
-fn predicate_definition_key(
+pub(in crate::compilation) fn predicate_definition_key(
     context: &CompilationBindingContext<'_>,
     owner: PredicateDefinitionSymbolId,
 ) -> BindingQueryResult<Option<BoundUnitKey>> {
-    let compilation = context.compilation();
-
-    let result = compilation.evaluate_query(
-        CompilationFactKey::PredicateDefinitionKeys,
-        &compilation.state.predicate_definition_keys,
-        || {
-            let symbols = compilation.symbol_graph()?;
-            let mut definitions = BTreeMap::new();
-
-            for key in compilation.declared_unit_keys()? {
-                if key.kind() != bray_bound_tree::BoundUnitKind::PredicateDefinition {
-                    continue;
-                }
-
-                let symbol = symbols
-                    .symbol_for_key(key.declared_owner())
-                    .ok_or_else(|| {
-                        crate::compilation::SemanticQueryFailure::contract(
-                            crate::compilation::SemanticQueryContext::Unit(key.clone()),
-                            crate::compilation::SemanticQueryViolation::Missing(
-                                crate::compilation::SemanticDataKind::Symbol,
-                            ),
-                        )
-                    })?;
-
-                let symbol =
-                    PredicateDefinitionSymbolId::try_from_any(symbol).ok_or_else(|| {
-                        crate::compilation::SemanticQueryFailure::contract(
-                            crate::compilation::SemanticQueryContext::Symbol(symbol),
-                            crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
-                                expected:
-                                    crate::compilation::SemanticSymbolCategory::PredicateDefinition,
-                                actual: symbol.kind(),
-                            },
-                        )
-                    })?;
-
-                if definitions.insert(symbol, key).is_some() {
-                    return Err(crate::compilation::SemanticQueryFailure::contract(
-                        crate::compilation::SemanticQueryContext::Symbol(symbol.into_any()),
-                        crate::compilation::SemanticQueryViolation::CountMismatch {
-                            data: crate::compilation::SemanticDataKind::BoundUnit,
-                            expected: 1,
-                            actual: 2,
-                        },
-                    )
-                    .into());
-                }
-            }
-
-            Ok(definitions)
-        },
-    );
-
-    match result {
-        Ok(definitions) => Ok(definitions.get(&owner).cloned()),
-        Err(error) => Err(super::super::binding::binder_error(error.clone())),
-    }
+    context
+        .compilation()
+        .declared_unit_key(
+            owner.into_any(),
+            bray_bound_tree::BoundUnitKind::PredicateDefinition,
+        )
+        .map_err(super::super::binding::binder_error)
 }
 
 fn predicate_origin(
@@ -369,7 +334,7 @@ mod tests {
     #[test]
     fn predicate_definition_states_do_not_duplicate_declaration_diagnostics() {
         let compilation = compilation(concat!(
-            "module app;\n",
+            "trusted module app;\n",
             "predicate missing();\n",
             "trusted predicate defined() = true;\n",
         ));

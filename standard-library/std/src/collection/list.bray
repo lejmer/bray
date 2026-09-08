@@ -1,4 +1,4 @@
-module std.collection;
+trusted module std.collection;
 
 using std.memory;
 

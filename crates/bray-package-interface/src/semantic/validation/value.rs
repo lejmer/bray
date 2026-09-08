@@ -150,6 +150,7 @@ impl InterfaceSemantics {
             InterfaceType::Callable {
                 parameters,
                 result,
+                conditions,
                 invocation_behavior,
                 deferred_execution_behavior,
                 ..
@@ -170,6 +171,8 @@ impl InterfaceSemantics {
                 }
 
                 validate_index(result.to_index(), self.types.len())?;
+
+                self.validate_callable_conditions(conditions)?;
 
                 self.validate_callable_behavior(
                     invocation_behavior,
@@ -330,6 +333,13 @@ impl InterfaceSemantics {
                     validate_index(id.to_index(), self.constant_terms.len())?;
                 }
             }
+            InterfaceConstantTerm::Test { subject, kind } => {
+                validate_index(subject.to_index(), self.constant_terms.len())?;
+
+                if let bray_symbols::ConstantTest::ActiveUnionVariant(variant) = kind {
+                    validate_symbol(variant, symbol_count, dependency_count)?;
+                }
+            }
             InterfaceConstantTerm::Projection { subject, kind } => {
                 validate_index(subject.to_index(), self.constant_terms.len())?;
                 self.validate_constant_projection(kind, symbol_count, dependency_count)?;
@@ -354,7 +364,8 @@ impl InterfaceSemantics {
                 validate_symbol(symbol, symbol_count, dependency_count)?;
             }
             InterfaceConstantProjection::TupleElement(_)
-            | InterfaceConstantProjection::NullableValue => {}
+            | InterfaceConstantProjection::NullableValue
+            | InterfaceConstantProjection::OwnedTarget => {}
         }
 
         Ok(())

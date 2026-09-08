@@ -1,16 +1,13 @@
 use bray_runtime::native::implementation;
 use bray_runtime_abi::{
-    NativeExecutionLaneResult, NativeFrameProgress, NativeInactiveFrame,
-    NativeProtectedFrameTransfer, NativeRootStart, NativeRunOutcome, NativeRunResultLayout,
-    NativeRunState, NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskAllocation,
-    NativeTaskHandle, NativeWakeCallback,
+    NativeExecutionLaneResult, NativeFrameProgress, NativeInactiveFrame, NativeRootStart,
+    NativeRunOutcome, NativeRunResultLayout, NativeRunState, NativeRuntimeConfiguration,
+    NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle, NativeWakeCallback,
 };
-
-type NativeValueCleanupCallback = extern "C-unwind" fn(*mut u8);
 
 native_adapter! {
     pub extern "C" fn bray_runtime_root_execution(
-        frame: NativeProtectedFrameTransfer,
+        frame: NativeInactiveFrame,
         configuration: NativeRuntimeConfiguration,
     ) -> NativeRootStart {
         implementation::bray_runtime_root_execution(frame, configuration)
@@ -47,20 +44,17 @@ native_adapter! {
 }
 
 native_adapter! {
-    pub extern "C-unwind" fn bray_runtime_task_observation_creation(
+    pub extern "C" fn bray_runtime_task_completion_borrow(
         task: NativeTaskHandle,
-        request_cancellation: u8,
-        layout: *const NativeRunResultLayout,
-        cancellation: Option<NativeValueCleanupCallback>,
-        lifecycle: Option<NativeValueCleanupCallback>,
-    ) -> NativeInactiveFrame {
-        implementation::bray_runtime_task_observation_creation(
-            task,
-            request_cancellation,
-            layout,
-            cancellation,
-            lifecycle,
-        )
+        destination: Option<&mut usize>,
+    ) -> NativeRuntimeStatus {
+        implementation::bray_runtime_task_completion_borrow(task, destination)
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_task_completion_borrow_release(task: NativeTaskHandle) -> NativeRuntimeStatus {
+        implementation::bray_runtime_task_completion_borrow_release(task)
     }
 }
 
@@ -68,7 +62,7 @@ native_adapter! {
     pub extern "C" fn bray_runtime_task_resolution(
         task: NativeTaskHandle,
         destination: *mut u8,
-        layout: *const NativeRunResultLayout,
+        layout: Option<&NativeRunResultLayout>,
     ) -> NativeRuntimeStatus {
         implementation::bray_runtime_task_resolution(task, destination, layout)
     }
@@ -77,22 +71,33 @@ native_adapter! {
 native_adapter! {
     pub extern "C" fn bray_runtime_task_destruction(
         task: NativeTaskHandle,
+        cleanup: Option<&'static bray_runtime_abi::NativeTaskTerminalCleanup>,
     ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_task_destruction(task)
+        implementation::bray_runtime_task_destruction(task, cleanup)
     }
 }
 
 native_adapter! {
     pub extern "C-unwind" fn bray_runtime_awaited_frame_composition(
         frame: NativeInactiveFrame,
+        entry: u8,
     ) {
-        implementation::bray_runtime_awaited_frame_composition(frame)
+        implementation::bray_runtime_awaited_frame_composition(frame, entry)
     }
 }
 
 native_adapter! {
-    pub extern "C-unwind" fn bray_runtime_frame_completion_move() -> usize {
-        implementation::bray_runtime_frame_completion_move()
+    pub extern "C-unwind" fn bray_runtime_inactive_capture_destruction(frame: NativeInactiveFrame) -> usize {
+        implementation::bray_runtime_inactive_capture_destruction(frame)
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_awaited_frame_resolution(
+        destination: *mut u8,
+        layout: &NativeRunResultLayout,
+    ) -> NativeRuntimeStatus {
+        implementation::bray_runtime_awaited_frame_resolution(destination, layout)
     }
 }
 

@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use bray_base::{NonEmptySharedStr, sorted_unique_shared_slice};
+use bray_package_interface_model::InterfaceSemanticRecordKind;
 use bray_runtime_interface::{ProtectedAsyncFrameId, RuntimeRequirements};
 use bray_symbols::{
     CallableAbi, CallableContractClauseKind, CurrentRunCancellation, LifecycleObligationKind,
@@ -17,6 +18,7 @@ use crate::InterfaceSymbolReference;
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfacePredicateSummary {
     pub(crate) dependency_contract: InterfaceDependencyContractId,
+    pub(crate) condition: Option<super::InterfaceConstantTermId>,
 }
 
 impl InterfacePredicateSummary {
@@ -24,7 +26,23 @@ impl InterfacePredicateSummary {
     pub const fn new(dependency_contract: InterfaceDependencyContractId) -> Self {
         Self {
             dependency_contract,
+            condition: None,
         }
+    }
+
+    /// Retains symbolic predicate meaning, not a proof of truth.
+    pub const fn with_condition(
+        mut self,
+        condition: Option<super::InterfaceConstantTermId>,
+    ) -> Self {
+        self.condition = condition;
+
+        self
+    }
+
+    /// Returns the retained predicate expression when available.
+    pub const fn condition(self) -> Option<super::InterfaceConstantTermId> {
+        self.condition
     }
 
     /// Returns the predicate expression's portable dependency contract.
@@ -133,9 +151,42 @@ pub struct InterfaceCallableContractClause {
     pub(crate) ordinal: SymbolOrdinal,
     pub(crate) kind: CallableContractClauseKind,
     pub(crate) value: InterfaceCallableContractClauseValue,
+    pub(crate) guard: Option<SymbolOrdinal>,
 }
 
 impl InterfaceCallableContractClause {
+    pub(crate) fn try_map_ids<E>(
+        mut self,
+        mut dependency: impl FnMut(
+            InterfaceDependencyContractId,
+        ) -> Result<InterfaceDependencyContractId, E>,
+        mut term: impl FnMut(
+            super::InterfaceConstantTermId,
+        ) -> Result<super::InterfaceConstantTermId, E>,
+        mut ty: impl FnMut(InterfaceTypeId) -> Result<InterfaceTypeId, E>,
+        mut application: impl FnMut(
+            InterfaceTraitApplicationId,
+        ) -> Result<InterfaceTraitApplicationId, E>,
+    ) -> Result<Self, E> {
+        self.value = match self.value {
+            InterfaceCallableContractClauseValue::Predicate(predicate) => {
+                InterfaceCallableContractClauseValue::Predicate(
+                    InterfacePredicateSummary::new(dependency(predicate.dependency_contract)?)
+                        .with_condition(predicate.condition.map(&mut term).transpose()?),
+                )
+            }
+            InterfaceCallableContractClauseValue::TraitSatisfaction {
+                subject,
+                application: trait_application,
+            } => InterfaceCallableContractClauseValue::TraitSatisfaction {
+                subject: ty(subject)?,
+                application: application(trait_application)?,
+            },
+        };
+
+        Ok(self)
+    }
+
     /// Creates one checked callable contract clause.
     pub const fn new(
         ordinal: SymbolOrdinal,
@@ -146,6 +197,7 @@ impl InterfaceCallableContractClause {
             ordinal,
             kind,
             value: InterfaceCallableContractClauseValue::Predicate(predicate),
+            guard: None,
         }
     }
 
@@ -158,11 +210,24 @@ impl InterfaceCallableContractClause {
         Self {
             ordinal,
             kind: CallableContractClauseKind::Static,
+            guard: None,
             value: InterfaceCallableContractClauseValue::TraitSatisfaction {
                 subject,
                 application,
             },
         }
+    }
+
+    /// Attaches an execution-entry guard without making its promise unconditional.
+    pub const fn with_guard(mut self, guard: Option<SymbolOrdinal>) -> Self {
+        self.guard = guard;
+
+        self
+    }
+
+    /// Returns the immediate guard's declaration ordinal, if conditional.
+    pub const fn guard(self) -> Option<SymbolOrdinal> {
+        self.guard
     }
 
     /// Returns the clause's stable declaration ordinal.
@@ -299,67 +364,65 @@ impl InterfaceCallablePhaseBehavior {
     }
 }
 
+impl bray_symbols::CallableConditionClause for InterfaceCallableContractClause {
+    fn kind(&self) -> CallableContractClauseKind {
+        self.kind
+    }
+
+    fn guard(&self) -> Option<SymbolOrdinal> {
+        self.guard
+    }
+}
+
 /// Checked phase-separated contracts for one callable.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct InterfaceCallableContract {
     pub(crate) owner: InterfaceSymbolReference,
-    pub(crate) invocation_preconditions: Arc<[InterfaceCallableContractClause]>,
-    pub(crate) static_constraints: Arc<[InterfaceCallableContractClause]>,
-    pub(crate) normal_completion_postconditions: Arc<[InterfaceCallableContractClause]>,
+    conditions: bray_symbols::CallableConditionSet<InterfaceCallableContractClause>,
     pub(crate) invocation_behavior: InterfaceCallablePhaseBehavior,
     pub(crate) deferred_execution_behavior: Option<InterfaceCallablePhaseBehavior>,
+    evidence: Arc<[bray_symbols::CallableContractEvidence<InterfaceSymbolReference>]>,
 }
 
 impl InterfaceCallableContract {
-    /// Creates a complete phase-separated callable contract surface.
+    /// Creates a complete phase-separated callable contract.
     pub fn new(
         owner: InterfaceSymbolReference,
         clauses: impl IntoIterator<Item = InterfaceCallableContractClause>,
         invocation_behavior: InterfaceCallablePhaseBehavior,
         deferred_execution_behavior: Option<InterfaceCallablePhaseBehavior>,
     ) -> Self {
-        let mut invocation_preconditions = Vec::new();
-        let mut static_constraints = Vec::new();
-        let mut normal_completion_postconditions = Vec::new();
-
-        for clause in clauses {
-            match clause.kind {
-                CallableContractClauseKind::Requires => invocation_preconditions.push(clause),
-                CallableContractClauseKind::Ensures => {
-                    normal_completion_postconditions.push(clause);
-                }
-                CallableContractClauseKind::Static => static_constraints.push(clause),
-            }
-        }
-
         Self {
             owner,
-            invocation_preconditions: invocation_preconditions.into(),
-            static_constraints: static_constraints.into(),
-            normal_completion_postconditions: normal_completion_postconditions.into(),
+            conditions: bray_symbols::CallableConditionSet::new(clauses),
             invocation_behavior,
             deferred_execution_behavior,
+            evidence: Arc::from([]),
         }
+    }
+
+    /// Attaches implementation evidence to the declared contract in promise order.
+    pub fn with_evidence(
+        mut self,
+        evidence: impl IntoIterator<
+            Item = bray_symbols::CallableContractEvidence<InterfaceSymbolReference>,
+        >,
+    ) -> Self {
+        let mut evidence = evidence.into_iter().collect::<Vec<_>>();
+        evidence.sort_by_key(bray_symbols::CallableContractEvidence::obligation);
+        self.evidence = evidence.into();
+
+        self
+    }
+
+    /// Returns supplied promises, their proof authority, and their dependencies.
+    pub fn evidence(&self) -> &[bray_symbols::CallableContractEvidence<InterfaceSymbolReference>] {
+        &self.evidence
     }
 
     /// Returns the callable that owns this contract.
     pub const fn owner(&self) -> &InterfaceSymbolReference {
         &self.owner
-    }
-
-    /// Returns preconditions checked before invocation.
-    pub fn invocation_preconditions(&self) -> &[InterfaceCallableContractClause] {
-        &self.invocation_preconditions
-    }
-
-    /// Returns constraints checked during selection or instantiation.
-    pub fn static_constraints(&self) -> &[InterfaceCallableContractClause] {
-        &self.static_constraints
-    }
-
-    /// Returns postconditions published only after normal completion.
-    pub fn normal_completion_postconditions(&self) -> &[InterfaceCallableContractClause] {
-        &self.normal_completion_postconditions
     }
 
     /// Returns behavior incurred while invoking the callable.
@@ -370,6 +433,18 @@ impl InterfaceCallableContract {
     /// Returns body behavior retained by a future and transferred to a started task.
     pub const fn deferred_execution_behavior(&self) -> Option<&InterfaceCallablePhaseBehavior> {
         self.deferred_execution_behavior.as_ref()
+    }
+}
+
+impl bray_symbols::CallableConditions for InterfaceCallableContract {
+    type Clause = InterfaceCallableContractClause;
+
+    fn conditions(&self) -> &bray_symbols::CallableConditionSet<Self::Clause> {
+        &self.conditions
+    }
+
+    fn conditions_mut(&mut self) -> &mut bray_symbols::CallableConditionSet<Self::Clause> {
+        &mut self.conditions
     }
 }
 
@@ -518,58 +593,6 @@ pub struct InterfaceSourceProvenance {
     pub(crate) document: NonEmptySharedStr,
     pub(crate) start: u32,
     pub(crate) end: u32,
-}
-
-/// Symbol-owned semantic record category addressable through the record directory.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum InterfaceSemanticRecordKind {
-    /// Complete source-independent callable signature template.
-    CallableSignature,
-    /// Ordered generic declaration template.
-    GenericDeclaration,
-    /// Callable parameter default-template presence.
-    CallableParameterDefault,
-    /// Validated predicate definition form.
-    PredicateDefinition,
-    /// Checked type owned by a declaration.
-    DeclaredType,
-    /// Complete declared type representation contract.
-    TypeRepresentation,
-    /// Checked generic constraint.
-    GenericConstraint,
-    /// Complete callable contract set.
-    CallableContracts,
-    /// Source-independent checked declaration-owned template.
-    DeclarationTemplate,
-    /// Public implementation subject and applied trait.
-    Implementation,
-    /// Required target property value.
-    TargetProperty,
-    /// Required callable ABI.
-    Abi,
-    /// Required portable runtime ABI and protected-frame compatibility.
-    Runtime,
-}
-
-impl InterfaceSemanticRecordKind {
-    /// Returns the stable machine key for this semantic record category.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::CallableSignature => "callable_signature",
-            Self::GenericDeclaration => "generic_declaration",
-            Self::CallableParameterDefault => "callable_parameter_default",
-            Self::PredicateDefinition => "predicate_definition",
-            Self::DeclaredType => "declared_type",
-            Self::TypeRepresentation => "type_representation",
-            Self::GenericConstraint => "generic_constraint",
-            Self::CallableContracts => "callable_contracts",
-            Self::DeclarationTemplate => "declaration_template",
-            Self::Implementation => "implementation",
-            Self::TargetProperty => "target_property",
-            Self::Abi => "abi",
-            Self::Runtime => "runtime",
-        }
-    }
 }
 
 /// One stable record-directory entry.

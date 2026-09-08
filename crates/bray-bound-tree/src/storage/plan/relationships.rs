@@ -10,6 +10,7 @@ pub(super) const fn identity_is_distinct_storage(identity: StorageIdentity) -> b
             | StorageIdentity::Receiver(_)
             | StorageIdentity::AnonymousParameter(_)
             | StorageIdentity::PredicateParameter(_)
+            | StorageIdentity::ContractParameter(_)
             | StorageIdentity::PostconditionResult(_)
             | StorageIdentity::Result(_)
             | StorageIdentity::Temporary(_)

@@ -66,6 +66,8 @@ internal func stream_policy_value(policy: ChildStreamPolicy) -> u32
 }
 
 internal func child_status(pos status: std.platform.PlatformStatus, kind: ChildErrorKind) -> Result<unit, ChildError>
+    executes(pure, total)
+    ensures((result matches Error(_)) || (status.category == 0 && status.reserved == 0))
 {
     match internal std.io.checked_status(status)
     {

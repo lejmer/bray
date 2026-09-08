@@ -2,7 +2,8 @@ use std::path::{Path, PathBuf};
 
 use bray_target::NativeTarget;
 
-use super::core::{executable_path, native_output, object_files};
+use super::artifact::object_files;
+use super::core::{executable_path, native_output};
 
 pub(super) struct BuiltFixture {
     executable: bray_emitter::PublishedArtifact,

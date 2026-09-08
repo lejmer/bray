@@ -110,6 +110,7 @@ impl Compilation {
         let patterns = self.patterns_with_cancellation(key.clone(), cancellation)?;
         let storage = self.storage_plan_with_cancellation(key.clone(), cancellation)?;
         let body = self.body_semantics_with_cancellation(key.clone(), cancellation)?;
+        let proofs = self.callable_proofs_with_cancellation(key.clone(), cancellation)?;
         let behavior = self.body_behavior_with_cancellation(key.clone(), cancellation)?;
 
         let (constant_reference_values, constant_reference_diagnostics) =
@@ -122,6 +123,7 @@ impl Compilation {
             patterns.result().diagnostics(),
             storage.result().diagnostics(),
             body.result().diagnostics(),
+            proofs.result().diagnostics(),
             behavior.result().diagnostics(),
             &constant_reference_diagnostics,
         ]);
@@ -164,6 +166,7 @@ impl Compilation {
             self.available_compiler_known_symbols(),
             body.result().value().asynchronous(),
         )
+        .and_then(|plans| plans.with_cleanup_proofs(proofs.result().value()))
         .map_err(LoweringInputError::from);
 
         let input = lowering_plans
@@ -468,6 +471,7 @@ fn lowering_failure_source(
             identity_source(unit, storage, *identity).unwrap_or_else(|| unit_source(unit))
         }
         LoweringError::MissingCallableResultType
+        | LoweringError::MissingCleanupExecution(_)
         | LoweringError::MissingRepresentation(_)
         | LoweringError::SemanticValueUnavailable
         | LoweringError::GenericSubstitution(_)
@@ -1019,7 +1023,7 @@ mod tests {
     #[test]
     fn borrowed_atomic_lock_loop_lowers() {
         let compilation = compilation(concat!(
-            "module app;\n",
+            "trusted module app;\n",
             "\n",
             "trusted func wait(pos lock: &core.atomic.Atomic<u32>, pos expected: u32)\n",
             "{\n",
@@ -1468,7 +1472,7 @@ mod tests {
         let compilation = compilation(UNIT_ROOT_LOWERING_SOURCE);
 
         let (outer, nested) = compilation
-            .declared_unit_keys()
+            .declared_unit_keys_for_test()
             .unwrap_or_else(|error| panic!("declared units must be available: {error:?}"))
             .into_iter()
             .filter(|key| key.kind() == BoundUnitKind::CallableBody)
@@ -1526,7 +1530,35 @@ mod tests {
             panic!("async callable MIR must carry a protected-frame descriptor");
         };
 
-        assert_eq!(frame.states().len(), 2);
+        let ordinary_suspensions = mir
+            .blocks()
+            .iter()
+            .filter(|block| block.kind() == bray_ir::MirBlockKind::Ordinary)
+            .filter(|block| {
+                matches!(
+                    block.terminator().kind(),
+                    MirTerminatorKind::Suspend {
+                        cancellation: Some(_),
+                        ..
+                    }
+                )
+            })
+            .count();
+
+        assert_eq!(ordinary_suspensions, 1);
+
+        assert_eq!(
+            frame.states().len(),
+            1 + mir
+                .blocks()
+                .iter()
+                .filter(|block| matches!(
+                    block.terminator().kind(),
+                    MirTerminatorKind::Suspend { .. }
+                ))
+                .count()
+        );
+
         assert!(!frame.states()[1].initialized_storages().is_empty());
 
         assert!(mir.operations().iter().any(|operation| matches!(
@@ -1548,6 +1580,45 @@ mod tests {
                 ..
             })
         )));
+    }
+
+    #[test]
+    fn direct_await_resolves_typed_outcomes_inside_and_outside_catch() {
+        for caught in [false, true] {
+            let awaited = if caught {
+                "catch await child()"
+            } else {
+                "await child()"
+            };
+
+            let source = format!(
+                "module app; async func main() {{ let result = {awaited}; }} async func child() -> i32 {{ panic(\"child failure\"); }}"
+            );
+
+            let compilation = compilation(&source);
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{:?}",
+                compilation.check_diagnostics()
+            );
+
+            let lowered = compilation
+                .lowered_unit(source_callable_body_key(&compilation))
+                .expect("await lowering");
+
+            let mir = lowered_mir(&lowered);
+
+            assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::ResolveAwaitedFrame { runtime, .. })
+                    if runtime.role() == bray_runtime_interface::RuntimeAbiRole::AwaitedFrameResolution
+            )));
+
+            assert!(mir.blocks().iter().any(|block| matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::PatternBranch { .. }
+            )));
+        }
     }
 
     #[test]
@@ -1635,10 +1706,65 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
                 .filter(|block| block.kind() != bray_ir::MirBlockKind::Ordinary)
                 .all(|block| !matches!(
                     block.terminator().kind(),
-                    MirTerminatorKind::Suspend { .. }
+                    MirTerminatorKind::Suspend {
+                        cancellation: Some(_),
+                        ..
+                    }
                 )),
-            "cleanup array loops must not suspend with an unretained counter: {mir:?}"
+            "cleanup suspensions must preserve the cancellation shield"
         );
+    }
+
+    #[test]
+    fn nested_array_cleanup_retains_counters_across_async_finalization() {
+        let compilation = compilation(
+            r#"module app;
+struct Guard { async finalize() {} destruct() {} }
+async func take(pos value: Guard) {}
+async func partial(pos values: [[Guard; 2]; 2], pos index: usize)
+{
+    await take(values[index][0]);
+}
+"#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let result = compilation
+            .lowered_unit(source_function_body_key(&compilation, "partial"))
+            .unwrap();
+
+        let mir = lowered_mir(&result);
+        let frame = mir.frame_descriptor().unwrap();
+
+        let counters = mir
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                MirOperationKind::Binary {
+                    operator: bray_ir::MirBinaryOperator::Subtract,
+                    left: bray_ir::MirOperand::Copy(place),
+                    ..
+                } => Some(place.storage()),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>();
+
+        assert!(!counters.is_empty());
+
+        for counter in counters {
+            assert!(
+                frame
+                    .states()
+                    .iter()
+                    .any(|state| state.initialized_storages().contains(&counter)),
+                "cleanup counter {counter:?} must survive suspension"
+            );
+        }
     }
 
     #[test]
@@ -1665,6 +1791,347 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
                 .iter()
                 .all(|state| { state.lane_requirements() == [ExecutionLaneRequirement::Blocking] })
         );
+    }
+
+    #[test]
+    fn raw_buffer_release_and_replacement_lower_checked_lifecycle_before_transfer() {
+        let request = CompilationRequest::new(PackageIdentity::try_new("std").unwrap(), vec![source_input(r#"
+trusted module std.memory;
+struct RawBuffer<T> { pointer: RawPointer<T>; capacity: usize; initialized: usize; }
+extern trusted internal func raw_buffer_release<T>(pos buffer: &mut RawBuffer<T>) -> unit uses(manual_alloc);
+extern trusted internal func raw_buffer_replace<T>(pos destination: &mut RawBuffer<T>, pos source: &mut RawBuffer<T>) -> unit uses(manual_alloc);
+trusted func release(pos buffer: &mut RawBuffer<u8>) {
+    trusted internal raw_buffer_release<u8>(buffer);
+}
+trusted func replace(pos destination: &mut RawBuffer<u8>, pos source: &mut RawBuffer<u8>) {
+    trusted internal raw_buffer_replace<u8>(destination, source);
+}
+"#, 0)]).with_standard_library_source_authority();
+
+        let compilation = Compilation::load(request).unwrap();
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        for name in ["release", "replace"] {
+            let lowered = compilation
+                .lowered_unit(source_function_body_key(&compilation, name))
+                .unwrap();
+
+            let mir = lowered_mir(&lowered);
+
+            let cleanup = mir
+                .blocks()
+                .iter()
+                .find(|block| {
+                    block.operations().iter().any(|id| {
+                        matches!(
+                            mir.operation(*id).unwrap().kind(),
+                            MirOperationKind::Destroy(_)
+                        )
+                    })
+                })
+                .unwrap();
+
+            let MirTerminatorKind::CheckCallOutcome {
+                completed,
+                panicked,
+                cancelled,
+            } = cleanup.terminator().kind()
+            else {
+                panic!("buffer cleanup must retain checked outcome continuations");
+            };
+
+            assert!(!mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Memory(memory)
+                if matches!(memory.kind(), CheckedMemoryOperationKind::RawBufferRelease { .. } | CheckedMemoryOperationKind::RawBufferReplace { .. }))));
+
+            let transferred = mir
+                .block(completed.target())
+                .unwrap()
+                .operations()
+                .iter()
+                .filter_map(|id| match mir.operation(*id).unwrap().kind() {
+                    MirOperationKind::Store {
+                        kind: MirStoreKind::Assign,
+                        value: MirOperand::Move(_),
+                        ..
+                    } => Some(id),
+                    _ => None,
+                })
+                .count();
+
+            assert_eq!(transferred, usize::from(name == "replace"));
+
+            for failed in [panicked.target(), cancelled.target()] {
+                assert!(mir.reachable_blocks([failed]).iter().all(|id| {
+                    !mir.block(*id).unwrap().operations().iter().any(|id| {
+                        matches!(
+                            mir.operation(*id).unwrap().kind(),
+                            MirOperationKind::Store {
+                                kind: MirStoreKind::Assign,
+                                value: MirOperand::Move(_),
+                                ..
+                            }
+                        )
+                    })
+                }));
+            }
+        }
+    }
+
+    #[test]
+    fn borrowed_raw_buffer_cleanup_enforces_element_finalization_requirements() {
+        use bray_diagnostics::DiagnosticKind;
+
+        for (element, declarations, asynchronous, expected) in [
+            ("u8", "", false, None),
+            (
+                "Task<unit>",
+                "",
+                false,
+                Some(DiagnosticKind::CheckingAsyncFinalizationInSynchronousContext),
+            ),
+            ("Task<unit>", "", true, None),
+            (
+                "Leaf",
+                "struct Leaf { async finalize() {} }",
+                false,
+                Some(DiagnosticKind::CheckingAsyncFinalizationInSynchronousContext),
+            ),
+            ("Leaf", "struct Leaf { async finalize() {} }", true, None),
+            (
+                "Leaf",
+                "struct Leaf { async finalize() executes(pure, total) {} }",
+                false,
+                None,
+            ),
+            (
+                "Leaf",
+                "struct Leaf { finalize() -> Result<unit, unit> executes(pure, total) ensures(result matches Ok(_)) { return Ok(unit); } }",
+                false,
+                None,
+            ),
+            (
+                "Leaf",
+                "struct Leaf { async finalize() -> Result<unit, unit> when(true) { executes(pure, total) ensures(result matches Ok(_)) } { return Ok(unit); } }",
+                false,
+                None,
+            ),
+            (
+                "Owner",
+                "struct Owner { leaf: Leaf; } struct Leaf { async finalize() executes(pure, total) {} }",
+                false,
+                None,
+            ),
+            (
+                "Leaf",
+                "struct Leaf { ready: bool; async finalize() when(self.ready) { executes(pure, total) } {} }",
+                false,
+                Some(DiagnosticKind::CheckingAsyncFinalizationInSynchronousContext),
+            ),
+            (
+                "Owner",
+                "struct Owner { leaf: Leaf; finalize() executes(pure, total) {} } struct Leaf { async finalize() {} }",
+                false,
+                Some(DiagnosticKind::CheckingAsyncFinalizationInSynchronousContext),
+            ),
+            (
+                "Leaf",
+                "struct Leaf { finalize() -> Result<unit, unit> executes(pure, total) ensures(result matches Ok(_)) { return Error(unit); } }",
+                false,
+                Some(DiagnosticKind::CheckingUnprovenFinalizationCompletion),
+            ),
+            (
+                "Leaf",
+                "struct Leaf { finalize() -> Result<unit, unit> { return Error(unit); } }",
+                false,
+                Some(DiagnosticKind::CheckingUnresolvedFinalization),
+            ),
+            (
+                "Leaf",
+                "struct Leaf { finalize() -> Result<unit, unit> { return Error(unit); } }",
+                true,
+                Some(DiagnosticKind::CheckingUnresolvedFinalization),
+            ),
+            (
+                "Owner",
+                "struct Owner { leaf: Leaf; } struct Leaf { finalize() -> Result<unit, unit> { return Error(unit); } }",
+                true,
+                Some(DiagnosticKind::CheckingUnresolvedFinalization),
+            ),
+        ] {
+            let mode = if asynchronous { "async " } else { "" };
+
+            let source = format!(
+                "trusted module std.memory; struct RawBuffer<T> {{ pointer: RawPointer<T>; capacity: usize; initialized: usize; }}\n{declarations}\nextern trusted internal func raw_buffer_release<T>(pos buffer: &mut RawBuffer<T>) -> unit uses(manual_alloc);\ntrusted {mode}func release(pos buffer: &mut RawBuffer<{element}>) {{ trusted internal raw_buffer_release<{element}>(buffer); }}"
+            );
+
+            let request = CompilationRequest::new(
+                PackageIdentity::try_new("std").unwrap(),
+                vec![source_input(&source, 0)],
+            )
+            .with_standard_library_source_authority();
+
+            let compilation = Compilation::load(request).unwrap();
+            let diagnostics = compilation.check_diagnostics();
+
+            if let Some(expected) = expected {
+                assert!(
+                    diagnostics
+                        .iter()
+                        .any(|diagnostic| diagnostic.kind() == expected),
+                    "{element}, async={asynchronous}: {diagnostics:?}"
+                );
+            } else {
+                assert!(
+                    !diagnostics.has_errors(),
+                    "{element}, async={asynchronous}: {diagnostics:?}"
+                );
+
+                let result = compilation
+                    .lowered_unit(source_function_body_key(&compilation, "release"))
+                    .unwrap();
+
+                assert!(
+                    result.value().as_ref().and_then(LoweredUnit::mir).is_some(),
+                    "{result:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn inactive_capture_cleanup_precedes_body_moves_and_returns() {
+        let compilation = compilation(
+            r#"module app;
+struct Guard { async finalize() {} destruct() {} }
+async func take(pos value: Guard) {}
+async func returned(pos value: Guard) -> Guard { return value; }
+async func consumed(pos value: Guard) { await take(value); }
+async func borrowed(pos value: &Guard) {}
+async func plain(pos value: i32) -> i32 { return value; }
+async func empty() {}
+func regular(pos value: i32) {}
+"#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        for (name, count, mode) in [
+            ("returned", 1, bray_symbols::CallableExecution::Asynchronous),
+            ("consumed", 1, bray_symbols::CallableExecution::Asynchronous),
+            ("borrowed", 1, bray_symbols::CallableExecution::Synchronous),
+            ("plain", 1, bray_symbols::CallableExecution::Synchronous),
+            ("empty", 0, bray_symbols::CallableExecution::Synchronous),
+        ] {
+            let key = source_function_body_key(&compilation, name);
+            let analysis = compilation.async_analysis(key.clone()).unwrap();
+            let cleanup = analysis.value().capture_cleanup().unwrap();
+            let storage = compilation.storage_plan(key.clone()).unwrap();
+
+            assert_eq!(cleanup.captures().len(), count, "{name}");
+            assert_eq!(cleanup.execution(), Some(mode), "{name}");
+            assert!(!cleanup.is_recovered(), "{name}");
+
+            assert!(cleanup.captures().iter().all(|access| {
+                storage
+                    .value()
+                    .root_identity(*access)
+                    .and_then(|identity| storage.value().identity(identity))
+                    .is_some_and(bray_bound_tree::StorageIdentity::is_parameter)
+            }));
+
+            let lowered = compilation.lowered_unit(key).unwrap();
+            let mir = lowered_mir(&lowered);
+            let entry = mir.frame_descriptor().unwrap().inactive_cleanup().unwrap();
+
+            let (quiescence, destruction) = mir
+                .frame_descriptor()
+                .unwrap()
+                .capture_abandonment()
+                .unwrap();
+
+            for block in mir.reachable_blocks([entry]) {
+                let block = mir.block(block).unwrap();
+
+                if block.kind() == bray_ir::MirBlockKind::Ordinary {
+                    assert!(
+                        block.operations().iter().all(|operation| matches!(
+                            mir.operation(*operation).unwrap().kind(),
+                            MirOperationKind::Async(
+                                bray_ir::MirAsyncOperation::PublishTerminalState {
+                                    state: bray_ir::MirTaskTerminalState::Cancelled
+                                        | bray_ir::MirTaskTerminalState::Panicked(_),
+                                    ..
+                                }
+                            )
+                        )),
+                        "inactive cleanup can only enter terminal publication, never {name}'s body"
+                    );
+
+                    assert!(matches!(
+                        block.terminator().kind(),
+                        MirTerminatorKind::Return(None)
+                    ));
+                }
+            }
+
+            for (entry, synchronous) in [(quiescence, false), (destruction, true)] {
+                let reachable = mir.reachable_blocks([entry]);
+
+                let operations = reachable
+                    .iter()
+                    .flat_map(|id| mir.block(*id).unwrap().operations())
+                    .map(|id| mir.operation(*id).unwrap().kind())
+                    .collect::<Vec<_>>();
+
+                assert_eq!(
+                    operations
+                        .iter()
+                        .filter(|operation| matches!(
+                            operation,
+                            MirOperationKind::Async(
+                                bray_ir::MirAsyncOperation::PublishTerminalState {
+                                    state: bray_ir::MirTaskTerminalState::CapturesCompleted,
+                                    ..
+                                }
+                            )
+                        ))
+                        .count(),
+                    1
+                );
+
+                assert!(!operations.iter().any(|operation| matches!(
+                    operation,
+                    MirOperationKind::Finalize(_)
+                        | MirOperationKind::Destroy(_)
+                        | MirOperationKind::Cleanup {
+                            phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                            ..
+                        }
+                )));
+
+                if synchronous {
+                    assert!(reachable.iter().all(|id| !matches!(
+                        mir.block(*id).unwrap().terminator().kind(),
+                        MirTerminatorKind::Suspend { .. }
+                    )));
+                }
+            }
+        }
+
+        let analysis = compilation
+            .async_analysis(source_function_body_key(&compilation, "regular"))
+            .unwrap();
+
+        assert!(analysis.value().capture_cleanup().is_none());
     }
 
     #[test]
@@ -2718,6 +3185,20 @@ func main(pos value: i32?) -> i32?
                 CheckedMemoryOperationKind::RawDeallocate,
             ]
         );
+
+        let mir = lowered_mir(&result);
+
+        for block in mir.blocks().iter().filter(|block| {
+            block.operations().last().is_some_and(|id| {
+                matches!(mir.operation(*id).unwrap().kind(), MirOperationKind::Memory(memory)
+                if memory.standard_library_helper().is_some())
+            })
+        }) {
+            assert!(matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::CheckCallOutcome { .. }
+            ));
+        }
     }
 
     #[test]
@@ -3654,7 +4135,7 @@ func read(pos owner: &Owner) -> i32
 
     fn declared_unit_key(compilation: &Compilation, kind: BoundUnitKind) -> BoundUnitKey {
         compilation
-            .declared_unit_keys()
+            .declared_unit_keys_for_test()
             .unwrap_or_else(|error| panic!("declared units must be available: {error:?}"))
             .into_iter()
             .find(|key| key.kind() == kind)

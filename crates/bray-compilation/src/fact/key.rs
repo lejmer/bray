@@ -460,12 +460,8 @@ pub(crate) enum CompilationFactKey {
     BoundUnit(BoundUnitKey),
     /// Diagnostics for the current whole-compilation check boundary.
     CheckDiagnostics,
-    /// Source constant definitions mapped to their exact expression units.
-    ConstantTemplateKeys,
-    /// Source callable definitions mapped to their exact body units.
-    CallableBodyKeys,
-    /// Source predicate definitions mapped to their exact expression units.
-    PredicateDefinitionKeys,
+    /// The ordered source units and their primary declaration lookup index.
+    DeclaredUnits,
     /// One concrete constant value for an exact semantic instance and target profile.
     ConstantInstance(ConstantInstanceQueryKey),
     /// One selected constant-call evaluation for exact arguments, target, and limits.
@@ -482,6 +478,8 @@ pub(crate) enum CompilationFactKey {
     MemoryOperations(BoundUnitKey),
     /// Correlated immutable flow, storage, dependency, async, and behavior semantics.
     BodySemantics(BoundUnitKey),
+    /// Dependency-validated callable execution guarantees and postconditions.
+    CallableProofs(BoundUnitKey),
     /// Reachable normalized behavior of one checked semantic body.
     CheckedBodyBehavior(BoundUnitKey),
     /// The lowering result for one exact checked semantic unit.
@@ -624,6 +622,7 @@ impl CompilationFactKey {
             | Self::StoragePlan(key)
             | Self::MemoryOperations(key)
             | Self::BodySemantics(key)
+            | Self::CallableProofs(key)
             | Self::CheckedBodyBehavior(key)
             | Self::LoweredUnit(key)
             | Self::DeclaredValueTypeTemplates(key)
@@ -636,9 +635,7 @@ impl CompilationFactKey {
             | Self::ModuleContributionGate(_)
             | Self::CallableTypeDirectives(_)
             | Self::CheckDiagnostics
-            | Self::ConstantTemplateKeys
-            | Self::CallableBodyKeys
-            | Self::PredicateDefinitionKeys
+            | Self::DeclaredUnits
             | Self::NativeProduct(_)
             | Self::ConstantInstance(_)
             | Self::ConstantCall(_)

@@ -161,15 +161,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )
     }
 
-    pub(super) fn checked_call_panic_report_context(
-        &mut self,
-    ) -> Result<PointerValue<'context>, CodegenFailure> {
-        match self.panic_report_context {
-            Some(context) => Ok(context),
-            None => self.allocate_panic_report_context(),
-        }
-    }
-
     fn branch_on_checked_default(
         &mut self,
         defaults: &CheckedDefaultEvaluation<'context>,
@@ -223,17 +214,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         llvm(self.builder.build_unconditional_branch(finished))?;
 
         self.builder.position_at_end(defaults.panicked);
+
         llvm(self.builder.build_unconditional_branch(finished))?;
 
         self.builder.position_at_end(finished);
 
-        if self
-            .pending_call_panic_report_context
-            .replace(defaults.context)
-            .is_some()
-        {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        }
+        self.retain_checked_call_context(defaults.context)?;
 
         let Some(result) = result else {
             return Ok(None);

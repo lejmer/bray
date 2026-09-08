@@ -3,7 +3,7 @@ use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use bray_base::{FileReplacementMode, StagedFile};
+use bray_base::write_file_atomically;
 use bray_compilation::{
     Compilation, CompilationLoadError, CompilationProfileReport, CompilationRequest,
 };
@@ -581,17 +581,7 @@ fn publish_artifact(
     bytes: &[u8],
     diagnostic_id: DiagnosticId,
 ) -> Result<(), Diagnostic> {
-    let mut staging =
-        StagedFile::create(destination, FileReplacementMode::ReplaceExisting, None)
-            .map_err(|error| artifact_write_failure(diagnostic_id, destination, error.kind()))?;
-
-    staging
-        .write_all(bytes)
-        .map_err(|error| artifact_write_failure(diagnostic_id, destination, error.kind()))?;
-
-    staging
-        .finish()
-        .and_then(|staged| staged.promote(destination))
+    write_file_atomically(destination, bytes)
         .map_err(|error| artifact_write_failure(diagnostic_id, destination, error.kind()))
 }
 

@@ -8,15 +8,19 @@ struct BufferedReader<Source>
     internal mut start: usize;
     internal mut length: usize;
 
-    construct(pos source: Source, capacity: usize) -> Result<Self, IoError>
+    construct(pos source: Source, capacity: usize) -> Result<Self, (Source, IoError)>
         requires(capacity > 0)
     {
         if capacity == 0
         {
-            return Error(io_error(kind = InvalidInput, native_code = 0, transferred = 0));
+            return Error((source, io_error(kind = InvalidInput, native_code = 0, transferred = 0)));
         }
 
-        let storage: std.bytes.Buffer = try allocate_fixed_buffer(capacity = capacity);
+        let storage: std.bytes.Buffer = match allocate_fixed_buffer(capacity = capacity)
+        {
+            case Ok(storage) { yield storage; }
+            case Error(error) { return Error((source, error)); }
+        };
 
         let reader: BufferedReader<Source> =
         {
@@ -39,15 +43,19 @@ struct BufferedWriter<Sink>
     internal mut start: usize;
     internal mut length: usize;
 
-    construct(pos sink: Sink, capacity: usize) -> Result<Self, IoError>
+    construct(pos sink: Sink, capacity: usize) -> Result<Self, (Sink, IoError)>
         requires(capacity > 0)
     {
         if capacity == 0
         {
-            return Error(io_error(kind = InvalidInput, native_code = 0, transferred = 0));
+            return Error((sink, io_error(kind = InvalidInput, native_code = 0, transferred = 0)));
         }
 
-        let storage: std.bytes.Buffer = try allocate_fixed_buffer(capacity = capacity);
+        let storage: std.bytes.Buffer = match allocate_fixed_buffer(capacity = capacity)
+        {
+            case Ok(storage) { yield storage; }
+            case Error(error) { return Error((sink, error)); }
+        };
 
         let writer: BufferedWriter<Sink> =
         {

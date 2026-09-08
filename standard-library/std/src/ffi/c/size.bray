@@ -1,5 +1,5 @@
 @target(target.c.SIZE == "usize")
-module std.ffi.c;
+trusted module std.ffi.c;
 
 @copy
 @layout(transparent)

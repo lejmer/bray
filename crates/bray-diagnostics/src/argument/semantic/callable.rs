@@ -1,6 +1,16 @@
 use super::super::{DiagnosticArg, DiagnosticArgName, DiagnosticArgValue};
 
 impl DiagnosticArg {
+    /// Creates an exact callable-value contract mismatch argument.
+    pub const fn callable_contract_mismatch(
+        mismatch: crate::DiagnosticCallableContractMismatch,
+    ) -> Self {
+        Self::new(
+            DiagnosticArgName::CallableContractMismatch,
+            DiagnosticArgValue::CallableContractMismatch(mismatch),
+        )
+    }
+
     /// Creates an exact invalid native-link directive problem argument.
     pub const fn native_link_directive_problem(
         problem: crate::DiagnosticNativeLinkDirectiveProblem,

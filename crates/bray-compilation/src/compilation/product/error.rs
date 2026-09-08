@@ -9,7 +9,6 @@ use bray_ir::{
     MirUnitKey,
 };
 use bray_package_interface::InterfaceNativeBoundaryKind;
-use bray_runtime_interface::ExecutableEntryResult;
 use bray_source::{SourceId, SourceVersion, TextSize, TextSizeOverflow};
 use bray_symbols::{
     AnySymbolId, CallableDefinitionId, CallableInstanceData, ConstantValueId, ConstantValueKind,
@@ -211,8 +210,6 @@ pub(crate) enum ProductDataKind {
     CompilerKnownRepresentation,
     /// A generated lifecycle role.
     LifecycleRole,
-    /// A type-associated lifecycle member.
-    LifecycleMember,
     /// The semantic type owned by a lifecycle helper.
     LifecycleType,
     /// A realized static instance.
@@ -462,30 +459,6 @@ pub(crate) enum ProductQueryFailure {
         /// The rejected declaration key.
         key: String,
     },
-    /// A recognized standard-library declaration key literal is invalid.
-    InvalidRecognizedStandardLibraryDeclarationKey {
-        /// The rejected declaration key.
-        key: String,
-    },
-    /// A package identity literal is invalid.
-    InvalidPackageIdentity {
-        /// The rejected package identity.
-        identity: String,
-    },
-    /// An executable entry produced a result shape unsupported by the selected host contract.
-    UnexpectedEntryResult {
-        /// The unsupported entry result shape.
-        actual: ExecutableEntryResult,
-    },
-    /// A semantic type maps to a different compiler-known representation than required.
-    CompilerKnownRepresentationMismatch {
-        /// The exact semantic type whose representation was inspected.
-        ty: TypeId,
-        /// The required compiler-known representation.
-        expected: bray_compiler_known::RepresentationRole,
-        /// The representation retained by the type, when compiler-known.
-        actual: Option<bray_compiler_known::RepresentationRole>,
-    },
     /// An imported native static reference resolved to another native-boundary kind.
     NativeBoundaryKindMismatch {
         /// The exact static reference being realized.
@@ -608,13 +581,6 @@ pub(crate) enum ProductQueryFailure {
         /// The exact rejected path segments.
         segments: Box<[String]>,
     },
-    /// An entry result type has no runtime representation supported by static finalization.
-    UnsupportedEntryResultType {
-        /// The exact semantic result type.
-        ty: TypeId,
-        /// Its compiler-known representation, when one exists.
-        actual: Option<bray_compiler_known::RepresentationRole>,
-    },
     /// Code generation request construction rejected one partitioned unit.
     InvalidCodegenRequest {
         /// The exact partitioned code generation unit.
@@ -681,9 +647,7 @@ impl ProductQueryFailure {
             | Self::InvalidCodegenSourceFile { .. }
             | Self::SourceIndex { .. }
             | Self::ExternalSymbolIdentity { .. }
-            | Self::InvalidCompilerKnownDeclarationKey { .. }
-            | Self::InvalidRecognizedStandardLibraryDeclarationKey { .. }
-            | Self::InvalidPackageIdentity { .. } => ProductQueryErrorKind::Identity,
+            | Self::InvalidCompilerKnownDeclarationKey { .. } => ProductQueryErrorKind::Identity,
             Self::UnexpectedKind { .. }
             | Self::CountMismatch { .. }
             | Self::Conflict { .. }
@@ -692,8 +656,6 @@ impl ProductQueryFailure {
             | Self::ConflictingStaticRelocation { .. }
             | Self::CallableDefinitionMismatch { .. }
             | Self::TraitDefinitionMismatch { .. }
-            | Self::UnexpectedEntryResult { .. }
-            | Self::CompilerKnownRepresentationMismatch { .. }
             | Self::NativeBoundaryKindMismatch { .. }
             | Self::UnexpectedSymbolKind { .. }
             | Self::ImplementationSymbolKeyExpected { .. }
@@ -715,8 +677,7 @@ impl ProductQueryFailure {
             Self::TestProductMismatch { .. }
             | Self::TestCatalog { .. }
             | Self::InvalidTestErrorTypeIdentity { .. }
-            | Self::InvalidModulePath { .. }
-            | Self::UnsupportedEntryResultType { .. } => ProductQueryErrorKind::ContractViolation,
+            | Self::InvalidModulePath { .. } => ProductQueryErrorKind::ContractViolation,
             Self::InvalidCodegenRequest { .. } | Self::CodegenBackendSelection { .. } => {
                 ProductQueryErrorKind::ContractViolation
             }

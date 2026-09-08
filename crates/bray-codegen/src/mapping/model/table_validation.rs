@@ -95,6 +95,7 @@ pub(super) fn validate_callable_mappings(
 
 pub(super) fn validate_operation_mappings(
     unit: &CodegenUnit,
+    instances: &BTreeSet<&CodegenInstanceKey>,
     symbols: &[CodegenSymbolMapping],
     mappings: &[CodegenOperationMapping],
 ) -> Result<(), CodegenMappingsBuildError> {
@@ -108,23 +109,37 @@ pub(super) fn validate_operation_mappings(
                 .map(move |(id, operation)| {
                     (
                         (instance.key().clone(), id),
-                        operation.kind().helper_references(),
+                        (
+                            operation.kind().helper_references(),
+                            matches!(
+                                operation.kind(),
+                                bray_ir::MirOperationKind::Async(
+                                    bray_ir::MirAsyncOperation::TransferCleanupIncident { .. }
+                                )
+                            ),
+                        ),
                     )
                 })
         })
-        .filter(|(_, helpers)| !helpers.is_empty())
+        .filter(|(_, (helpers, incident))| !helpers.is_empty() || *incident)
         .collect();
 
     if mappings.len() != expected.len()
         || mappings.iter().any(|mapping| {
             let key = (mapping.owner().clone(), mapping.operation());
 
-            expected.get(&key).is_none_or(|references| {
-                references.len() != mapping.helpers().len()
+            expected.get(&key).is_none_or(|(references, incident)| {
+                *incident != mapping.incident().is_some()
+                    || references.len() != mapping.helpers().len()
                     || references
                         .iter()
                         .zip(mapping.helpers())
                         .any(|(reference, helper)| reference != helper.reference())
+            }) || mapping.incident().is_some_and(|incident| {
+                incident
+                    .dependencies()
+                    .iter()
+                    .any(|dependency| !instances.contains(dependency))
             }) || mapping
                 .helpers()
                 .iter()

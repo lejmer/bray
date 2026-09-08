@@ -8,7 +8,7 @@ pub(super) fn push_mir_helper(
 ) {
     use bray_ir::MirHelperReference as Helper;
 
-    fields.push(text_field("helper_kind", mir_helper_kind(helper)));
+    fields.push(text_field("helper_kind", helper.kind_name()));
     fields.push(text_field("helper_abi", callable_abi(helper.abi())));
 
     if let Some(role) = helper.runtime_role() {
@@ -52,7 +52,10 @@ pub(super) fn push_mir_helper(
                 mir_standard_library_helper(*helper),
             ));
         }
-        Helper::Finalize(ty) | Helper::StaticFinalize(ty) | Helper::Destroy(ty) => {
+        Helper::Finalize(ty)
+        | Helper::StaticFinalize(ty)
+        | Helper::Destroy(ty)
+        | Helper::Abandon { ty, .. } => {
             fields.push(identity_field("helper_type", ty));
         }
         Helper::Cleanup { phase, ty } => {
@@ -63,10 +66,7 @@ pub(super) fn push_mir_helper(
 
             fields.push(identity_field("helper_type", ty));
         }
-        Helper::CreateFrame(frame)
-        | Helper::MoveInactiveFrame(frame)
-        | Helper::ComposeAwaitedFrame(frame)
-        | Helper::CommitAwaitedCompletion(frame) => {
+        Helper::CreateFrame(frame) | Helper::ComposeAwaitedFrame(frame) => {
             push_mir_frame_reference(fields, *frame);
         }
         Helper::BeginGenerator
@@ -172,33 +172,6 @@ fn push_mir_frame_reference(
         bray_ir::MirFrameReference::Erased => {
             fields.push(text_field("helper_frame_kind", "erased"));
         }
-    }
-}
-
-const fn mir_helper_kind(helper: &bray_ir::MirHelperReference) -> &'static str {
-    use bray_ir::MirHelperReference as Helper;
-
-    match helper {
-        Helper::AnonymousCallable(_) => "anonymous_callable",
-        Helper::DeclaredCallable(_) => "declared_callable",
-        Helper::CallableDefault(_) => "callable_default",
-        Helper::ConstructionDefault(_) => "construction_default",
-        Helper::TypeForm(_) => "type_form",
-        Helper::Conversion(_) => "conversion",
-        Helper::BeginGenerator => "begin_generator",
-        Helper::PushGenerator => "push_generator",
-        Helper::FinishGenerator => "finish_generator",
-        Helper::PanicReport => "panic_report",
-        Helper::StandardLibrary(_) => "standard_library",
-        Helper::Finalize(_) => "finalize",
-        Helper::StaticFinalize(_) => "static_finalize",
-        Helper::Destroy(_) => "destroy",
-        Helper::Cleanup { .. } => "cleanup",
-        Helper::CreateFrame(_) => "create_frame",
-        Helper::MoveInactiveFrame(_) => "move_inactive_frame",
-        Helper::ComposeAwaitedFrame(_) => "compose_awaited_frame",
-        Helper::CommitAwaitedCompletion(_) => "commit_awaited_completion",
-        Helper::DestroyTerminalTask => "destroy_terminal_task",
     }
 }
 

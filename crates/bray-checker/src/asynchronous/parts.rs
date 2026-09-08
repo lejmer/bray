@@ -11,6 +11,7 @@ use crate::{CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext
 pub(super) enum CleanupExpansion {
     MovedPaths,
     DestructorReceiver,
+    Completion,
 }
 
 impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
@@ -45,20 +46,22 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
             .entry(ty)
             .or_insert_with(|| bray_bound_tree::StorageCleanupType::new(ty, cleanup));
 
-        if expansion == CleanupExpansion::MovedPaths && moved.iter().all(|path| path.is_empty()) {
-            return Ok(match cleanup {
-                AsyncStorageCleanupRequirement::None => true,
-                AsyncStorageCleanupRequirement::Cleanup(phases) => {
-                    parts.push(StorageCleanupPart::new(path.iter().copied(), phases));
+        if expansion == CleanupExpansion::Completion {
+            if cleanup == AsyncStorageCleanupRequirement::None {
+                return Ok(true);
+            }
 
-                    true
-                }
-                AsyncStorageCleanupRequirement::Recovered(_) => false,
-            });
+            if path.iter().any(|projection| projection.source_type() == ty) {
+                return Ok(append_whole_part(cleanup, path, parts));
+            }
+        }
+
+        if expansion == CleanupExpansion::MovedPaths && moved.iter().all(|path| path.is_empty()) {
+            return Ok(append_whole_part(cleanup, path, parts));
         }
 
         let data = self
-            .request
+            .context
             .semantic_values()
             .type_data(ty)
             .map_err(CheckerInfrastructureError::SemanticValueStore)
@@ -113,12 +116,16 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
                 definition,
                 substitution,
             } => {
-                let lifecycle = self.request.declared_type_has_lifecycle(*definition)?;
+                let lifecycle = self.context.declared_type_has_lifecycle(*definition)?;
 
                 self.diagnostics.add_range(lifecycle.diagnostics().clone());
 
                 if lifecycle.diagnostics().has_errors() {
                     return Ok(false);
+                }
+
+                if expansion == CleanupExpansion::Completion && *lifecycle.value() {
+                    return Ok(append_whole_part(cleanup, path, parts));
                 }
 
                 if expansion == CleanupExpansion::MovedPaths && *lifecycle.value() {
@@ -129,70 +136,9 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
 
                 requires_whole_value = *lifecycle.value();
 
-                let representation = self.request.declared_type_representation(*definition)?;
-
-                self.diagnostics
-                    .add_range(representation.diagnostics().clone());
-
-                if representation.value().is_recovered() {
+                let Some(children) = self.named_components(*definition, *substitution)? else {
                     return Ok(false);
-                }
-
-                let mut children = Vec::new();
-
-                match representation.value().storage() {
-                    DeclaredStorageShape::Structure(members) => {
-                        for (index, member) in members.iter().enumerate() {
-                            let projection = match member.field() {
-                                Some(field) => StorageProjection::ProductField(field),
-                                None => {
-                                    let Ok(index) = u32::try_from(index) else {
-                                        return Ok(false);
-                                    };
-
-                                    StorageProjection::TupleElement(SymbolOrdinal::new(index))
-                                }
-                            };
-
-                            let Some(ty) = self.member_type(member.ty(), *substitution)? else {
-                                return Ok(false);
-                            };
-
-                            children
-                                .push((StorageCleanupProjectionKind::Component(projection), ty));
-                        }
-                    }
-                    DeclaredStorageShape::Union(variants) => {
-                        for variant in variants.iter() {
-                            for (index, member) in variant.members().iter().enumerate() {
-                                let projection = match member.field() {
-                                    Some(field) => StorageCleanupProjectionKind::Component(
-                                        StorageProjection::ActiveUnionPayloadField {
-                                            variant: variant.variant(),
-                                            field,
-                                        },
-                                    ),
-                                    None => {
-                                        let Ok(index) = u32::try_from(index) else {
-                                            return Ok(false);
-                                        };
-
-                                        StorageCleanupProjectionKind::UnionPayloadElement {
-                                            variant: variant.variant(),
-                                            ordinal: SymbolOrdinal::new(index),
-                                        }
-                                    }
-                                };
-
-                                let Some(ty) = self.member_type(member.ty(), *substitution)? else {
-                                    return Ok(false);
-                                };
-
-                                children.push((projection, ty));
-                            }
-                        }
-                    }
-                }
+                };
 
                 children
             }
@@ -237,7 +183,11 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
             let complete = self.append_parts(
                 child_type,
                 &child_moves,
-                CleanupExpansion::MovedPaths,
+                if expansion == CleanupExpansion::Completion {
+                    CleanupExpansion::Completion
+                } else {
+                    CleanupExpansion::MovedPaths
+                },
                 source,
                 path,
                 parts,
@@ -260,6 +210,81 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
         Ok(true)
     }
 
+    fn named_components(
+        &mut self,
+        definition: bray_symbols::NamedTypeSymbolId,
+        substitution: bray_symbols::GenericSubstitutionId,
+    ) -> Result<
+        Option<Vec<(StorageCleanupProjectionKind, TypeId)>>,
+        CheckerQueryError<C::UpstreamError>,
+    > {
+        let representation = self.context.declared_type_representation(definition)?;
+
+        self.diagnostics
+            .add_range(representation.diagnostics().clone());
+
+        if representation.value().is_recovered() {
+            return Ok(None);
+        }
+
+        let mut children = Vec::new();
+
+        match representation.value().storage() {
+            DeclaredStorageShape::Structure(members) => {
+                for (index, member) in members.iter().enumerate() {
+                    let projection = match member.field() {
+                        Some(field) => StorageProjection::ProductField(field),
+                        None => {
+                            let Ok(index) = u32::try_from(index) else {
+                                return Ok(None);
+                            };
+
+                            StorageProjection::TupleElement(SymbolOrdinal::new(index))
+                        }
+                    };
+
+                    let Some(ty) = self.member_type(member.ty(), substitution)? else {
+                        return Ok(None);
+                    };
+
+                    children.push((StorageCleanupProjectionKind::Component(projection), ty));
+                }
+            }
+            DeclaredStorageShape::Union(variants) => {
+                for variant in variants.iter() {
+                    for (index, member) in variant.members().iter().enumerate() {
+                        let projection = match member.field() {
+                            Some(field) => StorageCleanupProjectionKind::Component(
+                                StorageProjection::ActiveUnionPayloadField {
+                                    variant: variant.variant(),
+                                    field,
+                                },
+                            ),
+                            None => {
+                                let Ok(index) = u32::try_from(index) else {
+                                    return Ok(None);
+                                };
+
+                                StorageCleanupProjectionKind::UnionPayloadElement {
+                                    variant: variant.variant(),
+                                    ordinal: SymbolOrdinal::new(index),
+                                }
+                            }
+                        };
+
+                        let Some(ty) = self.member_type(member.ty(), substitution)? else {
+                            return Ok(None);
+                        };
+
+                        children.push((projection, ty));
+                    }
+                }
+            }
+        }
+
+        Ok(Some(children))
+    }
+
     fn storage_call(
         &mut self,
         storage: TypeId,
@@ -271,12 +296,28 @@ impl<C: CheckerRequestContext + ?Sized> CleanupShapeResolver<'_, C> {
         };
 
         let selected =
-            crate::storage::selected_storage_protocol_call(self.request, storage, target, &member)?;
+            crate::storage::selected_storage_protocol_call(self.context, storage, target, &member)?;
 
         let (call, diagnostics) = selected.into_parts();
 
         self.diagnostics.add_range(diagnostics);
 
         Ok(call)
+    }
+}
+
+fn append_whole_part(
+    cleanup: AsyncStorageCleanupRequirement,
+    path: &[StorageCleanupProjection],
+    parts: &mut Vec<StorageCleanupPart>,
+) -> bool {
+    match cleanup {
+        AsyncStorageCleanupRequirement::None => true,
+        AsyncStorageCleanupRequirement::Cleanup(phases) => {
+            parts.push(StorageCleanupPart::new(path.iter().copied(), phases));
+
+            true
+        }
+        AsyncStorageCleanupRequirement::Recovered(_) => false,
     }
 }

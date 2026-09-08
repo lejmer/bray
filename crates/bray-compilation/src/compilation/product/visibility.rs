@@ -820,6 +820,18 @@ fn constant_term_exposes_internal(
                     .map(SemanticValueDependency::ConstantTerm),
             );
         }
+        ConstantTermData::Test { subject, kind } => {
+            pending.push(SemanticValueDependency::ConstantTerm(*subject));
+
+            if let bray_symbols::ConstantTest::ActiveUnionVariant(variant) = kind {
+                return Ok(source_symbol_is_not_publicly_reachable(
+                    (*variant).into(),
+                    declarations,
+                    symbols,
+                )
+                .then_some((*variant).into()));
+            }
+        }
         ConstantTermData::Projection(projection) => {
             pending.push(SemanticValueDependency::ConstantTerm(projection.subject()));
 
@@ -843,8 +855,9 @@ fn constant_term_exposes_internal(
                     )
                     .then_some(field.into()));
                 }
-                ConstantProjectionKind::TupleElement(_) | ConstantProjectionKind::NullableValue => {
-                }
+                ConstantProjectionKind::TupleElement(_)
+                | ConstantProjectionKind::NullableValue
+                | ConstantProjectionKind::OwnedTarget => {}
             }
         }
     }

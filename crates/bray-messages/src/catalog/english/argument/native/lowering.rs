@@ -3,6 +3,7 @@ use super::artifact::format_english_semantic_value_failure;
 pub(super) fn lowering_plan_name(plan: &str) -> &'static str {
     match plan {
         "analysis" => "execution analysis",
+        "capture_cleanup" => "cleanup of an async call's captured values",
         "suspension" => "suspension",
         "task_operation" => "task operation",
         "scope_exit" => "scope exit",
@@ -122,6 +123,9 @@ pub(super) fn format_english_lowering_failure(
         }
         Failure::MissingCallableResultType => {
             "generating executable code for the highlighted callable because its result type is unavailable"
+        }
+        Failure::MissingCleanupExecution(_) => {
+            "generating cleanup code because the storage's execution mode is unavailable"
         }
         Failure::InvalidCleanupScopeDepth {
             scope_depth,
@@ -271,6 +275,9 @@ fn format_english_mir_unit_failure(
         }
         Failure::InvalidAnonymousCallable => {
             "generating executable code for the highlighted anonymous callable"
+        }
+        Failure::InvalidDestructorRemainder => {
+            "generating cleanup for the remaining initialized parts of the highlighted destructor receiver"
         }
         Failure::InvalidConstructionInput => {
             "generating a valid construction of the highlighted value"

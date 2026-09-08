@@ -260,7 +260,7 @@ impl CodegenMappings {
 
         validate_native_static_mappings(unit, &native_storages)?;
         validate_callable_mappings(unit, &expected_instances, &symbols, &callables)?;
-        validate_operation_mappings(unit, &symbols, &operations)?;
+        validate_operation_mappings(unit, &expected_instances, &symbols, &operations)?;
         validate_terminator_mappings(unit, &terminators)?;
 
         validate_constant_mappings(
@@ -1325,7 +1325,7 @@ mod tests {
     fn runtime_roles_use_exact_typed_symbol_mappings() {
         let reference = MirRuntimeReference::new(
             RuntimeAbiRole::CurrentRunCancellationObservation,
-            RuntimeAbiVersion::new(1, 0),
+            RuntimeAbiVersion::CURRENT,
         );
 
         let (unit, result_type) = runtime_unit(reference);

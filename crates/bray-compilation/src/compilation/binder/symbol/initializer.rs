@@ -68,14 +68,6 @@ impl crate::compilation::Compilation {
         &self,
         declaration: StaticSymbolId,
     ) -> Result<Option<BoundUnitKey>, crate::fact::FactQueryError> {
-        let symbols = self.symbol_graph()?;
-
-        let Some(owner) = symbols.symbol_key(declaration.into()) else {
-            return Ok(None);
-        };
-
-        Ok(self.declared_unit_keys()?.into_iter().find(|key| {
-            key.kind() == BoundUnitKind::ConstantTemplate && key.declared_owner() == owner
-        }))
+        self.declared_unit_key(declaration.into(), BoundUnitKind::ConstantTemplate)
     }
 }

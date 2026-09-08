@@ -1,4 +1,4 @@
-module std.ffi;
+trusted module std.ffi;
 
 @copy
 union ForeignErrorKind

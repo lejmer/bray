@@ -1,17 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
 
-use bray_compiler_known::{RecognizedStandardLibraryDeclarationKey, RepresentationRole};
+use bray_compiler_known::RepresentationRole;
 use bray_ir::{MirCleanupPhase, MirGeneratedLifecycleRole, MirHelperReference};
 use bray_symbols::{
-    DeclaredStorageShape, GenericArgument, GenericSubstitutionId, NamedTypeSymbolId,
-    PackageIdentity, StructSymbolId, TypeAssociatedLifecycleSlot, TypeData, TypeId,
+    DeclaredStorageShape, GenericSubstitutionId, NamedTypeSymbolId, TypeAssociatedLifecycleSlot,
+    TypeData, TypeId,
 };
 
 use super::super::{CodegenPreparationError, Compilation};
 use super::{
     ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductSynchronizationComponent,
-    ProductValueKind,
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -24,11 +22,17 @@ impl CodegenLifecycleNeeds {
     const DESTROY: Self = Self(1 << 1);
     const TASK_CANCELLATION: Self = Self(1 << 2);
     const LIFECYCLE_RESOLUTION: Self = Self(1 << 3);
+    const QUIESCENCE: Self = Self(1 << 4);
+    const ABANDONED_DESTRUCTION: Self = Self(1 << 5);
+    const SOURCE_DESTRUCTOR: Self = Self(1 << 6);
     const ALL: Self = Self(
         Self::FINALIZE.0
             | Self::DESTROY.0
             | Self::TASK_CANCELLATION.0
-            | Self::LIFECYCLE_RESOLUTION.0,
+            | Self::LIFECYCLE_RESOLUTION.0
+            | Self::QUIESCENCE.0
+            | Self::ABANDONED_DESTRUCTION.0
+            | Self::SOURCE_DESTRUCTOR.0,
     );
 
     const fn contains(self, other: Self) -> bool {
@@ -41,6 +45,11 @@ impl CodegenLifecycleNeeds {
                 Self::FINALIZE
             }
             MirGeneratedLifecycleRole::Destroy => Self::DESTROY,
+            MirGeneratedLifecycleRole::Abandon(action) => match action {
+                bray_ir::MirAbandonmentAction::Quiesce => Self::QUIESCENCE,
+                bray_ir::MirAbandonmentAction::Destroy => Self::ABANDONED_DESTRUCTION,
+                bray_ir::MirAbandonmentAction::Destructor => Self::SOURCE_DESTRUCTOR,
+            },
             MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation) => {
                 Self::TASK_CANCELLATION
             }
@@ -65,6 +74,14 @@ impl CodegenLifecycleNeeds {
 
         if children.contains(Self::TASK_CANCELLATION) {
             represented = represented.with(Self::TASK_CANCELLATION);
+        }
+
+        if children.contains(Self::QUIESCENCE) {
+            represented = represented.with(Self::QUIESCENCE);
+        }
+
+        if children.contains(Self::ABANDONED_DESTRUCTION) {
+            represented = represented.with(Self::ABANDONED_DESTRUCTION);
         }
 
         if represented.contains(Self::DESTROY) {
@@ -211,9 +228,13 @@ impl Compilation {
                 CodegenLifecycleNeeds::represented(child)
             }
             TypeData::Generator(_) => CodegenLifecycleNeeds::DESTROY
+                .with(CodegenLifecycleNeeds::ABANDONED_DESTRUCTION)
+                .with(CodegenLifecycleNeeds::QUIESCENCE)
                 .with(CodegenLifecycleNeeds::TASK_CANCELLATION)
                 .with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION),
             TypeData::OwnedIndirection { .. } => CodegenLifecycleNeeds::DESTROY
+                .with(CodegenLifecycleNeeds::ABANDONED_DESTRUCTION)
+                .with(CodegenLifecycleNeeds::QUIESCENCE)
                 .with(CodegenLifecycleNeeds::TASK_CANCELLATION)
                 .with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION),
             TypeData::FlexibleArray(_) | TypeData::Borrow { .. } | TypeData::Callable(_) => {
@@ -245,9 +266,7 @@ impl Compilation {
             return Ok(needs);
         }
 
-        let raw_buffer = self
-            .imported_raw_buffer_element(definition, substitution, cancellation)?
-            .is_some();
+        let raw_buffer = self.raw_buffer_element(definition, substitution, cancellation)?;
 
         let surface =
             self.type_associated_surface_result_with_cancellation(definition, cancellation)?;
@@ -269,9 +288,10 @@ impl Compilation {
                 TypeAssociatedLifecycleSlot::Finalizer => {
                     needs.with(CodegenLifecycleNeeds::FINALIZE)
                 }
-                TypeAssociatedLifecycleSlot::Destructor => {
-                    needs.with(CodegenLifecycleNeeds::DESTROY)
-                }
+                TypeAssociatedLifecycleSlot::Destructor => needs
+                    .with(CodegenLifecycleNeeds::DESTROY)
+                    .with(CodegenLifecycleNeeds::ABANDONED_DESTRUCTION)
+                    .with(CodegenLifecycleNeeds::SOURCE_DESTRUCTOR),
                 TypeAssociatedLifecycleSlot::PrimaryConstructor
                 | TypeAssociatedLifecycleSlot::ScopeEnter
                 | TypeAssociatedLifecycleSlot::ScopeExit => needs,
@@ -302,9 +322,15 @@ impl Compilation {
 
         needs = needs.with(CodegenLifecycleNeeds::represented(children));
 
-        if raw_buffer {
+        if let Some(element) = raw_buffer {
+            let children =
+                self.compute_codegen_lifecycle_needs(element, cancellation, active, computed)?;
+
             needs = needs
+                .with(CodegenLifecycleNeeds::represented(children))
                 .with(CodegenLifecycleNeeds::DESTROY)
+                .with(CodegenLifecycleNeeds::ABANDONED_DESTRUCTION)
+                .with(CodegenLifecycleNeeds::QUIESCENCE)
                 .with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION);
         }
 
@@ -370,7 +396,15 @@ impl Compilation {
 
         match role {
             RepresentationRole::String | RepresentationRole::PanicReport => Some(
-                CodegenLifecycleNeeds::DESTROY.with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION),
+                CodegenLifecycleNeeds::DESTROY
+                    .with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION)
+                    .with(CodegenLifecycleNeeds::ABANDONED_DESTRUCTION),
+            ),
+            RepresentationRole::Future => Some(
+                CodegenLifecycleNeeds::DESTROY
+                    .with(CodegenLifecycleNeeds::LIFECYCLE_RESOLUTION)
+                    .with(CodegenLifecycleNeeds::ABANDONED_DESTRUCTION)
+                    .with(CodegenLifecycleNeeds::QUIESCENCE),
             ),
             RepresentationRole::Task => Some(CodegenLifecycleNeeds::ALL),
             _ if super::super::representation::target_scalar(role).is_some()
@@ -382,7 +416,6 @@ impl Compilation {
                         | RepresentationRole::RawPointer
                         | RepresentationRole::DevicePointer
                         | RepresentationRole::Uninit
-                        | RepresentationRole::Future
                 ) =>
             {
                 Some(CodegenLifecycleNeeds::NONE)
@@ -408,78 +441,18 @@ impl Compilation {
         Ok(needs)
     }
 
-    pub(super) fn imported_raw_buffer_element(
+    pub(super) fn raw_buffer_element(
         &self,
         definition: NamedTypeSymbolId,
         substitution: GenericSubstitutionId,
         cancellation: &CancellationToken,
     ) -> Result<Option<TypeId>, CodegenPreparationError> {
-        let Some(key) = RecognizedStandardLibraryDeclarationKey::try_new("StandardRawBuffer")
-        else {
-            return Err(
-                ProductQueryFailure::InvalidRecognizedStandardLibraryDeclarationKey {
-                    key: "StandardRawBuffer".to_owned(),
-                }
-                .into(),
-            );
-        };
+        let context = super::super::checker::CompilationCheckerContext::new(
+            self.binding_context(cancellation)?,
+        );
 
-        let Some(package) = PackageIdentity::try_new(
-            bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY,
-        ) else {
-            return Err(ProductQueryFailure::InvalidPackageIdentity {
-                identity: bray_standard_library::PUBLIC_STANDARD_LIBRARY_PACKAGE_IDENTITY
-                    .to_owned(),
-            }
-            .into());
-        };
-
-        let imported = self.imported_symbol_skeleton_result_with_cancellation(cancellation)?;
-
-        let Some(imported) = imported.value() else {
-            return Ok(None);
-        };
-
-        let target = self.selected_target().target();
-
-        let recognized =
-            Arc::clone(imported).recognize_standard_library(&package, |rule| target.supports(rule));
-
-        let Some(raw_buffer) = recognized.declaration_symbol::<StructSymbolId>(&key) else {
-            return Ok(None);
-        };
-
-        if definition != NamedTypeSymbolId::Struct(raw_buffer) {
-            return Ok(None);
-        }
-
-        let substitution_id = substitution;
-
-        let substitution = self
-            .semantic_value_store()?
-            .generic_substitution_data(substitution_id)
-            .map_err(FactQueryError::SemanticValueStore)?;
-
-        let [binding] = substitution.bindings() else {
-            return Err(ProductQueryFailure::count_mismatch(
-                ProductQueryContext::Substitution(substitution_id),
-                ProductDataKind::GenericSubstitution,
-                1,
-                substitution.bindings().len(),
-            )
-            .into());
-        };
-
-        let GenericArgument::Type(element) = binding.argument() else {
-            return Err(ProductQueryFailure::unexpected_kind(
-                ProductQueryContext::Substitution(substitution_id),
-                ProductValueKind::GenericTypeArgument,
-                ProductValueKind::ConstantArgument,
-            )
-            .into());
-        };
-
-        Ok(Some(element))
+        bray_checker::CheckerRequestContext::raw_buffer_element(&context, definition, substitution)
+            .map_err(CodegenPreparationError::from)
     }
 }
 

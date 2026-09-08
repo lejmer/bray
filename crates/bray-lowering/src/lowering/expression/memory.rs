@@ -236,13 +236,36 @@ impl Lowerer<'_> {
             ));
         }
 
+        if matches!(
+            kind,
+            CheckedMemoryOperationKind::RawBufferRelease { .. }
+                | CheckedMemoryOperationKind::RawBufferReplace { .. }
+        ) {
+            return self.lower_raw_buffer_cleanup(id, current, source, kind, operands);
+        }
+
+        let memory = MirMemoryOperation::new(kind, operands, operand_types, result)
+            .with_inline_assembly_symbols(inline_assembly_symbols);
+
+        self.lower_memory_operation(id, current, source, memory, result_type)
+    }
+
+    fn lower_memory_operation(
+        &mut self,
+        id: BoundExpressionId,
+        current: MirBlockId,
+        source: MirSourceAnchor,
+        memory: MirMemoryOperation,
+        result_type: TypeId,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let kind = memory.kind();
+        let result = memory.result_type();
+        let checks_outcome = memory.standard_library_helper().is_some();
+
         let commit = self.push_operation(
             current,
             Self::retained_source(&source),
-            MirOperationKind::Memory(
-                MirMemoryOperation::new(kind, operands, operand_types, result)
-                    .with_inline_assembly_symbols(inline_assembly_symbols),
-            ),
+            MirOperationKind::Memory(memory),
             result,
         )?;
 
@@ -264,6 +287,12 @@ impl Lowerer<'_> {
         let value = match commit.result() {
             Some(value) => MirOperand::Value(value),
             None => self.unit_operand(result_type),
+        };
+
+        let (current, value) = if checks_outcome {
+            self.finish_typed_call_panic_check(id, current, &source, &value, result_type)?
+        } else {
+            (current, value)
         };
 
         Ok(LoweredExpression::continuing(current, Some(value), source))

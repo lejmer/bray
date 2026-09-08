@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use bray_base::{StableDigestHasher, shared_slice};
+use bray_base::{StableDigestHasher, shared_slice, strongly_connected_components};
 
 use super::{
     CodegenInstance, CodegenInstanceDependencyKind, CodegenInstanceKey,
@@ -130,7 +130,6 @@ fn required_groups<'a>(
     indices: &BTreeMap<&'a CodegenInstanceKey, usize>,
 ) -> Result<BTreeMap<usize, Vec<usize>>, CodegenPartitionError> {
     let mut definition_edges = vec![Vec::new(); instances.len()];
-    let mut reverse_edges = vec![Vec::new(); instances.len()];
     let mut co_location_edges = Vec::new();
 
     for (source, instance) in instances.iter().enumerate() {
@@ -142,7 +141,6 @@ fn required_groups<'a>(
             match dependency.kind() {
                 CodegenInstanceDependencyKind::Definition => {
                     definition_edges[source].push(target);
-                    reverse_edges[target].push(source);
                 }
                 CodegenInstanceDependencyKind::DirectAwaitedFrame => {
                     co_location_edges.push((source, target));
@@ -154,7 +152,9 @@ fn required_groups<'a>(
 
     let mut disjoint = DisjointSet::new(instances.len());
 
-    for component in strongly_connected_components(&definition_edges, &reverse_edges) {
+    for component in strongly_connected_components(0..definition_edges.len(), |node| {
+        definition_edges.get(node).into_iter().flatten().copied()
+    }) {
         let Some((&first, rest)) = component.split_first() else {
             continue;
         };
@@ -178,65 +178,6 @@ fn required_groups<'a>(
     }
 
     Ok(groups)
-}
-
-fn strongly_connected_components(edges: &[Vec<usize>], reverse: &[Vec<usize>]) -> Vec<Vec<usize>> {
-    let mut visited = vec![false; edges.len()];
-    let mut order = Vec::with_capacity(edges.len());
-
-    for root in 0..edges.len() {
-        if visited[root] {
-            continue;
-        }
-
-        visited[root] = true;
-
-        let mut stack = vec![(root, 0)];
-
-        while let Some((node, next)) = stack.last_mut() {
-            if let Some(&successor) = edges[*node].get(*next) {
-                *next += 1;
-
-                if !visited[successor] {
-                    visited[successor] = true;
-                    stack.push((successor, 0));
-                }
-            } else {
-                order.push(*node);
-                stack.pop();
-            }
-        }
-    }
-
-    visited.fill(false);
-
-    let mut components = Vec::new();
-
-    for &root in order.iter().rev() {
-        if visited[root] {
-            continue;
-        }
-
-        visited[root] = true;
-
-        let mut component = Vec::new();
-        let mut stack = vec![root];
-
-        while let Some(node) = stack.pop() {
-            component.push(node);
-
-            for &predecessor in &reverse[node] {
-                if !visited[predecessor] {
-                    visited[predecessor] = true;
-                    stack.push(predecessor);
-                }
-            }
-        }
-
-        components.push(component);
-    }
-
-    components
 }
 
 fn finish_unit(

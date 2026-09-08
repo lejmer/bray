@@ -19,6 +19,8 @@ pub enum MirFrameReference {
     Erased,
 }
 
+pub use bray_runtime_interface::NativeFrameEntry as MirFrameEntry;
+
 /// Checked lane, affinity, and storage state for one protected-frame state.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct MirFrameState {
@@ -87,6 +89,8 @@ pub struct MirFrameDescriptor {
     frame_abi: ProtectedFrameAbiVersions,
     result_type: TypeId,
     states: Arc<[MirFrameState]>,
+    inactive_cleanup: Option<MirBlockId>,
+    capture_abandonment: Option<(MirBlockId, MirBlockId)>,
 }
 
 impl MirFrameDescriptor {
@@ -128,7 +132,37 @@ impl MirFrameDescriptor {
             frame_abi,
             result_type,
             states: shared_slice(states),
+            inactive_cleanup: None,
+            capture_abandonment: None,
         })
+    }
+
+    /// Selects cleanup entered when the frame is cancelled before its body starts.
+    pub const fn with_inactive_cleanup(mut self, entry: MirBlockId) -> Self {
+        self.inactive_cleanup = Some(entry);
+
+        self
+    }
+
+    /// Returns the inactive capture-cleanup entry, distinct from ordinary body execution.
+    pub const fn inactive_cleanup(&self) -> Option<MirBlockId> {
+        self.inactive_cleanup
+    }
+
+    /// Selects the initial entries for borrowed quiescence and consuming capture destruction.
+    pub const fn with_capture_abandonment(
+        mut self,
+        quiescence: MirBlockId,
+        destruction: MirBlockId,
+    ) -> Self {
+        self.capture_abandonment = Some((quiescence, destruction));
+
+        self
+    }
+
+    /// Returns the distinct initial entries for capture quiescence and destruction.
+    pub const fn capture_abandonment(&self) -> Option<(MirBlockId, MirBlockId)> {
+        self.capture_abandonment
     }
 
     /// Returns the stable protected-frame identity.
@@ -179,6 +213,78 @@ mod tests {
 
     use super::{MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameState, MirFrameStateId};
     use crate::{MirBlockKind, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder, MirUnitKind};
+
+    #[test]
+    fn inactive_cleanup_entries_are_validated_separately_from_body_entries() {
+        for kind in [MirBlockKind::CleanupBroadcast, MirBlockKind::Ordinary] {
+            let frame = ProtectedAsyncFrameId::new([7; 32]);
+            let bound = test_bound_unit(7);
+            let source = MirSourceAnchor::from(bound.key().source());
+
+            let target = crate::test_support::test_target();
+            let abi = target.runtime_abi();
+
+            let mut builder = MirUnitBuilder::for_bound(
+                bound.identity(),
+                MirUnitKind::ProtectedAsyncFrame(frame),
+                target,
+            );
+
+            let body = builder
+                .push_block(source.clone(), MirBlockKind::Ordinary)
+                .unwrap();
+
+            let cleanup = builder.push_block(source.clone(), kind).unwrap();
+
+            builder
+                .set_terminator(body, source.clone(), MirTerminatorKind::Return(None))
+                .unwrap();
+
+            let finished = builder
+                .push_block(source.clone(), MirBlockKind::LifecycleResolution)
+                .unwrap();
+
+            builder
+                .set_terminator(finished, source.clone(), MirTerminatorKind::Return(None))
+                .unwrap();
+
+            builder
+                .set_terminator(
+                    cleanup,
+                    source,
+                    MirTerminatorKind::ContinueCleanup(crate::MirCleanupEdge::new(
+                        crate::MirCleanupPhase::LifecycleResolution,
+                        crate::MirEdge::new(finished, []),
+                    )),
+                )
+                .unwrap();
+
+            let descriptor = MirFrameDescriptor::try_new(
+                frame,
+                abi,
+                ProtectedFrameAbiVersions::uniform(abi),
+                crate::test_support::test_type(),
+                [MirFrameState::new(MirFrameStateId::new(0), body, [], [])],
+            )
+            .unwrap()
+            .with_inactive_cleanup(cleanup);
+
+            assert_eq!(descriptor.inactive_cleanup(), Some(cleanup));
+
+            builder.set_frame_descriptor(descriptor).unwrap();
+
+            let result = builder.finish(body);
+
+            if kind == MirBlockKind::CleanupBroadcast {
+                assert!(result.is_ok(), "{result:?}");
+            } else {
+                assert_eq!(
+                    result.unwrap_err(),
+                    crate::MirUnitBuildError::InvalidFrameStateEntry(cleanup)
+                );
+            }
+        }
+    }
 
     #[test]
     fn frame_descriptors_require_unique_nonempty_state_tables() {

@@ -6,6 +6,7 @@ mod core;
 mod diagnostic;
 mod forms;
 mod generic;
+mod input;
 mod lookup;
 mod static_constraint;
 

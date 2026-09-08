@@ -20,20 +20,6 @@ impl CleanupIncident {
         ordinal: u64,
         producer: CleanupIncidentProducer,
         origin: CleanupIncidentOrigin,
-        payload: impl Any + Send,
-    ) -> Self {
-        Self {
-            ordinal,
-            producer,
-            origin,
-            payload: Box::new(payload),
-        }
-    }
-
-    fn erased(
-        ordinal: u64,
-        producer: CleanupIncidentProducer,
-        origin: CleanupIncidentOrigin,
         payload: Box<dyn Any + Send>,
     ) -> Self {
         Self {
@@ -68,6 +54,13 @@ impl CleanupIncident {
     pub fn payload_type_id(&self) -> std::any::TypeId {
         self.payload.as_ref().type_id()
     }
+
+    /// Reports and destroys an owned native payload after its host-origin record is emitted.
+    pub(crate) fn report_native_payload(self) -> bool {
+        self.payload
+            .downcast::<crate::incident::OwnedCleanupIncident>()
+            .is_ok_and(|incident| incident.report())
+    }
 }
 
 impl fmt::Debug for CleanupIncident {
@@ -90,27 +83,24 @@ pub enum CleanupIncidentProducer {
     Task(TaskId),
 }
 
-/// Protected-frame location correlated with a cleanup incident.
+/// Execution location correlated with a cleanup incident.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-pub struct CleanupIncidentOrigin {
-    frame: ProtectedAsyncFrameId,
-    state: ProtectedFrameStateId,
+pub enum CleanupIncidentOrigin {
+    /// Cleanup within a synchronous callback boundary.
+    SynchronousRoot,
+    /// Cleanup within a protected frame at its retained state.
+    ProtectedFrame {
+        /// The frame that ran cleanup.
+        frame: ProtectedAsyncFrameId,
+        /// The retained state that produced the incident.
+        state: ProtectedFrameStateId,
+    },
 }
 
 impl CleanupIncidentOrigin {
     /// Creates a cleanup origin from its frame and retained state.
     pub const fn new(frame: ProtectedAsyncFrameId, state: ProtectedFrameStateId) -> Self {
-        Self { frame, state }
-    }
-
-    /// Returns the protected frame that ran cleanup.
-    pub const fn frame(self) -> ProtectedAsyncFrameId {
-        self.frame
-    }
-
-    /// Returns the retained frame state that produced the incident.
-    pub const fn state(self) -> ProtectedFrameStateId {
-        self.state
+        Self::ProtectedFrame { frame, state }
     }
 }
 
@@ -139,18 +129,7 @@ impl CleanupReportSink {
         origin: CleanupIncidentOrigin,
         payload: impl Any + Send,
     ) {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-        let ordinal = state.next_ordinal;
-
-        state.next_ordinal = state.next_ordinal.saturating_add(1);
-
-        state
-            .incidents
-            .push_back(CleanupIncident::new(ordinal, producer, origin, payload));
+        self.transfer_erased(producer, origin, Box::new(payload));
     }
 
     pub(crate) fn transfer_erased(
@@ -170,7 +149,7 @@ impl CleanupReportSink {
 
         state
             .incidents
-            .push_back(CleanupIncident::erased(ordinal, producer, origin, payload));
+            .push_back(CleanupIncident::new(ordinal, producer, origin, payload));
     }
 
     /// Reports and removes every incident in transfer order.

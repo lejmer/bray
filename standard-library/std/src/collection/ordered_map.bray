@@ -1,4 +1,4 @@
-module std.collection;
+trusted module std.collection;
 
 internal struct OrderedMapItem<Key, Value>
 {

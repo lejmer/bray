@@ -55,7 +55,7 @@ impl Lowerer<'_> {
             .ok_or(LoweringError::MissingOperationResult(expression))
     }
 
-    pub(in crate::lowering) fn adapt_nullable_present(
+    pub(in crate::lowering) fn adapt_value(
         &mut self,
         expression: BoundExpressionId,
         current: MirBlockId,
@@ -64,12 +64,39 @@ impl Lowerer<'_> {
         operand_type: TypeId,
         destination_type: TypeId,
     ) -> Result<(MirOperand, TypeId), LoweringError> {
-        if !self.nullable_contains(destination_type, operand_type)? {
+        if operand_type == destination_type {
             return Ok((operand, operand_type));
         }
 
-        let operand =
-            self.push_nullable_present(expression, current, source, operand, destination_type)?;
+        let operand = if self.nullable_contains(destination_type, operand_type)? {
+            self.push_nullable_present(expression, current, source, operand, destination_type)?
+        } else {
+            let values = self.input.semantic_values();
+            let original = values.type_data(operand_type)?;
+            let destination = values.type_data(destination_type)?;
+
+            if !matches!(
+                (original.as_ref(), destination.as_ref()),
+                (TypeData::Callable(_), TypeData::Callable(_))
+            ) {
+                return Ok((operand, operand_type));
+            }
+
+            // Type checking established substitutability. Retain the target semantic type in
+            // MIR without changing the callable value or generating an execution wrapper.
+            self.convert_operand(
+                expression,
+                current,
+                source,
+                operand,
+                &bray_bound_tree::SelectedConversion::new(
+                    operand_type,
+                    destination_type,
+                    bray_bound_tree::ConversionTarget::CallableContract,
+                ),
+            )?
+            .1
+        };
 
         Ok((operand, destination_type))
     }

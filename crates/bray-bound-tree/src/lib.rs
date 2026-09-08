@@ -9,6 +9,7 @@ mod control;
 mod declared_type;
 mod dependency;
 mod dependency_table;
+mod guarantee;
 mod identity;
 mod literal;
 mod memory;
@@ -20,26 +21,39 @@ mod selection;
 mod semantic;
 mod storage;
 mod template;
+
 #[cfg(test)]
 mod test_support;
+
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
+
 mod tree;
 mod typing;
 mod unit;
 mod view;
 
+pub use guarantee::{
+    CallableProofCandidate, CallableProofDependency, CallableProofKey, CallableProofObligation,
+    CallableProofResult, CallableProofTarget,
+};
+
 pub use asynchronous::{
-    AsyncAnalysisBuildError, AsyncCleanupGuard, AsyncCleanupPhases, AsyncScopeExitPlan,
-    AsyncStorageCleanupRequirement, AsyncStorageExitDecision, AsyncStorageExitDisposition,
-    AsyncStorageExitRecoveryCause, AsyncStorageRequirement, AsyncSuspensionKind,
-    AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind, CheckedAsync,
+    AsyncAnalysisBuildError, AsyncCaptureCleanup, AsyncCleanupGuard, AsyncCleanupPhases,
+    AsyncScopeExitPlan, AsyncStorageCleanupRequirement, AsyncStorageExitDecision,
+    AsyncStorageExitDisposition, AsyncStorageExitRecoveryCause, AsyncStorageRequirement,
+    AsyncSuspensionKind, AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind,
+    CheckedAsync,
 };
 pub use behavior::{
     BodyBehaviorCall, BodyBehaviorContributions, BodyBehaviorPhase, CheckedBodyBehavior,
     TrustedCapabilityUse,
 };
 pub use bound_unit::{BoundUnit, BoundUnitBuildError, BoundUnitRoot};
+
+mod contract_input;
+
+pub use contract_input::BoundContractInputs;
 pub use control::{CheckedControlFlow, ControlCompletion, ControlCompletionKind};
 pub use declared_type::{
     DeclaredValueTypeConstraint, DeclaredValueTypeConstraintKind, DeclaredValueTypeEvidence,

@@ -86,6 +86,21 @@ internal struct AttachmentState
 internal struct PanicReportData
 {
     mut next_incident: usize?;
+    incident: PanicIncident;
+}
+
+@copy
+@layout(stable)
+internal union PanicIncident
+{
+    Panic(pos message: PanicMessage);
+    Cleanup(pos value: CleanupIncident);
+}
+
+@copy
+@layout(stable)
+internal struct PanicMessage
+{
     cause: u32;
     source_present: u32;
     source_identity: u32;
@@ -678,7 +693,7 @@ trusted internal func finish_attachment(pos state: RawPointer<AttachmentState>)
 
         trusted invoke_static_transition(record.prepare);
         trusted run_static_finalizer(record.finalizer);
-        trusted invoke_static_transition(record.destroy);
+        trusted run_static_destructor(record.destroy, record.finalizer.panics);
         trusted invoke_static_transition(record.detach);
 
         let released: RawPointer<CleanupRecord> = cleanup;

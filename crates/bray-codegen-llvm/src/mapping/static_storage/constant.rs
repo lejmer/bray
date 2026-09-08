@@ -246,7 +246,7 @@ fn static_string_constant<'context>(
     let bytes = types.context().const_string(text.as_bytes(), false).into();
     let identity = crate::translation::string_constant_name(text);
 
-    let data = crate::translation::publish_string_global(
+    let data = crate::mapping::publish_immutable_global(
         module,
         mappings.target(),
         &format!("{identity}.data"),
@@ -266,7 +266,7 @@ fn static_string_constant<'context>(
                 types,
             )?;
 
-            let global = crate::translation::publish_string_global(
+            let global = crate::mapping::publish_immutable_global(
                 module,
                 mappings.target(),
                 &format!("{identity}.value"),

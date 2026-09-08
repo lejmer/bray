@@ -38,6 +38,8 @@ pub enum MirUnitBuildError {
     InvalidMemoryOperation(MirOperationId),
     /// An anonymous-callable operation references a unit of another category.
     InvalidAnonymousCallable(MirOperationId),
+    /// An implicit destructor remainder selects an incompatible lifecycle role.
+    InvalidDestructorRemainder(MirOperationId),
     /// A construction input does not belong to its target or repeats another input.
     InvalidConstructionInput(MirOperationId),
     /// A call input, result, or retained semantic contract is inconsistent.

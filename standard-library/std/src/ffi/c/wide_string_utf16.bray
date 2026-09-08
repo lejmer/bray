@@ -1,5 +1,5 @@
 @target(target.c.WCHAR == "u16")
-module std.ffi.c;
+trusted module std.ffi.c;
 
 /// Returns `StringError.InvalidEncoding` for an invalid surrogate sequence and
 /// `StringError.Allocation` when the decoded Bray string cannot be allocated.

@@ -499,7 +499,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let identity = crate::translation::string_constant_name(text);
         let name = format!("{identity}.data");
 
-        let global = crate::translation::publish_string_global(
+        let global = crate::mapping::publish_immutable_global(
             self.module,
             self.request.target(),
             &name,
@@ -518,7 +518,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 let name = format!("{identity}.value");
 
-                let global = crate::translation::publish_string_global(
+                let global = crate::mapping::publish_immutable_global(
                     self.module,
                     self.request.target(),
                     &name,
@@ -659,20 +659,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .context()
             .ptr_sized_int_type(self.types.target_data(), None);
 
-        let address = llvm(
-            self.builder
-                .build_ptr_to_int(pointer, integer_type, "address"),
-        )?;
-
-        let address = llvm(self.builder.build_int_add(
-            address,
+        super::support::offset_pointer(
+            &self.builder,
+            pointer,
             integer_type.const_int(offset, false),
-            "address.offset",
-        ))?;
-
-        llvm(
-            self.builder
-                .build_int_to_ptr(address, pointer.get_type(), "address.pointer"),
         )
     }
 
@@ -979,7 +969,7 @@ mod tests {
         let mut builder = MirUnitBuilder::for_bound(
             bound.identity(),
             MirUnitKind::Synchronous,
-            MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0)),
+            MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::CURRENT),
         );
 
         let entry = builder
@@ -1061,7 +1051,7 @@ mod tests {
         let mut builder = MirUnitBuilder::for_bound(
             bound.identity(),
             MirUnitKind::Synchronous,
-            MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0)),
+            MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::CURRENT),
         );
 
         let entry = builder
@@ -1169,7 +1159,7 @@ mod tests {
         let mut builder = MirUnitBuilder::for_bound(
             bound.identity(),
             MirUnitKind::Synchronous,
-            MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::new(1, 0)),
+            MirTargetContract::new(target.profile().clone(), RuntimeAbiVersion::CURRENT),
         );
 
         let entry = builder

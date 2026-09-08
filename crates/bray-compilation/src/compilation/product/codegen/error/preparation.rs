@@ -54,11 +54,43 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
         CodegenPreparationError::InvalidHostMir(cause) => {
             Kind::CodegenInvalidHostMir(mir_unit_failure_detail("codegen_invalid_host_mir", *cause))
         }
-        CodegenPreparationError::InvalidGeneratedLifecycleMir(cause) => {
-            Kind::CodegenInvalidLifecycleMir(mir_unit_failure_detail(
-                "codegen_invalid_lifecycle_mir",
-                *cause,
-            ))
+        CodegenPreparationError::InvalidGeneratedLifecycleMir { owner, cause } => {
+            let detail = mir_unit_failure_detail("codegen_invalid_lifecycle_mir", *cause);
+            let mut context = detail.context().to_vec();
+
+            context.push(crate::fact::diagnostic_context::identity_field(
+                "owner", owner,
+            ));
+
+            Kind::CodegenInvalidLifecycleMir(failure_detail(detail.reason(), context))
+        }
+        CodegenPreparationError::InvalidGeneratedLifecycleFrame(cause) => {
+            let reason = match cause {
+                bray_ir::MirFrameDescriptorBuildError::MissingState => {
+                    "lifecycle_frame_missing_state"
+                }
+                bray_ir::MirFrameDescriptorBuildError::NonContiguousState => {
+                    "lifecycle_frame_non_contiguous_state"
+                }
+                bray_ir::MirFrameDescriptorBuildError::DuplicateStateOrEntry => {
+                    "lifecycle_frame_duplicate_state_or_entry"
+                }
+                bray_ir::MirFrameDescriptorBuildError::IdentityCapacityExceeded => {
+                    "lifecycle_frame_identity_capacity_exceeded"
+                }
+            };
+
+            Kind::CodegenInvalidLifecycleMir(failure_detail(reason, []))
+        }
+        CodegenPreparationError::InvalidSpecializedMir { source, cause } => {
+            let detail = mir_unit_failure_detail("codegen_invalid_specialized_mir", *cause);
+            let mut context = detail.context().to_vec();
+
+            context.push(crate::fact::diagnostic_context::identity_field(
+                "source", source,
+            ));
+
+            Kind::CodegenInvalidLifecycleMir(failure_detail(detail.reason(), context))
         }
         CodegenPreparationError::InvalidMappings(cause) => {
             Kind::CodegenInvalidMappings(failure_detail(codegen_mappings_failure(*cause), []))
@@ -109,7 +141,7 @@ pub(in crate::compilation) fn codegen_preparation_failure_kind(
             Kind::CodegenMissingHelperInstance(failure_detail(
                 "codegen_missing_helper_instance",
                 [
-                    text_failure_field("helper_kind", mir_helper_kind(helper)),
+                    text_failure_field("helper_kind", helper.kind_name()),
                     crate::fact::diagnostic_context::identity_field("helper", helper),
                 ],
             ))
@@ -327,31 +359,4 @@ fn push_mir_local_identity(
 
     context.push(count_failure_field(unit_name, identity.unit()));
     context.push(count_failure_field(slot_name, identity.slot()));
-}
-
-const fn mir_helper_kind(helper: &bray_ir::MirHelperReference) -> &'static str {
-    use bray_ir::MirHelperReference as Helper;
-
-    match helper {
-        Helper::AnonymousCallable(_) => "anonymous_callable",
-        Helper::DeclaredCallable(_) => "declared_callable",
-        Helper::CallableDefault(_) => "callable_default",
-        Helper::ConstructionDefault(_) => "construction_default",
-        Helper::TypeForm(_) => "type_form",
-        Helper::Conversion(_) => "conversion",
-        Helper::BeginGenerator => "begin_generator",
-        Helper::PushGenerator => "push_generator",
-        Helper::FinishGenerator => "finish_generator",
-        Helper::PanicReport => "panic_report",
-        Helper::StandardLibrary(_) => "standard_library",
-        Helper::Finalize(_) => "finalize",
-        Helper::StaticFinalize(_) => "static_finalize",
-        Helper::Destroy(_) => "destroy",
-        Helper::Cleanup { .. } => "cleanup",
-        Helper::CreateFrame(_) => "create_frame",
-        Helper::MoveInactiveFrame(_) => "move_inactive_frame",
-        Helper::ComposeAwaitedFrame(_) => "compose_awaited_frame",
-        Helper::CommitAwaitedCompletion(_) => "commit_awaited_completion",
-        Helper::DestroyTerminalTask => "destroy_terminal_task",
-    }
 }

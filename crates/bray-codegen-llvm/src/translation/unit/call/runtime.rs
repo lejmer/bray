@@ -113,7 +113,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .request
             .mappings()
             .symbol(key)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .ok_or_else(|| CodegenFailure::generated_module_invariant(key))?;
 
         let ty = parameter_type(symbol.signature(), parameter)?;
 
@@ -124,40 +124,90 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(ty.const_int(value, false).into())
     }
 
+    pub(in crate::translation::unit) fn value_cleanup_descriptor(
+        &mut self,
+        helper: &CodegenHelperMapping,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let Some(symbol) = self.helper_symbol(helper)? else {
+            return Ok(self
+                .types
+                .context()
+                .ptr_type(inkwell::AddressSpace::default())
+                .const_null()
+                .into());
+        };
+
+        let value = crate::mapping::value_cleanup_descriptor(self.module, symbol, self.types)?;
+        let name = format!("{}.value_cleanup.descriptor", symbol.name().as_str());
+
+        let descriptor = crate::mapping::publish_immutable_global(
+            self.module,
+            self.types.target(),
+            &name,
+            value.into(),
+        );
+
+        Ok(descriptor.as_pointer_value().into())
+    }
+
+    pub(in crate::translation::unit) fn task_terminal_cleanup_descriptor(
+        &mut self,
+        helper: &CodegenHelperMapping,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let name = self.helper_symbol(helper)?.map_or_else(
+            || "bray.trivial_task_terminal_cleanup".to_owned(),
+            |symbol| format!("{}.task_terminal_cleanup", symbol.name().as_str()),
+        );
+
+        let value = self.value_cleanup_descriptor(helper)?;
+
+        let value =
+            crate::mapping::task_terminal_cleanup_descriptor(self.module, value, self.types)?;
+
+        let descriptor = crate::mapping::publish_immutable_global(
+            self.module,
+            self.types.target(),
+            &name,
+            value.into(),
+        );
+
+        Ok(descriptor.as_pointer_value().into())
+    }
+
     pub(in crate::translation::unit) fn helper_address(
         &self,
         helper: &CodegenHelperMapping,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
-        let Some(key) = helper.symbol() else {
+        let Some(symbol) = self.helper_symbol(helper)? else {
             return Ok(None);
         };
-
-        let symbol = self
-            .request
-            .mappings()
-            .symbol(key)
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let function = self
             .module
             .get_function(symbol.callable_address_name().as_str())
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+            .ok_or_else(|| {
+                CodegenFailure::generated_module_invariant((
+                    symbol.key(),
+                    symbol.callable_address_name(),
+                ))
+            })?;
 
         Ok(Some(function.as_global_value().as_pointer_value().into()))
     }
 
-    pub(in crate::translation::unit) fn runtime_null_pointer_argument(
-        &mut self,
-        runtime: bray_ir::MirRuntimeReference,
-        parameter: usize,
-    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
-        let ty = self.runtime_parameter_type(runtime, parameter)?;
-
-        let BasicTypeEnum::PointerType(ty) = self.types.map(ty)? else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
-
-        Ok(ty.const_null().into())
+    fn helper_symbol(
+        &self,
+        helper: &CodegenHelperMapping,
+    ) -> Result<Option<&'request bray_codegen::CodegenSymbolMapping>, CodegenFailure> {
+        helper
+            .symbol()
+            .map(|key| {
+                self.request
+                    .mappings()
+                    .symbol(key)
+                    .ok_or_else(|| CodegenFailure::generated_module_invariant(key))
+            })
+            .transpose()
     }
 
     fn runtime_parameter_type(
@@ -182,6 +232,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         state: &MirTaskTerminalState,
     ) -> Result<Vec<BasicValueEnum<'context>>, CodegenFailure> {
         let tag = match state {
+            MirTaskTerminalState::CapturesCompleted => {
+                return Err(CodegenFailure::GeneratedModuleInvariant);
+            }
             MirTaskTerminalState::Completed(_) => 0,
             MirTaskTerminalState::Cancelled => 1,
             MirTaskTerminalState::Panicked(_) => 2,
@@ -193,7 +246,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirTaskTerminalState::Completed(value) | MirTaskTerminalState::Panicked(value) => {
                 arguments.push(self.operand(value)?);
             }
-            MirTaskTerminalState::Cancelled => {}
+            MirTaskTerminalState::Cancelled | MirTaskTerminalState::CapturesCompleted => {}
         }
 
         Ok(arguments)

@@ -52,7 +52,21 @@ pub(super) fn validate_operation(
         MirOperationKind::Borrow { place, .. }
         | MirOperationKind::Finalize(place)
         | MirOperationKind::Destroy(place)
+        | MirOperationKind::Abandon { place, .. }
         | MirOperationKind::Cleanup { place, .. } => {
+            validate_place(unit, place, block, Some(id))?;
+        }
+        MirOperationKind::DestructorRemainder { role, place } => {
+            if !matches!(
+                role,
+                crate::MirGeneratedLifecycleRole::Destroy
+                    | crate::MirGeneratedLifecycleRole::Cleanup(
+                        crate::MirCleanupPhase::LifecycleResolution
+                    )
+            ) {
+                return Err(MirUnitBuildError::InvalidDestructorRemainder(id));
+            }
+
             validate_place(unit, place, block, Some(id))?;
         }
         MirOperationKind::Unary { operand, .. }
@@ -75,6 +89,7 @@ pub(super) fn validate_operation(
             validate_operand(unit, subject, block, Some(id))?;
         }
         MirOperationKind::PanicReport(cause) => match cause {
+            crate::MirPanicCause::TaskAdmission => {}
             crate::MirPanicCause::Message(message)
             | crate::MirPanicCause::ExplicitTestFailure(message) => {
                 validate_operand(unit, message, block, Some(id))?;
@@ -155,12 +170,27 @@ fn validate_operation_block(
         }
         MirOperationKind::Async(
             MirAsyncOperation::ResolveTask { .. }
+            | MirAsyncOperation::BorrowTaskCompletion { .. }
+            | MirAsyncOperation::ReleaseTaskCompletionBorrow { .. }
+            | MirAsyncOperation::ResolveAwaitedFrame { .. }
+            | MirAsyncOperation::CreateFrame { .. }
+            | MirAsyncOperation::ComposeAwaitedFrame { .. }
+            | MirAsyncOperation::PublishTerminalState { .. }
             | MirAsyncOperation::TransferCleanupIncident { .. }
-            | MirAsyncOperation::DestroyTerminalTask { .. },
+            | MirAsyncOperation::DestroyTerminalTask { .. }
+            | MirAsyncOperation::DestroyInactiveCaptures { .. },
         ) => block_kind != MirBlockKind::CleanupBroadcast,
         MirOperationKind::Async(_) => block_kind == MirBlockKind::Ordinary,
         MirOperationKind::Host(_) => block_kind == MirBlockKind::Ordinary,
-        MirOperationKind::Finalize(_) | MirOperationKind::Destroy(_) => {
+        MirOperationKind::DestructorRemainder {
+            role:
+                crate::MirGeneratedLifecycleRole::Cleanup(crate::MirCleanupPhase::LifecycleResolution),
+            ..
+        } => block_kind == MirBlockKind::LifecycleResolution,
+        MirOperationKind::Finalize(_)
+        | MirOperationKind::Destroy(_)
+        | MirOperationKind::Abandon { .. }
+        | MirOperationKind::DestructorRemainder { .. } => {
             block_kind != MirBlockKind::CleanupBroadcast
         }
         MirOperationKind::Cleanup { phase, .. } => match phase {
@@ -171,12 +201,6 @@ fn validate_operation_block(
                 block_kind == MirBlockKind::LifecycleResolution
             }
         },
-        MirOperationKind::Generator(MirGeneratorOperation::CleanupBroadcast { .. }) => {
-            block_kind == MirBlockKind::CleanupBroadcast
-        }
-        MirOperationKind::Generator(MirGeneratorOperation::Destroy { .. }) => {
-            block_kind != MirBlockKind::CleanupBroadcast
-        }
         MirOperationKind::AnonymousCallable(_)
         | MirOperationKind::DeclaredCallable(_)
         | MirOperationKind::Store { .. }
@@ -184,11 +208,7 @@ fn validate_operation_block(
         | MirOperationKind::Unary { .. }
         | MirOperationKind::Binary { .. }
         | MirOperationKind::PatternProjection { .. }
-        | MirOperationKind::Generator(
-            MirGeneratorOperation::Begin { .. }
-            | MirGeneratorOperation::Push { .. }
-            | MirGeneratorOperation::Finish { .. },
-        )
+        | MirOperationKind::Generator(_)
         | MirOperationKind::Aggregate(_)
         | MirOperationKind::Construct(_)
         | MirOperationKind::Convert { .. }
@@ -230,10 +250,11 @@ fn validate_operation_result(
             | MirOperationKind::PanicReport(_)
             | MirOperationKind::Async(
                 MirAsyncOperation::CreateFrame { .. }
-                    | MirAsyncOperation::CommitAwaitedCompletion { .. }
                     | MirAsyncOperation::StartTask { .. }
                     | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
                     | MirAsyncOperation::ResolveTask { .. }
+                    | MirAsyncOperation::BorrowTaskCompletion { .. }
+                    | MirAsyncOperation::ResolveAwaitedFrame { .. }
             )
     );
 
@@ -244,18 +265,16 @@ fn validate_operation_result(
         operation.kind(),
         MirOperationKind::Store { .. }
             | MirOperationKind::Generator(
-                MirGeneratorOperation::Begin { .. }
-                    | MirGeneratorOperation::Push { .. }
-                    | MirGeneratorOperation::CleanupBroadcast { .. }
-                    | MirGeneratorOperation::Destroy { .. }
+                MirGeneratorOperation::Begin { .. } | MirGeneratorOperation::Push { .. }
             )
             | MirOperationKind::Finalize(_)
             | MirOperationKind::Destroy(_)
+            | MirOperationKind::Abandon { .. }
+            | MirOperationKind::DestructorRemainder { .. }
             | MirOperationKind::Cleanup { .. }
             | MirOperationKind::Host(_)
             | MirOperationKind::Async(
-                MirAsyncOperation::MoveInactiveFrame { .. }
-                    | MirAsyncOperation::ResumeFrame { .. }
+                MirAsyncOperation::ResumeFrame { .. }
                     | MirAsyncOperation::ComposeAwaitedFrame { .. }
                     | MirAsyncOperation::RequestTaskCancellation { .. }
                     | MirAsyncOperation::PublishTerminalState { .. }
@@ -263,6 +282,8 @@ fn validate_operation_result(
                     | MirAsyncOperation::ExecuteLifecycleResolution { .. }
                     | MirAsyncOperation::TransferCleanupIncident { .. }
                     | MirAsyncOperation::DestroyTerminalTask { .. }
+                    | MirAsyncOperation::ReleaseTaskCompletionBorrow { .. }
+                    | MirAsyncOperation::DestroyInactiveCaptures { .. }
             )
     );
 
@@ -734,24 +755,6 @@ fn validate_generator_operation(
 
             destination
         }
-        MirGeneratorOperation::CleanupBroadcast {
-            destination,
-            runtime,
-            ..
-        } => {
-            validate_runtime_role(unit, *runtime, RuntimeAbiRole::GeneratorCleanupBroadcast)?;
-
-            destination
-        }
-        MirGeneratorOperation::Destroy {
-            destination,
-            runtime,
-            ..
-        } => {
-            validate_runtime_role(unit, *runtime, RuntimeAbiRole::GeneratorDestruction)?;
-
-            destination
-        }
     };
 
     validate_place(unit, destination, block, Some(operation))
@@ -814,17 +817,6 @@ fn validate_async_operation(
         MirAsyncOperation::CreateFrame { initializer, .. } => {
             validate_frame_initializer(unit, block, operation_id, initializer)?;
         }
-        MirAsyncOperation::MoveInactiveFrame {
-            source,
-            destination,
-            ..
-        } => {
-            validate_place(unit, source, block, Some(operation_id))?;
-            validate_place(unit, destination, block, Some(operation_id))?;
-
-            validate_place_storage_kind(unit, source, MirStorageKind::InactiveFrame)?;
-            validate_place_storage_kind(unit, destination, MirStorageKind::InactiveFrame)?;
-        }
         MirAsyncOperation::ResumeFrame {
             frame,
             state,
@@ -839,14 +831,19 @@ fn validate_async_operation(
         MirAsyncOperation::ComposeAwaitedFrame { frame, .. } => {
             validate_operand(unit, frame, block, Some(operation_id))?;
         }
-        MirAsyncOperation::CommitAwaitedCompletion { .. } => {}
+        MirAsyncOperation::DestroyInactiveCaptures { frame, runtime } => {
+            validate_operand(unit, frame, block, Some(operation_id))?;
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::InactiveCaptureDestruction)?;
+        }
         MirAsyncOperation::StartTask {
             value,
+            destination,
             allocation,
             start,
             ..
         } => {
             validate_operand(unit, value, block, Some(operation_id))?;
+            validate_place(unit, destination, block, Some(operation_id))?;
 
             validate_runtime_role(unit, *allocation, RuntimeAbiRole::TaskAllocation)?;
             validate_runtime_role(unit, *start, RuntimeAbiRole::TaskStart)?;
@@ -866,6 +863,17 @@ fn validate_async_operation(
             validate_operand(unit, task, block, Some(operation_id))?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::TaskResolution)?;
         }
+        MirAsyncOperation::ResolveAwaitedFrame { runtime, .. } => {
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::AwaitedFrameResolution)?;
+        }
+        MirAsyncOperation::BorrowTaskCompletion { task, runtime } => {
+            validate_operand(unit, task, block, Some(operation_id))?;
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::TaskCompletionBorrow)?;
+        }
+        MirAsyncOperation::ReleaseTaskCompletionBorrow { task, runtime } => {
+            validate_operand(unit, task, block, Some(operation_id))?;
+            validate_runtime_role(unit, *runtime, RuntimeAbiRole::TaskCompletionBorrowRelease)?;
+        }
         MirAsyncOperation::PublishTerminalState { state, runtime } => {
             validate_terminal_state(unit, block, operation_id, state)?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::TerminalPublication)?;
@@ -882,7 +890,7 @@ fn validate_async_operation(
             validate_operand(unit, incident, block, Some(operation_id))?;
             validate_runtime_role(unit, *runtime, RuntimeAbiRole::CleanupIncidentTransfer)?;
         }
-        MirAsyncOperation::DestroyTerminalTask { task } => {
+        MirAsyncOperation::DestroyTerminalTask { task, .. } => {
             validate_operand(unit, task, block, Some(operation_id))?;
         }
     }
@@ -898,10 +906,8 @@ fn validate_frame_initializer(
 ) -> Result<(), MirUnitBuildError> {
     match initializer {
         crate::MirFrameInitializer::Callable(call) => validate_call(unit, block, operation, call),
-        crate::MirFrameInitializer::TaskObservation { task, runtime, .. } => {
-            validate_operand(unit, task, block, Some(operation))?;
-
-            validate_runtime_role(unit, *runtime, RuntimeAbiRole::TaskObservationCreation)
+        crate::MirFrameInitializer::Lifecycle { receiver, .. } => {
+            validate_operand(unit, receiver, block, Some(operation))
         }
     }
 }
@@ -917,6 +923,17 @@ fn validate_terminal_state(
             validate_operand(unit, value, block, Some(operation))
         }
         MirTaskTerminalState::Cancelled => Ok(()),
+        MirTaskTerminalState::CapturesCompleted => {
+            if unit
+                .frame_descriptor()
+                .and_then(crate::MirFrameDescriptor::capture_abandonment)
+                .is_none()
+            {
+                return Err(MirUnitBuildError::ProtectedFrameMismatch);
+            }
+
+            Ok(())
+        }
     }
 }
 
@@ -1022,14 +1039,6 @@ fn validate_storage_kind(
     }
 
     Ok(())
-}
-
-fn validate_place_storage_kind(
-    unit: &MirUnit,
-    place: &MirPlace,
-    expected: MirStorageKind,
-) -> Result<(), MirUnitBuildError> {
-    validate_storage_kind(unit, place.storage(), expected)
 }
 
 pub(super) fn validate_value(unit: &MirUnit, value: MirValueId) -> Result<(), MirUnitBuildError> {

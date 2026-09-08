@@ -4,7 +4,7 @@ use crate::CheckerRequestContext;
 
 use super::build::ControlFlowGraphBuilder;
 use super::id::AnalysisBlockId;
-use super::model::{AnalysisEdgeKind, AnalysisExitKind};
+use super::model::{AnalysisCleanupKind, AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement};
 
 impl<C> ControlFlowGraphBuilder<'_, C>
 where
@@ -26,7 +26,8 @@ where
         self.push_cleanup_failures(current, self.scopes.len().saturating_sub(1), exit);
         self.scopes.truncate(retained_depth);
 
-        self.storage.push_scope_exit(current, block, exit)
+        self.storage
+            .push_scope_exit(current, block, exit, AnalysisCleanupKind::Ordinary)
     }
 
     pub(super) fn push_exit(
@@ -35,20 +36,27 @@ where
         kind: AnalysisExitKind,
         exit: AnyBoundNodeId,
     ) {
-        if matches!(
+        let ordinary = matches!(
             kind,
             AnalysisExitKind::Return
                 | AnalysisExitKind::ResultErrorPropagation
                 | AnalysisExitKind::Yield
                 | AnalysisExitKind::NormalFallthrough
-        ) {
+        );
+
+        if ordinary {
             self.push_cleanup_failures(block, 0, exit);
         }
 
         if kind == AnalysisExitKind::Panic
             && let Some(catch) = self.catches.last().copied()
         {
-            let block = self.resolve_scopes(block, catch.scope_depth, exit);
+            let block = self.resolve_scopes(
+                block,
+                catch.scope_depth,
+                exit,
+                AnalysisCleanupKind::Abnormal,
+            );
 
             self.push_edge(block, catch.target, AnalysisEdgeKind::Catch, None);
 
@@ -57,10 +65,19 @@ where
 
         let block = match kind {
             AnalysisExitKind::Divergence => block,
-            _ => self.resolve_scopes(block, 0, exit),
+            _ => self.resolve_scopes(
+                block,
+                0,
+                exit,
+                if ordinary {
+                    AnalysisCleanupKind::Ordinary
+                } else {
+                    AnalysisCleanupKind::Abnormal
+                },
+            ),
         };
 
-        self.storage.push_exit(block, kind);
+        self.storage.push_exit(block, kind, exit, None);
     }
 
     pub(super) fn push_cleanup_failures(
@@ -69,14 +86,15 @@ where
         retained_depth: usize,
         exit: AnyBoundNodeId,
     ) {
-        let mut can_fail = false;
-
         for index in (retained_depth..self.scopes.len()).rev() {
             if !self.cleanup_scopes.contains(&self.scopes[index]) {
                 continue;
             }
 
-            can_fail = true;
+            let refinement = Some(AnalysisRefinement::CleanupFailure {
+                scope: self.scopes[index],
+                exit,
+            });
 
             let catch = self
                 .catches
@@ -86,16 +104,25 @@ where
                 .copied();
 
             if let Some(catch) = catch {
-                let failure = self.resolve_scopes(block, catch.scope_depth, exit);
-                self.push_edge(failure, catch.target, AnalysisEdgeKind::Catch, None);
-            } else {
-                let failure = self.resolve_scopes(block, 0, exit);
-                self.storage.push_exit(failure, AnalysisExitKind::Panic);
-            }
-        }
+                let failure = self.resolve_scopes(
+                    block,
+                    catch.scope_depth,
+                    exit,
+                    AnalysisCleanupKind::Abnormal,
+                );
 
-        if can_fail {
-            self.push_exit(block, AnalysisExitKind::Cancellation, exit);
+                self.push_edge(failure, catch.target, AnalysisEdgeKind::Catch, refinement);
+            } else {
+                let failure = self.resolve_scopes(block, 0, exit, AnalysisCleanupKind::Abnormal);
+
+                self.storage
+                    .push_exit(failure, AnalysisExitKind::Panic, exit, refinement);
+            }
+
+            let failure = self.resolve_scopes(block, 0, exit, AnalysisCleanupKind::Abnormal);
+
+            self.storage
+                .push_exit(failure, AnalysisExitKind::Cancellation, exit, refinement);
         }
     }
 
@@ -104,11 +131,12 @@ where
         mut current: AnalysisBlockId,
         retained_depth: usize,
         exit: AnyBoundNodeId,
+        kind: AnalysisCleanupKind,
     ) -> AnalysisBlockId {
         for index in (retained_depth..self.scopes.len()).rev() {
             let scope = self.scopes[index];
 
-            current = self.storage.push_scope_exit(current, scope, exit);
+            current = self.storage.push_scope_exit(current, scope, exit, kind);
         }
 
         current

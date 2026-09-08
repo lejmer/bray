@@ -1,3 +1,5 @@
+use bray_symbols::CallableConditions;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{CheckedTemplateConstantUsage, CheckedTemplateKind, CheckedTemplateNodeId};
@@ -267,30 +269,7 @@ impl<'a> SemanticExporter<'a> {
         owner: AnySymbolId,
         contract: &bray_symbols::CallableContractSet,
     ) -> Result<InterfaceCallableContract, PackageInterfaceExportError> {
-        let clauses = contract
-            .invocation_preconditions()
-            .iter()
-            .chain(contract.static_constraints())
-            .chain(contract.normal_completion_postconditions())
-            .copied()
-            .map(|clause| match clause.value() {
-                CallableContractClauseValue::Predicate(predicate) => {
-                    Ok(InterfaceCallableContractClause::new(
-                        clause.ordinal(),
-                        clause.kind(),
-                        self.predicate_summary(predicate)?,
-                    ))
-                }
-                CallableContractClauseValue::TraitSatisfaction {
-                    subject,
-                    application,
-                } => Ok(InterfaceCallableContractClause::trait_satisfaction(
-                    clause.ordinal(),
-                    self.type_id(subject)?,
-                    self.trait_application_id(application)?,
-                )),
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let conditions = self.callable_conditions(contract.conditions())?;
 
         let invocation = self.phase_behavior(contract.invocation_behavior())?;
 
@@ -299,21 +278,51 @@ impl<'a> SemanticExporter<'a> {
             .map(|behavior| self.phase_behavior(behavior))
             .transpose()?;
 
-        Ok(InterfaceCallableContract::new(
-            self.symbol_reference(owner)?,
-            clauses,
-            invocation,
-            deferred,
-        ))
+        Ok(
+            InterfaceCallableContract::new(self.symbol_reference(owner)?, [], invocation, deferred)
+                .with_conditions(conditions),
+        )
+    }
+
+    pub(super) fn callable_conditions(
+        &mut self,
+        conditions: &bray_symbols::CallableConditionSet,
+    ) -> Result<
+        bray_symbols::CallableConditionSet<InterfaceCallableContractClause>,
+        PackageInterfaceExportError,
+    > {
+        conditions.try_convert_conditions(|clause| match clause.value() {
+            CallableContractClauseValue::Predicate(predicate) => {
+                Ok(InterfaceCallableContractClause::new(
+                    clause.ordinal(),
+                    clause.kind(),
+                    self.predicate_summary(predicate)?,
+                )
+                .with_guard(clause.guard()))
+            }
+            CallableContractClauseValue::TraitSatisfaction {
+                subject,
+                application,
+            } => Ok(InterfaceCallableContractClause::trait_satisfaction(
+                clause.ordinal(),
+                self.type_id(subject)?,
+                self.trait_application_id(application)?,
+            )),
+        })
     }
 
     pub(super) fn predicate_summary(
         &mut self,
         predicate: bray_symbols::PredicateSemanticSummary,
     ) -> Result<InterfacePredicateSummary, PackageInterfaceExportError> {
-        Ok(InterfacePredicateSummary::new(
-            self.dependency_contract_id(predicate.dependency_contract())?,
-        ))
+        let dependency = self.dependency_contract_id(predicate.dependency_contract())?;
+
+        let condition = predicate
+            .condition()
+            .map(|term| self.constant_term_id(term))
+            .transpose()?;
+
+        Ok(InterfacePredicateSummary::new(dependency).with_condition(condition))
     }
 
     pub(super) fn checked_constant_template(
@@ -487,6 +496,7 @@ impl<'a> SemanticExporter<'a> {
             constness: callable.constness(),
             trust: callable.trust(),
             abi: callable.abi(),
+            conditions: self.callable_conditions(callable.conditions())?,
             invocation_behavior,
             deferred_execution_behavior,
         })

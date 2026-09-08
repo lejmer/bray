@@ -108,7 +108,7 @@ impl SemanticValueStore {
             .map(|parameter| self.intern_generic_parameter_argument(parameter))
             .collect::<Result<Vec<_>, _>>()?;
 
-        let Some(owner) = super::super::GenericOwnerId::try_new(owner) else {
+        let Some(owner) = GenericOwnerId::try_new(owner) else {
             return Ok(None);
         };
 
@@ -132,14 +132,14 @@ impl SemanticValueStore {
         &self,
         definition: NamedTypeSymbolId,
     ) -> Result<TypeId, SemanticValueStoreError> {
-        let Some(owner) = super::super::GenericOwnerId::try_new(definition.into_any()) else {
+        let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
             unreachable!("named type symbols are generic owners");
         };
 
         let substitution = match GenericSubstitutionData::try_new(
             owner,
             std::iter::empty::<GenericParameterSymbolId>(),
-            std::iter::empty::<super::super::GenericArgument>(),
+            std::iter::empty::<GenericArgument>(),
         ) {
             Ok(substitution) => substitution,
             Err(_) => unreachable!("empty substitutions are valid for non-generic named types"),
@@ -242,6 +242,12 @@ impl SemanticValueStore {
         let mut tables = self.tables();
 
         validate_constant_term_data(&tables, self.id, &data)?;
+
+        if let ConstantTermData::Typed { term, ty } = &data
+            && matches!(tables.constant_terms.get(self.id, *term)?, ConstantTermData::Typed { ty: inner, .. } if inner == ty)
+        {
+            return Ok(*term);
+        }
 
         Arc::make_mut(&mut tables.constant_terms).intern(self.id, data)
     }
@@ -521,6 +527,37 @@ mod tests {
             .unwrap_or_else(|error| panic!("typed integer term must intern: {error:?}"));
 
         assert_eq!(store.constant_term_integer(typed), Ok(Some(integer)));
+    }
+
+    #[test]
+    fn repeated_type_annotations_share_one_observation_identity() {
+        let store = store();
+        let first_type = concrete_named_type(&store, 1);
+        let second_type = concrete_named_type(&store, 2);
+
+        let term = store
+            .intern_constant_term(ConstantTermData::CallableArgument(
+                crate::SymbolOrdinal::new(0),
+            ))
+            .unwrap();
+
+        let typed = store
+            .intern_constant_term(ConstantTermData::typed(term, first_type))
+            .unwrap();
+
+        assert_eq!(
+            store.intern_constant_term(ConstantTermData::typed(typed, first_type)),
+            Ok(typed)
+        );
+
+        let distinct = store
+            .intern_constant_term(ConstantTermData::typed(typed, second_type))
+            .unwrap();
+
+        assert_eq!(
+            store.constant_term_data(distinct).unwrap().as_ref(),
+            &ConstantTermData::typed(typed, second_type)
+        );
     }
 
     #[test]

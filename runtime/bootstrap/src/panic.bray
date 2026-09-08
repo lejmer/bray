@@ -16,9 +16,9 @@ trusted internal func panic_report_construction(
         trusted core.memory.valid_read<u8>(pointer = message, count = message_length),
         trusted core.memory.initialized_range_as<u8>(pointer = message, count = message_length),
     )
-    uses(intrinsic, layout_reinterpret, raw_memory, unchecked_init)
+    uses(intrinsic, raw_memory, unchecked_init)
 {
-    if cause > 2 || source_present > 1 || source_start > source_end || (message_length != 0 && std.memory.is_null<u8>(message))
+    if cause > 3 || source_present > 1 || source_start > source_end || (message_length != 0 && std.memory.is_null<u8>(message))
     {
         trusted core.target.abort();
     }
@@ -41,32 +41,7 @@ trusted internal func panic_report_construction(
         yield copy;
     };
 
-    let bytes: usize = internal bray.runtime.bootstrap.heap.allocation_bytes<PanicReportData>();
-    let allocation: RawPointer<u8> = trusted internal bray.runtime.bootstrap.heap.allocate(
-        bytes,
-        align = std.memory.align_of<PanicReportData>()
-    );
-
-    if std.memory.is_null<u8>(allocation)
-    {
-        if !std.memory.is_null<u8>(message_copy)
-        {
-            trusted internal bray.runtime.bootstrap.heap.deallocate_bytes(
-                message_copy,
-                bytes = message_length,
-                align = ONE_USIZE,
-            );
-        }
-
-        trusted core.target.abort();
-    }
-
-    let report: RawPointer<PanicReportData> = trusted std.memory.reinterpret<PanicReportData, u8>(allocation);
-
-    trusted write_opaque<PanicReportData>(
-        report,
-        {
-            next_incident = none,
+    return trusted allocate_panic_incident(PanicIncident.Panic({
             cause = cause,
             source_present = source_present,
             source_identity = source_identity,
@@ -75,17 +50,25 @@ trusted internal func panic_report_construction(
             source_version = source_version,
             message = message_copy,
             message_length = message_length,
-        }
-    );
-
-    let _: u64 = core.atomic.fetch_add<u64, 0>(&CONSTRUCTED_REPORTS, value = 1);
-
-    return trusted core.target.expose_address<PanicReportData>(report);
+        }));
 }
 
 @abi(c)
 trusted internal func panic_reporting(pos payload: usize) -> u32
-    uses(foreign_call)
+{
+    let report_status: u32 = trusted panic_report_observation(payload);
+    let destruction_status: u32 = trusted destroy_panic_report(payload);
+
+    if report_status != STATUS_SUCCESS
+    {
+        return report_status;
+    }
+
+    return destruction_status;
+}
+
+@abi(c)
+trusted internal func panic_report_observation(pos payload: usize) -> u32
 {
     if payload == 0
     {
@@ -99,16 +82,7 @@ trusted internal func panic_reporting(pos payload: usize) -> u32
     {
         let report: RawPointer<PanicReportData> = trusted panic_report_from_payload(address);
         let value: PanicReportData = trusted read_opaque<PanicReportData>(report);
-        let status: u32 = trusted substrate_panic_reporting(
-            value.cause,
-            source_present = value.source_present,
-            source_identity = value.source_identity,
-            source_start = value.source_start,
-            source_end = value.source_end,
-            source_version = value.source_version,
-            message = value.message,
-            message_length = value.message_length,
-        );
+        let status: u32 = trusted report_panic_incident(value.incident);
 
         if report_status == STATUS_SUCCESS
         {
@@ -118,14 +92,7 @@ trusted internal func panic_reporting(pos payload: usize) -> u32
         current = value.next_incident;
     }
 
-    let destruction_status: u32 = trusted destroy_panic_report(payload);
-
-    if report_status != STATUS_SUCCESS
-    {
-        return report_status;
-    }
-
-    return destruction_status;
+    return report_status;
 }
 
 @abi(c)
@@ -185,14 +152,7 @@ trusted internal func destroy_panic_incident(pos payload: usize) -> usize?
     let report: RawPointer<PanicReportData> = trusted panic_report_from_payload(payload);
     let value: PanicReportData = trusted read_opaque<PanicReportData>(report);
 
-    if !std.memory.is_null<u8>(value.message)
-    {
-        trusted internal bray.runtime.bootstrap.heap.deallocate_bytes(
-            value.message,
-            bytes = value.message_length,
-            align = ONE_USIZE,
-        );
-    }
+    trusted destroy_panic_incident_payload(value.incident);
 
     trusted internal bray.runtime.bootstrap.heap.deallocate<PanicReportData>(report);
 
@@ -213,5 +173,35 @@ extern trusted internal func substrate_panic_reporting(
     pos source_version: u64,
     pos message: RawPointer<u8>,
     pos message_length: usize,
+    pos copy_message: PanicMessageCopy,
 ) -> u32
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = message, count = message_length),
+        trusted core.memory.initialized_range_as<u8>(pointer = message, count = message_length),
+    )
     uses(foreign_call);
+
+internal callable PanicMessageCopy = @abi(c)
+trusted func(pos source: RawPointer<u8>, pos destination: RawPointer<u8>, pos count: usize) -> u32
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = source, count = count),
+        trusted core.memory.initialized_range_as<u8>(pointer = source, count = count),
+        trusted core.memory.valid_write<u8>(pointer = destination, count = count),
+        trusted core.memory.non_overlapping<u8>(left = source, left_count = count, right = destination, right_count = count),
+    )
+    uses(raw_memory, unchecked_init);
+
+@abi(c)
+trusted internal func copy_panic_message(pos source: RawPointer<u8>, pos destination: RawPointer<u8>, pos count: usize) -> u32
+    requires(
+        trusted core.memory.valid_read<u8>(pointer = source, count = count),
+        trusted core.memory.initialized_range_as<u8>(pointer = source, count = count),
+        trusted core.memory.valid_write<u8>(pointer = destination, count = count),
+        trusted core.memory.non_overlapping<u8>(left = source, left_count = count, right = destination, right_count = count),
+    )
+    uses(raw_memory, unchecked_init)
+{
+    trusted internal std.memory.byte_buffer_copy(source, destination = destination, count = count);
+
+    return STATUS_SUCCESS;
+}

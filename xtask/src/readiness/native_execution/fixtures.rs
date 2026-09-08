@@ -19,6 +19,16 @@ pub(super) const ASYNC_I32_FIXTURE: &str = "xtask/fixtures/native-execution/asyn
 pub(super) const ASYNC_ERROR_FIXTURE: &str =
     "xtask/fixtures/native-execution/async-result-error.bray";
 pub(super) const ASYNC_TASKS_FIXTURE: &str = "xtask/fixtures/native-execution/async_tasks.bray";
+pub(super) const INACTIVE_FUTURE_CLEANUP_FIXTURE: &str =
+    "xtask/fixtures/native-execution/inactive-future-cleanup.bray";
+pub(super) const OWNED_FINALIZER_ERROR_FIXTURE: &str =
+    "xtask/fixtures/native-execution/owned-finalizer-error.bray";
+pub(super) const OWNED_ENTRY_ERROR_FIXTURE: &str =
+    "xtask/fixtures/native-execution/owned-entry-error.bray";
+pub(super) const OWNED_SYNC_ENTRY_ERROR_FIXTURE: &str =
+    "xtask/fixtures/native-execution/owned-sync-entry-error.bray";
+pub(super) const QUIET_CANCELLATION_FIXTURE: &str =
+    "xtask/fixtures/native-execution/quiet-cancellation.bray";
 pub(super) const STANDARD_RUN_SOURCE: &str = "standard-library/std/src/run.bray";
 pub(super) const STANDARD_TASK_SOURCE: &str = "standard-library/std/src/task.bray";
 pub(super) const STANDARD_TESTING_SOURCE: &str = "standard-library/std/src/testing.bray";

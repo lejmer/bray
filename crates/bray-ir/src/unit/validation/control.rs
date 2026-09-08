@@ -72,64 +72,7 @@ pub(super) fn validate_terminator(
             validate_local_edge(unit, block_id, otherwise)?;
         }
         MirTerminatorKind::InlineAssembly(assembly) => {
-            validate_operand(unit, assembly.inputs(), block_id, None)?;
-
-            let label_count = assembly
-                .contract()
-                .operands()
-                .filter(|operand| {
-                    operand.kind() == bray_bound_tree::InlineAssemblyOperandKind::Label
-                })
-                .count();
-
-            if unit.operand_type(assembly.inputs())? != assembly.inputs_type()
-                || label_count != assembly.alternates().len()
-                || assembly
-                    .contract()
-                    .operands()
-                    .filter(|operand| {
-                        operand.kind() == bray_bound_tree::InlineAssemblyOperandKind::Symbol
-                    })
-                    .count()
-                    != assembly.symbols().len()
-            {
-                return Err(MirUnitBuildError::InvalidInlineAssemblyTerminator(block_id));
-            }
-
-            let mut successors = BTreeSet::from([assembly.normal()]);
-
-            for alternate in assembly.alternates() {
-                let Some(block) = unit.block(*alternate) else {
-                    return Err(missing_or_foreign_block(unit, *alternate));
-                };
-
-                if !successors.insert(*alternate)
-                    || block.kind() != MirBlockKind::Ordinary
-                    || !block.parameters().is_empty()
-                {
-                    return Err(MirUnitBuildError::InvalidInlineAssemblyTerminator(block_id));
-                }
-            }
-
-            let Some(normal) = unit.block(assembly.normal()) else {
-                return Err(missing_or_foreign_block(unit, assembly.normal()));
-            };
-
-            let [parameter] = normal.parameters() else {
-                return Err(MirUnitBuildError::EdgeArgumentCountMismatch(
-                    assembly.normal(),
-                ));
-            };
-
-            let Some(parameter) = unit.value(*parameter) else {
-                return Err(MirUnitBuildError::MissingValue(*parameter));
-            };
-
-            if normal.kind() != MirBlockKind::Ordinary || parameter.ty() != assembly.output_type() {
-                return Err(MirUnitBuildError::EdgeArgumentTypeMismatch(
-                    assembly.normal(),
-                ));
-            }
+            validate_inline_assembly_terminator(unit, block_id, assembly)?;
         }
         MirTerminatorKind::Return(value) => {
             if let Some(value) = value {
@@ -148,7 +91,10 @@ pub(super) fn validate_terminator(
             ..
         } => {
             match (kind, payload) {
-                (crate::MirSuspensionKind::TaskEvent, Some(payload)) => {
+                (
+                    crate::MirSuspensionKind::TaskEvent | crate::MirSuspensionKind::TaskCompletion,
+                    Some(payload),
+                ) => {
                     validate_operand(unit, payload, block_id, None)?;
                 }
                 (crate::MirSuspensionKind::Awaited | crate::MirSuspensionKind::Yield, None) => {}
@@ -156,7 +102,17 @@ pub(super) fn validate_terminator(
             }
 
             validate_frame_state(unit, *resume_state)?;
-            validate_ordinary_edge(unit, block_id, resume)?;
+
+            match cancellation {
+                Some(cancellation) if block.kind() == MirBlockKind::Ordinary => {
+                    validate_ordinary_edge(unit, block_id, resume)?;
+                    validate_cleanup_start(unit, block_id, cancellation)?;
+                }
+                None if block.kind() == MirBlockKind::LifecycleResolution => {
+                    validate_local_edge(unit, block_id, resume)?;
+                }
+                _ => return Err(MirUnitBuildError::CleanupPhaseOrderViolation(block_id)),
+            }
 
             let Some(descriptor) = unit.frame_descriptor() else {
                 return Err(MirUnitBuildError::MissingFrameState);
@@ -171,8 +127,6 @@ pub(super) fn validate_terminator(
             if expected != Some(resume.target()) {
                 return Err(MirUnitBuildError::InvalidFrameStateEntry(resume.target()));
             }
-
-            validate_cleanup_start(unit, block_id, cancellation)?;
 
             validate_runtime_role(
                 unit,
@@ -256,6 +210,69 @@ pub(super) fn validate_terminator(
     Ok(())
 }
 
+fn validate_inline_assembly_terminator(
+    unit: &MirUnit,
+    block_id: MirBlockId,
+    assembly: &crate::MirInlineAssemblyTerminator,
+) -> Result<(), MirUnitBuildError> {
+    validate_operand(unit, assembly.inputs(), block_id, None)?;
+
+    let label_count = assembly
+        .contract()
+        .operands()
+        .filter(|operand| operand.kind() == bray_bound_tree::InlineAssemblyOperandKind::Label)
+        .count();
+
+    if unit.operand_type(assembly.inputs())? != assembly.inputs_type()
+        || label_count != assembly.alternates().len()
+        || assembly
+            .contract()
+            .operands()
+            .filter(|operand| operand.kind() == bray_bound_tree::InlineAssemblyOperandKind::Symbol)
+            .count()
+            != assembly.symbols().len()
+    {
+        return Err(MirUnitBuildError::InvalidInlineAssemblyTerminator(block_id));
+    }
+
+    let mut successors = BTreeSet::from([assembly.normal()]);
+
+    for alternate in assembly.alternates() {
+        let Some(block) = unit.block(*alternate) else {
+            return Err(missing_or_foreign_block(unit, *alternate));
+        };
+
+        if !successors.insert(*alternate)
+            || block.kind() != MirBlockKind::Ordinary
+            || !block.parameters().is_empty()
+        {
+            return Err(MirUnitBuildError::InvalidInlineAssemblyTerminator(block_id));
+        }
+    }
+
+    let Some(normal) = unit.block(assembly.normal()) else {
+        return Err(missing_or_foreign_block(unit, assembly.normal()));
+    };
+
+    let [parameter] = normal.parameters() else {
+        return Err(MirUnitBuildError::EdgeArgumentCountMismatch(
+            assembly.normal(),
+        ));
+    };
+
+    let Some(parameter) = unit.value(*parameter) else {
+        return Err(MirUnitBuildError::MissingValue(*parameter));
+    };
+
+    if normal.kind() != MirBlockKind::Ordinary || parameter.ty() != assembly.output_type() {
+        return Err(MirUnitBuildError::EdgeArgumentTypeMismatch(
+            assembly.normal(),
+        ));
+    }
+
+    Ok(())
+}
+
 fn validate_iteration_item(
     unit: &MirUnit,
     item: MirBlockId,
@@ -322,9 +339,18 @@ fn validate_call_panic_check(
         .and_then(|operation| unit.operation(*operation))
         .is_some_and(|operation| match operation.kind() {
             crate::MirOperationKind::Call(call) => call.may_propagate_panic(),
+            crate::MirOperationKind::Memory(memory) => memory.standard_library_helper().is_some(),
             crate::MirOperationKind::Cleanup { .. }
+            | crate::MirOperationKind::Async(crate::MirAsyncOperation::TransferCleanupIncident {
+                ..
+            })
+            | crate::MirOperationKind::Async(crate::MirAsyncOperation::DestroyInactiveCaptures {
+                ..
+            })
             | crate::MirOperationKind::Finalize(_)
-            | crate::MirOperationKind::Destroy(_) => true,
+            | crate::MirOperationKind::Destroy(_)
+            | crate::MirOperationKind::Abandon { .. } => true,
+            crate::MirOperationKind::DestructorRemainder { .. } => true,
             _ => false,
         });
 

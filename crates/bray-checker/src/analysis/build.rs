@@ -392,13 +392,34 @@ where
         expression: BoundExpressionId,
         current: AnalysisBlockId,
     ) -> AnalysisBlockId {
+        let continuation = self.push_fallible_call_attempt(expression, current);
+
+        self.push_call(continuation, expression, AnalysisCallPhase::Completion);
+
+        continuation
+    }
+
+    pub(super) fn push_fallible_call_attempt(
+        &mut self,
+        expression: BoundExpressionId,
+        current: AnalysisBlockId,
+    ) -> AnalysisBlockId {
         let continuation = self.push_block();
 
         self.push_call(current, expression, AnalysisCallPhase::Attempt);
         self.push_edge(current, continuation, AnalysisEdgeKind::Sequential, None);
-        self.push_exit(current, AnalysisExitKind::Panic, expression.into());
-        self.push_exit(current, AnalysisExitKind::Cancellation, expression.into());
-        self.push_call(continuation, expression, AnalysisCallPhase::Completion);
+
+        let failure = self.push_block();
+
+        self.push_edge(
+            current,
+            failure,
+            AnalysisEdgeKind::Sequential,
+            Some(AnalysisRefinement::CallFailure(expression)),
+        );
+
+        self.push_exit(failure, AnalysisExitKind::Panic, expression.into());
+        self.push_exit(failure, AnalysisExitKind::Cancellation, expression.into());
 
         continuation
     }
@@ -558,7 +579,13 @@ where
 
                 if let Some(context) = target_result {
                     self.push_cleanup_failures(block, context.scope_depth, id.into());
-                    let block = self.resolve_scopes(block, context.scope_depth, id.into());
+
+                    let block = self.resolve_scopes(
+                        block,
+                        context.scope_depth,
+                        id.into(),
+                        super::model::AnalysisCleanupKind::Ordinary,
+                    );
 
                     self.push_edge(block, context.completion, AnalysisEdgeKind::Yield, None);
 
@@ -585,7 +612,13 @@ where
             BoundControlTransferKind::Break => match target_loop {
                 Some(context) => {
                     self.push_cleanup_failures(block, context.scope_depth, id.into());
-                    let block = self.resolve_scopes(block, context.scope_depth, id.into());
+
+                    let block = self.resolve_scopes(
+                        block,
+                        context.scope_depth,
+                        id.into(),
+                        super::model::AnalysisCleanupKind::Ordinary,
+                    );
 
                     self.push_edge(block, context.completion, AnalysisEdgeKind::LoopBreak, None);
 
@@ -601,7 +634,13 @@ where
                 Some(context) => match context.continue_target {
                     Some(header) => {
                         self.push_cleanup_failures(block, context.scope_depth, id.into());
-                        let block = self.resolve_scopes(block, context.scope_depth, id.into());
+
+                        let block = self.resolve_scopes(
+                            block,
+                            context.scope_depth,
+                            id.into(),
+                            super::model::AnalysisCleanupKind::Ordinary,
+                        );
 
                         self.push_edge(block, header, AnalysisEdgeKind::LoopContinue, None);
 
@@ -1055,7 +1094,7 @@ mod tests {
     }
 
     #[test]
-    fn direct_await_has_suspend_resume_and_current_run_cancellation_paths() {
+    fn direct_await_has_suspension_and_all_terminal_outcome_paths() {
         let key = callable_key();
         let unit = BoundUnitId::new(10);
         let origin = BoundNodeOrigin::source(key.source());
@@ -1078,6 +1117,9 @@ mod tests {
             AnalysisEdgeKind::Suspension,
             AnalysisEdgeKind::Resume,
             AnalysisEdgeKind::RunCancellation,
+            AnalysisEdgeKind::RunResultCompleted,
+            AnalysisEdgeKind::RunResultPanicked,
+            AnalysisEdgeKind::RunResultCancelled,
         ] {
             assert!(
                 graph
@@ -1092,6 +1134,13 @@ mod tests {
                 .exits()
                 .iter()
                 .any(|exit| exit.kind() == AnalysisExitKind::Cancellation)
+        );
+
+        assert!(
+            graph
+                .exits()
+                .iter()
+                .any(|exit| exit.kind() == AnalysisExitKind::Panic)
         );
 
         assert!(graph.operations().iter().any(|operation| matches!(
@@ -1149,6 +1198,10 @@ mod tests {
                 (cancel, AnalysisTaskOperationKind::Cancel),
             ]
         );
+
+        assert!(graph.exits().iter().any(|exit| {
+            exit.kind() == AnalysisExitKind::Panic && exit.origin() == Some(start.into())
+        }));
     }
 
     #[test]

@@ -148,6 +148,7 @@ pub struct CheckedBodySemantics {
     dependencies: CheckedDependencyContracts,
     asynchronous: CheckedAsync,
     behavior: BodyBehaviorContributions,
+    execution_proofs: std::sync::Arc<[crate::CallableProofResult]>,
 }
 
 impl CheckedBodySemantics {
@@ -159,6 +160,7 @@ impl CheckedBodySemantics {
         dependencies: CheckedDependencyContracts,
         asynchronous: CheckedAsync,
         behavior: BodyBehaviorContributions,
+        execution_proofs: impl IntoIterator<Item = crate::CallableProofResult>,
     ) -> Result<Self, SemanticSnapshotBuildError> {
         let unit = liveness.unit();
         let kind = liveness.kind();
@@ -210,6 +212,7 @@ impl CheckedBodySemantics {
             dependencies,
             asynchronous,
             behavior,
+            execution_proofs: bray_base::shared_slice(execution_proofs),
         })
     }
 
@@ -251,6 +254,13 @@ impl CheckedBodySemantics {
     /// Returns direct body-behavior contributions.
     pub const fn behavior(&self) -> &BodyBehaviorContributions {
         &self.behavior
+    }
+
+    /// Returns body-local proof candidates and the reasons other obligations remain unproven.
+    ///
+    /// Certification requires an error-free body result and validation of every selected dependency.
+    pub fn execution_proofs(&self) -> &[crate::CallableProofResult] {
+        &self.execution_proofs
     }
 }
 

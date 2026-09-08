@@ -1,6 +1,14 @@
 @target(target.identity.SYSTEM == "linux" || target.identity.SYSTEM == "darwin")
 trusted internal module std.platform;
 
+internal func file_close_completed(pos status: PlatformStatus) -> bool
+    executes(pure, total)
+    ensures(result)
+{
+    // Linux and Darwin retire ordinary, unguarded descriptors before reporting close errors.
+    return true;
+}
+
 internal struct TemporaryDescriptor
 {
     value: i32;

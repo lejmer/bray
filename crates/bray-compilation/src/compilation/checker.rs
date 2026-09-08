@@ -48,8 +48,18 @@ type CheckerQueryResult<T> = bray_checker::CheckerQueryResult<T, FactQueryError>
 pub(super) struct CompilationCheckerContext<'compilation> {
     binding_context: CompilationBindingContext<'compilation>,
     implementation_witnesses: Arc<[ImplementationInstanceId]>,
-    recognized_standard_library_implementations:
-        OnceLock<Result<BTreeMap<AnySymbolId, ImplementationHookResolution>, CheckerQueryError>>,
+    recognized_standard_library_declarations: OnceLock<
+        Result<
+            BTreeMap<
+                AnySymbolId,
+                (
+                    bray_compiler_known::RecognizedStandardLibraryDeclarationId,
+                    bool,
+                ),
+            >,
+            CheckerQueryError,
+        >,
+    >,
 }
 
 impl<'compilation> CompilationCheckerContext<'compilation> {
@@ -57,7 +67,7 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         Self {
             binding_context,
             implementation_witnesses: Arc::from([]),
-            recognized_standard_library_implementations: OnceLock::new(),
+            recognized_standard_library_declarations: OnceLock::new(),
         }
     }
 
@@ -211,19 +221,35 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         })
     }
 
-    fn recognized_standard_library_implementations(
+    fn recognized_standard_library_declarations(
         &self,
-    ) -> CheckerQueryResult<&BTreeMap<AnySymbolId, ImplementationHookResolution>> {
-        self.recognized_standard_library_implementations
-            .get_or_init(|| self.build_recognized_standard_library_implementations())
+    ) -> CheckerQueryResult<
+        &BTreeMap<
+            AnySymbolId,
+            (
+                bray_compiler_known::RecognizedStandardLibraryDeclarationId,
+                bool,
+            ),
+        >,
+    > {
+        self.recognized_standard_library_declarations
+            .get_or_init(|| self.build_recognized_standard_library_declarations())
             .as_ref()
             .map_err(Clone::clone)
     }
 
-    fn build_recognized_standard_library_implementations(
+    fn build_recognized_standard_library_declarations(
         &self,
-    ) -> CheckerQueryResult<BTreeMap<AnySymbolId, ImplementationHookResolution>> {
-        let mut implementations = self.source_standard_library_implementations()?;
+    ) -> CheckerQueryResult<
+        BTreeMap<
+            AnySymbolId,
+            (
+                bray_compiler_known::RecognizedStandardLibraryDeclarationId,
+                bool,
+            ),
+        >,
+    > {
+        let mut implementations = self.source_standard_library_declarations()?;
 
         let imported = self
             .binding_context
@@ -255,14 +281,10 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
                 continue;
             };
 
-            let Some(hook) = descriptor.implementation_hook() else {
-                continue;
-            };
-
             implementations.insert(
                 declaration.symbol(),
-                ImplementationHookResolution::new(
-                    hook,
+                (
+                    descriptor.id(),
                     available.descriptor(declaration.symbol()).is_some(),
                 ),
             );
@@ -271,9 +293,17 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
         Ok(implementations)
     }
 
-    fn source_standard_library_implementations(
+    fn source_standard_library_declarations(
         &self,
-    ) -> CheckerQueryResult<BTreeMap<AnySymbolId, ImplementationHookResolution>> {
+    ) -> CheckerQueryResult<
+        BTreeMap<
+            AnySymbolId,
+            (
+                bray_compiler_known::RecognizedStandardLibraryDeclarationId,
+                bool,
+            ),
+        >,
+    > {
         if !is_public_standard_library_source(self.binding_context.compilation()) {
             return Ok(BTreeMap::new());
         }
@@ -325,14 +355,10 @@ impl<'compilation> CompilationCheckerContext<'compilation> {
 
             declarations.insert(descriptor.id(), symbol);
 
-            let Some(hook) = descriptor.implementation_hook() else {
-                continue;
-            };
-
             implementations.insert(
                 symbol,
-                ImplementationHookResolution::new(
-                    hook,
+                (
+                    descriptor.id(),
                     target.supports(descriptor.availability_rule()),
                 ),
             );
@@ -473,9 +499,78 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         symbol: AnySymbolId,
     ) -> CheckerQueryResult<Option<ImplementationHookResolution>> {
         Ok(self
-            .recognized_standard_library_implementations()?
+            .recognized_standard_library_declarations()?
             .get(&symbol)
-            .copied())
+            .and_then(|(descriptor, available)| {
+                COMPILER_KNOWN_CATALOG
+                    .recognized_standard_library_declaration(*descriptor)
+                    .and_then(|descriptor| descriptor.implementation_hook())
+                    .map(|hook| ImplementationHookResolution::new(hook, *available))
+            }))
+    }
+
+    fn raw_buffer_element(
+        &self,
+        definition: NamedTypeSymbolId,
+        substitution: bray_symbols::GenericSubstitutionId,
+    ) -> CheckerQueryResult<Option<TypeId>> {
+        let symbol = match definition {
+            NamedTypeSymbolId::Struct(symbol) => AnySymbolId::from(symbol),
+            NamedTypeSymbolId::Union(_) => return Ok(None),
+        };
+
+        let Some((descriptor, true)) = self
+            .recognized_standard_library_declarations()?
+            .get(&symbol)
+        else {
+            return Ok(None);
+        };
+
+        let Some(descriptor) =
+            COMPILER_KNOWN_CATALOG.recognized_standard_library_declaration(*descriptor)
+        else {
+            return Ok(None);
+        };
+
+        if descriptor.key().as_str() != "StandardRawBuffer" {
+            return Ok(None);
+        }
+
+        let substitution = self
+            .semantic_values()
+            .generic_substitution_data(substitution)
+            .map_err(|cause| {
+                CheckerQueryError::Infrastructure(CheckerInfrastructureError::SemanticValueStore(
+                    cause,
+                ))
+            })?;
+
+        let shape_error = |cause| {
+            CheckerQueryError::Infrastructure(CheckerInfrastructureError::GenericSubstitution(
+                cause,
+            ))
+        };
+
+        let [binding] = substitution.bindings() else {
+            return Err(shape_error(
+                bray_symbols::GenericSubstitutionShapeError::ArgumentCountMismatch {
+                    parameter_count: 1,
+                    argument_count: substitution.bindings().len(),
+                },
+            ));
+        };
+
+        let bray_symbols::GenericArgument::Type(element) = binding.argument() else {
+            return Err(shape_error(
+                bray_symbols::GenericSubstitutionShapeError::ArgumentKindMismatch {
+                    ordinal: 0,
+                    expected: bray_symbols::GenericArgumentKind::Type,
+                    actual: binding.argument().kind(),
+                },
+            ));
+        };
+
+        Ok(Some(element))
     }
 
     fn selected_target(&self) -> &TargetProfile {
@@ -672,6 +767,22 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
         ))
     }
 
+    fn lifecycle_callable(
+        &self,
+        ty: TypeId,
+        slot: bray_symbols::TypeAssociatedLifecycleSlot,
+    ) -> CheckerQueryResult<
+        DiagnosticResult<
+            Option<(
+                bray_symbols::CallableInstanceData,
+                bray_symbols::CallableSignature,
+            )>,
+        >,
+    > {
+        super::operation::selected_lifecycle_callable(&self.binding_context, ty, slot)
+            .map_err(checker_query_error)
+    }
+
     fn declared_type_has_lifecycle(
         &self,
         subject: NamedTypeSymbolId,
@@ -863,9 +974,7 @@ where
     fn resolve_symbol_query(
         &self,
         request: SymbolQueryRequest<C>,
-    ) -> CheckerQueryResult<
-        Arc<bray_diagnostics::DiagnosticResult<<C as bray_symbols::SymbolQueryContract>::Value>>,
-    > {
+    ) -> CheckerQueryResult<Arc<DiagnosticResult<<C as SymbolQueryContract>::Value>>> {
         self.binding_context
             .resolve_symbol_query(request)
             .map_err(|error| match error {

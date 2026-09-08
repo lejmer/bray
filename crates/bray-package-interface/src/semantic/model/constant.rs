@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use bray_symbols::{
-    ConstantBinaryOperation, ConstantField, ConstantUnaryOperation, IntegerConstant,
+    ConstantBinaryOperation, ConstantField, ConstantTest, ConstantUnaryOperation, IntegerConstant,
     RealConstantBits, SymbolOrdinal, TargetSizedIntegerType,
 };
 
@@ -161,6 +161,13 @@ pub enum InterfaceConstantTerm {
         /// Ordered argument terms.
         arguments: Arc<[InterfaceConstantTermId]>,
     },
+    /// A Boolean observation of an open or closed subject's shape.
+    Test {
+        /// Observed subject.
+        subject: InterfaceConstantTermId,
+        /// Checked shape test.
+        kind: ConstantTest<InterfaceSymbolReference>,
+    },
     /// A checked projection from another term.
     Projection {
         /// Projected subject.
@@ -183,4 +190,6 @@ pub enum InterfaceConstantProjection {
     UnionPayloadField(InterfaceSymbolReference),
     /// Present nullable value.
     NullableValue,
+    /// The initialized value reached through an owned indirection.
+    OwnedTarget,
 }

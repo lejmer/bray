@@ -1,3 +1,4 @@
+use crate::{CallableConditions, CallableContractClauseValue};
 use std::collections::HashSet;
 
 use super::{
@@ -55,6 +56,27 @@ pub(super) fn validate_type_data(
             }
 
             tables.types.get(store, callable.result())?;
+
+            for clause in callable.clauses() {
+                match clause.value() {
+                    CallableContractClauseValue::Predicate(predicate) => {
+                        tables
+                            .dependency_contracts
+                            .get(store, predicate.dependency_contract())?;
+
+                        if let Some(term) = predicate.condition() {
+                            tables.constant_terms.get(store, term)?;
+                        }
+                    }
+                    CallableContractClauseValue::TraitSatisfaction {
+                        subject,
+                        application,
+                    } => {
+                        tables.types.get(store, subject)?;
+                        tables.trait_applications.get(store, application)?;
+                    }
+                }
+            }
 
             let dependencies = callable.dependency_contracts();
 
@@ -198,6 +220,9 @@ pub(super) fn validate_constant_term_data(
             for argument in arguments.iter().copied() {
                 tables.constant_terms.get(store, argument)?;
             }
+        }
+        ConstantTermData::Test { subject, .. } => {
+            tables.constant_terms.get(store, *subject)?;
         }
         ConstantTermData::Projection(projection) => {
             tables.constant_terms.get(store, projection.subject())?;

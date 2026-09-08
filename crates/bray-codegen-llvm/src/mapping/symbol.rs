@@ -558,7 +558,7 @@ mod tests {
         let mapping = CodegenSymbolMapping::new(
             bray_codegen::CodegenSymbolKey::Runtime(bray_ir::MirRuntimeReference::new(
                 role,
-                RuntimeAbiVersion::new(1, 0),
+                RuntimeAbiVersion::CURRENT,
             )),
             BinarySymbolName::try_new(role.native_symbol().unwrap()).unwrap(),
             CodegenLinkage::Import,
@@ -1035,7 +1035,7 @@ mod tests {
         };
 
         let state = MirFrameState::new(MirFrameStateId::new(0), entry, [], []);
-        let version = RuntimeAbiVersion::new(1, 0);
+        let version = RuntimeAbiVersion::CURRENT;
 
         let Ok(descriptor) = MirFrameDescriptor::try_new(
             frame,

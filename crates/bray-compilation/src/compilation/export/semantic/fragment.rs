@@ -57,10 +57,8 @@ impl SemanticFragment {
         )?;
 
         export_generic_semantics(compilation, binder, symbol, &mut export, &mut declarations)?;
-
         export_constant_semantics(compilation, binder, symbol, &mut export, &mut declarations)?;
-
-        export_predicate_semantics(binder, symbol, &export, &mut declarations)?;
+        export_predicate_semantics(binder, symbol, &mut export, &mut declarations)?;
 
         export_default_semantics(
             compilation,
@@ -235,25 +233,25 @@ impl SemanticValueOrigins {
                     &self.substitutions,
                     &export.substitution_ids,
                     bray_package_interface::InterfaceSemanticTableKind::GenericSubstitution,
-                    bray_package_interface::InterfaceGenericSubstitutionId::raw,
+                    InterfaceGenericSubstitutionId::raw,
                 )?,
                 remap_values(
                     &self.trait_applications,
                     &export.trait_application_ids,
                     bray_package_interface::InterfaceSemanticTableKind::TraitApplication,
-                    bray_package_interface::InterfaceTraitApplicationId::raw,
+                    InterfaceTraitApplicationId::raw,
                 )?,
                 remap_values(
                     &self.callable_instances,
                     &export.callable_instance_ids,
                     bray_package_interface::InterfaceSemanticTableKind::CallableInstance,
-                    bray_package_interface::InterfaceCallableInstanceId::raw,
+                    InterfaceCallableInstanceId::raw,
                 )?,
                 remap_values(
                     &self.implementation_instances,
                     &export.implementation_instance_ids,
                     bray_package_interface::InterfaceSemanticTableKind::ImplementationInstance,
-                    bray_package_interface::InterfaceImplementationInstanceId::raw,
+                    InterfaceImplementationInstanceId::raw,
                 )?,
             )
             .with_values(
@@ -261,25 +259,25 @@ impl SemanticValueOrigins {
                     &self.dependency_contracts,
                     &export.dependency_contract_ids,
                     bray_package_interface::InterfaceSemanticTableKind::DependencyContract,
-                    bray_package_interface::InterfaceDependencyContractId::raw,
+                    InterfaceDependencyContractId::raw,
                 )?,
                 remap_values(
                     &self.types,
                     &export.type_ids,
                     bray_package_interface::InterfaceSemanticTableKind::Type,
-                    bray_package_interface::InterfaceTypeId::raw,
+                    InterfaceTypeId::raw,
                 )?,
                 remap_values(
                     &self.constant_values,
                     &export.constant_value_ids,
                     bray_package_interface::InterfaceSemanticTableKind::ConstantValue,
-                    bray_package_interface::InterfaceConstantValueId::raw,
+                    InterfaceConstantValueId::raw,
                 )?,
                 remap_values(
                     &self.constant_terms,
                     &export.constant_term_ids,
                     bray_package_interface::InterfaceSemanticTableKind::ConstantTerm,
-                    bray_package_interface::InterfaceConstantTermId::raw,
+                    InterfaceConstantTermId::raw,
                 )?,
             ))
     }

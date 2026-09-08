@@ -153,21 +153,64 @@ internal struct ChildProcessState
     mut standard_error: u64;
 }
 
+internal func retired_child_state() -> ChildProcessState
+    executes(pure, total)
+    ensures(
+        !result.is_open && result.handle == 0 && result.standard_input == 0 && result.standard_output == 0 &&
+            result.standard_error == 0
+    )
+{
+    return
+    {
+        handle = 0,
+        is_open = false,
+        standard_input = 0,
+        standard_output = 0,
+        standard_error = 0,
+    };
+}
+
 struct ChildProcess
 {
     internal mut state: ChildProcessState;
+    predicate complete(value: &Self) = !value.state.is_open && value.state.standard_input == 0 &&
+        value.state.standard_output == 0 && value.state.standard_error == 0;
+
+    func is_complete() -> bool
+        executes(pure, total)
+        ensures(!result || Self.complete(&self), result || !Self.complete(&self))
+    {
+        return !self.state.is_open && self.state.standard_input == 0 && self.state.standard_output == 0 &&
+            self.state.standard_error == 0;
+    }
 
     trusted finalize() -> Result<unit, ChildError>
-        requires(blocking_execution())
+        requires(Self.complete(&self) || blocking_execution())
+        when(Self.complete(&self))
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
     {
+        if !self.state.is_open && self.state.standard_input == 0 && self.state.standard_output == 0 &&
+            self.state.standard_error == 0
+        {
+            return Ok(unit);
+        }
+
         let _: ExitStatus = try trusted force_child_termination(&mut self);
 
         return Ok(unit);
     }
 
     trusted destruct()
+        when(Self.complete(&self))
+        {
+            executes(pure, total)
+        }
     {
-        if self.state.is_open
+        if self.state.is_open || self.state.standard_input != 0 || self.state.standard_output != 0 ||
+            self.state.standard_error != 0
         {
             let _: Result<unit, ChildError> = trusted dispose_child(&mut self);
         }
@@ -206,14 +249,16 @@ struct ChildProcess
         return trusted request_child_termination(&mut self);
     }
 
-    consume mut func wait() -> Result<ExitStatus, ChildError>
+    mut func wait() -> Result<ExitStatus, ChildError>
         requires(blocking_execution())
+        ensures((result matches Error(_)) || Self.complete(&self))
     {
         return trusted wait_for_child(&mut self);
     }
 
-    consume mut func force_termination() -> Result<ExitStatus, ChildError>
+    mut func force_termination() -> Result<ExitStatus, ChildError>
         requires(blocking_execution())
+        ensures((result matches Error(_)) || Self.complete(&self))
     {
         return trusted force_child_termination(&mut self);
     }
@@ -467,9 +512,15 @@ trusted internal func environment_spans(
 
 trusted internal func wait_for_child(pos child: &mut ChildProcess) -> Result<ExitStatus, ChildError>
     requires(blocking_execution())
+    ensures((result matches Error(_)) || ChildProcess.complete(&child))
     uses(foreign_call)
 {
-    trusted close_retained_pipes(&mut child);
+    try trusted close_retained_pipes(&mut child);
+
+    if !child.state.is_open
+    {
+        return Error(internal std.process.invalid_child_error(kind = Waiting));
+    }
 
     let mut terminal: u32 = 0;
     let mut status: PlatformExitStatus = internal std.process.empty_exit_status();
@@ -482,31 +533,43 @@ trusted internal func wait_for_child(pos child: &mut ChildProcess) -> Result<Exi
         status = status_pointer,
     );
 
-    try checked_child_status_or_dispose(&mut child, waited, kind = Waiting);
+    if internal platform_child_wait_completed(waited)
+    {
+        child.state = retired_child_state();
+    }
+
+    try internal std.process.child_status(waited, kind = Waiting);
 
     if terminal != 1
     {
-        let error: ChildError = internal std.process.invalid_child_error(kind = Waiting);
-        let _: Result<unit, ChildError> = trusted dispose_child(&mut child);
-
-        return Error(error);
+        return Error(internal std.process.invalid_child_error(kind = Waiting));
     }
 
-    let reaped: std.platform.PlatformStatus = trusted internal std.process.platform_child_reap(
-        child = child.state.handle,
-        status = status_pointer,
-    );
+    if child.state.is_open
+    {
+        let reaped: std.platform.PlatformStatus = trusted internal std.process.platform_child_reap(
+            child = child.state.handle,
+            status = status_pointer,
+        );
 
-    try checked_child_status_or_dispose(&mut child, reaped, kind = Reaping);
+        try internal std.process.child_status(reaped, kind = Reaping);
+    }
 
-    child.state.is_open = false;
+    let result: Result<ExitStatus, ChildError> = internal std.process.exit_status(status);
 
-    return internal std.process.exit_status(status);
+    child.state = retired_child_state();
+
+    return result;
 }
 
 trusted internal func request_child_termination(pos child: &mut ChildProcess) -> Result<unit, ChildError>
     requires(blocking_execution())
 {
+    if !child.state.is_open
+    {
+        return Error(internal std.process.invalid_child_error(kind = Termination));
+    }
+
     let status: std.platform.PlatformStatus = trusted internal std.process.platform_child_terminate(
         child = child.state.handle,
         mode = 0,
@@ -517,85 +580,107 @@ trusted internal func request_child_termination(pos child: &mut ChildProcess) ->
 
 trusted internal func force_child_termination(pos child: &mut ChildProcess) -> Result<ExitStatus, ChildError>
     requires(blocking_execution())
+    ensures((result matches Error(_)) || ChildProcess.complete(&child))
     uses(foreign_call)
 {
+    if !child.state.is_open
+    {
+        try trusted close_retained_pipes(&mut child);
+
+        return Error(internal std.process.invalid_child_error(kind = Termination));
+    }
+
     let terminated: std.platform.PlatformStatus = trusted internal std.process.platform_child_terminate(
         child = child.state.handle,
         mode = 1,
     );
 
-    try checked_child_status_or_dispose(&mut child, terminated, kind = Termination);
+    try internal std.process.child_status(terminated, kind = Termination);
 
     return trusted wait_for_child(&mut child);
 }
 
-trusted internal func checked_child_status_or_dispose(
-    pos child: &mut ChildProcess,
-    pos status: std.platform.PlatformStatus,
-    kind: ChildErrorKind,
-) -> Result<unit, ChildError>
-    requires(blocking_execution())
-{
-    match internal std.process.child_status(status, kind = kind)
-    {
-        case Ok(_) { return Ok(unit); }
-        case Error(error)
-        {
-            let _: Result<unit, ChildError> = trusted dispose_child(&mut child);
-
-            return Error(error);
-        }
-    }
-}
-
 trusted internal func dispose_child(pos child: &mut ChildProcess) -> Result<unit, ChildError>
     requires(blocking_execution())
+    ensures((result matches Error(_)) || ChildProcess.complete(&child))
 {
-    trusted close_retained_pipes(&mut child);
+    try trusted close_retained_pipes(&mut child);
+
+    if !child.state.is_open
+    {
+        return Ok(unit);
+    }
+
+    let mut released: u32 = 0;
 
     let status: std.platform.PlatformStatus = trusted internal std.process.platform_child_dispose(
-        child = child.state.handle
+        child = child.state.handle,
+        released = std.memory.address_of_mut(&mut released),
     );
 
-    child.state.is_open = false;
+    if released == 1
+    {
+        child.state = retired_child_state();
+    }
 
-    return internal std.process.child_status(status, kind = Reaping);
+    try internal std.process.child_status(status, kind = Reaping);
+
+    child.state = retired_child_state();
+
+    return Ok(unit);
 }
 
-trusted internal func close_retained_pipes(pos child: &mut ChildProcess) -> unit
+trusted internal func close_retained_pipes(pos child: &mut ChildProcess) -> Result<unit, ChildError>
+    requires(blocking_execution())
+    ensures(
+        (result matches Error(_)) || (child.state.standard_input == 0 && child.state.standard_output == 0 &&
+            child.state.standard_error == 0)
+    )
 {
-    let input_handle: u64 = child.state.standard_input;
-    let output_handle: u64 = child.state.standard_output;
-    let error_handle: u64 = child.state.standard_error;
+    let input = trusted close_retained_pipe(child.state.standard_input);
+
+    child.state.standard_input = input.0;
+
+    try input.1;
+
+    let output = trusted close_retained_pipe(child.state.standard_output);
+
+    child.state.standard_output = output.0;
+
+    try output.1;
+
+    let error = trusted close_retained_pipe(child.state.standard_error);
+
+    child.state.standard_error = error.0;
+
+    try error.1;
 
     child.state.standard_input = 0;
     child.state.standard_output = 0;
     child.state.standard_error = 0;
 
-    match internal std.process.child_input(handle = input_handle)
+    return Ok(unit);
+}
+
+trusted internal func close_retained_pipe(pos handle: u64) -> (u64, Result<unit, ChildError>)
+    requires(blocking_execution())
+    ensures((result.1 matches Error(_)) || result.0 == 0)
+{
+    if handle == 0
     {
-        case ?mut input
-        {
-            let _: Result<unit, std.io.IoError> = trusted internal std.process.close_child_input(&mut input);
-        }
-        case none {}
+        let completed: Result<unit, ChildError> = Ok(unit);
+
+        return (0, completed);
     }
 
-    match internal std.process.child_output(handle = output_handle)
+    let status: std.platform.PlatformStatus = trusted internal platform_process_pipe_close(handle = handle);
+
+    let completion = internal std.process.child_status(status, kind = Reaping);
+
+    if internal std.platform.file_close_completed(status)
     {
-        case ?mut output
-        {
-            let _: Result<unit, std.io.IoError> = trusted internal std.process.close_child_output(&mut output);
-        }
-        case none {}
+        return (0, completion);
     }
 
-    match internal std.process.child_output(handle = error_handle)
-    {
-        case ?mut error
-        {
-            let _: Result<unit, std.io.IoError> = trusted internal std.process.close_child_output(&mut error);
-        }
-        case none {}
-    }
+    return (handle, completion);
 }

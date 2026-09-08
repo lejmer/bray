@@ -612,7 +612,9 @@ mod tests {
 
             self.started.wait();
 
-            let ordinal = if unit == &self.slow_unit {
+            let slow = unit == &self.slow_unit;
+
+            if slow {
                 let (completed, changed) = &self.fast_completed;
 
                 let completed = completed
@@ -624,20 +626,7 @@ mod tests {
                     .unwrap_or_else(|_| panic!("test completion gate must remain available"));
 
                 drop(waited);
-
-                10
-            } else {
-                let (completed, changed) = &self.fast_completed;
-
-                let mut completed = completed
-                    .lock()
-                    .unwrap_or_else(|_| panic!("test completion gate must remain available"));
-
-                *completed = true;
-                changed.notify_all();
-
-                20
-            };
+            }
 
             self.state
                 .lock()
@@ -645,7 +634,20 @@ mod tests {
                 .completed
                 .push(unit.clone());
 
-            ordinal
+            if !slow {
+                let (completed, changed) = &self.fast_completed;
+
+                let mut completed = completed
+                    .lock()
+                    .unwrap_or_else(|_| panic!("test completion gate must remain available"));
+
+                // Publish the observed completion before allowing the other worker to finish.
+                *completed = true;
+
+                changed.notify_all();
+            }
+
+            if slow { 10 } else { 20 }
         }
 
         fn snapshot(&self) -> GenerationObservation {

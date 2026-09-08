@@ -866,6 +866,14 @@ where
         )));
     }
 
+    if super::callable_contract_conversion_is_valid(request.context(), actual, expected)? {
+        return Ok(Some(SelectedConversion::new(
+            actual,
+            expected,
+            ConversionTarget::CallableContract,
+        )));
+    }
+
     let data = request
         .semantic_values()
         .type_data(expected)
@@ -1076,19 +1084,18 @@ where
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     };
 
-    callable_selection_mode(callee, input)
+    callable_selection_mode(callee, request.view().value_receiver(call.callee()), input)
 }
 
 fn callable_selection_mode(
     callee: &bray_bound_tree::BoundExpression,
+    receiver: Option<bray_bound_tree::BoundExpressionId>,
     input: &CallableSelectionRequest,
 ) -> Result<CallableSelectionMode, CheckerInfrastructureError> {
     let is_overload = match callee {
-        bray_bound_tree::BoundExpression::MemberAccess(member) => {
-            member_selection_is_overload(input, member.receiver())?
-        }
-        bray_bound_tree::BoundExpression::TraitQualifiedMember(member) => {
-            member_selection_is_overload(input, member.receiver())?
+        bray_bound_tree::BoundExpression::MemberAccess(_)
+        | bray_bound_tree::BoundExpression::TraitQualifiedMember(_) => {
+            member_selection_is_overload(input, receiver)?
         }
         bray_bound_tree::BoundExpression::Name(name) => {
             validate_non_member_request(input)?;
@@ -1115,7 +1122,7 @@ fn callable_selection_mode(
 
 fn member_selection_is_overload(
     input: &CallableSelectionRequest,
-    receiver: bray_bound_tree::BoundExpressionId,
+    receiver: Option<bray_bound_tree::BoundExpressionId>,
 ) -> Result<bool, CheckerInfrastructureError> {
     let Some(member) = input.callee_member() else {
         return if input.receiver().is_none() {
@@ -1125,7 +1132,7 @@ fn member_selection_is_overload(
         };
     };
 
-    if input.receiver().map(super::ReceiverSelection::expression) != Some(receiver) {
+    if input.receiver().map(super::ReceiverSelection::expression) != receiver {
         return Err(CheckerInfrastructureError::InvalidSemanticSelectionInput);
     }
 

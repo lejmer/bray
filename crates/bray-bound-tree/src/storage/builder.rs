@@ -367,6 +367,10 @@ impl StoragePlanBuilder {
                 expected == actual
             }
             (
+                StorageBindingTarget::Local(expected),
+                Some(StorageIdentity::ContractParameter(actual)),
+            ) => expected == actual,
+            (
                 StorageBindingTarget::AnonymousParameter(expected),
                 Some(StorageIdentity::AnonymousParameter(actual)),
             ) => expected == actual,

@@ -16,6 +16,105 @@ use crate::{
     TaskControlBlock, TaskRegistration, current_task_execution_context,
 };
 
+pub(crate) const fn panic_callbacks(
+    report: extern "C-unwind" fn(usize) -> bray_runtime_abi::NativeRuntimeStatus,
+    destroy: extern "C-unwind" fn(usize) -> bray_runtime_abi::NativeRuntimeStatus,
+) -> bray_runtime_abi::NativePanicReportCallbacks {
+    extern "C" fn unexpected_construction(_: &bray_runtime_abi::NativeCleanupIncident) -> usize {
+        panic!("this fixture must not construct a cleanup report")
+    }
+
+    extern "C" fn unexpected_suppression(_: usize, _: usize) -> usize {
+        panic!("this fixture must not combine panic reports")
+    }
+
+    bray_runtime_abi::NativePanicReportCallbacks::new(
+        report,
+        destroy,
+        unexpected_construction,
+        unexpected_suppression,
+    )
+}
+
+thread_local! {
+    static TRANSFERRED_OUTCOME: std::cell::Cell<Option<(usize, bray_runtime_abi::NativeRunOutcome)>> = const { std::cell::Cell::new(None) };
+}
+
+pub(crate) extern "C" fn record_run_result_transfer(
+    destination: usize,
+    outcome: &bray_runtime_abi::NativeRunOutcome,
+) -> bray_runtime_abi::NativeRuntimeStatus {
+    if outcome.state() == bray_runtime_abi::NativeRunState::COMPLETED && outcome.payload() == 0 {
+        return bray_runtime_abi::NativeRuntimeStatus::INVALID_ARGUMENT;
+    }
+
+    TRANSFERRED_OUTCOME.set(Some((destination, *outcome)));
+
+    bray_runtime_abi::NativeRuntimeStatus::SUCCESS
+}
+
+pub(crate) fn take_run_result_transfer() -> Option<(usize, bray_runtime_abi::NativeRunOutcome)> {
+    TRANSFERRED_OUTCOME.take()
+}
+
+/// Retains fixture values across native callbacks and transfers each token exactly once.
+pub(crate) struct NativeTestValues<T> {
+    values: std::sync::Mutex<(usize, std::collections::BTreeMap<usize, T>)>,
+}
+
+impl<T> NativeTestValues<T> {
+    pub(crate) const fn new() -> Self {
+        // Fixture report tokens share the ABI word with completion and cancellation.
+        Self {
+            values: std::sync::Mutex::new((
+                bray_runtime_abi::NativeBrayCallOutcome::cancelled().raw(),
+                std::collections::BTreeMap::new(),
+            )),
+        }
+    }
+
+    pub(crate) fn insert(&self, value: T) -> usize {
+        let mut values = self
+            .values
+            .lock()
+            .expect("fixture registry must remain available");
+
+        let token = values
+            .0
+            .checked_add(1)
+            .expect("fixture token capacity must suffice");
+
+        values.0 = token;
+        values.1.insert(token, value);
+
+        token
+    }
+
+    pub(crate) fn take(&self, token: usize) -> Option<T> {
+        self.values
+            .lock()
+            .expect("fixture registry must remain available")
+            .1
+            .remove(&token)
+    }
+}
+
+#[test]
+fn native_fixture_tokens_transfer_ownership_once_without_reuse() {
+    let values = NativeTestValues::new();
+    let first = values.insert(String::from("first"));
+
+    assert!(bray_runtime_abi::NativeBrayCallOutcome::panicked(first).is_some());
+    assert_eq!(values.take(first), Some(String::from("first")));
+    assert_eq!(values.take(first), None);
+
+    let second = values.insert(String::from("second"));
+
+    assert_ne!(second, first);
+    assert_eq!(values.take(second), Some(String::from("second")));
+    assert_eq!(values.take(0), None);
+}
+
 pub(crate) fn register_task<T: 'static, F>(
     scheduler: &Scheduler,
     task: &TaskControlBlock<T, F>,

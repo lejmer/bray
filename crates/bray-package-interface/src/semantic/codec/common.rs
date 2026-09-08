@@ -375,7 +375,9 @@ pub(super) fn map_wire_error(error: crate::wire::WireDecodeError) -> InterfaceVa
     )
 }
 
-pub(super) const fn malformed(cause: InterfaceMalformedCause) -> InterfaceValidationError {
+pub(in crate::semantic) const fn malformed(
+    cause: InterfaceMalformedCause,
+) -> InterfaceValidationError {
     InterfaceValidationError::Malformed {
         context: InterfaceValidationContext::Section(InterfaceSectionTag::SemanticRecordDirectory),
         cause,

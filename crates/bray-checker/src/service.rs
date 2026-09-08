@@ -383,6 +383,7 @@ where
         patterns: &CheckedPatterns,
         storage: &StoragePlan,
         memory: &CheckedMemoryOperations,
+        guarantees: Option<&crate::ExecutionGuaranteeInput>,
     ) -> CheckerOutcome<CheckedBodySemantics, C::UpstreamError> {
         check_body_semantics(
             request,
@@ -391,6 +392,7 @@ where
             patterns,
             storage,
             memory,
+            guarantees,
         )
     }
 }

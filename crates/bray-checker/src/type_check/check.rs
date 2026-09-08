@@ -97,12 +97,12 @@ where
 
         let mut expected = match diagnostic_type(request, conflict.expected) {
             Ok(expected) => expected,
-            Err(error) => return query_outcome(error),
+            Err(error) => return error.into(),
         };
 
         let mut actual = match diagnostic_type(request, conflict.actual) {
             Ok(actual) => actual,
-            Err(error) => return query_outcome(error),
+            Err(error) => return error.into(),
         };
 
         if !conflict.is_directional && actual < expected {
@@ -120,6 +120,10 @@ where
     conflicts.dedup();
 
     let mut diagnostics = Vec::new();
+
+    if let Err(error) = check_type_qualifier_values(request, &finished.results, &mut diagnostics) {
+        return error.into();
+    }
 
     for conflict in conflicts {
         let span = match expression_span(request, conflict.expression) {
@@ -228,7 +232,7 @@ where
 
         let actual = match diagnostic_type(request, element) {
             Ok(actual) => actual,
-            Err(error) => return query_outcome(error),
+            Err(error) => return error.into(),
         };
 
         diagnostics.push(
@@ -262,7 +266,7 @@ where
     let unproven_generators =
         match unproven_array_generators(request, &checked_types, iteration_sources) {
             Ok(expressions) => expressions,
-            Err(error) => return query_outcome(error),
+            Err(error) => return error.into(),
         };
 
     for unproven in unproven_generators {
@@ -302,6 +306,93 @@ fn is_compile_time_path_expression(expression: &BoundExpression) -> bool {
     name.target().is_compile_time_qualifier()
 }
 
+fn check_type_qualifier_values<C>(
+    request: CheckerUnitView<'_, C>,
+    types: &[(BoundExpressionId, bray_bound_tree::ExpressionTypeResult)],
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Result<(), CheckerQueryError<C::UpstreamError>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    if !matches!(
+        request.view().kind(),
+        bray_bound_tree::BoundUnitKind::CallableBody
+            | bray_bound_tree::BoundUnitKind::AnonymousCallable
+            | bray_bound_tree::BoundUnitKind::RuntimeDefault
+    ) {
+        return Ok(());
+    }
+
+    for (expression, bound) in request.unit().tree().expressions() {
+        let BoundExpression::Name(name) = bound else {
+            continue;
+        };
+
+        if name.is_recovered() || !name.target().is_compile_time_qualifier() {
+            continue;
+        }
+
+        let parent = request
+            .view()
+            .expression_parent(expression)
+            .and_then(|parent| request.view().expression(parent));
+
+        let qualifies = match parent {
+            Some(BoundExpression::MemberAccess(member)) => member.receiver() == expression,
+            Some(BoundExpression::TraitQualifiedMember(member)) => member.receiver() == expression,
+            Some(BoundExpression::StructConstruction(construction)) => {
+                construction.head() == Some(expression)
+            }
+            Some(BoundExpression::Call(call)) => call.callee() == expression,
+            _ => false,
+        };
+
+        if qualifies {
+            continue;
+        }
+
+        let ty = types
+            .iter()
+            .find(|(candidate, result)| *candidate == expression && !result.is_recovered())
+            .map(|(_, result)| result.ty());
+
+        let ty = match (ty, name.target()) {
+            (Some(ty), _) | (_, bray_bound_tree::BoundReferenceTarget::TypeQualifier(ty)) => {
+                Some(ty)
+            }
+            (_, bray_bound_tree::BoundReferenceTarget::Surface(symbol)) => {
+                match bray_symbols::NamedTypeSymbolId::try_from_any(symbol) {
+                    Some(definition) => request
+                        .semantic_values()
+                        .intern_open_named_type(request.symbols(), definition)
+                        .map_err(CheckerInfrastructureError::SemanticValueStore)?,
+                    None => None,
+                }
+            }
+            (_, bray_bound_tree::BoundReferenceTarget::Local(_)) => None,
+        };
+
+        let Some(ty) = ty else {
+            continue;
+        };
+
+        diagnostics.push(
+            Diagnostic::new(
+                diagnostic_id(diagnostics.len()),
+                DiagnosticKind::CheckingTypeQualifierUsedAsValue,
+                SeverityKind::Error,
+            )
+            .with_primary_span(expression_span(request, expression)?)
+            .with_arg(DiagnosticArg::actual_type(diagnostic_type(request, ty)?))
+            .with_note(DiagnosticNote::new(
+                DiagnosticNoteKind::TypeQualifierRequiresValue,
+            )),
+        );
+    }
+
+    Ok(())
+}
+
 pub(crate) fn diagnostic_type<C>(
     request: CheckerUnitView<'_, C>,
     ty: TypeId,
@@ -310,14 +401,6 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     crate::diagnostic::diagnostic_type(request.context(), ty)
-}
-
-fn query_outcome<T, Upstream>(error: CheckerQueryError<Upstream>) -> CheckerOutcome<T, Upstream> {
-    match error {
-        CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-        CheckerQueryError::Infrastructure(error) => CheckerOutcome::InfrastructureFailure(error),
-        CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
-    }
 }
 
 #[cfg(test)]

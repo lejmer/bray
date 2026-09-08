@@ -275,7 +275,7 @@ where
                     conversion.target_type(),
                 );
             }
-            ConversionTarget::TraitConstraint { .. } => {
+            ConversionTarget::TraitConstraint { .. } | ConversionTarget::CallableContract => {
                 return Err(EvaluationFailure::invalid_expression(expression));
             }
         };
@@ -464,12 +464,12 @@ where
     ) -> Result<ConstantTermId, EvaluationFailure> {
         let selected_member = match self.input.semantic_selections().expression(expression) {
             Some(SemanticSelection::Operation(SelectedOperation::Member(target))) => {
-                target.member()
+                Some(target.member())
             }
-            _ => return Err(EvaluationFailure::invalid_expression(expression)),
+            _ => None,
         };
 
-        if matches!(selected_member, AnySymbolId::Constant(_)) {
+        if matches!(selected_member, Some(AnySymbolId::Constant(_))) {
             return self.evaluate_reference(expression, None, ty);
         }
 
@@ -479,12 +479,34 @@ where
 
         let projection = match (selector, selected_member) {
             (BoundMemberSelector::TupleElement(ordinal), _) => {
+                let values = self.request.semantic_values();
+
+                let receiver = values
+                    .unborrowed_type(self.expression_type(member.receiver())?)
+                    .map_err(|error| {
+                        EvaluationFailure::Infrastructure(
+                            crate::CheckerInfrastructureError::SemanticValueStore(error),
+                        )
+                    })?;
+
+                let receiver = values.type_data(receiver).map_err(|error| {
+                    EvaluationFailure::Infrastructure(
+                        crate::CheckerInfrastructureError::SemanticValueStore(error),
+                    )
+                })?;
+
+                if !matches!(receiver.as_ref(), bray_symbols::TypeData::Tuple(elements)
+                    if usize::try_from(*ordinal).ok().and_then(|index| elements.get(index)) == Some(&ty))
+                {
+                    return Err(EvaluationFailure::invalid_expression(expression));
+                }
+
                 ConstantProjectionKind::TupleElement(SymbolOrdinal::new(*ordinal))
             }
-            (BoundMemberSelector::Name(_), AnySymbolId::StructField(field)) => {
+            (BoundMemberSelector::Name(_), Some(AnySymbolId::StructField(field))) => {
                 ConstantProjectionKind::ProductField(field)
             }
-            (BoundMemberSelector::Name(_), AnySymbolId::UnionPayloadField(field)) => {
+            (BoundMemberSelector::Name(_), Some(AnySymbolId::UnionPayloadField(field))) => {
                 ConstantProjectionKind::UnionPayloadField(field)
             }
             _ => return Err(EvaluationFailure::invalid_expression(expression)),
@@ -502,25 +524,7 @@ where
         let receiver = self.closed_value(receiver, expression)?;
         let receiver = self.constant_value(receiver)?;
 
-        let value = match (receiver.kind(), projection) {
-            (ConstantValueKind::Tuple(elements), ConstantProjectionKind::TupleElement(ordinal)) => {
-                elements.get(ordinal.raw() as usize).copied()
-            }
-            (ConstantValueKind::Product(fields), ConstantProjectionKind::ProductField(field)) => {
-                fields
-                    .iter()
-                    .find(|entry| *entry.field() == field)
-                    .map(|entry| *entry.value())
-            }
-            (
-                ConstantValueKind::Union { fields, .. },
-                ConstantProjectionKind::UnionPayloadField(field),
-            ) => fields
-                .iter()
-                .find(|entry| *entry.field() == field)
-                .map(|entry| *entry.value()),
-            _ => None,
-        };
+        let value = crate::constant::shape::project_value(receiver.kind(), projection, None);
 
         let Some(value) = value else {
             return Err(EvaluationFailure::invalid_expression(expression));
@@ -550,11 +554,8 @@ where
         let inputs = construction.inputs().to_vec();
 
         match target {
-            ConstructionTarget::Struct(_) => {
-                self.evaluate_product_construction(expression, ty, &inputs)
-            }
-            ConstructionTarget::UnionVariant(variant) => {
-                self.evaluate_union_construction(expression, ty, variant, &inputs)
+            ConstructionTarget::Struct(_) | ConstructionTarget::UnionVariant(_) => {
+                self.evaluate_structural_construction(expression, ty, target, &inputs)
             }
             ConstructionTarget::TypeForm { callable, .. } => {
                 let mut inputs = inputs
@@ -583,50 +584,31 @@ where
         }
     }
 
-    fn evaluate_product_construction(
+    fn evaluate_structural_construction(
         &mut self,
         expression: BoundExpressionId,
         ty: TypeId,
+        target: ConstructionTarget,
         inputs: &[SelectedConstructionInput],
     ) -> Result<ConstantTermId, EvaluationFailure> {
         let inputs = self.evaluate_construction_inputs(expression, inputs)?;
-        let mut fields = Vec::with_capacity(inputs.len());
 
-        for (input, value) in inputs {
-            let ConstructionInputId::StructField(field) = input else {
-                return Err(EvaluationFailure::invalid_expression(expression));
-            };
+        let term = crate::constant::shape::constructed_term(target, inputs)
+            .ok_or_else(|| EvaluationFailure::invalid_expression(expression))?;
 
-            fields.push(ConstantField::new(field, value));
-        }
+        let closed = match &term {
+            ConstantTermData::Product(fields) => {
+                self.closed_fields(fields)?.map(ConstantValueKind::product)
+            }
+            ConstantTermData::Union { variant, fields } => self
+                .closed_fields(fields)?
+                .map(|fields| ConstantValueKind::union(*variant, fields)),
+            _ => return Err(EvaluationFailure::invalid_expression(expression)),
+        };
 
-        match self.closed_fields(&fields)? {
-            Some(fields) => self.intern_value_term(ty, ConstantValueKind::product(fields)),
-            None => self.intern_typed_term(ty, ConstantTermData::product(fields)),
-        }
-    }
-
-    fn evaluate_union_construction(
-        &mut self,
-        expression: BoundExpressionId,
-        ty: TypeId,
-        variant: bray_symbols::UnionVariantSymbolId,
-        inputs: &[SelectedConstructionInput],
-    ) -> Result<ConstantTermId, EvaluationFailure> {
-        let inputs = self.evaluate_construction_inputs(expression, inputs)?;
-        let mut fields = Vec::with_capacity(inputs.len());
-
-        for (input, value) in inputs {
-            let ConstructionInputId::UnionPayloadField(field) = input else {
-                return Err(EvaluationFailure::invalid_expression(expression));
-            };
-
-            fields.push(ConstantField::new(field, value));
-        }
-
-        match self.closed_fields(&fields)? {
-            Some(fields) => self.intern_value_term(ty, ConstantValueKind::union(variant, fields)),
-            None => self.intern_typed_term(ty, ConstantTermData::union(variant, fields)),
+        match closed {
+            Some(value) => self.intern_value_term(ty, value),
+            None => self.intern_typed_term(ty, term),
         }
     }
 

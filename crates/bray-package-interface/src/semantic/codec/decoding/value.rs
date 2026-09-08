@@ -266,6 +266,7 @@ pub(super) fn decode_callable_type(
         constness: decode_tag(read_u32(reader)?)?,
         trust: decode_tag(read_u32(reader)?)?,
         abi: decode_tag(read_u32(reader)?)?,
+        conditions: super::contract::decode_callable_conditions(reader, limits, context)?,
         invocation_behavior: super::contract::decode_callable_behavior(reader, limits, context)?,
         deferred_execution_behavior: {
             let raw = read_u32(reader)?;
@@ -483,9 +484,28 @@ pub(super) fn decode_constant_term(
             term: InterfaceConstantTermId::new(read_u32(reader)?),
             ty: InterfaceTypeId::new(read_u32(reader)?),
         }),
-        18 => Ok(InterfaceConstantTerm::CallableArgument(
-            bray_symbols::SymbolOrdinal::new(read_u32(reader)?),
-        )),
+        19 => {
+            let subject = InterfaceConstantTermId::new(read_u32(reader)?);
+            let tag = read_u32(reader)?;
+
+            let kind = match tag {
+                1 => bray_symbols::ConstantTest::NullablePresent,
+                2 => bray_symbols::ConstantTest::ActiveUnionVariant(read_symbol_reference(
+                    reader, context,
+                )?),
+                _ => {
+                    return Err(crate::semantic::codec::invalid_discriminant(
+                        crate::InterfaceValidationField::Constant,
+                        tag,
+                    ));
+                }
+            };
+
+            Ok(InterfaceConstantTerm::Test { subject, kind })
+        }
+        18 => Ok(InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(
+            read_u32(reader)?,
+        ))),
         _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Constant,
             raw,
@@ -562,6 +582,7 @@ pub(super) fn decode_constant_projection(
             read_symbol_reference(reader, context)?,
         )),
         5 => Ok(InterfaceConstantProjection::NullableValue),
+        6 => Ok(InterfaceConstantProjection::OwnedTarget),
         _ => Err(crate::semantic::codec::invalid_discriminant(
             crate::InterfaceValidationField::Constant,
             raw,
@@ -571,6 +592,7 @@ pub(super) fn decode_constant_projection(
 
 #[cfg(test)]
 mod tests {
+    use bray_symbols::CallableConditions;
     use bray_symbols::{
         CallableAbi, CallableConstness, CallableExecution, CallableParameterMode, CallablePosition,
         CallableTrust, ConstantField, ConstantSymbolId, ConstantTermData, ConstantValueKind,
@@ -634,17 +656,27 @@ mod tests {
 
         let callable_contract = imported.callable_contracts()[0].contract();
 
-        assert_eq!(callable_contract.invocation_preconditions().len(), 1);
-        assert_eq!(callable_contract.static_constraints().len(), 1);
+        assert_eq!(
+            callable_contract
+                .conditions()
+                .invocation_preconditions()
+                .len(),
+            1
+        );
+
+        assert_eq!(callable_contract.conditions().static_constraints().len(), 1);
 
         assert!(
-            callable_contract.static_constraints()[0]
+            callable_contract.conditions().static_constraints()[0]
                 .trait_satisfaction_requirement()
                 .is_some()
         );
 
         assert_eq!(
-            callable_contract.normal_completion_postconditions().len(),
+            callable_contract
+                .conditions()
+                .normal_completion_postconditions()
+                .len(),
             1
         );
 
@@ -687,6 +719,22 @@ mod tests {
         };
 
         assert_eq!(callable.execution(), CallableExecution::Asynchronous);
+        assert_eq!(callable.entry_guards().len(), 1);
+
+        assert_eq!(
+            callable.entry_guards()[0]
+                .predicate()
+                .and_then(|predicate| predicate.condition()),
+            Some(imported.constant_terms()[0])
+        );
+
+        assert_eq!(
+            callable.execution_guarantees(),
+            [bray_symbols::CallableExecutionGuarantee::new(
+                bray_symbols::ExecutionProperty::Pure,
+                Some(SymbolOrdinal::new(0)),
+            )]
+        );
 
         assert!(
             callable
@@ -711,6 +759,68 @@ mod tests {
         );
 
         assert_eq!(deferred.execution_requirements().len(), 1);
+    }
+
+    #[test]
+    fn symbolic_pattern_shapes_round_trip_with_exact_variant_identity() {
+        use crate::InterfaceConstantTermId;
+
+        let surface = semantic_surface([]);
+        let variant = symbol_reference(&surface, SymbolKind::UnionVariant);
+
+        let semantics = InterfaceSemantics::new().with_values(
+            [],
+            [],
+            [],
+            [
+                InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(0)),
+                InterfaceConstantTerm::Test {
+                    subject: InterfaceConstantTermId::new(0),
+                    kind: bray_symbols::ConstantTest::NullablePresent,
+                },
+                InterfaceConstantTerm::Test {
+                    subject: InterfaceConstantTermId::new(0),
+                    kind: bray_symbols::ConstantTest::ActiveUnionVariant(variant),
+                },
+            ],
+        );
+
+        let limits = InterfaceValidationLimits::default();
+        let sections = encode_semantics(&semantics, &surface, limits).unwrap();
+
+        let decoded =
+            decode_semantics(&encoded_section_views(&sections), &surface, limits).unwrap();
+
+        assert_eq!(decoded, semantics);
+
+        let store = SemanticValueStore::try_new().unwrap();
+        let imported = decoded.intern(&store, &resolver(&surface)).unwrap();
+        let subject = imported.constant_terms()[0];
+
+        assert_eq!(
+            *store
+                .constant_term_data(imported.constant_terms()[1])
+                .unwrap(),
+            ConstantTermData::Test {
+                subject,
+                kind: bray_symbols::ConstantTest::NullablePresent,
+            }
+        );
+
+        assert_eq!(
+            *store
+                .constant_term_data(imported.constant_terms()[2])
+                .unwrap(),
+            ConstantTermData::Test {
+                subject,
+                kind: bray_symbols::ConstantTest::ActiveUnionVariant(
+                    UnionVariantSymbolId::from_symbol_id(symbol_id(
+                        &surface,
+                        SymbolKind::UnionVariant
+                    ))
+                ),
+            }
+        );
     }
 
     #[test]
@@ -1031,7 +1141,7 @@ mod tests {
 
         assert_eq!(
             decode_owned(&owned, &surface, limits),
-            Err(crate::InterfaceValidationError::Malformed {
+            Err(InterfaceValidationError::Malformed {
                 context: crate::InterfaceValidationContext::Record {
                     section: crate::InterfaceSectionTag::SemanticTypes,
                     index: 0,
@@ -1050,7 +1160,7 @@ mod tests {
 
         assert_eq!(
             decode_owned(&owned, &surface, limits),
-            Err(crate::InterfaceValidationError::Malformed {
+            Err(InterfaceValidationError::Malformed {
                 context: crate::InterfaceValidationContext::Section(
                     crate::InterfaceSectionTag::SemanticTypes,
                 ),
@@ -1170,6 +1280,129 @@ mod tests {
         );
     }
 
+    #[test]
+    fn guarded_execution_contracts_round_trip_and_intern_without_strengthening() {
+        use crate::InterfaceCallableContractClause;
+
+        use bray_symbols::{
+            CallableContractClauseKind, CallableExecutionGuarantee, ExecutionProperty,
+        };
+
+        let (surface, mut semantics) = fixture();
+
+        let condition = crate::InterfaceConstantTermId::new(
+            u32::try_from(semantics.constant_terms.len()).unwrap(),
+        );
+
+        let mut terms = semantics.constant_terms.to_vec();
+
+        terms.push(InterfaceConstantTerm::CallableArgument(SymbolOrdinal::new(
+            0,
+        )));
+
+        semantics.constant_terms = terms.into();
+
+        let original = &semantics.callable_contracts()[0];
+
+        let predicate = InterfacePredicateSummary::new(InterfaceDependencyContractId::new(0))
+            .with_condition(Some(condition));
+
+        let outer = SymbolOrdinal::new(3);
+        let inner = SymbolOrdinal::new(5);
+
+        let clauses = original.clauses().copied().chain([
+            InterfaceCallableContractClause::new(
+                outer,
+                CallableContractClauseKind::Guard,
+                predicate,
+            ),
+            InterfaceCallableContractClause::new(
+                SymbolOrdinal::new(4),
+                CallableContractClauseKind::Ensures,
+                predicate,
+            )
+            .with_guard(Some(outer)),
+            InterfaceCallableContractClause::new(
+                inner,
+                CallableContractClauseKind::Guard,
+                predicate,
+            )
+            .with_guard(Some(outer)),
+            InterfaceCallableContractClause::new(
+                SymbolOrdinal::new(6),
+                CallableContractClauseKind::Ensures,
+                predicate,
+            )
+            .with_guard(Some(inner)),
+        ]);
+
+        let guarantees = [
+            CallableExecutionGuarantee::new(ExecutionProperty::Pure, Some(outer)),
+            CallableExecutionGuarantee::new(ExecutionProperty::Total, Some(inner)),
+        ];
+
+        let contract = InterfaceCallableContract::new(
+            original.owner().clone(),
+            clauses,
+            original.invocation_behavior().clone(),
+            original.deferred_execution_behavior().cloned(),
+        )
+        .with_execution_guarantees(guarantees);
+
+        semantics.callable_contracts = [contract].into();
+
+        let limits = InterfaceValidationLimits::default();
+        let sections = encode_semantics(&semantics, &surface, limits).unwrap();
+
+        let decoded =
+            decode_semantics(&encoded_section_views(&sections), &surface, limits).unwrap();
+
+        assert_eq!(decoded, semantics);
+
+        let store = SemanticValueStore::try_new().unwrap();
+        let imported = decoded.intern(&store, &resolver(&surface)).unwrap();
+        let contract = imported.callable_contracts()[0].contract();
+
+        assert_eq!(contract.conditions().execution_guarantees(), guarantees);
+
+        assert!(
+            contract
+                .conditions()
+                .entry_guards()
+                .iter()
+                .all(|clause| clause.predicate().unwrap().condition()
+                    == Some(imported.constant_terms()[condition.raw() as usize]))
+        );
+
+        assert_eq!(
+            contract
+                .conditions()
+                .normal_completion_postconditions()
+                .len(),
+            1
+        );
+
+        assert_eq!(
+            contract
+                .conditions()
+                .entry_guards()
+                .iter()
+                .map(|clause| (clause.ordinal(), clause.guard()))
+                .collect::<Vec<_>>(),
+            [(outer, None), (inner, Some(outer))]
+        );
+
+        assert_eq!(
+            contract
+                .conditions()
+                .guarded_postconditions()
+                .iter()
+                .map(|clause| clause.guard())
+                .collect::<Vec<_>>(),
+            [Some(outer), Some(inner)]
+        );
+    }
+
     fn fixture() -> (crate::PackageInterfaceSurface, InterfaceSemantics) {
         let surface = semantic_surface([]);
         let semantics = semantics(&surface);
@@ -1222,6 +1455,22 @@ mod tests {
                         constness: CallableConstness::Runtime,
                         trust: CallableTrust::Safe,
                         abi: CallableAbi::Bray,
+                        conditions: bray_symbols::CallableConditionSet::new([
+                            crate::InterfaceCallableContractClause::new(
+                                SymbolOrdinal::new(0),
+                                bray_symbols::CallableContractClauseKind::Guard,
+                                InterfacePredicateSummary::new(InterfaceDependencyContractId::new(
+                                    0,
+                                ))
+                                .with_condition(Some(crate::InterfaceConstantTermId::new(0))),
+                            ),
+                        ])
+                        .with_execution_guarantees([
+                            bray_symbols::CallableExecutionGuarantee::new(
+                                bray_symbols::ExecutionProperty::Pure,
+                                Some(SymbolOrdinal::new(0)),
+                            ),
+                        ]),
                         invocation_behavior: crate::test_support::callable_phase_behavior(),
                         deferred_execution_behavior: Some(
                             crate::InterfaceCallablePhaseBehavior::new(
@@ -1266,7 +1515,7 @@ mod tests {
                         crate::InterfaceCallableContractClause::trait_satisfaction(
                             SymbolOrdinal::new(2),
                             InterfaceTypeId::new(0),
-                            crate::InterfaceTraitApplicationId::new(0),
+                            InterfaceTraitApplicationId::new(0),
                         ),
                     ],
                     crate::test_support::callable_phase_behavior(),

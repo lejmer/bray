@@ -11,7 +11,21 @@ pub enum SyntheticLoweringError {
     /// Semantic value construction or lookup failed.
     SemanticValue(SemanticValueStoreError),
     /// The MIR builder rejected a generated lifecycle body's operation or control flow.
-    LifecycleMir(MirUnitBuildError),
+    LifecycleMir {
+        /// Source or generated owner of the invalid body.
+        owner: bray_ir::MirSourceOrigin,
+        /// Exact violated MIR invariant.
+        cause: MirUnitBuildError,
+    },
+    /// A concrete lifecycle expansion violated the template's MIR contract.
+    SpecializedMir {
+        /// Original source or imported template location.
+        source: MirSourceAnchor,
+        /// Exact violated MIR invariant.
+        cause: MirUnitBuildError,
+    },
+    /// The generated protected-frame state table violates its descriptor contract.
+    FrameDescriptor(bray_ir::MirFrameDescriptorBuildError),
     /// The MIR builder rejected an exact compiler-provided callable body.
     CompilerProvidedMir {
         /// Exact declaration whose body was being lowered.
@@ -75,15 +89,20 @@ impl<C: super::SyntheticLoweringContext + ?Sized> super::SyntheticLowerer<'_, C>
                 }
                 .into()
             }
-            // Lifecycle and Heap lowering are the only callers of this private constructor.
-            MirSourceAnchor::GeneratedLifecycle(_) => {
-                SyntheticLoweringError::LifecycleMir(cause).into()
+            MirSourceAnchor::GeneratedLifecycle(reference) => {
+                SyntheticLoweringError::LifecycleMir {
+                    owner: bray_ir::MirSourceOrigin::GeneratedLifecycle(reference.clone()),
+                    cause,
+                }
+                .into()
             }
             MirSourceAnchor::Source(_)
             | MirSourceAnchor::ExecutableHost(_)
-            | MirSourceAnchor::ImportedExecutable(_) => {
-                unreachable!("synthetic lowering owns only lifecycle and compiler-provided bodies")
+            | MirSourceAnchor::ImportedExecutable(_) => SyntheticLoweringError::SpecializedMir {
+                source: source.clone(),
+                cause,
             }
+            .into(),
         }
     }
 }

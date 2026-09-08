@@ -10,6 +10,14 @@ pub const FOREIGN_CALLBACK_RUNTIME_ROLES: [RuntimeAbiRole; 2] = [
     RuntimeAbiRole::PanicReporting,
 ];
 
+/// Runtime ownership operations in a generated cleanup callback descriptor, in ABI field order.
+pub const CLEANUP_RUNTIME_ROLES: [RuntimeAbiRole; 4] = [
+    RuntimeAbiRole::PanicReportObservation,
+    RuntimeAbiRole::PanicReportDestruction,
+    RuntimeAbiRole::CleanupIncidentConstruction,
+    RuntimeAbiRole::PanicReportSuppression,
+];
+
 /// Exact binary spelling and linkage for a native entry into one Bray callable.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenNativeEntryMapping {

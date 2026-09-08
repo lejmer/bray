@@ -19,8 +19,8 @@ use super::contextual_self::{
     codegen_instance_contextual_self, implementation_subject, substitute_contextual_self,
 };
 use super::support::{
-    callable_type_signature, closed_array_length, codegen_checker_error, pointer_layout,
-    pointer_mapping, target_layout_contract,
+    callable_type_signature, closed_array_length, pointer_layout, pointer_mapping,
+    target_layout_contract,
 };
 use crate::fact::{CancellationToken, FactQueryError};
 
@@ -123,8 +123,7 @@ impl Compilation {
 
         let mut diagnostics = DiagnosticBag::new();
 
-        let ty = bray_checker::normalize_type_valued_members(&checker, ty, &mut diagnostics)
-            .map_err(codegen_checker_error)?;
+        let ty = bray_checker::normalize_type_valued_members(&checker, ty, &mut diagnostics)?;
 
         if diagnostics.has_errors() {
             return Err(CodegenPreparationError::Diagnostics(diagnostics));

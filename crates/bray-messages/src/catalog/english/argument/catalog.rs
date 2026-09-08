@@ -46,6 +46,14 @@ pub(crate) const USER_FACING_SOURCES: &[(&str, &str)] = &[
         include_str!("native/checker.rs"),
     ),
     (
+        "argument/native/checker/failure.rs",
+        include_str!("native/checker/failure.rs"),
+    ),
+    (
+        "argument/native/checker/query.rs",
+        include_str!("native/checker/query.rs"),
+    ),
+    (
         "argument/native/dependency.rs",
         include_str!("native/dependency.rs"),
     ),

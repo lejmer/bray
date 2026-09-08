@@ -451,6 +451,34 @@ impl Compilation {
             ),
         );
 
+        let source_destructor = if matches!(
+            role,
+            MirGeneratedLifecycleRole::Destroy
+                | MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Destructor)
+        ) {
+            self.lifecycle_callable(
+                ty,
+                bray_symbols::TypeAssociatedLifecycleSlot::Destructor,
+                &self.state.cancellation,
+            )?
+        } else {
+            None
+        };
+
+        if let Some((callable, _, _, _)) = source_destructor {
+            let mut source = self.concrete_codegen_callable(
+                callable.instance(),
+                [],
+                target,
+                &self.state.cancellation,
+            )?;
+
+            source.key = source.key.with_template(key.template().clone());
+            source.lifecycle = Some(reference);
+
+            return Ok(source);
+        }
+
         let context = ProductQueryContext::Instance(key.clone());
 
         ConcreteCodegenInstance::try_generated_lifecycle(key, reference).ok_or_else(|| {

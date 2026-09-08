@@ -306,6 +306,9 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 bray_ir::MirSuspensionKind::TaskEvent => {
                     bray_runtime_abi::NativeFrameProgressKind::TASK_EVENT
                 }
+                bray_ir::MirSuspensionKind::TaskCompletion => {
+                    bray_runtime_abi::NativeFrameProgressKind::TASK_COMPLETION
+                }
             };
 
             let payload = match payload.map(|payload| self.operand(payload)).transpose()? {

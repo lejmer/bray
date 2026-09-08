@@ -18,8 +18,6 @@ pub enum MirStorageKind {
     Temporary,
     /// Storage for the unit's returned value.
     Return,
-    /// Inactive protected-frame storage that may still be moved.
-    InactiveFrame,
     /// Stable storage of the currently executing protected frame.
     CurrentFrame,
     /// Stable storage owned by the currently executing task.

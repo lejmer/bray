@@ -31,6 +31,7 @@ pub fn storage_identity_transfers_at_unit_exit(
             | StorageIdentity::Parameter(_)
             | StorageIdentity::AnonymousParameter(_)
             | StorageIdentity::PredicateParameter(_)
+            | StorageIdentity::ContractParameter(_)
             | StorageIdentity::PostconditionResult(_)
             | StorageIdentity::Temporary(_)
             | StorageIdentity::CustomIndexBorrow(_)

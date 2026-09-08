@@ -6,9 +6,9 @@ use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, BoundDependencySubject, BoundExpression, BoundExpressionId,
     CheckedMemoryOperations, CheckedRefinements, CheckedSemanticSelections, Liveness,
     MemoryOperationStatus, Refinement, StorageAccessId, StorageAccessPlan, StorageAccessPurpose,
-    StorageAccessRoot, StorageBinding, StorageExitDecision, StorageExitPoint, StorageFlow,
-    StorageIdentity, StorageOperationDecision, StorageOperationStatus, StoragePlan,
-    StorageProjection, StorageRelationship, StorageSuspensionState,
+    StorageAccessRoot, StorageExitDecision, StorageExitPoint, StorageFlow, StorageIdentity,
+    StorageOperationDecision, StorageOperationStatus, StoragePlan, StorageProjection,
+    StorageRelationship, StorageSuspensionState,
 };
 use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticBag, DiagnosticKind, DiagnosticLabel, DiagnosticLabelKind,
@@ -216,6 +216,7 @@ where
                 block,
                 exit,
                 phase: AnalysisScopeExitPhase::LifecycleResolution,
+                ..
             } = operation.kind()
             {
                 reachable_exits.insert(StorageExitPoint::new(block, exit));
@@ -444,6 +445,7 @@ where
             block,
             exit,
             phase: AnalysisScopeExitPhase::LifecycleResolution,
+            ..
         } = operation.kind()
         {
             self.report_escaping_storage_dependencies(state, block, exit);
@@ -455,6 +457,7 @@ where
             block,
             exit,
             phase: AnalysisScopeExitPhase::LifecycleResolution,
+            ..
         } = operation.kind()
         {
             self.record_exit(state, block, exit);
@@ -551,9 +554,7 @@ where
             ));
         }
 
-        if !self.pattern_establishes_projection(plan.access())
-            && !self.refinements_allow_access(plan.access(), refinements)
-        {
+        if !self.refinements_allow_access(plan.access(), refinements) {
             return Ok(StorageOperationOutcome::status(
                 StorageOperationStatus::InactiveProjection,
             ));
@@ -573,7 +574,13 @@ where
                 | StorageAccessPurpose::Borrow(_)
         );
 
-        let pattern_establishes_projection = self.pattern_establishes_projection(plan.access());
+        let pattern_establishes_projection =
+            super::super::availability::pattern_binding_depth(self.storage, plan.access())
+                .is_some_and(|depth| {
+                    self.storage
+                        .resolved_projections(plan.access())
+                        .is_some_and(|path| path.len() == depth)
+                });
 
         if requires_value && !pattern_establishes_projection {
             let origins = self.moved_origins(state, plan.access());
@@ -684,30 +691,6 @@ where
         }
 
         Ok(())
-    }
-
-    fn pattern_establishes_projection(&self, access: StorageAccessId) -> bool {
-        let source_is_pattern = |access: StorageAccessId| {
-            self.storage.access(access).is_some_and(|access| {
-                matches!(
-                    access.source().syntax().syntax_kind(),
-                    bray_syntax::SyntaxKind::IrrefutablePattern
-                        | bray_syntax::SyntaxKind::IrrefutablePatternEntry
-                        | bray_syntax::SyntaxKind::CasePattern
-                        | bray_syntax::SyntaxKind::CasePatternEntry
-                )
-            })
-        };
-
-        source_is_pattern(access)
-            || self.storage.bindings().iter().any(|(_, binding)| {
-                let StorageBinding::Access(binding) = binding else {
-                    return false;
-                };
-
-                source_is_pattern(*binding)
-                    && self.storage.relationship(*binding, access) == StorageRelationship::Identical
-            })
     }
 
     fn initialize_operation_storage(&self, state: &mut StorageFlowState, node: AnyBoundNodeId) {
@@ -1091,7 +1074,9 @@ where
     ) -> Result<DiagnosticStorageRoot, CheckerInfrastructureError> {
         let root = match self.storage.identity(identity) {
             Some(StorageIdentity::LocalOwned(_)) => DiagnosticStorageRoot::Local,
-            Some(StorageIdentity::Parameter(_)) => DiagnosticStorageRoot::Parameter,
+            Some(StorageIdentity::Parameter(_) | StorageIdentity::ContractParameter(_)) => {
+                DiagnosticStorageRoot::Parameter
+            }
             Some(StorageIdentity::Receiver(_)) => DiagnosticStorageRoot::Receiver,
             Some(StorageIdentity::Static(_)) => DiagnosticStorageRoot::Static,
             Some(StorageIdentity::AnonymousParameter(_)) => {

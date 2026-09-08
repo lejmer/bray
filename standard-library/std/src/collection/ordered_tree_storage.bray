@@ -1,4 +1,4 @@
-module std.collection;
+trusted module std.collection;
 
 trusted internal func ordered_tree_reserve<Item>(
     pos tree: &mut OrderedTree<Item>,

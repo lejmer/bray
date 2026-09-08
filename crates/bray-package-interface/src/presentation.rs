@@ -2,8 +2,7 @@ use bray_diagnostics::{
     Diagnostic, DiagnosticArg, DiagnosticArtifactDigest, DiagnosticArtifactDigestAlgorithm,
     DiagnosticId, DiagnosticInterfaceCompressionFailure, DiagnosticInterfaceDependency,
     DiagnosticInterfaceIntegerTarget, DiagnosticInterfaceLimit, DiagnosticInterfaceMalformedCause,
-    DiagnosticInterfaceProductKind, DiagnosticInterfaceSection,
-    DiagnosticInterfaceSemanticRecordKind, DiagnosticInterfaceUtf8Failure,
+    DiagnosticInterfaceProductKind, DiagnosticInterfaceSection, DiagnosticInterfaceUtf8Failure,
     DiagnosticInterfaceValidationContext, DiagnosticInterfaceValidationFailure,
     DiagnosticInterfaceValidationField, DiagnosticKind, DiagnosticPackageInterfaceIdentity,
     SeverityKind,
@@ -12,9 +11,8 @@ use bray_diagnostics::{
 use crate::{
     CURRENT_FORMAT_REVISION, InterfaceCompressionFailure, InterfaceDependency,
     InterfaceIntegerTarget, InterfaceLimit, InterfaceMalformedCause, InterfaceProductKind,
-    InterfaceSectionTag, InterfaceSemanticRecordKind, InterfaceUtf8Failure,
-    InterfaceValidationContext, InterfaceValidationError, InterfaceValidationField,
-    PackageInterfaceIdentity,
+    InterfaceSectionTag, InterfaceUtf8Failure, InterfaceValidationContext,
+    InterfaceValidationError, InterfaceValidationField, PackageInterfaceIdentity,
 };
 
 pub(crate) fn validation_diagnostic(
@@ -288,10 +286,7 @@ const fn diagnostic_context(
             }
         }
         InterfaceValidationContext::SemanticRecord { kind, index } => {
-            DiagnosticInterfaceValidationContext::SemanticRecord {
-                kind: diagnostic_semantic_record_kind(kind),
-                index,
-            }
+            DiagnosticInterfaceValidationContext::SemanticRecord { kind, index }
         }
         InterfaceValidationContext::ExternalSymbolKey { component } => {
             DiagnosticInterfaceValidationContext::ExternalSymbolKey { component }
@@ -580,48 +575,6 @@ const fn diagnostic_section(section: InterfaceSectionTag) -> DiagnosticInterface
         InterfaceSectionTag::TargetDependencies => DiagnosticInterfaceSection::TargetDependencies,
         InterfaceSectionTag::SourceProvenance => DiagnosticInterfaceSection::SourceProvenance,
         InterfaceSectionTag::SupportGraph => DiagnosticInterfaceSection::SupportGraph,
-    }
-}
-
-const fn diagnostic_semantic_record_kind(
-    kind: InterfaceSemanticRecordKind,
-) -> DiagnosticInterfaceSemanticRecordKind {
-    match kind {
-        InterfaceSemanticRecordKind::CallableSignature => {
-            DiagnosticInterfaceSemanticRecordKind::CallableSignature
-        }
-        InterfaceSemanticRecordKind::GenericDeclaration => {
-            DiagnosticInterfaceSemanticRecordKind::GenericDeclaration
-        }
-        InterfaceSemanticRecordKind::CallableParameterDefault => {
-            DiagnosticInterfaceSemanticRecordKind::CallableParameterDefault
-        }
-        InterfaceSemanticRecordKind::PredicateDefinition => {
-            DiagnosticInterfaceSemanticRecordKind::PredicateDefinition
-        }
-        InterfaceSemanticRecordKind::DeclaredType => {
-            DiagnosticInterfaceSemanticRecordKind::DeclaredType
-        }
-        InterfaceSemanticRecordKind::TypeRepresentation => {
-            DiagnosticInterfaceSemanticRecordKind::TypeRepresentation
-        }
-        InterfaceSemanticRecordKind::GenericConstraint => {
-            DiagnosticInterfaceSemanticRecordKind::GenericConstraint
-        }
-        InterfaceSemanticRecordKind::CallableContracts => {
-            DiagnosticInterfaceSemanticRecordKind::CallableContracts
-        }
-        InterfaceSemanticRecordKind::DeclarationTemplate => {
-            DiagnosticInterfaceSemanticRecordKind::DeclarationTemplate
-        }
-        InterfaceSemanticRecordKind::Implementation => {
-            DiagnosticInterfaceSemanticRecordKind::Implementation
-        }
-        InterfaceSemanticRecordKind::TargetProperty => {
-            DiagnosticInterfaceSemanticRecordKind::TargetProperty
-        }
-        InterfaceSemanticRecordKind::Abi => DiagnosticInterfaceSemanticRecordKind::Abi,
-        InterfaceSemanticRecordKind::Runtime => DiagnosticInterfaceSemanticRecordKind::Runtime,
     }
 }
 

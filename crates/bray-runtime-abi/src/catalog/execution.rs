@@ -14,7 +14,7 @@ macro_rules! runtime_role_catalog {
             }
             RootExecution {
                 "Begin and own the executable root run.", "root_execution",
-                native: (ROOT_EXECUTION_SYMBOL = "bray_runtime_root_execution", [Usize, Configuration] -> RootStart),
+                native: (ROOT_EXECUTION_SYMBOL = "bray_runtime_root_execution", [InactiveFrame, Configuration] -> RootStart),
                 call_hook: (),
                 compiler: Bray [] -> Void,
                 owner: Scheduler, availability: All, bootstrap: (), host_control: false,
@@ -148,7 +148,7 @@ macro_rules! runtime_role_catalog {
                 effects: [AllocateTask]
             }
             TaskStart {
-                "Publish a newly initialized task for execution.", "task_start",
+                "Publish a task, consuming its inactive frame only on success.", "task_start",
                 native: (TASK_START_SYMBOL = "bray_runtime_task_start", [U64, InactiveFrame] -> U32),
                 call_hook: (),
                 compiler: Bray [] -> Void,
@@ -237,23 +237,32 @@ macro_rules! runtime_role_catalog {
                 capabilities: [CooperativeExecution],
                 effects: [RegisterContinuation, AcquireTerminalState, EstablishVisibility]
             }
-            TaskObservationCreation {
-                "Create one lazy task-observation frame.", "task_observation_creation",
-                native: (TASK_OBSERVATION_CREATION_SYMBOL = "bray_runtime_task_observation_creation", [U64, U8, Pointer, Pointer, Pointer] -> InactiveFrame),
-                call_hook: (),
-                compiler: Bray [] -> Void,
-                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
-                capabilities: [CooperativeExecution],
-                effects: [CreateFrame]
-            }
             TaskResolution {
-                "Resolve one task to its terminal result.", "task_resolution",
+                "Transfer one task's available terminal result.", "task_resolution",
                 native: (TASK_RESOLUTION_SYMBOL = "bray_runtime_task_resolution", [U64, Pointer, Pointer] -> U32),
                 call_hook: (),
                 compiler: Bray [] -> Void,
                 owner: Scheduler, availability: All, bootstrap: (), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [AcquireTerminalState, EstablishVisibility]
+            }
+            TaskCompletionBorrow {
+                "Exclusively borrow an available completed task value until release.", "task_completion_borrow",
+                native: (TASK_COMPLETION_BORROW_SYMBOL = "bray_runtime_task_completion_borrow", [U64, PointerUsize] -> U32),
+                call_hook: (),
+                compiler: Bray [] -> Void,
+                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: [AcquireTerminalState, EstablishVisibility]
+            }
+            TaskCompletionBorrowRelease {
+                "Return an exclusively borrowed completion to its task owner.", "task_completion_borrow_release",
+                native: (TASK_COMPLETION_BORROW_RELEASE_SYMBOL = "bray_runtime_task_completion_borrow_release", [U64] -> U32),
+                call_hook: (),
+                compiler: Bray [] -> Void,
+                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                capabilities: [CooperativeExecution],
+                effects: [EstablishVisibility]
             }
             TerminalPublication {
                 "Publish one terminal run outcome.", "terminal_publication",
@@ -282,14 +291,32 @@ macro_rules! runtime_role_catalog {
                 capabilities: [CooperativeExecution],
                 effects: []
             }
-            CleanupIncidentTransfer {
-                "Transfer ownership of one cleanup incident.", "cleanup_incident_transfer",
-                native: (),
+            CleanupIncidentConstruction {
+                "Retain an owned cleanup error in a report with typed payload callbacks.", "cleanup_incident_construction",
+                native: (CLEANUP_INCIDENT_CONSTRUCTION_SYMBOL = "bray_runtime_cleanup_incident_construction", [Pointer] -> Usize),
                 call_hook: (),
-                compiler: Bray [] -> Void,
-                owner: Compiler, availability: All, bootstrap: (), host_control: false,
+                compiler: Bray [] -> PanicReport,
+                owner: Host, availability: All, bootstrap: ("cleanup_incident_construction"), host_control: false,
                 capabilities: [],
                 effects: [TransferCleanupIncident]
+            }
+            CleanupIncidentTransfer {
+                "Consume one valid cleanup incident, retaining it in the current run or destroying it on rejection.", "cleanup_incident_transfer",
+                native: (CLEANUP_INCIDENT_TRANSFER_SYMBOL = "bray_runtime_cleanup_incident_transfer", [Pointer] -> U32),
+                call_hook: (),
+                compiler: Bray [] -> Void,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [TransferCleanupIncident]
+            }
+            CleanupIncidentDetailReporting {
+                "Report the type and source of one retained cleanup error.", "cleanup_incident_detail_reporting",
+                native: (CLEANUP_INCIDENT_DETAIL_REPORTING_SYMBOL = "bray_runtime_cleanup_incident_detail_reporting", [Pointer] -> U32),
+                call_hook: (),
+                compiler: Bray [] -> Void,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [ReportCleanupIncidents]
             }
             CleanupIncidentReporting {
                 "Report and destroy product-host cleanup incidents.", "cleanup_incident_reporting",
@@ -345,6 +372,15 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [ReportPanic]
             }
+            PanicReportObservation {
+                "Report a borrowed panic payload while its owner retains destruction responsibility.", "panic_report_observation",
+                native: (PANIC_REPORT_OBSERVATION_SYMBOL = "bray_runtime_panic_report_observation", [Usize] -> U32),
+                call_hook: (),
+                compiler: Bray [Usize] -> U32,
+                owner: Host, availability: All, bootstrap: ("panic_report_observation"), host_control: false,
+                capabilities: [],
+                effects: [ReportPanic]
+            }
             PanicReportDestruction {
                 "Destroy one handled panic report without reporting it.", "panic_report_destruction",
                 native: (PANIC_REPORT_DESTRUCTION_SYMBOL = "bray_runtime_panic_report_destruction", [Usize] -> U32),
@@ -363,9 +399,9 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [TransferCleanupIncident]
             }
-            EntryFailureReporting {
-                "Report one recoverable entrypoint failure value before host resolution.", "entry_failure_reporting",
-                native: (ENTRY_FAILURE_REPORTING_SYMBOL = "bray_runtime_entry_failure_reporting", [Usize, Usize] -> U32),
+            EntryFailureResolution {
+                "Report an entrypoint failure and resolve its owned value before host completion.", "entry_failure_resolution",
+                native: (ENTRY_FAILURE_RESOLUTION_SYMBOL = "bray_runtime_entry_failure_resolution", [Pointer, Pointer, Usize, Pointer, Pointer] -> U32),
                 call_hook: (),
                 compiler: Bray [] -> Void,
                 owner: Host, availability: All, bootstrap: (), host_control: true,
@@ -408,9 +444,9 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [ResolveFrameLifecycle]
             }
-            FrameCompletionMove {
-                "Move a frame's completed result into its destination.", "frame_completion_move",
-                native: (FRAME_COMPLETION_MOVE_SYMBOL = "bray_runtime_frame_completion_move", [] -> Usize),
+            AwaitedFrameResolution {
+                "Move the awaited frame's terminal run outcome into its destination.", "awaited_frame_resolution",
+                native: (AWAITED_FRAME_RESOLUTION_SYMBOL = "bray_runtime_awaited_frame_resolution", [Pointer, Pointer] -> U32),
                 call_hook: (),
                 compiler: Bray [] -> Void,
                 owner: Scheduler, availability: All, bootstrap: (), host_control: false,
@@ -453,24 +489,6 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [FinishGenerator]
             }
-            GeneratorCleanupBroadcast {
-                "Broadcast task cleanup through initialized generator elements.", "generator_cleanup_broadcast",
-                native: (),
-                call_hook: (),
-                compiler: Bray [Pointer, Pointer] -> Void,
-                owner: Compiler, availability: All, bootstrap: (), host_control: false,
-                capabilities: [],
-                effects: [BroadcastGeneratorCleanup]
-            }
-            GeneratorDestruction {
-                "Destroy initialized generator elements and release accumulation storage.", "generator_destruction",
-                native: (),
-                call_hook: (),
-                compiler: Bray [Pointer, Pointer, Pointer] -> Void,
-                owner: Compiler, availability: All, bootstrap: (), host_control: false,
-                capabilities: [],
-                effects: [DestroyGenerator]
-            }
             PanicReportConstruction {
                 "Construct one owned panic report.", "panic_report_construction",
                 native: (PANIC_REPORT_CONSTRUCTION_SYMBOL = "bray_runtime_panic_report_construction", [U32, U32, U32, U32, U32, U64, Pointer, Usize] -> Usize),
@@ -509,7 +527,7 @@ macro_rules! runtime_role_catalog {
             }
             AwaitedFrameComposition {
                 "Compose one erased directly awaited frame into its parent.", "awaited_frame_composition",
-                native: (AWAITED_FRAME_COMPOSITION_SYMBOL = "bray_runtime_awaited_frame_composition", [InactiveFrame] -> Void),
+                native: (AWAITED_FRAME_COMPOSITION_SYMBOL = "bray_runtime_awaited_frame_composition", [InactiveFrame, U8] -> Void),
                 call_hook: (),
                 compiler: Bray [] -> Void,
                 owner: Scheduler, availability: All, bootstrap: (), host_control: false,
@@ -518,12 +536,21 @@ macro_rules! runtime_role_catalog {
             }
             TaskDestruction {
                 "Infallibly destroy one terminal task control record.", "task_destruction",
-                native: (TASK_DESTRUCTION_SYMBOL = "bray_runtime_task_destruction", [U64] -> U32),
+                native: (TASK_DESTRUCTION_SYMBOL = "bray_runtime_task_destruction", [U64, Pointer] -> U32),
                 call_hook: (),
                 compiler: Bray [U64] -> U32,
                 owner: Scheduler, availability: All, bootstrap: (), host_control: false,
                 capabilities: [CooperativeExecution],
                 effects: [DestroyTask]
+            }
+            InactiveCaptureDestruction {
+                "Synchronously destroy quiescent inactive captures and return their Bray call outcome.", "inactive_capture_destruction",
+                native: (INACTIVE_CAPTURE_DESTRUCTION_SYMBOL = "bray_runtime_inactive_capture_destruction", [InactiveFrame] -> Usize),
+                call_hook: (),
+                compiler: Bray [] -> Void,
+                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [DestroyFrame]
             }
         }
     };

@@ -211,7 +211,7 @@ scope StandardMemory at std.memory {
         availability RawMemory;
         implementation UninitPointer;
 
-        surface { func uninit_pointer<T>(pos storage: &Uninit<T>) -> RawPointer<T>; }
+        surface { func uninit_pointer<T>(pos storage: &Uninit<T>) -> RawPointer<T> executes(pure, total); }
     }
 
     declaration StandardMemoryUninitPointerMut {
@@ -219,7 +219,7 @@ scope StandardMemory at std.memory {
         availability RawMemory;
         implementation UninitPointerMut;
 
-        surface { func uninit_pointer_mut<T>(pos storage: &mut Uninit<T>) -> RawPointer<T>; }
+        surface { func uninit_pointer_mut<T>(pos storage: &mut Uninit<T>) -> RawPointer<T> executes(pure, total); }
     }
 
     declaration StandardMemoryUninitWrite {
@@ -280,6 +280,7 @@ scope StandardMemory at std.memory {
                     trusted core.memory.movement_stable(pointer = pointer),
                     trusted core.memory.finalization_pending(pointer = pointer),
                 )
+                executes(pure, total)
                 uses(raw_memory, unchecked_alias);
         }
     }
@@ -304,6 +305,7 @@ scope StandardMemory at std.memory {
                     trusted core.memory.movement_stable(pointer = pointer),
                     trusted core.memory.finalization_pending(pointer = pointer),
                 )
+                executes(pure, total)
                 uses(raw_memory, unchecked_alias);
         }
     }

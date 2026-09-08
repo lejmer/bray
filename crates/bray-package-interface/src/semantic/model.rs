@@ -9,6 +9,8 @@ mod support;
 mod template;
 mod ty;
 
+pub use bray_package_interface_model::InterfaceSemanticRecordKind;
+
 pub use application::{
     InterfaceCallableInstance, InterfaceGenericArgument, InterfaceGenericBinding,
     InterfaceGenericSubstitution, InterfaceImplementationInstance, InterfaceTraitApplication,
@@ -40,7 +42,7 @@ pub use record::{
     InterfaceCallableContractClauseValue, InterfaceCallablePhaseBehavior, InterfaceCoherenceRecord,
     InterfaceConstraint, InterfaceConstraintKind, InterfaceImplementationRecord,
     InterfacePredicateSummary, InterfaceRuntimeRequirement, InterfaceSemanticRecord,
-    InterfaceSemanticRecordKind, InterfaceSourceProvenance, InterfaceTargetPropertyDependency,
+    InterfaceSourceProvenance, InterfaceTargetPropertyDependency,
     InterfaceTrustedCapabilityRequirement,
 };
 pub use support::{

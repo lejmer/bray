@@ -14,6 +14,8 @@ pub enum DeclarationPredicateClauseKind {
     Requires,
     /// A callable successful-completion guarantee.
     Ensures,
+    /// An execution-entry condition guarding nested guarantees.
+    Guard,
     /// A callable static constraint.
     Static,
 }
@@ -25,6 +27,7 @@ pub struct CallableContractExpressionTemplate {
     kind: DeclarationPredicateClauseKind,
     unit_syntax: SyntaxAnchor,
     expression: DeclarationExpressionTemplate,
+    guard: Option<SymbolOrdinal>,
 }
 
 impl CallableContractExpressionTemplate {
@@ -40,7 +43,20 @@ impl CallableContractExpressionTemplate {
             kind,
             unit_syntax,
             expression,
+            guard: None,
         }
+    }
+
+    /// Associates this expression with its immediate enclosing execution-entry guard.
+    pub const fn with_guard(mut self, guard: Option<SymbolOrdinal>) -> Self {
+        self.guard = guard;
+
+        self
+    }
+
+    /// Returns the enclosing guard's expression ordinal, if any.
+    pub const fn guard(self) -> Option<SymbolOrdinal> {
+        self.guard
     }
 
     /// Returns the expression's stable declaration-order position.
@@ -94,6 +110,7 @@ pub struct SourceCallableContractTemplate {
     owner: CallableSymbolId,
     expressions: Arc<[CallableContractExpressionTemplate]>,
     capabilities: Arc<[DeclarationCapabilityTemplate]>,
+    execution_guarantees: Arc<[ExecutionGuaranteeTemplate]>,
 }
 
 impl SourceCallableContractTemplate {
@@ -102,11 +119,13 @@ impl SourceCallableContractTemplate {
         owner: CallableSymbolId,
         expressions: impl IntoIterator<Item = CallableContractExpressionTemplate>,
         capabilities: impl IntoIterator<Item = DeclarationCapabilityTemplate>,
+        execution_guarantees: impl IntoIterator<Item = ExecutionGuaranteeTemplate>,
     ) -> Self {
         Self {
             owner,
             expressions: shared_slice(expressions),
             capabilities: shared_slice(capabilities),
+            execution_guarantees: shared_slice(execution_guarantees),
         }
     }
 
@@ -123,6 +142,11 @@ impl SourceCallableContractTemplate {
     /// Returns declared trusted capability paths in declaration order.
     pub fn capabilities(&self) -> &[DeclarationCapabilityTemplate] {
         &self.capabilities
+    }
+
+    /// Returns declared execution properties awaiting semantic verification.
+    pub fn execution_guarantees(&self) -> &[ExecutionGuaranteeTemplate] {
+        &self.execution_guarantees
     }
 }
 
@@ -141,11 +165,13 @@ impl CallableContractTemplate {
         owner: CallableSymbolId,
         expressions: impl IntoIterator<Item = CallableContractExpressionTemplate>,
         capabilities: impl IntoIterator<Item = DeclarationCapabilityTemplate>,
+        execution_guarantees: impl IntoIterator<Item = ExecutionGuaranteeTemplate>,
     ) -> Self {
         Self::Source(SourceCallableContractTemplate::new(
             owner,
             expressions,
             capabilities,
+            execution_guarantees,
         ))
     }
 
@@ -163,5 +189,31 @@ impl CallableContractTemplate {
             Self::Source(_) => None,
             Self::Resolved(contract) => Some(contract),
         }
+    }
+}
+
+/// One execution-property declaration and its optional enclosing guard.
+///
+/// This source template is a proof obligation, never evidence that execution has the property.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct ExecutionGuaranteeTemplate {
+    syntax: SyntaxAnchor,
+    guard: Option<SymbolOrdinal>,
+}
+
+impl ExecutionGuaranteeTemplate {
+    /// Retains one property identifier and its execution-entry domain.
+    pub const fn new(syntax: SyntaxAnchor, guard: Option<SymbolOrdinal>) -> Self {
+        Self { syntax, guard }
+    }
+
+    /// Returns the property identifier for checking and source diagnostics.
+    pub const fn syntax(self) -> SyntaxAnchor {
+        self.syntax
+    }
+
+    /// Returns the immediate guard's expression ordinal, or the unconditional domain.
+    pub const fn guard(self) -> Option<SymbolOrdinal> {
+        self.guard
     }
 }

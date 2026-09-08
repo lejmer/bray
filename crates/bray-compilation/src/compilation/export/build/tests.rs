@@ -58,6 +58,400 @@ fn module_only_library_exports_are_cached_on_demand() {
 }
 
 #[test]
+fn guarded_predicate_meaning_round_trips_without_provider_source() {
+    use bray_symbols::{PredicateDefinitionState, PredicateDefinitionSymbolId, SymbolOrigin};
+
+    let provider = compilation(
+        "module contracts; predicate ready(value: bool) = value; func identity(pos value: bool) -> bool when(ready(value)) { executes(pure, total) ensures(result) } { return value; }",
+    );
+
+    let bundle = export(&provider);
+    let artifact = encode_package_interface(bundle).unwrap();
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        "module app; using example.package.contracts; func use_contract(pos value: bool) when(example.package.contracts.ready(value)) { executes(pure) } {}",
+        [DependencyInterfaceInput::new(
+            PackageIdentity::try_new("example.package").unwrap(),
+            InterfaceProductIdentity::try_new("library").unwrap(),
+            "contracts.brayi",
+            artifact.shared_bytes(),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        )],
+    );
+
+    assert!(
+        consumer.imported_diagnostics().is_empty(),
+        "{:?}",
+        consumer.imported_diagnostics()
+    );
+
+    let imported = consumer.imported_symbol_skeleton_result().unwrap();
+    let skeleton = imported.value().as_deref().unwrap();
+
+    let predicate = skeleton
+        .predicates()
+        .iter()
+        .find(|predicate| predicate.origin() == SymbolOrigin::Imported)
+        .unwrap();
+
+    let definition = consumer
+        .predicate_definition(PredicateDefinitionSymbolId::Predicate(predicate.id()))
+        .unwrap();
+
+    assert!(
+        definition.diagnostics().is_empty(),
+        "{:?}",
+        definition.diagnostics()
+    );
+
+    let PredicateDefinitionState::Defined(definition) = definition.value() else {
+        panic!("imported predicate must retain its definition");
+    };
+
+    assert!(definition.semantic().condition().is_some());
+}
+
+#[test]
+fn imported_execution_guarantees_require_checked_provider_evidence_and_their_guard() {
+    let provider = compilation(
+        "module contracts; internal func identity_impl(pos value: bool) -> bool when(value) { executes(pure, total) ensures(result) } { return value; } func identity(pos value: bool) -> bool when(value) { executes(pure, total) ensures(result) } { return identity_impl(value); }",
+    );
+
+    assert!(
+        !provider.check_diagnostics().has_errors(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let bundle = export(&provider);
+
+    assert!(
+        bundle
+            .semantics()
+            .callable_contracts()
+            .iter()
+            .any(|contract| contract
+                .evidence()
+                .iter()
+                .any(|proof| !proof.dependencies().is_empty()))
+    );
+
+    let artifact = encode_package_interface(bundle).unwrap();
+
+    for (contract, accepted) in [
+        (
+            "when(value) { executes(pure, total) ensures(result) }",
+            true,
+        ),
+        ("executes(pure, total)", false),
+    ] {
+        let consumer = crate::test_support::compilation_with_dependencies(
+            &format!(
+                "module app; using example.package.contracts; func root(pos value: bool) -> bool {contract} {{ return example.package.contracts.identity(value); }}"
+            ),
+            [DependencyInterfaceInput::new(
+                PackageIdentity::try_new("example.package").unwrap(),
+                InterfaceProductIdentity::try_new("library").unwrap(),
+                "contracts.brayi",
+                artifact.shared_bytes(),
+                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+            )],
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            accepted,
+            "{contract}: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn imported_foreign_assertions_retain_abi_provenance_and_caller_trust() {
+    let source = "trusted module native; @link(name = \"native\") @symbol(name = \"native_value\") @abi(c) extern trusted func native_value() -> i32 uses(foreign_call) executes(pure, total);";
+
+    let provider = compilation_from_sources_for_product_with_platform_services_and_worker_budget(
+        [source],
+        ProductKind::Library,
+        [],
+        WorkerBudget::serial(),
+        None,
+        [bray_symbols::NativeLinkRequirement::new(
+            bray_base::NonEmptySharedStr::try_new("native").unwrap(),
+            bray_symbols::NativeLinkKind::Dynamic,
+        )],
+    );
+
+    let bundle = export(&provider);
+
+    assert!(
+        bundle
+            .semantics()
+            .callable_contracts()
+            .iter()
+            .flat_map(|contract| contract.evidence())
+            .any(|proof| proof.origin() == bray_symbols::CallableEvidenceOrigin::ForeignAssertion)
+    );
+
+    let interface = encode_package_interface(bundle).unwrap();
+
+    let implementation = Arc::new(
+        PackageImplementationArtifact::try_from_export_bundle(
+            &interface,
+            bundle,
+            InterfaceValidationLimits::default(),
+        )
+        .unwrap(),
+    );
+
+    for (wrapper_trust, capability, accepted) in [
+        ("trusted", "uses(foreign_call)", true),
+        ("", "uses(foreign_call)", false),
+        ("trusted", "", false),
+    ] {
+        let consumer = crate::test_support::compilation_with_dependencies(
+            &format!(
+                "trusted module app; using example.package.native; {wrapper_trust} func root() -> i32 {capability} executes(pure, total) {{ return example.package.native.native_value(); }}"
+            ),
+            [DependencyInterfaceInput::new(
+                PackageIdentity::try_new("example.package").unwrap(),
+                InterfaceProductIdentity::try_new("library").unwrap(),
+                "native.brayi",
+                interface.shared_bytes(),
+                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+            )
+            .with_implementation_artifact("native.brayimpl", Arc::clone(&implementation))],
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            accepted,
+            "{wrapper_trust}/{capability}: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn imported_resource_completion_uses_checked_domain_operation_and_finalizer_contracts() {
+    let provider = compilation(
+        "module resources; struct Resource { mut pending: bool; mut func close() ensures(!self.pending) { self.pending = false; } finalize() -> Result<unit, unit> when(!self.pending) { executes(pure, total) ensures(result matches Ok(_)) } { if !self.pending { return Ok(unit); } return Error(unit); } }",
+    );
+
+    let artifact = encode_package_interface(export(&provider)).unwrap();
+
+    for (body, accepted) in [
+        ("value.close();", true),
+        ("value.close(); value.pending = true;", false),
+        ("", false),
+    ] {
+        let consumer = crate::test_support::compilation_with_dependencies(
+            &format!(
+                "module app; using example.package.resources; func root(pos mut value: example.package.resources.Resource) {{ {body} }}"
+            ),
+            [DependencyInterfaceInput::new(
+                PackageIdentity::try_new("example.package").unwrap(),
+                InterfaceProductIdentity::try_new("library").unwrap(),
+                "resources.brayi",
+                artifact.shared_bytes(),
+                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+            )],
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            accepted,
+            "{body}: {diagnostics:?}"
+        );
+
+        assert_eq!(
+            consumer
+                .lowered_unit(source_function_body_key(&consumer, "root"))
+                .unwrap()
+                .value()
+                .is_some(),
+            accepted
+        );
+    }
+}
+
+#[test]
+fn boxed_observations_and_projection_evidence_survive_package_interfaces() {
+    let provider = compilation(
+        "module resources; struct Resource { mut pending: bool; \
+         finalize() -> Result<unit, unit> when(!self.pending) \
+         { executes(pure, total) ensures(result matches Ok(_)) } \
+         { if !self.pending { return Ok(unit); } return Error(unit); } } \
+         func inspect(pos value: &box Resource) executes(pure, total) requires(value matches box(Resource { pending = false })) {} \
+         func observe<T>(pos value: &box T) executes(pure, total) { match value { case box(inner) {} }; }",
+    );
+
+    let diagnostics = provider.check_diagnostics();
+    assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+    let artifact = encode_package_interface(export(&provider)).unwrap();
+
+    for pending in [false, true] {
+        let source = format!(
+            "module app; using example.package.resources; \
+             func read(pos value: &box example.package.resources.Resource) executes(pure, total) \
+             {{ example.package.resources.observe(value); }} \
+             func root(pos value: &box example.package.resources.Resource) executes(pure, total) \
+             requires(value matches box(example.package.resources.Resource {{ pending = {pending} }})) \
+             {{ example.package.resources.inspect(value); }}"
+        );
+
+        let consumer = crate::test_support::compilation_with_dependencies(
+            &source,
+            [DependencyInterfaceInput::new(
+                PackageIdentity::try_new("example.package").unwrap(),
+                InterfaceProductIdentity::try_new("library").unwrap(),
+                "resources.brayi",
+                artifact.shared_bytes(),
+                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+            )],
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            diagnostics.has_errors(),
+            pending,
+            "{source}: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn imported_proofs_reject_missing_evidence_and_circular_termination() {
+    use bray_symbols::{CallableContractEvidence, CallableContractObligation, ExecutionProperty};
+
+    let provider = compilation(
+        "module contracts; func identity() -> bool executes(pure, total) { return true; }",
+    );
+
+    let bundle = export(&provider);
+
+    for mode in ["checked", "missing", "circular"] {
+        let contracts = bundle.semantics().callable_contracts().iter().map(|contract| {
+            let evidence = contract.evidence().iter().filter_map(|proof| {
+                if mode == "missing" {
+                    return None;
+                }
+
+                let circular = mode == "circular" && matches!(proof.obligation(),
+                    CallableContractObligation::Execution(guarantee) if guarantee.property() == ExecutionProperty::Total);
+
+                Some(if circular {
+                    CallableContractEvidence::new(proof.obligation(), [(contract.owner().clone(), proof.obligation())])
+                } else {
+                    proof.clone()
+                })
+            });
+
+            contract.clone().with_evidence(evidence)
+        });
+
+        // Change only the proof records; declarations, guards, and product identity stay identical.
+        let semantics = bundle
+            .semantics()
+            .clone()
+            .with_contracts(bundle.semantics().constraints().iter().cloned(), contracts);
+
+        let changed = PackageInterfaceExportBundle::try_new(
+            bundle.surface().clone(),
+            semantics,
+            bundle.language_revision(),
+            bundle.implementation_configuration().clone(),
+        )
+        .unwrap();
+
+        let artifact = encode_package_interface(&changed).unwrap();
+
+        let consumer = crate::test_support::compilation_with_dependencies(
+            "module app; using example.package.contracts; func root() -> bool executes(pure, total) { return example.package.contracts.identity(); }",
+            [DependencyInterfaceInput::new(
+                PackageIdentity::try_new("example.package").unwrap(),
+                InterfaceProductIdentity::try_new("library").unwrap(),
+                "contracts.brayi",
+                artifact.shared_bytes(),
+                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+            )],
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            mode == "checked",
+            "{mode}: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn unverified_execution_guarantees_cannot_be_exported() {
+    let provider =
+        compilation("module contracts; func invalid() executes(pure, total) { panic(1); }");
+
+    assert!(provider.check_diagnostics().has_errors());
+
+    assert!(matches!(
+        provider.package_interface_export_bundle(),
+        Some(Err(_))
+    ));
+}
+
+#[test]
+fn associated_predicates_round_trip_with_their_parameters() {
+    let provider = compilation(concat!(
+        "module contracts;\n",
+        "public struct State { predicate complete(value: bool) = value; }\n",
+        "public union Choice { Empty; predicate complete(value: bool) = value; }\n",
+        "impl State { predicate ready(value: bool) = value; }\n",
+        "public trait Contract { predicate complete(value: bool); }\n",
+        "impl State(Contract) { predicate complete(value: bool) = value; }\n",
+    ));
+
+    assert!(
+        provider.check_diagnostics().is_empty(),
+        "{:?}",
+        provider.check_diagnostics()
+    );
+
+    let artifact = encode_package_interface(export(&provider)).unwrap();
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        "module app;",
+        [DependencyInterfaceInput::new(
+            PackageIdentity::try_new("example.package").unwrap(),
+            InterfaceProductIdentity::try_new("library").unwrap(),
+            "contracts.brayi",
+            artifact.shared_bytes(),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        )],
+    );
+
+    assert!(
+        consumer.imported_diagnostics().is_empty(),
+        "{:?}",
+        consumer.imported_diagnostics()
+    );
+
+    let imported = consumer.imported_symbol_skeleton_result().unwrap();
+    let skeleton = imported.value().as_deref().unwrap();
+
+    assert_eq!(skeleton.predicates().len(), 3);
+    assert_eq!(skeleton.trait_predicate_members().len(), 1);
+    assert_eq!(skeleton.trait_predicate_fulfillments().len(), 1);
+    assert_eq!(skeleton.predicate_parameters().len(), 5);
+}
+
+#[test]
 fn imported_union_cleanup_retains_members_without_exported_field_identities() {
     use bray_package_interface::{
         InterfaceStorageMember, InterfaceStorageShape, InterfaceUnionStorageVariant,
@@ -1465,7 +1859,7 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
     let provider = standard_library_compilation([
         include_str!("../../../../../../standard-library/std/src/std.bray"),
         concat!(
-            "module std.memory;\n",
+            "trusted module std.memory;\n",
             "union MemoryLayoutError\n",
             "{\n",
             "    SizeOverflow;\n",
@@ -1729,7 +2123,7 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
         "consumer.bray",
         SourceVersion::new(0),
         concat!(
-            "module app;\n",
+            "trusted module app;\n",
             "using std.format;\n",
             "using std.format.ByteSinkFormatting;\n",
             "using std.format.StringFormat;\n",
@@ -2169,6 +2563,7 @@ fn compilation_from_sources_with_worker_budget<const N: usize>(
         std::iter::empty(),
         worker_budget,
         None,
+        [],
     )
 }
 
@@ -2184,6 +2579,7 @@ fn profiled_compilation_from_sources_with_worker_budget<const N: usize>(
         Some(CompilationProfileConfiguration::new(
             CompilationProfileMode::Summary,
         )),
+        [],
     )
 }
 
@@ -2209,6 +2605,7 @@ fn compilation_from_sources_for_product_with_platform_services<const N: usize>(
         platform_services,
         WorkerBudget::default(),
         None,
+        [],
     )
 }
 
@@ -2218,6 +2615,7 @@ fn compilation_from_sources_for_product_with_platform_services_and_worker_budget
     platform_services: impl IntoIterator<Item = PlatformServiceBinding>,
     worker_budget: WorkerBudget,
     profile: Option<CompilationProfileConfiguration>,
+    native_links: impl IntoIterator<Item = bray_symbols::NativeLinkRequirement>,
 ) -> Compilation {
     let package = PackageIdentity::try_new("example.package")
         .unwrap_or_else(|| panic!("test package identity must be valid"));
@@ -2238,7 +2636,8 @@ fn compilation_from_sources_for_product_with_platform_services_and_worker_budget
 
     let sources = test_source_inputs("test", sources);
 
-    let options = CompilationOptions::new(worker_budget, product_kind, SelectedTarget::default());
+    let options = CompilationOptions::new(worker_budget, product_kind, SelectedTarget::default())
+        .with_native_link_inputs(native_links);
 
     let request = CompilationRequest::with_options(package, sources, options)
         .with_platform_services(platform_services)

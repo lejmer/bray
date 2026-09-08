@@ -1,7 +1,7 @@
 use bray_runtime::native::implementation;
 use bray_runtime_abi::{
-    NativeRuntimeStatus, NativeSynchronousRootCallback, NativeThreadCancellationCallback,
-    NativeThreadOperationCallback,
+    NativePanicMessageCopyCallback, NativeRuntimeStatus, NativeSubstrateCleanupCallback,
+    NativeSynchronousRootCallback, NativeThreadCancellationCallback, NativeThreadOperationCallback,
 };
 
 native_adapter! {
@@ -14,6 +14,7 @@ native_adapter! {
         source_version: u64,
         message: *const u8,
         message_length: usize,
+        copy_message: Option<NativePanicMessageCopyCallback>,
     ) -> NativeRuntimeStatus {
         implementation::bray_runtime_substrate_panic_reporting(
             cause,
@@ -24,6 +25,7 @@ native_adapter! {
             source_version,
             message,
             message_length,
+            copy_message,
         )
     }
 }
@@ -50,7 +52,7 @@ native_adapter! {
     pub extern "C" fn bray_runtime_substrate_synchronous_root_execution(
         callback: NativeSynchronousRootCallback,
         context: usize,
-        cleanup: *const (),
+        cleanup: NativeSubstrateCleanupCallback,
     ) -> bray_runtime_abi::NativeRunOutcome {
         implementation::bray_runtime_substrate_synchronous_root_execution(
             callback,
@@ -64,7 +66,7 @@ native_adapter! {
     pub extern "C" fn bray_runtime_substrate_foreign_callback_execution(
         callback: NativeSynchronousRootCallback,
         context: usize,
-        cleanup: *const (),
+        cleanup: NativeSubstrateCleanupCallback,
     ) -> bray_runtime_abi::NativeRunOutcome {
         implementation::bray_runtime_substrate_foreign_callback_execution(
             callback,
@@ -81,7 +83,7 @@ native_adapter! {
         cancellation: NativeThreadCancellationCallback,
         cancellation_context: usize,
         panic_payload: &mut usize,
-        cleanup: *const (),
+        cleanup: NativeSubstrateCleanupCallback,
     ) -> u32 {
         implementation::bray_runtime_substrate_native_thread_execution(
             callback,

@@ -22,12 +22,14 @@ const PARAMETER_START_KINDS: [SyntaxKind; 3] = [
     SyntaxKind::IdentifierToken,
 ];
 
-const PARAMETER_LIST_TERMINATORS: [SyntaxKind; 10] = [
+const PARAMETER_LIST_TERMINATORS: [SyntaxKind; 12] = [
     SyntaxKind::EllipsisToken,
     SyntaxKind::CloseParenToken,
     SyntaxKind::ArrowToken,
     SyntaxKind::RequiresKeyword,
     SyntaxKind::EnsuresKeyword,
+    SyntaxKind::ExecutesKeyword,
+    SyntaxKind::WhenKeyword,
     SyntaxKind::WithKeyword,
     SyntaxKind::UsesKeyword,
     SyntaxKind::OpenBraceToken,
@@ -35,13 +37,15 @@ const PARAMETER_LIST_TERMINATORS: [SyntaxKind; 10] = [
     SyntaxKind::EndOfFileToken,
 ];
 
-const PARAMETER_TYPE_BOUNDARY_KINDS: [SyntaxKind; 12] = [
+const PARAMETER_TYPE_BOUNDARY_KINDS: [SyntaxKind; 14] = [
     SyntaxKind::EqualsToken,
     SyntaxKind::CommaToken,
     SyntaxKind::CloseParenToken,
     SyntaxKind::ArrowToken,
     SyntaxKind::RequiresKeyword,
     SyntaxKind::EnsuresKeyword,
+    SyntaxKind::ExecutesKeyword,
+    SyntaxKind::WhenKeyword,
     SyntaxKind::WithKeyword,
     SyntaxKind::UsesKeyword,
     SyntaxKind::OpenBraceToken,
@@ -50,12 +54,14 @@ const PARAMETER_TYPE_BOUNDARY_KINDS: [SyntaxKind; 12] = [
     SyntaxKind::EndOfFileToken,
 ];
 
-const PARAMETER_DEFAULT_BOUNDARY_KINDS: [SyntaxKind; 11] = [
+const PARAMETER_DEFAULT_BOUNDARY_KINDS: [SyntaxKind; 13] = [
     SyntaxKind::CommaToken,
     SyntaxKind::CloseParenToken,
     SyntaxKind::ArrowToken,
     SyntaxKind::RequiresKeyword,
     SyntaxKind::EnsuresKeyword,
+    SyntaxKind::ExecutesKeyword,
+    SyntaxKind::WhenKeyword,
     SyntaxKind::WithKeyword,
     SyntaxKind::UsesKeyword,
     SyntaxKind::OpenBraceToken,
@@ -64,9 +70,11 @@ const PARAMETER_DEFAULT_BOUNDARY_KINDS: [SyntaxKind; 11] = [
     SyntaxKind::EndOfFileToken,
 ];
 
-const CALLABLE_RESULT_TYPE_BOUNDARY_KINDS: [SyntaxKind; 8] = [
+const CALLABLE_RESULT_TYPE_BOUNDARY_KINDS: [SyntaxKind; 10] = [
     SyntaxKind::RequiresKeyword,
     SyntaxKind::EnsuresKeyword,
+    SyntaxKind::ExecutesKeyword,
+    SyntaxKind::WhenKeyword,
     SyntaxKind::WithKeyword,
     SyntaxKind::UsesKeyword,
     SyntaxKind::OpenBraceToken,
@@ -202,7 +210,9 @@ impl Parser {
 
         if self.at(SyntaxKind::EqualsToken) {
             builder.push_equals_token(self.expect(SyntaxKind::EqualsToken));
+
             let mut at_default_boundary = Parser::at_parameter_default_boundary;
+
             builder.push_expression(self.parse_expression_until(&mut at_default_boundary));
         }
 
@@ -216,6 +226,7 @@ impl Parser {
         while self.at(SyntaxKind::PosKeyword) || self.at(SyntaxKind::MutKeyword) {
             if self.at(SyntaxKind::PosKeyword) {
                 builder.push_pos_token(self.expect(SyntaxKind::PosKeyword));
+
                 continue;
             }
 

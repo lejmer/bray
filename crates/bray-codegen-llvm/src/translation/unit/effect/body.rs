@@ -5,7 +5,7 @@ use super::super::support::{
 use bray_codegen::{CodegenFailure, CodegenSymbolKey, CodegenTypeKind};
 use bray_ir::{
     MirAsyncOperation, MirFrameInitializer, MirHelperReference, MirOperation, MirOperationKind,
-    MirPlace, MirSourceAnchor,
+    MirPlace,
 };
 use inkwell::values::BasicValueEnum;
 
@@ -198,6 +198,21 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 None
             }
+            MirOperationKind::Abandon { action, place } => {
+                self.translate_lifecycle_helper(
+                    id,
+                    MirHelperReference::Abandon {
+                        action: *action,
+                        ty: place.ty(),
+                    },
+                    place,
+                )?;
+
+                None
+            }
+            MirOperationKind::DestructorRemainder { .. } => {
+                return Err(CodegenFailure::GeneratedModuleInvariant);
+            }
             MirOperationKind::Async(asynchronous) => {
                 self.translate_async_operation(id, operation, asynchronous)?
             }
@@ -223,6 +238,11 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         cause: &bray_ir::MirPanicCause,
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let (cause, message) = match cause {
+            bray_ir::MirPanicCause::TaskAdmission => (
+                bray_runtime_abi::NativePanicCause::TASK_ADMISSION,
+                crate::native::string_view_type(self.types.context(), self.request.target())
+                    .const_zero().into(),
+            ),
             bray_ir::MirPanicCause::Message(message) => (
                 bray_runtime_abi::NativePanicCause::MESSAGE,
                 self.native_string_view(message)?,
@@ -296,28 +316,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .map(MirOperation::source)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let source = match source {
-            MirSourceAnchor::Source(origin) => {
-                let anchor = origin.source_anchor();
-                let syntax = anchor.syntax();
-                let range = syntax.full_range();
-
-                bray_runtime_abi::NativeSourceAnchor::new(
-                    syntax.source_id().raw(),
-                    range.start().bytes(),
-                    range.end().bytes(),
-                    anchor.source_version().raw(),
-                )
-            }
-            MirSourceAnchor::ExecutableHost(_)
-            | MirSourceAnchor::GeneratedLifecycle(_)
-            | MirSourceAnchor::CompilerProvidedCallable(_)
-            | MirSourceAnchor::ImportedExecutable(_) => {
-                bray_runtime_abi::NativeSourceAnchor::unavailable()
-            }
-        };
-
-        Ok(crate::native::source_anchor_value(self.types.context(), source).into())
+        Ok(crate::native::source_anchor_from_mir(self.types.context(), Some(source)).into())
     }
 
     fn native_string_view(
@@ -398,13 +397,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let context = if self.checked_call_operations.contains(&operation) {
             let context = self.checked_call_panic_report_context()?;
 
-            if self
-                .pending_call_panic_report_context
-                .replace(context)
-                .is_some()
-            {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
-            }
+            self.retain_checked_call_context(context)?;
 
             Some(context)
         } else {
@@ -415,7 +408,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Ok(());
         }
 
-        let place = self.place(place)?.into();
+        let place = if matches!(
+            expected,
+            MirHelperReference::Abandon {
+                action: bray_ir::MirAbandonmentAction::Destructor,
+                ..
+            }
+        ) {
+            self.operand(&bray_ir::MirOperand::Move(place.clone()))?
+        } else {
+            self.place(place)?.into()
+        };
 
         let result = match context {
             Some(context) => {
@@ -442,25 +445,6 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             MirAsyncOperation::CreateFrame { frame, initializer } => {
                 self.translate_frame_creation(operation_id, *frame, initializer)
             }
-            MirAsyncOperation::MoveInactiveFrame {
-                frame,
-                source,
-                destination,
-            } => {
-                let helpers = self.operation_helpers(operation_id)?;
-
-                let [helper] = helpers.as_slice() else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
-                };
-
-                if helper.reference() != &MirHelperReference::MoveInactiveFrame(*frame) {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
-                }
-
-                let arguments = [self.place(source)?.into(), self.place(destination)?.into()];
-
-                self.invoke_helper(helper, &arguments)
-            }
             MirAsyncOperation::ResumeFrame {
                 state,
                 storage,
@@ -472,7 +456,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 self.invoke_runtime(*runtime, &[storage, state])
             }
-            MirAsyncOperation::ComposeAwaitedFrame { child, frame, .. } => {
+            MirAsyncOperation::ComposeAwaitedFrame {
+                child,
+                frame,
+                entry,
+                ..
+            } => {
                 let frame = self.native_inactive_frame(frame)?;
 
                 let runtime = self.operation_runtime_helper(
@@ -480,58 +469,58 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     MirHelperReference::ComposeAwaitedFrame(*child),
                 )?;
 
-                self.invoke_native_runtime(runtime, &[frame])
-            }
-            MirAsyncOperation::CommitAwaitedCompletion { child } => {
-                let runtime = self.operation_runtime_helper(
-                    operation_id,
-                    MirHelperReference::CommitAwaitedCompletion(*child),
-                )?;
+                let entry = self
+                    .types
+                    .context()
+                    .i8_type()
+                    .const_int(u64::from(entry.code()), false);
 
-                let address = self
-                    .invoke_native_runtime(runtime, &[])?
+                self.invoke_native_runtime(runtime, &[frame, entry.into()])
+            }
+            MirAsyncOperation::DestroyInactiveCaptures { frame, runtime } => {
+                let frame = self.native_inactive_frame(frame)?;
+
+                let outcome = self
+                    .invoke_native_runtime(*runtime, &[frame])?
                     .and_then(int_value)
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                let result_type = self.types.map(self.operation_result_type(operation)?)?;
+                let context = self.checked_call_panic_report_context()?;
 
-                let pointer = llvm(
-                    self.builder.build_int_to_ptr(
-                        address,
-                        self.types
-                            .context()
-                            .ptr_type(inkwell::AddressSpace::default()),
-                        "awaited.completion",
-                    ),
-                )?;
+                llvm(self.builder.build_store(context, outcome))?;
+                self.retain_checked_call_context(context)?;
 
-                llvm(
-                    self.builder
-                        .build_load(result_type, pointer, "awaited.result"),
-                )
-                .map(Some)
+                Ok(None)
             }
             MirAsyncOperation::StartTask {
                 value,
+                destination,
                 allocation,
                 start,
                 ..
             } => {
                 let frame = self.native_inactive_frame(value)?;
-                let task = self.allocate_native_task(*allocation)?;
 
-                self.start_native_task(*start, task, frame)?;
-
-                Ok(Some(task.into()))
+                self.try_start_native_task(*allocation, *start, frame, destination).map(Some)
             }
-            MirAsyncOperation::RequestTaskCancellation { task, runtime } => {
+            MirAsyncOperation::RequestTaskCancellation { task, runtime }
+            | MirAsyncOperation::ReleaseTaskCompletionBorrow { task, runtime } => {
                 let task = self.operand(task)?;
 
                 let status = self
-                    .invoke_runtime(*runtime, &[task])?
+                    .invoke_native_runtime(*runtime, &[task])?
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                self.require_runtime_success(status, "task.cancellation")?;
+                let name = if matches!(
+                    asynchronous,
+                    MirAsyncOperation::ReleaseTaskCompletionBorrow { .. }
+                ) {
+                    "task.completion.release"
+                } else {
+                    "task.cancellation"
+                };
+
+                self.require_runtime_success(status, name)?;
 
                 Ok(None)
             }
@@ -545,7 +534,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 let result = self.operation_result_type(operation)?;
 
-                self.resolve_native_task(*runtime, task, result, *variants)
+                self.resolve_native_run(*runtime, vec![task.into()], result, *variants)
+                    .map(Some)
+            }
+            MirAsyncOperation::BorrowTaskCompletion { task, runtime } => {
+                let task = self.operand(task)?;
+                let result = self.operation_result_type(operation)?;
+
+                self.borrow_native_task_completion(*runtime, task, result)
+                    .map(Some)
+            }
+            MirAsyncOperation::ResolveAwaitedFrame { variants, runtime } => {
+                let result = self.operation_result_type(operation)?;
+
+                self.resolve_native_run(*runtime, Vec::new(), result, *variants)
                     .map(Some)
             }
             MirAsyncOperation::ObserveCurrentRunCancellation { runtime } => {
@@ -573,19 +575,43 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 self.invoke_runtime(*runtime, &[])
             }
             MirAsyncOperation::TransferCleanupIncident { incident, runtime } => {
-                let incident = self.operand(incident)?;
+                self.transfer_cleanup_incident(operation_id, incident, *runtime)?;
 
-                self.invoke_runtime(*runtime, &[incident])
+                Ok(None)
             }
-            MirAsyncOperation::DestroyTerminalTask { task } => {
+            MirAsyncOperation::DestroyTerminalTask { task, completion } => {
+                let helpers = self.operation_helpers(operation_id)?;
+                let mut helpers = helpers.iter();
+
+                let cleanup = if let Some(ty) = completion {
+                    let helper = next_helper(
+                        &mut helpers,
+                        &MirHelperReference::Abandon {
+                            action: bray_ir::MirAbandonmentAction::Destroy,
+                            ty: *ty,
+                        },
+                    )?;
+
+                    self.task_terminal_cleanup_descriptor(helper)?
+                } else {
+                    self.types
+                        .context()
+                        .ptr_type(inkwell::AddressSpace::default())
+                        .const_null()
+                        .into()
+                };
+
+                let destruction =
+                    next_helper(&mut helpers, &MirHelperReference::DestroyTerminalTask)?;
+
+                if helpers.next().is_some() {
+                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                }
+
                 let task = self.operand(task)?;
 
                 let status = self
-                    .invoke_single_operation_helper(
-                        operation_id,
-                        MirHelperReference::DestroyTerminalTask,
-                        &[task],
-                    )?
+                    .invoke_helper(destruction, &[task, cleanup])?
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                 self.require_runtime_success(status, "task.destruction")?;
@@ -642,6 +668,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let mut helpers = helpers.iter();
 
         match initializer {
+            MirFrameInitializer::Lifecycle {
+                role, ty, receiver, ..
+            } => {
+                let _lifecycle = next_helper(&mut helpers, &role.reference(*ty))?;
+                let creation = next_helper(&mut helpers, &MirHelperReference::CreateFrame(frame))?;
+                let receiver = self.operand(receiver)?;
+                let result = self.invoke_helper(creation, &[receiver])?;
+
+                if helpers.next().is_some() {
+                    return Err(CodegenFailure::GeneratedModuleInvariant);
+                }
+
+                Ok(result)
+            }
             MirFrameInitializer::Callable(call) => {
                 let arguments = self.evaluate_call_arguments(call, &mut helpers, None)?;
                 let helper = next_helper(&mut helpers, &MirHelperReference::CreateFrame(frame))?;
@@ -653,69 +693,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
                 Ok(result)
             }
-            MirFrameInitializer::TaskObservation {
-                task,
-                result,
-                variants,
-                request_cancellation,
-                ..
-            } => {
-                let cancellation = next_helper(
-                    &mut helpers,
-                    &MirHelperReference::Cleanup {
-                        phase: bray_ir::MirCleanupPhase::TaskCancellation,
-                        ty: result.completion_type(),
-                    },
-                )?;
-
-                let lifecycle = next_helper(
-                    &mut helpers,
-                    &MirHelperReference::Cleanup {
-                        phase: bray_ir::MirCleanupPhase::LifecycleResolution,
-                        ty: result.completion_type(),
-                    },
-                )?;
-
-                let creation = next_helper(&mut helpers, &MirHelperReference::CreateFrame(frame))?;
-
-                let task = self.operand(task)?;
-
-                let result = self.create_task_observation_frame(
-                    creation,
-                    task,
-                    *request_cancellation,
-                    result.completion_type(),
-                    *variants,
-                    cancellation,
-                    lifecycle,
-                )?;
-
-                if helpers.next().is_some() {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
-                }
-
-                Ok(Some(result))
-            }
         }
-    }
-
-    pub(super) fn invoke_single_operation_helper(
-        &mut self,
-        operation: bray_ir::MirOperationId,
-        expected: MirHelperReference,
-        arguments: &[BasicValueEnum<'context>],
-    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
-        let helpers = self.operation_helpers(operation)?;
-
-        let [helper] = helpers.as_slice() else {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        };
-
-        if helper.reference() != &expected {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        }
-
-        self.invoke_helper(helper, arguments)
     }
 
     fn operation_runtime_helper(

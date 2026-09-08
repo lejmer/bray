@@ -307,7 +307,7 @@ impl BufferedWriter<Sink>
         return Ok(buffer_bytes(&mut self, source));
     }
 
-    consume mut async func into_sink_async() -> Result<Sink, IoError>
+    consume mut async func into_sink_async() -> Result<Sink, (Self, IoError)>
         with(Sink: AsyncWriter)
         requires(blocking_execution())
     {
@@ -316,11 +316,11 @@ impl BufferedWriter<Sink>
         match consume result
         {
             case Ok(_) { return Ok(self.sink); }
-            case Error(error) { return Error(error); }
+            case Error(error) { return Error((self, error)); }
         }
     }
 
-    consume mut func into_sink() -> Result<Sink, IoError>
+    consume mut func into_sink() -> Result<Sink, (Self, IoError)>
         with(Sink: Writer)
         requires(blocking_execution())
     {
@@ -329,7 +329,7 @@ impl BufferedWriter<Sink>
         match consume result
         {
             case Ok(_) { return Ok(self.sink); }
-            case Error(error) { return Error(error); }
+            case Error(error) { return Error((self, error)); }
         }
     }
 }

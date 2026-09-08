@@ -99,6 +99,7 @@ where
             }
             ConversionTarget::Composite(children) => pending.extend(children.iter()),
             ConversionTarget::Identity
+            | ConversionTarget::CallableContract
             | ConversionTarget::NullablePresent
             | ConversionTarget::BuiltInScalar
             | ConversionTarget::CVariadicPromotion => {}
@@ -447,6 +448,7 @@ fn collect_conversion_operations(
             }),
             ConversionTarget::Composite(children) => pending.extend(children.iter()),
             ConversionTarget::Identity
+            | ConversionTarget::CallableContract
             | ConversionTarget::NullablePresent
             | ConversionTarget::BuiltInScalar
             | ConversionTarget::CVariadicPromotion => {}

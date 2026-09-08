@@ -1,5 +1,5 @@
 @target(target.c.WCHAR == "u16" || target.c.WCHAR == "i32")
-module std.ffi.c;
+trusted module std.ffi.c;
 
 /// Borrows a validated NUL-terminated narrow or wide C string.
 overload borrow_string =

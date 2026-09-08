@@ -1,8 +1,10 @@
+use bray_symbols::CallableConditions;
+
 use super::bundle::section;
 use super::model::EncodedSemanticSection;
 use super::value::write_tagged_id;
 use crate::semantic::codec::common::{
-    write_count, write_symbol_reference, write_symbol_references,
+    write_count, write_optional_u32, write_symbol_reference, write_symbol_references,
 };
 use crate::semantic::codec::record::encode_record_table;
 use crate::semantic::model::{
@@ -42,7 +44,7 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
             match constraint.kind {
                 InterfaceConstraintKind::Predicate(predicate) => {
                     encoder.write_u32(1);
-                    encoder.write_u32(predicate.dependency_contract.raw());
+                    encode_predicate(encoder, predicate);
                 }
                 InterfaceConstraintKind::TraitSatisfaction {
                     subject,
@@ -66,9 +68,25 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
         &semantics.callable_contracts,
         |encoder, contract| {
             write_symbol_reference(encoder, &contract.owner);
-            encode_callable_clauses(encoder, &contract.invocation_preconditions);
-            encode_callable_clauses(encoder, &contract.static_constraints);
-            encode_callable_clauses(encoder, &contract.normal_completion_postconditions);
+
+            encode_callable_conditions(encoder, contract.conditions());
+            write_count(encoder, contract.evidence().len());
+
+            for proof in contract.evidence() {
+                encoder.write_u32(match proof.origin() {
+                    bray_symbols::CallableEvidenceOrigin::CheckedBody => 0,
+                    bray_symbols::CallableEvidenceOrigin::ForeignAssertion => 1,
+                });
+
+                encode_contract_obligation(encoder, proof.obligation());
+                write_count(encoder, proof.dependencies().len());
+
+                for (target, obligation) in proof.dependencies() {
+                    write_symbol_reference(encoder, target);
+                    encode_contract_obligation(encoder, *obligation);
+                }
+            }
+
             encode_callable_behavior(encoder, &contract.invocation_behavior);
 
             match &contract.deferred_execution_behavior {
@@ -90,16 +108,70 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
     )
 }
 
+fn encode_contract_obligation(
+    encoder: &mut WireEncoder,
+    obligation: bray_symbols::CallableContractObligation,
+) {
+    match obligation {
+        bray_symbols::CallableContractObligation::Execution(guarantee) => {
+            encoder.write_u32(0);
+            encoder.write_u32(guarantee.property().to_wire());
+
+            write_optional_u32(
+                encoder,
+                guarantee.guard().map(bray_symbols::SymbolOrdinal::raw),
+            );
+        }
+        bray_symbols::CallableContractObligation::Postcondition(ordinal) => {
+            encoder.write_u32(1);
+            encoder.write_u32(ordinal.raw());
+        }
+    }
+}
+
+pub(super) fn encode_callable_conditions(
+    encoder: &mut WireEncoder,
+    conditions: &bray_symbols::CallableConditionSet<InterfaceCallableContractClause>,
+) {
+    encode_callable_clauses(encoder, conditions.invocation_preconditions());
+    encode_callable_clauses(encoder, conditions.static_constraints());
+    encode_callable_clauses(encoder, conditions.normal_completion_postconditions());
+    encode_callable_clauses(encoder, conditions.entry_guards());
+    encode_callable_clauses(encoder, conditions.guarded_postconditions());
+
+    write_count(encoder, conditions.execution_guarantees().len());
+
+    for guarantee in conditions.execution_guarantees() {
+        encoder.write_u32(guarantee.property().to_wire());
+
+        write_optional_u32(
+            encoder,
+            guarantee.guard().map(bray_symbols::SymbolOrdinal::raw),
+        );
+    }
+}
+
+fn encode_predicate(encoder: &mut WireEncoder, predicate: crate::InterfacePredicateSummary) {
+    encoder.write_u32(predicate.dependency_contract.raw());
+
+    write_optional_u32(
+        encoder,
+        predicate.condition.map(crate::InterfaceConstantTermId::raw),
+    );
+}
+
 fn encode_callable_clauses(encoder: &mut WireEncoder, clauses: &[InterfaceCallableContractClause]) {
     write_count(encoder, clauses.len());
 
     for clause in clauses {
         encoder.write_u32(clause.ordinal.raw());
 
+        write_optional_u32(encoder, clause.guard.map(bray_symbols::SymbolOrdinal::raw));
+
         match clause.value {
             InterfaceCallableContractClauseValue::Predicate(predicate) => {
                 encoder.write_u32(1);
-                encoder.write_u32(predicate.dependency_contract.raw());
+                encode_predicate(encoder, predicate);
             }
             InterfaceCallableContractClauseValue::TraitSatisfaction {
                 subject,
@@ -129,6 +201,7 @@ pub(super) fn encode_callable_behavior(
 
     for requirement in &*behavior.trusted_capabilities {
         encoder.write_u32(requirement.ordinal.raw());
+
         write_symbol_reference(encoder, &requirement.capability);
     }
 
@@ -149,6 +222,7 @@ pub(super) fn encode_dependency_requirement(
     match &requirement.value {
         InterfaceDependencyRequirementValue::Direct { subject, kind } => {
             encoder.write_u32(1);
+
             encode_dependency_subject(encoder, subject);
             encode_dependency_requirement_kind(encoder, *kind);
         }
@@ -157,7 +231,9 @@ pub(super) fn encode_dependency_requirement(
             requirements,
         } => {
             encoder.write_u32(2);
+
             encode_dependency_guard(encoder, guard);
+
             write_count(encoder, requirements.len());
 
             for nested in &**requirements {

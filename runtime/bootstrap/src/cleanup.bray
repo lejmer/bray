@@ -11,13 +11,29 @@ internal callable StaticTransitionCallback = @abi(c)
 trusted func();
 
 internal callable StaticFinalizerStartCallback = @abi(c)
-trusted func(pos destination: usize) -> u32;
+trusted func(pos destination: usize, pos outcome: RawPointer<usize>) -> u32;
+
+internal callable StaticCleanupCallback = @abi(c)
+trusted func() -> usize;
 
 internal callable CleanupIncidentReportCallback = @abi(c)
+trusted func(pos incident: RawPointer<CleanupIncident>) -> u32;
+
+internal callable PanicReportStatusCallback = @abi(c)
 trusted func(pos payload: usize) -> u32;
 
 internal callable CleanupIncidentDestroyCallback = @abi(c)
-trusted func(pos payload: usize);
+trusted func(pos payload: usize) -> usize;
+
+@copy
+@layout(c)
+internal struct PanicReportCallbacks
+{
+    report: RawPointer<u8>;
+    destroy: RawPointer<u8>;
+    construct_cleanup: RawPointer<u8>;
+    suppress: RawPointer<u8>;
+}
 
 @copy
 @layout(c)
@@ -39,6 +55,7 @@ internal struct CleanupIncident
     source: SourceAnchor;
     report: RawPointer<u8>;
     destroy: RawPointer<u8>;
+    panics: PanicReportCallbacks;
 }
 
 @copy
@@ -51,6 +68,7 @@ internal struct StaticFinalizer
     result_alignment: usize;
     start: RawPointer<u8>;
     resolve: RawPointer<u8>;
+    panics: PanicReportCallbacks;
 }
 
 @copy
@@ -196,6 +214,8 @@ trusted internal func register_thread_cleanup(pos registration: RawPointer<u8>) 
     if std.memory.is_null<u8>(registration_value.prepare)
         || std.memory.is_null<u8>(registration_value.destroy)
         || std.memory.is_null<u8>(registration_value.detach)
+        || std.memory.is_null<u8>(registration_value.finalizer.panics.report)
+        || std.memory.is_null<u8>(registration_value.finalizer.panics.destroy)
         || registration_value.finalizer.reserved != 0
         || registration_value.finalizer.execution > FINALIZER_SYNCHRONOUS
         || registration_value.finalizer.execution == FINALIZER_NONE
@@ -282,49 +302,54 @@ trusted internal func run_static_finalizer(pos finalizer: StaticFinalizer)
         source = { present = 0, source = 0, start = 0, end = 0, version = 0 },
         report = std.memory.null<u8>(),
         destroy = std.memory.null<u8>(),
+        panics = {
+            report = std.memory.null<u8>(),
+            destroy = std.memory.null<u8>(),
+            construct_cleanup = std.memory.null<u8>(),
+            suppress = std.memory.null<u8>(),
+        },
     };
+
     let start_pointer: RawPointer<StaticFinalizerStartCallback> = trusted std.memory.reinterpret<
         StaticFinalizerStartCallback,
         u8,
     >(finalizer.start);
+
     let start: StaticFinalizerStartCallback = trusted std.memory.callable_from_pointer(start_pointer);
+    let mut outcome: usize = 0;
+
     let status: u32 = trusted start(
-        trusted core.target.expose_address<CleanupIncident>(std.memory.address_of_mut<CleanupIncident>(&mut incident))
+        trusted core.target.expose_address<CleanupIncident>(std.memory.address_of_mut<CleanupIncident>(&mut incident)),
+        std.memory.address_of_mut<usize>(&mut outcome),
     );
+
+    if outcome != 0
+    {
+        let _: u32 = trusted resolve_cleanup_boundary(outcome, finalizer.panics);
+
+        return;
+    }
 
     if status == STATUS_SUCCESS
     {
         return;
     }
 
-    if status != FINALIZER_INCIDENT
-        || incident.payload == 0
-        || std.memory.is_null<u8>(incident.report)
-        || std.memory.is_null<u8>(incident.destroy)
-        || incident.source.present > 1
-        || incident.source.present == 0
-            && (
-                incident.source.source != 0
-                    || incident.source.start != 0
-                    || incident.source.end != 0
-                    || incident.source.version != 0
-            )
-        || incident.source.present == 1 && incident.source.start > incident.source.end
+    if status != FINALIZER_INCIDENT || !trusted valid_cleanup_incident(incident)
     {
         trusted core.target.abort();
     }
 
-    let report_pointer: RawPointer<CleanupIncidentReportCallback> = trusted std.memory.reinterpret<
-        CleanupIncidentReportCallback,
-        u8,
-    >(incident.report);
-    let report: CleanupIncidentReportCallback = trusted std.memory.callable_from_pointer(report_pointer);
-    let _: u32 = trusted report(incident.payload);
-    let destroy_pointer: RawPointer<CleanupIncidentDestroyCallback> = trusted std.memory.reinterpret<
-        CleanupIncidentDestroyCallback,
-        u8,
-    >(incident.destroy);
-    let destroy: CleanupIncidentDestroyCallback = trusted std.memory.callable_from_pointer(destroy_pointer);
+    let _: u32 = trusted report_cleanup_incident(incident);
 
-    trusted destroy(incident.payload);
+    trusted destroy_cleanup_incident(incident);
+}
+
+trusted internal func run_static_destructor(pos pointer: RawPointer<u8>, pos panics: PanicReportCallbacks)
+    uses(layout_reinterpret)
+{
+    let callback_pointer: RawPointer<StaticCleanupCallback> = trusted std.memory.reinterpret<StaticCleanupCallback, u8>(pointer);
+    let callback: StaticCleanupCallback = trusted std.memory.callable_from_pointer(callback_pointer);
+    let outcome: usize = trusted callback();
+    let _: u32 = trusted resolve_cleanup_boundary(outcome, panics);
 }

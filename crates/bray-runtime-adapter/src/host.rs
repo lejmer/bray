@@ -5,6 +5,22 @@ use bray_runtime_abi::{
 };
 
 native_adapter! {
+    pub extern "C" fn bray_runtime_cleanup_incident_detail_reporting(
+        incident: &bray_runtime_abi::NativeCleanupIncident,
+    ) -> NativeRuntimeStatus {
+        implementation::bray_runtime_cleanup_incident_detail_reporting(incident)
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_cleanup_incident_transfer(
+        incident: &bray_runtime_abi::NativeCleanupIncident,
+    ) -> NativeRuntimeStatus {
+        implementation::bray_runtime_cleanup_incident_transfer(incident)
+    }
+}
+
+native_adapter! {
     pub extern "C" fn bray_runtime_substrate_initialization(
         worker_capacity: usize,
         timer_capacity: usize,
@@ -55,11 +71,16 @@ native_adapter! {
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_entry_failure_reporting(
-        payload: usize,
-        size: usize,
+    pub extern "C" fn bray_runtime_entry_failure_resolution(
+        identity: &bray_runtime_abi::NativeTypeIdentity,
+        source: &bray_runtime_abi::NativeSourceAnchor,
+        value: usize,
+        broadcast: Option<&bray_runtime_abi::NativeValueCleanup>,
+        lifecycle: Option<&bray_runtime_abi::NativeValueCleanup>,
     ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_entry_failure_reporting(payload, size)
+        implementation::bray_runtime_entry_failure_resolution(
+            identity, source, value, broadcast, lifecycle,
+        )
     }
 }
 

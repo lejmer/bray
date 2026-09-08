@@ -1,5 +1,5 @@
 @target(target.c.PTRDIFF == "isize")
-module std.ffi.c;
+trusted module std.ffi.c;
 
 @copy
 @layout(transparent)

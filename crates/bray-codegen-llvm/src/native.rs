@@ -8,6 +8,6 @@ pub(crate) use core::{
     frame_parameter_index, frame_progress_type, inactive_frame_type, indirect_result_attribute,
     indirect_result_type, invoke_function, pointer_integer_type, protected_frame_type,
     return_frame_result, return_frame_state, run_outcome_type, run_result_layout_type,
-    runtime_configuration_type, runtime_indirect_result_type, source_anchor_type,
-    source_anchor_value, string_view_type, symbol_function_type,
+    runtime_configuration_type, runtime_indirect_result_type, source_anchor_from_mir,
+    source_anchor_type, string_view_type, symbol_function_type, type_identity_value,
 };

@@ -89,6 +89,22 @@ impl InterfaceSemantics {
         Ok(())
     }
 
+    pub(super) fn validate_predicate_summary(
+        &self,
+        predicate: crate::InterfacePredicateSummary,
+    ) -> Result<(), InterfaceValidationError> {
+        validate_index(
+            predicate.dependency_contract.to_index(),
+            self.dependency_contracts.len(),
+        )?;
+
+        if let Some(condition) = predicate.condition {
+            validate_index(condition.to_index(), self.constant_terms.len())?;
+        }
+
+        Ok(())
+    }
+
     fn validate_constraints(
         &self,
         symbol_count: usize,
@@ -99,10 +115,9 @@ impl InterfaceSemantics {
                 validate_symbol(&constraint.owner, symbol_count, dependency_count)?;
 
                 match constraint.kind {
-                    InterfaceConstraintKind::Predicate(predicate) => validate_index(
-                        predicate.dependency_contract.to_index(),
-                        self.dependency_contracts.len(),
-                    )?,
+                    InterfaceConstraintKind::Predicate(predicate) => {
+                        self.validate_predicate_summary(predicate)?
+                    }
                     InterfaceConstraintKind::TraitSatisfaction {
                         subject,
                         application,

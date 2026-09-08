@@ -15,6 +15,14 @@ define_source_syntax_node! {
         required_tokens: [],
         optional_tokens: [
             {
+                /// Returns the contextual `Self` type qualifier.
+                self_type_token;
+                /// Appends the contextual `Self` type qualifier.
+                push_self_type_token;
+                kind: SyntaxKind::SelfTypeKeyword;
+                slot: "access_expression.self_type_token";
+            },
+            {
                 /// Returns the identifier root token.
                 identifier_token;
                 /// Appends the identifier root token.

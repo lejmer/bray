@@ -37,7 +37,7 @@ where
 {
     let mut checker = match PatternChecker::new(request, expression_types, input) {
         Ok(checker) => checker,
-        Err(error) => return query_outcome(error),
+        Err(error) => return error.into(),
     };
 
     if checker.request.is_cancelled() {
@@ -45,7 +45,7 @@ where
     }
 
     if let Err(error) = checker.collect_subjects() {
-        return query_outcome(error);
+        return error.into();
     }
 
     if checker.request.is_cancelled() {
@@ -53,7 +53,7 @@ where
     }
 
     if let Err(error) = checker.check_subjects() {
-        return query_outcome(error);
+        return error.into();
     }
 
     if checker.request.is_cancelled() {
@@ -61,7 +61,7 @@ where
     }
 
     if let Err(error) = checker.check_matches() {
-        return query_outcome(error);
+        return error.into();
     }
 
     if checker.request.is_cancelled() {
@@ -103,14 +103,6 @@ pub(in crate::pattern) fn available_dependency<T, Upstream>(
             Err(CheckerQueryError::Infrastructure(error))
         }
         Err(CheckerQueryError::Upstream(error)) => Err(CheckerQueryError::Upstream(error)),
-    }
-}
-
-fn query_outcome<T, Upstream>(error: CheckerQueryError<Upstream>) -> CheckerOutcome<T, Upstream> {
-    match error {
-        CheckerQueryError::Cancelled => CheckerOutcome::Cancelled,
-        CheckerQueryError::Infrastructure(error) => CheckerOutcome::InfrastructureFailure(error),
-        CheckerQueryError::Upstream(error) => CheckerOutcome::UpstreamFailure(error),
     }
 }
 

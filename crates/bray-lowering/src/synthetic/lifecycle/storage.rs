@@ -1,21 +1,22 @@
 use bray_bound_tree::BoundCallResult;
 use bray_compiler_known::{CompilerKnownDeclarationKey, RepresentationRole};
 use bray_ir::{
-    MirAsyncOperation, MirCall, MirCallTarget, MirHelperReference, MirMemoryOperation, MirOperand,
+    MirAsyncOperation, MirCall, MirCallTarget, MirEdge, MirHelperReference, MirOperand,
     MirOperationKind, MirPlace, MirProjectionKind, MirRuntimeReference, MirSourceAnchor,
-    MirStorageKind, MirStoreKind, MirUnitBuilder,
+    MirTerminatorKind, MirUnitBuilder,
 };
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::{BorrowKind, TypeData, TypeId};
 
 use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
+use crate::cleanup_outcome::CleanupOutcome;
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     #[expect(
         clippy::too_many_arguments,
         reason = "storage projection retains the selected policy and target type"
     )]
-    pub(super) fn storage_target_place(
+    fn checked_storage_target_place(
         &self,
         builder: &mut MirUnitBuilder,
         block: bray_ir::MirBlockId,
@@ -23,7 +24,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         storage_place: MirPlace,
         storage: TypeId,
         target: TypeId,
-    ) -> Result<MirPlace, C::Error> {
+        outcome: &CleanupOutcome,
+        failed: bray_ir::MirBlockId,
+    ) -> Result<(bray_ir::MirBlockId, MirPlace), C::Error> {
         let borrowed = self.push_storage_lifecycle_call(
             builder,
             block,
@@ -35,33 +38,14 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             Some(BorrowKind::Mutable),
         )?;
 
-        let values = self.context.semantic_values();
-
-        let pointer = values
-            .intern_type(TypeData::Borrow {
-                kind: BorrowKind::Mutable,
-                target,
-            })
-            .map_err(SyntheticLoweringError::SemanticValue)?;
-
-        let temporary = builder
-            .push_storage(source.clone(), MirStorageKind::Temporary, pointer)
+        let (completed, temporary_place) = outcome
+            .check_value(builder, block, source, borrowed, failed)
             .map_err(|cause| self.mir_error(source, cause))?;
 
-        let temporary_place = MirPlace::new(temporary, [], pointer);
-
-        self.push_lifecycle_operation(
-            builder,
-            block,
-            source,
-            MirOperationKind::Store {
-                kind: MirStoreKind::Initialize,
-                destination: temporary_place.clone(),
-                value: MirOperand::Value(borrowed),
-            },
-        )?;
-
-        Ok(temporary_place.project(MirProjectionKind::Dereference, target))
+        Ok((
+            completed,
+            temporary_place.project(MirProjectionKind::Dereference, target),
+        ))
     }
 
     #[expect(
@@ -153,9 +137,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         reference: &MirHelperReference,
         place: &MirPlace,
         runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
-    ) -> Result<bool, C::Error> {
+    ) -> Result<Option<bray_ir::MirBlockId>, C::Error> {
         let Some(ty) = reference.lifecycle_type() else {
-            return Ok(false);
+            return Ok(None);
         };
 
         let values = self.context.semantic_values();
@@ -169,60 +153,23 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             substitution,
         } = data.as_ref()
         else {
-            return Ok(false);
+            return Ok(None);
         };
 
-        if let MirHelperReference::Destroy(_) = reference
-            && let Some(element) = self
-                .context
-                .imported_raw_buffer_element(*definition, *substitution)?
+        if let Some(element) = self
+            .context
+            .raw_buffer_element(*definition, *substitution)?
         {
-            let borrowed = values
-                .intern_type(TypeData::Borrow {
-                    kind: BorrowKind::Mutable,
-                    target: ty,
-                })
-                .map_err(SyntheticLoweringError::SemanticValue)?;
+            let role = bray_ir::MirGeneratedLifecycleRole::from_reference(reference)
+                .ok_or_else(|| SyntheticLoweringError::MissingHelper(reference.clone()))?;
 
-            let buffer = builder
-                .push_operation(
-                    block,
-                    source.clone(),
-                    MirOperationKind::Borrow {
-                        kind: BorrowKind::Mutable,
-                        place: place.clone(),
-                    },
-                    Some(borrowed),
-                )
-                .map_err(|cause| self.mir_error(source, cause))?;
-
-            let operation = buffer.operation();
-
-            let buffer =
-                buffer
-                    .result()
-                    .ok_or_else(|| SyntheticLoweringError::MissingOperationResult {
-                        source: source.clone(),
-                        operation,
-                    })?;
-
-            self.push_lifecycle_operation(
-                builder,
-                block,
-                source,
-                MirOperationKind::Memory(MirMemoryOperation::new(
-                    bray_bound_tree::CheckedMemoryOperationKind::RawBufferRelease { element },
-                    [MirOperand::Value(buffer)],
-                    [borrowed],
-                    None,
-                )),
-            )?;
-
-            return Ok(true);
+            return self
+                .push_buffer_lifecycle(builder, block, source, role, place.clone(), element)
+                .map(Some);
         }
 
         let Some(role) = self.context.representation_role(*definition) else {
-            return Ok(false);
+            return Ok(None);
         };
 
         if role == RepresentationRole::String {
@@ -247,7 +194,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 )?;
             }
 
-            return Ok(true);
+            return Ok(Some(block));
         }
 
         if role == RepresentationRole::PanicReport {
@@ -283,16 +230,42 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     .map_err(|cause| self.mir_error(source, cause))?;
             }
 
-            return Ok(true);
+            return Ok(Some(block));
+        }
+
+        if role == RepresentationRole::Future {
+            return match reference {
+                MirHelperReference::Destroy(_)
+                | MirHelperReference::Cleanup {
+                    phase: bray_ir::MirCleanupPhase::LifecycleResolution,
+                    ..
+                } => self
+                    .resolve_inactive_future(builder, block, source, place.clone())
+                    .map(Some),
+                MirHelperReference::Finalize(_)
+                | MirHelperReference::StaticFinalize(_)
+                | MirHelperReference::Cleanup {
+                    phase: bray_ir::MirCleanupPhase::TaskCancellation,
+                    ..
+                } => Ok(Some(block)),
+                _ => Err(SyntheticLoweringError::MissingHelper(reference.clone()).into()),
+            };
         }
 
         if role != RepresentationRole::Task {
-            return Ok(false);
+            return Ok(None);
         }
 
         match reference {
             MirHelperReference::Finalize(_) | MirHelperReference::StaticFinalize(_) => {
-                self.push_task_resolution(builder, block, source, place.clone(), runtime_abi)?;
+                let outcome = self.cleanup_outcome(builder, block, source)?;
+
+                let block =
+                    self.push_task_resolution(builder, block, source, place.clone(), &outcome)?;
+
+                return self
+                    .finish_cleanup_outcome(builder, block, source, &outcome)
+                    .map(Some);
             }
             MirHelperReference::Destroy(_) => {
                 self.push_lifecycle_operation(
@@ -301,6 +274,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     source,
                     MirOperationKind::Async(MirAsyncOperation::DestroyTerminalTask {
                         task: MirOperand::Move(place.clone()),
+                        completion: None,
                     }),
                 )?;
             }
@@ -313,7 +287,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     block,
                     source,
                     MirOperationKind::Async(MirAsyncOperation::RequestTaskCancellation {
-                        task: MirOperand::Move(place.clone()),
+                        task: MirOperand::Copy(place.clone()),
                         runtime: MirRuntimeReference::new(
                             RuntimeAbiRole::TaskCancellationRequest,
                             runtime_abi,
@@ -325,7 +299,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 phase: bray_ir::MirCleanupPhase::LifecycleResolution,
                 ..
             } => {
-                self.push_task_resolution(builder, block, source, place.clone(), runtime_abi)?;
+                let outcome = self.cleanup_outcome(builder, block, source)?;
+
+                let block =
+                    self.push_task_resolution(builder, block, source, place.clone(), &outcome)?;
 
                 self.push_lifecycle_operation(
                     builder,
@@ -333,10 +310,16 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     source,
                     MirOperationKind::Async(MirAsyncOperation::DestroyTerminalTask {
                         task: MirOperand::Move(place.clone()),
+                        completion: None,
                     }),
                 )?;
+
+                return self
+                    .finish_cleanup_outcome(builder, block, source, &outcome)
+                    .map(Some);
             }
             MirHelperReference::AnonymousCallable(_)
+            | MirHelperReference::Abandon { .. }
             | MirHelperReference::DeclaredCallable(_)
             | MirHelperReference::CallableDefault(_)
             | MirHelperReference::ConstructionDefault(_)
@@ -348,15 +331,13 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             | MirHelperReference::PanicReport
             | MirHelperReference::StandardLibrary(_)
             | MirHelperReference::CreateFrame(_)
-            | MirHelperReference::MoveInactiveFrame(_)
             | MirHelperReference::ComposeAwaitedFrame(_)
-            | MirHelperReference::CommitAwaitedCompletion(_)
             | MirHelperReference::DestroyTerminalTask => {
                 return Err(SyntheticLoweringError::MissingHelper(reference.clone()).into());
             }
         }
 
-        Ok(true)
+        Ok(Some(block))
     }
 
     #[expect(
@@ -374,80 +355,92 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         target: TypeId,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         let storage_place = place.project(MirProjectionKind::OwnedStorage, storage);
+        let outcome = self.cleanup_outcome(builder, block, source)?;
 
-        let target_place = self.storage_target_place(
+        let kind = builder
+            .block_kind(block)
+            .map_err(|cause| self.mir_error(source, cause))?;
+
+        let after_target = builder
+            .push_block(source.clone(), kind)
+            .map_err(|cause| self.mir_error(source, cause))?;
+
+        let (block, target_place) = self.checked_storage_target_place(
             builder,
             block,
             source,
             storage_place.clone(),
             storage,
             target,
+            &outcome,
+            after_target,
         )?;
 
-        match role {
-            bray_ir::MirGeneratedLifecycleRole::Destroy => {
-                let outcome = self.cleanup_outcome(builder, block, source)?;
-
-                self.push_lifecycle_operation(
-                    builder,
-                    block,
-                    source,
-                    MirOperationKind::Finalize(target_place),
-                )?;
-
-                let block = outcome
-                    .check(builder, block, source)
-                    .map_err(|cause| self.mir_error(source, cause))?;
-
-                self.push_storage_lifecycle_call(
-                    builder,
-                    block,
-                    source,
-                    storage_place.clone(),
-                    storage,
-                    target,
-                    "StorageDestroy",
-                    Some(BorrowKind::Mutable),
-                )?;
-
-                let block = outcome
-                    .check(builder, block, source)
-                    .map_err(|cause| self.mir_error(source, cause))?;
-
-                self.push_storage_lifecycle_call(
-                    builder,
-                    block,
-                    source,
-                    storage_place,
-                    storage,
-                    target,
-                    "StorageRelease",
-                    None,
-                )?;
-
-                let block = outcome
-                    .check(builder, block, source)
-                    .map_err(|cause| self.mir_error(source, cause))?;
-
-                return self.finish_cleanup_outcome(builder, block, source, &outcome);
+        let operation = match role {
+            bray_ir::MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Quiesce) => {
+                MirOperationKind::Abandon {
+                    action: bray_ir::MirAbandonmentAction::Quiesce,
+                    place: target_place,
+                }
             }
-            bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => {
-                self.push_lifecycle_operation(
-                    builder,
-                    block,
-                    source,
-                    MirOperationKind::Cleanup {
-                        phase,
-                        place: target_place,
-                    },
-                )?;
+            bray_ir::MirGeneratedLifecycleRole::Abandon(_) => {
+                return Err(SyntheticLoweringError::UnsupportedLifecycleRole(role).into());
             }
+            bray_ir::MirGeneratedLifecycleRole::Destroy => MirOperationKind::Finalize(target_place),
+            bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => MirOperationKind::Cleanup {
+                phase,
+                place: target_place,
+            },
             bray_ir::MirGeneratedLifecycleRole::Finalize
             | bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
                 return Err(SyntheticLoweringError::UnsupportedLifecycleRole(role).into());
             }
+        };
+
+        let block = self.resolve_lifecycle_action(builder, block, source, operation, &outcome)?;
+
+        builder
+            .set_terminator(
+                block,
+                source.clone(),
+                MirTerminatorKind::Goto(MirEdge::new(after_target, [])),
+            )
+            .map_err(|cause| self.mir_error(source, cause))?;
+
+        let mut block = after_target;
+
+        if role == bray_ir::MirGeneratedLifecycleRole::Destroy {
+            self.push_storage_lifecycle_call(
+                builder,
+                block,
+                source,
+                storage_place.clone(),
+                storage,
+                target,
+                "StorageDestroy",
+                Some(BorrowKind::Mutable),
+            )?;
+
+            block = outcome
+                .check(builder, block, source)
+                .map_err(|cause| self.mir_error(source, cause))?;
+
+            self.push_storage_lifecycle_call(
+                builder,
+                block,
+                source,
+                storage_place,
+                storage,
+                target,
+                "StorageRelease",
+                None,
+            )?;
+
+            block = outcome
+                .check(builder, block, source)
+                .map_err(|cause| self.mir_error(source, cause))?;
         }
 
-        Ok(block)
+        self.finish_cleanup_outcome(builder, block, source, &outcome)
     }
 }

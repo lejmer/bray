@@ -1,118 +1,58 @@
+use super::substitution_apply::SemanticSubstitution;
 use super::{
-    CallableParameterData, CallableTypeData, GenericArgument, GenericSubstitutionData,
-    GenericSubstitutionId, SelfTypeContext, SemanticValueStore, SemanticValueStoreError,
-    TraitApplicationData, TraitApplicationId, TypeData, TypeId,
+    ConstantTermId, GenericSubstitutionId, SelfTypeContext, SemanticValueStore,
+    SemanticValueStoreError, TraitApplicationData, TraitApplicationId, TypeData, TypeId,
 };
 
+struct ContextualSelfSubstitution {
+    context: SelfTypeContext,
+    replacement: TypeId,
+}
+
+impl SemanticSubstitution for ContextualSelfSubstitution {
+    fn replacement_type(
+        &self,
+        _values: &SemanticValueStore,
+        data: &TypeData,
+    ) -> Result<Option<TypeId>, SemanticValueStoreError> {
+        Ok(
+            matches!(data, TypeData::ContextualSelf(context) if *context == self.context)
+                .then_some(self.replacement),
+        )
+    }
+}
+
 impl SemanticValueStore {
-    /// Replaces one declaration context's `Self` throughout a semantic type.
+    /// Replaces one declaration context's `Self` throughout a semantic type and its dependencies.
     pub fn substitute_contextual_self(
         &self,
         ty: TypeId,
         context: SelfTypeContext,
         replacement: TypeId,
     ) -> Result<TypeId, SemanticValueStoreError> {
-        let data = self.type_data(ty)?;
-
-        if matches!(data.as_ref(), TypeData::ContextualSelf(candidate) if *candidate == context) {
-            return Ok(replacement);
-        }
-
-        let substituted = match data.as_ref() {
-            TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => {
-                return Ok(ty);
-            }
-            TypeData::Named {
-                definition,
-                substitution,
-            } => TypeData::Named {
-                definition: *definition,
-                substitution: self.substitute_contextual_self_in_substitution(
-                    *substitution,
-                    context,
-                    replacement,
-                )?,
-            },
-            TypeData::TypeValuedMemberProjection {
-                subject,
-                application,
-                member,
-            } => TypeData::TypeValuedMemberProjection {
-                subject: self.substitute_contextual_self(*subject, context, replacement)?,
-                application: self.substitute_contextual_self_in_application(
-                    *application,
-                    context,
-                    replacement,
-                )?,
-                member: *member,
-            },
-            TypeData::Tuple(elements) => TypeData::tuple(
-                elements
-                    .iter()
-                    .map(|element| self.substitute_contextual_self(*element, context, replacement))
-                    .collect::<Result<Vec<_>, _>>()?,
-            ),
-            TypeData::Array { element, length } => TypeData::Array {
-                element: self.substitute_contextual_self(*element, context, replacement)?,
-                length: *length,
-            },
-            TypeData::FlexibleArray(element) => TypeData::FlexibleArray(
-                self.substitute_contextual_self(*element, context, replacement)?,
-            ),
-            TypeData::Slice(element) => {
-                TypeData::Slice(self.substitute_contextual_self(*element, context, replacement)?)
-            }
-            TypeData::Generator(element) => TypeData::Generator(self.substitute_contextual_self(
-                *element,
+        self.substitute_type_data(
+            ty,
+            &ContextualSelfSubstitution {
                 context,
                 replacement,
-            )?),
-            TypeData::Nullable(target) => TypeData::Nullable(self.substitute_contextual_self(
-                *target,
+            },
+        )
+    }
+
+    /// Replaces one declaration context's `Self` throughout a checked constant term.
+    pub fn substitute_contextual_self_in_constant_term(
+        &self,
+        term: ConstantTermId,
+        context: SelfTypeContext,
+        replacement: TypeId,
+    ) -> Result<ConstantTermId, SemanticValueStoreError> {
+        self.substitute_constant_term_data(
+            term,
+            &ContextualSelfSubstitution {
                 context,
                 replacement,
-            )?),
-            TypeData::Borrow { kind, target } => TypeData::Borrow {
-                kind: *kind,
-                target: self.substitute_contextual_self(*target, context, replacement)?,
             },
-            TypeData::TraitView(application) => TypeData::TraitView(
-                self.substitute_contextual_self_in_application(*application, context, replacement)?,
-            ),
-            TypeData::OwnedIndirection { storage, target } => TypeData::OwnedIndirection {
-                storage: self.substitute_contextual_self(*storage, context, replacement)?,
-                target: self.substitute_contextual_self(*target, context, replacement)?,
-            },
-            TypeData::Callable(callable) => {
-                let parameters = callable
-                    .parameters()
-                    .iter()
-                    .map(|parameter| {
-                        Ok(CallableParameterData::new(
-                            parameter.name().clone(),
-                            parameter.position(),
-                            parameter.mode(),
-                            self.substitute_contextual_self(parameter.ty(), context, replacement)?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, SemanticValueStoreError>>()?;
-
-                TypeData::Callable(
-                    CallableTypeData::new(
-                        parameters,
-                        self.substitute_contextual_self(callable.result(), context, replacement)?,
-                        callable.constness(),
-                        callable.trust(),
-                        callable.abi(),
-                        callable.dependency_contracts(),
-                    )
-                    .with_variadic(callable.is_variadic())
-                    .with_phase_behaviors(callable.phase_behaviors().clone()),
-                )
-            }
-        };
-
-        self.intern_type(substituted)
+        )
     }
 
     /// Replaces one declaration context's `Self` throughout a trait application.
@@ -133,34 +73,20 @@ impl SemanticValueStore {
         self.intern_trait_application(TraitApplicationData::new(data.definition(), substitution))
     }
 
-    /// Replaces one declaration context's `Self` throughout a generic substitution.
+    /// Replaces one declaration context's `Self` throughout generic type and constant arguments.
     pub fn substitute_contextual_self_in_substitution(
         &self,
         substitution: GenericSubstitutionId,
         context: SelfTypeContext,
         replacement: TypeId,
     ) -> Result<GenericSubstitutionId, SemanticValueStoreError> {
-        let data = self.generic_substitution_data(substitution)?;
-
-        let arguments = data
-            .bindings()
-            .iter()
-            .map(|binding| match binding.argument() {
-                GenericArgument::Type(ty) => self
-                    .substitute_contextual_self(ty, context, replacement)
-                    .map(GenericArgument::Type),
-                GenericArgument::Constant(term) => Ok(GenericArgument::Constant(term)),
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let substituted = GenericSubstitutionData::try_new(
-            data.owner(),
-            data.bindings().iter().map(|binding| binding.parameter()),
-            arguments,
+        self.substitute_generic_substitution_data(
+            substitution,
+            &ContextualSelfSubstitution {
+                context,
+                replacement,
+            },
         )
-        .map_err(|_| SemanticValueStoreError::OpenSubstitution)?;
-
-        self.intern_generic_substitution(substituted)
     }
 }
 
@@ -168,8 +94,102 @@ impl SemanticValueStore {
 mod tests {
     use super::SemanticValueStore;
     use crate::{
-        SelfTypeContext, SemanticValueStoreError, StructSymbolId, SymbolId, TraitSymbolId, TypeData,
+        ConstantTermData, FunctionSymbolId, GenericArgument, GenericConstParameterSymbolId,
+        GenericOwnerId, GenericParameterSymbolId, GenericSubstitutionData, SelfTypeContext,
+        SemanticValueStoreError, StructSymbolId, SymbolId, SymbolOrdinal, TraitSymbolId, TypeData,
     };
+    use std::sync::Arc;
+
+    #[test]
+    fn contextual_self_substitution_reaches_constant_arguments_and_array_lengths() {
+        let store = SemanticValueStore::try_new().expect("semantic store");
+        let context = SelfTypeContext::Trait(TraitSymbolId::from_symbol_id(SymbolId::new(1)));
+
+        let contextual = store
+            .intern_type(TypeData::ContextualSelf(context))
+            .expect("Self type");
+
+        let replacement = store
+            .intern_type(TypeData::Tuple(Arc::from([])))
+            .expect("replacement");
+
+        let argument = store
+            .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(0)))
+            .expect("argument");
+
+        let original = store
+            .intern_constant_term(ConstantTermData::Typed {
+                term: argument,
+                ty: contextual,
+            })
+            .expect("typed argument");
+
+        let expected = store
+            .intern_constant_term(ConstantTermData::Typed {
+                term: argument,
+                ty: replacement,
+            })
+            .expect("replacement argument");
+
+        assert_eq!(
+            store.substitute_contextual_self_in_constant_term(original, context, replacement),
+            Ok(expected)
+        );
+
+        let array = store
+            .intern_type(TypeData::Array {
+                element: contextual,
+                length: original,
+            })
+            .expect("array");
+
+        let expected_array = store
+            .intern_type(TypeData::Array {
+                element: replacement,
+                length: expected,
+            })
+            .expect("replacement array");
+
+        assert_eq!(
+            store.substitute_contextual_self(array, context, replacement),
+            Ok(expected_array)
+        );
+
+        let owner =
+            GenericOwnerId::try_new(FunctionSymbolId::from_symbol_id(SymbolId::new(2)).into())
+                .expect("generic owner");
+
+        let parameter = GenericParameterSymbolId::Const(
+            GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(3)),
+        );
+
+        let original = store
+            .intern_generic_substitution(
+                GenericSubstitutionData::try_new(
+                    owner,
+                    [parameter],
+                    [GenericArgument::Constant(original)],
+                )
+                .expect("binding"),
+            )
+            .expect("substitution");
+
+        let expected = store
+            .intern_generic_substitution(
+                GenericSubstitutionData::try_new(
+                    owner,
+                    [parameter],
+                    [GenericArgument::Constant(expected)],
+                )
+                .expect("binding"),
+            )
+            .expect("substitution");
+
+        assert_eq!(
+            store.substitute_contextual_self_in_substitution(original, context, replacement),
+            Ok(expected)
+        );
+    }
 
     #[test]
     fn contextual_self_substitution_reaches_nested_type_layers() {

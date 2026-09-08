@@ -146,6 +146,7 @@ pub(super) const fn list_layout_rule(parent: Option<SyntaxKind>) -> Option<Forma
             SyntaxKind::DirectiveArgumentList
             | SyntaxKind::RequiresClause
             | SyntaxKind::EnsuresClause
+            | SyntaxKind::ExecutesClause
             | SyntaxKind::WithClause
             | SyntaxKind::UsesClause
             | SyntaxKind::UnionVariantPayload

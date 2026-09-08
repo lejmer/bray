@@ -1,4 +1,4 @@
-module std.atomic;
+trusted module std.atomic;
 
 @copy
 union LoadOrder

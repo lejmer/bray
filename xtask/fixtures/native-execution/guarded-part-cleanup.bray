@@ -64,11 +64,13 @@ impl PairStorage(Storage<Pair>)
     }
 
     static func borrow(pos storage: &Self) -> &Pair
+        executes(pure, total)
     {
         return borrow_pair(storage);
     }
 
     static func borrow_mut(pos storage: &mut Self) -> &mut Pair
+        executes(pure, total)
     {
         return borrow_pair_mut(storage);
     }
@@ -94,7 +96,48 @@ impl PairStorage(Storage<Pair>)
     }
 }
 
+func projected_cleanup(pos destructor_fails: bool)
+{
+    let mut left: Counter = Counter
+    {
+        value = 0
+    };
+
+    let mut right: Counter = Counter
+    {
+        value = 0
+    };
+
+    let releases = core.atomic.load<usize, 1>(&RELEASES);
+
+    let outcome: Result<unit, PanicReport> = catch
+    {
+        let owned: box[PairStorage] Pair = box(
+            Pair
+            {
+                left = Guard
+                {
+                    counter = &mut left,
+                    fail = destructor_fails
+                },
+                right = Guard
+                {
+                    counter = &mut right
+                }
+            }
+        );
+
+        yield unit;
+    };
+
+    assert((outcome matches Error(_)) == destructor_fails);
+    assert(left.value == 1);
+    assert(right.value == 1);
+    assert(core.atomic.load<usize, 1>(&RELEASES) == releases + 1);
+}
+
 trusted func borrow_pair(pos storage: &PairStorage) -> &Pair
+    executes(pure, total)
     uses(raw_memory, unchecked_alias)
 {
     let pointer = core.memory.uninit_pointer<Pair>(&storage.value);
@@ -103,6 +146,7 @@ trusted func borrow_pair(pos storage: &PairStorage) -> &Pair
 }
 
 trusted func borrow_pair_mut(pos storage: &mut PairStorage) -> &mut Pair
+    executes(pure, total)
     uses(raw_memory, unchecked_alias)
 {
     let pointer = core.memory.uninit_pointer_mut<Pair>(&mut storage.value);
@@ -787,6 +831,9 @@ func indexed<const Count: usize>(pos values: [Guard; Count],
 
         replacement(false);
         replacement(true);
+
+        projected_cleanup(false);
+        projected_cleanup(true);
 
         return 0;
     }

@@ -432,6 +432,21 @@ macro_rules! define_symbol_graph {
                 }
             }
 
+            /// Returns the nearest enclosing declaration that defines contextual `Self` for a member.
+            pub fn contextual_self_scope(&self, symbol: AnySymbolId) -> Option<crate::SelfTypeContext> {
+                let mut current = self.containing_symbol(symbol);
+
+                while let Some(owner) = current {
+                    if let Some(context) = crate::SelfTypeContext::try_new(owner) {
+                        return Some(context);
+                    }
+
+                    current = self.containing_symbol(owner);
+                }
+
+                None
+            }
+
             /// Returns the logical module containing one declaration or synthesized symbol.
             pub fn containing_module(&self, mut symbol: AnySymbolId) -> Option<&ModuleSymbol> {
                 loop {

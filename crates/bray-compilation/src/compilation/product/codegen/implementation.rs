@@ -363,29 +363,28 @@ impl Compilation {
 
         let purpose = runtime_artifact_purpose(kind);
 
+        let mapped_roles = mappings
+            .iter()
+            .flat_map(bray_codegen::CodegenMappings::symbols)
+            .filter_map(|symbol| match symbol.key() {
+                bray_codegen::CodegenSymbolKey::Runtime(reference) => Some(reference.role()),
+                bray_codegen::CodegenSymbolKey::Instance(_)
+                | bray_codegen::CodegenSymbolKey::ProtectedFrame { .. } => None,
+            });
+
         let requirements = match host {
             Some(host) if host.requirements().requires_implementation() => {
-                // Runtime selection owns the Arc-backed executable requirements.
-                host.requirements().clone()
+                super::host::reachable_host_runtime_requirements(host, mapped_roles)
             }
             Some(_) | None => {
                 let Some(product_host) = product_host else {
                     return Ok(None);
                 };
 
-                let mut roles = mappings
-                    .iter()
-                    .flat_map(bray_codegen::CodegenMappings::symbols)
-                    .filter_map(|symbol| match symbol.key() {
-                        bray_codegen::CodegenSymbolKey::Runtime(reference) => {
-                            Some(reference.role())
-                        }
-                        bray_codegen::CodegenSymbolKey::Instance(_)
-                        | bray_codegen::CodegenSymbolKey::ProtectedFrame { .. } => None,
-                    })
-                    .collect::<Vec<_>>();
+                let mut roles = mapped_roles.collect::<Vec<_>>();
 
                 roles.push(bray_runtime_interface::RuntimeAbiRole::ProductHostControl);
+                roles.extend(bray_codegen::CLEANUP_RUNTIME_ROLES);
 
                 if product_host.statics().iter().any(|entry| {
                     entry.duration() == bray_symbols::StaticStorageDuration::ExactThread
@@ -578,7 +577,7 @@ mod tests {
     );
 
     const TARGET_FENCE_SOURCE: &str = concat!(
-        "module app;\n",
+        "trusted module app;\n",
         "\n",
         "@copy\n",
         "public union FenceChoice\n",
@@ -668,7 +667,7 @@ mod tests {
     );
 
     const STRUCTURAL_ASSEMBLY_SOURCE: &str = concat!(
-        "module app;\n",
+        "trusted module app;\n",
         "\n",
         "public trusted func assemble(pos value: i32) -> i32\n",
         "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
@@ -1614,6 +1613,20 @@ mod tests {
     }
 
     #[test]
+    fn callable_contract_adaptations_emit_native_units_in_debug_and_release() {
+        for configuration in [
+            crate::BuildConfiguration::Development,
+            crate::BuildConfiguration::Release,
+        ] {
+            assert_source_emits_valid_native_units(
+                "module app; func weaken(operation: func() executes(pure, total)) -> func() { return operation; } \
+                 func convert(operation: func() executes(pure, total)) -> func() { return operation as func(); }",
+                configuration,
+            );
+        }
+    }
+
+    #[test]
     fn asynchronous_executable_hosts_emit_complete_deterministic_native_units() {
         let (backend, plan) = runtime_native_plan(include_str!(
             "../../../../../../xtask/fixtures/native-execution/async-i32.bray"
@@ -1662,7 +1675,7 @@ mod tests {
             RuntimeAbiRole::RootCompletionResolution,
             RuntimeAbiRole::CleanupIncidentReporting,
             RuntimeAbiRole::PanicReporting,
-            RuntimeAbiRole::EntryFailureReporting,
+            RuntimeAbiRole::EntryFailureResolution,
             RuntimeAbiRole::StructuredShutdown,
         ] {
             assert_eq!(
@@ -1815,6 +1828,154 @@ mod tests {
     }
 
     #[test]
+    fn task_outcome_transfers_use_concrete_callbacks_on_every_native_target() {
+        let source = concat!(
+            "module app;\n",
+            "@layout(c, align = 32)\n",
+            "struct Payload { first: u64; second: u64; third: u64; }\n",
+            "async func empty() {}\n",
+            "async func integer() -> u64 { return 42; }\n",
+            "async func aggregate() -> Payload { return Payload { first = 17, second = 29, third = 41 }; }\n",
+            "async func main() {\n",
+            "    let first: Task<unit> = empty().start();\n",
+            "    let second: Task<u64> = integer().start();\n",
+            "    let third: Task<Payload> = aggregate().start();\n",
+            "    try await first.join();\n",
+            "    let integer_result: u64 = try await second.join();\n",
+            "    let aggregate_result: Payload = try await third.join();\n",
+            "}\n",
+        );
+
+        for target in NativeTarget::ALL {
+            let (backend, plan) = runtime_native_plan_for_sources_target(
+                &[source],
+                ProductKind::Executable,
+                SelectedTarget::for_native(target),
+                &[],
+            );
+
+            let artifacts =
+                generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+
+            let callbacks = artifacts
+                .iter()
+                .map(|artifact| {
+                    String::from_utf8_lossy(artifact)
+                        .lines()
+                        .filter(|line| {
+                            line.starts_with("define ") && line.contains(".run_result.transfer.")
+                        })
+                        .count()
+                })
+                .sum::<usize>();
+
+            assert!(
+                callbacks >= 3,
+                "{target:?} must retain unit, scalar, and over-aligned aggregate transfers"
+            );
+
+            assert!(
+                generated_artifacts(&backend, &plan)
+                    .iter()
+                    .all(|artifact| !artifact.is_empty())
+            );
+        }
+    }
+
+    #[test]
+    fn entry_errors_keep_async_cleanup_owned_through_host_resolution() {
+        for execution in ["", "async "] {
+            let source = format!(
+                "module app;\n\
+                 async func suspend() {{}}\n\
+                 struct Failure {{\n\
+                     mut complete: bool;\n\
+                     async finalize() {{ await suspend(); self.complete = true; }}\n\
+                     destruct() {{ assert(self.complete); }}\n\
+                 }}\n\
+                 {execution}func main() -> Result<unit, Failure> {{\n\
+                     return Error(Failure {{ complete = false }});\n\
+                 }}\n"
+            );
+
+            for target in [
+                SelectedTarget::baseline(),
+                SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
+            ] {
+                let (backend, compilation) = codegen_compilation_for_sources_target(
+                    &[source.as_str()],
+                    ProductKind::Executable,
+                    target,
+                    &[],
+                );
+
+                let archive = TemporaryFile::write("libbray_runtime.a", b"!<arch>\n");
+                let runtime = runtime_artifact(&compilation, archive.path());
+
+                let plan = compilation
+                    .native_product_plan(
+                        test_product_identity(),
+                        crate::BuildConfiguration::Development,
+                        Some(runtime),
+                        [],
+                        Some(&test_linker()),
+                    )
+                    .expect("host-owned cleanup must select its runtime dependencies");
+
+                let incomplete_runtime = runtime_artifact_with_roles(
+                    &compilation,
+                    archive.path(),
+                    RuntimeAbiRole::ALL
+                        .into_iter()
+                        .filter(|role| *role != RuntimeAbiRole::AwaitedFrameComposition),
+                );
+
+                let error = compilation
+                    .select_runtime(
+                        ProductKind::Executable,
+                        Some(incomplete_runtime),
+                        plan.executable_host(),
+                        plan.product_host(),
+                        plan.mappings(),
+                        false,
+                        plan.target(),
+                    )
+                    .expect_err(
+                        "generated cleanup dependencies must participate in final selection",
+                    );
+
+                assert!(matches!(
+                    error,
+                    NativeProductPlanningError::InvalidRuntimeSelection(
+                        bray_runtime_interface::RuntimeArtifactSelectionError::IncompatibleRuntime(
+                            RuntimeCompatibilityError::MissingRole(
+                                RuntimeAbiRole::AwaitedFrameComposition
+                            )
+                        )
+                    )
+                ));
+
+                let artifacts =
+                    generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+
+                let ir = artifacts
+                    .iter()
+                    .map(|artifact| String::from_utf8_lossy(artifact))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+
+                assert!(ir.contains("bray_runtime_entry_failure_resolution"));
+                assert!(ir.contains("value_cleanup.descriptor"));
+                assert!(ir.contains("cleanup.inactive"));
+
+                assert!(ir.lines().any(|line| line.contains("call")
+                    && line.contains("bray_runtime_entry_failure_resolution")
+                    && line.contains("value_cleanup.descriptor")));
+            }
+        }
+    }
+
+    #[test]
     fn asynchronous_unit_and_result_error_roots_emit_native_hosts() {
         let cases = [
             (
@@ -1855,9 +2016,15 @@ mod tests {
                     .map(bray_codegen::CodegenHelperMapping::reference)
                     .collect::<Vec<_>>();
 
-                assert!(helper_references.contains(&&MirHelperReference::Finalize(error)));
-
-                assert!(helper_references.contains(&&MirHelperReference::Destroy(error)));
+                for phase in [
+                    bray_ir::MirCleanupPhase::TaskCancellation,
+                    bray_ir::MirCleanupPhase::LifecycleResolution,
+                ] {
+                    assert!(
+                        helper_references
+                            .contains(&&MirHelperReference::Cleanup { phase, ty: error })
+                    );
+                }
 
                 let ir =
                     generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr)
@@ -1869,7 +2036,34 @@ mod tests {
                     .unwrap_or_else(|error| panic!("LLVM IR must be UTF-8: {error}"));
 
                 assert!(ir.contains("entry.failure"));
-                assert!(ir.contains("bray_runtime_entry_failure_reporting"));
+                assert!(ir.contains("bray_runtime_entry_failure_resolution"));
+                assert!(ir.contains("entry.skip.error"));
+
+                let identities = plan
+                    .mappings()
+                    .iter()
+                    .flat_map(bray_codegen::CodegenMappings::operations)
+                    .filter_map(bray_codegen::CodegenOperationMapping::returned_error_identity)
+                    .collect::<Vec<_>>();
+
+                assert_eq!(identities.len(), 1);
+                assert_ne!(identities[0], [0; 32]);
+
+                let reports = ir
+                    .lines()
+                    .filter(|line| {
+                        line.contains("call")
+                            && line.contains("@bray_runtime_entry_failure_resolution")
+                    })
+                    .collect::<Vec<_>>();
+
+                assert!(!reports.is_empty());
+
+                assert!(
+                    reports
+                        .iter()
+                        .all(|line| line.contains("error_type") && line.contains("error_source"))
+                );
             } else {
                 assert_eq!(host.entries()[0].result(), ExecutableEntryResult::Unit);
             }
@@ -2494,6 +2688,28 @@ mod tests {
                 .iter()
                 .all(|artifact| !artifact.is_empty())
         );
+    }
+
+    #[test]
+    fn imported_callable_contract_adaptations_round_trip_in_executable_templates() {
+        let dependency = generic_dependency_from_fixture(
+            true,
+            false,
+            GenericDependencyFixture {
+                source: "module templates; public func weaken<T>(operation: func(pos value: T) -> T executes(pure, total)) -> func(pos value: T) -> T { return operation; }",
+                runtime_frames: None,
+                executable_templates: 1,
+                platform_service: None,
+            },
+        );
+
+        let compilation = generic_consumer_for_target_with_source(
+            dependency,
+            SelectedTarget::baseline(),
+            "module application; using example.dependency.templates.weaken; func main() { let operation = lambda(pos value: i32) -> i32 executes(pure, total) { return value; }; let erased = example.dependency.templates.weaken<i32>(operation = operation); let result = erased(1); }",
+        );
+
+        assert_eq!(concrete_generic_specializations(&compilation).len(), 1);
     }
 
     #[test]
@@ -3895,47 +4111,283 @@ public func invoke<T>(pos value: T)
     }
 
     #[test]
-    fn static_mapping_retains_asynchronous_fallible_finalizer() {
+    fn concrete_generic_cleanup_selects_suspension_after_substitution() {
+        for asynchronous in [false, true] {
+            let execution = if asynchronous { "async" } else { "" };
+
+            let source = format!(
+                "module app;\nstruct Guard {{ {execution} finalize() {{}} }}\n\
+                 async func dispose<T>(pos value: T) {{}}\n\
+                 async func main() {{ await dispose<Guard>(Guard {{}}); }}\n"
+            );
+
+            let (backend, plan) = runtime_native_plan(&source);
+
+            let instances = plan
+                .units()
+                .iter()
+                .flat_map(bray_codegen::CodegenUnit::instances)
+                .filter(|instance| {
+                    matches!(instance.key().template(), bray_ir::MirUnitKey::Bound(_))
+                        && !instance.key().specialization().arguments().is_empty()
+                })
+                .collect::<Vec<_>>();
+
+            assert_eq!(instances.len(), 1);
+
+            let mir = instances[0].mir();
+            let frame = mir.frame_descriptor().unwrap();
+
+            let suspended = mir.blocks().iter().any(|block| {
+                matches!(
+                    block.terminator().kind(),
+                    bray_ir::MirTerminatorKind::Suspend { .. }
+                )
+            });
+
+            assert_eq!(suspended, asynchronous);
+            assert_eq!(frame.states().len() > 1, asynchronous);
+            assert!(frame.inactive_cleanup().is_some());
+
+            assert!(
+                generated_artifacts(&backend, &plan)
+                    .iter()
+                    .all(|artifact| !artifact.is_empty())
+            );
+        }
+    }
+
+    #[test]
+    fn abandonment_specializes_source_destructors_without_reintroducing_finalization() {
+        use bray_ir::{
+            MirAbandonmentAction, MirGeneratedLifecycleRole, MirHelperReference, MirUnitKey,
+        };
+
+        for generic in [false, true] {
+            for asynchronous in [false, true] {
+                let parameters = if generic { "<T>" } else { "" };
+                let field = if generic { "T" } else { "Leaf" };
+                let execution = if asynchronous { "async " } else { "" };
+
+                let source = format!(
+                    concat!(
+                        "module app;\n",
+                        "struct Owner{parameters} {{ leaf: {field}; mut flag: i32; destruct() {{ self.flag = 7; }} }}\n",
+                        "struct Leaf {{ {execution}finalize() {{}} destruct() {{}} }}\n",
+                        "func main() {{}}\n",
+                    ),
+                    parameters = parameters,
+                    field = field,
+                    execution = execution
+                );
+
+                let compilation = crate::test_support::compilation(&source);
+
+                assert!(
+                    compilation.check_diagnostics().is_empty(),
+                    "{:#?}",
+                    compilation.check_diagnostics()
+                );
+
+                let symbols = compilation.symbol_graph().unwrap();
+                let values = compilation.semantic_value_store().unwrap();
+
+                let structure = |name| {
+                    symbols
+                        .structures()
+                        .iter()
+                        .find(|symbol| {
+                            symbols
+                                .member_name(symbol.id().into())
+                                .is_some_and(|found| found.as_str() == name)
+                        })
+                        .unwrap()
+                };
+
+                let leaf = named_test_type(values, structure("Leaf").id(), [], []);
+                let owner = structure("Owner");
+
+                let owner = named_test_type(
+                    values,
+                    owner.id(),
+                    owner
+                        .generic_type_parameters()
+                        .iter()
+                        .copied()
+                        .map(GenericParameterSymbolId::Type),
+                    generic.then_some(GenericArgument::Type(leaf)),
+                );
+
+                let target = compilation
+                    .selected_target()
+                    .target()
+                    .codegen_target()
+                    .unwrap();
+
+                let root = compilation
+                    .concrete_codegen_lifecycle(
+                        MirHelperReference::Abandon {
+                            action: MirAbandonmentAction::Destroy,
+                            ty: owner,
+                        },
+                        &target,
+                    )
+                    .unwrap();
+
+                let reachability = compilation
+                    .codegen_reachability([root], None, &target, &CancellationToken::new())
+                    .unwrap_or_else(|error| {
+                        panic!("generic={generic}, async leaf={asynchronous}: {error:?}")
+                    });
+
+                let destructors = reachability.graph().instances().iter().filter(|instance| {
+                    matches!(instance.key().template(), MirUnitKey::GeneratedLifecycle(key)
+                        if key.role() == MirGeneratedLifecycleRole::Abandon(MirAbandonmentAction::Destructor))
+                }).collect::<Vec<_>>();
+
+                assert_eq!(destructors.len(), 2);
+
+                assert!(
+                    destructors
+                        .iter()
+                        .any(|instance| instance.mir().operations().iter().any(
+                            |operation| matches!(
+                                operation.kind(),
+                                bray_ir::MirOperationKind::Store { .. }
+                            )
+                        ))
+                );
+
+                assert!(
+                    destructors
+                        .iter()
+                        .all(|instance| instance.mir().frame_descriptor().is_none())
+                );
+
+                assert!(
+                    destructors.iter().any(|instance| !instance
+                        .key()
+                        .specialization()
+                        .arguments()
+                        .is_empty())
+                        == generic
+                );
+
+                for instance in reachability.graph().instances() {
+                    assert!(
+                        instance
+                            .mir()
+                            .operations()
+                            .iter()
+                            .all(|operation| !matches!(
+                                operation.kind(),
+                                bray_ir::MirOperationKind::Finalize(_)
+                                    | bray_ir::MirOperationKind::DestructorRemainder { .. }
+                            )),
+                        "abandoned parts must not regain graceful finalization: {:?}",
+                        instance.key()
+                    );
+                }
+
+                let root = compilation
+                    .concrete_codegen_lifecycle(MirHelperReference::Destroy(owner), &target)
+                    .unwrap();
+
+                let key = root.key().clone();
+
+                let ordinary = compilation
+                    .codegen_reachability([root], None, &target, &CancellationToken::new())
+                    .unwrap_or_else(|error| {
+                        panic!("ordinary generic={generic}, async leaf={asynchronous}: {error:?}")
+                    });
+
+                let destructor = ordinary
+                    .graph()
+                    .instances()
+                    .iter()
+                    .find(|instance| instance.key() == &key)
+                    .unwrap();
+
+                assert_eq!(destructor.mir().frame_descriptor().is_some(), asynchronous);
+
+                assert!(
+                    destructor
+                        .mir()
+                        .operations()
+                        .iter()
+                        .any(|operation| matches!(
+                            operation.kind(),
+                            bray_ir::MirOperationKind::Store { .. }
+                        ))
+                );
+
+                assert!(ordinary.graph().instances().iter().all(|instance| {
+                    instance.mir().operations().iter().all(|operation| {
+                        !matches!(
+                            operation.kind(),
+                            bray_ir::MirOperationKind::DestructorRemainder { .. }
+                        )
+                    })
+                }));
+            }
+        }
+    }
+
+    #[test]
+    fn source_destructor_remainder_suspends_after_its_synchronous_body() {
         let source = concat!(
             "module app;\n",
-            "struct Resource { mut state: i32; }\n",
-            "impl Resource\n",
-            "{\n",
-            "    async finalize() -> Result<unit, i32>\n",
-            "    {\n",
-            "        self.state = 2;\n",
-            "        return await finish();\n",
-            "    }\n",
-            "    destruct() { self.state = 3; }\n",
-            "}\n",
-            "async func finish() -> Result<unit, i32> { return Error(42); }\n",
-            "static RESOURCE: Resource = Resource { state = 1 };\n",
-            "func main() {}\n",
+            "struct Owner { leaf: Leaf; mut flag: i32; destruct() { self.flag = 7; } }\n",
+            "struct Leaf { async finalize() {} destruct() {} }\n",
+            "async func main() { let owner = Owner { leaf = Leaf {}, flag = 0 }; }\n",
         );
 
         let (backend, plan) = runtime_native_plan(source);
 
         assert!(
-            !plan
-                .units()
+            generated_artifacts(&backend, &plan)
                 .iter()
-                .flat_map(bray_codegen::CodegenUnit::mir_units)
-                .any(|mir| matches!(
-                    mir.source(),
-                    bray_ir::MirSourceOrigin::GeneratedLifecycle(MirHelperReference::Finalize(_))
-                ))
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
+    fn source_destructors_require_completion_of_new_async_obligations() {
+        for body in ["self.leaf = Leaf {};", "let fresh = Leaf {};"] {
+            let source = format!(
+                concat!(
+                    "module app;\n",
+                    "struct Owner {{ mut leaf: Leaf; destruct() {{ {body} }} }}\n",
+                    "struct Leaf {{ async finalize() {{}} }}\n",
+                    "func main() {{}}\n",
+                ),
+                body = body
+            );
+
+            let compilation = crate::test_support::compilation(&source);
+
+            assert!(compilation.check_diagnostics().iter().any(|diagnostic|
+                diagnostic.kind() == bray_diagnostics::DiagnosticKind::CheckingAsyncFinalizationInSynchronousContext),
+                "{body}: {:#?}", compilation.check_diagnostics());
+        }
+    }
+
+    #[test]
+    fn source_destructor_preserves_proven_no_work_remainder() {
+        let source = concat!(
+            "module app;\n",
+            "struct Owner { leaf: Leaf; destruct() executes(pure, total) {} }\n",
+            "struct Leaf { async finalize() executes(pure, total) {} destruct() executes(pure, total) {} }\n",
+            "func main() { let owner = Owner { leaf = Leaf {} }; }\n",
         );
 
-        let finalization = plan
-            .mappings()
-            .iter()
-            .flat_map(bray_codegen::CodegenMappings::static_storages)
-            .find_map(bray_codegen::CodegenStaticStorageMapping::finalization)
-            .unwrap_or_else(|| panic!("asynchronous static finalizer must be retained"));
+        let (backend, plan) = runtime_native_plan(source);
 
-        assert_eq!(
-            finalization.execution(),
-            bray_symbols::CallableExecution::Asynchronous
+        assert!(
+            plan.units()
+                .iter()
+                .flat_map(bray_codegen::CodegenUnit::mir_units)
+                .all(|unit| unit.frame_descriptor().is_none())
         );
 
         assert!(
@@ -3943,18 +4395,259 @@ public func invoke<T>(pos value: T)
                 .iter()
                 .all(|artifact| !artifact.is_empty())
         );
+    }
 
-        let (windows_backend, windows_plan) = runtime_native_plan_for_target(
-            source,
-            ProductKind::Executable,
-            SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
+    #[test]
+    fn inactive_future_destruction_composes_capture_cleanup() {
+        let source = concat!(
+            "module app;\n",
+            "struct Guard { async finalize() {} }\n",
+            "async func produce(pos guard: Guard) -> i32 { return 42; }\n",
+            "async func main() { let pending = produce(Guard {}); }\n",
         );
 
+        let (backend, plan) = runtime_native_plan(source);
+
+        let composed = plan
+            .units()
+            .iter()
+            .flat_map(bray_codegen::CodegenUnit::mir_units)
+            .flat_map(bray_ir::MirUnit::operations)
+            .filter(|operation| {
+                matches!(
+                    operation.kind(),
+                    bray_ir::MirOperationKind::Async(
+                        bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+                            entry: bray_ir::MirFrameEntry::CaptureCleanup,
+                            ..
+                        }
+                    )
+                )
+            })
+            .count();
+
+        assert!(composed > 0);
+
         assert!(
-            generated_artifacts(&windows_backend, &windows_plan)
+            generated_artifacts(&backend, &plan)
                 .iter()
                 .all(|artifact| !artifact.is_empty())
         );
+    }
+
+    #[test]
+    fn inactive_task_observers_retain_owned_result_cleanup() {
+        for operation in ["join", "cancel"] {
+            for asynchronous in ["", "async "] {
+                let source = format!(
+                    concat!(
+                        "module app;\n",
+                        "struct Guard {{ {asynchronous}finalize() {{}} }}\n",
+                        "async func produce(pos guard: Guard) -> Guard {{ return guard; }}\n",
+                        "async func main() {{ let task = produce(Guard {{}}).start(); let pending = task.{}(); }}\n",
+                    ),
+                    operation,
+                    asynchronous = asynchronous
+                );
+
+                let (backend, plan) = runtime_native_plan(&source);
+
+                let roles = plan
+                    .units()
+                    .iter()
+                    .flat_map(bray_codegen::CodegenUnit::mir_units)
+                    .flat_map(bray_codegen::demanded_runtime_references_for_mir)
+                    .map(|reference| reference.role())
+                    .collect::<std::collections::BTreeSet<_>>();
+
+                assert!(roles.contains(&bray_runtime_interface::RuntimeAbiRole::TaskResolution));
+
+                assert!(
+                    roles
+                        .contains(&bray_runtime_interface::RuntimeAbiRole::TaskCancellationRequest)
+                );
+
+                assert!(
+                    plan.units()
+                        .iter()
+                        .flat_map(bray_codegen::CodegenUnit::mir_units)
+                        .flat_map(bray_ir::MirUnit::blocks)
+                        .any(|block| matches!(
+                            block.terminator().kind(),
+                            bray_ir::MirTerminatorKind::Suspend {
+                                kind: bray_ir::MirSuspensionKind::TaskCompletion,
+                                cancellation: None,
+                                ..
+                            }
+                        ))
+                );
+
+                assert!(
+                    generated_artifacts(&backend, &plan)
+                        .iter()
+                        .all(|artifact| !artifact.is_empty())
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn static_mapping_retains_fallible_finalizers() {
+        for asynchronous in [false, true] {
+            let source = concat!(
+                "module app;\n",
+                "struct Resource { mut state: i32; }\n",
+                "impl Resource\n",
+                "{\n",
+                "    async finalize() -> Result<unit, i32>\n",
+                "    {\n",
+                "        self.state = 2;\n",
+                "        return await finish();\n",
+                "    }\n",
+                "    destruct() { self.state = 3; }\n",
+                "}\n",
+                "async func finish() -> Result<unit, i32> { return Error(42); }\n",
+                "static RESOURCE: Resource = Resource { state = 1 };\n",
+                "func main() {}\n",
+            );
+
+            let source = if asynchronous {
+                source.to_owned()
+            } else {
+                source.replace("async ", "").replace("await ", "")
+            };
+
+            let (backend, plan) = runtime_native_plan(&source);
+
+            assert_eq!(
+                plan.units()
+                    .iter()
+                    .flat_map(bray_codegen::CodegenUnit::mir_units)
+                    .any(|mir| matches!(
+                        mir.source(),
+                        bray_ir::MirSourceOrigin::GeneratedLifecycle(MirHelperReference::Finalize(
+                            _
+                        ))
+                    )),
+                asynchronous,
+            );
+
+            let finalization = plan
+                .mappings()
+                .iter()
+                .flat_map(bray_codegen::CodegenMappings::static_storages)
+                .find_map(bray_codegen::CodegenStaticStorageMapping::finalization)
+                .unwrap_or_else(|| panic!("static finalizer must be retained"));
+
+            assert_eq!(
+                finalization.execution(),
+                if asynchronous {
+                    bray_symbols::CallableExecution::Asynchronous
+                } else {
+                    bray_symbols::CallableExecution::Synchronous
+                }
+            );
+
+            assert!(
+                generated_artifacts(&backend, &plan)
+                    .iter()
+                    .all(|artifact| !artifact.is_empty())
+            );
+
+            let (windows_backend, windows_plan) = runtime_native_plan_for_target(
+                &source,
+                ProductKind::Executable,
+                SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
+            );
+
+            assert!(
+                generated_artifacts(&windows_backend, &windows_plan)
+                    .iter()
+                    .all(|artifact| !artifact.is_empty())
+            );
+        }
+    }
+
+    #[test]
+    fn fallible_value_finalizers_transfer_owned_errors_after_successful_completion() {
+        for asynchronous in ["", "async "] {
+            let source = format!(
+                concat!(
+                    "module app;\n",
+                    "@layout(c) struct Failure {{ category: u8; code: i64; destruct() {{}} }}\n",
+                    "struct Resource {{ {asynchronous}finalize() -> Result<unit, Failure> {{ return Error(Failure {{ category = 1, code = 42 }}); }} }}\n",
+                    "{asynchronous}func main() {{ let value = Resource {{}}; panic(\"abnormal exit\"); }}\n",
+                ),
+                asynchronous = asynchronous
+            );
+
+            let (backend, plan) = runtime_native_plan(&source);
+
+            let transfers = plan
+                .units()
+                .iter()
+                .flat_map(bray_codegen::CodegenUnit::instances)
+                .flat_map(|instance| {
+                    instance
+                        .mir()
+                        .operations_with_ids()
+                        .filter_map(move |(id, operation)| {
+                            matches!(
+                                operation.kind(),
+                                bray_ir::MirOperationKind::Async(
+                                    bray_ir::MirAsyncOperation::TransferCleanupIncident { .. }
+                                )
+                            )
+                            .then_some((instance.key(), id))
+                        })
+                })
+                .collect::<Vec<_>>();
+
+            assert!(
+                !transfers.is_empty(),
+                "{asynchronous}finalization must retain its error payload"
+            );
+
+            let requirements = plan.executable_host().unwrap().requirements();
+
+            assert!(requirements.requires_role(RuntimeAbiRole::CleanupIncidentDetailReporting));
+
+            for (owner, operation) in transfers {
+                let incident = plan
+                    .mappings()
+                    .iter()
+                    .find_map(|mappings| mappings.operation(owner, operation))
+                    .and_then(bray_codegen::CodegenOperationMapping::incident)
+                    .unwrap();
+
+                assert!(matches!(
+                    incident.source(),
+                    Some(bray_ir::MirSourceAnchor::Source(_))
+                ));
+
+                assert!(
+                    matches!(incident.cleanup().template(), MirUnitKey::GeneratedLifecycle(key)
+                    if key.role() == bray_ir::MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Destroy))
+                );
+
+                assert!(
+                    incident
+                        .dependencies()
+                        .iter()
+                        .all(|dependency| plan.units().iter().any(|unit| unit
+                            .instances()
+                            .iter()
+                            .any(|instance| instance.key() == *dependency)
+                            || unit.external_instances().contains(dependency)))
+                );
+            }
+
+            assert!(
+                generated_artifacts(&backend, &plan)
+                    .iter()
+                    .all(|artifact| !artifact.is_empty())
+            );
+        }
     }
 
     #[test]
@@ -3983,7 +4676,7 @@ public func invoke<T>(pos value: T)
             .requirements();
 
         assert!(requirements.requires_role(RuntimeAbiRole::AwaitedFrameComposition));
-        assert!(requirements.requires_role(RuntimeAbiRole::FrameCompletionMove));
+        assert!(requirements.requires_role(RuntimeAbiRole::AwaitedFrameResolution));
 
         assert!(
             generated_artifacts(&backend, &plan)
@@ -3995,7 +4688,7 @@ public func invoke<T>(pos value: T)
     #[test]
     fn native_exports_and_opaque_storage_survive_reachability_and_codegen() {
         let source = concat!(
-            "module app;\n",
+            "trusted module app;\n",
             "@layout(c, size = 40, align = 8)\n",
             "struct NativeMutex;\n",
             "@link(name = \"native\")\n",
@@ -4672,7 +5365,7 @@ public func invoke<T>(pos value: T)
             RuntimeRoleBinding::new(role, symbol, RuntimeRoleImplementation::BrayRuntime)
         });
 
-        let version = RuntimeAbiVersion::new(1, 0);
+        let version = RuntimeAbiVersion::CURRENT;
 
         let capabilities = [
             RuntimeCapability::CooperativeExecution,

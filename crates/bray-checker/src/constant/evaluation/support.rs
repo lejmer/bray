@@ -19,6 +19,23 @@ impl<'view, 'input, 'types, C> Evaluator<'view, 'input, 'types, C>
 where
     C: CheckerRequestContext + ?Sized,
 {
+    pub(super) fn query_failure(
+        &mut self,
+        error: crate::CheckerQueryError<C::UpstreamError>,
+    ) -> EvaluationFailure {
+        match error {
+            crate::CheckerQueryError::Cancelled => EvaluationFailure::Cancelled,
+            crate::CheckerQueryError::Infrastructure(error) => {
+                EvaluationFailure::Infrastructure(error)
+            }
+            crate::CheckerQueryError::Upstream(error) => {
+                self.upstream_failure = Some(error);
+
+                EvaluationFailure::Upstream
+            }
+        }
+    }
+
     pub(super) fn is_complex_literal(
         &self,
         binary: &bray_bound_tree::BoundBinaryExpression,
@@ -209,6 +226,7 @@ where
             | ConstantTermData::DefinitionApplication { .. }
             | ConstantTermData::Call { .. }
             | ConstantTermData::PredicateCall { .. }
+            | ConstantTermData::Test { .. }
             | ConstantTermData::Projection(_) => None,
         })
     }

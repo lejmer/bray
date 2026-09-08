@@ -4,10 +4,11 @@ use bray_base::shared_slice;
 use bray_declarations::SyntaxAnchor;
 
 use crate::{
-    AnySymbolId, BorrowKind, CallableAbi, CallableConstness, CallableDependencyContracts,
-    CallableExecution, CallableParameterMode, CallableParameterName, CallablePhaseBehaviors,
-    CallablePosition, CallableTrust, GenericArgument, GenericConstParameterSymbolId,
-    GenericParameterSymbolId, NamedTypeSymbolId, TraitSymbolId, TraitTypeMemberSymbolId, TypeId,
+    AnySymbolId, BorrowKind, CallableAbi, CallableConditionSet, CallableConditions,
+    CallableConstness, CallableContractClause, CallableDependencyContracts, CallableExecution,
+    CallableParameterMode, CallableParameterName, CallablePhaseBehaviors, CallablePosition,
+    CallableTrust, GenericArgument, GenericConstParameterSymbolId, GenericParameterSymbolId,
+    NamedTypeSymbolId, TraitSymbolId, TraitTypeMemberSymbolId, TypeId,
 };
 
 /// Stable identity for one source constant expression embedded in a type expression.
@@ -210,6 +211,7 @@ pub struct CallableTypeTemplate {
     trust: CallableTrust,
     abi: CallableAbi,
     phase_behaviors: CallablePhaseBehaviors,
+    conditions: CallableConditionSet,
 }
 
 impl CallableTypeTemplate {
@@ -230,6 +232,7 @@ impl CallableTypeTemplate {
             trust,
             abi,
             phase_behaviors: CallablePhaseBehaviors::empty(dependencies),
+            conditions: CallableConditionSet::new([]),
         }
     }
 
@@ -290,6 +293,18 @@ impl CallableTypeTemplate {
     /// Returns behavior for every callable execution phase.
     pub const fn phase_behaviors(&self) -> &CallablePhaseBehaviors {
         &self.phase_behaviors
+    }
+}
+
+impl CallableConditions for CallableTypeTemplate {
+    type Clause = CallableContractClause;
+
+    fn conditions(&self) -> &CallableConditionSet {
+        &self.conditions
+    }
+
+    fn conditions_mut(&mut self) -> &mut CallableConditionSet {
+        &mut self.conditions
     }
 }
 

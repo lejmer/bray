@@ -52,13 +52,11 @@ pub(crate) fn diagnostic_semantic_query_failure(
         SemanticQueryFailure::BoundUnit { unit, cause } => {
             let mut context = vec![identity_field("unit", unit)];
 
-            push_bound_unit_failure(&mut context, cause);
+            let (reason, fields) = super::bound_unit::diagnostic_bound_unit_build_failure(*cause);
 
-            (
-                "semantic_query_bound_unit",
-                bound_unit_reason(cause),
-                context,
-            )
+            context.extend(fields);
+
+            ("semantic_query_bound_unit", reason, context)
         }
         SemanticQueryFailure::ImplementationMatch {
             implementation,
@@ -454,31 +452,6 @@ pub(crate) fn push_semantic_value_failure(
     }
 }
 
-fn push_bound_unit_failure(
-    context: &mut Vec<DiagnosticFailureField>,
-    cause: &bray_bound_tree::BoundUnitBuildError,
-) {
-    use bray_bound_tree::BoundUnitBuildError as Error;
-
-    match cause {
-        Error::MissingRoot { unit, kind } => {
-            context.push(count_field("missing_unit", u64::from(unit.raw())));
-            context.push(text_field("root_kind", kind.as_str()));
-        }
-        Error::AnonymousCallableRegionMismatch { expected, actual } => {
-            context.push(count_field("expected", u64::from(expected.raw())));
-            context.push(count_field("actual", u64::from(actual.raw())));
-        }
-        Error::MissingAnonymousCallable { callable } => {
-            context.push(identity_field("callable", callable));
-        }
-        Error::InvalidNestedUnit { index } | Error::NonCanonicalNestedUnits { index } => {
-            context.push(natural_field("index", *index));
-        }
-        Error::RootKindMismatch | Error::LocalSymbolRegionMismatch => {}
-    }
-}
-
 fn push_preparsed_syntax_failure(
     context: &mut Vec<DiagnosticFailureField>,
     cause: &bray_syntax::PreparsedSyntaxFragmentError,
@@ -556,22 +529,6 @@ pub(crate) const fn generic_substitution_reason(
         Error::ArgumentCountMismatch { .. } => "generic_substitution_argument_count_mismatch",
         Error::ArgumentKindMismatch { .. } => "generic_substitution_argument_kind_mismatch",
         Error::OrdinalOverflow => "generic_substitution_ordinal_overflow",
-    }
-}
-
-const fn bound_unit_reason(cause: &bray_bound_tree::BoundUnitBuildError) -> &'static str {
-    use bray_bound_tree::BoundUnitBuildError as Error;
-
-    match cause {
-        Error::RootKindMismatch => "bound_unit_root_kind_mismatch",
-        Error::MissingRoot { .. } => "bound_unit_missing_root",
-        Error::LocalSymbolRegionMismatch => "bound_unit_local_symbol_region_mismatch",
-        Error::AnonymousCallableRegionMismatch { .. } => {
-            "bound_unit_anonymous_callable_region_mismatch"
-        }
-        Error::MissingAnonymousCallable { .. } => "bound_unit_missing_anonymous_callable",
-        Error::InvalidNestedUnit { .. } => "bound_unit_invalid_nested_unit",
-        Error::NonCanonicalNestedUnits { .. } => "bound_unit_noncanonical_nested_units",
     }
 }
 

@@ -352,14 +352,7 @@ pub(crate) fn run_result_layout_type<'context>(
         &[
             usize.into(),
             usize.into(),
-            usize.into(),
-            context.i64_type().into(),
-            usize.into(),
-            usize.into(),
-            usize.into(),
-            context.i64_type().into(),
-            usize.into(),
-            context.i64_type().into(),
+            context.ptr_type(inkwell::AddressSpace::default()).into(),
         ],
         false,
     )
@@ -414,7 +407,7 @@ pub(crate) fn source_anchor_type(context: &Context) -> StructType<'_> {
     )
 }
 
-pub(crate) fn source_anchor_value(
+fn source_anchor_value(
     context: &Context,
     source: bray_runtime_abi::NativeSourceAnchor,
 ) -> StructValue<'_> {
@@ -437,6 +430,44 @@ pub(crate) fn source_anchor_value(
             .into(),
         context.i64_type().const_int(source.version(), false).into(),
     ])
+}
+
+pub(crate) fn source_anchor_from_mir<'context>(
+    context: &'context inkwell::context::Context,
+    source: Option<&bray_ir::MirSourceAnchor>,
+) -> StructValue<'context> {
+    let source = match source {
+        Some(bray_ir::MirSourceAnchor::Source(origin)) => {
+            let anchor = origin.source_anchor();
+            let syntax = anchor.syntax();
+            let range = syntax.full_range();
+
+            bray_runtime_abi::NativeSourceAnchor::new(
+                syntax.source_id().raw(),
+                range.start().bytes(),
+                range.end().bytes(),
+                anchor.source_version().raw(),
+            )
+        }
+        Some(
+            bray_ir::MirSourceAnchor::ExecutableHost(_)
+            | bray_ir::MirSourceAnchor::GeneratedLifecycle(_)
+            | bray_ir::MirSourceAnchor::CompilerProvidedCallable(_)
+            | bray_ir::MirSourceAnchor::ImportedExecutable(_),
+        )
+        | None => bray_runtime_abi::NativeSourceAnchor::unavailable(),
+    };
+
+    source_anchor_value(context, source)
+}
+
+pub(crate) fn type_identity_value<'context>(
+    context: &'context Context,
+    identity: [u8; 32],
+) -> inkwell::values::ArrayValue<'context> {
+    context
+        .i8_type()
+        .const_array(&identity.map(|byte| context.i8_type().const_int(u64::from(byte), false)))
 }
 
 pub(crate) fn pointer_integer_type<'context>(
@@ -544,9 +575,10 @@ pub(crate) fn frame_operation_type<'context>(
     let parameters = |types: &[BasicMetadataTypeEnum<'context>]| types.to_vec();
 
     if operation == ProtectedFrameOperation::MoveBeforeStart {
-        return context
-            .void_type()
-            .fn_type(&parameters(&[pointer.into(), usize.into()]), false);
+        return context.void_type().fn_type(
+            &parameters(&[pointer.into(), usize.into(), context.i8_type().into()]),
+            false,
+        );
     }
 
     if uses_microsoft_x64_abi(target) {
@@ -781,24 +813,17 @@ mod tests {
     }
 
     #[test]
-    fn root_execution_transfers_a_pointer_sized_frame_address() {
+    fn root_execution_uses_the_same_inactive_frame_transfer_as_task_start() {
         let context = Context::create();
-        let target = bray_codegen::test_support::codegen_target();
+        let target = CodegenTarget::for_native(NativeTarget::X86_64LinuxGnu);
 
         let root = super::runtime_function_type(&context, &target, RuntimeAbiRole::RootExecution)
             .unwrap_or_else(|| panic!("root execution must have a native ABI"));
 
-        let parameters = root.get_param_types();
+        let task =
+            super::runtime_function_type(&context, &target, RuntimeAbiRole::TaskStart).unwrap();
 
-        assert_eq!(
-            parameters.first().copied(),
-            Some(super::pointer_integer_type(&context, &target).into())
-        );
-
-        assert_ne!(
-            parameters.first().copied(),
-            Some(super::protected_frame_type(&context, &target).into())
-        );
+        assert_eq!(&root.get_param_types()[..2], &task.get_param_types()[1..]);
     }
 
     #[test]
@@ -815,7 +840,7 @@ mod tests {
             );
 
             assert_eq!(operation.get_return_type(), None, "{native_target:?}");
-            assert_eq!(operation.count_param_types(), 2, "{native_target:?}");
+            assert_eq!(operation.count_param_types(), 3, "{native_target:?}");
 
             assert!(
                 super::frame_result_is_indirect(&target, ProtectedFrameOperation::MoveBeforeStart),
@@ -887,7 +912,7 @@ mod tests {
             Some(super::root_start_type(&context).into())
         );
 
-        assert_eq!(root.count_param_types(), 3);
+        assert_eq!(root.count_param_types(), 4);
 
         let resume =
             super::frame_operation_type(&context, &target, ProtectedFrameOperation::Resume);

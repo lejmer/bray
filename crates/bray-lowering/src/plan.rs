@@ -1,3 +1,4 @@
+mod capture;
 mod expression;
 mod model;
 mod partition;

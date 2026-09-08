@@ -12,15 +12,18 @@ use super::{
 
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 struct CodegenUnitKeyData {
+    // Concrete membership orders distinct units before snapshot-local MIR content or cost.
+    recipe: Arc<CodegenUnitRecipe>,
     partition_policy: CodegenPartitionPolicy,
     estimated_work: CodegenWork,
     oversized: Option<CodegenOversizedUnit>,
     content_identity: [u8; 32],
     target: MirTargetContract,
-    recipe: Arc<CodegenUnitRecipe>,
 }
 
 /// Stable structural identity of one partitioned code generation unit.
+///
+/// Distinct units are ordered by their concrete definition membership before content details.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct CodegenUnitKey(Arc<CodegenUnitKeyData>);
 
@@ -421,8 +424,8 @@ mod tests {
 
     #[test]
     fn unit_keys_distinguish_changed_mir_with_the_same_semantic_identity() {
-        let without_storage = unit_with_optional_storage(false);
-        let with_storage = unit_with_optional_storage(true);
+        let without_storage = unit_with_optional_storage(0, false);
+        let with_storage = unit_with_optional_storage(0, true);
 
         assert_eq!(without_storage.key(), with_storage.key());
 
@@ -446,6 +449,36 @@ mod tests {
         );
 
         assert_ne!(without_storage.key(), with_storage.key());
+    }
+
+    #[test]
+    fn unit_order_follows_membership_before_mir_cost_and_content() {
+        let first = CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [unit_with_optional_storage(0, true)],
+        )
+        .unwrap();
+
+        let second = CodegenUnit::try_new(
+            CodegenPartitionPolicy::NATIVE_BALANCED,
+            codegen_partition_compatibility(),
+            [unit_with_optional_storage(1, false)],
+        )
+        .unwrap();
+
+        assert!(first.key().instances() < second.key().instances());
+        assert!(first.estimated_work() > second.estimated_work());
+        assert!(first.key() < second.key());
+
+        let mut changed_first = first.key().0.as_ref().clone();
+        let mut changed_second = second.key().0.as_ref().clone();
+
+        changed_first.estimated_work = changed_second.estimated_work;
+        changed_first.content_identity = [u8::MAX; 32];
+        changed_second.content_identity = [0; 32];
+
+        assert!(changed_first < changed_second);
     }
 
     #[test]
@@ -497,8 +530,8 @@ mod tests {
         );
     }
 
-    fn unit_with_optional_storage(has_storage: bool) -> MirUnit {
-        let bound = test_bound_unit_with_declaration(4, 0);
+    fn unit_with_optional_storage(declaration: u32, has_storage: bool) -> MirUnit {
+        let bound = test_bound_unit_with_declaration(4, declaration);
         let source = MirSourceAnchor::from(bound.key().source());
 
         let mut builder = MirUnitBuilder::for_bound(

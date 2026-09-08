@@ -1,5 +1,5 @@
 @target(target.c.WCHAR == "unavailable")
-module std.ffi.c;
+trusted module std.ffi.c;
 
 /// Borrows a validated NUL-terminated narrow C string when no wide representation is available.
 overload borrow_string =

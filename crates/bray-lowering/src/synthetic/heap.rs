@@ -1,14 +1,14 @@
-use bray_bound_tree::{BoundCallResult, CheckedMemoryOperationKind, MemoryLayoutQueryKind};
+use bray_bound_tree::{BoundCallResult, CheckedMemoryOperationKind};
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
     MirBlockId, MirBlockKind, MirCall, MirCallPanicEdge, MirCallTarget, MirCallableReference,
-    MirCleanupEdge, MirCleanupPhase, MirEdge, MirMemoryOperation, MirOperand, MirOperationKind,
-    MirPlace, MirProjection, MirProjectionKind, MirSourceAnchor, MirStandardLibraryHelper,
-    MirStorageKind, MirStoreKind, MirTerminatorKind, MirUnit, MirUnitBuildError, MirUnitBuilder,
-    MirUnitId,
+    MirCleanupEdge, MirCleanupPhase, MirEdge, MirOperand, MirOperationKind, MirPlace,
+    MirProjection, MirProjectionKind, MirSourceAnchor, MirStandardLibraryHelper, MirStorageKind,
+    MirStoreKind, MirTerminatorKind, MirUnit, MirUnitBuilder, MirUnitId,
 };
 use bray_symbols::{BorrowKind, CallableAbi, CallableDefinitionId, TypeData, TypeId};
 
+use super::memory::push_memory;
 use super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
 
 /// Closed compiler-provided storage operation selected by exact declaration identity.
@@ -84,8 +84,12 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let missing = || SyntheticLoweringError::MissingCallableResult(definition);
         let source = MirSourceAnchor::CompilerProvidedCallable(definition);
 
-        let mut builder =
-            MirUnitBuilder::for_compiler_provided_callable(unit, definition, target.clone());
+        let mut builder = MirUnitBuilder::for_compiler_provided_callable(
+            unit,
+            definition,
+            bray_ir::MirUnitKind::Synchronous,
+            target.clone(),
+        );
 
         let invalid = |cause| self.mir_error(&source, cause);
 
@@ -111,7 +115,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 let pointer = self.heap_stored_pointer(parameter)?;
                 let result = result.ok_or_else(missing)?;
 
-                let value = push_heap_memory(
+                let value = push_memory(
                     &mut builder,
                     entry,
                     &source,
@@ -133,9 +137,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 (end, None)
             }
             HeapStorageMethod::Release => {
-                let layout = self.push_heap_layout(&mut builder, entry, &source, element)?;
+                let layout = self.push_memory_layout(&mut builder, entry, &source, element)?;
 
-                push_heap_memory(
+                push_memory(
                     &mut builder,
                     entry,
                     &source,
@@ -180,7 +184,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             })
             .map_err(SyntheticLoweringError::SemanticValue)?;
 
-        let pointer = push_heap_memory(
+        let pointer = push_memory(
             builder,
             entry,
             source,
@@ -251,36 +255,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         )))
     }
 
-    fn push_heap_layout(
-        &self,
-        builder: &mut MirUnitBuilder,
-        block: MirBlockId,
-        source: &MirSourceAnchor,
-        element: TypeId,
-    ) -> Result<[MirOperand; 2], C::Error> {
-        let usize_type = self
-            .context
-            .representation_type(RepresentationRole::ScalarUsize)?;
-
-        let query = |builder: &mut MirUnitBuilder, kind| -> Result<MirOperand, C::Error> {
-            push_heap_memory(
-                builder,
-                block,
-                source,
-                CheckedMemoryOperationKind::LayoutQuery { ty: element, kind },
-                [],
-                Some(usize_type),
-            )
-            .map_err(|cause| self.mir_error(source, cause))?
-            .ok_or_else(|| SyntheticLoweringError::MissingTypeResult(element).into())
-        };
-
-        Ok([
-            query(builder, MemoryLayoutQueryKind::Size)?,
-            query(builder, MemoryLayoutQueryKind::Alignment)?,
-        ])
-    }
-
     fn push_heap_construction(
         &self,
         builder: &mut MirUnitBuilder,
@@ -290,7 +264,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         result: TypeId,
     ) -> Result<(MirBlockId, Option<MirOperand>), C::Error> {
         let element = parameter.ty();
-        let layout = self.push_heap_layout(builder, entry, source, element)?;
+        let layout = self.push_memory_layout(builder, entry, source, element)?;
 
         let allocator = self
             .context
@@ -363,7 +337,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )
             .map_err(invalid)?;
 
-        push_heap_memory(
+        push_memory(
             builder,
             completed,
             source,
@@ -376,7 +350,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         )
         .map_err(invalid)?;
 
-        let heap = push_heap_memory(
+        let heap = push_memory(
             builder,
             completed,
             source,
@@ -490,32 +464,4 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         Ok(failed)
     }
-}
-
-fn push_heap_memory(
-    builder: &mut MirUnitBuilder,
-    block: MirBlockId,
-    source: &MirSourceAnchor,
-    kind: CheckedMemoryOperationKind,
-    operands: impl IntoIterator<Item = MirOperand>,
-    result: Option<TypeId>,
-) -> Result<Option<MirOperand>, MirUnitBuildError> {
-    let operands: Vec<_> = operands.into_iter().collect();
-
-    let types = operands
-        .iter()
-        .map(|operand| builder.operand_type(operand))
-        .collect::<Result<Vec<_>, _>>()?;
-
-    let operation = MirMemoryOperation::new(kind, operands, types, result);
-
-    Ok(builder
-        .push_operation(
-            block,
-            source.clone(),
-            MirOperationKind::Memory(operation),
-            result,
-        )?
-        .result()
-        .map(MirOperand::Value))
 }

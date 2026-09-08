@@ -1,3 +1,5 @@
+use bray_package_interface_model::InterfaceSemanticRecordKind;
+
 use super::inventory::DiagnosticInterfaceSection;
 
 /// Package-interface region associated with a validation failure.
@@ -35,7 +37,7 @@ pub enum DiagnosticInterfaceValidationContext {
     /// One indexed semantic record of a known kind.
     SemanticRecord {
         /// Semantic record category.
-        kind: DiagnosticInterfaceSemanticRecordKind,
+        kind: InterfaceSemanticRecordKind,
         /// Zero-based semantic record index.
         index: u64,
     },
@@ -59,58 +61,6 @@ impl DiagnosticInterfaceValidationContext {
             Self::Record { .. } => "record",
             Self::SemanticRecord { .. } => "semantic_record",
             Self::ExternalSymbolKey { .. } => "external_symbol_key",
-        }
-    }
-}
-
-/// Semantic record category associated with package-interface validation.
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub enum DiagnosticInterfaceSemanticRecordKind {
-    /// Complete callable signature template.
-    CallableSignature,
-    /// Ordered generic declaration template.
-    GenericDeclaration,
-    /// Callable parameter default-template presence.
-    CallableParameterDefault,
-    /// Validated predicate definition form.
-    PredicateDefinition,
-    /// Checked type owned by a declaration.
-    DeclaredType,
-    /// Complete type-representation contract.
-    TypeRepresentation,
-    /// Checked generic constraint.
-    GenericConstraint,
-    /// Complete callable contract set.
-    CallableContracts,
-    /// Declaration-owned checked template.
-    DeclarationTemplate,
-    /// Public implementation subject and applied trait.
-    Implementation,
-    /// Required target property value.
-    TargetProperty,
-    /// Required callable ABI.
-    Abi,
-    /// Required portable runtime contract.
-    Runtime,
-}
-
-impl DiagnosticInterfaceSemanticRecordKind {
-    /// Returns the stable machine key for this record category.
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::CallableSignature => "callable_signature",
-            Self::GenericDeclaration => "generic_declaration",
-            Self::CallableParameterDefault => "callable_parameter_default",
-            Self::PredicateDefinition => "predicate_definition",
-            Self::DeclaredType => "declared_type",
-            Self::TypeRepresentation => "type_representation",
-            Self::GenericConstraint => "generic_constraint",
-            Self::CallableContracts => "callable_contracts",
-            Self::DeclarationTemplate => "declaration_template",
-            Self::Implementation => "implementation",
-            Self::TargetProperty => "target_property",
-            Self::Abi => "abi",
-            Self::Runtime => "runtime",
         }
     }
 }

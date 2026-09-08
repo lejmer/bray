@@ -3,7 +3,8 @@ use std::sync::Arc;
 use bray_base::shared_slice;
 
 use crate::{
-    AnySymbolId, CallablePhaseBehaviors, GenericTypeParameterSymbolId, ImplementationSymbolId,
+    AnySymbolId, CallableConditionSet, CallableConditions, CallableContractClause,
+    CallablePhaseBehaviors, GenericTypeParameterSymbolId, ImplementationSymbolId,
     NamedTypeSymbolId, SymbolKind, TraitSymbolId, TraitTypeMemberSymbolId,
 };
 
@@ -269,6 +270,7 @@ pub struct CallableTypeData {
     trust: CallableTrust,
     abi: CallableAbi,
     phase_behaviors: CallablePhaseBehaviors,
+    conditions: CallableConditionSet,
 }
 
 impl CallableTypeData {
@@ -289,6 +291,7 @@ impl CallableTypeData {
             trust,
             abi,
             phase_behaviors: CallablePhaseBehaviors::empty(dependency_contracts),
+            conditions: CallableConditionSet::new([]),
         }
     }
 
@@ -349,6 +352,18 @@ impl CallableTypeData {
     /// Returns behavior for every callable execution phase.
     pub const fn phase_behaviors(&self) -> &CallablePhaseBehaviors {
         &self.phase_behaviors
+    }
+}
+
+impl CallableConditions for CallableTypeData {
+    type Clause = CallableContractClause;
+
+    fn conditions(&self) -> &CallableConditionSet {
+        &self.conditions
+    }
+
+    fn conditions_mut(&mut self) -> &mut CallableConditionSet {
+        &mut self.conditions
     }
 }
 
@@ -415,6 +430,17 @@ pub enum TypeData {
 }
 
 impl TypeData {
+    /// Returns the declaration that defines this type or its contextual identity.
+    pub fn declaration_owner(&self) -> Option<AnySymbolId> {
+        match self {
+            Self::Named { definition, .. } => Some(definition.into_any()),
+            Self::TypeParameter(parameter) => Some((*parameter).into()),
+            Self::ContextualSelf(context) => Some(context.symbol()),
+            Self::TypeValuedMemberProjection { member, .. } => Some((*member).into()),
+            _ => None,
+        }
+    }
+
     /// Creates an ordered tuple type.
     pub fn tuple(elements: impl IntoIterator<Item = TypeId>) -> Self {
         Self::Tuple(shared_slice(elements))

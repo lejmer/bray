@@ -1225,8 +1225,8 @@ mod tests {
 
         let descriptor = MirFrameDescriptor::try_new(
             frame,
-            RuntimeAbiVersion::new(1, 0),
-            ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)),
+            RuntimeAbiVersion::CURRENT,
+            ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::CURRENT),
             test_mir_type(),
             [state],
         )

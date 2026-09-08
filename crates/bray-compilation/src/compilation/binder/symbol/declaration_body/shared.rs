@@ -19,11 +19,12 @@ pub(in crate::compilation::binder::symbol) struct CheckedSourceExpression {
     pub(in crate::compilation::binder::symbol) dependency_contract: DependencyContractTemplateId,
     pub(in crate::compilation::binder::symbol) diagnostics: DiagnosticBag,
     pub(in crate::compilation::binder::symbol) is_recovered: bool,
+    pub(in crate::compilation::binder::symbol) condition: Option<bray_symbols::ConstantTermId>,
 }
 
 pub(in crate::compilation::binder::symbol) struct CheckedSourcePredicateSequence {
-    pub(in crate::compilation::binder::symbol) dependency_contracts:
-        Vec<DependencyContractTemplateId>,
+    pub(in crate::compilation::binder::symbol) predicates:
+        Vec<bray_symbols::PredicateSemanticSummary>,
     pub(in crate::compilation::binder::symbol) execution_requirements:
         Vec<CallableExecutionRequirement>,
     pub(in crate::compilation::binder::symbol) diagnostics: DiagnosticBag,
@@ -95,12 +96,36 @@ pub(in crate::compilation::binder::symbol) fn checked_source_expression(
         .and_then(|contract| dependencies.contract(contract))
         .ok_or_else(|| missing_dependency_contract(key.clone(), root))?;
 
-    let dependency_contract =
-        portable_dependency_contract(context, storage.result().value(), contract)?;
+    let dependency_contract = portable_dependency_contract(
+        context,
+        bound.result().value(),
+        storage.result().value(),
+        contract,
+    )?;
 
     let diagnostics = checked_source_diagnostics(&bound, &semantics, &storage, &body);
 
+    let condition = if key.kind() == bray_bound_tree::BoundUnitKind::PredicateDefinition
+        && !diagnostics.has_errors()
+    {
+        compilation
+            .symbolic_expression_terms(
+                bound.result().value(),
+                semantics.result().value(),
+                &[root],
+                context.cancellation,
+            )
+            .map_err(super::super::binding::binder_error)?
+            .1
+            .into_iter()
+            .next()
+            .flatten()
+    } else {
+        None
+    };
+
     Ok(CheckedSourceExpression {
+        condition,
         result: result.ty(),
         dependency_contract,
         diagnostics,
@@ -154,7 +179,13 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
     let mut dependency_contracts = Vec::new();
     let mut execution_requirements = Vec::new();
 
-    for expression in block.items().iter().filter_map(|item| item.expression()) {
+    let roots = block
+        .items()
+        .iter()
+        .filter_map(|item| item.expression())
+        .collect::<Vec<_>>();
+
+    for expression in roots.iter().copied() {
         let contract = dependencies
             .expression(expression)
             .and_then(|contract| dependencies.contract(contract));
@@ -165,6 +196,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
 
         dependency_contracts.push(portable_dependency_contract(
             context,
+            bound.result().value(),
             storage.result().value(),
             contract,
         )?);
@@ -182,8 +214,30 @@ pub(in crate::compilation::binder::symbol) fn checked_source_predicate_sequence(
 
     let diagnostics = checked_source_diagnostics(&bound, &semantics, &storage, &body);
 
+    let conditions = if diagnostics.has_errors() {
+        vec![None; roots.len()]
+    } else {
+        compilation
+            .symbolic_expression_terms(
+                bound.result().value(),
+                semantics.result().value(),
+                &roots,
+                context.cancellation,
+            )
+            .map_err(super::super::binding::binder_error)?
+            .1
+    };
+
+    let predicates = dependency_contracts
+        .into_iter()
+        .zip(conditions)
+        .map(|(dependency, condition)| {
+            bray_symbols::PredicateSemanticSummary::new(dependency).with_condition(condition)
+        })
+        .collect();
+
     Ok(CheckedSourcePredicateSequence {
-        dependency_contracts,
+        predicates,
         execution_requirements,
         diagnostics,
     })
@@ -289,6 +343,7 @@ pub(in crate::compilation::binder::symbol) fn checked_source_body_dependency_con
 
         contracts.push(portable_dependency_contract(
             context,
+            bound.result().value(),
             storage.result().value(),
             contract,
         )?);

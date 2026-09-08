@@ -1,4 +1,4 @@
-module std.ffi.c;
+trusted module std.ffi.c;
 
 union StringError
 {

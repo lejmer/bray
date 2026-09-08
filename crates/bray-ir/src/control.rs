@@ -285,6 +285,8 @@ pub enum MirSuspensionKind {
     Yield,
     /// The frame is waiting for one runtime task event.
     TaskEvent,
+    /// The frame is waiting for the terminal state of an existing task.
+    TaskCompletion,
 }
 
 impl MirSuspensionKind {
@@ -294,6 +296,7 @@ impl MirSuspensionKind {
             Self::Awaited => "awaited",
             Self::Yield => "yield",
             Self::TaskEvent => "task_event",
+            Self::TaskCompletion => "task_completion",
         }
     }
 }
@@ -420,8 +423,8 @@ pub enum MirTerminatorKind {
         resume_state: MirFrameStateId,
         /// Destination used after the frame is resumed.
         resume: MirEdge,
-        /// Cleanup entered when current-run cancellation is observed.
-        cancellation: MirCleanupEdge,
+        /// Cleanup entered when cancellation is observed. Absent during shielded lifecycle resolution.
+        cancellation: Option<MirCleanupEdge>,
         /// Selected private suspension-registration ABI role.
         registration: crate::MirRuntimeReference,
         /// Selected private wake ABI role.
@@ -538,7 +541,10 @@ impl MirTerminatorKind {
                 ..
             } => {
                 visit(resume)?;
-                visit(&mut cancellation.edge)?;
+
+                if let Some(cancellation) = cancellation {
+                    visit(&mut cancellation.edge)?;
+                }
             }
             Self::ForwardRunResult { edges, .. } => {
                 visit(&mut edges.completed)?;
@@ -616,7 +622,10 @@ impl MirTerminatorKind {
                 ..
             } => {
                 visit(resume.target());
-                visit(cancellation.edge().target());
+
+                if let Some(cancellation) = cancellation {
+                    visit(cancellation.edge().target());
+                }
             }
             Self::ForwardRunResult { edges, .. } => {
                 visit(edges.completed().target());

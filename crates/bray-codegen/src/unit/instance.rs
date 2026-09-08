@@ -102,6 +102,17 @@ struct CodegenInstanceData {
 pub struct CodegenInstanceKey(Arc<CodegenInstanceData>);
 
 impl CodegenInstanceKey {
+    /// Retains exact substitutions, witnesses, and target under a specialized template identity.
+    pub fn with_template(&self, template: MirUnitKey) -> Self {
+        Self(Arc::new(CodegenInstanceData {
+            template,
+            specialization: self.0.specialization.clone(),
+            witnesses: Arc::clone(&self.0.witnesses),
+            contextual_self_witness: self.0.contextual_self_witness.clone(),
+            target: self.0.target.clone(),
+        }))
+    }
+
     /// Creates a concrete identity from its template, specialization, witnesses, and target.
     pub fn new(
         template: MirUnitKey,
@@ -529,8 +540,8 @@ mod tests {
 
         let Ok(descriptor) = MirFrameDescriptor::try_new(
             frame,
-            RuntimeAbiVersion::new(1, 0),
-            ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::new(1, 0)),
+            RuntimeAbiVersion::CURRENT,
+            ProtectedFrameAbiVersions::uniform(RuntimeAbiVersion::CURRENT),
             bray_testing::test_mir_type(),
             [state],
         ) else {

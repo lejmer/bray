@@ -7,6 +7,7 @@ mod control;
 mod core;
 mod edge;
 mod effect;
+mod frame;
 mod generator;
 mod memory;
 mod panic;

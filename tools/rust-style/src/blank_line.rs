@@ -66,7 +66,22 @@ fn insert_blank_line(source: &mut String, offset: TextSize) {
         "\n"
     };
 
-    source.insert_str(line_start, line_ending);
+    let prefix = &source[line_start..offset];
+
+    if prefix.chars().all(char::is_whitespace) {
+        source.insert_str(line_start, line_ending);
+
+        return;
+    }
+
+    // An inline statement needs a boundary at the statement itself. Inserting before its line
+    // leaves the original gap unchanged and makes the automatic-fix loop repeat forever.
+    let indentation = prefix
+        .chars()
+        .take_while(|character| character.is_whitespace())
+        .collect::<String>();
+
+    source.insert_str(offset, &format!("{line_ending}{line_ending}{indentation}"));
 }
 
 fn remove_blank_line(source: &mut String, offset: TextSize) -> Result<(), String> {
@@ -622,6 +637,30 @@ enum Example {
         assert_eq!(fixed, expected);
         assert_eq!(fix_count, 1);
         assert!(!fixed.replace("\r\n", "").contains('\n'));
+    }
+
+    #[test]
+    fn fixes_inline_statement_boundaries_at_the_statement_and_terminates() {
+        for newline in ["\n", "\r\n"] {
+            let source = format!(
+                "fn example() -> usize {{{newline}    let value = 1; return value;{newline}}}{newline}"
+            );
+
+            let expected = format!(
+                "fn example() -> usize {{{newline}    let value = 1; {newline}{newline}    return value;{newline}}}{newline}"
+            );
+
+            // Check the first fix directly so regression failure cannot hang the test runner.
+            let diagnostic = check_source(&source).into_iter().next().unwrap();
+            let mut first = source.clone();
+
+            super::apply_fix(&mut first, diagnostic).unwrap();
+
+            assert_eq!(first, expected);
+            assert_eq!(rules(&first), []);
+            assert_eq!(fixed_source(&source), (expected, 1));
+            assert_eq!(fixed_source(&first), (first, 0));
+        }
     }
 
     fn fixed_source(source: &str) -> (String, usize) {

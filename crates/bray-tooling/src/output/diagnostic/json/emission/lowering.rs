@@ -243,6 +243,13 @@ pub(in crate::output::diagnostic::json) fn lowering_failure_context(
         Failure::MissingCallableResultType | Failure::SemanticValueUnavailable => {
             vec![text_field("cause", failure.as_str())]
         }
+        Failure::MissingCleanupExecution(storage) => {
+            let mut context = vec![text_field("cause", failure.as_str())];
+
+            push_mir_identity(&mut context, "storage", storage);
+
+            context
+        }
     }
 }
 

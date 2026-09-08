@@ -2,19 +2,87 @@ use std::collections::BTreeMap;
 
 use super::{
     CallableDependencyContracts, CallableInstanceData, CallableParameterData, CallableTypeData,
-    ConstantField, ConstantProjection, ConstantProjectionKind, ConstantTermData, ConstantTermId,
-    ConstantValueData, ConstantValueId, ConstantValueKind, DependencyContractTemplateData,
-    DependencyGuard, DependencyProjection, DependencyRequirement, DependencySubject,
-    DependencySubjectRoot, GenericArgument, GenericSubstitutionData, GenericSubstitutionId,
-    ImplementationInstanceData, SemanticValueStore, SemanticValueStoreError, TraitApplicationData,
-    TypeData, TypeId,
+    ConstantField, ConstantTermData, ConstantTermId, ConstantValueData, ConstantValueId,
+    ConstantValueKind, DependencyContractTemplateData, DependencyGuard, DependencyProjection,
+    DependencyRequirement, DependencySubject, DependencySubjectRoot, GenericArgument,
+    GenericSubstitutionData, GenericSubstitutionId, ImplementationInstanceData, SemanticValueStore,
+    SemanticValueStoreError, TraitApplicationData, TypeData, TypeId,
 };
 use crate::{
-    GenericOwnerId, GenericParameterSymbolId, SelfTypeContext, StaticInstanceKey,
-    StaticReferenceSelection,
+    CallableConditionSet, CallableConditions, CallableContractClause, CallableContractClauseValue,
+    GenericOwnerId, GenericParameterSymbolId, PredicateSemanticSummary, SelfTypeContext,
+    StaticInstanceKey, StaticReferenceSelection,
 };
 
+pub(super) trait SemanticSubstitution {
+    fn replacement_type(
+        &self,
+        values: &SemanticValueStore,
+        data: &TypeData,
+    ) -> Result<Option<TypeId>, SemanticValueStoreError>;
+
+    fn replacement_constant(
+        &self,
+        _parameter: crate::GenericConstParameterSymbolId,
+    ) -> Option<ConstantTermId> {
+        None
+    }
+}
+
+impl SemanticSubstitution for GenericSubstitutionData {
+    fn replacement_type(
+        &self,
+        values: &SemanticValueStore,
+        data: &TypeData,
+    ) -> Result<Option<TypeId>, SemanticValueStoreError> {
+        match data {
+            TypeData::TypeParameter(parameter) => Ok(
+                match self.argument_for(GenericParameterSymbolId::Type(*parameter)) {
+                    Some(GenericArgument::Type(argument)) => Some(argument),
+                    _ => None,
+                },
+            ),
+            TypeData::ContextualSelf(SelfTypeContext::NamedType(definition)) => {
+                let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
+                    return Ok(None);
+                };
+
+                let substitution = values.intern_generic_substitution(self.with_owner(owner))?;
+
+                values
+                    .intern_type(TypeData::Named {
+                        definition: *definition,
+                        substitution,
+                    })
+                    .map(Some)
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn replacement_constant(
+        &self,
+        parameter: crate::GenericConstParameterSymbolId,
+    ) -> Option<ConstantTermId> {
+        match self.argument_for(GenericParameterSymbolId::Const(parameter)) {
+            Some(GenericArgument::Constant(argument)) => Some(argument),
+            _ => None,
+        }
+    }
+}
+
 impl SemanticValueStore {
+    /// Applies generic arguments throughout callable predicates and dependency contracts.
+    pub fn substitute_callable_conditions(
+        &self,
+        conditions: &CallableConditionSet,
+        substitution: GenericSubstitutionId,
+    ) -> Result<CallableConditionSet, SemanticValueStoreError> {
+        let substitution = self.generic_substitution_data(substitution)?;
+
+        self.substitute_conditions_data(conditions, substitution.as_ref())
+    }
+
     /// Applies one generic substitution throughout a canonical semantic type.
     pub fn substitute_type(
         &self,
@@ -23,7 +91,7 @@ impl SemanticValueStore {
     ) -> Result<TypeId, SemanticValueStoreError> {
         let substitution = self.generic_substitution_data(substitution)?;
 
-        self.substitute_type_data(ty, &substitution)
+        self.substitute_type_data(ty, substitution.as_ref())
     }
 
     /// Applies one generic substitution throughout a dependency contract.
@@ -34,7 +102,7 @@ impl SemanticValueStore {
     ) -> Result<super::DependencyContractTemplateId, SemanticValueStoreError> {
         let substitution = self.generic_substitution_data(substitution)?;
 
-        self.substitute_dependency_contract_data(contract, &substitution)
+        self.substitute_dependency_contract_data(contract, substitution.as_ref())
     }
 
     /// Applies one generic substitution throughout a canonical constant term.
@@ -45,7 +113,7 @@ impl SemanticValueStore {
     ) -> Result<ConstantTermId, SemanticValueStoreError> {
         let substitution = self.generic_substitution_data(substitution)?;
 
-        self.substitute_constant_term_data(term, &substitution)
+        self.substitute_constant_term_data(term, substitution.as_ref())
     }
 
     /// Applies one generic substitution throughout a materializable constant value.
@@ -57,7 +125,7 @@ impl SemanticValueStore {
         let substitution = self.generic_substitution_data(substitution)?;
         let mut substituted = BTreeMap::new();
 
-        self.substitute_constant_value_data(value, &substitution, &mut substituted)
+        self.substitute_constant_value_data(value, substitution.as_ref(), &mut substituted)
     }
 
     /// Applies one generic substitution throughout another generic substitution.
@@ -68,7 +136,7 @@ impl SemanticValueStore {
     ) -> Result<GenericSubstitutionId, SemanticValueStoreError> {
         let substitution = self.generic_substitution_data(substitution)?;
 
-        self.substitute_generic_substitution_data(nested, &substitution)
+        self.substitute_generic_substitution_data(nested, substitution.as_ref())
     }
 
     /// Applies one generic substitution throughout a trait application.
@@ -85,32 +153,18 @@ impl SemanticValueStore {
         self.intern_trait_application(TraitApplicationData::new(application.definition(), nested))
     }
 
-    fn substitute_type_data(
+    pub(super) fn substitute_type_data(
         &self,
         ty: TypeId,
-        substitution: &GenericSubstitutionData,
+        substitution: &impl SemanticSubstitution,
     ) -> Result<TypeId, SemanticValueStoreError> {
         let data = self.type_data(ty)?;
 
-        if let TypeData::TypeParameter(parameter) = data.as_ref()
-            && let Some(GenericArgument::Type(argument)) =
-                substitution.argument_for(GenericParameterSymbolId::Type(*parameter))
-        {
-            return Ok(argument);
+        if let Some(replacement) = substitution.replacement_type(self, &data)? {
+            return Ok(replacement);
         }
 
         let substituted = match data.as_ref() {
-            TypeData::ContextualSelf(SelfTypeContext::NamedType(definition)) => {
-                let Some(owner) = GenericOwnerId::try_new(definition.into_any()) else {
-                    return Ok(ty);
-                };
-
-                TypeData::Named {
-                    definition: *definition,
-                    substitution: self
-                        .intern_generic_substitution(substitution.with_owner(owner))?,
-                }
-            }
             TypeData::Error | TypeData::TypeParameter(_) | TypeData::ContextualSelf(_) => {
                 return Ok(ty);
             }
@@ -223,6 +277,9 @@ impl SemanticValueStore {
                         dependencies,
                     )
                     .with_variadic(callable.is_variadic())
+                    .with_conditions(
+                        self.substitute_conditions_data(callable.conditions(), substitution)?,
+                    )
                     .with_phase_behaviors(phase_behaviors),
                 )
             }
@@ -231,10 +288,67 @@ impl SemanticValueStore {
         self.intern_type(substituted)
     }
 
-    fn substitute_generic_substitution_data(
+    fn substitute_conditions_data(
+        &self,
+        conditions: &CallableConditionSet,
+        substitution: &impl SemanticSubstitution,
+    ) -> Result<CallableConditionSet, SemanticValueStoreError> {
+        // Share immutable clause groups until the complete substitution succeeds.
+        let mut conditions = conditions.clone();
+
+        conditions.try_map_clauses(|clause| {
+            let mapped = match clause.value() {
+                CallableContractClauseValue::Predicate(predicate) => {
+                    let dependency = self.substitute_dependency_contract_data(
+                        predicate.dependency_contract(),
+                        substitution,
+                    )?;
+
+                    let condition = predicate
+                        .condition()
+                        .map(|term| self.substitute_constant_term_data(term, substitution))
+                        .transpose()?;
+
+                    CallableContractClause::new(
+                        clause.ordinal(),
+                        clause.kind(),
+                        PredicateSemanticSummary::new(dependency).with_condition(condition),
+                    )
+                }
+                CallableContractClauseValue::TraitSatisfaction {
+                    subject,
+                    application,
+                } => {
+                    let application = self.trait_application_data(application)?;
+
+                    let nested = self.substitute_generic_substitution_data(
+                        application.substitution(),
+                        substitution,
+                    )?;
+
+                    let application = self.intern_trait_application(TraitApplicationData::new(
+                        application.definition(),
+                        nested,
+                    ))?;
+
+                    CallableContractClause::trait_satisfaction(
+                        clause.ordinal(),
+                        self.substitute_type_data(subject, substitution)?,
+                        application,
+                    )
+                }
+            };
+
+            Ok(mapped.with_guard(clause.guard()))
+        })?;
+
+        Ok(conditions)
+    }
+
+    pub(super) fn substitute_generic_substitution_data(
         &self,
         nested: GenericSubstitutionId,
-        substitution: &GenericSubstitutionData,
+        substitution: &impl SemanticSubstitution,
     ) -> Result<GenericSubstitutionId, SemanticValueStoreError> {
         let nested = self.generic_substitution_data(nested)?;
 
@@ -261,157 +375,81 @@ impl SemanticValueStore {
         self.intern_generic_substitution(substituted)
     }
 
-    fn substitute_constant_term_data(
+    pub(super) fn substitute_constant_term_data(
         &self,
         term: ConstantTermId,
-        substitution: &GenericSubstitutionData,
+        substitution: &impl SemanticSubstitution,
     ) -> Result<ConstantTermId, SemanticValueStoreError> {
         let data = self.constant_term_data(term)?;
 
         if let ConstantTermData::Parameter(parameter) = data.as_ref()
-            && let Some(GenericArgument::Constant(argument)) =
-                substitution.argument_for(GenericParameterSymbolId::Const(*parameter))
+            && let Some(argument) = substitution.replacement_constant(*parameter)
         {
             return Ok(argument);
         }
 
-        let substituted = match data.as_ref() {
-            ConstantTermData::Typed { term, ty } => ConstantTermData::typed(
-                self.substitute_constant_term_data(*term, substitution)?,
-                self.substitute_type_data(*ty, substitution)?,
-            ),
-            ConstantTermData::Value(value) => ConstantTermData::Value(
-                self.substitute_constant_value_data(*value, substitution, &mut BTreeMap::new())?,
-            ),
-            ConstantTermData::IntegerLiteral { .. }
-            | ConstantTermData::CallableArgument(_)
-            | ConstantTermData::Parameter(_)
-            | ConstantTermData::TargetProperty(_) => return Ok(term),
-            ConstantTermData::Unary { operation, operand } => ConstantTermData::Unary {
-                operation: *operation,
-                operand: self.substitute_constant_term_data(*operand, substitution)?,
-            },
-            ConstantTermData::Binary {
-                operation,
-                left,
-                right,
-            } => ConstantTermData::Binary {
-                operation: *operation,
-                left: self.substitute_constant_term_data(*left, substitution)?,
-                right: self.substitute_constant_term_data(*right, substitution)?,
-            },
-            ConstantTermData::Conversion { operand, target } => ConstantTermData::Conversion {
-                operand: self.substitute_constant_term_data(*operand, substitution)?,
-                target: self.substitute_type_data(*target, substitution)?,
-            },
-            ConstantTermData::NullablePresent(value) => ConstantTermData::NullablePresent(
-                self.substitute_constant_term_data(*value, substitution)?,
-            ),
-            ConstantTermData::Tuple(values) => ConstantTermData::tuple(
-                values
-                    .iter()
-                    .map(|value| self.substitute_constant_term_data(*value, substitution))
-                    .collect::<Result<Vec<_>, _>>()?,
-            ),
-            ConstantTermData::Array(values) => ConstantTermData::array(
-                values
-                    .iter()
-                    .map(|value| self.substitute_constant_term_data(*value, substitution))
-                    .collect::<Result<Vec<_>, _>>()?,
-            ),
-            ConstantTermData::Product(fields) => ConstantTermData::product(
-                fields
-                    .iter()
-                    .map(|field| {
-                        Ok(ConstantField::new(
-                            *field.field(),
-                            self.substitute_constant_term_data(*field.value(), substitution)?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, SemanticValueStoreError>>()?,
-            ),
-            ConstantTermData::Union { variant, fields } => ConstantTermData::union(
-                *variant,
-                fields
-                    .iter()
-                    .map(|field| {
-                        Ok(ConstantField::new(
-                            *field.field(),
-                            self.substitute_constant_term_data(*field.value(), substitution)?,
-                        ))
-                    })
-                    .collect::<Result<Vec<_>, SemanticValueStoreError>>()?,
-            ),
+        let mut substituted =
+            data.try_map_terms(|child| self.substitute_constant_term_data(child, substitution))?;
+
+        match &mut substituted {
+            ConstantTermData::Typed { ty, .. } => {
+                *ty = self.substitute_type_data(*ty, substitution)?;
+            }
+            ConstantTermData::Value(value) => {
+                *value = self.substitute_constant_value_data(
+                    *value,
+                    substitution,
+                    &mut BTreeMap::new(),
+                )?;
+            }
+            ConstantTermData::Conversion { target, .. } => {
+                *target = self.substitute_type_data(*target, substitution)?;
+            }
             ConstantTermData::DefinitionApplication {
-                definition,
                 substitution: nested,
                 selected_implementation,
+                ..
             } => {
-                let selected_implementation = selected_implementation
-                    .map(|implementation| {
-                        self.substitute_implementation_instance(implementation, substitution)
-                    })
-                    .transpose()?;
+                *nested = self.substitute_generic_substitution_data(*nested, substitution)?;
 
-                ConstantTermData::DefinitionApplication {
-                    definition: *definition,
-                    substitution: self
-                        .substitute_generic_substitution_data(*nested, substitution)?,
-                    selected_implementation,
-                }
+                *selected_implementation = selected_implementation
+                    .map(|instance| self.substitute_implementation_instance(instance, substitution))
+                    .transpose()?;
             }
             ConstantTermData::Call {
                 callable,
                 selected_implementation,
-                arguments,
+                ..
             } => {
-                let selected_implementation = selected_implementation
-                    .map(|implementation| {
-                        self.substitute_implementation_instance(implementation, substitution)
-                    })
-                    .transpose()?;
+                *callable = self.substitute_callable_instance(*callable, substitution)?;
 
-                ConstantTermData::call(
-                    self.substitute_callable_instance(*callable, substitution)?,
-                    selected_implementation,
-                    arguments
-                        .iter()
-                        .map(|argument| self.substitute_constant_term_data(*argument, substitution))
-                        .collect::<Result<Vec<_>, _>>()?,
-                )
+                *selected_implementation = selected_implementation
+                    .map(|instance| self.substitute_implementation_instance(instance, substitution))
+                    .transpose()?;
             }
-            ConstantTermData::PredicateCall {
-                predicate,
-                arguments,
-            } => ConstantTermData::predicate_call(
-                crate::PredicateInstanceData::new(
+            ConstantTermData::PredicateCall { predicate, .. } => {
+                *predicate = crate::PredicateInstanceData::new(
                     predicate.definition(),
                     self.substitute_generic_substitution_data(
                         predicate.substitution(),
                         substitution,
                     )?,
-                ),
-                arguments
-                    .iter()
-                    .map(|argument| self.substitute_constant_term_data(*argument, substitution))
-                    .collect::<Result<Vec<_>, _>>()?,
-            ),
-            ConstantTermData::Projection(projection) => {
-                let kind = match projection.kind() {
-                    ConstantProjectionKind::ArrayElement(index) => {
-                        ConstantProjectionKind::ArrayElement(
-                            self.substitute_constant_term_data(index, substitution)?,
-                        )
-                    }
-                    kind => kind,
-                };
-
-                ConstantTermData::Projection(ConstantProjection::new(
-                    self.substitute_constant_term_data(projection.subject(), substitution)?,
-                    kind,
-                ))
+                );
             }
-        };
+            ConstantTermData::IntegerLiteral { .. }
+            | ConstantTermData::CallableArgument(_)
+            | ConstantTermData::Parameter(_)
+            | ConstantTermData::TargetProperty(_)
+            | ConstantTermData::Unary { .. }
+            | ConstantTermData::Binary { .. }
+            | ConstantTermData::NullablePresent(_)
+            | ConstantTermData::Tuple(_)
+            | ConstantTermData::Array(_)
+            | ConstantTermData::Product(_)
+            | ConstantTermData::Union { .. }
+            | ConstantTermData::Test { .. }
+            | ConstantTermData::Projection(_) => {}
+        }
 
         self.intern_constant_term(substituted)
     }
@@ -419,7 +457,7 @@ impl SemanticValueStore {
     fn substitute_constant_value_data(
         &self,
         value: ConstantValueId,
-        substitution: &GenericSubstitutionData,
+        substitution: &impl SemanticSubstitution,
         substituted: &mut BTreeMap<ConstantValueId, ConstantValueId>,
     ) -> Result<ConstantValueId, SemanticValueStoreError> {
         if let Some(value) = substituted.get(&value) {
@@ -485,7 +523,7 @@ impl SemanticValueStore {
     fn substitute_constant_fields<I>(
         &self,
         fields: &[ConstantField<I, ConstantValueId>],
-        substitution: &GenericSubstitutionData,
+        substitution: &impl SemanticSubstitution,
         substituted: &mut BTreeMap<ConstantValueId, ConstantValueId>,
     ) -> Result<Vec<ConstantField<I, ConstantValueId>>, SemanticValueStoreError>
     where
@@ -505,7 +543,7 @@ impl SemanticValueStore {
     fn substitute_static_reference(
         &self,
         selection: &StaticReferenceSelection,
-        substitution: &GenericSubstitutionData,
+        substitution: &impl SemanticSubstitution,
     ) -> Result<StaticReferenceSelection, SemanticValueStoreError> {
         let StaticReferenceSelection::Open {
             template,
@@ -544,7 +582,7 @@ impl SemanticValueStore {
     fn substitute_callable_dependency_contracts(
         &self,
         contracts: CallableDependencyContracts,
-        substitution: &GenericSubstitutionData,
+        substitution: &impl SemanticSubstitution,
     ) -> Result<CallableDependencyContracts, SemanticValueStoreError> {
         let invocation =
             self.substitute_dependency_contract_data(contracts.invocation(), substitution)?;
@@ -561,7 +599,7 @@ impl SemanticValueStore {
     fn substitute_dependency_contract_data(
         &self,
         template: super::DependencyContractTemplateId,
-        substitution: &GenericSubstitutionData,
+        substitution: &impl SemanticSubstitution,
     ) -> Result<super::DependencyContractTemplateId, SemanticValueStoreError> {
         let template = self.dependency_contract_template_data(template)?;
 
@@ -577,7 +615,7 @@ impl SemanticValueStore {
     fn substitute_dependency_requirement(
         &self,
         requirement: &DependencyRequirement,
-        substitution: &GenericSubstitutionData,
+        substitution: &impl SemanticSubstitution,
     ) -> Result<DependencyRequirement, SemanticValueStoreError> {
         match requirement {
             DependencyRequirement::Direct { subject, kind } => Ok(DependencyRequirement::direct(
@@ -600,7 +638,7 @@ impl SemanticValueStore {
     fn substitute_dependency_guard(
         &self,
         guard: &DependencyGuard,
-        substitution: &GenericSubstitutionData,
+        substitution: &impl SemanticSubstitution,
     ) -> Result<DependencyGuard, SemanticValueStoreError> {
         match guard {
             DependencyGuard::NullablePresent(subject) => Ok(DependencyGuard::NullablePresent(
@@ -618,7 +656,7 @@ impl SemanticValueStore {
     fn substitute_dependency_subject(
         &self,
         subject: &DependencySubject,
-        substitution: &GenericSubstitutionData,
+        substitution: &impl SemanticSubstitution,
     ) -> Result<DependencySubject, SemanticValueStoreError> {
         let root = match subject.subject_root() {
             DependencySubjectRoot::ImplementationWitness(instance) => {
@@ -646,7 +684,7 @@ impl SemanticValueStore {
     fn substitute_callable_instance(
         &self,
         callable: super::CallableInstanceId,
-        substitution: &GenericSubstitutionData,
+        substitution: &impl SemanticSubstitution,
     ) -> Result<super::CallableInstanceId, SemanticValueStoreError> {
         let callable = self.callable_instance_data(callable)?;
 
@@ -659,7 +697,7 @@ impl SemanticValueStore {
     fn substitute_implementation_instance(
         &self,
         implementation: super::ImplementationInstanceId,
-        substitution: &GenericSubstitutionData,
+        substitution: &impl SemanticSubstitution,
     ) -> Result<super::ImplementationInstanceId, SemanticValueStoreError> {
         let implementation = self.implementation_instance_data(implementation)?;
 
@@ -902,7 +940,7 @@ mod tests {
     }
 
     #[test]
-    fn substitutions_apply_constant_arguments_through_callable_dependency_contracts() {
+    fn substitutions_apply_constant_arguments_through_callable_conditions_and_dependencies() {
         let store = SemanticValueStore::try_new()
             .unwrap_or_else(|error| panic!("semantic store creation failed: {error:?}"));
 
@@ -952,15 +990,50 @@ mod tests {
             .intern_type(TypeData::Error)
             .unwrap_or_else(|error| panic!("callable result interning failed: {error:?}"));
 
+        use crate::{
+            CallableConditionSet, CallableConditions, CallableContractClause,
+            CallableContractClauseKind, CallableExecutionGuarantee, ExecutionProperty,
+            PredicateSemanticSummary,
+        };
+
+        let conditions = |dependency, condition| {
+            CallableConditionSet::new([
+                CallableContractClause::new(
+                    SymbolOrdinal::new(0),
+                    CallableContractClauseKind::Guard,
+                    PredicateSemanticSummary::new(dependency).with_condition(Some(condition)),
+                ),
+                CallableContractClause::new(
+                    SymbolOrdinal::new(1),
+                    CallableContractClauseKind::Ensures,
+                    PredicateSemanticSummary::new(dependency).with_condition(Some(condition)),
+                )
+                .with_guard(Some(SymbolOrdinal::new(0))),
+            ])
+            .with_execution_guarantees([
+                CallableExecutionGuarantee::new(
+                    ExecutionProperty::Pure,
+                    Some(SymbolOrdinal::new(0)),
+                ),
+                CallableExecutionGuarantee::new(
+                    ExecutionProperty::Total,
+                    Some(SymbolOrdinal::new(0)),
+                ),
+            ])
+        };
+
         let subject = store
-            .intern_type(TypeData::Callable(CallableTypeData::new(
-                [],
-                result,
-                CallableConstness::Runtime,
-                CallableTrust::Safe,
-                CallableAbi::Bray,
-                CallableDependencyContracts::asynchronous(invocation, deferred),
-            )))
+            .intern_type(TypeData::Callable(
+                CallableTypeData::new(
+                    [],
+                    result,
+                    CallableConstness::Runtime,
+                    CallableTrust::Safe,
+                    CallableAbi::Bray,
+                    CallableDependencyContracts::asynchronous(invocation, deferred),
+                )
+                .with_conditions(conditions(invocation, source_term)),
+            ))
             .unwrap_or_else(|error| panic!("callable type interning failed: {error:?}"));
 
         let function = AnySymbolId::from(FunctionSymbolId::from_symbol_id(SymbolId::new(1)));
@@ -992,6 +1065,11 @@ mod tests {
         };
 
         let contracts = callable.dependency_contracts();
+
+        assert_eq!(
+            callable.conditions(),
+            &conditions(contracts.invocation(), target_term)
+        );
 
         let invocation = store
             .dependency_contract_template_data(contracts.invocation())

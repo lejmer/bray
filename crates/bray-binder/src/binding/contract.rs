@@ -50,7 +50,17 @@ where
         .symbol_semantics()
         .resolve_symbol_query(SymbolQueryRequest::<CallableSignatureQuery>::new(owner))?;
 
-    let Some(result_type) = signature.value().result().resolved_type() else {
+    normal_completion_has_value(binding_context, signature.value().result())
+}
+
+pub(crate) fn normal_completion_has_value<C>(
+    binding_context: &C,
+    result: &bray_symbols::TypeExpressionTemplate,
+) -> BindingQueryResult<bool, C::UpstreamError>
+where
+    C: BindingQueryContext + ?Sized,
+{
+    let Some(result_type) = result.resolved_type() else {
         return Ok(true);
     };
 

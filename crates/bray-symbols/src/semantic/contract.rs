@@ -10,7 +10,7 @@ use crate::{
 };
 
 use super::{
-    CallableContractSet, CallableContractTemplate, CallableSignatureTemplate,
+    CallableConditionSet, CallableContractSet, CallableContractTemplate, CallableSignatureTemplate,
     CheckedCallableParameterDefault, CheckedStructFieldDefault, CheckedUnionPayloadDefault,
     ConstantDefinitionState, DirectiveSurface, GenericConstraintSet, GenericDeclarationTemplate,
     ImplementationCandidateSet, ImplementationCoherenceDomainKey, ImplementationCoherenceKey,
@@ -152,7 +152,14 @@ define_resolve_symbol_query_contract! {
         kind: CallableSignature,
         erase: |owner: CallableSymbolId| owner.into_any(),
     }
-    /// Checked contract clauses for one callable.
+    /// Checked declaration conditions and unverified execution promises for one callable.
+    CallableConditionsQuery {
+        owner: CallableSymbolId,
+        value: CallableConditionSet,
+        kind: CallableConditions,
+        erase: |owner: CallableSymbolId| owner.into_any(),
+    }
+    /// Checked contract clauses and phase behavior for one callable.
     CallableContractsQuery {
         owner: CallableSymbolId,
         value: CallableContractSet,

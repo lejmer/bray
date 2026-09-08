@@ -278,7 +278,7 @@ fn package_interface_export_bundle_for(
 /// Builds the representative implementation target configuration used by artifact tests.
 pub fn implementation_configuration() -> crate::PackageImplementationConfiguration {
     let target = bray_target::NativeTarget::X86_64LinuxGnu.profile();
-    let target = bray_ir::MirTargetContract::new(target, RuntimeAbiVersion::new(1, 0));
+    let target = bray_ir::MirTargetContract::new(target, RuntimeAbiVersion::CURRENT);
 
     let panic_abi = PanicAbiIdentity::try_new("bray.panic.unwind")
         .unwrap_or_else(|| panic!("test panic ABI identity must be valid"));
@@ -486,6 +486,7 @@ fn template_semantics(
                     trust: bray_symbols::CallableTrust::Safe,
                     abi: bray_symbols::CallableAbi::Bray,
                     variadic: false,
+                    conditions: bray_symbols::CallableConditionSet::new([]),
                     invocation_behavior: invocation_behavior.clone(),
                     deferred_execution_behavior: None,
                 },
@@ -496,6 +497,7 @@ fn template_semantics(
                     trust: bray_symbols::CallableTrust::Safe,
                     abi: bray_symbols::CallableAbi::Bray,
                     variadic: false,
+                    conditions: bray_symbols::CallableConditionSet::new([]),
                     invocation_behavior: invocation_behavior.clone(),
                     deferred_execution_behavior: None,
                 },

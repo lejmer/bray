@@ -1,0 +1,164 @@
+@target(target.platform.native_threads)
+trusted internal module bray.runtime.bootstrap;
+
+trusted internal func valid_cleanup_incident(pos incident: CleanupIncident) -> bool
+{
+    return incident.payload != 0
+        && !std.memory.is_null<u8>(incident.report)
+        && !std.memory.is_null<u8>(incident.destroy)
+        && !std.memory.is_null<u8>(incident.panics.report)
+        && !std.memory.is_null<u8>(incident.panics.destroy)
+        && !std.memory.is_null<u8>(incident.panics.construct_cleanup)
+        && !std.memory.is_null<u8>(incident.panics.suppress)
+        && incident.source.present <= 1
+        && (incident.source.present == 1 && incident.source.start <= incident.source.end
+            || incident.source.present == 0
+                && incident.source.source == 0
+                && incident.source.start == 0
+                && incident.source.end == 0
+                && incident.source.version == 0);
+}
+
+trusted internal func report_cleanup_incident(pos incident: CleanupIncident) -> u32
+    uses(layout_reinterpret)
+{
+    let pointer: RawPointer<CleanupIncidentReportCallback> = trusted std.memory.reinterpret<
+        CleanupIncidentReportCallback,
+        u8,
+    >(incident.report);
+
+    let report: CleanupIncidentReportCallback = trusted std.memory.callable_from_pointer(pointer);
+
+    return trusted report(std.memory.address_of<CleanupIncident>(&incident));
+}
+
+trusted internal func destroy_cleanup_incident(pos incident: CleanupIncident)
+    uses(layout_reinterpret)
+{
+    let pointer: RawPointer<CleanupIncidentDestroyCallback> = trusted std.memory.reinterpret<
+        CleanupIncidentDestroyCallback,
+        u8,
+    >(incident.destroy);
+
+    let destroy: CleanupIncidentDestroyCallback = trusted std.memory.callable_from_pointer(pointer);
+
+    let outcome: usize = trusted destroy(incident.payload);
+    let _: u32 = trusted resolve_cleanup_boundary(outcome, incident.panics);
+}
+
+trusted internal func resolve_cleanup_boundary(pos outcome: usize, pos callbacks: PanicReportCallbacks) -> u32
+    uses(layout_reinterpret)
+{
+    if outcome <= ONE_USIZE
+    {
+        return STATUS_SUCCESS;
+    }
+
+    let report_pointer: RawPointer<PanicReportStatusCallback> = trusted std.memory.reinterpret<PanicReportStatusCallback, u8>(callbacks.report);
+    let report: PanicReportStatusCallback = trusted std.memory.callable_from_pointer(report_pointer);
+    let destroy_pointer: RawPointer<PanicReportStatusCallback> = trusted std.memory.reinterpret<PanicReportStatusCallback, u8>(callbacks.destroy);
+    let destroy: PanicReportStatusCallback = trusted std.memory.callable_from_pointer(destroy_pointer);
+
+    let report_status: u32 = trusted report(outcome);
+    let destroy_status: u32 = trusted destroy(outcome);
+
+    if report_status != STATUS_SUCCESS
+    {
+        return report_status;
+    }
+
+    return destroy_status;
+}
+
+trusted internal func allocate_panic_incident(pos incident: PanicIncident) -> usize
+    uses(intrinsic, layout_reinterpret)
+{
+    let bytes: usize = internal bray.runtime.bootstrap.heap.allocation_bytes<PanicReportData>();
+
+    let allocation: RawPointer<u8> = trusted internal bray.runtime.bootstrap.heap.allocate(
+        bytes,
+        align = std.memory.align_of<PanicReportData>()
+    );
+
+    if std.memory.is_null<u8>(allocation)
+    {
+        trusted destroy_panic_incident_payload(incident);
+        trusted core.target.abort();
+    }
+
+    let report: RawPointer<PanicReportData> = trusted std.memory.reinterpret<PanicReportData, u8>(allocation);
+
+    trusted write_opaque<PanicReportData>(report, { next_incident = none, incident = incident });
+
+    let _: u64 = core.atomic.fetch_add<u64, 0>(&CONSTRUCTED_REPORTS, value = 1);
+
+    return trusted core.target.expose_address<PanicReportData>(report);
+}
+
+trusted internal func report_panic_incident(pos incident: PanicIncident) -> u32
+    uses(foreign_call)
+{
+    match incident
+    {
+        case Panic(message)
+        {
+            return trusted substrate_panic_reporting(
+                message.cause,
+                source_present = message.source_present,
+                source_identity = message.source_identity,
+                source_start = message.source_start,
+                source_end = message.source_end,
+                source_version = message.source_version,
+                message = message.message,
+                message_length = message.message_length,
+                copy_message = copy_panic_message,
+            );
+        }
+        case Cleanup(value) { return trusted report_cleanup_incident(value); }
+    }
+}
+
+trusted internal func destroy_panic_incident_payload(pos incident: PanicIncident)
+{
+    match incident
+    {
+        case Panic(message)
+        {
+            if !std.memory.is_null<u8>(message.message)
+            {
+                trusted internal bray.runtime.bootstrap.heap.deallocate_bytes(
+                    message.message,
+                    bytes = message.message_length,
+                    align = ONE_USIZE,
+                );
+            }
+        }
+        case Cleanup(value) { trusted destroy_cleanup_incident(value); }
+    }
+}
+
+@abi(c)
+trusted internal func cleanup_incident_construction(pos descriptor: RawPointer<u8>) -> usize
+    requires(
+        trusted core.memory.valid_read<CleanupIncident>(
+            pointer = trusted std.memory.reinterpret<CleanupIncident, u8>(descriptor), count = 1,
+        ),
+        trusted core.memory.aligned_for<CleanupIncident>(
+            pointer = trusted std.memory.reinterpret<CleanupIncident, u8>(descriptor),
+        ),
+        trusted core.memory.initialized_as<CleanupIncident>(
+            pointer = trusted std.memory.reinterpret<CleanupIncident, u8>(descriptor),
+        ),
+    )
+    uses(intrinsic, layout_reinterpret)
+{
+    let pointer: RawPointer<CleanupIncident> = trusted std.memory.reinterpret<CleanupIncident, u8>(descriptor);
+    let incident: CleanupIncident = trusted read_opaque<CleanupIncident>(pointer);
+
+    if !trusted valid_cleanup_incident(incident)
+    {
+        trusted core.target.abort();
+    }
+
+    return trusted allocate_panic_incident(PanicIncident.Cleanup(incident));
+}

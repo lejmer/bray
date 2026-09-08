@@ -340,6 +340,7 @@ impl<'binding_context, C: BindingQueryContext + ?Sized> Binder<'binding_context,
             unit,
             diagnostics,
             dependencies,
+            contract_inputs: None,
         })
     }
 }
@@ -350,9 +351,23 @@ pub(crate) struct BinderOutput {
     unit: BoundUnitConstructionResult,
     diagnostics: DiagnosticBag,
     dependencies: Box<[BinderDependency]>,
+    contract_inputs: Option<(
+        bray_symbols::CallableTypeTemplate,
+        Vec<LocalBindingSymbolId>,
+    )>,
 }
 
 impl BinderOutput {
+    pub(crate) fn with_contract_inputs(
+        mut self,
+        signature: bray_symbols::CallableTypeTemplate,
+        parameters: Vec<LocalBindingSymbolId>,
+    ) -> Self {
+        self.contract_inputs = Some((signature, parameters));
+
+        self
+    }
+
     pub(crate) const fn unit(&self) -> &BoundUnitConstructionResult {
         &self.unit
     }
@@ -372,8 +387,17 @@ impl BinderOutput {
         BoundUnitConstructionResult,
         DiagnosticBag,
         Box<[BinderDependency]>,
+        Option<(
+            bray_symbols::CallableTypeTemplate,
+            Vec<LocalBindingSymbolId>,
+        )>,
     ) {
-        (self.unit, self.diagnostics, self.dependencies)
+        (
+            self.unit,
+            self.diagnostics,
+            self.dependencies,
+            self.contract_inputs,
+        )
     }
 }
 

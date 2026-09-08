@@ -2,10 +2,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     AsyncSuspensionKind, AsyncSuspensionPoint, AsyncTaskOperation, AsyncTaskOperationKind,
-    BodyBehaviorCall, BodyBehaviorPhase, BoundBlock, BoundBlockItem, BoundCallResult,
-    BoundCallableTarget, BoundExpression, BoundExpressionId, BoundUnitRoot, CheckedAsync,
-    CheckedDependencyContracts, CheckedExpressionTypes, CheckedRefinements,
-    CheckedSemanticSelections, Liveness, SemanticSelection, StorageFlow, StoragePlan,
+    BodyBehaviorCall, BodyBehaviorPhase, BoundBlockItem, BoundCallResult, BoundCallableTarget,
+    BoundExpression, BoundExpressionId, BoundUnitRoot, CheckedAsync, CheckedDependencyContracts,
+    CheckedExpressionTypes, CheckedRefinements, CheckedSemanticSelections, Liveness,
+    SemanticSelection, StorageFlow, StoragePlan,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
@@ -83,6 +83,7 @@ where
         refinements,
         flow,
         &graph,
+        None,
     )
 }
 
@@ -100,6 +101,7 @@ pub(crate) fn check_async_analysis_with_graph<C>(
     refinements: &CheckedRefinements,
     flow: &StorageFlow,
     graph: &crate::analysis::ControlFlowGraph,
+    guarantees: Option<&crate::ExecutionGuaranteeInput>,
 ) -> CheckerOutcome<CheckedAsync, C::UpstreamError>
 where
     C: CheckerRequestContext + CheckerSemanticQueryProvider<CallableSignatureQuery> + ?Sized,
@@ -119,7 +121,7 @@ where
         }
     };
 
-    let local_initializers = local_initializers(request);
+    let local_initializers = request.unit().collect_local_initializers();
     let mut deferred_calls = BTreeMap::new();
     let mut active = BTreeSet::new();
     let mut diagnostics = DiagnosticBag::new();
@@ -280,17 +282,31 @@ where
         return CheckerOutcome::InfrastructureFailure(error);
     }
 
-    let (storage_requirements, cleanup_types, scope_exits, replacements, cleanup_diagnostics) =
-        match scope_exit_plans(request, storage, flow, dependencies) {
-            Ok(plans) => plans,
-            Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-            Err(CheckerQueryError::Infrastructure(error)) => {
-                return CheckerOutcome::InfrastructureFailure(error);
-            }
-            Err(CheckerQueryError::Upstream(error)) => {
-                return CheckerOutcome::UpstreamFailure(error);
-            }
-        };
+    let (
+        storage_requirements,
+        cleanup_types,
+        scope_exits,
+        replacements,
+        capture_cleanup,
+        cleanup_diagnostics,
+    ) = match scope_exit_plans(
+        request,
+        storage,
+        flow,
+        dependencies,
+        guarantees,
+        execution == Some(CallableExecution::Asynchronous),
+        types.callable_result_type(),
+    ) {
+        Ok(plans) => plans,
+        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Infrastructure(error)) => {
+            return CheckerOutcome::InfrastructureFailure(error);
+        }
+        Err(CheckerQueryError::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
+    };
 
     is_recovered |= scope_exits.iter().any(|exit| exit.is_recovered());
 
@@ -308,6 +324,7 @@ where
         is_recovered,
     )
     .and_then(|analysis| analysis.with_replacements(replacements))
+    .and_then(|analysis| analysis.with_capture_cleanup(capture_cleanup))
     {
         Ok(analysis) => analysis,
         Err(error) => {
@@ -416,42 +433,6 @@ where
     };
 
     Ok(execution)
-}
-
-fn local_initializers<C>(
-    request: CheckerUnitView<'_, C>,
-) -> BTreeMap<AnyLocalSymbolId, BoundExpressionId>
-where
-    C: CheckerRequestContext + ?Sized,
-{
-    let mut initializers = BTreeMap::new();
-
-    for (_, block) in request.unit().tree().blocks() {
-        collect_block_initializers(block, &mut initializers);
-    }
-
-    initializers
-}
-
-fn collect_block_initializers(
-    block: &BoundBlock,
-    initializers: &mut BTreeMap<AnyLocalSymbolId, BoundExpressionId>,
-) {
-    for item in block.items() {
-        match item {
-            BoundBlockItem::LocalBinding(binding) => {
-                for symbol in binding.bindings() {
-                    initializers.insert((*symbol).into(), binding.initializer());
-                }
-            }
-            BoundBlockItem::LocalConstant(constant) => {
-                if let Some(symbol) = constant.symbol() {
-                    initializers.insert(symbol.into(), constant.initializer());
-                }
-            }
-            BoundBlockItem::Expression(_) => {}
-        }
-    }
 }
 
 fn expression_deferred_calls<C>(

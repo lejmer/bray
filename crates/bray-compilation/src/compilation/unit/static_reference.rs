@@ -10,7 +10,7 @@ use bray_diagnostics::{
 };
 use bray_source::SourceSpan;
 use bray_symbols::{
-    CheckedConstraintKind, GenericConstraintObligationKey, GenericConstraintsQuery, GenericOwnerId,
+    CheckedConstraintKind, GenericConstraintObligationKey, GenericConstraintsQuery,
     ImplementationRequirementKey, ImplementationSelection, ProofOutcome, StaticInstanceKey,
     StaticInstanceTemplateId, StaticReferenceSelection, SymbolQueryRequest,
 };
@@ -75,15 +75,7 @@ impl Compilation {
     ) -> Result<(Vec<bray_symbols::ImplementationInstanceId>, DiagnosticBag), FactQueryError> {
         let symbol = declaration.into();
 
-        let owner = GenericOwnerId::try_new(symbol).ok_or_else(|| {
-            crate::compilation::SemanticQueryFailure::contract(
-                crate::compilation::SemanticQueryContext::Symbol(symbol),
-                crate::compilation::SemanticQueryViolation::UnexpectedSymbolKind {
-                    expected: crate::compilation::SemanticSymbolCategory::GenericOwner,
-                    actual: symbol.kind(),
-                },
-            )
-        })?;
+        let owner = crate::compilation::substitution::generic_owner(symbol)?;
 
         let satisfaction = self.generic_constraint_satisfaction_with_cancellation(
             GenericConstraintObligationKey::new(owner, substitution),

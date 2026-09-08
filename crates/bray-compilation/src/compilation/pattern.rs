@@ -237,6 +237,9 @@ impl Compilation {
             expression,
             |reference, target| {
                 let symbol = match target {
+                    BoundReferenceTarget::TypeQualifier(_) => {
+                        return Ok(ConstantReferenceResolution::Invalid);
+                    }
                     BoundReferenceTarget::Surface(symbol) => symbol,
                     BoundReferenceTarget::Local(local) => {
                         return Err(SemanticQueryFailure::contract(

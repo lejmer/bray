@@ -1,4 +1,4 @@
-module std.memory;
+trusted module std.memory;
 
 internal static CLEANUP_ORDER: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
 

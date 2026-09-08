@@ -47,6 +47,11 @@ impl NativeRuntimeStatus {
     /// The supplied task handle does not identify owned runtime state.
     pub const UNKNOWN_TASK: Self = Self(7);
 
+    /// Retains a status code received through the native ABI.
+    pub const fn from_code(code: u32) -> Self {
+        Self(code)
+    }
+
     /// Returns whether the operation completed successfully.
     pub const fn is_success(self) -> bool {
         self.0 == Self::SUCCESS.0
@@ -129,10 +134,12 @@ impl NativePanicCause {
     pub const ASSERTION: Self = Self(1);
     /// An explicit failure produced by `std.testing.fail`.
     pub const EXPLICIT_TEST_FAILURE: Self = Self(2);
+    /// Runtime admission rejected a task before publication.
+    pub const TASK_ADMISSION: Self = Self(3);
 
     /// Returns whether this cause is defined by the current native ABI.
     pub const fn is_known(&self) -> bool {
-        matches!(self.0, 0..=2)
+        matches!(self.0, 0..=3)
     }
 
     /// Returns the stable native ABI code.
@@ -141,7 +148,7 @@ impl NativePanicCause {
     }
 }
 
-/// Exact source occurrence retained by a native panic report.
+/// Exact source occurrence retained by native diagnostic metadata.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct NativeSourceAnchor {
@@ -295,6 +302,15 @@ pub type NativeThreadOperationCallback =
 
 /// Callback observing cancellation for one Bray-owned native thread.
 pub type NativeThreadCancellationCallback = extern "C" fn(context: usize) -> u32;
+
+/// Resolves bootstrap-owned cleanup while the native thread attachment remains live.
+pub type NativeSubstrateCleanupCallback = extern "C" fn();
+
+/// Copies a borrowed panic message into caller-owned writable storage.
+/// Both non-overlapping ranges remain live for this call and contain exactly `length` bytes.
+/// On success the callback initializes the destination with the source bytes. It retains neither pointer.
+pub type NativePanicMessageCopyCallback =
+    extern "C" fn(source: *const u8, destination: *mut u8, length: usize) -> NativeRuntimeStatus;
 
 /// Stable process-local handle for one host-owned executable root.
 #[repr(transparent)]
@@ -517,6 +533,8 @@ impl NativeFrameProgressKind {
     pub const YIELDED: Self = Self(5);
     /// The frame awaits the task event identified by its payload.
     pub const TASK_EVENT: Self = Self(6);
+    /// The frame awaits the terminal state of the task identified by its payload.
+    pub const TASK_COMPLETION: Self = Self(7);
 
     /// Creates a progress category from its stable ABI code.
     pub const fn from_code(code: u32) -> Self {
@@ -597,8 +615,9 @@ pub type NativeFrameActionCallback = extern "C-unwind" fn(context: usize);
 pub type NativeFrameCompletionMoveCallback =
     extern "C-unwind" fn(context: usize, destination: usize);
 
-/// Callback consuming an inactive context into a protected-frame adapter.
-pub type NativeFrameMoveBeforeStartCallback = extern "C" fn(context: usize) -> NativeProtectedFrame;
+/// Callback preparing the selected entry of an inactive context.
+pub type NativeFrameMoveBeforeStartCallback =
+    extern "C" fn(context: usize, entry: crate::NativeFrameEntry) -> NativeProtectedFrame;
 
 /// Callback resolving generated frame lifecycle state for one terminal exit.
 pub type NativeFrameResolveCallback = extern "C-unwind" fn(context: usize, exit: NativeFrameExit);
@@ -734,28 +753,6 @@ impl NativeProtectedFrame {
     }
 }
 
-/// One-shot address transferring a protected frame into the native runtime.
-///
-/// The caller must keep the referenced descriptor alive until the runtime call
-/// returns and must not use its generated-frame context after the call. The
-/// runtime copies the descriptor immediately and owns destruction from that
-/// point, including when validation or task publication fails.
-#[repr(transparent)]
-#[derive(Debug)]
-pub struct NativeProtectedFrameTransfer(usize);
-
-impl NativeProtectedFrameTransfer {
-    /// Creates a transfer for a descriptor that remains live during the call.
-    pub fn new(frame: &NativeProtectedFrame) -> Self {
-        Self(frame as *const NativeProtectedFrame as usize)
-    }
-
-    /// Returns the address of the transferred descriptor.
-    pub const fn address(&self) -> usize {
-        self.0
-    }
-}
-
 /// One inactive compiler-generated frame whose ownership has not entered the runtime.
 #[repr(C)]
 #[derive(Debug)]
@@ -776,11 +773,37 @@ impl NativeInactiveFrame {
         }
     }
 
-    /// Consumes the inactive frame and transfers its context into the adapter.
-    pub fn into_protected(self) -> NativeProtectedFrame {
-        (self.move_before_start)(self.context)
+    /// Materializes the selected adapter, borrowing or consuming context according to its entry.
+    pub fn into_protected(self, entry: crate::NativeFrameEntry) -> NativeProtectedFrame {
+        let mut frame = (self.move_before_start)(self.context, entry);
+
+        match entry {
+            crate::NativeFrameEntry::Body => {}
+            crate::NativeFrameEntry::CaptureCleanup => frame.resume = frame.cancel,
+            crate::NativeFrameEntry::CaptureQuiescence
+            | crate::NativeFrameEntry::CaptureDestruction => {
+                frame.completion_size = 0;
+                frame.completion_alignment = 1;
+                frame.move_completion = ignore_capture_completion;
+                frame.resolve_lifecycle = retain_capture_context;
+                frame.broadcast_tasks = retain_borrowed_context;
+                frame.cancel = frame.resume;
+
+                if entry == crate::NativeFrameEntry::CaptureQuiescence {
+                    frame.destroy = retain_borrowed_context;
+                }
+            }
+        }
+
+        frame
     }
 }
+
+extern "C-unwind" fn ignore_capture_completion(_: usize, _: usize) {}
+
+extern "C-unwind" fn retain_capture_context(_: usize, _: NativeFrameExit) {}
+
+extern "C-unwind" fn retain_borrowed_context(_: usize) {}
 
 /// Callback waking a generated task observer.
 pub type NativeWakeCallback = extern "C" fn(context: usize);
@@ -847,10 +870,10 @@ mod tests {
     use super::{
         NativeExecutionLane, NativeExecutionLaneResult, NativeFrameAffinity, NativeFrameExit,
         NativeFrameProgress, NativeFrameProgressKind, NativeFrameState, NativeInactiveFrame,
-        NativeLaneRequirements, NativePanicCause, NativeProtectedFrame,
-        NativeProtectedFrameTransfer, NativeRootHandle, NativeRootStart, NativeRunOutcome,
-        NativeRunState, NativeRuntimeConfiguration, NativeRuntimeStatus, NativeSourceAnchor,
-        NativeStringView, NativeTaskAllocation, NativeTaskHandle,
+        NativeLaneRequirements, NativePanicCause, NativeProtectedFrame, NativeRootHandle,
+        NativeRootStart, NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration,
+        NativeRuntimeStatus, NativeSourceAnchor, NativeStringView, NativeTaskAllocation,
+        NativeTaskHandle,
     };
 
     #[test]
@@ -864,8 +887,24 @@ mod tests {
         assert_abi_layout!(NativeLaneRequirements, size: 4, align: 4, fields: {});
         assert_abi_layout!(NativeFrameProgressKind, size: 4, align: 4, fields: {});
         assert_abi_layout!(NativeFrameExit, size: 4, align: 4, fields: {});
-        assert_abi_layout!(NativeProtectedFrameTransfer, size: 8, align: 8, fields: {});
         assert_abi_layout!(NativeExecutionLane, size: 4, align: 4, fields: {});
+    }
+
+    #[test]
+    fn native_runtime_status_codes_round_trip_without_narrowing() {
+        for code in [0, 1, 3, 5, 7, u32::MAX] {
+            assert_eq!(NativeRuntimeStatus::from_code(code).code(), code);
+        }
+
+        assert_eq!(
+            NativeRuntimeStatus::from_code(0),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        assert_eq!(
+            NativeRuntimeStatus::from_code(7),
+            NativeRuntimeStatus::UNKNOWN_TASK
+        );
     }
 
     #[test]

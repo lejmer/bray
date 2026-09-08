@@ -79,10 +79,10 @@ pub(super) fn validate_memory_operation(
         | CheckedMemoryOperationKind::RawBufferInitializedSlice
         | CheckedMemoryOperationKind::RawBufferInitializedSliceMut
         | CheckedMemoryOperationKind::RawBufferSparePointer { .. }
-        | CheckedMemoryOperationKind::RawBufferSetInitializedCount
-        | CheckedMemoryOperationKind::RawBufferRelease { .. } => true,
-        CheckedMemoryOperationKind::RawBufferReplace { .. }
-        | CheckedMemoryOperationKind::RawBufferRelocate { .. } => types[0] == types[1],
+        | CheckedMemoryOperationKind::RawBufferSetInitializedCount => true,
+        CheckedMemoryOperationKind::RawBufferRelease { .. }
+        | CheckedMemoryOperationKind::RawBufferReplace { .. } => false,
+        CheckedMemoryOperationKind::RawBufferRelocate { .. } => types[0] == types[1],
         CheckedMemoryOperationKind::ByteBufferFill
         | CheckedMemoryOperationKind::ByteBufferCopy
         | CheckedMemoryOperationKind::ByteBufferRead
@@ -130,4 +130,73 @@ pub(super) fn validate_memory_operation(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        MirBlockKind, MirImmediateValue, MirOperand, MirOperationKind, MirSourceAnchor,
+        MirTerminatorKind, MirUnitBuilder, MirUnitKind,
+    };
+    use crate::{MirMemoryOperation, MirUnitBuildError};
+    use bray_bound_tree::CheckedMemoryOperationKind;
+
+    #[test]
+    fn raw_buffer_lifecycle_intrinsics_require_expansion_before_mir_publication() {
+        let values = bray_symbols::SemanticValueStore::try_new().unwrap();
+
+        let ty = values
+            .intern_type(bray_symbols::TypeData::tuple([]))
+            .unwrap();
+
+        for kind in [
+            CheckedMemoryOperationKind::RawBufferRelease { element: ty },
+            CheckedMemoryOperationKind::RawBufferReplace { element: ty },
+        ] {
+            let bound = bray_testing::test_bound_unit(1802);
+            let source = MirSourceAnchor::from(bound.key().source());
+
+            let mut builder = MirUnitBuilder::for_bound(
+                bound.identity(),
+                MirUnitKind::Synchronous,
+                crate::test_support::test_target(),
+            );
+
+            let entry = builder
+                .push_block(source.clone(), MirBlockKind::Ordinary)
+                .unwrap();
+
+            let operands = vec![
+                MirOperand::Immediate {
+                    value: MirImmediateValue::Unit,
+                    ty
+                };
+                kind.operand_count()
+            ];
+
+            let operation = builder
+                .push_operation(
+                    entry,
+                    source.clone(),
+                    MirOperationKind::Memory(MirMemoryOperation::new(
+                        kind,
+                        operands,
+                        vec![ty; kind.operand_count()],
+                        None,
+                    )),
+                    None,
+                )
+                .unwrap()
+                .operation();
+
+            builder
+                .set_terminator(entry, source, MirTerminatorKind::Return(None))
+                .unwrap();
+
+            assert_eq!(
+                builder.finish(entry),
+                Err(MirUnitBuildError::InvalidMemoryOperation(operation))
+            );
+        }
+    }
 }

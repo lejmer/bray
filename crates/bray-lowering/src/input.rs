@@ -112,7 +112,16 @@ impl<'unit> LoweringInput<'unit> {
 
         validate_literal_target(literal_values, &target)?;
         validate_literal_values(literal_values, semantic_values)?;
+
         lowering_plans.validate_cleanup_types(semantic_values)?;
+
+        if unit_kind.protected_frame().is_some() && lowering_plans.capture_cleanup().is_none() {
+            return Err(LoweringPlanFailure::capture_cleanup(
+                crate::LoweringPlanFailureCause::Missing,
+                None,
+            )
+            .into());
+        }
 
         let semantic_selections = lowering_plans.semantic_selections();
         let storage_plan = lowering_plans.storage_plan();
@@ -120,7 +129,6 @@ impl<'unit> LoweringInput<'unit> {
         let liveness = lowering_plans.liveness();
 
         validate_semantic_completeness(unit, expression_types, semantic_selections, storage_plan)?;
-
         validate_pattern_completeness(unit, patterns)?;
 
         validate_liveness(unit, storage_plan, liveness)?;

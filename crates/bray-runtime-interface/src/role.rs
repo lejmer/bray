@@ -196,10 +196,6 @@ pub enum RuntimeRoleContractEffect {
     AppendGeneratorValue,
     /// Finish generator accumulation and transfer its completed value.
     FinishGenerator,
-    /// Invoke task-cleanup callbacks for initialized generator elements.
-    BroadcastGeneratorCleanup,
-    /// Finalize and destroy initialized generator elements, then release their storage.
-    DestroyGenerator,
     /// Construct one owned panic report.
     ConstructPanicReport,
     /// Propagate one owned panic report without resuming the failed continuation.

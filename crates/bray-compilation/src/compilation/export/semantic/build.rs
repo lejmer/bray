@@ -67,11 +67,19 @@ pub(in crate::compilation::export) fn build_semantics(
 
     let target_dependencies = target_dependencies(compilation, graph, selected, &mut export)?;
 
-    let constant_callable_bodies =
-        constant_callable_bodies(compilation, &binder, selected, &mut export)?;
+    let constant_callable_bodies = crate::profile::profile_operation(
+        compilation.state.fact_runtime.profile(),
+        crate::profile::ProfileOperation::InterfaceConstantBodies,
+        || constant_callable_bodies(compilation, &binder, selected, &mut export),
+        crate::profile::result_outcome,
+    )?;
 
-    let (executable_templates, runtime_requirements) =
-        executable_templates(compilation, graph, selected, &mut export)?;
+    let (executable_templates, runtime_requirements) = crate::profile::profile_operation(
+        compilation.state.fact_runtime.profile(),
+        crate::profile::ProfileOperation::InterfaceExecutableTemplates,
+        || executable_templates(compilation, graph, selected, &mut export),
+        crate::profile::result_outcome,
+    )?;
 
     let native_boundaries = native_boundaries(compilation, selected, &export)?;
 
@@ -164,7 +172,7 @@ fn constant_callable_bodies(
         let result_type = export.resolve_type_template(symbol, signature.value().result())?;
 
         let result_type = if let Some(context @ bray_symbols::SelfTypeContext::NamedType(_)) =
-            crate::compilation::binder::self_type_context(export.graph, symbol)
+            export.graph.contextual_self_scope(symbol)
         {
             let replacement =
                 crate::compilation::substitution::contextual_self_type(binder, context)
@@ -597,13 +605,18 @@ fn export_executable_template_family(
 
         let mut context = ExecutableTemplateExporter::new(export, &identities);
 
-        let payload = bray_package_interface::encode_executable_template(mir, &mut context)
-            .map_err(|error| match error {
-                bray_package_interface::ExecutableTemplateEncodeError::Semantic(error) => error,
-                bray_package_interface::ExecutableTemplateEncodeError::InvalidUnitKind => {
-                    invalid_executable_template("invalid_mir_unit_kind")
-                }
-            })?;
+        let payload = crate::profile::profile_operation(
+            compilation.state.fact_runtime.profile(),
+            crate::profile::ProfileOperation::InterfaceTemplateEncoding,
+            || bray_package_interface::encode_executable_template(mir, &mut context),
+            crate::profile::result_outcome,
+        )
+        .map_err(|error| match error {
+            bray_package_interface::ExecutableTemplateEncodeError::Semantic(error) => error,
+            bray_package_interface::ExecutableTemplateEncodeError::InvalidUnitKind => {
+                invalid_executable_template("invalid_mir_unit_kind")
+            }
+        })?;
 
         let template = InterfaceExecutableTemplate::new(owner, identity, family_size, payload)
             .map(|template| template.with_platform_service(platform_service))
@@ -688,22 +701,10 @@ fn executable_template_unit(
         return Ok(None);
     }
 
-    let owner = graph.symbol_key(owner).ok_or_else(|| {
-        super::super::export_contract_error(
-            super::super::PackageInterfaceExportContract::MissingRuntimeDefaultOwnerKey,
-        )
-    })?;
-
     compilation
-        .declared_unit_keys()
+        .declared_unit_key(owner, bray_bound_tree::BoundUnitKind::RuntimeDefault)
         .map_err(|cause| {
             super::super::executable_template_evaluation_export_error(declaration.clone(), cause)
-        })
-        .map(|units| {
-            units.into_iter().find(|unit| {
-                unit.kind() == bray_bound_tree::BoundUnitKind::RuntimeDefault
-                    && unit.declared_owner() == owner
-            })
         })
 }
 

@@ -1,6 +1,13 @@
 @target(target.identity.SYSTEM == "windows")
 trusted internal module std.platform;
 
+internal func file_close_completed(pos status: PlatformStatus) -> bool
+    executes(pure, total)
+    ensures(status.category != 0 || result)
+{
+    return status.category == 0;
+}
+
 internal struct LocalAllocation
 {
     pointer: RawPointer<u8>;

@@ -205,6 +205,18 @@ mod tests {
     }
 
     #[test]
+    fn child_disposal_reports_ownership_separately_from_status() {
+        let signature = PlatformServiceRole::ChildDispose.signature();
+
+        assert_eq!(
+            signature.parameters(),
+            [PlatformAbiType::U64, PlatformAbiType::PointerU32]
+        );
+
+        assert_eq!(signature.result(), PlatformAbiType::Status);
+    }
+
+    #[test]
     fn thread_storage_roles_have_closed_bootstrap_shapes() {
         let create = PlatformServiceRole::ThreadStorageCreate;
         let load = PlatformServiceRole::ThreadStorageLoad;

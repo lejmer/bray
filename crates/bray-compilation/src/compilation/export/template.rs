@@ -25,7 +25,7 @@ pub(super) fn export_checked_source_template(
     key: BoundUnitKey,
     kind: CheckedTemplateKind,
     expression: SyntaxAnchor,
-    inputs: Vec<SourceTemplateInput>,
+    mut inputs: Vec<SourceTemplateInput>,
     dependency: bray_symbols::DependencyContractTemplateId,
 ) -> Result<InterfaceCheckedTemplate, PackageInterfaceExportError> {
     let cancellation = &compilation.state.cancellation;
@@ -94,6 +94,81 @@ pub(super) fn export_checked_source_template(
     );
 
     let semantics = semantics.result().value();
+
+    if matches!(
+        kind,
+        CheckedTemplateKind::PredicateDefinition | CheckedTemplateKind::CallableContract
+    ) {
+        let unit = bound.result().value();
+
+        let root = source_expression_root(unit, expression)
+            .ok_or_else(|| incomplete("missing_source_expression_root"))?;
+
+        let condition = compilation
+            .symbolic_expression_terms(unit, semantics, &[root], cancellation)
+            .map_err(super::fact_query_export_error)?
+            .1
+            .into_iter()
+            .next()
+            .flatten();
+
+        if let Some(condition) = condition {
+            for (id, expression) in unit.tree().expressions() {
+                if let BoundExpression::Name(name) = expression
+                    && let BoundReferenceTarget::Local(
+                        bray_symbols::AnyLocalSymbolId::PostconditionResult(_),
+                    ) = name.target()
+                    && !inputs
+                        .iter()
+                        .any(|input| input.target == Some(name.target()))
+                {
+                    let ty = semantics
+                        .types()
+                        .expression(id)
+                        .ok_or_else(|| incomplete("missing_postcondition_result_type"))?
+                        .ty();
+
+                    inputs.push(SourceTemplateInput::new(
+                        InterfaceCheckedTemplateInputKind::PostconditionResult,
+                        Some(name.target()),
+                        ty,
+                    ));
+                }
+            }
+
+            let result_type = semantics
+                .types()
+                .expression(root)
+                .ok_or_else(|| incomplete("missing_expression_type"))?
+                .ty();
+
+            let inputs = inputs
+                .iter()
+                .map(|input| {
+                    // Input kinds hold only copyable roles or shared symbol references.
+                    Ok(InterfaceCheckedTemplateInput::new(
+                        input.kind.clone(),
+                        export.type_id(input.ty)?,
+                    ))
+                })
+                .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
+
+            return Ok(InterfaceCheckedTemplate::new(
+                kind,
+                inputs,
+                [InterfaceCheckedTemplateNode::new(
+                    InterfaceCheckedTemplateOperation::Constant {
+                        term: export.constant_term_id(condition)?,
+                        usage: Default::default(),
+                    },
+                    export.type_id(result_type)?,
+                )],
+                [],
+                CheckedTemplateNodeId::new(0),
+                interface_behavior,
+            ));
+        }
+    }
 
     export_source_template(
         export,
