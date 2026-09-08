@@ -83,6 +83,7 @@ impl IndexedGuard(MutableElementIndex<i32>)
         let previous = core.atomic.load<usize, 1>(&INDEX_EVALUATIONS);
 
         core.atomic.store<usize, 4>(&INDEX_EVALUATIONS, previous + 1);
+
         return &mut self.value;
     }
 }
@@ -253,6 +254,7 @@ func selected_index() -> usize
     let previous = core.atomic.fetch_add<usize, 0>(&INDEX_EVALUATIONS, value = 1);
 
     assert(previous == 0);
+
     return 0;
 }
 
@@ -306,6 +308,7 @@ func heap_replacement(pos fails: bool, destructor_fails: bool = false)
     let result = catch
     {
         replace_heap(&mut slot);
+
         yield unit;
     };
 
@@ -547,6 +550,7 @@ async func main() -> i32
 {
     reset();
     owned();
+
     assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
     assert(core.atomic.load<usize, 1>(&FINALIZATIONS) == 12);
 
@@ -561,47 +565,58 @@ async func main() -> i32
 
     reset();
     caught_old_cleanup();
+
     assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 2143);
     assert(core.atomic.load<usize, 1>(&FINALIZATIONS) == 2143);
 
     reset();
     rhs_failure();
+
     assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 1);
 
     reset();
     nullable_and_union();
+
     assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 1234);
 
     reset();
     indexed();
+
     assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 123);
 
     reset();
     custom_indexed();
+
     assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
 
     reset();
     heap_replacement(false);
+
     assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
 
     reset();
     heap_replacement(true);
+
     assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
 
     reset();
     heap_replacement(false, destructor_fails = true);
+
     assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
 
     reset();
     heap_replacement(true, destructor_fails = true);
+
     assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 12);
 
     reset();
     partial_and_rhs_moves();
+
     assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 25143);
 
     reset();
     evaluated_rhs_failure();
+
     assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 21);
 
     reset();
@@ -613,10 +628,13 @@ async func main() -> i32
 
     reset();
     await borrowed_cancellation(false);
+
     assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 2143);
 
     reset();
     await borrowed_cancellation(true);
+
     assert(core.atomic.load<usize, 1>(&DESTRUCTIONS) == 2143);
+
     return 0;
 }

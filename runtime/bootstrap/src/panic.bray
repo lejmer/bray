@@ -82,6 +82,7 @@ trusted internal func panic_report_observation(pos payload: usize) -> u32
     {
         let report: RawPointer<PanicReportData> = trusted panic_report_from_payload(address);
         let value: PanicReportData = trusted read_opaque<PanicReportData>(report);
+
         let status: u32 = trusted report_panic_incident(value.incident);
 
         if report_status == STATUS_SUCCESS
@@ -125,6 +126,7 @@ trusted internal func panic_report_suppression(pos primary: usize, pos incident:
         {
             value.next_incident = incident;
             trusted write_opaque<PanicReportData>(report, value);
+
             return primary;
         }
     }
