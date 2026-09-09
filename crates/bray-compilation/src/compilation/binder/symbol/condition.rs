@@ -266,8 +266,15 @@ mod tests {
 
     #[test]
     fn callable_type_capabilities_require_a_trusted_callable_type() {
-        let compilation =
-            compilation("trusted module app; func outer(operation: func() uses(foreign_call)) {}");
+        let compilation = compilation(
+            r#"
+            trusted module app;
+
+            func outer(operation: func()
+                    uses(foreign_call)
+                ) {}
+            "#,
+        );
 
         let diagnostics = compilation.check_diagnostics();
 
@@ -294,10 +301,28 @@ mod tests {
         use bray_binder::BindingQueryContext;
 
         let compilation = compilation(
-            "module app; func outer(pos outer_value: i32, \
-             operation: func(pos ready: bool) -> bool when(ready) { executes(pure, total) ensures(result) }) \
-             { let callback = lambda(pos ready: bool) -> bool \
-             when(ready) { executes(pure, total) ensures(result) } { return ready; }; }",
+            r#"
+            module app;
+
+            func outer(pos outer_value: i32, operation: func(pos ready: bool) -> bool
+                    when(ready)
+                    {
+                        executes(pure, total)
+                        ensures(result)
+                    }
+                )
+                {
+                    let callback = lambda(pos ready: bool) -> bool
+                        when(ready)
+                        {
+                            executes(pure, total)
+                            ensures(result)
+                        }
+                    {
+                        return ready;
+                    };
+                }
+            "#,
         );
 
         let context = compilation
@@ -419,10 +444,26 @@ mod tests {
         use bray_binder::BindingQueryContext;
 
         let compilation = compilation(
-            "module app; func outer(pos captured: bool, \
-             operation: func(pos ready: bool) -> bool when(captured) { executes(pure) }) \
-             { let callback = lambda(pos ready: bool) -> bool \
-             when(captured) { executes(pure) } { return ready; }; }",
+            r#"
+            module app;
+
+            func outer(pos captured: bool, operation: func(pos ready: bool) -> bool
+                    when(captured)
+                    {
+                        executes(pure)
+                    }
+                )
+                {
+                    let callback = lambda(pos ready: bool) -> bool
+                        when(captured)
+                        {
+                            executes(pure)
+                        }
+                    {
+                        return ready;
+                    };
+                }
+            "#,
         );
 
         let context = compilation
@@ -461,9 +502,26 @@ mod tests {
         use bray_binder::BindingQueryContext;
 
         let compilation = compilation(
-            "module app; func outer(operation: func(pos ready: bool) -> bool \
-             when(result) { executes(pure) }) { let callback = \
-             lambda(pos ready: bool) -> bool when(result) { executes(pure) } { return ready; }; }",
+            r#"
+            module app;
+
+            func outer(operation: func(pos ready: bool) -> bool
+                    when(result)
+                    {
+                        executes(pure)
+                    }
+                )
+                {
+                    let callback = lambda(pos ready: bool) -> bool
+                        when(result)
+                        {
+                            executes(pure)
+                        }
+                    {
+                        return ready;
+                    };
+                }
+            "#,
         );
 
         let context = compilation
@@ -511,8 +569,16 @@ mod tests {
         use bray_symbols::{CallableContractTypeQuery, SymbolOrigin, TypeData};
 
         let compilation = compilation(
-            "module app; callable Checked = func(pos ready: bool) -> bool \
-             when(ready) { executes(pure, total) ensures(result) };",
+            r#"
+            module app;
+
+            callable Checked = func(pos ready: bool) -> bool
+                when(ready)
+                {
+                    executes(pure, total)
+                    ensures(result)
+                };
+            "#,
         );
 
         let context = compilation
@@ -561,8 +627,16 @@ mod tests {
         };
 
         let compilation = compilation(
-            "module app; callable Checked<T> = func(pos ready: bool, value: T) -> bool \
-             when(ready) { executes(pure, total) ensures(result) };",
+            r#"
+            module app;
+
+            callable Checked<T> = func(pos ready: bool, value: T) -> bool
+                when(ready)
+                {
+                    executes(pure, total)
+                    ensures(result)
+                };
+            "#,
         );
 
         let context = compilation
@@ -629,9 +703,19 @@ mod tests {
     #[test]
     fn callable_conditions_are_cached_without_checking_the_ordinary_body() {
         let compilation = compilation(
-            "module app; func check(pos ready: bool) -> bool \
-             when(ready) { executes(pure, total) ensures(result) } \
-             { return unknown_body_function(); }",
+            r#"
+            module app;
+
+            func check(pos ready: bool) -> bool
+                when(ready)
+                {
+                    executes(pure, total)
+                    ensures(result)
+                }
+            {
+                return unknown_body_function();
+            }
+            "#,
         );
 
         let owner = CallableSymbolId::from(source_function(&compilation, "check"));

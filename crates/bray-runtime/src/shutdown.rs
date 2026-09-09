@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use bray_runtime_model::{ProtectedAsyncFrameId, ProtectedFrameStateId};
 
+use crate::incident::OwnedCleanupIncident;
 use crate::{RunOutcome, TaskId};
 
 /// A cleanup failure transferred to the product host for reporting.
@@ -12,7 +13,7 @@ pub struct CleanupIncident {
     ordinal: u64,
     producer: CleanupIncidentProducer,
     origin: CleanupIncidentOrigin,
-    payload: Box<dyn Any + Send>,
+    payload: OwnedCleanupIncident,
 }
 
 impl CleanupIncident {
@@ -20,7 +21,7 @@ impl CleanupIncident {
         ordinal: u64,
         producer: CleanupIncidentProducer,
         origin: CleanupIncidentOrigin,
-        payload: Box<dyn Any + Send>,
+        payload: OwnedCleanupIncident,
     ) -> Self {
         Self {
             ordinal,
@@ -47,19 +48,17 @@ impl CleanupIncident {
 
     /// Returns whether the erased payload has one exact host representation.
     pub fn payload_is<T: Any>(&self) -> bool {
-        self.payload.is::<T>()
+        self.payload.payload().is::<T>()
     }
 
     /// Returns the host type identity carried by the erased payload descriptor.
     pub fn payload_type_id(&self) -> std::any::TypeId {
-        self.payload.as_ref().type_id()
+        self.payload.payload().type_id()
     }
 
     /// Reports and destroys an owned native payload after its host-origin record is emitted.
     pub(crate) fn report_native_payload(self) -> bool {
-        self.payload
-            .downcast::<crate::incident::OwnedCleanupIncident>()
-            .is_ok_and(|incident| incident.report())
+        self.payload.report()
     }
 }
 
@@ -129,14 +128,18 @@ impl CleanupReportSink {
         origin: CleanupIncidentOrigin,
         payload: impl Any + Send,
     ) {
-        self.transfer_erased(producer, origin, Box::new(payload));
+        self.transfer_owned(
+            producer,
+            origin,
+            OwnedCleanupIncident::host(Box::new(payload)),
+        );
     }
 
-    pub(crate) fn transfer_erased(
+    pub(crate) fn transfer_owned(
         &self,
         producer: CleanupIncidentProducer,
         origin: CleanupIncidentOrigin,
-        payload: Box<dyn Any + Send>,
+        payload: OwnedCleanupIncident,
     ) {
         let mut state = self
             .state

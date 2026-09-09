@@ -308,7 +308,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             (broadcast, bray_ir::MirCleanupPhase::TaskCancellation),
             (lifecycle, bray_ir::MirCleanupPhase::LifecycleResolution),
         ] {
-            if helper.reference() != &(bray_ir::MirHelperReference::Cleanup { phase, ty: error_type }) {
+            if helper.reference()
+                != &(bray_ir::MirHelperReference::Cleanup {
+                    phase,
+                    ty: error_type,
+                })
+            {
                 return Err(CodegenFailure::GeneratedModuleInvariant);
             }
         }
@@ -392,8 +397,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             )?;
         } else {
             for helper in [broadcast, lifecycle] {
-                if helper.symbol().is_some() && self.invoke_helper(helper, &[error.into()])?.is_some() {
-                    return Err(CodegenFailure::generated_module_invariant((operation, error_type)));
+                if helper.symbol().is_some()
+                    && self.invoke_helper(helper, &[error.into()])?.is_some()
+                {
+                    return Err(CodegenFailure::generated_module_invariant((
+                        operation, error_type,
+                    )));
                 }
             }
         }

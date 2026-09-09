@@ -3,6 +3,12 @@ use std::sync::Arc;
 use super::{InterfaceConstantTermId, InterfaceGenericSubstitutionId, InterfaceTypeId};
 use crate::InterfaceSymbolReference;
 
+/// A callable proof dependency with artifact-local substitution and dispatch identities.
+pub type InterfaceCallableEvidenceTarget = bray_symbols::CallableEvidenceTarget<
+    super::InterfaceCallableInstanceId,
+    (InterfaceTypeId, super::InterfaceTraitApplicationId),
+>;
+
 /// One artifact-stable generic argument.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum InterfaceGenericArgument {

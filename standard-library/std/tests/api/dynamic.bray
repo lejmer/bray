@@ -1,5 +1,5 @@
 @target(target.platform.dynamic_loading)
-module bray.standard_library_tests.dynamic;
+trusted module bray.standard_library_tests.dynamic;
 
 using std.dynamic;
 using std.ffi;

@@ -1304,6 +1304,28 @@ mod tests {
         let tree = builder.finish();
         let graph = graph(&tree, &key, root);
 
+        let success = graph
+            .edges()
+            .iter()
+            .find(|edge| edge.kind() == AnalysisEdgeKind::ResultSuccess)
+            .unwrap()
+            .target();
+
+        let producing_blocks = graph
+            .blocks()
+            .iter()
+            .filter(|block| {
+                block.operations().iter().any(|operation| {
+                    graph.operation(*operation).is_some_and(|operation| {
+                        operation.kind() == AnalysisOperationKind::Bound(propagation.into())
+                    })
+                })
+            })
+            .map(|block| block.id())
+            .collect::<Vec<_>>();
+
+        assert_eq!(producing_blocks, [success]);
+
         for edge in [
             AnalysisEdgeKind::ResultSuccess,
             AnalysisEdgeKind::ResultErrorPropagation,

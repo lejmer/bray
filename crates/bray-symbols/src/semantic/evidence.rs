@@ -5,6 +5,35 @@ use bray_base::sorted_unique_shared_slice;
 use super::CallableExecutionGuarantee;
 use crate::SymbolOrdinal;
 
+/// A selected callable and the exact trait application that supplies it, when dispatched.
+/// The identities retain substitutions so proof consumers can resolve generic witnesses.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct CallableEvidenceTarget<C, R> {
+    callable: C,
+    dispatch: Option<R>,
+}
+
+impl<C: Copy, R: Copy> CallableEvidenceTarget<C, R> {
+    /// Retains a direct callable or a member selected through an implementation requirement.
+    pub const fn new(callable: C, dispatch: Option<R>) -> Self {
+        Self { callable, dispatch }
+    }
+
+    /// Returns the substituted callable identity.
+    pub const fn callable(self) -> C {
+        self.callable
+    }
+
+    /// Returns the exact requirement whose witness selects the member implementation.
+    pub const fn dispatch(self) -> Option<R> {
+        self.dispatch
+    }
+}
+
+/// A proof dependency expressed in resolved semantic identities.
+pub type ResolvedCallableEvidenceTarget =
+    CallableEvidenceTarget<crate::CallableInstanceId, crate::ImplementationRequirementKey>;
+
 /// A declaration-level promise that callers can require as implementation evidence.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum CallableContractObligation {
@@ -65,7 +94,7 @@ impl<S> CallableContractEvidence<S> {
     }
 
     /// Resolves dependency identities while preserving their obligations and proof authority.
-    pub fn try_map_symbols<T: Ord, E>(
+    pub fn try_map_targets<T: Ord, E>(
         &self,
         mut map: impl FnMut(&S) -> Result<T, E>,
     ) -> Result<CallableContractEvidence<T>, E> {
@@ -109,20 +138,20 @@ mod tests {
     }
 
     #[test]
-    fn symbol_mapping_retains_body_and_foreign_authority_and_failures() {
+    fn target_mapping_retains_body_and_foreign_authority_and_failures() {
         let obligation = CallableContractObligation::Postcondition(SymbolOrdinal::new(1));
         let checked = CallableContractEvidence::new(obligation, [(2, obligation)]);
 
         let mapped = checked
-            .try_map_symbols(|symbol| Ok::<_, ()>(symbol + 1))
+            .try_map_targets(|symbol| Ok::<_, ()>(symbol + 1))
             .unwrap();
 
         assert_eq!(mapped.origin(), super::CallableEvidenceOrigin::CheckedBody);
         assert_eq!(mapped.dependencies(), [(3, obligation)]);
-        assert_eq!(checked.try_map_symbols(|_| Err::<u32, _>(7)), Err(7));
+        assert_eq!(checked.try_map_targets(|_| Err::<u32, _>(7)), Err(7));
 
         let foreign = CallableContractEvidence::<u32>::foreign_assertion(obligation);
-        let mapped = foreign.try_map_symbols(|_| Err::<u64, _>(7)).unwrap();
+        let mapped = foreign.try_map_targets(|_| Err::<u64, _>(7)).unwrap();
 
         assert_eq!(
             mapped.origin(),

@@ -121,9 +121,31 @@ mod tests {
     fn lifecycle_selection_preserves_direct_and_inherent_generic_self() {
         for source in [
             "module app; struct Resource { finalize() {} }",
-            "module app; struct Resource {} impl Resource { finalize() {} }",
+            r#"
+            module app;
+
+            struct Resource
+            {
+            }
+
+            impl Resource
+            {
+                finalize() {}
+            }
+            "#,
             "module app; struct Resource<T> { finalize() {} }",
-            "module app; struct Resource<T> {} impl Resource<U> { finalize() {} }",
+            r#"
+            module app;
+
+            struct Resource<T>
+            {
+            }
+
+            impl Resource<U>
+            {
+                finalize() {}
+            }
+            "#,
         ] {
             let compilation = compilation(source);
             let cancellation = CancellationToken::new();

@@ -186,7 +186,7 @@ impl RefinementResult<'_> {
                     continue;
                 };
 
-                match occurrence_refinements.entry(operation.kind().node()) {
+                match occurrence_refinements.entry(operation.kind().point()) {
                     std::collections::btree_map::Entry::Vacant(entry) => {
                         entry.insert(state.refinements.clone());
                     }
@@ -202,8 +202,8 @@ impl RefinementResult<'_> {
         occurrence_refinements
             .into_iter()
             .filter(|(_, refinements)| !refinements.is_empty())
-            .map(|(node, refinements)| {
-                RefinementOccurrence::new(node, self.universe.active_refinements(&refinements))
+            .map(|(point, refinements)| {
+                RefinementOccurrence::at(point, self.universe.active_refinements(&refinements))
             })
             .collect()
     }
@@ -341,17 +341,25 @@ fn transfer_operation(
             phase: AnalysisScopeExitPhase::LifecycleResolution,
             ..
         } => {}
-        AnalysisOperationKind::Bound(node) => {
-            universe.invalidate_for_operation(&mut state.refinements, node, storage);
-            universe.finish_operation(&mut state.refinements, node);
-        }
-        AnalysisOperationKind::Call {
-            expression,
-            phase: AnalysisCallPhase::Attempt,
-        } => {
+        AnalysisOperationKind::Bound(_)
+        | AnalysisOperationKind::Suspension { .. }
+        | AnalysisOperationKind::TaskOperation { .. } => {
             universe.invalidate_for_operation(
                 &mut state.refinements,
-                AnyBoundNodeId::Expression(expression),
+                operation.kind().point(),
+                storage,
+            );
+
+            universe.finish_operation(&mut state.refinements, operation.kind().node());
+        }
+        AnalysisOperationKind::Call {
+            phase: AnalysisCallPhase::Attempt,
+            ..
+        }
+        | AnalysisOperationKind::PropagationFailure(_) => {
+            universe.invalidate_for_operation(
+                &mut state.refinements,
+                operation.kind().point(),
                 storage,
             );
         }
@@ -363,13 +371,6 @@ fn transfer_operation(
                 &mut state.refinements,
                 AnyBoundNodeId::Expression(expression),
             );
-        }
-        AnalysisOperationKind::Suspension { expression, .. }
-        | AnalysisOperationKind::TaskOperation { expression, .. } => {
-            let node = AnyBoundNodeId::Expression(expression);
-
-            universe.invalidate_for_operation(&mut state.refinements, node, storage);
-            universe.finish_operation(&mut state.refinements, node);
         }
         AnalysisOperationKind::ScopeExit {
             phase: AnalysisScopeExitPhase::TaskCancellationBroadcast,

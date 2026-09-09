@@ -220,6 +220,17 @@ impl InterfaceSemanticIdRemap {
         )
     }
 
+    pub(super) fn callable_instance(
+        &self,
+        id: InterfaceCallableInstanceId,
+    ) -> Result<InterfaceCallableInstanceId, InterfaceSemanticCommitError> {
+        mapped(
+            &self.callable_instances,
+            id.raw(),
+            InterfaceSemanticTableKind::CallableInstance,
+        )
+    }
+
     pub(super) fn dependency_contract(
         &self,
         id: InterfaceDependencyContractId,

@@ -1,4 +1,4 @@
-module bray.standard_library_tests.ordered_collection;
+trusted module bray.standard_library_tests.ordered_collection;
 
 using std.bytes;
 using std.collection;

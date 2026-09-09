@@ -287,31 +287,26 @@ fn dependency_guard_may_apply(
                     | PatternPredicate::OwnedTarget => None,
                 },
                 RefinementKind::Condition { .. }
+                | RefinementKind::UnionVariant { .. }
                 | RefinementKind::TrustBoundary(_)
                 | RefinementKind::NormalCompletion(_) => None,
             })
             .unwrap_or(true)
         }
         BoundDependencyGuard::ActiveUnionVariant { access, variant } => {
-            refinement_guard_value(storage, refinements, access, |kind| match kind {
-                RefinementKind::Pattern {
-                    predicate: PatternPredicate::ActiveUnionVariant(active),
-                    value,
-                    ..
-                } => {
-                    if value {
-                        Some(active == variant)
-                    } else if active == variant {
-                        Some(false)
-                    } else {
-                        None
+            refinement_guard_value(storage, refinements, access, |kind| {
+                match kind.structural_predicate() {
+                    Some((_, PatternPredicate::ActiveUnionVariant(active), value)) => {
+                        if value {
+                            Some(active == variant)
+                        } else if active == variant {
+                            Some(false)
+                        } else {
+                            None
+                        }
                     }
+                    _ => None,
                 }
-                RefinementKind::Condition { .. }
-                | RefinementKind::NullablePresence { .. }
-                | RefinementKind::Pattern { .. }
-                | RefinementKind::TrustBoundary(_)
-                | RefinementKind::NormalCompletion(_) => None,
             })
             .unwrap_or(true)
         }
@@ -329,10 +324,7 @@ fn refinement_guard_value(
     value: impl Fn(RefinementKind) -> Option<bool>,
 ) -> Option<bool> {
     refinements.iter().find_map(|refinement| {
-        if let RefinementKind::Pattern {
-            access: subject, ..
-        } = refinement.kind()
-        {
+        if let Some((subject, _, _)) = refinement.kind().structural_predicate() {
             return (storage.relationship(subject, access) == StorageRelationship::Identical)
                 .then(|| value(refinement.kind()))
                 .flatten();

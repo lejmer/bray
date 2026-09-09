@@ -93,7 +93,12 @@ pub(super) fn observation_accesses(
         }
     }
 
-    for plan in storage.access_plans() {
+    for plan in storage.access_plans().iter().filter(|plan| {
+        matches!(
+            plan.point(),
+            bray_bound_tree::BoundOperationPoint::Evaluation(_)
+        )
+    }) {
         let mut remaining = MAX_CONDITION_STEPS;
 
         if let Some(term) = input.expression(plan.expression())
@@ -218,6 +223,21 @@ impl GuaranteeDomain<'_> {
                     {
                         if let [operand] = structured.operands() {
                             return self.current_expression_with_budget(state, *operand, remaining);
+                        }
+                    }
+                    Some(BoundExpression::Structured(structured))
+                        if matches!(
+                            structured.kind(),
+                            bray_bound_tree::BoundStructuredExpressionKind::PatternTest
+                                | bray_bound_tree::BoundStructuredExpressionKind::PatternBinding
+                        ) && !structured.is_recovered() =>
+                    {
+                        if let ([operand], [pattern]) =
+                            (structured.operands(), structured.patterns())
+                            && let Some(subject) =
+                                self.current_expression_with_budget(state, *operand, remaining)?
+                        {
+                            return self.pattern_condition(*pattern, subject, remaining);
                         }
                     }
                     Some(BoundExpression::Unary(unary))

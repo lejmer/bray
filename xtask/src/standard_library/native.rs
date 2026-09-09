@@ -16,7 +16,7 @@ const PACKAGE_IDENTITY: &str = "std";
 const API_PRODUCT: &str = "api";
 const OUTCOME_PRODUCT: &str = "outcomes";
 const CHILD_EXECUTABLE_ENVIRONMENT_VARIABLE: &str = "BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE";
-const API_TEST_COUNT: usize = 146;
+const API_TEST_COUNT: usize = 150;
 const API_FILTERED_TEST_COUNT: usize = 3;
 const CONCURRENCY_MODEL_TEST_COUNT: usize = 7;
 const CONCURRENCY_STRESS_TEST_COUNT: usize = 5;
@@ -185,13 +185,41 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
     crate::native_toolchain::build_compiler(&root)
         .map_err(|error| BuildError::conformance("native", error))?;
 
+    let scratch = root.join("scratch").join("standard-library-native");
+    fs::create_dir_all(&scratch).map_err(|error| BuildError::write(&scratch, error))?;
+
     let temporary_directory = tempfile::Builder::new()
         .prefix("bray-standard-library-native-")
-        .tempdir()
+        .tempdir_in(&scratch)
         .map_err(BuildError::TemporaryDirectory)?;
 
-    let directory = temporary_directory.path();
+    let result = test_in_directory(
+        &root,
+        temporary_directory.path(),
+        target,
+        parts,
+        profile_output,
+    );
 
+    if result.is_err() {
+        let retained = temporary_directory.keep();
+
+        crate::progress::message(&format!(
+            "Retained failed native test products at {}",
+            retained.display()
+        ));
+    }
+
+    result
+}
+
+fn test_in_directory(
+    root: &Path,
+    directory: &Path,
+    target: NativeTarget,
+    parts: &[TestPart],
+    profile_output: Option<&Path>,
+) -> Result<(), BuildError> {
     let runtime = directory.join("runtime");
 
     fs::create_dir(&runtime).map_err(|error| BuildError::write(&runtime, error))?;
@@ -204,19 +232,19 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
     let toolchain = directory.join("toolchain");
 
     crate::progress::run("Assembling the native test toolchain", || {
-        crate::native_toolchain::assemble(&root, target, &runtime, &toolchain)
+        crate::native_toolchain::assemble(root, target, &runtime, &toolchain)
     })
     .map_err(|error| BuildError::conformance("native toolchain", error))?;
 
     if selected(parts, TestPart::ProviderRetention) {
         crate::progress::run("Auditing native provider retention", || {
-            super::provider_retention::audit(&root, directory, &toolchain, target)
+            super::provider_retention::audit(root, directory, &toolchain, target)
         })?;
     }
 
     if selected(parts, TestPart::Interoperability) {
         crate::progress::run("Auditing native interoperability", || {
-            super::interoperability::audit(&root, directory, &toolchain, &runtime, target)
+            super::interoperability::audit(root, directory, &toolchain, &runtime, target)
         })?;
     }
 
@@ -224,7 +252,7 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
         let workspace = directory.join("workspace");
 
         crate::progress::run("Preparing the standard library test workspace", || {
-            copy_standard_library_workspace(&root, &workspace)
+            copy_standard_library_workspace(root, &workspace)
         })?;
 
         if selected(parts, TestPart::Api) {
@@ -232,7 +260,7 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
                 &format!(
                     "Running native standard library API tests ({API_TEST_COUNT} tests, 7 plans)"
                 ),
-                || audit_api(&root, &workspace, &toolchain, target, profile_output),
+                || audit_api(root, &workspace, &toolchain, target, profile_output),
             )?;
         }
 
@@ -242,7 +270,7 @@ pub(super) fn test(parts: &[TestPart], profile_output: Option<&Path>) -> Result<
                     "Checking native test outcomes ({} cases)",
                     OUTCOME_CASES.len()
                 ),
-                || audit_outcomes(&root, &workspace, &toolchain, target, profile_output),
+                || audit_outcomes(root, &workspace, &toolchain, target, profile_output),
             )?;
         }
     }
@@ -791,6 +819,8 @@ fn require_serial_metadata(bytes: &[u8]) -> Result<(), BuildError> {
             "buffered_file_io_preserves_order_and_flushes",
             "files_and_directories_follow_the_portable_contract",
             "missing_files_report_the_portable_error_kind",
+            "child_disposal_continues_after_the_first_pipe_close_fails",
+            "child_disposal_continues_after_the_middle_pipe_close_fails",
             "child_processes_accept_an_empty_environment",
             "child_processes_capture_output_and_reap_cleanly",
             "string_operations",
@@ -838,7 +868,8 @@ fn run_test_batch(
     profile_identity: &str,
     no_build: bool,
 ) -> Result<Output, BuildError> {
-    let request_path = workspace.join(format!(".{product}-test-batch.json"));
+    let invocation_prefix = format!(".{product}-{profile_identity}");
+    let request_path = workspace.join(format!("{invocation_prefix}-request.json"));
 
     let request_bytes = serde_json::to_vec(request).map_err(|error| {
         BuildError::conformance(
@@ -894,8 +925,19 @@ fn run_test_batch(
         .arg("--batch-request")
         .arg(&request_path);
 
-    crate::command::output_with_streamed_stderr(&mut command)
-        .map_err(|error| BuildError::conformance("native command", error.to_string()))
+    let output = crate::command::output_with_streamed_stderr(&mut command)
+        .map_err(|error| BuildError::conformance("native command", error.to_string()))?;
+
+    for (suffix, bytes) in [
+        ("report.json", output.stdout.as_slice()),
+        ("stderr.log", output.stderr.as_slice()),
+    ] {
+        let path = workspace.join(format!("{invocation_prefix}-{suffix}"));
+
+        fs::write(&path, bytes).map_err(|error| BuildError::write(&path, error))?;
+    }
+
+    Ok(output)
 }
 
 fn require_success(operation: &'static str, output: &Output) -> Result<(), BuildError> {

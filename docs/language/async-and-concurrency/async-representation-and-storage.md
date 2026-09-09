@@ -49,6 +49,24 @@ recursive activations. The compiler can use indirect frames, segmented frame sto
 transformation where valid, or another representation. Source never introduces boxing or pinning solely to make async
 recursion well formed.
 
+## Cleanup capacity
+
+Establishing an ownership or child-run obligation secures the storage required for its mandatory cleanup. This includes
+the state needed to suspend cleanup, resolve dependent child runs, transfer terminal results, and retain owned cleanup
+incidents. Once the obligation is established, these operations use the secured capacity even when further allocation
+fails. Ownership transfer preserves this capacity until the obligation is resolved or transferred again.
+
+If the required capacity cannot be secured, the operation fails before establishing the new obligation. Existing owners
+retain their values and cleanup capacity through failure propagation. The same rule applies to partially initialized
+values, inactive captures, and static owners.
+
+Capacity can be supplied by existing frame storage, co-allocated backing storage, or separately reserved storage.
+Cleanup steps with disjoint storage lifetimes can reuse capacity. Recursive and erased representations retain enough
+capacity for each live obligation rather than relying on a fixed global allowance.
+
+Allocations and external operations performed by application finalizers follow their ordinary failure semantics.
+Their failures are handled by the [abnormal-exit cleanup rules](../lifecycle/scope-exits-panics-and-cancellation.md).
+
 ## Cost transparency
 
 Compiler inspection information for an async callable must make these properties available:

@@ -541,21 +541,58 @@ mod tests {
             ("module app; trusted func work() {}", 1),
             ("trusted module app; trusted func work() {}", 0),
             (
-                "module app; struct Value { trusted func work() {} trusted finalize() {} }",
+                r#"
+                module app;
+
+                struct Value
+                {
+                    trusted func work() {}
+
+                    trusted finalize() {}
+                }
+                "#,
                 2,
             ),
             (
-                "trusted module app; struct Value { trusted func work() {} trusted finalize() {} }",
+                r#"
+                trusted module app;
+
+                struct Value
+                {
+                    trusted func work() {}
+
+                    trusted finalize() {}
+                }
+                "#,
                 0,
             ),
             ("module app; trusted predicate valid();", 1),
             ("trusted module app; trusted predicate valid();", 0),
             (
-                "trusted module app { trusted func work() {} } module app.nested { trusted func work() {} }",
+                r#"
+                trusted module app
+                {
+                    trusted func work() {}
+                }
+
+                module app.nested
+                {
+                    trusted func work() {}
+                }
+                "#,
                 1,
             ),
             (
-                "module app {} trusted module app.nested { trusted func work() {} }",
+                r#"
+                module app
+                {
+                }
+
+                trusted module app.nested
+                {
+                    trusted func work() {}
+                }
+                "#,
                 0,
             ),
         ] {
@@ -590,8 +627,17 @@ mod tests {
 
     #[test]
     fn module_trust_validation_defers_gated_contributions_until_selection() {
-        let sources =
-            source_store(["module app {} @target(true) module app { trusted func work() {} }"]);
+        let sources = source_store([r#"
+        module app
+        {
+        }
+
+        @target(true)
+        module app
+        {
+            trusted func work() {}
+        }
+        "#]);
 
         let chunk = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
             &sources, 0,
@@ -842,27 +888,28 @@ mod tests {
 
     #[test]
     fn table_validation_reports_modifier_directive_and_body_form_errors() {
-        let sources = source_store([concat!(
-            "trusted module app;\n",
-            "public public func repeated()\n",
-            "{\n",
-            "}\n",
-            "@entrypoint @entrypoint func directed()\n",
-            "{\n",
-            "}\n",
-            "extern func external_with_body()\n",
-            "{\n",
-            "}\n",
-            "func missing_body();\n",
-            "predicate missing_predicate_body();\n",
-            "trusted predicate trusted_with_body() = true;\n",
-            "struct Resource\n",
-            "{\n",
-            "    static consume func invalid_receiver()\n",
-            "    {\n",
-            "    }\n",
-            "}\n",
-        )]);
+        let sources = source_store([r#"
+        trusted module app;
+
+        public public func repeated() {}
+
+        @entrypoint
+        @entrypoint
+        func directed() {}
+
+        extern func external_with_body() {}
+
+        func missing_body();
+
+        predicate missing_predicate_body();
+
+        trusted predicate trusted_with_body() = true;
+
+        struct Resource
+        {
+            static consume func invalid_receiver() {}
+        }
+        "#]);
 
         let chunk = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
             &sources, 0,

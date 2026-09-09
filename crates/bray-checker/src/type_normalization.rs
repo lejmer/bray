@@ -11,6 +11,7 @@ use bray_symbols::{
 
 use crate::{CheckerInfrastructureError, CheckerQueryError, CheckerRequestContext};
 
+/// Resolves selected type-valued members throughout a type while retaining unresolved projections.
 pub fn normalize_type_valued_members<C>(
     request: &C,
     ty: TypeId,
@@ -28,6 +29,7 @@ where
     .normalize_type(ty)
 }
 
+/// Resolves selected type-valued members in all callable parameter and result types.
 pub fn normalize_callable_signature_type_valued_members<C>(
     request: &C,
     signature: CallableSignature,
@@ -37,6 +39,31 @@ where
     C: CheckerRequestContext + ?Sized,
 {
     signature.try_map_types(|ty| normalize_type_valued_members(request, ty, diagnostics))
+}
+
+/// Resolves the subject and trait arguments used to select one implementation witness.
+pub fn normalize_implementation_requirement<C>(
+    request: &C,
+    requirement: bray_symbols::ImplementationRequirementKey,
+    diagnostics: &mut DiagnosticBag,
+) -> Result<bray_symbols::ImplementationRequirementKey, CheckerQueryError<C::UpstreamError>>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    let mut normalizer = TypeNormalizer {
+        request,
+        diagnostics,
+        normalized: BTreeMap::new(),
+        active: BTreeSet::new(),
+    };
+
+    let subject = normalizer.normalize_type(requirement.subject())?;
+    let application = normalizer.normalize_application(requirement.trait_application())?;
+
+    Ok(bray_symbols::ImplementationRequirementKey::new(
+        subject,
+        application,
+    ))
 }
 
 struct TypeNormalizer<'request, 'diagnostics, C>

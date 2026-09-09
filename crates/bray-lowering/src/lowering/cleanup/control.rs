@@ -7,6 +7,7 @@ use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::TypeId;
 
 use crate::lowering::LoweringError;
+use crate::lowering::construction::{ConstructionExit, ConstructionTemporary};
 use crate::lowering::lowerer::Lowerer;
 use crate::plan::ScopeExitCleanupStatus;
 
@@ -249,7 +250,14 @@ impl Lowerer<'_> {
     ) -> Result<(), LoweringError> {
         let plans = self.cleanup_plans(scope_depth, exit)?;
 
+        let construction_exit = match &entry {
+            CleanupEntry::Ordinary => ConstructionExit::Scope(scope_depth),
+            CleanupEntry::Panic(_) => self.abnormal_construction_exit(destination),
+            CleanupEntry::Cancellation => ConstructionExit::All,
+        };
+
         if abandoned.is_none()
+            && self.construction_cleanup(construction_exit).is_empty()
             && plans.iter().all(|plan| {
                 plan.cancellation_broadcast().is_empty() && plan.lifecycle_resolution().is_empty()
             })
@@ -281,7 +289,15 @@ impl Lowerer<'_> {
             CleanupEntry::Ordinary => {}
         }
 
-        self.finish_ordinary_cleanup(current, source, destination, value, exit, &plans)
+        self.finish_ordinary_cleanup(
+            current,
+            source,
+            destination,
+            value,
+            exit,
+            &plans,
+            construction_exit,
+        )
     }
 
     pub(super) fn cleanup_plans(
@@ -312,11 +328,24 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         phase: MirCleanupPhase,
         plans: &[bray_bound_tree::AsyncScopeExitPlan],
+        temporaries: &[ConstructionTemporary],
         mut value: Option<(bray_ir::MirValueId, TypeId)>,
         failures: &std::collections::BTreeMap<BoundBlockId, (MirBlockId, MirBlockId, TypeId)>,
     ) -> Result<(MirBlockId, Option<(bray_ir::MirValueId, TypeId)>), LoweringError> {
+        let mut temporaries = temporaries.iter().rev().peekable();
+
         for plan in plans {
             self.cleanup_failure_targets = failures.get(&plan.scope()).copied();
+
+            let depth = self
+                .active_scopes
+                .iter()
+                .position(|scope| *scope == plan.scope())
+                .ok_or(LoweringError::MissingBoundNode(plan.scope().into()))?
+                + 1;
+
+            block =
+                self.push_construction_cleanup(block, source, phase, &mut temporaries, depth)?;
 
             for access in match phase {
                 MirCleanupPhase::TaskCancellation => plan.cancellation_broadcast(),
@@ -412,6 +441,8 @@ impl Lowerer<'_> {
                 }
             }
         }
+
+        block = self.push_construction_cleanup(block, source, phase, &mut temporaries, 0)?;
 
         self.cleanup_failure_targets = None;
         self.destructor_remainder = false;

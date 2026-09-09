@@ -37,6 +37,15 @@ pub enum RefinementKind {
         /// Whether the predicate holds.
         value: bool,
     },
+    /// Control flow selected one union variant at the evaluated subject access.
+    UnionVariant {
+        /// The union expression inspected by control flow.
+        subject: BoundExpressionId,
+        /// The exact evaluated union storage.
+        access: StorageAccessId,
+        /// The active variant.
+        variant: bray_symbols::UnionVariantSymbolId,
+    },
     /// The operand is currently inside this explicit trust boundary.
     TrustBoundary(BoundExpressionId),
     /// One expression reached its ordinary completion point.
@@ -60,6 +69,25 @@ impl RefinementKind {
                     && pattern.unit().raw() == unit.raw()
                     && access.unit().raw() == unit.raw()
             }
+            Self::UnionVariant {
+                subject, access, ..
+            } => subject.unit().raw() == unit.raw() && access.unit().raw() == unit.raw(),
+        }
+    }
+
+    /// Returns a structural predicate and its exact storage, independent of its proof source.
+    pub const fn structural_predicate(self) -> Option<(StorageAccessId, PatternPredicate, bool)> {
+        match self {
+            Self::Pattern {
+                access,
+                predicate,
+                value,
+                ..
+            } => Some((access, predicate, value)),
+            Self::UnionVariant {
+                access, variant, ..
+            } => Some((access, PatternPredicate::ActiveUnionVariant(variant), true)),
+            _ => None,
         }
     }
 }
@@ -102,27 +130,40 @@ impl Refinement {
 /// Refinements available immediately before one bound operation.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct RefinementOccurrence {
-    node: AnyBoundNodeId,
+    point: crate::BoundOperationPoint,
     refinements: Arc<[Refinement]>,
 }
 
 impl RefinementOccurrence {
     /// Creates one operation occurrence with refinements in canonical order.
     pub fn new(node: AnyBoundNodeId, refinements: impl IntoIterator<Item = Refinement>) -> Self {
+        Self::at(crate::BoundOperationPoint::Evaluation(node), refinements)
+    }
+
+    /// Creates refinements for one exact semantic evaluation point.
+    pub fn at(
+        point: crate::BoundOperationPoint,
+        refinements: impl IntoIterator<Item = Refinement>,
+    ) -> Self {
         let mut refinements = refinements.into_iter().collect::<Vec<_>>();
 
         refinements.sort_unstable();
         refinements.dedup();
 
         Self {
-            node,
+            point,
             refinements: shared_slice(refinements),
         }
     }
 
     /// Returns the bound operation occurrence.
     pub const fn node(&self) -> AnyBoundNodeId {
-        self.node
+        self.point.node()
+    }
+
+    /// Returns the exact semantic evaluation point.
+    pub const fn point(&self) -> crate::BoundOperationPoint {
+        self.point
     }
 
     /// Returns refinements known immediately before this operation.
@@ -172,11 +213,11 @@ impl CheckedRefinements {
             return Err(RefinementSetBuildError::ForeignUnit);
         }
 
-        occurrences.sort_unstable_by_key(RefinementOccurrence::node);
+        occurrences.sort_unstable_by_key(RefinementOccurrence::point);
 
         if occurrences
             .windows(2)
-            .any(|pair| pair[0].node() == pair[1].node())
+            .any(|pair| pair[0].point() == pair[1].point())
         {
             return Err(RefinementSetBuildError::DuplicateOccurrence);
         }
@@ -199,15 +240,20 @@ impl CheckedRefinements {
         self.kind
     }
 
-    /// Returns operation occurrences in bound node identity order.
+    /// Returns operation occurrences in semantic evaluation point order.
     pub fn occurrences(&self) -> &[RefinementOccurrence] {
         &self.occurrences
     }
 
     /// Returns refinements known immediately before one exact operation.
     pub fn refinements_before(&self, node: AnyBoundNodeId) -> &[Refinement] {
+        self.refinements_before_at(crate::BoundOperationPoint::Evaluation(node))
+    }
+
+    /// Returns refinements known immediately before one exact semantic evaluation point.
+    pub fn refinements_before_at(&self, point: crate::BoundOperationPoint) -> &[Refinement] {
         self.occurrences
-            .binary_search_by_key(&node, RefinementOccurrence::node)
+            .binary_search_by_key(&point, RefinementOccurrence::point)
             .ok()
             .map(|index| self.occurrences[index].refinements())
             .unwrap_or_default()
@@ -229,6 +275,66 @@ mod tests {
         AnyBoundNodeId, BoundExpressionId, BoundPatternId, BoundUnitId, BoundUnitKind,
         PatternPredicate, StorageAccessId,
     };
+
+    #[test]
+    fn propagation_failure_retains_its_own_refinements() {
+        let unit = BoundUnitId::new(4);
+        let expression = BoundExpressionId::from_slot(unit, 0);
+        let failure = crate::BoundOperationPoint::PropagationFailure(expression);
+
+        let condition =
+            |value| Refinement::new(RefinementKind::Condition { expression, value }, []);
+
+        let refinements = CheckedRefinements::try_new(
+            unit,
+            BoundUnitKind::CallableBody,
+            [
+                RefinementOccurrence::at(failure, [condition(false)]),
+                RefinementOccurrence::new(expression.into(), [condition(true)]),
+            ],
+            false,
+        )
+        .unwrap();
+
+        assert_eq!(
+            refinements.refinements_before(expression.into()),
+            &[condition(true)]
+        );
+
+        assert_eq!(
+            refinements.refinements_before_at(failure),
+            &[condition(false)]
+        );
+
+        assert_eq!(
+            CheckedRefinements::try_new(
+                unit,
+                BoundUnitKind::CallableBody,
+                [
+                    RefinementOccurrence::at(failure, []),
+                    RefinementOccurrence::at(failure, []),
+                ],
+                false
+            ),
+            Err(RefinementSetBuildError::DuplicateOccurrence)
+        );
+
+        assert_eq!(
+            CheckedRefinements::try_new(
+                unit,
+                BoundUnitKind::CallableBody,
+                [RefinementOccurrence::at(
+                    crate::BoundOperationPoint::PropagationFailure(BoundExpressionId::from_slot(
+                        BoundUnitId::new(5),
+                        0
+                    )),
+                    []
+                ),],
+                false
+            ),
+            Err(RefinementSetBuildError::ForeignUnit)
+        );
+    }
 
     #[test]
     fn checked_refinements_are_send_and_sync() {

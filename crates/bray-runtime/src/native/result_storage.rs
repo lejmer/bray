@@ -21,14 +21,22 @@ impl NativeResultStorage {
 
         let mut storage = Vec::new();
 
-        storage
-            .try_reserve_exact(length)
-            .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)?;
+        if size != 0 {
+            #[cfg(test)]
+            if crate::test_support::allocation_should_fail() {
+                return Err(NativeRuntimeStatus::ALLOCATION_FAILURE);
+            }
 
-        storage.resize(length, 0);
+            storage
+                .try_reserve_exact(length)
+                .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
+
+            storage.resize(length, 0);
+        }
 
         // A byte allocation has unit stride, so every valid power-of-two alignment can
-        // be reached within the extra alignment - 1 bytes reserved above.
+        // be reached within the extra alignment - 1 bytes reserved above. Empty results use an
+        // aligned dangling address: their transfer touches no bytes and needs no allocation.
         let offset = storage.as_ptr().align_offset(layout.align());
 
         Ok(Self { storage, offset })
@@ -58,7 +66,12 @@ mod tests {
                 assert_ne!(address, 0);
                 assert_eq!(address % alignment, 0);
 
-                assert!(storage.offset + size <= storage.storage.len());
+                if size == 0 {
+                    assert_eq!(storage.storage.capacity(), 0);
+                } else {
+                    assert!(storage.offset + size <= storage.storage.len());
+                }
+
                 assert!(storage.storage.iter().all(|byte| *byte == 0));
 
                 let moved = Box::new(storage);
@@ -66,6 +79,19 @@ mod tests {
                 assert_eq!(moved.address(), address);
             }
         }
+    }
+
+    #[test]
+    fn empty_completion_storage_remains_available_when_allocations_fail() {
+        crate::test_support::with_allocation_failure(|| {
+            for alignment in [1, 8, 64, 4096] {
+                let storage = NativeResultStorage::new(0, alignment).unwrap();
+
+                assert_ne!(storage.address(), 0);
+                assert_eq!(storage.address() % alignment, 0);
+                assert_eq!(storage.storage.capacity(), 0);
+            }
+        });
     }
 
     #[test]

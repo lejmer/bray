@@ -280,12 +280,31 @@ impl InterfaceSemantics {
             validate_evidence_obligation(contract, proof.obligation())?;
 
             for (target, obligation) in proof.dependencies() {
-                validate_symbol(target, symbol_count, dependency_count)?;
+                validate_index(target.callable().to_index(), self.callable_instances.len())?;
 
-                if let InterfaceSymbolReference::Local(_) = target {
+                let callable = target
+                    .callable()
+                    .to_index()
+                    .and_then(|index| self.callable_instances.get(index))
+                    .ok_or_else(|| {
+                        crate::semantic::codec::invalid_value(
+                            crate::InterfaceValidationField::Reference,
+                        )
+                    })?;
+
+                let symbol = &callable.definition;
+
+                validate_symbol(symbol, symbol_count, dependency_count)?;
+
+                if let Some((subject, application)) = target.dispatch() {
+                    validate_index(subject.to_index(), self.types.len())?;
+                    validate_index(application.to_index(), self.trait_applications.len())?;
+                }
+
+                if let InterfaceSymbolReference::Local(_) = symbol {
                     let dependency = self
                         .callable_contracts
-                        .binary_search_by(|candidate| candidate.owner().cmp(target))
+                        .binary_search_by(|candidate| candidate.owner().cmp(symbol))
                         .ok()
                         .and_then(|index| self.callable_contracts.get(index));
 
@@ -297,13 +316,14 @@ impl InterfaceSemantics {
 
                     validate_evidence_obligation(dependency, *obligation)?;
 
-                    if dependency
-                        .evidence()
-                        .binary_search_by_key(
-                            obligation,
-                            bray_symbols::CallableContractEvidence::obligation,
-                        )
-                        .is_err()
+                    if target.dispatch().is_none()
+                        && dependency
+                            .evidence()
+                            .binary_search_by_key(
+                                obligation,
+                                bray_symbols::CallableContractEvidence::obligation,
+                            )
+                            .is_err()
                     {
                         return Err(crate::semantic::codec::invalid_value(
                             crate::InterfaceValidationField::Reference,

@@ -241,11 +241,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             bray_ir::MirPanicCause::TaskAdmission => (
                 bray_runtime_abi::NativePanicCause::TASK_ADMISSION,
                 crate::native::string_view_type(self.types.context(), self.request.target())
-                    .const_zero().into(),
+                    .const_zero()
+                    .into(),
             ),
             bray_ir::MirPanicCause::Message(message) => (
                 bray_runtime_abi::NativePanicCause::MESSAGE,
                 self.native_string_view(message)?,
+            ),
+            bray_ir::MirPanicCause::FrameAllocation => (
+                bray_runtime_abi::NativePanicCause::FRAME_ALLOCATION,
+                crate::native::string_view_type(self.types.context(), self.request.target())
+                    .const_zero()
+                    .into(),
             ),
             bray_ir::MirPanicCause::Assertion(Some(message)) => (
                 bray_runtime_abi::NativePanicCause::ASSERTION,
@@ -442,8 +449,16 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         // Keep this exhaustive so every async operation requires an explicit translation.
         match asynchronous {
-            MirAsyncOperation::CreateFrame { frame, initializer } => {
-                self.translate_frame_creation(operation_id, *frame, initializer)
+            MirAsyncOperation::CreateFrame {
+                frame,
+                initializer,
+                destination,
+            } => {
+                let value = self
+                    .translate_frame_creation(operation_id, *frame, initializer)?
+                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+                self.publish_created_frame(value, destination).map(Some)
             }
             MirAsyncOperation::ResumeFrame {
                 state,
@@ -501,7 +516,8 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             } => {
                 let frame = self.native_inactive_frame(value)?;
 
-                self.try_start_native_task(*allocation, *start, frame, destination).map(Some)
+                self.try_start_native_task(*allocation, *start, frame, destination)
+                    .map(Some)
             }
             MirAsyncOperation::RequestTaskCancellation { task, runtime }
             | MirAsyncOperation::ReleaseTaskCompletionBorrow { task, runtime } => {
@@ -683,9 +699,17 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Ok(result)
             }
             MirFrameInitializer::Callable(call) => {
-                let arguments = self.evaluate_call_arguments(call, &mut helpers, None)?;
-                let helper = next_helper(&mut helpers, &MirHelperReference::CreateFrame(frame))?;
-                let result = self.invoke_helper(helper, arguments.values())?;
+                let arguments = self.evaluate_call_arguments(call)?;
+
+                let result = if let bray_ir::MirCallTarget::Indirect { callee, .. } = call.target()
+                {
+                    self.invoke_indirect_callable(callee, &arguments, false)?
+                } else {
+                    let helper =
+                        next_helper(&mut helpers, &MirHelperReference::CreateFrame(frame))?;
+
+                    self.invoke_helper(helper, &arguments)?
+                };
 
                 if helpers.next().is_some() {
                     return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -694,6 +718,41 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 Ok(result)
             }
         }
+    }
+
+    fn publish_created_frame(
+        &mut self,
+        value: BasicValueEnum<'context>,
+        destination: &bray_ir::MirPlace,
+    ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
+        let storage = extract_value(&self.builder, value, 0)?;
+        let storage = pointer_value(storage).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+        let allocated = llvm(self.builder.build_is_not_null(storage, "frame.created"))?;
+
+        let function = self
+            .builder
+            .get_insert_block()
+            .and_then(|block| block.get_parent())
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let context = self.types.context();
+        let published = context.append_basic_block(function, "frame.publish");
+        let finished = context.append_basic_block(function, "frame.creation.finished");
+
+        llvm(
+            self.builder
+                .build_conditional_branch(allocated, published, finished),
+        )?;
+
+        self.builder.position_at_end(published);
+
+        let destination = self.place(destination)?;
+
+        llvm(self.builder.build_store(destination, value))?;
+        llvm(self.builder.build_unconditional_branch(finished))?;
+        self.builder.position_at_end(finished);
+
+        Ok(allocated.into())
     }
 
     fn operation_runtime_helper(

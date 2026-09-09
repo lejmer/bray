@@ -417,6 +417,7 @@ pub struct CheckedAsync {
     scope_exits: Arc<[AsyncScopeExitPlan]>,
     replacements: Arc<[crate::StorageReplacementPlan]>,
     capture_cleanup: Option<AsyncCaptureCleanup>,
+    cleanup_free_futures: Arc<[StorageIdentityId]>,
     is_recovered: bool,
 }
 
@@ -509,6 +510,7 @@ impl CheckedAsync {
             scope_exits,
             replacements: Arc::from([]),
             capture_cleanup: None,
+            cleanup_free_futures: Arc::from([]),
             is_recovered,
         })
     }
@@ -539,6 +541,30 @@ impl CheckedAsync {
     /// Returns the cleanup required if ownership ends before the async body starts.
     pub const fn capture_cleanup(&self) -> Option<&AsyncCaptureCleanup> {
         self.capture_cleanup.as_ref()
+    }
+
+    /// Records inactive future owners whose checked construction captures require no cleanup.
+    pub fn with_cleanup_free_futures(
+        mut self,
+        identities: impl IntoIterator<Item = StorageIdentityId>,
+    ) -> Result<Self, AsyncAnalysisBuildError> {
+        let identities = sorted_unique_shared_slice(identities);
+
+        if identities
+            .iter()
+            .any(|identity| identity.unit() != self.unit)
+        {
+            return Err(AsyncAnalysisBuildError::ForeignUnit);
+        }
+
+        self.cleanup_free_futures = identities;
+
+        Ok(self)
+    }
+
+    /// Returns stable inactive future owners with cleanup-free captures.
+    pub fn cleanup_free_futures(&self) -> &[StorageIdentityId] {
+        &self.cleanup_free_futures
     }
 
     /// Adds complete replacement cleanup selections in source-identity order.
@@ -697,6 +723,40 @@ mod tests {
         fn assert_send_sync<T: Send + Sync>() {}
 
         assert_send_sync::<CheckedAsync>();
+    }
+
+    #[test]
+    fn cleanup_free_future_owners_are_ordered_and_unit_local() {
+        let unit = BoundUnitId::new(7);
+        let first = crate::StorageIdentityId::from_slot(unit, 1);
+        let second = crate::StorageIdentityId::from_slot(unit, 2);
+
+        let analysis = CheckedAsync::try_new(
+            unit,
+            BoundUnitKind::CallableBody,
+            [],
+            [],
+            [],
+            [],
+            [],
+            [],
+            false,
+        )
+        .unwrap();
+
+        let analysis = analysis
+            .with_cleanup_free_futures([second, first, second])
+            .unwrap();
+
+        assert_eq!(analysis.cleanup_free_futures(), &[first, second]);
+
+        assert_eq!(
+            analysis.with_cleanup_free_futures([crate::StorageIdentityId::from_slot(
+                BoundUnitId::new(8),
+                1
+            ),]),
+            Err(super::AsyncAnalysisBuildError::ForeignUnit),
+        );
     }
 
     #[test]

@@ -1,6 +1,4 @@
 use std::panic::{AssertUnwindSafe, catch_unwind, resume_unwind};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU8, Ordering};
 
 use bray_platform::RuntimeThread;
 use bray_runtime_model::ProtectedFrameStateId;
@@ -10,22 +8,18 @@ use crate::{
     CancellationContext, CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink,
     ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, ProtectedFrame, ReadyTask,
     RunOutcome, Scheduler, SchedulerError, TaskControlBlock, TaskExecutionContext, TaskId,
-    TaskObservationError, TaskResumeError, TaskResumeStatus, TaskStartError,
+    TaskObservationError, TaskResumeError, TaskResumeStatus, TaskStartError, TaskStartFailure,
 };
 
 /// Product-host authority to request cancellation of the executable root run.
 #[derive(Clone, Debug)]
 pub struct RootCancellationHandle {
     cancellation: CancellationContext,
-    source: Arc<AtomicU8>,
 }
 
 impl RootCancellationHandle {
     pub(crate) fn new(cancellation: CancellationContext) -> Self {
-        Self {
-            cancellation,
-            source: Arc::new(AtomicU8::new(0)),
-        }
+        Self { cancellation }
     }
 
     /// Requests cooperative cancellation of the executable root.
@@ -40,15 +34,11 @@ impl RootCancellationHandle {
 
     /// Returns the first host request source when cancellation was requested.
     pub fn source(&self) -> Option<RootCancellationSource> {
-        RootCancellationSource::from_code(self.source.load(Ordering::Acquire))
+        self.cancellation.root_source()
     }
 
     fn request_with_source(&self, source: RootCancellationSource) -> bool {
-        let _ = self
-            .source
-            .compare_exchange(0, source.code(), Ordering::AcqRel, Ordering::Acquire);
-
-        self.cancellation.request()
+        self.cancellation.request_root(source)
     }
 }
 
@@ -62,14 +52,14 @@ pub enum RootCancellationSource {
 }
 
 impl RootCancellationSource {
-    const fn code(self) -> u8 {
+    pub(crate) const fn code(self) -> u8 {
         match self {
             Self::Explicit => 1,
             Self::Timeout => 2,
         }
     }
 
-    const fn from_code(code: u8) -> Option<Self> {
+    pub(crate) const fn from_code(code: u8) -> Option<Self> {
         match code {
             1 => Some(Self::Explicit),
             2 => Some(Self::Timeout),
@@ -80,9 +70,11 @@ impl RootCancellationSource {
 
 /// Failure to enter, drive, or observe an executable root run.
 #[derive(Debug)]
-pub enum RootExecutionError {
+pub enum RootExecutionError<S = TaskStartError> {
+    /// Root cancellation state could not be admitted.
+    Cancellation(crate::CancellationAdmissionError),
     /// Stable root-task storage could not be created.
-    TaskStart(TaskStartError),
+    TaskStart(S),
     /// The selected scheduler rejected root registration or dispatch.
     Scheduler(SchedulerError),
     /// The protected root frame could not be resumed.
@@ -95,25 +87,31 @@ pub enum RootExecutionError {
     UnexpectedTask(TaskId),
 }
 
+impl<F> From<TaskStartFailure<F>> for RootExecutionError<TaskStartFailure<F>> {
+    fn from(error: TaskStartFailure<F>) -> Self {
+        Self::TaskStart(error)
+    }
+}
+
 impl From<TaskStartError> for RootExecutionError {
     fn from(error: TaskStartError) -> Self {
         Self::TaskStart(error)
     }
 }
 
-impl From<SchedulerError> for RootExecutionError {
+impl<S> From<SchedulerError> for RootExecutionError<S> {
     fn from(error: SchedulerError) -> Self {
         Self::Scheduler(error)
     }
 }
 
-impl From<TaskResumeError> for RootExecutionError {
+impl<S> From<TaskResumeError> for RootExecutionError<S> {
     fn from(error: TaskResumeError) -> Self {
         Self::TaskResume(error)
     }
 }
 
-impl From<TaskObservationError> for RootExecutionError {
+impl<S> From<TaskObservationError> for RootExecutionError<S> {
     fn from(error: TaskObservationError) -> Self {
         Self::TaskObservation(error)
     }
@@ -134,17 +132,18 @@ pub(crate) fn is_propagated_cancellation(payload: &(dyn std::any::Any + Send)) -
 pub fn execute_synchronous_root<T>(
     root: impl FnOnce() -> T,
     on_started: impl FnOnce(RootCancellationHandle),
-) -> RunOutcome<T> {
-    let cancellation = CancellationContext::root();
+) -> Result<RunOutcome<T>, RootExecutionError> {
+    let cancellation = CancellationContext::root().map_err(RootExecutionError::Cancellation)?;
     on_started(RootCancellationHandle::new(cancellation.clone()));
 
-    with_run_cancellation_context(cancellation, || {
-        match catch_unwind(AssertUnwindSafe(root)) {
+    Ok(with_run_cancellation_context(
+        cancellation,
+        || match catch_unwind(AssertUnwindSafe(root)) {
             Ok(value) => RunOutcome::Completed(value),
             Err(payload) if is_propagated_cancellation(payload.as_ref()) => RunOutcome::Cancelled,
             Err(payload) => RunOutcome::Panicked(crate::RuntimePanic::from_payload(payload)),
-        }
-    })
+        },
+    ))
 }
 
 /// Transfers an async entry frame into a host-owned root task and drives it to completion.
@@ -154,14 +153,13 @@ pub fn execute_async_root<T, F>(
     frame: F,
     cleanup_reports: &CleanupReportSink,
     on_started: impl FnOnce(RootCancellationHandle),
-    mut dispatch_child: impl FnMut(ReadyTask) -> Result<(), RootExecutionError>,
-) -> Result<RunOutcome<T>, RootExecutionError>
+    mut dispatch_child: impl FnMut(ReadyTask) -> Result<(), RootExecutionError<TaskStartFailure<F>>>,
+) -> Result<RunOutcome<T>, RootExecutionError<TaskStartFailure<F>>>
 where
     T: 'static,
     F: ProtectedFrame<Output = T>,
 {
     let root = TaskControlBlock::start_local(frame)?;
-    let source = Arc::new(AtomicU8::new(0));
     let initial_state = ProtectedFrameStateId::new(0);
 
     let result = (|| {
@@ -191,7 +189,6 @@ where
         on_started(RootCancellationHandle {
             // Host cancellation authority must remain valid while root storage is driven.
             cancellation: root.cancellation_context().clone(),
-            source,
         });
 
         wake.wake(initial_state)?;
@@ -266,13 +263,36 @@ mod tests {
     };
 
     #[test]
+    fn root_admission_failure_does_not_enter_source_or_publish_cancellation_authority() {
+        let source_entered = std::cell::Cell::new(false);
+        let authority_published = std::cell::Cell::new(false);
+
+        let result = crate::test_support::with_allocation_failure(|| {
+            execute_synchronous_root(
+                || source_entered.set(true),
+                |_| authority_published.set(true),
+            )
+        });
+
+        assert!(matches!(result, Err(RootExecutionError::Cancellation(_))));
+        assert!(!source_entered.get());
+        assert!(!authority_published.get());
+
+        assert!(matches!(
+            execute_synchronous_root(|| 7, |_| {}).unwrap(),
+            RunOutcome::Completed(7)
+        ));
+    }
+
+    #[test]
     fn synchronous_roots_execute_directly_and_capture_panics() {
         assert!(matches!(
-            execute_synchronous_root(|| 17, |_| {}),
+            execute_synchronous_root(|| 17, |_| {}).unwrap(),
             RunOutcome::Completed(17)
         ));
 
-        let panicked = execute_synchronous_root(|| -> i32 { panic!("root panic") }, |_| {});
+        let panicked =
+            execute_synchronous_root(|| -> i32 { panic!("root panic") }, |_| {}).unwrap();
 
         assert!(matches!(panicked, RunOutcome::Panicked(_)));
     }
@@ -281,14 +301,15 @@ mod tests {
     fn synchronous_roots_expose_host_cancellation_to_run_operations() {
         let outcome = execute_synchronous_root(current_run_cancellation_observable, |root| {
             assert!(root.request());
-        });
+        })
+        .unwrap();
 
         assert!(matches!(outcome, RunOutcome::Completed(true)));
     }
 
     #[test]
     fn synchronous_cancellation_entry_reaches_the_root_outcome() {
-        let outcome = execute_synchronous_root(propagate_current_run_cancellation, |_| {});
+        let outcome = execute_synchronous_root(propagate_current_run_cancellation, |_| {}).unwrap();
 
         assert!(matches!(outcome, RunOutcome::Cancelled));
     }
@@ -305,7 +326,8 @@ mod tests {
 
                 cancellation = Some(root);
             },
-        );
+        )
+        .unwrap();
 
         assert!(matches!(outcome, RunOutcome::Completed(())));
 
@@ -316,7 +338,7 @@ mod tests {
     }
 
     #[test]
-    fn async_roots_remain_on_the_cooperative_main_thread_lane() {
+    fn async_root_admission_preserves_the_frame_and_main_thread_execution() {
         let runtime = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("main runtime thread must initialize: {error:?}"));
 
@@ -331,10 +353,33 @@ mod tests {
 
         let reports = CleanupReportSink::new();
 
+        let frame = TestFrame::main_thread_self_waking(29);
+        let authority_published = std::cell::Cell::new(false);
+
+        let rejected = crate::test_support::with_allocation_failure(|| {
+            execute_async_root(
+                &scheduler,
+                runtime.runtime(),
+                frame,
+                &reports,
+                |_| authority_published.set(true),
+                |ready| Err(RootExecutionError::UnexpectedTask(ready.task())),
+            )
+        });
+
+        let Err(RootExecutionError::TaskStart(failure)) = rejected else {
+            panic!("injected root admission must fail before source entry");
+        };
+
+        assert!(!authority_published.get());
+        assert_eq!(scheduler.task_count().unwrap(), 0);
+
+        let (_, frame) = failure.into_parts();
+
         let outcome = execute_async_root(
             &scheduler,
             runtime.runtime(),
-            TestFrame::main_thread_self_waking(29),
+            frame,
             &reports,
             |_| {},
             |ready| Err(RootExecutionError::UnexpectedTask(ready.task())),

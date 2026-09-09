@@ -37,7 +37,7 @@ pub enum StorageOperationStatus {
 /// One source-correlated checked storage operation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct StorageOperationDecision {
-    node: AnyBoundNodeId,
+    point: crate::BoundOperationPoint,
     expression: BoundExpressionId,
     purpose: StorageAccessPurpose,
     access: StorageAccessId,
@@ -48,7 +48,7 @@ pub struct StorageOperationDecision {
 impl StorageOperationDecision {
     /// Creates one checked operation decision.
     pub const fn new(
-        node: AnyBoundNodeId,
+        point: crate::BoundOperationPoint,
         expression: BoundExpressionId,
         purpose: StorageAccessPurpose,
         access: StorageAccessId,
@@ -56,7 +56,7 @@ impl StorageOperationDecision {
         status: StorageOperationStatus,
     ) -> Self {
         Self {
-            node,
+            point,
             expression,
             purpose,
             access,
@@ -67,7 +67,12 @@ impl StorageOperationDecision {
 
     /// Returns the control-flow node where this operation takes effect.
     pub const fn node(self) -> AnyBoundNodeId {
-        self.node
+        self.point.node()
+    }
+
+    /// Returns the exact semantic evaluation point where this decision takes effect.
+    pub const fn point(self) -> crate::BoundOperationPoint {
+        self.point
     }
 
     /// Returns the source expression supplying the accessed value.
@@ -547,7 +552,7 @@ mod tests {
         let scope = BoundBlockId::from_slot(unit, 0);
 
         let operation = StorageOperationDecision::new(
-            expression.into(),
+            crate::BoundOperationPoint::Evaluation(expression.into()),
             expression,
             StorageAccessPurpose::Read,
             access,
@@ -601,7 +606,7 @@ mod tests {
         let foreign = BoundUnitId::new(5);
 
         let decision = StorageOperationDecision::new(
-            BoundExpressionId::from_slot(unit, 0).into(),
+            crate::BoundOperationPoint::Evaluation(BoundExpressionId::from_slot(unit, 0).into()),
             BoundExpressionId::from_slot(unit, 0),
             StorageAccessPurpose::Read,
             StorageAccessId::from_slot(foreign, 0),

@@ -176,7 +176,12 @@ impl CompletionCandidates {
                 for (ordinal, part) in domain.cleanup_targets(*access) {
                     if part.is_some_and(|part| part.release().is_some()) {
                         if let Some(state) = state.as_mut() {
-                            domain.invalidate_observations(state);
+                            domain.invalidate_cleanup_observations(
+                                state,
+                                *access,
+                                &[],
+                                bray_bound_tree::StorageExitPoint::new(scope, exit),
+                            )?;
                         }
 
                         continue;
@@ -363,7 +368,12 @@ impl CompletionCandidates {
                     if destruction.is_none()
                         && let Some(state) = state.as_mut()
                     {
-                        domain.invalidate_observations(state);
+                        domain.invalidate_cleanup_observations(
+                            state,
+                            *access,
+                            path,
+                            bray_bound_tree::StorageExitPoint::new(scope, exit),
+                        )?;
                     }
                 }
             }

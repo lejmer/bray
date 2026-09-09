@@ -70,6 +70,10 @@ impl NativeRuntime {
             return NativeTaskAllocation::failure(NativeRuntimeStatus::RUNTIME_FAILURE);
         };
 
+        if crate::allocation::reserve_map_entries(&mut tasks, 1).is_err() {
+            return NativeTaskAllocation::failure(NativeRuntimeStatus::ALLOCATION_FAILURE);
+        }
+
         self.next_task.store(next, Ordering::Relaxed);
         tasks.insert(handle, NativeTaskSlot::Allocated(kind));
 
@@ -116,7 +120,7 @@ impl NativeRuntime {
                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                     .retain(JoinWaitRegistration::is_pending);
 
-                Some((*handle, Arc::clone(task)))
+                Some((*handle, triomphe::Arc::clone(task)))
             });
 
         let Some((handle, started)) = selected else {
@@ -126,11 +130,13 @@ impl NativeRuntime {
         let task = &started.task;
         let wake = started.registration.wake_handle();
 
-        started
-            .event_wait
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .take();
+        if started.continuation.disarm().is_err() {
+            return NativeRuntimeStatus::RUNTIME_FAILURE;
+        }
+
+        if started.event_wait.disarm().is_err() {
+            return NativeRuntimeStatus::RUNTIME_FAILURE;
+        }
 
         // The resume context retains one wake handle while yield publication uses the other.
         let context = TaskExecutionContext::new(
@@ -175,7 +181,7 @@ impl NativeRuntime {
                 let kind = suspension.kind();
 
                 if kind == FrameSuspensionKind::TaskEvent {
-                    return self.suspend_on_task_event(ready, &started, suspension, wake);
+                    return self.suspend_on_task_event(ready, &started, suspension);
                 }
 
                 if kind == FrameSuspensionKind::TaskCompletion {
@@ -189,13 +195,7 @@ impl NativeRuntime {
 
                     // Publish registration while dispatch is running. An already-terminal child
                     // records a pending wake that becomes runnable when suspension is committed.
-                    let status = self.register_task_waiter(
-                        handle,
-                        child,
-                        Arc::new(move || {
-                            let _ = wake.wake(state);
-                        }),
-                    );
+                    let status = self.register_continuation_wait(handle, child, state);
 
                     if !status.is_success() {
                         return status;
@@ -237,7 +237,6 @@ impl NativeRuntime {
         ready: crate::ReadyTask,
         started: &StartedTask,
         suspension: crate::FrameSuspension,
-        wake: crate::TaskWakeHandle,
     ) -> NativeRuntimeStatus {
         let state = suspension.state();
 
@@ -249,38 +248,18 @@ impl NativeRuntime {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         };
 
-        let Ok((generation, _)) = event.observation() else {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
-        };
-
         // Keep the dispatch running until registration ownership is published. An immediate
         // event wake then becomes a pending scheduler wake that suspension releases.
-        let Ok(registration) = event.register(
-            generation,
-            Arc::new(move || {
-                let _ = wake.wake(state);
-            }),
-        ) else {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
-        };
-
-        let previous = started
+        if started
             .event_wait
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .replace(registration);
-
-        assert!(
-            previous.is_none(),
-            "task event wait registration must be consumed before resumption"
-        );
+            .register(&event, identity, state)
+            .is_err()
+        {
+            return NativeRuntimeStatus::RUNTIME_FAILURE;
+        }
 
         if ready.suspend(suspension).is_err() {
-            started
-                .event_wait
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .take();
+            let _ = started.event_wait.disarm();
 
             return NativeRuntimeStatus::RUNTIME_FAILURE;
         }
@@ -298,38 +277,37 @@ impl NativeRuntime {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
         };
 
-        if self
-            .awaited
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .contains_key(&parent)
-        {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
-        }
+        self.with_started(parent, |task| {
+            let mut awaited = task
+                .awaited
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        let cleanup_parent = match self.with_started(parent, |task| Arc::clone(&task.terminal)) {
-            Ok(parent) => parent,
-            Err(status) => return status,
-        };
+            if awaited.is_some() {
+                return NativeRuntimeStatus::RUNTIME_FAILURE;
+            }
 
-        let allocation = self.allocate_continuation();
+            let allocation = self.allocate_continuation();
 
-        let Some(child) = allocation.task() else {
-            return allocation.status();
-        };
+            let Some(child) = allocation.task() else {
+                return allocation.status();
+            };
 
-        let status = self.start(child, &mut transfer, Some(cleanup_parent));
+            let status = self.start(
+                child,
+                &mut transfer,
+                Some(triomphe::Arc::clone(&task.terminal)),
+            );
 
-        if !status.is_success() {
-            return status;
-        }
+            if !status.is_success() {
+                return status;
+            }
 
-        self.awaited
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .insert(parent, child);
+            *awaited = Some(child);
 
-        NativeRuntimeStatus::SUCCESS
+            NativeRuntimeStatus::SUCCESS
+        })
+        .unwrap_or_else(|status| status)
     }
 
     pub(in crate::native) fn resolve_awaited_terminal(
@@ -348,10 +326,14 @@ impl NativeRuntime {
             return status;
         }
 
-        self.awaited
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .remove(&parent);
+        if let Err(status) = self.with_started(parent, |task| {
+            task.awaited
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .take();
+        }) {
+            return status;
+        }
 
         self.destroy_task(child)
     }
@@ -538,7 +520,7 @@ impl NativeRuntime {
                         return NativeRunOutcome::new(NativeRunState::PENDING, 0);
                     }
 
-                    Arc::clone(task)
+                    triomphe::Arc::clone(task)
                 }
                 Some(NativeTaskSlot::Terminal { outcome, .. }) => {
                     return match outcome {
@@ -568,6 +550,8 @@ impl NativeRuntime {
             Err(
                 TaskObservationError::AlreadyObserved
                 | TaskObservationError::WaiterIdentityExhausted
+                | TaskObservationError::WaiterAllocationFailed
+                | TaskObservationError::OwnerAlreadyWaiting
                 | TaskObservationError::SynchronizationPoisoned,
             ) => return runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE),
         };
@@ -577,15 +561,17 @@ impl NativeRuntime {
             .unwrap_or_else(std::sync::PoisonError::into_inner)
             .clear();
 
+        task.continuation.clear();
+
         let outcome = match outcome {
             Some(outcome) => task_outcome(outcome, &task.terminal).unwrap_or_else(|panic| {
-                self.cleanup_reports.transfer_erased(
+                self.cleanup_reports.transfer_owned(
                     CleanupIncidentProducer::Task(task.task.id()),
                     CleanupIncidentOrigin::new(
                         task.task.descriptor().frame(),
                         task.task.state_id_for_reporting(),
                     ),
-                    Box::new(panic),
+                    crate::incident::OwnedCleanupIncident::host(Box::new(panic)),
                 );
 
                 runtime_failure(NativeRuntimeStatus::PANICKED)
@@ -602,7 +588,7 @@ impl NativeRuntime {
                 handle,
                 NativeTaskSlot::Terminal {
                     outcome: TerminalOutcome::Available(outcome),
-                    _task: Arc::clone(&task),
+                    _task: triomphe::Arc::clone(&task),
                 },
             );
 
@@ -640,7 +626,7 @@ impl NativeRuntime {
                 return Err(NativeRuntimeStatus::UNKNOWN_TASK);
             };
 
-            Arc::clone(task)
+            triomphe::Arc::clone(task)
         };
 
         Ok(callback(&task))
@@ -661,7 +647,7 @@ impl NativeRuntime {
         let deadline =
             bray_platform::MonotonicClock.deadline_after(std::time::Duration::from_millis(10));
 
-        match self.scheduler.wait_ready_from(&lanes, deadline) {
+        match self.scheduler.wait_ready_from(lanes, deadline) {
             Ok(Some(ready)) => self.drive_ready(ready),
             Ok(None) => NativeRuntimeStatus::SUCCESS,
             Err(_) => NativeRuntimeStatus::RUNTIME_FAILURE,
@@ -688,16 +674,19 @@ impl NativeRuntime {
 
         for incident in task.terminal.take_cleanup_incidents().into_iter().rev() {
             self.cleanup_reports
-                .transfer_erased(producer, origin, incident);
+                .transfer_owned(producer, origin, incident);
         }
     }
 
     fn awaited_child(&self, parent: NativeTaskHandle) -> Option<NativeTaskHandle> {
-        self.awaited
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .get(&parent)
-            .copied()
+        self.with_started(parent, |task| {
+            *task
+                .awaited
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+        })
+        .ok()
+        .flatten()
     }
 
     fn register_awaited_wake(
@@ -709,19 +698,21 @@ impl NativeRuntime {
             return NativeRuntimeStatus::SUCCESS;
         };
 
-        let wake = self.with_started(parent, |task| task.registration.wake_handle());
+        self.register_continuation_wait(parent, child, state)
+    }
 
-        let Ok(wake) = wake else {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
+    fn register_continuation_wait(
+        &self,
+        owner: NativeTaskHandle,
+        child: NativeTaskHandle,
+        state: ProtectedFrameStateId,
+    ) -> NativeRuntimeStatus {
+        let (owner, task) = match self.retained_task_pair(owner, child) {
+            Ok(tasks) => tasks,
+            Err(status) => return status,
         };
 
-        self.register_task_waiter(
-            parent,
-            child,
-            Arc::new(move || {
-                let _ = wake.wake(state);
-            }),
-        )
+        owner.continuation.register(child, &task.task, state)
     }
 
     fn register_task_waiter(
@@ -730,24 +721,9 @@ impl NativeRuntime {
         child: NativeTaskHandle,
         wake: Arc<dyn crate::JoinWake>,
     ) -> NativeRuntimeStatus {
-        let (owner, child) = {
-            let tasks = self
-                .tasks
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-            let retained = |handle| match tasks.get(&handle) {
-                Some(
-                    NativeTaskSlot::Started(task) | NativeTaskSlot::Terminal { _task: task, .. },
-                ) => Some(Arc::clone(task)),
-                _ => None,
-            };
-
-            let (Some(owner), Some(child)) = (retained(owner), retained(child)) else {
-                return NativeRuntimeStatus::UNKNOWN_TASK;
-            };
-
-            (owner, child)
+        let (owner, child) = match self.retained_task_pair(owner, child) {
+            Ok(tasks) => tasks,
+            Err(status) => return status,
         };
 
         // Terminal publication preserves the task record. Registration on that record wakes
@@ -765,6 +741,30 @@ impl NativeRuntime {
 
         NativeRuntimeStatus::SUCCESS
     }
+
+    fn retained_task_pair(
+        &self,
+        owner: NativeTaskHandle,
+        child: NativeTaskHandle,
+    ) -> Result<(triomphe::Arc<StartedTask>, triomphe::Arc<StartedTask>), NativeRuntimeStatus> {
+        let tasks = self
+            .tasks
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        let retained = |handle| match tasks.get(&handle) {
+            Some(NativeTaskSlot::Started(task) | NativeTaskSlot::Terminal { _task: task, .. }) => {
+                Some(triomphe::Arc::clone(task))
+            }
+            _ => None,
+        };
+
+        let (Some(owner), Some(child)) = (retained(owner), retained(child)) else {
+            return Err(NativeRuntimeStatus::UNKNOWN_TASK);
+        };
+
+        Ok((owner, child))
+    }
 }
 
 #[cfg(test)]
@@ -773,22 +773,14 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use bray_runtime_abi::{
-        NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
-        NativeFrameState, NativeLaneRequirements, NativeProtectedFrame, NativeRunState,
-        NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskHandle,
+        NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind, NativeProtectedFrame,
+        NativeRunState, NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskHandle,
     };
 
     use super::super::core::{initialize, shutdown, with_runtime};
 
     #[test]
     fn task_completion_suspension_retains_early_and_late_terminal_results() {
-        extern "C" fn state(_: usize, _: u32) -> NativeFrameState {
-            NativeFrameState::new(
-                NativeFrameAffinity::MAIN_THREAD,
-                NativeLaneRequirements::MAIN_THREAD,
-            )
-        }
-
         extern "C-unwind" fn complete(_: usize) -> NativeFrameProgress {
             NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0)
         }
@@ -824,13 +816,15 @@ mod tests {
 
                 let child_frame = NativeProtectedFrame::new(
                     0,
-                    [40; 32],
-                    1,
-                    0,
-                    1,
-                    0,
-                    1,
-                    state,
+                    bray_runtime_abi::NativeFrameMetadata::new(
+                        [40; 32],
+                        1,
+                        0,
+                        1,
+                        0,
+                        1,
+                        crate::test_support::native_main_frame_state,
+                    ),
                     complete,
                     complete,
                     action,
@@ -841,13 +835,15 @@ mod tests {
 
                 let parent_frame = NativeProtectedFrame::new(
                     usize::try_from(child.raw()).unwrap(),
-                    [41; 32],
-                    2,
-                    0,
-                    1,
-                    0,
-                    1,
-                    state,
+                    bray_runtime_abi::NativeFrameMetadata::new(
+                        [41; 32],
+                        2,
+                        0,
+                        1,
+                        0,
+                        1,
+                        crate::test_support::native_main_frame_state,
+                    ),
                     observe,
                     observe,
                     action,
@@ -899,6 +895,39 @@ mod tests {
                     );
                 }
 
+                if !completed_early {
+                    assert_eq!(runtime.drive_main_thread(), NativeRuntimeStatus::SUCCESS);
+
+                    // Repeated polling reuses the admission-owned continuation slot. A second
+                    // target or state cannot displace the wait protecting the current child.
+                    let state = bray_runtime_model::ProtectedFrameStateId::new(1);
+
+                    assert_eq!(
+                        runtime.register_continuation_wait(parent, child, state),
+                        NativeRuntimeStatus::SUCCESS
+                    );
+
+                    assert_eq!(
+                        runtime.register_continuation_wait(parent, parent, state),
+                        NativeRuntimeStatus::RUNTIME_FAILURE
+                    );
+
+                    assert_eq!(
+                        runtime.register_continuation_wait(
+                            parent,
+                            child,
+                            bray_runtime_model::ProtectedFrameStateId::new(0)
+                        ),
+                        NativeRuntimeStatus::RUNTIME_FAILURE
+                    );
+
+                    runtime
+                        .with_started(parent, |task| {
+                            assert!(task.waits.lock().unwrap().is_empty());
+                        })
+                        .unwrap();
+                }
+
                 // Each frame gets at most its initial entry and the observer's one resumption.
                 for _ in 0..3 {
                     assert!(matches!(
@@ -922,13 +951,6 @@ mod tests {
 
     #[test]
     fn composed_cleanup_incidents_stay_with_the_parent_until_its_boundary_resolves() {
-        extern "C" fn state(_: usize, _: u32) -> NativeFrameState {
-            NativeFrameState::new(
-                NativeFrameAffinity::MAIN_THREAD,
-                NativeLaneRequirements::MAIN_THREAD,
-            )
-        }
-
         extern "C-unwind" fn complete(_: usize) -> NativeFrameProgress {
             NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0)
         }
@@ -944,18 +966,20 @@ mod tests {
             );
 
             with_runtime(|runtime| {
-                let parent = Arc::new(crate::native::frame::NativeTerminalState::new());
+                let parent = triomphe::Arc::new(crate::native::frame::NativeTerminalState::new());
                 let child = runtime.allocate().task().unwrap();
 
                 let frame = NativeProtectedFrame::new(
                     0,
-                    [42; 32],
-                    1,
-                    0,
-                    1,
-                    0,
-                    1,
-                    state,
+                    bray_runtime_abi::NativeFrameMetadata::new(
+                        [42; 32],
+                        1,
+                        0,
+                        1,
+                        0,
+                        1,
+                        crate::test_support::native_main_frame_state,
+                    ),
                     complete,
                     complete,
                     action,
@@ -968,7 +992,7 @@ mod tests {
                     runtime.start(
                         child,
                         &mut super::super::super::frame::NativeFrameTransfer::new(frame),
-                        composed.then(|| Arc::clone(&parent))
+                        composed.then(|| triomphe::Arc::clone(&parent))
                     ),
                     NativeRuntimeStatus::SUCCESS
                 );
@@ -976,7 +1000,9 @@ mod tests {
                 runtime
                     .with_started(child, |task| {
                         for ordinal in [7u32, 11] {
-                            task.terminal.record_cleanup_incident(Box::new(ordinal));
+                            task.terminal.record_cleanup_incident(
+                                crate::incident::OwnedCleanupIncident::host(Box::new(ordinal)),
+                            );
                         }
                     })
                     .unwrap();
@@ -989,7 +1015,7 @@ mod tests {
                 let incidents: Vec<_> = parent
                     .take_cleanup_incidents()
                     .into_iter()
-                    .map(|incident| *incident.downcast::<u32>().unwrap())
+                    .map(|incident| *incident.payload().downcast_ref::<u32>().unwrap())
                     .collect();
 
                 assert_eq!(incidents, if composed { vec![7, 11] } else { Vec::new() });
@@ -1017,13 +1043,6 @@ mod tests {
 
     #[test]
     fn waiter_registration_survives_terminal_publication_after_a_pending_observation() {
-        extern "C" fn state(_: usize, _: u32) -> NativeFrameState {
-            NativeFrameState::new(
-                NativeFrameAffinity::MAIN_THREAD,
-                NativeLaneRequirements::MAIN_THREAD,
-            )
-        }
-
         extern "C-unwind" fn complete(_: usize) -> NativeFrameProgress {
             NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0)
         }
@@ -1042,13 +1061,15 @@ mod tests {
 
             let frame = NativeProtectedFrame::new(
                 0,
-                [39; 32],
-                1,
-                0,
-                1,
-                0,
-                1,
-                state,
+                bray_runtime_abi::NativeFrameMetadata::new(
+                    [39; 32],
+                    1,
+                    0,
+                    1,
+                    0,
+                    1,
+                    crate::test_support::native_main_frame_state,
+                ),
                 complete,
                 complete,
                 action,

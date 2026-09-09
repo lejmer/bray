@@ -1,8 +1,8 @@
-use std::collections::{BTreeMap, VecDeque};
+use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
-use bray_platform::{MonotonicDeadline, MonotonicInstant, NativeEvent, RuntimeThreadId};
+use bray_platform::{MonotonicDeadline, NativeEvent, RuntimeThreadId};
 use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId, RuntimeCapability};
 
 use crate::cancellation::CancellationWakeRegistration;
@@ -12,6 +12,7 @@ use crate::{
 
 use super::contract::{SchedulerError, SchedulerLimits};
 use super::dispatch::{pop_ready, queue_instant, scheduler_snapshot, select_task_lane};
+use super::ready::{QueuedTask, ReadyQueue, ReadySlotId, ReadySlots};
 
 /// Target-independent scheduler policy and ready-queue storage.
 #[derive(Clone, Debug)]
@@ -31,9 +32,10 @@ pub(super) struct SchedulerData {
 
 #[derive(Debug, Default)]
 pub(super) struct SchedulerState {
-    pub(super) tasks: BTreeMap<TaskId, RegisteredTask>,
+    pub(super) tasks: HashMap<TaskId, RegisteredTask>,
     pub(super) independent_tasks: usize,
-    pub(super) queues: BTreeMap<ExecutionLane, VecDeque<QueuedTask>>,
+    pub(super) queues: HashMap<ExecutionLane, ReadyQueue>,
+    pub(super) ready: ReadySlots,
     pub(super) timers: BTreeMap<MonotonicDeadline, BTreeMap<u64, TimerWake>>,
     next_timer: u64,
     pub(super) timer_count: usize,
@@ -47,6 +49,8 @@ pub(super) struct RegisteredTask {
     pub(super) cancellation: CancellationContext,
     pub(super) dispatch: DispatchState,
     pub(super) wake_count: u64,
+    pub(super) ready_lanes: Vec<ExecutionLane>,
+    pub(super) ready_slot: ReadySlotId,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -65,14 +69,6 @@ pub(super) struct PendingWake {
     pub(super) state: ProtectedFrameStateId,
     pub(super) lane: ExecutionLane,
     pub(super) cause: TaskWakeCause,
-}
-
-#[derive(Clone, Copy, Debug)]
-pub(super) struct QueuedTask {
-    pub(super) task: TaskId,
-    pub(super) state: ProtectedFrameStateId,
-    pub(super) cause: TaskWakeCause,
-    pub(super) queued_at: Option<MonotonicInstant>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -144,7 +140,7 @@ impl Scheduler {
             return Err(SchedulerError::UnknownTask(wake.task));
         };
 
-        select_task_lane(&self.data, task, state_id)?;
+        select_task_lane(&self.data, &task.descriptor, task.origin, state_id)?;
 
         if state.timer_count >= self.data.limits.timers().get() {
             return Err(SchedulerError::TimerCapacityReached);
@@ -204,7 +200,12 @@ impl Scheduler {
 
         for task in state.tasks.values().filter(|task| task.origin == thread) {
             for frame_state in task.descriptor.states() {
-                let lane = select_task_lane(&self.data, task, frame_state.state())?;
+                let lane = select_task_lane(
+                    &self.data,
+                    &task.descriptor,
+                    task.origin,
+                    frame_state.state(),
+                )?;
 
                 if matches!(lane.placement(), crate::ExecutionLanePlacement::OriginThread(origin)
                     | crate::ExecutionLanePlacement::PinnedWorker(origin) if origin == thread)
@@ -351,7 +352,7 @@ impl TaskRegistration {
             return Err(SchedulerError::UnknownTask(self.task));
         };
 
-        select_task_lane(&scheduler, task, state_id)
+        select_task_lane(&scheduler, &task.descriptor, task.origin, state_id)
     }
 }
 
@@ -366,10 +367,6 @@ impl Drop for TaskRegistration {
         };
 
         state.remove_task(self.task);
-
-        for queue in state.queues.values_mut() {
-            queue.retain(|queued| queued.task != self.task);
-        }
 
         let mut removed_timers = 0;
 
@@ -389,11 +386,52 @@ impl Drop for TaskRegistration {
 /// Transferable authority to make one registered task state ready.
 #[derive(Clone, Debug)]
 pub struct TaskWakeHandle {
-    task: TaskId,
-    scheduler: Weak<SchedulerData>,
+    pub(super) task: TaskId,
+    pub(super) scheduler: Weak<SchedulerData>,
 }
 
 impl TaskWakeHandle {
+    pub(crate) fn wake_cancellation(&self) {
+        wake_cancelled_task(&self.scheduler, self.task);
+    }
+
+    /// Withdraws a completed continuation's redundant wake while its owner enters that state.
+    pub(crate) fn withdraw_pending_wake(
+        &self,
+        state_id: ProtectedFrameStateId,
+    ) -> Result<(), SchedulerError> {
+        let scheduler = self
+            .scheduler
+            .upgrade()
+            .ok_or(SchedulerError::UnknownTask(self.task))?;
+
+        let mut state = scheduler
+            .state
+            .lock()
+            .map_err(|_| SchedulerError::SynchronizationPoisoned)?;
+
+        let task = state
+            .tasks
+            .get_mut(&self.task)
+            .ok_or(SchedulerError::UnknownTask(self.task))?;
+
+        if let DispatchState::Running {
+            state,
+            pending: Some(pending),
+        } = task.dispatch
+            && state == state_id
+            && pending.state == state_id
+            && pending.cause == TaskWakeCause::Explicit
+        {
+            task.dispatch = DispatchState::Running {
+                state,
+                pending: None,
+            };
+        }
+
+        Ok(())
+    }
+
     /// Makes one protected-frame state ready for compatible execution.
     ///
     /// Returns whether this call added a new ready-queue entry.
@@ -425,7 +463,7 @@ impl TaskWakeHandle {
     }
 }
 
-pub(super) fn wake_cancelled_task(scheduler: &Weak<SchedulerData>, task_id: TaskId) {
+fn wake_cancelled_task(scheduler: &Weak<SchedulerData>, task_id: TaskId) {
     let Some(scheduler) = scheduler.upgrade() else {
         return;
     };
@@ -605,7 +643,7 @@ fn release_dispatch(
         return Ok(false);
     }
 
-    let lane = select_task_lane(scheduler, task, suspended_state)?;
+    let lane = select_task_lane(scheduler, &task.descriptor, task.origin, suspended_state)?;
 
     let next = match pending {
         Some(pending) if !require_matching_pending || pending.state == suspended_state => {
@@ -626,16 +664,24 @@ fn release_dispatch(
     };
 
     if let Some(next) = next {
-        state
+        let ready_slot = task.ready_slot;
+
+        let queue = state
             .queues
-            .entry(next.lane)
-            .or_default()
-            .push_back(QueuedTask {
+            .get_mut(&next.lane)
+            .ok_or(SchedulerError::MissingReadyQueue(next.lane))?;
+
+        state.ready.push(
+            ready_slot,
+            queue,
+            next.lane,
+            QueuedTask {
                 task: task_id,
                 state: next.state,
                 cause: next.cause,
                 queued_at: queue_instant(scheduler),
-            });
+            },
+        )?;
 
         let Some(task) = state.tasks.get_mut(&task_id) else {
             return Err(SchedulerError::UnknownTask(task_id));
@@ -664,7 +710,7 @@ fn enqueue_task(
         return Err(SchedulerError::UnknownTask(task_id));
     };
 
-    let lane = select_task_lane(scheduler, task, state_id)?;
+    let lane = select_task_lane(scheduler, &task.descriptor, task.origin, state_id)?;
 
     match task.dispatch {
         DispatchState::Terminal(_) => return Ok(false),
@@ -719,12 +765,24 @@ fn enqueue_task(
         DispatchState::Idle(_) => {}
     }
 
-    state.queues.entry(lane).or_default().push_back(QueuedTask {
-        task: task_id,
-        state: state_id,
-        cause,
-        queued_at: queue_instant(scheduler),
-    });
+    let ready_slot = task.ready_slot;
+
+    let queue = state
+        .queues
+        .get_mut(&lane)
+        .ok_or(SchedulerError::MissingReadyQueue(lane))?;
+
+    state.ready.push(
+        ready_slot,
+        queue,
+        lane,
+        QueuedTask {
+            task: task_id,
+            state: state_id,
+            cause,
+            queued_at: queue_instant(scheduler),
+        },
+    )?;
 
     let Some(task) = state.tasks.get_mut(&task_id) else {
         return Err(SchedulerError::UnknownTask(task_id));
@@ -883,7 +941,6 @@ mod tests {
                 source.frame_abi(),
                 source.layout(),
                 source.completion_layout(),
-                source.operations().clone(),
                 [ProtectedFrameStateDescriptor::new(
                     ProtectedFrameStateId::new(0),
                     [],

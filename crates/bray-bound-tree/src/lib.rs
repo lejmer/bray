@@ -54,7 +54,9 @@ pub use bound_unit::{BoundUnit, BoundUnitBuildError, BoundUnitRoot};
 mod contract_input;
 
 pub use contract_input::BoundContractInputs;
-pub use control::{CheckedControlFlow, ControlCompletion, ControlCompletionKind};
+pub use control::{
+    BoundOperationPoint, CheckedControlFlow, ControlCompletion, ControlCompletionKind,
+};
 pub use declared_type::{
     DeclaredValueTypeConstraint, DeclaredValueTypeConstraintKind, DeclaredValueTypeEvidence,
     DeclaredValueTypeTemplates, DeclaredValueTypeTerm,

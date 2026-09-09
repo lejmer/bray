@@ -12,26 +12,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
         let checks_call_panic = self.checked_call_operations.contains(&operation);
 
-        let checked_default_context = if checks_call_panic
-            && call
-                .arguments()
-                .iter()
-                .any(|argument| matches!(argument, MirCallArgument::Default { .. }))
+        let helpers = self.operation_helpers(operation)?;
+        let mut helpers = helpers.iter();
+        let semantic_arguments = self.evaluate_call_arguments(call)?;
+        let semantic_arguments = semantic_arguments.as_slice();
+
+        let default_helper = if let MirCallTarget::ParameterDefault { provider, .. } = call.target()
         {
-            Some(self.checked_call_panic_report_context()?)
+            Some(super::super::support::next_helper(
+                &mut helpers,
+                &bray_ir::MirHelperReference::CallableDefault(*provider),
+            )?)
         } else {
             None
         };
-
-        let helpers = self.operation_helpers(operation)?;
-        let mut helpers = helpers.iter();
-
-        let evaluated =
-            self.evaluate_call_arguments(call, &mut helpers, checked_default_context)?;
-
-        let (semantic_arguments, checked_defaults) = evaluated.into_parts();
-
-        let semantic_arguments = semantic_arguments.as_slice();
 
         if helpers.next().is_some() {
             return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -49,7 +43,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     let operand_type = call
                         .arguments()
                         .first()
-                        .and_then(MirCallArgument::value)
+                        .map(MirCallArgument::value)
                         .map(|operand| self.operand_type(operand))
                         .transpose()?
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
@@ -84,82 +78,34 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let signature = symbol.signature().clone();
 
                 if call.may_propagate_panic() && checks_call_panic {
-                    if let Some(context) = checked_default_context {
-                        self.invoke_function_with_panic_report_context(
-                            function,
-                            &signature,
-                            semantic_arguments,
-                            "call",
-                            Some(context),
-                        )
-                    } else {
-                        self.invoke_checked_function(
-                            function,
-                            &signature,
-                            semantic_arguments,
-                            "call",
-                        )
-                    }
+                    self.invoke_checked_function(function, &signature, semantic_arguments, "call")
                 } else {
                     self.invoke_function(function, &signature, semantic_arguments, "call")
                 }
             }
-            MirCallTarget::Runtime(runtime) => self.invoke_runtime(*runtime, semantic_arguments),
-            MirCallTarget::Indirect { callee, .. } => {
-                let callee_type = self.operand_type(callee)?;
+            MirCallTarget::ParameterDefault { .. } => {
+                let helper = default_helper.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                let mapping = self
-                    .type_mapping(callee_type)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+                if checks_call_panic {
+                    let context = self.checked_call_panic_report_context()?;
+                    self.retain_checked_call_context(context)?;
 
-                let CodegenTypeKind::Callable(signature) = mapping.kind() else {
-                    return Err(CodegenFailure::GeneratedModuleInvariant);
-                };
-
-                // Translation mutates its value cache after releasing the borrowed mapping.
-                let signature = signature.clone();
-
-                let pointer = pointer_value(self.operand(callee)?)
-                    .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-                let function_type = self.types.function_type(&signature)?;
-
-                if call.may_propagate_panic() && checks_call_panic {
-                    if let Some(context) = checked_default_context {
-                        self.invoke_indirect_with_panic_report_context(
-                            function_type,
-                            pointer,
-                            &signature,
-                            semantic_arguments,
-                            "call.indirect",
-                            Some(context),
-                        )
-                    } else {
-                        self.invoke_checked_indirect(
-                            function_type,
-                            pointer,
-                            &signature,
-                            semantic_arguments,
-                            "call.indirect",
-                        )
-                    }
-                } else {
-                    self.invoke_indirect(
-                        function_type,
-                        pointer,
-                        &signature,
+                    self.invoke_helper_with_panic_report_context(
+                        helper,
                         semantic_arguments,
-                        "call.indirect",
+                        context,
                     )
+                } else {
+                    self.invoke_helper(helper, semantic_arguments)
                 }
             }
+            MirCallTarget::Runtime(runtime) => self.invoke_runtime(*runtime, semantic_arguments),
+            MirCallTarget::Indirect { callee, .. } => self.invoke_indirect_callable(
+                callee,
+                semantic_arguments,
+                call.may_propagate_panic() && checks_call_panic,
+            ),
         }?;
-
-        let result = if let Some(defaults) = checked_defaults {
-            self.finish_checked_default_evaluation(defaults, result)?
-        } else {
-            result
-        };
 
         if result.is_some() {
             return Ok(result);
@@ -190,6 +136,49 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let ty = self.types.map(ty)?;
 
         Ok(Some(ty.const_zero()))
+    }
+
+    pub(in crate::translation::unit) fn invoke_indirect_callable(
+        &mut self,
+        callee: &bray_ir::MirOperand,
+        arguments: &[BasicValueEnum<'context>],
+        checked: bool,
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        let callee_type = self.operand_type(callee)?;
+
+        let mapping = self
+            .type_mapping(callee_type)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let CodegenTypeKind::Callable(signature) = mapping.kind() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        // Translation mutates its value cache after releasing the borrowed mapping.
+        let signature = signature.clone();
+
+        let pointer =
+            pointer_value(self.operand(callee)?).ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let function_type = self.types.function_type(&signature)?;
+
+        if checked {
+            self.invoke_checked_indirect(
+                function_type,
+                pointer,
+                &signature,
+                arguments,
+                "call.indirect",
+            )
+        } else {
+            self.invoke_indirect(
+                function_type,
+                pointer,
+                &signature,
+                arguments,
+                "call.indirect",
+            )
+        }
     }
 
     pub(in crate::translation::unit) fn operation_helpers(

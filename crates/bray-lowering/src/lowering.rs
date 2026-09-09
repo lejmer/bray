@@ -2,6 +2,7 @@ mod arrays;
 mod asynchronous;
 mod block;
 mod cleanup;
+mod construction;
 mod error;
 mod expression;
 mod initialization;

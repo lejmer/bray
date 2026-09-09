@@ -17,7 +17,7 @@ pub(super) fn run_static_cleanup(
 ) -> Vec<OwnedCleanupIncident> {
     let ((), incidents) = crate::native::with_cleanup_incident_owner(|record| {
         if let Err(payload) = catch_unwind(AssertUnwindSafe(|| prepare())) {
-            record(OwnedCleanupIncident::panic(payload));
+            record(OwnedCleanupIncident::host(payload));
         }
 
         for incident in run_finalizer(finalizer) {
@@ -31,11 +31,11 @@ pub(super) fn run_static_cleanup(
                     record(incident);
                 }
             }
-            Err(payload) => record(OwnedCleanupIncident::panic(payload)),
+            Err(payload) => record(OwnedCleanupIncident::host(payload)),
         }
 
         if let Err(payload) = catch_unwind(AssertUnwindSafe(|| detach())) {
-            record(OwnedCleanupIncident::panic(payload));
+            record(OwnedCleanupIncident::host(payload));
         }
     });
 
@@ -76,7 +76,7 @@ fn run_asynchronous_finalizer(finalizer: NativeStaticFinalizer) -> Vec<OwnedClea
         let mut incidents = vec![incident];
 
         if let Err(payload) = result {
-            incidents.push(OwnedCleanupIncident::panic(payload));
+            incidents.push(OwnedCleanupIncident::host(payload));
         }
 
         return incidents;
@@ -87,7 +87,7 @@ fn run_asynchronous_finalizer(finalizer: NativeStaticFinalizer) -> Vec<OwnedClea
             crate::native::run_static_finalizer(frame, finalizer.resolve(), finalizer.panics())
         }
         Ok(_) => vec![OwnedCleanupIncident::runtime_failure()],
-        Err(payload) => vec![OwnedCleanupIncident::panic(payload)],
+        Err(payload) => vec![OwnedCleanupIncident::host(payload)],
     }
 }
 
@@ -106,7 +106,7 @@ pub(crate) fn finish_finalizer_callback(
             incidents.extend(incidents_from_status(status, incident))
         }
         Ok(_) => {}
-        Err(payload) => incidents.push(OwnedCleanupIncident::panic(payload)),
+        Err(payload) => incidents.push(OwnedCleanupIncident::host(payload)),
     }
 
     incidents

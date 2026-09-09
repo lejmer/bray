@@ -489,6 +489,7 @@ where
 
                 self.temporary_access(id)
             }
+            BoundStructuredExpressionKind::ResultPropagation => self.plan_propagation(id, operands),
             _ => {
                 for operand in operands {
                     self.plan_expression(*operand, Some(StorageAccessPurpose::Read))?;

@@ -126,32 +126,34 @@ impl Lowerer<'_> {
                     }
                 }
 
-                let borrowed = matches!(
-                    lowerer
-                        .input
-                        .semantic_values()
-                        .type_data(place.ty())?
-                        .as_ref(),
-                    TypeData::Borrow { .. }
-                );
-
-                let operand = match decision.purpose() {
-                    StorageAccessPurpose::Move if borrowed => MirOperand::Copy(place),
-                    StorageAccessPurpose::Move => MirOperand::Move(place),
-                    StorageAccessPurpose::Read
-                    | StorageAccessPurpose::Copy
-                    | StorageAccessPurpose::ValueTransfer
-                    | StorageAccessPurpose::Member
-                    | StorageAccessPurpose::Index
-                    | StorageAccessPurpose::Slice
-                    | StorageAccessPurpose::Projection => MirOperand::Copy(place),
-                    _ => {
-                        return Err(LoweringError::UnsupportedStorageAccess(decision.access()));
-                    }
-                };
+                let operand = lowerer.checked_place_operand(place, decision)?;
 
                 Ok(LoweredExpression::continuing(block, Some(operand), source))
             },
         )
+    }
+
+    pub(in crate::lowering::expression) fn checked_place_operand(
+        &self,
+        place: MirPlace,
+        decision: bray_bound_tree::StorageOperationDecision,
+    ) -> Result<MirOperand, LoweringError> {
+        let borrowed = matches!(
+            self.input.semantic_values().type_data(place.ty())?.as_ref(),
+            TypeData::Borrow { .. }
+        );
+
+        match decision.purpose() {
+            StorageAccessPurpose::Move if !borrowed => Ok(MirOperand::Move(place)),
+            StorageAccessPurpose::Read
+            | StorageAccessPurpose::Copy
+            | StorageAccessPurpose::Move
+            | StorageAccessPurpose::ValueTransfer
+            | StorageAccessPurpose::Member
+            | StorageAccessPurpose::Index
+            | StorageAccessPurpose::Slice
+            | StorageAccessPurpose::Projection => Ok(MirOperand::Copy(place)),
+            _ => Err(LoweringError::UnsupportedStorageAccess(decision.access())),
+        }
     }
 }

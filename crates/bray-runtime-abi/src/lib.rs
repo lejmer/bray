@@ -7,7 +7,7 @@
 mod layout;
 mod catalog;
 mod cleanup;
-mod frame_entry;
+mod frame;
 mod platform;
 mod process;
 mod product;
@@ -21,7 +21,7 @@ pub use cleanup::{
     NativeCleanupExecution, NativeTaskTerminalCleanup, NativeValueCleanup,
     NativeValueCleanupCallback,
 };
-pub use frame_entry::NativeFrameEntry;
+pub use frame::{NativeFrameEntry, NativeFrameMetadata};
 pub use platform::{
     NativePlatformEnvironmentEntry, NativePlatformEnvironmentList, NativePlatformFileMetadata,
     NativePlatformFileOptions, NativePlatformPath, NativePlatformSpanList, NativePlatformStatus,

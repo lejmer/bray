@@ -393,8 +393,29 @@ pub(super) fn validate_concrete_substitution(
     store: SemanticValueStoreId,
     root: GenericSubstitutionId,
 ) -> Result<(), SemanticValueStoreError> {
-    let mut pending = vec![ConcreteWork::Substitution(root)];
+    validate_concrete_work(tables, store, vec![ConcreteWork::Substitution(root)])
+}
 
+pub(super) fn validate_concrete_requirement(
+    tables: &SemanticTables,
+    store: SemanticValueStoreId,
+    requirement: crate::ImplementationRequirementKey,
+) -> Result<(), SemanticValueStoreError> {
+    validate_concrete_work(
+        tables,
+        store,
+        vec![
+            ConcreteWork::Type(requirement.subject()),
+            ConcreteWork::TraitApplication(requirement.trait_application()),
+        ],
+    )
+}
+
+fn validate_concrete_work(
+    tables: &SemanticTables,
+    store: SemanticValueStoreId,
+    mut pending: Vec<ConcreteWork>,
+) -> Result<(), SemanticValueStoreError> {
     let mut types = HashSet::new();
     let mut substitutions = HashSet::new();
     let mut trait_applications = HashSet::new();

@@ -20,6 +20,40 @@ impl Lowerer<'_> {
         value: Option<(MirValueId, TypeId)>,
         synchronous_destruction: bool,
     ) -> Result<(MirBlockId, Option<(MirValueId, TypeId)>), LoweringError> {
+        if self.future_has_cleanup_free_captures(&place) {
+            let consumes = matches!(
+                role,
+                MirGeneratedLifecycleRole::Destroy
+                    | MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Destroy)
+                    | MirGeneratedLifecycleRole::Cleanup(
+                        bray_ir::MirCleanupPhase::LifecycleResolution
+                    )
+            );
+
+            if consumes {
+                self.set_storage_initialized(block, source, &place, false)?;
+
+                let runtime = self.runtime_reference(
+                    bray_runtime_interface::RuntimeAbiRole::InactiveCaptureDestruction,
+                );
+
+                self.push_operation(
+                    block,
+                    Self::retained_source(source),
+                    MirOperationKind::Async(bray_ir::MirAsyncOperation::DestroyInactiveCaptures {
+                        frame: MirOperand::Move(place),
+                        runtime,
+                    }),
+                    None,
+                )?;
+
+                return Ok((self.check_cleanup_action_outcome(block, source)?, value));
+            }
+
+            // An unstarted ordinary call with inert captures has no owned run to quiesce.
+            return Ok((block, value));
+        }
+
         if self.destructor_remainder
             && matches!(
                 role,
@@ -109,7 +143,8 @@ impl Lowerer<'_> {
 
             self.check_cleanup_action_outcome(block, source)?
         } else {
-            let future = self.create_cleanup_frame(block, source, role, &place)?;
+            let (block, rejected, future) =
+                self.create_cleanup_frame(block, source, role, &place)?;
 
             if role != MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Quiesce) {
                 self.set_storage_initialized(block, source, &place, false)?;
@@ -119,7 +154,8 @@ impl Lowerer<'_> {
                 self.cleanup_retained_storages.push(pending.storage());
             }
 
-            let (block, result, variants) = self.await_cleanup_frame(block, source, future)?;
+            let (block, result, variants) =
+                self.await_cleanup_frame(block, source, MirOperand::Move(future))?;
 
             if pending.is_some() {
                 self.cleanup_retained_storages.pop();
@@ -140,6 +176,8 @@ impl Lowerer<'_> {
                     crate::cleanup_outcome::CleanupCancellation::Propagate,
                 ),
             )?;
+
+            outcome.retain_allocation_failure(&mut self.builder, rejected, source, finished)?;
 
             self.set_terminator(
                 completed,
@@ -182,13 +220,24 @@ impl Lowerer<'_> {
         Ok((continuation, Some((value, ty))))
     }
 
+    fn future_has_cleanup_free_captures(&self, place: &MirPlace) -> bool {
+        place.projections().is_empty()
+            && self.storages.iter().any(|(identity, storage)| {
+                *storage == place.storage()
+                    && self
+                        .input
+                        .lowering_plans()
+                        .future_has_cleanup_free_captures(*identity)
+            })
+    }
+
     fn create_cleanup_frame(
         &mut self,
         block: MirBlockId,
         source: &MirSourceAnchor,
         role: MirGeneratedLifecycleRole,
         place: &MirPlace,
-    ) -> Result<MirOperand, LoweringError> {
+    ) -> Result<(MirBlockId, MirBlockId, MirPlace), LoweringError> {
         let ty = place.ty();
 
         let receiver = self.input.semantic_values().intern_type(TypeData::Borrow {
@@ -212,6 +261,7 @@ impl Lowerer<'_> {
 
         let completion = self.representation_type(RepresentationRole::Unit)?;
         let future = self.unary_representation_type(RepresentationRole::Future, completion)?;
+        let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
 
         crate::cleanup_await::create_lifecycle_frame(
             &mut self.builder,
@@ -221,6 +271,7 @@ impl Lowerer<'_> {
             ty,
             receiver,
             BoundFutureConstruction::new(completion, future),
+            boolean,
         )
         .map_err(Into::into)
     }

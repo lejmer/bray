@@ -406,13 +406,21 @@ mod tests {
 
     #[test]
     fn primary_declaration_lookups_share_one_inventory() {
-        let compilation = compilation(concat!(
-            "module app;\n",
-            "static STORED: i32 = 1;\n",
-            "const FIXED: i32 = 2;\n",
-            "predicate valid() = true;\n",
-            "func check(value: i32 = 3) requires(true) ensures(true) {}\n",
-        ));
+        let compilation = compilation(
+            r#"
+        module app;
+
+        static STORED: i32 = 1;
+
+        const FIXED: i32 = 2;
+
+        predicate valid() = true;
+
+        func check(value: i32 = 3)
+            requires(true)
+            ensures(true) {}
+        "#,
+        );
 
         let index = compilation.declared_units().unwrap();
         let symbols = compilation.symbol_graph().unwrap();

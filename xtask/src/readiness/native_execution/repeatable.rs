@@ -3,11 +3,10 @@ use std::path::Path;
 
 use bray_target::NativeTarget;
 
-use super::core::{build_fixtures, execute_product};
 use super::artifact::{
-    inspect_objects, require_equal_artifacts, require_equal_files,
-    require_evidence,
+    inspect_objects, require_equal_artifacts, require_equal_files, require_evidence,
 };
+use super::core::{build_fixtures, execute_product};
 
 pub(super) fn audit_repeatable_fixture(
     root: &Path,

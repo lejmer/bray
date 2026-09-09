@@ -4,6 +4,7 @@ mod cleanup;
 mod dependency;
 mod diagnostic;
 mod execution;
+mod future;
 mod parts;
 mod replacement;
 

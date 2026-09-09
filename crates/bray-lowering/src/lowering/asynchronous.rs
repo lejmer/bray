@@ -125,7 +125,14 @@ impl Lowerer<'_> {
             result,
         )?;
 
-        self.propagate_run_result(id, resume, source, value, result)
+        self.propagate_run_result(
+            id,
+            resume,
+            source,
+            value,
+            result,
+            super::expression::PropagationSource::Awaited,
+        )
     }
 
     pub(super) fn lower_call_operation(
@@ -137,7 +144,7 @@ impl Lowerer<'_> {
     ) -> Result<(MirBlockId, MirOperand), LoweringError> {
         let task_operation = self.input.lowering_plans().task_operation(expression);
 
-        let operation = match task_operation {
+        match task_operation {
             Some(AsyncTaskOperationKind::Start) => {
                 let frame = call_receiver(&call, expression)?;
 
@@ -148,25 +155,78 @@ impl Lowerer<'_> {
                     return Err(LoweringError::InvalidTaskOperation(expression));
                 }
 
-                MirOperationKind::Async(MirAsyncOperation::CreateFrame {
-                    frame: MirFrameReference::Erased,
-                    initializer: MirFrameInitializer::Callable(call),
-                })
+                self.lower_frame_creation(expression, block, source, call)
             }
             None => match call.result() {
-                BoundCallResult::Immediate(_) => MirOperationKind::Call(call),
+                BoundCallResult::Immediate(_) => {
+                    let result_type = self.expression_type(expression)?;
+
+                    self.push_checked_value_operation(
+                        expression,
+                        block,
+                        source,
+                        MirOperationKind::Call(call),
+                        result_type,
+                    )
+                }
                 BoundCallResult::LazyFuture(_) => {
-                    MirOperationKind::Async(MirAsyncOperation::CreateFrame {
-                        frame: MirFrameReference::Erased,
-                        initializer: MirFrameInitializer::Callable(call),
-                    })
+                    self.lower_frame_creation(expression, block, source, call)
                 }
             },
-        };
+        }
+    }
 
-        let result_type = self.expression_type(expression)?;
+    fn lower_frame_creation(
+        &mut self,
+        expression: BoundExpressionId,
+        block: MirBlockId,
+        source: MirSourceAnchor,
+        call: MirCall,
+    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        let moved = call
+            .arguments()
+            .iter()
+            .filter_map(|argument| match argument.value() {
+                MirOperand::Move(place) => Some(Self::retained_place(place)),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
 
-        self.push_checked_value_operation(expression, block, source, operation, result_type)
+        let boolean =
+            self.representation_type(bray_compiler_known::RepresentationRole::ScalarBool)?;
+
+        let report_type =
+            self.representation_type(bray_compiler_known::RepresentationRole::PanicReport)?;
+
+        let (created, rejected, future) = crate::frame_creation::create_frame(
+            &mut self.builder,
+            block,
+            &source,
+            MirFrameInitializer::Callable(call),
+            boolean,
+        )?;
+
+        let report = crate::frame_creation::allocation_panic(
+            &mut self.builder,
+            rejected,
+            &source,
+            report_type,
+        )?;
+
+        self.finish_panic_to_active_catch(
+            expression,
+            rejected,
+            &source,
+            report,
+            report_type,
+            None,
+        )?;
+
+        for place in moved {
+            self.set_storage_initialized(created, &source, &place, false)?;
+        }
+
+        Ok((created, MirOperand::Move(future)))
     }
 
     fn lower_task_start(
@@ -339,7 +399,13 @@ impl Lowerer<'_> {
             storages.push(self.place_for_identity(identity, ty, origin)?.storage());
         }
 
-        // Entry initializes every guard, including guards for values created after resumption.
+        storages.extend(
+            self.construction_temporaries
+                .iter()
+                .map(|temporary| temporary.place.storage()),
+        );
+
+        // Guards retain ownership decisions across suspension.
         storages.extend(self.initialization_guards.values().flat_map(|state| {
             std::iter::once(state.guard.storage())
                 .chain(state.parts.iter().map(|part| part.guard.storage()))
@@ -380,7 +446,7 @@ fn call_receiver(
                 // The async operation owns the same immutable operand independently of the call.
                 Some(value.clone())
             }
-            MirCallArgument::Explicit { .. } | MirCallArgument::Default { .. } => None,
+            MirCallArgument::Explicit { .. } => None,
         })
         .ok_or(LoweringError::InvalidTaskOperation(expression))
 }

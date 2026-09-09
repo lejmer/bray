@@ -82,6 +82,7 @@ where
     *diagnostics = diagnostics.merged(surface.diagnostics());
 
     let lookup = surface.value().lookup(name.as_str());
+    let first_candidate = candidates.len();
 
     let outcome = match lookup {
         MemberLookupResult::Found(symbol) => bind_resolved_name_candidate(
@@ -115,6 +116,48 @@ where
         )?,
         MemberLookupResult::NotFound => DeclarationCandidateOutcome::Ignored,
     };
+
+    for candidate in &mut candidates[first_candidate..] {
+        let CallableCandidateTemplate::Declaration(declaration) = candidate else {
+            continue;
+        };
+
+        let Some(member) = surface.value().member(declaration.definition().symbol()) else {
+            continue;
+        };
+
+        let bray_symbols::TypeAssociatedMemberOrigin::InherentImplementation(owner) =
+            member.origin()
+        else {
+            continue;
+        };
+
+        let parameters = surface.value().generic().parameters();
+
+        let arguments = parameters
+            .iter()
+            .copied()
+            .map(|parameter| {
+                context
+                    .semantic_values()
+                    .intern_generic_parameter_argument(parameter)
+                    .map(bray_symbols::GenericArgumentTemplate::Resolved)
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map_err(crate::BindingQueryError::SemanticValue)?;
+
+        let replacement = bray_symbols::TypeExpressionTemplate::Named {
+            definition: subject,
+            parameters: parameters.into(),
+            arguments: arguments.into(),
+        };
+
+        // The candidate keeps its shared declaration while attaching this lookup's subject.
+        *declaration = declaration.clone().with_contextual_self(
+            bray_symbols::SelfTypeContext::Implementation(owner.into()),
+            replacement,
+        );
+    }
 
     Ok(outcome.absence())
 }

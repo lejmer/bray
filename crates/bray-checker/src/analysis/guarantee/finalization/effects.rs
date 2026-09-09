@@ -131,6 +131,7 @@ impl GuaranteeDomain<'_> {
             match data.as_ref() {
                 TypeData::Tuple(_) | TypeData::Array { .. } | TypeData::Nullable(_) => {}
                 TypeData::Borrow { .. }
+                | TypeData::Callable(_)
                 | TypeData::Slice(_)
                 | TypeData::FlexibleArray(_)
                 | TypeData::TraitView(_) => continue,

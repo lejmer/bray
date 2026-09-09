@@ -11,6 +11,7 @@ use bray_symbols::TypeId;
 
 use super::control::{CleanupDestination, TerminalState};
 use crate::lowering::LoweringError;
+use crate::lowering::construction::ConstructionExit;
 use crate::lowering::lowerer::Lowerer;
 
 impl Lowerer<'_> {
@@ -22,6 +23,7 @@ impl Lowerer<'_> {
         value: Option<(MirOperand, TypeId)>,
         exit: AnyBoundNodeId,
         plans: &[AsyncScopeExitPlan],
+        construction_exit: ConstructionExit,
     ) -> Result<(), LoweringError> {
         let pending = match value {
             Some((value, ty)) => {
@@ -73,7 +75,8 @@ impl Lowerer<'_> {
             )),
         )?;
 
-        let lifecycle = self.resolve_cleanup(broadcast, source, plans, None, &failures)?;
+        let lifecycle =
+            self.resolve_cleanup(broadcast, source, plans, None, &failures, construction_exit)?;
 
         if pending.is_some() {
             self.cleanup_retained_storages.pop();

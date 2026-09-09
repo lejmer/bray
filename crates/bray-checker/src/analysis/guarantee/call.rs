@@ -127,12 +127,10 @@ impl GuaranteeDomain<'_> {
 
         let assumptions = state.conditions.iter().copied().collect::<Vec<_>>();
 
-        if !preconditions_hold(self.values, call.conditions(), &arguments, &assumptions)? {
-            return Ok(None);
-        }
-
         let mut remaining = MAX_CONDITION_STEPS;
 
+        // Normal completion establishes checked postconditions even when entry requirements
+        // needed runtime checks. Execution guarantees still require proof before invocation.
         let clauses = applicable_postconditions(
             self.values,
             call.conditions(),
@@ -193,7 +191,7 @@ impl GuaranteeDomain<'_> {
             }
         }
 
-        let Some(returned) = self.fresh_call_observation(expression, count * 2)? else {
+        let Some(returned) = call.result_observation(self.values)? else {
             return Ok(());
         };
 
@@ -232,6 +230,7 @@ impl GuaranteeDomain<'_> {
             .extend(completion.pure_dependencies.into_iter().flatten());
 
         state.evaluated_values.insert(expression, returned);
+        state.observations.insert(returned, returned);
 
         Ok(())
     }

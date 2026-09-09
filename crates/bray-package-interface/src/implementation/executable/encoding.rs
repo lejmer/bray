@@ -733,6 +733,12 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.wire.write_u32(2);
                 self.runtime_reference(*reference);
             }
+            MirCallTarget::ParameterDefault { callable, provider } => {
+                self.wire.write_u32(3);
+                self.callable_instance(callable.instance())?;
+                self.callable_abi(callable.abi());
+                self.symbol((*provider).into())?;
+            }
         }
 
         self.call_result(call.result())?;
@@ -929,16 +935,6 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
 
                 self.wire.write_u32(*ordinal);
                 self.operand(value)?;
-            }
-            MirCallArgument::Default {
-                parameter,
-                ordinal,
-                provider,
-            } => {
-                self.wire.write_u32(2);
-                self.symbol((*parameter).into())?;
-                self.wire.write_u32(*ordinal);
-                self.symbol((*provider).into())?;
             }
         }
 
@@ -2073,6 +2069,7 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
                 self.operand(message)?;
             }
             MirPanicCause::TaskAdmission => self.wire.write_u32(3),
+            MirPanicCause::FrameAllocation => self.wire.write_u32(4),
         }
 
         Ok(())
@@ -2085,9 +2082,14 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
         use bray_ir::MirAsyncOperation as Operation;
 
         match operation {
-            Operation::CreateFrame { frame, initializer } => {
+            Operation::CreateFrame {
+                frame,
+                initializer,
+                destination,
+            } => {
                 self.wire.write_u32(0);
                 self.frame_reference(*frame);
+                self.place(destination)?;
 
                 match initializer {
                     bray_ir::MirFrameInitializer::Callable(call) => {

@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{StorageBinding, StorageBindingTarget, StorageIdentityId, StoragePlan};
 use bray_diagnostics::DiagnosticBag;
@@ -11,6 +11,63 @@ use crate::{
     CheckerInfrastructureError, CheckerQueryError, CheckerQueryResult, CheckerRequestContext,
     CheckerSemanticQueryProvider, CheckerStorageFlowFailure, CheckerUnitView, SemanticUnitContext,
 };
+
+pub(super) fn mutable_field_accesses<C>(
+    request: CheckerUnitView<'_, C>,
+    storage: &StoragePlan,
+) -> CheckerQueryResult<BTreeSet<bray_bound_tree::StorageAccessId>, C::UpstreamError>
+where
+    C: CheckerRequestContext + ?Sized,
+{
+    use bray_bound_tree::StorageProjection;
+
+    let mut fields = BTreeMap::new();
+    let mut mutable = BTreeSet::new();
+
+    for (id, access) in storage.access_entries() {
+        let mut allows_mutation = true;
+
+        for projection in access.projections() {
+            let symbol: bray_symbols::AnySymbolId = match projection {
+                StorageProjection::ProductField(field) => (*field).into(),
+                StorageProjection::ActiveUnionPayloadField { field, .. } => (*field).into(),
+                _ => continue,
+            };
+
+            let field_allows_mutation = match fields.entry(symbol) {
+                std::collections::btree_map::Entry::Occupied(entry) => *entry.get(),
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    let value = match projection {
+                        StorageProjection::ProductField(field) => request
+                            .context()
+                            .struct_field(*field)?
+                            .is_some_and(bray_symbols::StructFieldSymbol::allows_mutation),
+                        StorageProjection::ActiveUnionPayloadField { field, .. } => request
+                            .context()
+                            .union_payload_field(*field)?
+                            .is_some_and(bray_symbols::UnionPayloadFieldSymbol::allows_mutation),
+                        _ => true,
+                    };
+
+                    entry.insert(value);
+
+                    value
+                }
+            };
+
+            if !field_allows_mutation {
+                allows_mutation = false;
+                break;
+            }
+        }
+
+        if allows_mutation {
+            mutable.insert(id);
+        }
+    }
+
+    Ok(mutable)
+}
 
 pub(super) fn mutable_storage<C>(
     request: CheckerUnitView<'_, C>,

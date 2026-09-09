@@ -333,11 +333,15 @@ mod tests {
 
     #[test]
     fn predicate_definition_states_do_not_duplicate_declaration_diagnostics() {
-        let compilation = compilation(concat!(
-            "trusted module app;\n",
-            "predicate missing();\n",
-            "trusted predicate defined() = true;\n",
-        ));
+        let compilation = compilation(
+            r#"
+        trusted module app;
+
+        predicate missing();
+
+        trusted predicate defined() = true;
+        "#,
+        );
 
         let symbols = compilation
             .symbol_graph()

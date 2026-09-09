@@ -27,7 +27,7 @@ pub(super) struct RefinementUniverse {
     edge_refinements: BTreeMap<AnalysisRefinement, Box<[usize]>>,
     normal_completion: BTreeMap<BoundExpressionId, usize>,
     trust_boundaries: BTreeMap<BoundExpressionId, usize>,
-    invalidating_accesses: BTreeMap<AnyBoundNodeId, Box<[StorageAccessId]>>,
+    invalidating_accesses: BTreeMap<bray_bound_tree::BoundOperationPoint, Box<[StorageAccessId]>>,
 }
 
 impl RefinementUniverse {
@@ -175,8 +175,24 @@ impl RefinementUniverse {
         match refinement {
             AnalysisRefinement::CleanupFailure { .. }
             | AnalysisRefinement::CallFailure(_)
-            | AnalysisRefinement::MatchExhaustion(_)
-            | AnalysisRefinement::ResultOutcome { .. } => Vec::new(),
+            | AnalysisRefinement::MatchExhaustion(_) => Vec::new(),
+            AnalysisRefinement::UnionVariant {
+                expression,
+                variant,
+            } => storage
+                .expression_plans(expression)
+                .filter(|plan| plan.purpose() == bray_bound_tree::StorageAccessPurpose::Read)
+                .map(|plan| {
+                    Refinement::new(
+                        RefinementKind::UnionVariant {
+                            subject: expression,
+                            access: plan.access(),
+                            variant,
+                        },
+                        [plan.access()],
+                    )
+                })
+                .collect(),
             AnalysisRefinement::Condition { expression, value } => {
                 condition_refinements(view, patterns, storage, dependencies, expression, value)
             }
@@ -210,41 +226,34 @@ impl RefinementUniverse {
     }
 
     fn intern(&mut self, mut refinement: Refinement) -> usize {
-        let pattern_key = if let RefinementKind::Pattern {
-            subject,
-            pattern,
-            predicate,
-            access,
-            value,
-        } = refinement.kind()
-        {
-            let access = self
-                .equivalent_accesses
-                .get(&access)
-                .copied()
-                .unwrap_or(access);
+        let pattern_key =
+            if let Some((access, predicate, value)) = refinement.kind().structural_predicate() {
+                let access = self
+                    .equivalent_accesses
+                    .get(&access)
+                    .copied()
+                    .unwrap_or(access);
 
-            let key = (access, predicate, value);
+                let key = (access, predicate, value);
 
-            if let Some(index) = self.pattern_indexes.get(&key) {
-                return *index;
-            }
+                if let Some(index) = self.pattern_indexes.get(&key) {
+                    return *index;
+                }
 
-            refinement = Refinement::new(
-                RefinementKind::Pattern {
-                    subject,
-                    pattern,
-                    predicate,
-                    access,
-                    value,
-                },
-                [access],
-            );
+                let mut kind = refinement.kind();
 
-            Some(key)
-        } else {
-            None
-        };
+                match &mut kind {
+                    RefinementKind::Pattern { access: target, .. }
+                    | RefinementKind::UnionVariant { access: target, .. } => *target = access,
+                    _ => unreachable!("structural predicates carry a storage access"),
+                }
+
+                refinement = Refinement::new(kind, [access]);
+
+                Some(key)
+            } else {
+                None
+            };
 
         if let Some(index) = self.indexes.get(&refinement).copied() {
             return index;
@@ -304,10 +313,10 @@ impl RefinementUniverse {
     pub(super) fn invalidate_for_operation(
         &self,
         set: &mut RefinementSet,
-        node: AnyBoundNodeId,
+        point: bray_bound_tree::BoundOperationPoint,
         storage: &StoragePlan,
     ) {
-        let Some(mutations) = self.invalidating_accesses.get(&node) else {
+        let Some(mutations) = self.invalidating_accesses.get(&point) else {
             return;
         };
 
@@ -392,6 +401,16 @@ fn expression_completes_normally(
 }
 
 fn refinements_conflict(left: RefinementKind, right: RefinementKind) -> bool {
+    if let (Some((left, left_predicate, left_value)), Some((right, right_predicate, right_value))) =
+        (left.structural_predicate(), right.structural_predicate())
+    {
+        return left == right
+            && ((left_predicate == right_predicate && left_value != right_value)
+                || (left_value
+                    && right_value
+                    && predicates_conflict(left_predicate, right_predicate)));
+    }
+
     match (left, right) {
         (
             RefinementKind::Condition {
@@ -413,25 +432,6 @@ fn refinements_conflict(left: RefinementKind, right: RefinementKind) -> bool {
                 is_present: right_present,
             },
         ) => left == right && left_present != right_present,
-        (
-            RefinementKind::Pattern {
-                access: left,
-                predicate: left_predicate,
-                value: left_value,
-                ..
-            },
-            RefinementKind::Pattern {
-                access: right,
-                predicate: right_predicate,
-                value: right_value,
-                ..
-            },
-        ) if left == right => {
-            (left_predicate == right_predicate && left_value != right_value)
-                || (left_value
-                    && right_value
-                    && predicates_conflict(left_predicate, right_predicate))
-        }
         _ => false,
     }
 }

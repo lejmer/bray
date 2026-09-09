@@ -529,7 +529,7 @@ impl<'project> ProjectCompiler<'project> {
             product
                 .sources()
                 .iter()
-                .map(|source| source.beneath(self.workspace_root).into_os_string()),
+                .map(|source| source.beneath(Path::new(".")).into_os_string()),
         );
 
         let output = self

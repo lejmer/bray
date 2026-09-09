@@ -287,8 +287,11 @@ impl SchedulerSnapshot {
         tasks: impl IntoIterator<Item = ScheduledTaskSnapshot>,
         timer_count: usize,
     ) -> Self {
+        let mut tasks = tasks.into_iter().collect::<Vec<_>>();
+        tasks.sort_unstable_by_key(ScheduledTaskSnapshot::task);
+
         Self {
-            tasks: tasks.into_iter().collect(),
+            tasks: tasks.into(),
             timer_count,
         }
     }

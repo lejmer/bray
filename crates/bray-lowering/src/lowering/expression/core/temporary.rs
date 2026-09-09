@@ -198,6 +198,8 @@ impl Lowerer<'_> {
 
         let place = self.place_for_identity(temporary, ty, origin)?;
 
+        self.materialized_roots.insert(temporary);
+
         if value.reads_from(&place) {
             return Ok(LoweredExpression::continuing(
                 current,
@@ -224,7 +226,7 @@ impl Lowerer<'_> {
         ))
     }
 
-    fn materialize_synthetic_temporary(
+    pub(in crate::lowering) fn materialize_synthetic_temporary(
         &mut self,
         current: bray_ir::MirBlockId,
         source: bray_ir::MirSourceAnchor,

@@ -163,8 +163,7 @@ where
             },
             TypeData::TypeParameter(_)
             | TypeData::ContextualSelf(_)
-            | TypeData::TypeValuedMemberProjection { .. }
-            | TypeData::Callable(_) => CleanupShape::BOTH,
+            | TypeData::TypeValuedMemberProjection { .. } => CleanupShape::BOTH,
             TypeData::Named {
                 definition,
                 substitution,
@@ -195,6 +194,7 @@ where
             TypeData::FlexibleArray(_)
             | TypeData::Slice(_)
             | TypeData::Borrow { .. }
+            | TypeData::Callable(_)
             | TypeData::TraitView(_) => CleanupShape::default(),
         };
 
@@ -389,7 +389,7 @@ pub(super) fn scope_exit_plans<C>(
     dependencies: &bray_bound_tree::CheckedDependencyContracts,
     guarantees: Option<&crate::ExecutionGuaranteeInput>,
     captures: bool,
-    result_type: Option<TypeId>,
+    pending_types: impl IntoIterator<Item = TypeId>,
 ) -> Result<
     (
         Vec<AsyncStorageRequirement>,
@@ -418,9 +418,8 @@ where
 
     let replacements = super::replacement::replacement_plans(storage, flow, &mut cleanup_shapes)?;
 
-    // A converted return value remains owned while ordinary cleanup runs and must
-    // participate in abnormal cleanup if that cleanup fails.
-    if let Some(ty) = result_type {
+    // Return values and evaluated call inputs remain caller-owned until their transfer commits.
+    for ty in pending_types {
         cleanup_shapes.resolve(ty)?;
     }
 

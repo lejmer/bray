@@ -670,9 +670,20 @@ mod tests {
 
     #[test]
     fn guarded_guarantees_preserve_nested_clauses_and_the_ordinary_body() {
-        let source = "module main; func check(pos ready: bool) -> unit requires(true) \
-            when(ready) { executes(pure, total,) ensures(result == unit) \
-            when(true) { executes(total) } } executes(total) { return unit; }";
+        let source = r#"
+        module main;
+        func check(pos ready: bool) -> unit requires(true) when(ready)
+        {
+            executes(pure, total,) ensures(result == unit) when(true)
+            {
+                executes(total)
+            }
+        }
+        executes(total)
+        {
+            return unit;
+        }
+        "#;
 
         let result = parse_compilation_unit(&source_store([source]));
         let unit = &result.syntax_tree().root().source_units()[0];
@@ -706,26 +717,78 @@ mod tests {
 
     #[test]
     fn execution_guarantees_are_shared_by_every_callable_form() {
-        let source = "module main; \
-            callable Action = func() when(true) { executes(pure, total) }; \
-            func outer() { let action = lambda() executes(total) {}; } \
-            extern trusted func foreign() executes(total); \
-            struct Value { \
-                construct() -> Self executes(total) { return {}; } \
-                func method() executes(pure) {} \
-                static func helper() when(true) { executes(total) } {} \
-                finalize() when(true) { executes(pure, total) } {} \
-                destruct() executes(total) {} \
-                enter() -> unit executes(total) {} \
-                exit(pos lease: unit) executes(total) {} \
-            } \
-            trait Resource { \
-                func method() executes(pure); \
-                finalize() when(true) { executes(total) }; \
-                destruct() executes(total); \
-                enter() -> unit executes(total); \
-                exit(pos lease: unit) executes(total); \
-            }";
+        let source = r#"
+        module main;
+
+        callable Action = func()
+            when(true)
+            {
+                executes(pure, total)
+            };
+
+        func outer()
+        {
+            let action = lambda()
+                executes(total) {};
+        }
+
+        extern trusted func foreign()
+            executes(total);
+
+        struct Value
+        {
+            construct() -> Self
+                executes(total)
+            {
+                return {};
+            }
+
+            func method()
+                executes(pure) {}
+
+            static func helper()
+                when(true)
+                {
+                    executes(total)
+                } {}
+
+            finalize()
+                when(true)
+                {
+                    executes(pure, total)
+                } {}
+
+            destruct()
+                executes(total) {}
+
+            enter() -> unit
+                executes(total) {}
+
+            exit(pos lease: unit)
+                executes(total) {}
+        }
+
+        trait Resource
+        {
+            func method()
+                executes(pure);
+
+            finalize()
+                when(true)
+                {
+                    executes(total)
+                };
+
+            destruct()
+                executes(total);
+
+            enter() -> unit
+                executes(total);
+
+            exit(pos lease: unit)
+                executes(total);
+        }
+        "#;
 
         let result = parse_compilation_unit(&source_store([source]));
 
@@ -744,8 +807,17 @@ mod tests {
     #[test]
     fn execution_property_lists_do_not_accept_expressions() {
         for properties in ["pure()", "pure.total", "{ true }", "pure && total", ""] {
-            let source =
-                format!("module main; func check() executes({properties}) {{}} func next() {{}}");
+            let source = format!(
+                r#"
+                module main;
+                func check() executes({properties})
+                {{
+                }}
+                func next()
+                {{
+                }}
+                "#
+            );
 
             let result = parse_compilation_unit(&source_store([source.as_str()]));
 
@@ -768,7 +840,18 @@ mod tests {
             "with(true)",
         ] {
             let source = format!(
-                "module main; func check() when(true) {{ {contents} }} {{}} func next() {{}}"
+                r#"
+                module main;
+                func check() when(true)
+                {{
+                    {contents}
+                }}
+                {{
+                }}
+                func next()
+                {{
+                }}
+                "#
             );
 
             let result = parse_compilation_unit(&source_store([source.as_str()]));

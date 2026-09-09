@@ -187,8 +187,18 @@ impl InternState {
                         .evidence()
                         .iter()
                         .map(|proof| {
-                            proof.try_map_symbols(|target| {
-                                resolve_family::<CallableSymbolId>(symbols, target)
+                            proof.try_map_targets(|target| {
+                                let callable = self.callable_instance_id(target.callable())
+                                    .ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?;
+
+                                let dispatch = target.dispatch().map(|(subject, application)| {
+                                    Ok::<_, InterfaceSemanticInternError>(ImplementationRequirementKey::new(
+                                        self.type_id(subject).ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
+                                        self.trait_application_id(application).ok_or(InterfaceSemanticInternError::UnresolvedValueGraph)?,
+                                    ))
+                                }).transpose()?;
+
+                                Ok(bray_symbols::ResolvedCallableEvidenceTarget::new(callable, dispatch))
                             })
                         })
                         .collect::<Result<_, InterfaceSemanticInternError>>()?,

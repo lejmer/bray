@@ -423,7 +423,19 @@ mod tests {
     #[test]
     fn guarded_predicate_meaning_keeps_entry_arguments_separate_from_results() {
         let compilation = compilation(
-            "module app; func identity(pos ready: bool) -> bool when(ready) { executes(pure, total) ensures(result) } { return ready; }",
+            r#"
+            module app;
+
+            func identity(pos ready: bool) -> bool
+                when(ready)
+                {
+                    executes(pure, total)
+                    ensures(result)
+                }
+            {
+                return ready;
+            }
+            "#,
         );
 
         let binding = compilation
@@ -483,7 +495,21 @@ mod tests {
     #[test]
     fn guarded_predicate_meaning_retains_shared_observations_without_address_values() {
         let compilation = compilation(
-            "module app; struct Flag { ready: bool; predicate complete(value: &Self) = value.ready; } func check(pos value: Flag) when(Flag.complete(&value)) { executes(pure) } {}",
+            r#"
+            module app;
+
+            struct Flag
+            {
+                ready: bool;
+                predicate complete(value: &Self) = value.ready;
+            }
+
+            func check(pos value: Flag)
+                when(Flag.complete(&value))
+                {
+                    executes(pure)
+                } {}
+            "#,
         );
 
         let symbols = compilation.symbol_graph().unwrap();

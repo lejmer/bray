@@ -89,7 +89,7 @@ pub(super) fn validate_operation(
             validate_operand(unit, subject, block, Some(id))?;
         }
         MirOperationKind::PanicReport(cause) => match cause {
-            crate::MirPanicCause::TaskAdmission => {}
+            crate::MirPanicCause::TaskAdmission | crate::MirPanicCause::FrameAllocation => {}
             crate::MirPanicCause::Message(message)
             | crate::MirPanicCause::ExplicitTestFailure(message) => {
                 validate_operand(unit, message, block, Some(id))?;
@@ -367,16 +367,13 @@ fn validate_operation_result(
         }
     }
 
-    if let (
-        MirOperationKind::Async(MirAsyncOperation::CreateFrame { initializer, .. }),
-        Some(result),
-    ) = (operation.kind(), operation.result())
+    if let MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+        initializer,
+        destination,
+        ..
+    }) = operation.kind()
     {
-        let Some(result) = unit.value(result) else {
-            return Err(MirUnitBuildError::MissingValue(result));
-        };
-
-        if initializer.future_type() != Some(result.ty()) {
+        if initializer.future_type() != Some(destination.ty()) {
             return Err(MirUnitBuildError::OperationResultTypeMismatch(id));
         }
     }
@@ -662,6 +659,18 @@ fn validate_call(
         MirCallTarget::Runtime(reference) => {
             validate_runtime_role(unit, *reference, reference.role())?;
         }
+        MirCallTarget::ParameterDefault { .. } => {
+            if !matches!(
+                call.result(),
+                bray_bound_tree::BoundCallResult::Immediate(_)
+            ) || call.contract().is_some()
+                || call.phase_behaviors().is_some()
+                || call.trait_dispatch().is_some()
+                || call.intrinsic().is_some()
+            {
+                return Err(MirUnitBuildError::InvalidCall(operation));
+            }
+        }
         MirCallTarget::Indirect { callee, .. } => {
             validate_operand(unit, callee, block, Some(operation))?;
         }
@@ -688,13 +697,11 @@ fn validate_call(
     let mut parameters = BTreeSet::new();
     let mut ordinals = BTreeSet::new();
     let mut saw_receiver = false;
-    let mut saw_default = false;
-    let mut last_default_ordinal = None;
 
     for argument in call.arguments() {
         match argument {
             MirCallArgument::Receiver { parameter, value } => {
-                if saw_receiver || !parameters.is_empty() || saw_default {
+                if saw_receiver || !parameters.is_empty() {
                     return Err(MirUnitBuildError::InvalidCall(operation));
                 }
 
@@ -710,7 +717,7 @@ fn validate_call(
                 ordinal,
                 value,
             } => {
-                if saw_default || !ordinals.insert(*ordinal) {
+                if !ordinals.insert(*ordinal) {
                     return Err(MirUnitBuildError::InvalidCall(operation));
                 }
 
@@ -721,19 +728,6 @@ fn validate_call(
                 {
                     return Err(MirUnitBuildError::InvalidCall(operation));
                 }
-            }
-            MirCallArgument::Default {
-                parameter, ordinal, ..
-            } => {
-                if !parameters.insert(AnySymbolId::from(*parameter))
-                    || !ordinals.insert(*ordinal)
-                    || last_default_ordinal.is_some_and(|last| last >= *ordinal)
-                {
-                    return Err(MirUnitBuildError::InvalidCall(operation));
-                }
-
-                saw_default = true;
-                last_default_ordinal = Some(*ordinal);
             }
         }
     }
@@ -814,8 +808,13 @@ fn validate_async_operation(
     operation: &MirAsyncOperation,
 ) -> Result<(), MirUnitBuildError> {
     match operation {
-        MirAsyncOperation::CreateFrame { initializer, .. } => {
+        MirAsyncOperation::CreateFrame {
+            initializer,
+            destination,
+            ..
+        } => {
             validate_frame_initializer(unit, block, operation_id, initializer)?;
+            validate_place(unit, destination, block, Some(operation_id))?;
         }
         MirAsyncOperation::ResumeFrame {
             frame,

@@ -465,6 +465,15 @@ impl CheckerRequestContext for CompilationCheckerContext<'_> {
             .map_err(checker_binder_error)
     }
 
+    fn struct_field(
+        &self,
+        id: bray_symbols::StructFieldSymbolId,
+    ) -> CheckerQueryResult<Option<&bray_symbols::StructFieldSymbol>> {
+        self.binding_context
+            .struct_field(id)
+            .map_err(checker_binder_error)
+    }
+
     fn union(&self, id: UnionSymbolId) -> CheckerQueryResult<Option<&UnionSymbol>> {
         self.binding_context.union(id).map_err(checker_binder_error)
     }

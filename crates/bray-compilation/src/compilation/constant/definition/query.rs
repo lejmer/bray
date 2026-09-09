@@ -1204,7 +1204,14 @@ mod tests {
         };
 
         let compilation = compilation(
-            "module app; const func choose(pos input: Result<i32, i32>) -> bool { return input matches Ok(0); }",
+            r#"
+            module app;
+
+            const func choose(pos input: Result<i32, i32>) -> bool
+            {
+                return input matches Ok(0);
+            }
+            "#,
         );
 
         let result_ty = bool_type(&compilation);

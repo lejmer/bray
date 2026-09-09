@@ -130,8 +130,13 @@ pub enum FrameExit {
 
 /// Opaque owned panic crossing a protected runtime boundary.
 pub struct RuntimePanic {
-    primary: Box<dyn Any + Send>,
+    primary: RuntimePanicPayload,
     suppressed: Vec<Box<dyn Any + Send>>,
+}
+
+enum RuntimePanicPayload {
+    Host(Box<dyn Any + Send>),
+    NativeHandle(usize),
 }
 
 impl RuntimePanic {
@@ -142,7 +147,12 @@ impl RuntimePanic {
 
     /// Returns whether the primary panic payload has the requested Rust type.
     pub fn primary_is<T: Any>(&self) -> bool {
-        self.primary.is::<T>()
+        let payload: &dyn Any = match &self.primary {
+            RuntimePanicPayload::Host(payload) => payload.as_ref(),
+            RuntimePanicPayload::NativeHandle(handle) => handle,
+        };
+
+        payload.is::<T>()
     }
 
     /// Returns the number of later panics retained behind the primary panic.
@@ -152,7 +162,15 @@ impl RuntimePanic {
 
     pub(crate) fn from_payload(payload: Box<dyn Any + Send>) -> Self {
         Self {
-            primary: payload,
+            primary: RuntimePanicPayload::Host(payload),
+            suppressed: Vec::new(),
+        }
+    }
+
+    pub(crate) fn from_native_handle(handle: usize) -> Self {
+        // Native terminal storage retains the report's ownership. Rust only records its handle.
+        Self {
+            primary: RuntimePanicPayload::NativeHandle(handle),
             suppressed: Vec::new(),
         }
     }
@@ -177,9 +195,9 @@ impl fmt::Debug for RuntimePanic {
 
 /// Safe in-process adapter over validated compiler-emitted frame operations.
 ///
-/// The binary operation identities and retained-state contract live in
-/// [`ProtectedFrameDescriptor`]. Implementations own their retained values and
-/// child computations while exposing those operations without unsafe code.
+/// [`ProtectedFrameDescriptor`] describes the frame's layout and scheduling requirements.
+/// Implementations own their retained values and child computations while exposing
+/// execution and cleanup through safe operations.
 pub trait ProtectedFrame: 'static {
     /// Result moved out after normal completion.
     type Output;
@@ -209,20 +227,44 @@ pub type ErasedProtectedFrame<T> = Pin<Box<dyn ProtectedFrame<Output = T> + 'sta
 pub type ErasedSendableProtectedFrame<T> =
     Pin<Box<dyn SendableProtectedFrame<Output = T> + 'static>>;
 
-/// Moves a concrete inactive frame into stable erased storage.
-pub fn erase_protected_frame<F>(frame: F) -> ErasedProtectedFrame<F::Output>
+pub(crate) fn reserve_frame_storage<F>()
+-> Result<Box<std::mem::MaybeUninit<F>>, crate::TaskStartError> {
+    #[cfg(test)]
+    if crate::test_support::allocation_should_fail() {
+        return Err(crate::TaskStartError::AllocationFailed);
+    }
+
+    trybox::new(std::mem::MaybeUninit::uninit())
+        .map_err(|_| crate::TaskStartError::AllocationFailed)
+}
+
+/// Admits stable erased storage, returning the inactive frame on allocation failure.
+pub fn erase_protected_frame<F>(
+    frame: F,
+) -> Result<ErasedProtectedFrame<F::Output>, crate::TaskStartFailure<F>>
 where
     F: ProtectedFrame,
 {
-    Box::pin(frame)
+    pin_protected_frame(frame).map(|frame| frame as ErasedProtectedFrame<F::Output>)
 }
 
-/// Moves a sendable inactive frame into stable erased storage.
-pub fn erase_sendable_protected_frame<F>(frame: F) -> ErasedSendableProtectedFrame<F::Output>
+/// Admits sendable erased storage, returning the inactive frame on allocation failure.
+pub fn erase_sendable_protected_frame<F>(
+    frame: F,
+) -> Result<ErasedSendableProtectedFrame<F::Output>, crate::TaskStartFailure<F>>
 where
     F: SendableProtectedFrame,
 {
-    Box::pin(frame)
+    pin_protected_frame(frame).map(|frame| frame as ErasedSendableProtectedFrame<F::Output>)
+}
+
+fn pin_protected_frame<F: ProtectedFrame>(
+    frame: F,
+) -> Result<Pin<Box<F>>, crate::TaskStartFailure<F>> {
+    match reserve_frame_storage() {
+        Ok(storage) => Ok(Box::into_pin(Box::write(storage, frame))),
+        Err(error) => Err(crate::TaskStartFailure::new(error, frame)),
+    }
 }
 
 /// Resumes a directly awaited frame without creating a task-control block.
@@ -242,7 +284,7 @@ pub(crate) fn suspension_state(
 
 #[cfg(test)]
 mod tests {
-    use std::pin::pin;
+    use std::pin::{Pin, pin};
 
     use bray_runtime_model::ProtectedFrameDescriptor;
 
@@ -251,6 +293,56 @@ mod tests {
         erase_protected_frame, resume_direct,
     };
     use crate::test_support::TestFrame;
+
+    #[test]
+    fn erased_frame_allocation_preserves_the_inactive_input_for_retry() {
+        assert_erasure_retry(super::erase_protected_frame);
+        assert_erasure_retry(super::erase_sendable_protected_frame);
+    }
+
+    fn assert_erasure_retry<F: ?Sized + ProtectedFrame<Output = i32>>(
+        erase: impl Fn(TestFrame) -> Result<Pin<Box<F>>, crate::TaskStartFailure<TestFrame>>,
+    ) {
+        let frame = TestFrame::completing(53);
+        let rejected = crate::test_support::with_allocation_failure(|| erase(frame));
+
+        let Err(failure) = rejected else {
+            panic!("injected frame allocation must fail");
+        };
+
+        assert!(matches!(
+            failure.error(),
+            crate::TaskStartError::AllocationFailed
+        ));
+
+        let (_, frame) = failure.into_parts();
+
+        let mut frame = erase(frame).unwrap();
+
+        assert!(matches!(
+            resume_direct(frame.as_mut(), FrameContext::new(false)),
+            FrameProgress::Completed(53)
+        ));
+    }
+
+    #[test]
+    fn native_panic_handles_remain_inline_while_host_payloads_keep_their_type() {
+        let native = super::RuntimePanic::from_native_handle(64);
+
+        assert!(matches!(
+            native.primary,
+            super::RuntimePanicPayload::NativeHandle(64)
+        ));
+
+        assert!(native.primary_is::<usize>());
+        assert!(!native.primary_is::<&'static str>());
+        assert_eq!(native.suppressed_count(), 0);
+
+        let host = super::RuntimePanic::new("host panic");
+
+        assert!(host.primary_is::<&'static str>());
+        assert!(!host.primary_is::<usize>());
+    }
 
     #[test]
     fn direct_resume_needs_no_task_storage() {
@@ -268,7 +360,7 @@ mod tests {
 
     #[test]
     fn direct_await_can_compose_an_erased_child_without_a_child_task() {
-        let child = erase_protected_frame(TestFrame::completing(23));
+        let child = erase_protected_frame(TestFrame::completing(23)).unwrap();
         let descriptor = child.descriptor().clone();
         let mut parent = pin!(ParentFrame { descriptor, child });
 

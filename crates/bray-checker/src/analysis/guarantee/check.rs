@@ -73,6 +73,8 @@ pub(crate) fn check_execution_guarantees<C>(
     selections: &CheckedSemanticSelections,
     patterns: &bray_bound_tree::CheckedPatterns,
     storage: &StoragePlan,
+    storage_flow: &bray_bound_tree::StorageFlow,
+    liveness: &bray_bound_tree::Liveness,
     asynchronous: &CheckedAsync,
     graph: &ControlFlowGraph,
 ) -> CheckerOutcome<Vec<bray_bound_tree::CallableProofResult>, C::UpstreamError>
@@ -112,6 +114,39 @@ where
         };
 
     let mutations = super::super::storage_index::invalidating_operation_accesses(storage);
+
+    let storage_exits = storage_flow
+        .exits()
+        .iter()
+        .map(|decision| {
+            (
+                bray_bound_tree::StorageExitPoint::new(decision.scope(), decision.exit()),
+                decision,
+            )
+        })
+        .collect();
+
+    let mutable_borrow_accesses = storage
+        .access_plans()
+        .iter()
+        .filter(|plan| {
+            plan.purpose()
+                == bray_bound_tree::StorageAccessPurpose::Borrow(bray_symbols::BorrowKind::Mutable)
+        })
+        .map(|plan| plan.access())
+        .collect();
+
+    let retained_mutations = storage
+        .borrow_capability_entries()
+        .filter(|(identity, capability)| {
+            capability.kind() == bray_symbols::BorrowKind::Mutable
+                && liveness.is_owner_retained(
+                    bray_bound_tree::BoundDependencySubject::BorrowCapability(*identity),
+                )
+        })
+        .map(|(_, capability)| capability.access())
+        .collect::<Vec<_>>();
+
     let local_initializers = super::observation::local_initializers(request, input);
     let mut cleanup = std::collections::BTreeMap::new();
 
@@ -206,8 +241,11 @@ where
             empty_cleanup: &empty_cleanup,
             assignments: &assignments,
             storage,
+            storage_exits: &storage_exits,
+            mutable_borrow_accesses: &mutable_borrow_accesses,
             observation_accesses: &observation_accesses,
             mutations: &mutations,
+            retained_mutations: (!liveness.is_recovered()).then_some(retained_mutations.as_slice()),
             local_initializers: &local_initializers,
         };
 

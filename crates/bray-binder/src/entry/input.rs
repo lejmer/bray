@@ -141,10 +141,25 @@ mod tests {
     #[test]
     fn contract_inputs_use_the_nearest_callable_occurrence() {
         let fixture = TestFixture::from_source(
-            "module app; const fixture: i32 = 1; func outer(pos outer_value: bool) ensures(true) { \
-             let value: func(pos inner_value: bool) -> bool ensures(inner_value) = \
-             lambda(pos lambda_value: bool) -> bool when(lambda_value) { ensures(result) } \
-             { return lambda_value; }; }",
+            r#"
+            module app;
+
+            const fixture: i32 = 1;
+
+            func outer(pos outer_value: bool)
+                ensures(true)
+            {
+                let value: func(pos inner_value: bool) -> bool
+                    ensures(inner_value) = lambda(pos lambda_value: bool) -> bool
+                    when(lambda_value)
+                    {
+                        ensures(result)
+                    }
+                {
+                    return lambda_value;
+                };
+            }
+            "#,
         );
 
         let context = fixture.context();

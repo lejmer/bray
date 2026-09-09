@@ -1,4 +1,31 @@
-use crate::{BoundUnitId, BoundUnitKind};
+use crate::{AnyBoundNodeId, BoundExpressionId, BoundUnitId, BoundUnitKind};
+
+/// One semantic evaluation point of a bound node.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum BoundOperationPoint {
+    /// The node's ordinary evaluation.
+    Evaluation(AnyBoundNodeId),
+    /// Transfer of a propagation expression's failure payload before exiting its scope.
+    PropagationFailure(BoundExpressionId),
+}
+
+impl BoundOperationPoint {
+    /// Returns the stable inspection tag distinguishing operations within a source node.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Evaluation(_) => "evaluation",
+            Self::PropagationFailure(_) => "propagation_failure",
+        }
+    }
+
+    /// Returns the source-correlated bound node containing this operation.
+    pub const fn node(self) -> AnyBoundNodeId {
+        match self {
+            Self::Evaluation(node) => node,
+            Self::PropagationFailure(expression) => AnyBoundNodeId::Expression(expression),
+        }
+    }
+}
 
 /// A source-semantic way in which a bound unit's control flow can complete.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]

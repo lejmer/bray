@@ -345,21 +345,29 @@ fn collect_generator_types(operation: &MirGeneratorOperation, types: &mut BTreeS
 
 fn collect_async_types(operation: &MirAsyncOperation, types: &mut BTreeSet<TypeId>) {
     match operation {
-        MirAsyncOperation::CreateFrame { initializer, .. } => match initializer {
-            MirFrameInitializer::Callable(call) => collect_call_types(call, types),
-            MirFrameInitializer::Lifecycle {
-                ty,
-                receiver,
-                result,
-                ..
-            } => {
-                types.insert(*ty);
-                types.insert(result.completion_type());
-                types.insert(result.future_type());
+        MirAsyncOperation::CreateFrame {
+            initializer,
+            destination,
+            ..
+        } => {
+            collect_place_types(destination, types);
 
-                collect_operand_types(receiver, types);
+            match initializer {
+                MirFrameInitializer::Callable(call) => collect_call_types(call, types),
+                MirFrameInitializer::Lifecycle {
+                    ty,
+                    receiver,
+                    result,
+                    ..
+                } => {
+                    types.insert(*ty);
+                    types.insert(result.completion_type());
+                    types.insert(result.future_type());
+
+                    collect_operand_types(receiver, types);
+                }
             }
-        },
+        }
         MirAsyncOperation::ResumeFrame { .. }
         | MirAsyncOperation::ResolveAwaitedFrame { .. }
         | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
@@ -369,7 +377,9 @@ fn collect_async_types(operation: &MirAsyncOperation, types: &mut BTreeSet<TypeI
         | MirAsyncOperation::DestroyInactiveCaptures { frame, .. } => {
             collect_operand_types(frame, types);
         }
-        MirAsyncOperation::StartTask { value, destination, .. } => {
+        MirAsyncOperation::StartTask {
+            value, destination, ..
+        } => {
             collect_operand_types(value, types);
             collect_place_types(destination, types);
         }
@@ -426,9 +436,7 @@ fn collect_call_types(call: &MirCall, types: &mut BTreeSet<TypeId>) {
     }
 
     for argument in call.arguments() {
-        if let Some(value) = argument.value() {
-            collect_operand_types(value, types);
-        }
+        collect_operand_types(argument.value(), types);
     }
 }
 
@@ -445,7 +453,7 @@ fn collect_conversion_types(conversion: &SelectedConversion, types: &mut BTreeSe
 
 fn collect_panic_types(cause: &MirPanicCause, types: &mut BTreeSet<TypeId>) {
     match cause {
-        MirPanicCause::TaskAdmission => {}
+        MirPanicCause::TaskAdmission | MirPanicCause::FrameAllocation => {}
         MirPanicCause::Message(message) | MirPanicCause::ExplicitTestFailure(message) => {
             collect_operand_types(message, types);
         }

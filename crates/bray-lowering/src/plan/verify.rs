@@ -138,6 +138,21 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
 
         super::capture::verify_capture_cleanup(unit, storage, dependencies, analysis)?;
 
+        for identity in analysis.cleanup_free_futures() {
+            let has_checked_type = storage.storage_type(*identity).is_some_and(|ty| {
+                analysis
+                    .cleanup_types()
+                    .iter()
+                    .any(|shape| shape.ty() == ty)
+            });
+
+            if storage.identity(*identity).is_none() || !has_checked_type {
+                return Err(LoweringPlanFailure::analysis(
+                    LoweringPlanFailureCause::Unexpected,
+                ));
+            }
+        }
+
         let retained = analysis
             .suspensions()
             .iter()
@@ -378,6 +393,13 @@ impl<'unit> VerifiedLoweringPlans<'unit> {
     /// Returns frame dependencies after complete-plan verification.
     pub fn frame_dependencies(&self) -> &'unit [BoundDependencySubject] {
         self.analysis.frame_dependencies()
+    }
+
+    pub(crate) fn future_has_cleanup_free_captures(&self, identity: StorageIdentityId) -> bool {
+        self.analysis
+            .cleanup_free_futures()
+            .binary_search(&identity)
+            .is_ok()
     }
 
     /// Returns the verified suspension plan for one suspending expression.

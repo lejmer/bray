@@ -22,21 +22,13 @@ pub(in crate::native) fn current_thread_lanes(
     thread: RuntimeThreadId,
     main_thread_lane: bool,
     cleanup_workloads: bool,
-) -> Vec<ExecutionLane> {
-    let mut placements = Vec::with_capacity(4);
-
-    if main_thread_lane {
-        placements.push(ExecutionLanePlacement::MainThread(thread));
-    }
-
-    placements.extend([
-        ExecutionLanePlacement::OriginThread(thread),
-        ExecutionLanePlacement::PinnedWorker(thread),
-    ]);
-
-    if cleanup_workloads {
-        placements.push(ExecutionLanePlacement::Migratable);
-    }
+) -> impl Iterator<Item = ExecutionLane> + Clone {
+    let placements = [
+        main_thread_lane.then_some(ExecutionLanePlacement::MainThread(thread)),
+        Some(ExecutionLanePlacement::OriginThread(thread)),
+        Some(ExecutionLanePlacement::PinnedWorker(thread)),
+        cleanup_workloads.then_some(ExecutionLanePlacement::Migratable),
+    ];
 
     let workloads = if cleanup_workloads {
         &[
@@ -48,15 +40,12 @@ pub(in crate::native) fn current_thread_lanes(
         &[ExecutionWorkload::Cooperative][..]
     };
 
-    placements
-        .into_iter()
-        .flat_map(|placement| {
-            workloads
-                .iter()
-                .copied()
-                .map(move |workload| ExecutionLane::new(placement, workload))
-        })
-        .collect()
+    placements.into_iter().flatten().flat_map(move |placement| {
+        workloads
+            .iter()
+            .copied()
+            .map(move |workload| ExecutionLane::new(placement, workload))
+    })
 }
 
 pub(in crate::native) fn with_cleanup_runtime<T>(
@@ -200,7 +189,8 @@ pub(in crate::native) fn task_outcome(
             };
 
             for incident in panic.take_suppressed() {
-                terminal.record_cleanup_incident(incident);
+                terminal
+                    .record_cleanup_incident(crate::incident::OwnedCleanupIncident::host(incident));
             }
 
             NativeRunOutcome::new(NativeRunState::PANICKED, payload)
@@ -232,6 +222,94 @@ pub(in crate::native) fn runtime_failure(status: NativeRuntimeStatus) -> NativeR
 mod tests {
     use super::{current_native_task, with_native_task, write_cleanup_incident_report};
     use crate::{CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink};
+
+    #[test]
+    fn cleanup_lane_search_preserves_placement_and_workload_priority() {
+        use crate::{ExecutionLanePlacement, ExecutionWorkload};
+
+        let scope = bray_platform::RuntimeThreadScope::enter().unwrap();
+        let thread = scope.runtime().id();
+
+        let all = super::current_thread_lanes(thread, true, true)
+            .map(|lane| (lane.placement(), lane.workload()))
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            all,
+            [
+                (
+                    ExecutionLanePlacement::MainThread(thread),
+                    ExecutionWorkload::Cooperative
+                ),
+                (
+                    ExecutionLanePlacement::MainThread(thread),
+                    ExecutionWorkload::Blocking
+                ),
+                (
+                    ExecutionLanePlacement::MainThread(thread),
+                    ExecutionWorkload::Compute
+                ),
+                (
+                    ExecutionLanePlacement::OriginThread(thread),
+                    ExecutionWorkload::Cooperative
+                ),
+                (
+                    ExecutionLanePlacement::OriginThread(thread),
+                    ExecutionWorkload::Blocking
+                ),
+                (
+                    ExecutionLanePlacement::OriginThread(thread),
+                    ExecutionWorkload::Compute
+                ),
+                (
+                    ExecutionLanePlacement::PinnedWorker(thread),
+                    ExecutionWorkload::Cooperative
+                ),
+                (
+                    ExecutionLanePlacement::PinnedWorker(thread),
+                    ExecutionWorkload::Blocking
+                ),
+                (
+                    ExecutionLanePlacement::PinnedWorker(thread),
+                    ExecutionWorkload::Compute
+                ),
+                (
+                    ExecutionLanePlacement::Migratable,
+                    ExecutionWorkload::Cooperative
+                ),
+                (
+                    ExecutionLanePlacement::Migratable,
+                    ExecutionWorkload::Blocking
+                ),
+                (
+                    ExecutionLanePlacement::Migratable,
+                    ExecutionWorkload::Compute
+                ),
+            ]
+        );
+
+        for main in [false, true] {
+            for cleanup in [false, true] {
+                let lanes = super::current_thread_lanes(thread, main, cleanup);
+
+                let expected = all.iter().copied().filter(|(placement, workload)| {
+                    (main || !matches!(placement, ExecutionLanePlacement::MainThread(_)))
+                        && (cleanup
+                            || (*placement != ExecutionLanePlacement::Migratable
+                                && *workload == ExecutionWorkload::Cooperative))
+                });
+
+                assert!(
+                    lanes
+                        .clone()
+                        .map(|lane| (lane.placement(), lane.workload()))
+                        .eq(expected)
+                );
+
+                assert!(lanes.clone().eq(lanes));
+            }
+        }
+    }
 
     #[test]
     fn nested_native_task_bindings_restore_the_parent_even_after_unwind() {

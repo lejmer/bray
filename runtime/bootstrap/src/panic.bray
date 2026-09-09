@@ -18,7 +18,7 @@ trusted internal func panic_report_construction(
     )
     uses(intrinsic, raw_memory, unchecked_init)
 {
-    if cause > 3 || source_present > 1 || source_start > source_end || (message_length != 0 && std.memory.is_null<u8>(message))
+    if cause > 4 || source_present > 1 || source_start > source_end || (message_length != 0 && std.memory.is_null<u8>(message))
     {
         trusted core.target.abort();
     }

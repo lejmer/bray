@@ -87,6 +87,7 @@ pub(super) fn push_mir_call_target(
         "call_target_kind",
         match target {
             Target::Direct(_) => "direct",
+            Target::ParameterDefault { .. } => "parameter_default",
             Target::Runtime(_) => "runtime",
             Target::Indirect { .. } => "indirect",
         },
@@ -95,11 +96,19 @@ pub(super) fn push_mir_call_target(
     fields.push(text_field("call_target_abi", callable_abi(target.abi())));
 
     match target {
-        Target::Direct(reference) => {
+        Target::Direct(reference)
+        | Target::ParameterDefault {
+            callable: reference,
+            ..
+        } => {
             fields.push(identity_field(
                 "call_target_callable_instance",
                 &reference.instance(),
             ));
+
+            if let Target::ParameterDefault { provider, .. } = target {
+                fields.push(identity_field("call_default_provider", provider));
+            }
         }
         Target::Runtime(reference) => {
             let version = reference.abi_version();

@@ -33,10 +33,56 @@ mod tests {
     #[test]
     fn named_callable_values_preserve_declared_guarantees_and_generic_inputs() {
         for source in [
-            "module app; func checked() executes(pure, total) {} func example() { let operation: func() = checked; }",
-            "module app; func checked() executes(pure, total) {} func example() { let operation: func() executes(pure, total) = checked; }",
-            "module app; func identity<T>(pos value: T) -> T executes(pure, total) { return value; } func example() { let operation: func(pos value: bool) -> bool executes(pure, total) = identity<bool>; }",
-            "module app; func require_ready(pos ready: bool) requires(ready) {} func example() { let operation: func(pos ready: bool) requires(ready) = require_ready; }",
+            r#"
+            module app;
+
+            func checked()
+                executes(pure, total) {}
+
+            func example()
+            {
+                let operation: func() = checked;
+            }
+            "#,
+            r#"
+            module app;
+
+            func checked()
+                executes(pure, total) {}
+
+            func example()
+            {
+                let operation: func()
+                    executes(pure, total) = checked;
+            }
+            "#,
+            r#"
+            module app;
+
+            func identity<T>(pos value: T) -> T
+                executes(pure, total)
+            {
+                return value;
+            }
+
+            func example()
+            {
+                let operation: func(pos value: bool) -> bool
+                    executes(pure, total) = identity<bool>;
+            }
+            "#,
+            r#"
+            module app;
+
+            func require_ready(pos ready: bool)
+                requires(ready) {}
+
+            func example()
+            {
+                let operation: func(pos ready: bool)
+                    requires(ready) = require_ready;
+            }
+            "#,
         ] {
             let compilation = compilation(source);
             let diagnostics = compilation.check_diagnostics();
@@ -54,21 +100,54 @@ mod tests {
 
         for (source, mismatch) in [
             (
-                "module app; func unchecked() {} func example() { let operation: func() executes(pure) = unchecked; }",
+                r#"
+                module app;
+
+                func unchecked() {}
+
+                func example()
+                {
+                    let operation: func()
+                        executes(pure) = unchecked;
+                }
+                "#,
                 Mismatch::ExecutionGuarantee {
                     property: DiagnosticExecutionProperty::Pure,
                     guard: None,
                 },
             ),
             (
-                "module app; func unchecked<T>(pos value: T) -> T { return value; } func example() { let operation: func(pos value: bool) -> bool executes(total) = unchecked<bool>; }",
+                r#"
+                module app;
+
+                func unchecked<T>(pos value: T) -> T
+                {
+                    return value;
+                }
+
+                func example()
+                {
+                    let operation: func(pos value: bool) -> bool
+                        executes(total) = unchecked<bool>;
+                }
+                "#,
                 Mismatch::ExecutionGuarantee {
                     property: DiagnosticExecutionProperty::Total,
                     guard: None,
                 },
             ),
             (
-                "module app; func unchecked(pos ready: bool) requires(ready) {} func example() { let operation: func(pos ready: bool) = unchecked; }",
+                r#"
+                module app;
+
+                func unchecked(pos ready: bool)
+                    requires(ready) {}
+
+                func example()
+                {
+                    let operation: func(pos ready: bool) = unchecked;
+                }
+                "#,
                 Mismatch::PredicateImplication {
                     surface: DiagnosticCallableContractSurface::InvocationPreconditions,
                     index: 0,
@@ -104,11 +183,32 @@ mod tests {
     #[test]
     fn callable_values_can_weaken_guarantees_in_returns_conversions_and_arguments() {
         let compilation = compilation(
-            "module app; \
-             func pass(operation: func() executes(pure, total)) -> func() { return operation; } \
-             func convert(operation: func() executes(pure, total)) -> func() { return operation as func(); } \
-             func invoke(operation: func() executes(pure, total)) { take(operation = operation); } \
-             func take(operation: func()) {}",
+            r#"
+            module app;
+
+            func pass(operation: func()
+                    executes(pure, total)
+                ) -> func()
+                {
+                    return operation;
+                }
+
+                func convert(operation: func()
+                        executes(pure, total)
+                    ) -> func()
+                    {
+                        return operation as func();
+                    }
+
+                    func invoke(operation: func()
+                            executes(pure, total)
+                        )
+                        {
+                            take(operation = operation);
+                        }
+
+                        func take(operation: func()) {}
+            "#,
         );
 
         assert!(
@@ -142,7 +242,17 @@ mod tests {
     #[test]
     fn callable_values_cannot_gain_guarantees_through_a_return() {
         let compilation = compilation(
-            "module app; func strengthen(operation: func()) -> func() executes(pure, total) { return operation; }",
+            r#"
+            module app;
+
+            func strengthen(
+                operation: func()
+            ) -> func()
+                    executes(pure, total)
+                {
+                    return operation;
+                }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -160,9 +270,46 @@ mod tests {
     #[test]
     fn callable_values_preserve_caller_obligations_without_exporting_implementation_capabilities() {
         for source in [
-            "trusted module app; func forget(operation: trusted func() uses(foreign_call)) -> trusted func() { return operation; }",
-            "trusted module app; trusted func hint() uses(intrinsic) { trusted core.target.spin_loop_hint(); } func example() { let operation: func() = hint; }",
-            "trusted module app; trusted func work() requires(blocking_execution(), compute_execution()) uses(intrinsic) { trusted core.target.spin_loop_hint(); } func example() { let operation: trusted func() requires(blocking_execution(), compute_execution()) = work; }",
+            r#"
+            trusted module app;
+
+            func forget(operation: trusted func()
+                    uses(foreign_call)
+                ) -> trusted func()
+                {
+                    return operation;
+                }
+            "#,
+            r#"
+            trusted module app;
+
+            trusted func hint()
+                uses(intrinsic)
+            {
+                trusted core.target.spin_loop_hint();
+            }
+
+            func example()
+            {
+                let operation: func() = hint;
+            }
+            "#,
+            r#"
+            trusted module app;
+
+            trusted func work()
+                requires(blocking_execution(), compute_execution())
+                uses(intrinsic)
+            {
+                trusted core.target.spin_loop_hint();
+            }
+
+            func example()
+            {
+                let operation: trusted func()
+                    requires(blocking_execution(), compute_execution()) = work;
+            }
+            "#,
         ] {
             let compilation = compilation(source);
             let diagnostics = compilation.check_diagnostics();
@@ -171,8 +318,30 @@ mod tests {
         }
 
         for source in [
-            "trusted module app; trusted predicate valid(); trusted func work() requires(trusted valid()) {} func example() { let operation: func() = work; }",
-            "module app; func work() requires(blocking_execution()) {} func example() { let operation: func() = work; }",
+            r#"
+            trusted module app;
+
+            trusted predicate valid();
+
+            trusted func work()
+                requires(trusted valid()) {}
+
+            func example()
+            {
+                let operation: func() = work;
+            }
+            "#,
+            r#"
+            module app;
+
+            func work()
+                requires(blocking_execution()) {}
+
+            func example()
+            {
+                let operation: func() = work;
+            }
+            "#,
         ] {
             let compilation = compilation(source);
 

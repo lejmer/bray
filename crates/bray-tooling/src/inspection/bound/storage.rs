@@ -670,6 +670,7 @@ impl From<StorageBinding> for InspectionStorageBinding {
 
 #[derive(Clone, Serialize)]
 pub(super) struct InspectionStoragePlan {
+    point_kind: &'static str,
     node_kind: &'static str,
     node: u32,
     expression: u32,
@@ -678,6 +679,10 @@ pub(super) struct InspectionStoragePlan {
 }
 
 impl InspectionStoragePlan {
+    pub(super) const fn point_kind(&self) -> &'static str {
+        self.point_kind
+    }
+
     pub(super) const fn node_kind(&self) -> &'static str {
         self.node_kind
     }
@@ -702,11 +707,78 @@ impl InspectionStoragePlan {
 impl From<StorageAccessPlan> for InspectionStoragePlan {
     fn from(plan: StorageAccessPlan) -> Self {
         Self {
+            point_kind: plan.point().as_str(),
             node_kind: plan.node().kind().as_str(),
             node: plan.node().ordinal(),
             expression: plan.expression().ordinal(),
             purpose: plan.purpose().as_str(),
             access: plan.access().ordinal(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::InspectionStoragePlan;
+    use bray_bound_tree::{
+        BoundOperationPoint, StorageAccess, StorageAccessPurpose, StorageAccessRoot,
+        StorageIdentity, StoragePlanBuilder,
+    };
+
+    #[test]
+    fn storage_inspection_preserves_distinct_points_in_the_same_source_expression() {
+        let values = bray_symbols::SemanticValueStore::try_new().unwrap();
+
+        let ty = values
+            .intern_type(bray_symbols::TypeData::tuple([]))
+            .unwrap();
+
+        let unit = bray_testing::test_runtime_default_unit(7, |tree, origin| {
+            tree.push_expression(bray_bound_tree::BoundExpression::Error(
+                bray_bound_tree::BoundErrorExpression::new(origin, ty),
+            ))
+            .unwrap()
+        });
+
+        let expression = unit.tree().expressions().next().unwrap().0;
+        let mut builder = StoragePlanBuilder::new(unit.unit(), unit.key().kind());
+
+        let identity = builder
+            .push_identity(StorageIdentity::Temporary(expression))
+            .unwrap();
+
+        let access = builder
+            .push_access(StorageAccess::new(
+                StorageAccessRoot::Storage(identity),
+                [],
+                ty,
+                unit.key().source(),
+                false,
+            ))
+            .unwrap();
+
+        for point in [
+            BoundOperationPoint::Evaluation(expression.into()),
+            BoundOperationPoint::PropagationFailure(expression),
+        ] {
+            builder
+                .plan_access_at(point, expression, StorageAccessPurpose::Move, access)
+                .unwrap();
+        }
+
+        let storage = builder.finish();
+
+        let plans = storage
+            .access_plans()
+            .iter()
+            .copied()
+            .map(InspectionStoragePlan::from)
+            .collect::<Vec<_>>();
+
+        let json = serde_json::to_value(&plans).unwrap();
+
+        assert_eq!(plans[0].node(), plans[1].node());
+        assert_eq!(json[0]["point_kind"], "evaluation");
+        assert_eq!(json[1]["point_kind"], "propagation_failure");
     }
 }

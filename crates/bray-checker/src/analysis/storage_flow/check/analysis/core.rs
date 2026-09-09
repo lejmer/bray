@@ -33,7 +33,7 @@ use crate::analysis::model::{
     AnalysisCallPhase, AnalysisOperation, AnalysisOperationKind, AnalysisScopeExitPhase,
 };
 use crate::analysis::reachability::analyze_reachability;
-use crate::analysis::storage_flow::authority::mutable_storage;
+use crate::analysis::storage_flow::authority::{mutable_field_accesses, mutable_storage};
 use crate::analysis::storage_flow::copyability::CopyabilityResolver;
 use crate::analysis::storage_flow::decision::{diagnostic_kind, more_conservative};
 use crate::analysis::storage_flow::model::{StorageFlowDomain, StorageFlowInput, StorageFlowState};
@@ -149,7 +149,24 @@ where
         }
     };
 
-    let input = StorageFlowInput::new(request, storage, copyable_types, mutable_storage);
+    let mutable_field_accesses = match mutable_field_accesses(request, storage) {
+        Ok(accesses) => accesses,
+        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
+        Err(CheckerQueryError::Infrastructure(error)) => {
+            return CheckerOutcome::InfrastructureFailure(error);
+        }
+        Err(CheckerQueryError::Upstream(error)) => {
+            return CheckerOutcome::UpstreamFailure(error);
+        }
+    };
+
+    let input = StorageFlowInput::new(
+        request,
+        storage,
+        copyable_types,
+        mutable_storage,
+        mutable_field_accesses,
+    );
 
     let owners = match storage_scope_owners(request).map_err(CheckerQueryError::with_upstream) {
         Ok(owners) => owners,
@@ -429,12 +446,26 @@ where
             return;
         }
 
-        self.initialize_operation_storage(state, operation.kind().node());
+        let failure_transfer = matches!(
+            operation.kind(),
+            AnalysisOperationKind::PropagationFailure(_)
+        );
 
-        let refinements = self.refinements.refinements_before(operation.kind().node());
+        if !failure_transfer {
+            self.initialize_operation_storage(state, operation.kind().node());
+        }
 
-        for plan in self.input.plans(operation.kind().node()) {
+        let refinements = self
+            .refinements
+            .refinements_before_at(operation.kind().point());
+
+        for plan in self.input.plans(operation.kind().point()) {
             self.apply_plan(state, *plan, refinements);
+        }
+
+        if failure_transfer {
+            self.end_last_use_borrows(state, operation.kind().node());
+            return;
         }
 
         self.transfer_raw_pointer_state(state, operation.kind().node());
@@ -617,7 +648,7 @@ where
 
         if let Some(authority_access) = self.mutation_authority_access(plan, purpose)
             && (!self.has_mutation_authority(authority_access)?
-                || !self.fields_allow_mutation(authority_access))
+                || !self.input.fields_allow_mutation(authority_access))
         {
             return Ok(StorageOperationOutcome::status(
                 StorageOperationStatus::MissingMutationAuthority,
@@ -1203,7 +1234,7 @@ where
     fn decisions(&self) -> impl Iterator<Item = StorageOperationDecision> + '_ {
         self.storage.access_plans().iter().copied().map(|plan| {
             StorageOperationDecision::new(
-                plan.node(),
+                plan.point(),
                 plan.expression(),
                 self.effective_purpose(plan),
                 plan.access(),

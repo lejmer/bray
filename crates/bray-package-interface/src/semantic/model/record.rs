@@ -381,7 +381,8 @@ pub struct InterfaceCallableContract {
     conditions: bray_symbols::CallableConditionSet<InterfaceCallableContractClause>,
     pub(crate) invocation_behavior: InterfaceCallablePhaseBehavior,
     pub(crate) deferred_execution_behavior: Option<InterfaceCallablePhaseBehavior>,
-    evidence: Arc<[bray_symbols::CallableContractEvidence<InterfaceSymbolReference>]>,
+    pub(crate) evidence:
+        Arc<[bray_symbols::CallableContractEvidence<super::InterfaceCallableEvidenceTarget>]>,
 }
 
 impl InterfaceCallableContract {
@@ -405,7 +406,7 @@ impl InterfaceCallableContract {
     pub fn with_evidence(
         mut self,
         evidence: impl IntoIterator<
-            Item = bray_symbols::CallableContractEvidence<InterfaceSymbolReference>,
+            Item = bray_symbols::CallableContractEvidence<super::InterfaceCallableEvidenceTarget>,
         >,
     ) -> Self {
         let mut evidence = evidence.into_iter().collect::<Vec<_>>();
@@ -416,7 +417,9 @@ impl InterfaceCallableContract {
     }
 
     /// Returns supplied promises, their proof authority, and their dependencies.
-    pub fn evidence(&self) -> &[bray_symbols::CallableContractEvidence<InterfaceSymbolReference>] {
+    pub fn evidence(
+        &self,
+    ) -> &[bray_symbols::CallableContractEvidence<super::InterfaceCallableEvidenceTarget>] {
         &self.evidence
     }
 

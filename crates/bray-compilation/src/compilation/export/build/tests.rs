@@ -62,14 +62,38 @@ fn guarded_predicate_meaning_round_trips_without_provider_source() {
     use bray_symbols::{PredicateDefinitionState, PredicateDefinitionSymbolId, SymbolOrigin};
 
     let provider = compilation(
-        "module contracts; predicate ready(value: bool) = value; func identity(pos value: bool) -> bool when(ready(value)) { executes(pure, total) ensures(result) } { return value; }",
+        r#"
+        module contracts;
+
+        predicate ready(value: bool) = value;
+
+        func identity(pos value: bool) -> bool
+            when(ready(value))
+            {
+                executes(pure, total)
+                ensures(result)
+            }
+        {
+            return value;
+        }
+        "#,
     );
 
     let bundle = export(&provider);
     let artifact = encode_package_interface(bundle).unwrap();
 
     let consumer = crate::test_support::compilation_with_dependencies(
-        "module app; using example.package.contracts; func use_contract(pos value: bool) when(example.package.contracts.ready(value)) { executes(pure) } {}",
+        r#"
+        module app;
+
+        using example.package.contracts;
+
+        func use_contract(pos value: bool)
+            when(example.package.contracts.ready(value))
+            {
+                executes(pure)
+            } {}
+        "#,
         [DependencyInterfaceInput::new(
             PackageIdentity::try_new("example.package").unwrap(),
             InterfaceProductIdentity::try_new("library").unwrap(),
@@ -114,7 +138,29 @@ fn guarded_predicate_meaning_round_trips_without_provider_source() {
 #[test]
 fn imported_execution_guarantees_require_checked_provider_evidence_and_their_guard() {
     let provider = compilation(
-        "module contracts; internal func identity_impl(pos value: bool) -> bool when(value) { executes(pure, total) ensures(result) } { return value; } func identity(pos value: bool) -> bool when(value) { executes(pure, total) ensures(result) } { return identity_impl(value); }",
+        r#"
+        module contracts;
+
+        internal func identity_impl(pos value: bool) -> bool
+            when(value)
+            {
+                executes(pure, total)
+                ensures(result)
+            }
+        {
+            return value;
+        }
+
+        func identity(pos value: bool) -> bool
+            when(value)
+            {
+                executes(pure, total)
+                ensures(result)
+            }
+        {
+            return identity_impl(value);
+        }
+        "#,
     );
 
     assert!(
@@ -147,7 +193,14 @@ fn imported_execution_guarantees_require_checked_provider_evidence_and_their_gua
     ] {
         let consumer = crate::test_support::compilation_with_dependencies(
             &format!(
-                "module app; using example.package.contracts; func root(pos value: bool) -> bool {contract} {{ return example.package.contracts.identity(value); }}"
+                r#"
+                module app;
+                using example.package.contracts;
+                func root(pos value: bool) -> bool {contract}
+                {{
+                    return example.package.contracts.identity(value);
+                }}
+                "#
             ),
             [DependencyInterfaceInput::new(
                 PackageIdentity::try_new("example.package").unwrap(),
@@ -169,8 +222,164 @@ fn imported_execution_guarantees_require_checked_provider_evidence_and_their_gua
 }
 
 #[test]
+fn generic_witness_proof_dependencies_survive_interface_round_trip() {
+    let provider = compilation(
+        r#"
+        module contracts;
+
+        trait Reader
+        {
+            func read() -> bool
+                executes(pure, total);
+        }
+
+        func read<T>(pos value: &T) -> bool
+            with(T: Reader)
+            executes(pure, total)
+        {
+            return value.read();
+        }
+        "#,
+    );
+
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+
+    let artifact = encode_package_interface(export(&provider)).unwrap();
+
+    for (body, accepted) in [
+        ("return true;", true),
+        (
+            "return example.package.contracts.read<Value>(&self);",
+            false,
+        ),
+    ] {
+        let consumer = crate::test_support::compilation_with_dependencies(
+            &format!(
+                r#"
+                module app;
+                using example.package.contracts;
+                struct Value
+                {{
+                }}
+                impl Value(example.package.contracts.Reader)
+                {{
+                    func read() -> bool executes(pure, total)
+                    {{
+                        {body}
+                    }}
+                }}
+                func root() -> bool executes(pure, total)
+                {{
+                    let value = Value
+                    {{
+                    }};
+                    return example.package.contracts.read<Value>(&value);
+                }}
+                "#
+            ),
+            [DependencyInterfaceInput::new(
+                PackageIdentity::try_new("example.package").unwrap(),
+                InterfaceProductIdentity::try_new("library").unwrap(),
+                "contracts.brayi",
+                artifact.shared_bytes(),
+                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+            )],
+        );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            accepted,
+            "{body}: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn generic_method_proof_arguments_survive_interface_round_trip() {
+    let provider = compilation(
+        r#"
+        module contracts;
+
+        trait Reader
+        {
+            func read<Value>(pos value: Value) -> Value
+                executes(pure, total);
+        }
+
+        func apply<T>(pos reader: &T) -> bool
+            with(T: Reader)
+            executes(pure, total)
+        {
+            return reader.read<bool>(true);
+        }
+        "#,
+    );
+
+    let diagnostics = provider.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+
+    let artifact = encode_package_interface(export(&provider)).unwrap();
+
+    let consumer = crate::test_support::compilation_with_dependencies(
+        r#"
+        module app;
+
+        using example.package.contracts;
+
+        struct ReaderValue
+        {
+        }
+
+        impl ReaderValue(example.package.contracts.Reader)
+        {
+            func read<Output>(pos value: Output) -> Output
+                executes(pure, total)
+            {
+                return value;
+            }
+        }
+
+        func root() -> bool
+            executes(pure, total)
+        {
+            let reader = ReaderValue
+            {
+            };
+
+            return example.package.contracts.apply<ReaderValue>(&reader);
+        }
+        "#,
+        [DependencyInterfaceInput::new(
+            PackageIdentity::try_new("example.package").unwrap(),
+            InterfaceProductIdentity::try_new("library").unwrap(),
+            "contracts.brayi",
+            artifact.shared_bytes(),
+            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+        )],
+    );
+
+    let diagnostics = consumer.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+}
+
+#[test]
 fn imported_foreign_assertions_retain_abi_provenance_and_caller_trust() {
-    let source = "trusted module native; @link(name = \"native\") @symbol(name = \"native_value\") @abi(c) extern trusted func native_value() -> i32 uses(foreign_call) executes(pure, total);";
+    let source = r#"
+    trusted module native;
+
+    @link(name = "native")
+    @symbol(name = "native_value")
+    @abi(c)
+    extern trusted func native_value() -> i32
+        uses(foreign_call)
+        executes(pure, total);
+    "#;
 
     let provider = compilation_from_sources_for_product_with_platform_services_and_worker_budget(
         [source],
@@ -213,7 +422,14 @@ fn imported_foreign_assertions_retain_abi_provenance_and_caller_trust() {
     ] {
         let consumer = crate::test_support::compilation_with_dependencies(
             &format!(
-                "trusted module app; using example.package.native; {wrapper_trust} func root() -> i32 {capability} executes(pure, total) {{ return example.package.native.native_value(); }}"
+                r#"
+                trusted module app;
+                using example.package.native;
+                {wrapper_trust} func root() -> i32 {capability} executes(pure, total)
+                {{
+                    return example.package.native.native_value();
+                }}
+                "#
             ),
             [DependencyInterfaceInput::new(
                 PackageIdentity::try_new("example.package").unwrap(),
@@ -236,22 +452,38 @@ fn imported_foreign_assertions_retain_abi_provenance_and_caller_trust() {
 }
 
 #[test]
-fn imported_resource_completion_uses_checked_domain_operation_and_finalizer_contracts() {
-    let provider = compilation(
-        "module resources; struct Resource { mut pending: bool; mut func close() ensures(!self.pending) { self.pending = false; } finalize() -> Result<unit, unit> when(!self.pending) { executes(pure, total) ensures(result matches Ok(_)) } { if !self.pending { return Ok(unit); } return Error(unit); } }",
-    );
+fn imported_nested_fields_preserve_mutation_authority() {
+    for (outer_mutation, inner_mutation, accepted) in
+        [("mut", "mut", true), ("", "mut", false), ("mut", "", false)]
+    {
+        let provider = compilation(&format!(
+            r#"
+            module resources;
 
-    let artifact = encode_package_interface(export(&provider)).unwrap();
+            internal struct State
+            {{
+                {inner_mutation} value: i32;
+            }}
 
-    for (body, accepted) in [
-        ("value.close();", true),
-        ("value.close(); value.pending = true;", false),
-        ("", false),
-    ] {
+            struct Resource
+            {{
+                internal {outer_mutation} state: State;
+            }}
+            "#
+        ));
+
+        let artifact = encode_package_interface(export(&provider)).unwrap();
+
         let consumer = crate::test_support::compilation_with_dependencies(
-            &format!(
-                "module app; using example.package.resources; func root(pos mut value: example.package.resources.Resource) {{ {body} }}"
-            ),
+            r#"
+            module app;
+            using internal example.package.resources;
+
+            func root(pos mut value: example.package.resources.Resource)
+            {
+                value.state.value = 0;
+            }
+            "#,
             [DependencyInterfaceInput::new(
                 PackageIdentity::try_new("example.package").unwrap(),
                 InterfaceProductIdentity::try_new("library").unwrap(),
@@ -260,6 +492,118 @@ fn imported_resource_completion_uses_checked_domain_operation_and_finalizer_cont
                 InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
             )],
         );
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert_eq!(
+            !diagnostics.has_errors(),
+            accepted,
+            "outer={outer_mutation}/inner={inner_mutation}: {diagnostics:?}"
+        );
+    }
+}
+
+#[test]
+fn imported_resource_completion_uses_checked_domain_operation_and_finalizer_contracts() {
+    let provider = compilation(
+        r#"
+        module resources;
+
+        struct Resource
+        {
+            mut pending: bool;
+
+            mut func close()
+                ensures(!self.pending)
+            {
+                self.pending = false;
+            }
+
+            mut func try_close(pos fail: bool) -> Result<unit, unit>
+                requires(blocking_execution())
+                ensures((result matches Error(_)) || !self.pending)
+            {
+                if fail
+                {
+                    return Error(unit);
+                }
+
+                self.pending = false;
+
+                return Ok(unit);
+            }
+
+            finalize() -> Result<unit, unit>
+                when(!self.pending)
+                {
+                    executes(pure, total)
+                    ensures(result matches Ok(_))
+                }
+            {
+                if !self.pending
+                {
+                    return Ok(unit);
+                }
+
+                return Error(unit);
+            }
+        }
+        "#,
+    );
+
+    let artifact = encode_package_interface(export(&provider)).unwrap();
+
+    let import = |source: &str| {
+        crate::test_support::compilation_with_dependencies(
+            source,
+            [DependencyInterfaceInput::new(
+                PackageIdentity::try_new("example.package").unwrap(),
+                InterfaceProductIdentity::try_new("library").unwrap(),
+                "resources.brayi",
+                artifact.shared_bytes(),
+                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+            )],
+        )
+    };
+
+    for (body, accepted) in [
+        ("value.close();", true),
+        ("value.close(); value.pending = true;", false),
+        ("", false),
+        (
+            r#"
+            match value.try_close(false)
+            {
+                case Ok(_) {}
+                case Error(_)
+                {
+                    panic("close failed");
+                }
+            }
+            "#,
+            true,
+        ),
+        (
+            r#"
+            match value.try_close(false)
+            {
+                case Ok(_) {}
+                case Error(_) {}
+            }
+            "#,
+            false,
+        ),
+    ] {
+        let consumer = import(&format!(
+            r#"
+                module app;
+                using example.package.resources;
+                func root(pos mut value: example.package.resources.Resource)
+                {{
+                    {body}
+                }}
+                "#
+        ));
 
         let diagnostics = consumer.check_diagnostics();
 
@@ -278,31 +622,164 @@ fn imported_resource_completion_uses_checked_domain_operation_and_finalizer_cont
             accepted
         );
     }
+
+    let consumer = import(
+        r#"
+        module app;
+        using example.package.resources;
+
+        func close_result(pos input: Result<example.package.resources.Resource, unit>) -> Result<unit, unit>
+        {
+            let mut value: example.package.resources.Resource = try input;
+
+            value.close();
+
+            return Ok(unit);
+        }
+
+        func return_result(pos input: Result<example.package.resources.Resource, unit>) -> Result<example.package.resources.Resource, unit>
+        {
+            let value: example.package.resources.Resource = try input;
+
+            return Ok(value);
+        }
+
+        func close_run(pos input: RunResult<example.package.resources.Resource>)
+        {
+            let mut value: example.package.resources.Resource = try input;
+
+            value.close();
+        }
+
+        func return_run(pos input: RunResult<example.package.resources.Resource>) -> example.package.resources.Resource
+        {
+            return try input;
+        }
+
+        "#,
+    );
+
+    let diagnostics = consumer.check_diagnostics();
+
+    assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+
+    for name in ["close_result", "return_result", "close_run", "return_run"] {
+        assert!(
+            consumer
+                .lowered_unit(source_function_body_key(&consumer, name))
+                .unwrap()
+                .value()
+                .is_some(),
+            "{name}"
+        );
+    }
+
+    for input in [
+        "Result<example.package.resources.Resource, unit>",
+        "RunResult<example.package.resources.Resource>",
+    ] {
+        let consumer = import(&format!(
+            r#"
+            module app;
+            using example.package.resources;
+
+            func root(pos input: {input}) -> Result<unit, unit>
+            {{
+                let mut value: example.package.resources.Resource = try input;
+
+                value.close();
+
+                let mut repeated: example.package.resources.Resource = try input;
+
+                repeated.close();
+
+                return Ok(unit);
+            }}
+            "#
+        ));
+
+        let diagnostics = consumer.check_diagnostics();
+
+        assert!(
+            diagnostics
+                .by_kind(bray_diagnostics::DiagnosticKind::CheckingUseOfMovedStorage)
+                .next()
+                .is_some(),
+            "{input}: {diagnostics:?}"
+        );
+    }
 }
 
 #[test]
 fn boxed_observations_and_projection_evidence_survive_package_interfaces() {
     let provider = compilation(
-        "module resources; struct Resource { mut pending: bool; \
-         finalize() -> Result<unit, unit> when(!self.pending) \
-         { executes(pure, total) ensures(result matches Ok(_)) } \
-         { if !self.pending { return Ok(unit); } return Error(unit); } } \
-         func inspect(pos value: &box Resource) executes(pure, total) requires(value matches box(Resource { pending = false })) {} \
-         func observe<T>(pos value: &box T) executes(pure, total) { match value { case box(inner) {} }; }",
+        r#"
+        module resources;
+
+        struct Resource
+        {
+            mut pending: bool;
+
+            finalize() -> Result<unit, unit>
+                when(!self.pending)
+                {
+                    executes(pure, total)
+                    ensures(result matches Ok(_))
+                }
+            {
+                if !self.pending
+                {
+                    return Ok(unit);
+                }
+
+                return Error(unit);
+            }
+        }
+
+        func inspect(pos value: &box Resource)
+            executes(pure, total)
+            requires(
+                value matches box(Resource
+            {
+                pending = false
+            }
+            )
+        ) {}
+
+        func observe<T>(pos value: &box T)
+            executes(pure, total)
+        {
+            match value
+            {
+                case box(inner) {}
+            };
+        }
+        "#,
     );
 
     let diagnostics = provider.check_diagnostics();
+
     assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+
     let artifact = encode_package_interface(export(&provider)).unwrap();
 
     for pending in [false, true] {
         let source = format!(
-            "module app; using example.package.resources; \
-             func read(pos value: &box example.package.resources.Resource) executes(pure, total) \
-             {{ example.package.resources.observe(value); }} \
-             func root(pos value: &box example.package.resources.Resource) executes(pure, total) \
-             requires(value matches box(example.package.resources.Resource {{ pending = {pending} }})) \
-             {{ example.package.resources.inspect(value); }}"
+            r#"
+            module app;
+            using example.package.resources;
+            func read(pos value: &box example.package.resources.Resource) executes(pure, total)
+            {{
+                example.package.resources.observe(value);
+            }}
+            func root(pos value: &box example.package.resources.Resource) executes(pure, total) requires( value matches box(example.package.resources.Resource
+            {{
+                pending = {pending}
+            }} ) )
+            {{
+                example.package.resources.inspect(value);
+            }}
+            "#
         );
 
         let consumer = crate::test_support::compilation_with_dependencies(
@@ -331,10 +808,34 @@ fn imported_proofs_reject_missing_evidence_and_circular_termination() {
     use bray_symbols::{CallableContractEvidence, CallableContractObligation, ExecutionProperty};
 
     let provider = compilation(
-        "module contracts; func identity() -> bool executes(pure, total) { return true; }",
+        r#"
+        module contracts;
+
+        func identity() -> bool
+            executes(pure, total)
+        {
+            return true;
+        }
+
+        func forward() -> bool
+            executes(pure, total)
+        {
+            return identity();
+        }
+        "#,
     );
 
     let bundle = export(&provider);
+
+    let target = bundle
+        .semantics()
+        .callable_contracts()
+        .iter()
+        .flat_map(|contract| contract.evidence())
+        .flat_map(|proof| proof.dependencies())
+        .next()
+        .unwrap()
+        .0;
 
     for mode in ["checked", "missing", "circular"] {
         let contracts = bundle.semantics().callable_contracts().iter().map(|contract| {
@@ -347,7 +848,7 @@ fn imported_proofs_reject_missing_evidence_and_circular_termination() {
                     CallableContractObligation::Execution(guarantee) if guarantee.property() == ExecutionProperty::Total);
 
                 Some(if circular {
-                    CallableContractEvidence::new(proof.obligation(), [(contract.owner().clone(), proof.obligation())])
+                    CallableContractEvidence::new(proof.obligation(), [(target, proof.obligation())])
                 } else {
                     proof.clone()
                 })
@@ -373,7 +874,17 @@ fn imported_proofs_reject_missing_evidence_and_circular_termination() {
         let artifact = encode_package_interface(&changed).unwrap();
 
         let consumer = crate::test_support::compilation_with_dependencies(
-            "module app; using example.package.contracts; func root() -> bool executes(pure, total) { return example.package.contracts.identity(); }",
+            r#"
+            module app;
+
+            using example.package.contracts;
+
+            func root() -> bool
+                executes(pure, total)
+            {
+                return example.package.contracts.identity();
+            }
+            "#,
             [DependencyInterfaceInput::new(
                 PackageIdentity::try_new("example.package").unwrap(),
                 InterfaceProductIdentity::try_new("library").unwrap(),
@@ -395,8 +906,17 @@ fn imported_proofs_reject_missing_evidence_and_circular_termination() {
 
 #[test]
 fn unverified_execution_guarantees_cannot_be_exported() {
-    let provider =
-        compilation("module contracts; func invalid() executes(pure, total) { panic(1); }");
+    let provider = compilation(
+        r#"
+        module contracts;
+
+        func invalid()
+            executes(pure, total)
+        {
+            panic(1);
+        }
+        "#,
+    );
 
     assert!(provider.check_diagnostics().has_errors());
 
@@ -408,14 +928,37 @@ fn unverified_execution_guarantees_cannot_be_exported() {
 
 #[test]
 fn associated_predicates_round_trip_with_their_parameters() {
-    let provider = compilation(concat!(
-        "module contracts;\n",
-        "public struct State { predicate complete(value: bool) = value; }\n",
-        "public union Choice { Empty; predicate complete(value: bool) = value; }\n",
-        "impl State { predicate ready(value: bool) = value; }\n",
-        "public trait Contract { predicate complete(value: bool); }\n",
-        "impl State(Contract) { predicate complete(value: bool) = value; }\n",
-    ));
+    let provider = compilation(
+        r#"
+    module contracts;
+
+    public struct State
+    {
+        predicate complete(value: bool) = value;
+    }
+
+    public union Choice
+    {
+        Empty;
+        predicate complete(value: bool) = value;
+    }
+
+    impl State
+    {
+        predicate ready(value: bool) = value;
+    }
+
+    public trait Contract
+    {
+        predicate complete(value: bool);
+    }
+
+    impl State(Contract)
+    {
+        predicate complete(value: bool) = value;
+    }
+    "#,
+    );
 
     assert!(
         provider.check_diagnostics().is_empty(),
@@ -1512,32 +2055,52 @@ fn generic_constant_type_members_can_call_generic_constant_helpers() {
 
 #[test]
 fn imported_generic_type_members_reuse_the_receiver_substitution() {
-    let provider = compilation(concat!(
-        "module types;\n",
-        "\n",
-        "public struct Factory<T>\n",
-        "{\n",
-        "    public static func empty() -> Self\n",
-        "    {\n",
-        "        panic(\"fixture\");\n",
-        "    }\n",
-        "\n",
-        "    public static func identity<U>(pos value: U) -> U\n",
-        "    {\n",
-        "        return value;\n",
-        "    }\n",
-        "}\n",
-        "\n",
-        "public struct Guard<T>\n",
-        "{\n",
-        "    internal value: T;\n",
-        "\n",
-        "    public mut func get() -> &mut T\n",
-        "    {\n",
-        "        panic(\"fixture\");\n",
-        "    }\n",
-        "}\n",
-    ));
+    let provider = compilation(
+        r#"
+        module types;
+
+        public struct Factory<T>
+        {
+            public static func empty() -> Self
+            {
+                panic("fixture");
+            }
+
+            public static func identity<U>(pos value: U) -> U
+            {
+                return value;
+            }
+        }
+
+        impl Factory<T>
+        {
+            public consume mut func finish() -> Result<T, (Self, unit)>
+            {
+                panic("fixture");
+            }
+
+            public consume mut async func finish_async() -> Result<T, (Self, unit)>
+            {
+                panic("fixture");
+            }
+
+            public static func wrap<U>(pos value: U) -> Result<U, (Self, unit)>
+            {
+                panic("fixture");
+            }
+        }
+
+        public struct Guard<T>
+        {
+            internal value: T;
+
+            public mut func get() -> &mut T
+            {
+                panic("fixture");
+            }
+        }
+        "#,
+    );
 
     assert!(
         provider.check_diagnostics().is_empty(),
@@ -1569,22 +2132,27 @@ fn imported_generic_type_members_reuse_the_receiver_substitution() {
         SourceIdentity::new(0),
         "consumer.bray",
         SourceVersion::new(0),
-        concat!(
-            "module app;\n",
-            "\n",
-            "using example.package.types.Factory;\n",
-            "using example.package.types.Guard;\n",
-            "\n",
-            "func run(pos guard: &mut example.package.types.Guard<i32>)\n",
-            "{\n",
-            "    let value: example.package.types.Factory<i32> =\n",
-            "        example.package.types.Factory<i32>.empty();\n",
-            "    let text: string =\n",
-            "        example.package.types.Factory<i32>.identity<string>(\"ok\");\n",
-            "    let value_ref: &mut i32 = guard.get();\n",
-            "    value_ref += 1;\n",
-            "}\n",
-        ),
+        r#"
+        module app;
+
+        using example.package.types.Factory;
+        using example.package.types.Guard;
+
+        func run(pos guard: &mut example.package.types.Guard<i32>)
+        {
+            let mut value: example.package.types.Factory<i32> = example.package.types.Factory<i32>.empty();
+            let text: string = example.package.types.Factory<i32>.identity<string>("ok");
+            let value_ref: &mut i32 = guard.get();
+
+            value_ref += 1;
+
+            let finished: Result<i32, (example.package.types.Factory<i32>, unit)> = value.finish();
+            let mut deferred: example.package.types.Factory<i32> = example.package.types.Factory<i32>.empty();
+            let pending: Future<Result<i32, (example.package.types.Factory<i32>, unit)>> = deferred.finish_async();
+            let wrapped: Result<string, (example.package.types.Factory<i32>, unit)> =
+                example.package.types.Factory<i32>.wrap<string>("ok");
+        }
+        "#,
     );
 
     let request = CompilationRequest::new(consumer_package, vec![source])
@@ -1858,26 +2426,38 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
     // bodies so imported reachability cannot silently treat Bray declarations as foreign imports.
     let provider = standard_library_compilation([
         include_str!("../../../../../../standard-library/std/src/std.bray"),
-        concat!(
-            "trusted module std.memory;\n",
-            "union MemoryLayoutError\n",
-            "{\n",
-            "    SizeOverflow;\n",
-            "    UnsupportedAlignment;\n",
-            "}\n",
-            "func byte_slice_pointer(pos bytes: &[u8]) -> RawPointer<u8> { loop {} }\n",
-            "func byte_slice_pointer_mut(pos bytes: &mut [u8]) -> RawPointer<u8> { loop {} }\n",
-            "trusted func byte_buffer_copy(\n",
-            "    pos source: RawPointer<u8>,\n",
-            "    pos destination: RawPointer<u8>,\n",
-            "    count: usize,\n",
-            ") { loop {} }\n",
-            "trusted func byte_buffer_fill(\n",
-            "    destination: RawPointer<u8>,\n",
-            "    value: u8,\n",
-            "    count: usize,\n",
-            ") { loop {} }\n",
-        ),
+        r#"
+        trusted module std.memory;
+        union MemoryLayoutError
+        {
+            SizeOverflow;
+            UnsupportedAlignment;
+        }
+        func byte_slice_pointer(pos bytes: &[u8]) -> RawPointer<u8>
+        {
+            loop
+            {
+            }
+        }
+        func byte_slice_pointer_mut(pos bytes: &mut [u8]) -> RawPointer<u8>
+        {
+            loop
+            {
+            }
+        }
+        trusted func byte_buffer_copy( pos source: RawPointer<u8>, pos destination: RawPointer<u8>, count: usize, )
+        {
+            loop
+            {
+            }
+        }
+        trusted func byte_buffer_fill( destination: RawPointer<u8>, value: u8, count: usize, )
+        {
+            loop
+            {
+            }
+        }
+        "#,
         concat!(
             "module std.bytes;\n",
             "using std.memory;\n",
@@ -2122,74 +2702,52 @@ fn standard_formatting_surface_round_trips_and_specializes_without_provider_sour
         SourceIdentity::new(0),
         "consumer.bray",
         SourceVersion::new(0),
-        concat!(
-            "trusted module app;\n",
-            "using std.format;\n",
-            "using std.format.ByteSinkFormatting;\n",
-            "using std.format.StringFormat;\n",
-            "using std.format.I32Format;\n",
-            "using std.format.U32Format;\n",
-            "using std.bytes;\n",
-            "using std.io;\n",
-            "using std.io.WriterFormattingSink;\n",
-            "using std.memory;\n",
-            "struct RecordingWriter\n",
-            "{\n",
-            "    mut written: usize;\n",
-            "}\n",
-            "impl RecordingWriterIo = RecordingWriter(std.io.Writer)\n",
-            "{\n",
-            "    mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError>\n",
-            "        requires(blocking_execution())\n",
-            "    {\n",
-            "        let length: usize = source.length();\n",
-            "        self.written += length;\n",
-            "        return Ok(length);\n",
-            "    }\n",
-            "    mut func flush() -> Result<unit, std.io.IoError>\n",
-            "        requires(blocking_execution())\n",
-            "    {\n",
-            "        return Ok(unit);\n",
-            "    }\n",
-            "}\n",
-            "func render(pos destination: &mut std.format.ByteSink, pos value: string)\n",
-            "    -> Result<unit, std.memory.MemoryLayoutError>\n",
-            "    requires(blocking_execution())\n",
-            "{\n",
-            "    return std.format.write(\n",
-            "        destination,\n",
-            "        std.format.Argument<string>(&value),\n",
-            "    );\n",
-            "}\n",
-            "func render_integer(pos destination: &mut std.format.ByteSink, pos value: i32)\n",
-            "    -> Result<unit, std.memory.MemoryLayoutError>\n",
-            "    requires(blocking_execution())\n",
-            "{\n",
-            "    return std.format.write(\n",
-            "        destination,\n",
-            "        std.format.Argument<i32>(&value),\n",
-            "    );\n",
-            "}\n",
-            "func resolved_defaults() -> std.format.Options\n",
-            "{\n",
-            "    return std.format.Options();\n",
-            "}\n",
-            "public trusted func stream_integer(pos writer: &mut RecordingWriter, pos value: u32)\n",
-            "    -> Result<unit, std.io.IoError>\n",
-            "    requires(blocking_execution())\n",
-            "{\n",
-            "    let mut destination: std.io.FormattingSink<RecordingWriter> =\n",
-            "        std.io.FormattingSink<RecordingWriter>(writer);\n",
-            "    return trusted std.format.write_to<\n",
-            "        u32,\n",
-            "        std.io.FormattingSink<RecordingWriter>,\n",
-            "        std.io.IoError\n",
-            "    >(\n",
-            "        &mut destination,\n",
-            "        std.format.Argument<u32>(&value),\n",
-            "    );\n",
-            "}\n",
-        ),
+        r#"
+        trusted module app;
+        using std.format;
+        using std.format.ByteSinkFormatting;
+        using std.format.StringFormat;
+        using std.format.I32Format;
+        using std.format.U32Format;
+        using std.bytes;
+        using std.io;
+        using std.io.WriterFormattingSink;
+        using std.memory;
+        struct RecordingWriter
+        {
+            mut written: usize;
+        }
+        impl RecordingWriterIo = RecordingWriter(std.io.Writer)
+        {
+            mut func write(pos source: &[u8]) -> Result<usize, std.io.IoError> requires(blocking_execution())
+            {
+                let length: usize = source.length();
+                self.written += length;
+                return Ok(length);
+            }
+            mut func flush() -> Result<unit, std.io.IoError> requires(blocking_execution())
+            {
+                return Ok(unit);
+            }
+        }
+        func render(pos destination: &mut std.format.ByteSink, pos value: string) -> Result<unit, std.memory.MemoryLayoutError> requires(blocking_execution())
+        {
+            return std.format.write( destination, std.format.Argument<string>(&value), );
+        }
+        func render_integer(pos destination: &mut std.format.ByteSink, pos value: i32) -> Result<unit, std.memory.MemoryLayoutError> requires(blocking_execution())
+        {
+            return std.format.write( destination, std.format.Argument<i32>(&value), );
+        }
+        func resolved_defaults() -> std.format.Options
+        {
+            return std.format.Options();
+        }
+        public trusted func stream_integer(pos writer: &mut RecordingWriter, pos value: u32) -> Result<unit, std.io.IoError> requires(blocking_execution())
+        {
+            let mut destination: std.io.FormattingSink<RecordingWriter> = std.io.FormattingSink<RecordingWriter>(writer);
+            return trusted std.format.write_to< u32, std.io.FormattingSink<RecordingWriter>, std.io.IoError >( &mut destination, std.format.Argument<u32>(&value), );
+        }
+        "#,
     );
 
     let options = CompilationOptions::new(

@@ -54,7 +54,8 @@ where
                         }
                     }
             }),
-        AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) => {
+        AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression))
+        | AnalysisOperationKind::PropagationFailure(expression) => {
             expression_preserves_property(request, expression, property, selections)
         }
         AnalysisOperationKind::Bound(_) => true,

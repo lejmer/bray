@@ -1,3 +1,4 @@
+use bray_compiler_known::RepresentationRole;
 use bray_ir::{
     MirBlockKind, MirCleanupEdge, MirEdge, MirHelperReference, MirPlace, MirProjection,
     MirProjectionKind, MirSourceAnchor, MirStorageKind, MirTargetContract, MirTerminatorKind,
@@ -95,7 +96,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 if cleanup.finalization_execution()
                     == Some(bray_symbols::CallableExecution::Asynchronous)
                 {
-                    let value = self.create_lifecycle_frame(
+                    let (created, rejected, value) = self.create_lifecycle_frame(
                         &mut builder,
                         entry,
                         &source,
@@ -103,11 +104,37 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                         place,
                     )?;
 
+                    let report = self
+                        .context
+                        .representation_type(RepresentationRole::PanicReport)?;
+
+                    let report = crate::frame_creation::allocation_panic(
+                        &mut builder,
+                        rejected,
+                        &source,
+                        report,
+                    )
+                    .map_err(|cause| self.mir_error(&source, cause))?;
+
                     builder
                         .set_terminator(
-                            entry,
+                            rejected,
                             source.clone(),
-                            MirTerminatorKind::Return(Some(value)),
+                            MirTerminatorKind::PropagatePanic {
+                                report,
+                                runtime: bray_ir::MirRuntimeReference::new(
+                                    bray_runtime_interface::RuntimeAbiRole::PanicPropagation,
+                                    target.runtime_abi(),
+                                ),
+                            },
+                        )
+                        .map_err(|cause| self.mir_error(&source, cause))?;
+
+                    builder
+                        .set_terminator(
+                            created,
+                            source.clone(),
+                            MirTerminatorKind::Return(Some(bray_ir::MirOperand::Move(value))),
                         )
                         .map_err(|cause| self.mir_error(&source, cause))?;
                 } else {

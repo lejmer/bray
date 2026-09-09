@@ -28,11 +28,11 @@ use super::super::implementation::{
     implementation_callable_instance, implementation_fulfillments,
     implementation_instance_requirement,
 };
-use super::super::substitution::named_type;
-use super::realization::{
-    codegen_instance_contextual_self, substitute_contextual_self,
+use super::super::substitution::{
+    named_type, substitute_callable_context, substitute_contextual_self,
     substitute_contextual_self_in_application, substitute_contextual_self_in_substitution,
 };
+use super::realization::codegen_instance_contextual_self;
 use super::specialization_identity::encoding::structural_type_identity;
 use super::{ProductDataKind, ProductQueryContext, ProductQueryFailure, ProductValueKind};
 use crate::fact::{CancellationToken, FactQueryError};
@@ -771,6 +771,15 @@ impl Compilation {
             )
         })?;
 
+        let required = substitute_callable_context(
+            &values,
+            demand.reference().instance(),
+            Some(owner_substitution),
+            contextual_self,
+        )?;
+
+        let callable = callable.with_call_arguments(&binding_context, required)?;
+
         let mut witnesses = demand_witnesses;
 
         witnesses.extend(
@@ -967,6 +976,15 @@ impl Compilation {
                 ProductDataKind::CallableFulfillment,
             )
         })?;
+
+        let required = substitute_callable_context(
+            &values,
+            demand.reference().instance(),
+            Some(owner_substitution),
+            contextual_self,
+        )?;
+
+        let callable = callable.with_call_arguments(&binding_context, required)?;
 
         let mut witnesses = self.concrete_codegen_demand_witnesses(
             demand.witnesses(),

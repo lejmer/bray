@@ -12,8 +12,9 @@ mod ty;
 pub use bray_package_interface_model::InterfaceSemanticRecordKind;
 
 pub use application::{
-    InterfaceCallableInstance, InterfaceGenericArgument, InterfaceGenericBinding,
-    InterfaceGenericSubstitution, InterfaceImplementationInstance, InterfaceTraitApplication,
+    InterfaceCallableEvidenceTarget, InterfaceCallableInstance, InterfaceGenericArgument,
+    InterfaceGenericBinding, InterfaceGenericSubstitution, InterfaceImplementationInstance,
+    InterfaceTraitApplication,
 };
 pub use bundle::InterfaceSemantics;
 pub use constant::{

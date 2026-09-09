@@ -17,12 +17,13 @@ use super::check::StorageFlowCollector;
 
 #[derive(Debug, Default)]
 pub(super) struct StorageFlowInput {
-    plans: BTreeMap<AnyBoundNodeId, Vec<StorageAccessPlan>>,
+    plans: BTreeMap<bray_bound_tree::BoundOperationPoint, Vec<StorageAccessPlan>>,
     borrows: BTreeMap<StorageAccessPlan, BorrowCapabilityId>,
     definitions: BTreeMap<AnyBoundNodeId, Vec<StorageIdentityId>>,
     initialization_destinations: BTreeMap<BoundExpressionId, StorageIdentityId>,
     copyable_types: BTreeSet<TypeId>,
     mutable_storage: BTreeSet<StorageIdentityId>,
+    mutable_field_accesses: BTreeSet<StorageAccessId>,
 }
 
 impl StorageFlowInput {
@@ -31,6 +32,7 @@ impl StorageFlowInput {
         storage: &StoragePlan,
         copyable_types: BTreeSet<TypeId>,
         mutable_storage: BTreeSet<StorageIdentityId>,
+        mutable_field_accesses: BTreeSet<StorageAccessId>,
     ) -> Self
     where
         C: CheckerRequestContext + ?Sized,
@@ -41,6 +43,7 @@ impl StorageFlowInput {
             copyable_types,
             initialization_destinations,
             mutable_storage,
+            mutable_field_accesses,
             ..Self::default()
         };
 
@@ -54,7 +57,7 @@ impl StorageFlowInput {
             .collect::<BTreeMap<_, _>>();
 
         for plan in storage.access_plans().iter().copied() {
-            input.plans.entry(plan.node()).or_default().push(plan);
+            input.plans.entry(plan.point()).or_default().push(plan);
 
             let StorageAccessPurpose::Borrow(kind) = plan.purpose() else {
                 continue;
@@ -91,8 +94,14 @@ impl StorageFlowInput {
         input
     }
 
-    pub(super) fn plans(&self, node: AnyBoundNodeId) -> &[StorageAccessPlan] {
-        self.plans.get(&node).map(Vec::as_slice).unwrap_or_default()
+    pub(super) fn plans(
+        &self,
+        point: bray_bound_tree::BoundOperationPoint,
+    ) -> &[StorageAccessPlan] {
+        self.plans
+            .get(&point)
+            .map(Vec::as_slice)
+            .unwrap_or_default()
     }
 
     pub(super) fn borrow(&self, plan: StorageAccessPlan) -> Option<BorrowCapabilityId> {
@@ -119,6 +128,10 @@ impl StorageFlowInput {
 
     pub(super) fn storage_is_mutable(&self, storage: StorageIdentityId) -> bool {
         self.mutable_storage.contains(&storage)
+    }
+
+    pub(super) fn fields_allow_mutation(&self, access: StorageAccessId) -> bool {
+        self.mutable_field_accesses.contains(&access)
     }
 }
 

@@ -326,6 +326,20 @@ impl SemanticValueStore {
         Ok(ConcreteGenericSubstitutionId::new(id))
     }
 
+    /// Returns whether an implementation requirement has fully resolved type and constant arguments.
+    /// Invalid identities remain errors, while an open parameterized requirement returns `false`.
+    pub fn implementation_requirement_is_concrete(
+        &self,
+        requirement: crate::ImplementationRequirementKey,
+    ) -> Result<bool, SemanticValueStoreError> {
+        match super::validation::validate_concrete_requirement(&self.tables(), self.id, requirement)
+        {
+            Ok(()) => Ok(true),
+            Err(SemanticValueStoreError::OpenSubstitution) => Ok(false),
+            Err(error) => Err(error),
+        }
+    }
+
     /// Interns one canonical trait application.
     pub fn intern_trait_application(
         &self,
@@ -774,6 +788,74 @@ mod tests {
         assert_eq!(
             store.require_concrete_substitution(open),
             Err(SemanticValueStoreError::OpenSubstitution)
+        );
+    }
+
+    #[test]
+    fn implementation_requirement_concreteness_checks_subject_and_trait_arguments() {
+        let values = store();
+        let definition = TraitSymbolId::from_symbol_id(SymbolId::new(60));
+        let parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(61));
+        let concrete = concrete_named_type(&values, 62);
+
+        let open = values
+            .intern_type(TypeData::TypeParameter(parameter))
+            .unwrap();
+
+        let nested = values
+            .intern_type(TypeData::Tuple(Arc::from([open])))
+            .unwrap();
+
+        for (subject, argument, expected) in [
+            (concrete, concrete, true),
+            (open, concrete, false),
+            (nested, concrete, false),
+            (concrete, nested, false),
+        ] {
+            let substitution = values
+                .intern_generic_substitution(
+                    GenericSubstitutionData::try_new(
+                        generic_owner(definition.into()),
+                        [parameter.into()],
+                        [GenericArgument::Type(argument)],
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+
+            let application = values
+                .intern_trait_application(TraitApplicationData::new(definition, substitution))
+                .unwrap();
+
+            let requirement = crate::ImplementationRequirementKey::new(subject, application);
+
+            assert_eq!(
+                values.implementation_requirement_is_concrete(requirement),
+                Ok(expected)
+            );
+        }
+
+        let foreign = store();
+        let foreign_subject = concrete_named_type(&foreign, 62);
+
+        let application = values
+            .intern_trait_application(TraitApplicationData::new(
+                definition,
+                empty_substitution(&values, definition.into()),
+            ))
+            .unwrap();
+
+        let requirement = crate::ImplementationRequirementKey::new(foreign_subject, application);
+
+        assert_eq!(
+            values.implementation_requirement_is_concrete(requirement),
+            values.type_data(foreign_subject).map(|_| true)
+        );
+
+        assert!(
+            values
+                .implementation_requirement_is_concrete(requirement)
+                .is_err()
         );
     }
 

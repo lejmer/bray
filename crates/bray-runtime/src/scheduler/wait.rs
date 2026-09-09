@@ -17,15 +17,16 @@ impl Scheduler {
     }
 
     /// Waits for the next task compatible with the first ready lane in the supplied order.
+    /// Each notification restarts the search from a clone of the supplied iterator.
     pub fn wait_ready_from(
         &self,
-        lanes: &[ExecutionLane],
+        lanes: impl Iterator<Item = ExecutionLane> + Clone,
         deadline: Option<MonotonicDeadline>,
     ) -> Result<Option<ReadyTask>, SchedulerError> {
         self.wait_ready_matching(deadline, |state| {
             lanes
-                .iter()
-                .find_map(|lane| pop_ready(&self.data, state, *lane))
+                .clone()
+                .find_map(|lane| pop_ready(&self.data, state, lane))
         })
     }
 
@@ -66,5 +67,73 @@ impl Scheduler {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::num::NonZeroUsize;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::time::Duration;
+
+    use bray_platform::{MonotonicClock, RuntimeThreadScope};
+    use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
+
+    use crate::test_support::{TestFrame, register_task};
+    use crate::{
+        ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, Scheduler, SchedulerLimits,
+        TaskControlBlock,
+    };
+
+    #[test]
+    fn lane_iteration_restarts_after_notification() {
+        let runtime = RuntimeThreadScope::enter().unwrap();
+        let origin = runtime.runtime().id();
+
+        let scheduler = Scheduler::new(
+            [
+                RuntimeCapability::CooperativeExecution,
+                RuntimeCapability::MigratableLanes,
+            ],
+            origin,
+            SchedulerLimits::new(NonZeroUsize::new(2).unwrap(), NonZeroUsize::new(1).unwrap()),
+        );
+
+        let task = TaskControlBlock::start(TestFrame::completing(1)).unwrap();
+        let registration = register_task(&scheduler, &task, origin);
+        let selected = registration.lane(ProtectedFrameStateId::new(0)).unwrap();
+
+        let absent = ExecutionLane::new(
+            ExecutionLanePlacement::OriginThread(origin),
+            ExecutionWorkload::Cooperative,
+        );
+
+        let visits = AtomicUsize::new(0);
+
+        let (observed, ready_to_wake) = std::sync::mpsc::sync_channel(1);
+
+        let lanes = [absent, selected].into_iter().inspect(|_| {
+            if visits.fetch_add(1, Ordering::Relaxed) == 1 {
+                observed.send(()).unwrap();
+            }
+        });
+
+        std::thread::scope(|scope| {
+            let wake = registration.wake_handle();
+
+            scope.spawn(move || {
+                ready_to_wake.recv_timeout(Duration::from_secs(5)).unwrap();
+                wake.wake(ProtectedFrameStateId::new(0)).unwrap();
+            });
+
+            let ready = scheduler
+                .wait_ready_from(lanes, MonotonicClock.deadline_after(Duration::from_secs(5)))
+                .unwrap()
+                .unwrap();
+
+            assert_eq!(ready.task(), task.id());
+            assert!(visits.load(Ordering::Relaxed) >= 4);
+            ready.complete().unwrap();
+        });
     }
 }

@@ -12,6 +12,8 @@ pub enum CallableProofFailure<U = bray_bound_tree::BoundUnitId> {
     MissingCandidate(CallableProofKey<U>),
     /// Total execution depends on itself through a reachable chain of proof obligations.
     CircularTotal(CallableProofKey<U>),
+    /// A recursive dependency requires a new instantiation without a finite proof boundary.
+    ExpandingInstantiation(CallableProofKey<U>),
 }
 
 /// Rejects unavailable implementation evidence and circular termination arguments.

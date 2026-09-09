@@ -1382,9 +1382,37 @@ mod tests {
     #[test]
     fn type_wide_completion_omits_generated_finalizer_but_retains_destruction() {
         for declaration in [
-            "struct Resource { finalize() executes(pure, total) {} destruct() {} }",
-            "struct Resource { async finalize() executes(pure, total) {} destruct() {} }",
-            "struct Resource { async finalize() -> Result<unit, unit> executes(pure, total) ensures(result matches Ok(_)) { return Ok(unit); } destruct() {} }",
+            r#"
+            struct Resource
+            {
+                finalize()
+                    executes(pure, total) {}
+
+                destruct() {}
+            }
+            "#,
+            r#"
+            struct Resource
+            {
+                async finalize()
+                    executes(pure, total) {}
+
+                destruct() {}
+            }
+            "#,
+            r#"
+            struct Resource
+            {
+                async finalize() -> Result<unit, unit>
+                    executes(pure, total)
+                    ensures(result matches Ok(_))
+                {
+                    return Ok(unit);
+                }
+
+                destruct() {}
+            }
+            "#,
         ] {
             let compilation = compilation(&format!("module app; {declaration}"));
             let target = codegen_target(&compilation);
@@ -1819,7 +1847,22 @@ mod tests {
             let mode = if error == "Task<unit>" { "async " } else { "" };
 
             let compilation = compilation(&format!(
-                "module app; struct Resource {{ {mode}finalize() -> Result<unit, {error}> {{ return Error({value}); }} }} async func work() {{}} func main() {{}}"
+                r#"
+                module app;
+                struct Resource
+                {{
+                    {mode}finalize() -> Result<unit, {error}>
+                    {{
+                        return Error({value});
+                    }}
+                }}
+                async func work()
+                {{
+                }}
+                func main()
+                {{
+                }}
+                "#
             ));
 
             let target = codegen_target(&compilation);
@@ -2319,7 +2362,16 @@ mod tests {
             let request = crate::CompilationRequest::new(
                 bray_symbols::PackageIdentity::try_new("std").unwrap(),
                 vec![crate::test_support::source_input(
-                    "module std.memory; struct RawBuffer<T> { pointer: RawPointer<T>; capacity: usize; initialized: usize; }",
+                    r#"
+                    module std.memory;
+
+                    struct RawBuffer<T>
+                    {
+                        pointer: RawPointer<T>;
+                        capacity: usize;
+                        initialized: usize;
+                    }
+                    "#,
                     0,
                 )],
             );

@@ -2145,9 +2145,26 @@ mod tests {
             ),
         ] {
             let source = format!(
-                "module app; predicate valid(value: bool) = !value; struct Holder {{}} \
-                 trait Provides {{ predicate valid(value: bool); static func get(pos first: bool) -> bool {required}; }} \
-                 impl Holder(Provides) {{ predicate valid(value: bool) = value; static func get(pos first: bool) -> bool {provided} {{ return first; }} }}"
+                r#"
+                module app;
+                predicate valid(value: bool) = !value;
+                struct Holder
+                {{
+                }}
+                trait Provides
+                {{
+                    predicate valid(value: bool);
+                    static func get(pos first: bool) -> bool {required};
+                }}
+                impl Holder(Provides)
+                {{
+                    predicate valid(value: bool) = value;
+                    static func get(pos first: bool) -> bool {provided}
+                    {{
+                        return first;
+                    }}
+                }}
+                "#
             );
 
             assert_trait_condition_conformance(&source, valid);
@@ -2157,12 +2174,59 @@ mod tests {
     #[test]
     fn selected_predicate_contracts_normalize_self_and_renamed_generic_arguments() {
         for source in [
-            "module app; struct Holder { flag: bool; } \
-             trait Provides { predicate valid(value: &Self); static func get(pos value: &Self) -> bool ensures(valid(value)); } \
-             impl Holder(Provides) { predicate valid(value: &Self) = value.flag; static func get(pos value: &Self) -> bool ensures(value.flag) { return value.flag; } }",
-            "module app; struct Holder {} \
-             trait Provides<T> { predicate valid(value: &T, flag: bool); static func get<V>(pos value: &T, pos other: &V, pos flag: bool) -> bool ensures(valid(value, flag)); } \
-             impl Holder(Provides<bool>) { predicate valid(value: &bool, flag: bool) = flag; static func get<W>(pos value: &bool, pos other: &W, pos flag: bool) -> bool ensures(flag) { return flag; } }",
+            r#"
+            module app;
+
+            struct Holder
+            {
+                flag: bool;
+            }
+
+            trait Provides
+            {
+                predicate valid(value: &Self);
+
+                static func get(pos value: &Self) -> bool
+                    ensures(valid(value));
+            }
+
+            impl Holder(Provides)
+            {
+                predicate valid(value: &Self) = value.flag;
+
+                static func get(pos value: &Self) -> bool
+                    ensures(value.flag)
+                {
+                    return value.flag;
+                }
+            }
+            "#,
+            r#"
+            module app;
+
+            struct Holder
+            {
+            }
+
+            trait Provides<T>
+            {
+                predicate valid(value: &T, flag: bool);
+
+                static func get<V>(pos value: &T, pos other: &V, pos flag: bool) -> bool
+                    ensures(valid(value, flag));
+            }
+
+            impl Holder(Provides<bool>)
+            {
+                predicate valid(value: &bool, flag: bool) = flag;
+
+                static func get<W>(pos value: &bool, pos other: &W, pos flag: bool) -> bool
+                    ensures(flag)
+                {
+                    return flag;
+                }
+            }
+            "#,
         ] {
             let compilation = compilation(source);
 
@@ -2215,9 +2279,23 @@ mod tests {
 
     fn callable_fulfillment_source(required: &str, provided: &str) -> String {
         format!(
-            "module app; struct Holder {{}} \
-             trait Provides {{ static func get(pos first: bool, pos second: bool) -> bool {required}; }} \
-             impl Holder(Provides) {{ static func get(pos first: bool, pos second: bool) -> bool {provided} {{ return first; }} }}"
+            r#"
+            module app;
+            struct Holder
+            {{
+            }}
+            trait Provides
+            {{
+                static func get(pos first: bool, pos second: bool) -> bool {required};
+            }}
+            impl Holder(Provides)
+            {{
+                static func get(pos first: bool, pos second: bool) -> bool {provided}
+                {{
+                    return first;
+                }}
+            }}
+            "#
         )
     }
 

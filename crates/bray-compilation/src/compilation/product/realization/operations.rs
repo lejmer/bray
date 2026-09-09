@@ -9,7 +9,6 @@ use bray_ir::{
     MirAsyncOperation, MirCallTarget, MirFrameInitializer, MirHelperReference, MirOperationId,
     MirOperationKind, MirUnit, MirUnitId, MirUnitKey,
 };
-use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::TypeId;
 
 use super::super::super::CodegenPreparationError;
@@ -17,9 +16,7 @@ use super::super::super::Compilation;
 use super::super::specialization::{
     ConcreteCodegenCallee, ConcreteCodegenInstance, ConcreteCodegenReachability,
 };
-use super::support::{
-    dependency_symbol, direct_helper_symbol, helper_runtime_symbol, operation_result_type,
-};
+use super::support::{dependency_symbol, direct_helper_symbol, operation_result_type};
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::CancellationToken;
 
@@ -225,7 +222,7 @@ impl Compilation {
                     .into());
                 };
 
-                let MirCallTarget::Direct(callable) = call.target() else {
+                let MirCallTarget::ParameterDefault { callable, .. } = call.target() else {
                     return Err(ProductQueryFailure::InvalidHelperCallTarget {
                         context: ProductQueryContext::Operation {
                             instance: owner.key().clone(),
@@ -387,12 +384,11 @@ impl Compilation {
 
                     dependency_symbol(owner, dependency.key(), reference)
                 }
-                MirCallTarget::Indirect { .. } => {
-                    Ok(helper_runtime_symbol(owner, RuntimeAbiRole::FrameCreation))
-                }
-                MirCallTarget::Runtime(_) => Err(CodegenPreparationError::MissingHelperInstance(
-                    reference.clone(),
-                )),
+                MirCallTarget::Indirect { .. }
+                | MirCallTarget::Runtime(_)
+                | MirCallTarget::ParameterDefault { .. } => Err(
+                    CodegenPreparationError::MissingHelperInstance(reference.clone()),
+                ),
             },
         }
     }

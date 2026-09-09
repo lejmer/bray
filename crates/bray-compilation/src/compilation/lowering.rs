@@ -563,8 +563,8 @@ mod tests {
     use bray_diagnostics::DiagnosticResult;
     use bray_ir::{
         MirAggregateKind, MirBinaryOperator, MirCallIntrinsic, MirCallTarget, MirImmediateValue,
-        MirOperand, MirOperationKind, MirPanicCause, MirProjectionKind, MirStoreKind,
-        MirTerminatorKind, MirTextOperationKind, MirUnit, MirValueOrigin,
+        MirOperand, MirOperationKind, MirPanicCause, MirProjectionKind, MirStorageKind,
+        MirStoreKind, MirTerminatorKind, MirTextOperationKind, MirUnit, MirValueOrigin,
     };
     use bray_lowering::LoweredUnit;
     use bray_runtime_interface::{ExecutionLaneRequirement, RuntimeAbiVersion};
@@ -1022,33 +1022,33 @@ mod tests {
 
     #[test]
     fn borrowed_atomic_lock_loop_lowers() {
-        let compilation = compilation(concat!(
-            "trusted module app;\n",
-            "\n",
-            "trusted func wait(pos lock: &core.atomic.Atomic<u32>, pos expected: u32)\n",
-            "{\n",
-            "}\n",
-            "\n",
-            "trusted func acquire(pos lock: &core.atomic.Atomic<u32>) -> bool\n",
-            "{\n",
-            "    let (_, acquired) = core.atomic.compare_exchange<u32, 1, 0>(lock, expected = 0, desired = 1);\n",
-            "\n",
-            "    if acquired\n",
-            "    {\n",
-            "        return true;\n",
-            "    }\n",
-            "\n",
-            "    let mut observed: u32 = core.atomic.exchange<u32, 1>(lock, value = 2);\n",
-            "\n",
-            "    while observed != 0\n",
-            "    {\n",
-            "        trusted wait(lock, expected = 2);\n",
-            "        observed = core.atomic.exchange<u32, 1>(lock, value = 2);\n",
-            "    }\n",
-            "\n",
-            "    return true;\n",
-            "}\n",
-        ));
+        let compilation = compilation(
+            r#"
+        trusted module app;
+
+        trusted func wait(pos lock: &core.atomic.Atomic<u32>, pos expected: u32) {}
+
+        trusted func acquire(pos lock: &core.atomic.Atomic<u32>) -> bool
+        {
+            let (_, acquired) = core.atomic.compare_exchange<u32, 1, 0>(lock, expected = 0, desired = 1);
+
+            if acquired
+            {
+                return true;
+            }
+
+            let mut observed: u32 = core.atomic.exchange<u32, 1>(lock, value = 2);
+
+            while observed != 0
+            {
+                trusted wait(lock, expected = 2);
+                observed = core.atomic.exchange<u32, 1>(lock, value = 2);
+            }
+
+            return true;
+        }
+        "#,
+        );
 
         assert!(
             compilation.check_diagnostics().is_empty(),
@@ -1511,6 +1511,83 @@ mod tests {
     }
 
     #[test]
+    fn parameter_defaults_are_checked_calls_before_parameter_ownership_transfers() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            func main() -> i32
+            {
+                return choose(first = 7);
+            }
+
+            func choose(first: i32, second: i32 = first, third: i32 = second) -> i32
+            {
+                return third;
+            }
+            "#,
+        );
+
+        let key = source_function_body_key(&compilation, "main");
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("defaulted call must lower");
+
+        let mir = lowered_mir(&lowered);
+
+        let calls = mir
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                MirOperationKind::Call(call) => Some(call),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        let defaults = calls
+            .iter()
+            .filter(|call| matches!(call.target(), MirCallTarget::ParameterDefault { .. }))
+            .collect::<Vec<_>>();
+
+        assert_eq!(defaults.len(), 2);
+        assert_eq!(defaults[0].arguments().len(), 1);
+        assert_eq!(defaults[1].arguments().len(), 2);
+
+        assert!(
+            defaults
+                .iter()
+                .flat_map(|call| call.arguments())
+                .all(|argument| matches!(argument.value(), MirOperand::Copy(_)))
+        );
+
+        let invoked = calls
+            .iter()
+            .find(|call| matches!(call.target(), MirCallTarget::Direct(_)))
+            .expect("selected callable must be invoked");
+
+        assert_eq!(invoked.arguments().len(), 3);
+
+        assert!(
+            invoked
+                .arguments()
+                .iter()
+                .all(|argument| matches!(argument.value(), MirOperand::Move(_)))
+        );
+
+        assert!(
+            mir.blocks()
+                .iter()
+                .filter(|block| matches!(
+                    block.terminator().kind(),
+                    MirTerminatorKind::CheckCallOutcome { .. }
+                ))
+                .count()
+                >= 3
+        );
+    }
+
+    #[test]
     fn async_callables_lower_to_protected_frames_and_explicit_suspension() {
         let compilation = compilation(ASYNC_LOWERING_SOURCE);
         let key = source_callable_body_key(&compilation);
@@ -1566,6 +1643,27 @@ mod tests {
             MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
         )));
 
+        for operation in mir.operations() {
+            if let MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                initializer,
+                destination,
+                ..
+            }) = operation.kind()
+            {
+                assert_eq!(initializer.future_type(), Some(destination.ty()));
+                let admitted = operation.result().expect("creation must report admission");
+
+                assert!(mir.blocks().iter().any(|block| matches!(block.terminator().kind(),
+                    MirTerminatorKind::Branch { condition: MirOperand::Value(value), .. } if *value == admitted
+                )));
+            }
+        }
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::PanicReport(MirPanicCause::FrameAllocation)
+        )));
+
         assert!(
             mir.blocks().iter().any(|block| matches!(
                 block.terminator().kind(),
@@ -1592,7 +1690,17 @@ mod tests {
             };
 
             let source = format!(
-                "module app; async func main() {{ let result = {awaited}; }} async func child() -> i32 {{ panic(\"child failure\"); }}"
+                r#"
+                module app;
+                async func main()
+                {{
+                    let result = {awaited};
+                }}
+                async func child() -> i32
+                {{
+                    panic("child failure");
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1718,14 +1826,25 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
     #[test]
     fn nested_array_cleanup_retains_counters_across_async_finalization() {
         let compilation = compilation(
-            r#"module app;
-struct Guard { async finalize() {} destruct() {} }
-async func take(pos value: Guard) {}
-async func partial(pos values: [[Guard; 2]; 2], pos index: usize)
-{
-    await take(values[index][0]);
-}
-"#,
+            r#"
+            module app;
+
+            struct Guard
+            {
+                async finalize() {}
+
+                destruct() {}
+            }
+
+            async func take(pos value: Guard) {}
+
+            async func partial(pos values: [[Guard; 2]; 2],
+                pos index: usize
+            )
+                {
+                    await take(values[index][0]);
+                }
+            "#,
         );
 
         assert!(
@@ -1795,18 +1914,42 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize)
 
     #[test]
     fn raw_buffer_release_and_replacement_lower_checked_lifecycle_before_transfer() {
-        let request = CompilationRequest::new(PackageIdentity::try_new("std").unwrap(), vec![source_input(r#"
-trusted module std.memory;
-struct RawBuffer<T> { pointer: RawPointer<T>; capacity: usize; initialized: usize; }
-extern trusted internal func raw_buffer_release<T>(pos buffer: &mut RawBuffer<T>) -> unit uses(manual_alloc);
-extern trusted internal func raw_buffer_replace<T>(pos destination: &mut RawBuffer<T>, pos source: &mut RawBuffer<T>) -> unit uses(manual_alloc);
-trusted func release(pos buffer: &mut RawBuffer<u8>) {
-    trusted internal raw_buffer_release<u8>(buffer);
-}
-trusted func replace(pos destination: &mut RawBuffer<u8>, pos source: &mut RawBuffer<u8>) {
-    trusted internal raw_buffer_replace<u8>(destination, source);
-}
-"#, 0)]).with_standard_library_source_authority();
+        let request = CompilationRequest::new(
+            PackageIdentity::try_new("std").unwrap(),
+            vec![source_input(
+                r#"
+                trusted module std.memory;
+
+                struct RawBuffer<T>
+                {
+                    pointer: RawPointer<T>;
+                    capacity: usize;
+                    initialized: usize;
+                }
+
+                extern trusted internal func raw_buffer_release<T>(pos buffer: &mut RawBuffer<T>) -> unit
+                    uses(manual_alloc);
+
+                extern trusted internal func raw_buffer_replace<T>(
+                    pos destination: &mut RawBuffer<T>,
+                    pos source: &mut RawBuffer<T>
+                ) -> unit
+                    uses(manual_alloc);
+
+                trusted func release(pos buffer: &mut RawBuffer<u8>)
+                {
+                    trusted internal raw_buffer_release<u8>(buffer);
+                }
+
+                trusted func replace(pos destination: &mut RawBuffer<u8>, pos source: &mut RawBuffer<u8>)
+                {
+                    trusted internal raw_buffer_replace<u8>(destination, source);
+                }
+                "#,
+                0,
+            )],
+        )
+        .with_standard_library_source_authority();
 
         let compilation = Compilation::load(request).unwrap();
 
@@ -1910,55 +2053,152 @@ trusted func replace(pos destination: &mut RawBuffer<u8>, pos source: &mut RawBu
             ),
             (
                 "Leaf",
-                "struct Leaf { finalize() -> Result<unit, unit> executes(pure, total) ensures(result matches Ok(_)) { return Ok(unit); } }",
+                r#"
+                struct Leaf
+                {
+                    finalize() -> Result<unit, unit>
+                        executes(pure, total)
+                        ensures(result matches Ok(_))
+                    {
+                        return Ok(unit);
+                    }
+                }
+                "#,
                 false,
                 None,
             ),
             (
                 "Leaf",
-                "struct Leaf { async finalize() -> Result<unit, unit> when(true) { executes(pure, total) ensures(result matches Ok(_)) } { return Ok(unit); } }",
+                r#"
+                struct Leaf
+                {
+                    async finalize() -> Result<unit, unit>
+                        when(true)
+                        {
+                            executes(pure, total)
+                            ensures(result matches Ok(_))
+                        }
+                    {
+                        return Ok(unit);
+                    }
+                }
+                "#,
                 false,
                 None,
             ),
             (
                 "Owner",
-                "struct Owner { leaf: Leaf; } struct Leaf { async finalize() executes(pure, total) {} }",
+                r#"
+                struct Owner
+                {
+                    leaf: Leaf;
+                }
+
+                struct Leaf
+                {
+                    async finalize()
+                        executes(pure, total) {}
+                }
+                "#,
                 false,
                 None,
             ),
             (
                 "Leaf",
-                "struct Leaf { ready: bool; async finalize() when(self.ready) { executes(pure, total) } {} }",
+                r#"
+                struct Leaf
+                {
+                    ready: bool;
+
+                    async finalize()
+                        when(self.ready)
+                        {
+                            executes(pure, total)
+                        } {}
+                }
+                "#,
                 false,
                 Some(DiagnosticKind::CheckingAsyncFinalizationInSynchronousContext),
             ),
             (
                 "Owner",
-                "struct Owner { leaf: Leaf; finalize() executes(pure, total) {} } struct Leaf { async finalize() {} }",
+                r#"
+                struct Owner
+                {
+                    leaf: Leaf;
+
+                    finalize()
+                        executes(pure, total) {}
+                }
+
+                struct Leaf
+                {
+                    async finalize() {}
+                }
+                "#,
                 false,
                 Some(DiagnosticKind::CheckingAsyncFinalizationInSynchronousContext),
             ),
             (
                 "Leaf",
-                "struct Leaf { finalize() -> Result<unit, unit> executes(pure, total) ensures(result matches Ok(_)) { return Error(unit); } }",
+                r#"
+                struct Leaf
+                {
+                    finalize() -> Result<unit, unit>
+                        executes(pure, total)
+                        ensures(result matches Ok(_))
+                    {
+                        return Error(unit);
+                    }
+                }
+                "#,
                 false,
                 Some(DiagnosticKind::CheckingUnprovenFinalizationCompletion),
             ),
             (
                 "Leaf",
-                "struct Leaf { finalize() -> Result<unit, unit> { return Error(unit); } }",
+                r#"
+                struct Leaf
+                {
+                    finalize() -> Result<unit, unit>
+                    {
+                        return Error(unit);
+                    }
+                }
+                "#,
                 false,
                 Some(DiagnosticKind::CheckingUnresolvedFinalization),
             ),
             (
                 "Leaf",
-                "struct Leaf { finalize() -> Result<unit, unit> { return Error(unit); } }",
+                r#"
+                struct Leaf
+                {
+                    finalize() -> Result<unit, unit>
+                    {
+                        return Error(unit);
+                    }
+                }
+                "#,
                 true,
                 Some(DiagnosticKind::CheckingUnresolvedFinalization),
             ),
             (
                 "Owner",
-                "struct Owner { leaf: Leaf; } struct Leaf { finalize() -> Result<unit, unit> { return Error(unit); } }",
+                r#"
+                struct Owner
+                {
+                    leaf: Leaf;
+                }
+
+                struct Leaf
+                {
+                    finalize() -> Result<unit, unit>
+                    {
+                        return Error(unit);
+                    }
+                }
+                "#,
                 true,
                 Some(DiagnosticKind::CheckingUnresolvedFinalization),
             ),
@@ -1966,7 +2206,20 @@ trusted func replace(pos destination: &mut RawBuffer<u8>, pos source: &mut RawBu
             let mode = if asynchronous { "async " } else { "" };
 
             let source = format!(
-                "trusted module std.memory; struct RawBuffer<T> {{ pointer: RawPointer<T>; capacity: usize; initialized: usize; }}\n{declarations}\nextern trusted internal func raw_buffer_release<T>(pos buffer: &mut RawBuffer<T>) -> unit uses(manual_alloc);\ntrusted {mode}func release(pos buffer: &mut RawBuffer<{element}>) {{ trusted internal raw_buffer_release<{element}>(buffer); }}"
+                r#"
+                trusted module std.memory;
+                struct RawBuffer<T>
+                {{
+                    pointer: RawPointer<T>;
+                    capacity: usize;
+                    initialized: usize;
+                }}
+                {declarations} extern trusted internal func raw_buffer_release<T>(pos buffer: &mut RawBuffer<T>) -> unit uses(manual_alloc);
+                trusted {mode}func release(pos buffer: &mut RawBuffer<{element}>)
+                {{
+                    trusted internal raw_buffer_release<{element}>(buffer);
+                }}
+                "#
             );
 
             let request = CompilationRequest::new(
@@ -2006,16 +2259,39 @@ trusted func replace(pos destination: &mut RawBuffer<u8>, pos source: &mut RawBu
     #[test]
     fn inactive_capture_cleanup_precedes_body_moves_and_returns() {
         let compilation = compilation(
-            r#"module app;
-struct Guard { async finalize() {} destruct() {} }
-async func take(pos value: Guard) {}
-async func returned(pos value: Guard) -> Guard { return value; }
-async func consumed(pos value: Guard) { await take(value); }
-async func borrowed(pos value: &Guard) {}
-async func plain(pos value: i32) -> i32 { return value; }
-async func empty() {}
-func regular(pos value: i32) {}
-"#,
+            r#"
+            module app;
+
+            struct Guard
+            {
+                async finalize() {}
+
+                destruct() {}
+            }
+
+            async func take(pos value: Guard) {}
+
+            async func returned(pos value: Guard) -> Guard
+            {
+                return value;
+            }
+
+            async func consumed(pos value: Guard)
+            {
+                await take(value);
+            }
+
+            async func borrowed(pos value: &Guard) {}
+
+            async func plain(pos value: i32) -> i32
+            {
+                return value;
+            }
+
+            async func empty() {}
+
+            func regular(pos value: i32) {}
+            "#,
         );
 
         assert!(
@@ -2132,6 +2408,730 @@ func regular(pos value: i32) {}
             .unwrap();
 
         assert!(analysis.value().capture_cleanup().is_none());
+    }
+
+    #[test]
+    fn nullable_propagation_preserves_the_absence_exit_and_early_cleanup() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            struct Guard
+            {
+                destruct() {}
+            }
+
+            func run(pos input: i32?) -> i32?
+            {
+                let guard = Guard {};
+                let value = input?;
+                return value;
+            }
+            "#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "run"))
+            .unwrap();
+
+        let mir = lowered_mir(&lowered);
+
+        let absent = mir
+            .blocks()
+            .iter()
+            .find_map(|block| match block.terminator().kind() {
+                MirTerminatorKind::PatternBranch {
+                    predicate: bray_ir::MirPatternPredicate::NullablePresent,
+                    unmatched,
+                    ..
+                } => Some(unmatched.target()),
+                _ => None,
+            })
+            .unwrap();
+
+        let absence_exit = mir.reachable_blocks([absent]);
+
+        assert!(absence_exit.iter().any(|block| matches!(
+            mir.block(*block).unwrap().terminator().kind(),
+            MirTerminatorKind::BeginCleanup(_)
+        )));
+
+        assert!(absence_exit.iter().any(|block| matches!(
+            mir.block(*block).unwrap().terminator().kind(),
+            MirTerminatorKind::Return(_)
+        )));
+
+        assert!(
+            absence_exit
+                .iter()
+                .flat_map(|block| mir.block(*block).unwrap().operations())
+                .any(|operation| matches!(
+                    mir.operation(*operation).unwrap().kind(),
+                    MirOperationKind::Store {
+                        value: MirOperand::Immediate {
+                            value: MirImmediateValue::NullableAbsent,
+                            ..
+                        },
+                        ..
+                    }
+                ))
+        );
+    }
+
+    #[test]
+    fn direct_and_field_bindings_use_checked_copy_and_move_decisions() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            struct Guard
+            {
+                destruct() {}
+            }
+
+            struct Pair
+            {
+                owned: Guard;
+                scalar: i32;
+            }
+
+            func direct(pos owner: Guard, pos scalar: i32)
+            {
+                let moved = owner;
+                let copied = scalar;
+            }
+
+            func fields(pos input: Pair)
+            {
+                let { owned, scalar }: Pair = input;
+            }
+            "#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        for name in ["direct", "fields"] {
+            let lowered = compilation
+                .lowered_unit(source_function_body_key(&compilation, name))
+                .unwrap();
+
+            let mir = lowered_mir(&lowered);
+            let mut moves = 0;
+            let mut copies = 0;
+
+            for operation in mir.operations() {
+                let MirOperationKind::Store {
+                    kind: bray_ir::MirStoreKind::Initialize,
+                    destination,
+                    value,
+                } = operation.kind()
+                else {
+                    continue;
+                };
+
+                if mir.storage(destination.storage()).unwrap().kind() != &MirStorageKind::Local {
+                    continue;
+                }
+
+                let (place, count) = match value {
+                    MirOperand::Move(place) => (place, &mut moves),
+                    MirOperand::Copy(place) => (place, &mut copies),
+                    _ => continue,
+                };
+
+                if matches!(
+                    mir.storage(place.storage()).unwrap().kind(),
+                    MirStorageKind::Parameter(_)
+                ) {
+                    *count += 1;
+                }
+            }
+
+            assert_eq!((moves, copies), (1, 1), "{name}");
+        }
+    }
+
+    #[test]
+    fn completion_survives_propagation_and_unrelated_owned_cleanup() {
+        let mut failures = Vec::new();
+
+        for (body, accepted, execution) in [
+            r#"
+                let mut value = try input;
+                assert(value.try_close() matches Ok(_));
+                return Ok(unit);
+            "#,
+            r#"
+                let mut value = try input;
+                let closed = value.try_close();
+                assert(closed matches Ok(_));
+                return Ok(unit);
+            "#,
+            r#"
+                let mut value = try input;
+                let closed = value.try_close() matches Ok(_);
+                assert(closed);
+                return Ok(unit);
+            "#,
+            r#"
+                let mut value = try input;
+                assert(!(value.try_close() matches Error(_)));
+                unrelated();
+                return Ok(unit);
+            "#,
+            r#"
+                let mut value = try input;
+                value.close();
+                return Ok(unit);
+            "#,
+            r#"
+                let mut value = try open(input);
+                value.close();
+                return Ok(unit);
+            "#,
+            r#"
+                let mut value = try input;
+                let noise = Noise {};
+                value.close();
+                return Ok(unit);
+            "#,
+            r#"
+                let mut value = try input;
+                value.close();
+                unrelated();
+                return Ok(unit);
+            "#,
+            r#"
+                let mut value = try input;
+                value.close();
+                assert(value.is_complete());
+                unrelated();
+                return Ok(unit);
+            "#,
+            r#"
+                let mut value = try input;
+                assert(value.is_complete());
+                unrelated();
+                return Ok(unit);
+            "#,
+            r#"
+                let mut value = try input;
+                assert_ok(value.try_close());
+                assert(value.is_complete());
+                unrelated();
+                return Ok(unit);
+            "#,
+            r#"
+                let mut value = try input;
+                assert(value.is_complete());
+                await unrelated_async();
+                return Ok(unit);
+            "#,
+            r#"
+                let mut value = try input;
+                let mut other = Flag { value = false };
+                value.close();
+                await mutate_other(&mut other);
+                return Ok(unit);
+            "#,
+            r#"
+                let mut value = try input;
+                value.close();
+                unrelated_borrowed(borrowed_noise);
+                return Ok(unit);
+            "#,
+            r#"
+                let mut value = try input;
+                await value.reopen_async();
+                value.close();
+                assert(value.is_complete());
+                await unrelated_async();
+                return Ok(unit);
+            "#,
+            r#"
+                let mut value = try input;
+                value.close();
+                {
+                    let noise = Noise {};
+                };
+                return Ok(unit);
+            "#,
+        ]
+        .into_iter()
+        .map(|body| (body, true))
+        .chain(
+            [
+                r#"
+                let mut value = try input;
+                assert(value.try_close() matches Error(_));
+                return Ok(unit);
+            "#,
+                r#"
+                let mut value = try input;
+                value.close();
+                value.pending = true;
+                return Ok(unit);
+            "#,
+                r#"
+                let mut value = try input;
+                value.close();
+                reopen(&mut value);
+                return Ok(unit);
+            "#,
+                r#"
+                let mut value = try open(input);
+                return Ok(unit);
+            "#,
+                r#"
+                let mut value = try input;
+                assert(value.is_complete());
+                await reopen_async(&mut value);
+                return Ok(unit);
+            "#,
+                r#"
+                let mut value = try input;
+                value.close();
+                await value.reopen_async();
+                return Ok(unit);
+            "#,
+                r#"
+                let mut value = try input;
+                let deferred = delayed_reopen(&mut value);
+                await deferred;
+                return Ok(unit);
+            "#,
+                r#"
+                let mut value = try input;
+                let deferred = delayed_reopen(&mut value);
+                await drive(deferred);
+                return Ok(unit);
+            "#,
+                r#"
+                let mut value = try input;
+                let mut alias = closed_alias(&mut value);
+                await mutate_alias_async(&mut alias);
+                return Ok(unit);
+            "#,
+                r#"
+                let mut value = try input;
+                let mut alias = closed_alias(&mut value);
+                mutate_alias(&mut alias);
+                return Ok(unit);
+            "#,
+                r#"
+                let mut value = try input;
+                let mut alias = closed_alias(&mut value);
+                alias.target.pending = true;
+                return Ok(unit);
+            "#,
+                r#"
+                let mut value = try input;
+                let alias = closed_borrow(&mut value);
+                alias.pending = true;
+                return Ok(unit);
+            "#,
+                r#"
+                let mut value = try input;
+                let alias = closed_borrow(&mut value);
+                reopen(alias);
+                return Ok(unit);
+            "#,
+                r#"
+                let mut value = try input;
+                let alias = closed_cleanup_alias(&mut value);
+                return Ok(unit);
+            "#,
+            ]
+            .into_iter()
+            .map(|body| (body, false)),
+        )
+        .flat_map(|(body, accepted)| {
+            ["", "async "].map(move |execution| (body, accepted, execution))
+        })
+        .filter(|(body, _, execution)| !execution.is_empty() || !body.contains("await "))
+        {
+            let source = format!(
+                r#"
+                module app;
+
+                struct Resource
+                {{
+                    mut pending: bool;
+
+                    mut func close()
+                        ensures(!self.pending)
+                    {{
+                        self.pending = false;
+                    }}
+
+                    func is_complete() -> bool
+                        executes(pure, total)
+                        ensures(!result || !self.pending, result || self.pending)
+                    {{
+                        return !self.pending;
+                    }}
+
+                    mut func try_close() -> Result<unit, unit>
+                        ensures((result matches Error(_)) || !self.pending)
+                    {{
+                        self.pending = false;
+                        return Ok(unit);
+                    }}
+
+                    mut async func reopen_async()
+                    {{
+                        self.pending = true;
+                    }}
+
+                    finalize() -> Result<unit, unit>
+                        when(!self.pending)
+                        {{
+                            executes(pure, total)
+                            ensures(result matches Ok(_))
+                        }}
+                    {{
+                        if !self.pending
+                        {{
+                            return Ok(unit);
+                        }}
+
+                        return Error(unit);
+                    }}
+                }}
+
+                struct Noise
+                {{
+                    destruct() {{}}
+                }}
+
+                func open(pos input: Result<Resource, unit>) -> Result<Resource, unit>
+                {{
+                    return input;
+                }}
+
+                func unrelated() {{}}
+
+                func unrelated_borrowed(pos noise: &Noise) {{}}
+
+                async func unrelated_async() {{}}
+
+                async func drive(pos pending: Future<unit>)
+                {{
+                    await pending;
+                }}
+
+                struct Flag
+                {{
+                    mut value: bool;
+                }}
+
+                async func mutate_other(pos value: &mut Flag)
+                {{
+                    value.value = true;
+                }}
+
+                struct Alias
+                {{
+                    mut target: &mut Resource;
+                }}
+
+                struct CleanupAlias
+                {{
+                    mut target: &mut Resource;
+
+                    destruct()
+                    {{
+                        self.target.pending = true;
+                    }}
+                }}
+
+                func closed_alias(pos value: &mut Resource) -> Alias
+                    ensures(!value.pending)
+                {{
+                    value.close();
+                    return Alias {{ target = value }};
+                }}
+
+                func closed_borrow(pos value: &mut Resource) -> &mut Resource
+                    ensures(!value.pending)
+                {{
+                    value.close();
+                    return value;
+                }}
+
+                func closed_cleanup_alias(pos value: &mut Resource) -> CleanupAlias
+                    ensures(!value.pending)
+                {{
+                    value.close();
+                    return CleanupAlias {{ target = value }};
+                }}
+
+                func mutate_alias(pos value: &mut Alias)
+                {{
+                    value.target.pending = true;
+                }}
+
+                async func mutate_alias_async(pos value: &mut Alias)
+                {{
+                    value.target.pending = true;
+                }}
+
+                func assert_ok(pos result: Result<unit, unit>)
+                {{
+                    match consume result
+                    {{
+                        case Ok(_) {{}}
+                        case Error(_) {{ panic(); }}
+                    }}
+                }}
+
+                func reopen(pos value: &mut Resource)
+                {{
+                    value.pending = true;
+                }}
+
+                async func reopen_async(pos value: &mut Resource)
+                {{
+                    value.pending = true;
+                }}
+
+                func delayed_reopen(pos value: &mut Resource) -> Future<unit>
+                    ensures(!value.pending)
+                {{
+                    value.close();
+                    return reopen_async(value);
+                }}
+
+                {execution}func root(pos input: Result<Resource, unit>, pos borrowed_noise: &Noise) -> Result<unit, unit>
+                {{
+                    {body}
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            if !accepted {
+                assert!(
+                    diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                        == bray_diagnostics::DiagnosticKind::CheckingUnresolvedFinalization),
+                    "{body}: {diagnostics:?}"
+                );
+
+                continue;
+            }
+
+            if diagnostics.has_errors() {
+                failures.push(format!("{execution}{body}: {diagnostics:?}"));
+                continue;
+            }
+
+            let lowered = compilation
+                .lowered_unit(source_function_body_key(&compilation, "root"))
+                .unwrap();
+
+            assert!(
+                lowered.value().is_some(),
+                "{body}: {:?}",
+                lowered.diagnostics()
+            );
+        }
+
+        assert!(failures.is_empty(), "{}", failures.join("\n"));
+    }
+
+    #[test]
+    fn result_propagation_moves_owned_success_and_failure_payloads() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            struct Guard
+            {
+                destruct() {}
+            }
+
+            func success(pos input: Result<Guard, unit>) -> Result<Guard, unit>
+            {
+                let value = try input;
+                return Ok(value);
+            }
+
+            func failure(pos input: Result<unit, Guard>) -> Result<unit, Guard>
+            {
+                try input;
+                return Ok(unit);
+            }
+
+            func nullable(pos input: Guard?) -> Guard?
+            {
+                let value = input?;
+                return value;
+            }
+            "#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        for name in ["success", "failure", "nullable"] {
+            let lowered = compilation
+                .lowered_unit(source_function_body_key(&compilation, name))
+                .unwrap();
+
+            let mir = lowered_mir(&lowered);
+            let mut payload_moves = 0;
+
+            for operation in mir.operations() {
+                operation.kind().for_each_operand(|operand| {
+                    if let MirOperand::Move(place) = operand
+                        && place.projections().iter().any(|projection| {
+                            matches!(
+                                projection.kind(),
+                                bray_ir::MirProjectionKind::ActiveUnionPayloadField { .. }
+                                    | bray_ir::MirProjectionKind::NullableValue
+                            )
+                        })
+                    {
+                        payload_moves += 1;
+                    }
+                });
+            }
+
+            assert_eq!(
+                payload_moves, 1,
+                "{name} must transfer its owned payload once"
+            );
+        }
+    }
+
+    #[test]
+    fn cleanup_free_inactive_futures_resolve_without_a_protected_frame() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            struct Plain<T> { value: T; }
+
+            async func empty() { panic("body must stay inactive"); }
+            async func primitive(pos value: i32) { panic("body must stay inactive"); }
+            async func generic<T>(pos value: Plain<T>) { panic("body must stay inactive"); }
+
+            func run()
+            {
+                let first = empty();
+                let second = primitive(3);
+                let moved = second;
+                let plain: Plain<i32> = { value = 4 };
+                let third = generic<i32>(plain);
+            }
+            "#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let lowered = compilation
+            .lowered_unit(source_function_body_key(&compilation, "run"))
+            .unwrap();
+
+        let mir = lowered_mir(&lowered);
+
+        assert!(mir.frame_descriptor().is_none());
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::Async(bray_ir::MirAsyncOperation::DestroyInactiveCaptures { .. })
+        )));
+
+        assert!(
+            mir.blocks().iter().all(|block| !matches!(
+                block.terminator().kind(),
+                MirTerminatorKind::Suspend { .. }
+            ))
+        );
+    }
+
+    #[test]
+    fn inactive_future_capture_proofs_exclude_mutated_and_opaque_owners() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            struct Guard
+            {
+                async finalize() {}
+                destruct() {}
+
+                consume async func consume_guard() {}
+                consume mut async func consume_mutable_guard() {}
+            }
+
+            async func empty() {}
+            async func guarded(pos value: Guard) {}
+
+            async func reassigned()
+            {
+                let mut pending = empty();
+                pending = guarded(Guard {});
+            }
+
+            async func opaque(pos pending: Future<unit>) {}
+
+            async func consuming()
+            {
+                let guard = Guard {};
+                let pending = guard.consume_guard();
+            }
+
+            async func consuming_mutable()
+            {
+                let mut guard = Guard {};
+                let pending = guard.consume_mutable_guard();
+            }
+            "#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        for name in ["reassigned", "opaque", "consuming", "consuming_mutable"] {
+            let key = source_function_body_key(&compilation, name);
+            let analysis = compilation.async_analysis(key.clone()).unwrap();
+            let storage = compilation.storage_plan(key).unwrap();
+
+            assert!(
+                analysis
+                    .value()
+                    .cleanup_free_futures()
+                    .iter()
+                    .all(|identity| matches!(
+                        storage.value().identity(*identity),
+                        Some(bray_bound_tree::StorageIdentity::Temporary(_))
+                    )),
+                "{name}"
+            );
+        }
     }
 
     #[test]
@@ -2336,7 +3336,7 @@ struct Receiver<T>
         assert!(mir.operations().iter().any(|operation| matches!(
             operation.kind(),
             MirOperationKind::Store {
-                value: MirOperand::Move(place),
+                value: MirOperand::Copy(place),
                 ..
             } if !place.projections().is_empty()
         )));
@@ -2401,13 +3401,13 @@ struct Receiver<T>
         );
 
         assert!(mir.operations().iter().any(|operation| {
-            let mut projected_move = false;
+            let mut projected_copy = false;
 
             operation.kind().for_each_operand(|operand| {
-                projected_move |= matches!(operand, MirOperand::Move(place) if !place.projections().is_empty());
+                projected_copy |= matches!(operand, MirOperand::Copy(place) if !place.projections().is_empty());
             });
 
-            projected_move
+            projected_copy
         }));
 
         assert!(mir.operations().iter().any(|operation| {
@@ -2626,12 +3626,12 @@ func both_bounds(pos values: Values) -> i32
             panic!("both-bound call must retain receiver, start, and end arguments");
         };
 
-        let lower_start = explicit_call_operand(lower_start);
-        let lower_end = explicit_call_operand(lower_end);
-        let upper_start = explicit_call_operand(upper_start);
-        let upper_end = explicit_call_operand(upper_end);
-        let both_start = explicit_call_operand(both_start);
-        let both_end = explicit_call_operand(both_end);
+        let lower_start = bray_ir::MirCallArgument::value(lower_start);
+        let lower_end = bray_ir::MirCallArgument::value(lower_end);
+        let upper_start = bray_ir::MirCallArgument::value(upper_start);
+        let upper_end = bray_ir::MirCallArgument::value(upper_end);
+        let both_start = bray_ir::MirCallArgument::value(both_start);
+        let both_end = bray_ir::MirCallArgument::value(both_end);
 
         let lower_payload = nullable_payload(lower_only, lower_start)
             .unwrap_or_else(|| panic!("lower-only start must be present"));
@@ -3054,6 +4054,77 @@ func main(pos value: i32?) -> i32?
     }
 
     #[test]
+    fn propagation_and_access_evaluate_awaited_temporary_producers_once() {
+        for (input, output, body) in [
+            ("RunResult<i32>", "i32", "return try await pending;"),
+            (
+                "Result<i32, i32>",
+                "Result<i32, i32>",
+                "let value = try await pending; return Ok(value);",
+            ),
+            ("i32?", "i32?", "return (await pending)?;"),
+            (
+                "RunResult<i32>",
+                "unit",
+                "let borrowed: &RunResult<i32> = &(await pending);",
+            ),
+            ("Record", "i32", "return (await pending).value;"),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+
+                struct Record
+                {{
+                    owned: RunResult<i32>;
+                    value: i32;
+                }}
+
+                async func main(pos pending: Future<{input} >) -> {output}
+                {{
+                    {body}
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+            assert!(diagnostics.is_empty(), "{input}: {diagnostics:?}");
+
+            let lowered = compilation
+                .lowered_unit(source_callable_body_key(&compilation))
+                .unwrap();
+
+            let mir = lowered_mir(&lowered);
+
+            let compositions = mir
+                .operations()
+                .iter()
+                .filter(|operation| {
+                    let MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+                        frame: MirOperand::Move(place) | MirOperand::Copy(place),
+                        entry: bray_ir::MirFrameEntry::Body,
+                        ..
+                    }) = operation.kind()
+                    else {
+                        return false;
+                    };
+
+                    matches!(
+                        mir.storage(place.storage()).unwrap().kind(),
+                        bray_ir::MirStorageKind::Parameter(0)
+                    )
+                })
+                .count();
+
+            assert_eq!(
+                compositions, 1,
+                "{body}: temporary access must execute its awaited producer exactly once"
+            );
+        }
+    }
+
+    #[test]
     fn checked_result_propagation_lowers_success_and_error_paths() {
         let compilation = compilation(RESULT_PROPAGATION_LOWERING_SOURCE);
         let key = source_callable_body_key(&compilation);
@@ -3072,13 +4143,28 @@ func main(pos value: i32?) -> i32?
             }
         )));
 
-        assert!(mir.operations().iter().any(|operation| matches!(
-            operation.kind(),
-            MirOperationKind::PatternProjection {
-                projection: bray_bound_tree::PatternProjection::ActiveUnionPayloadField { .. },
-                ..
-            }
-        )));
+        let mut payload_copies = std::collections::BTreeSet::new();
+
+        for operation in mir.operations() {
+            operation.kind().for_each_operand(|operand| {
+                if let MirOperand::Copy(place) = operand {
+                    for projection in place.projections() {
+                        if let bray_ir::MirProjectionKind::ActiveUnionPayloadField {
+                            variant, ..
+                        } = projection.kind()
+                        {
+                            payload_copies.insert(*variant);
+                        }
+                    }
+                }
+            });
+        }
+
+        assert_eq!(
+            payload_copies.len(),
+            2,
+            "both scalar payloads must copy from their original storage"
+        );
     }
 
     #[test]
@@ -3954,12 +5040,6 @@ func main() -> i32?
                 _ => None,
             })
             .unwrap_or_else(|| panic!("custom index protocol call must be present: {mir:#?}"))
-    }
-
-    fn explicit_call_operand(argument: &bray_ir::MirCallArgument) -> &MirOperand {
-        argument
-            .value()
-            .unwrap_or_else(|| panic!("custom index protocol arguments must be explicit"))
     }
 
     fn nullable_payload<'mir>(

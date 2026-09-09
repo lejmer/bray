@@ -165,8 +165,9 @@ where
             BoundStructuredExpressionKind::Borrow => {
                 infer_borrow(request, expression_id, expression, variables, inference)?
             }
-            BoundStructuredExpressionKind::ResultPropagation => {
-                infer_result_propagation(request, expression_id, expression, variables, inference)?
+            BoundStructuredExpressionKind::ResultPropagation
+            | BoundStructuredExpressionKind::NullablePropagation => {
+                infer_propagation(request, expression_id, expression, variables, inference)?
             }
             _ => {}
         }
@@ -268,7 +269,7 @@ where
     Ok(())
 }
 
-fn infer_result_propagation<C>(
+fn infer_propagation<C>(
     request: CheckerUnitView<'_, C>,
     expression_id: BoundExpressionId,
     expression: &bray_bound_tree::BoundStructuredExpression,
@@ -304,6 +305,14 @@ where
         .semantic_values()
         .type_data(operand_type)
         .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+    if expression.kind() == BoundStructuredExpressionKind::NullablePropagation {
+        if let TypeData::Nullable(success) = data.as_ref() {
+            inference.add_evidence(variable, *success, expression_id);
+        }
+
+        return Ok(());
+    }
 
     let TypeData::Named { substitution, .. } = data.as_ref() else {
         return Ok(());

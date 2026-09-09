@@ -96,6 +96,13 @@ impl MirRuntimeReference {
 pub enum MirCallTarget {
     /// A concrete Bray callable instance.
     Direct(MirCallableReference),
+    /// Evaluate an omitted argument in its callable's declaration environment.
+    ParameterDefault {
+        /// Exact callable instance whose parameter owns the default.
+        callable: MirCallableReference,
+        /// Declaration-owned provider being evaluated.
+        provider: CallableParameterDefaultProviderSymbolId,
+    },
     /// One private runtime ABI operation.
     Runtime(MirRuntimeReference),
     /// A checked callable value.
@@ -112,13 +119,14 @@ impl MirCallTarget {
     pub const fn abi(&self) -> CallableAbi {
         match self {
             Self::Direct(reference) => reference.abi(),
+            Self::ParameterDefault { .. } => CallableAbi::Bray,
             Self::Runtime(_) => CallableAbi::Bray,
             Self::Indirect { abi, .. } => *abi,
         }
     }
 }
 
-/// One checked receiver, explicit value, or declaration-owned runtime default.
+/// One evaluated receiver or argument value.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MirCallArgument {
     /// An evaluated instance receiver.
@@ -137,15 +145,6 @@ pub enum MirCallArgument {
         /// Evaluated and converted argument value.
         value: MirOperand,
     },
-    /// An omitted parameter supplied by its declaration-owned runtime default.
-    Default {
-        /// Exact omitted parameter.
-        parameter: CallableParameterSymbolId,
-        /// Declaration-order parameter position.
-        ordinal: u32,
-        /// Exact runtime default provider.
-        provider: CallableParameterDefaultProviderSymbolId,
-    },
 }
 
 impl MirCallArgument {
@@ -158,11 +157,10 @@ impl MirCallArgument {
         }
     }
 
-    /// Returns the evaluated operand when this input is supplied directly.
-    pub const fn value(&self) -> Option<&MirOperand> {
+    /// Returns the evaluated argument operand.
+    pub const fn value(&self) -> &MirOperand {
         match self {
-            Self::Receiver { value, .. } | Self::Explicit { value, .. } => Some(value),
-            Self::Default { .. } => None,
+            Self::Receiver { value, .. } | Self::Explicit { value, .. } => value,
         }
     }
 }
@@ -209,10 +207,11 @@ impl MirCall {
             MirCallTarget::Direct(MirCallableReference {
                 abi: CallableAbi::Bray,
                 ..
-            }) | MirCallTarget::Indirect {
-                abi: CallableAbi::Bray,
-                ..
-            }
+            }) | MirCallTarget::ParameterDefault { .. }
+                | MirCallTarget::Indirect {
+                    abi: CallableAbi::Bray,
+                    ..
+                }
         ) && matches!(self.result, BoundCallResult::Immediate(_))
             && self.intrinsic.is_none()
     }

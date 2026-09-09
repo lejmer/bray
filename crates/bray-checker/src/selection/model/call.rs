@@ -256,6 +256,28 @@ impl CallableCandidate {
         self
     }
 
+    /// Retains the dispatch and witnesses selected by the callee's member access.
+    pub(crate) fn with_member_selection(mut self, member: &MemberTarget) -> Self {
+        if let Some(dispatch) = member.trait_dispatch() {
+            self.resolution = self.resolution.with_trait_dispatch(dispatch);
+        }
+
+        // Retain generic selection evidence while adding the member's independently selected witness.
+        let selections = self
+            .implementation_selections
+            .iter()
+            .cloned()
+            .chain(member.witnesses().iter().map(|witness| {
+                ImplementationSelectionEvidence::new(
+                    witness.requirement(),
+                    ImplementationSelection::Selected(witness.witness()),
+                )
+            }))
+            .collect::<Vec<_>>();
+
+        self.with_implementation_selections(selections)
+    }
+
     /// Supplies typed implementation-selection results used by the callable target.
     pub fn with_implementation_selections(
         mut self,
@@ -282,10 +304,7 @@ impl CallableCandidate {
 
         selections.sort_unstable_by_key(ImplementationSelectionEvidence::requirement);
 
-        self.resolution = self
-            .resolution
-            .clone()
-            .with_implementation_witnesses(witnesses);
+        self.resolution = self.resolution.with_implementation_witnesses(witnesses);
 
         self.implementation_selections = selections.into();
 

@@ -441,10 +441,13 @@ impl Lowerer<'_> {
 
             current = continuation;
 
-            labels.push(InlineAssemblyLabel {
-                callable,
-                ty: self.expression_type(element)?,
-            });
+            let ty = self.expression_type(element)?;
+
+            // Assembly label callbacks execute in alternate blocks, beyond this evaluation block.
+            let callable =
+                self.materialize_memory_argument(current, element, callable, ty, true)?;
+
+            labels.push(InlineAssemblyLabel { callable, ty });
         }
 
         Ok((current, labels))

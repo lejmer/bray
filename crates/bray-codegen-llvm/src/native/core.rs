@@ -1,4 +1,5 @@
 use super::abi::runtime_function_type;
+use super::frame::protected_frame_type;
 use bray_codegen::{
     CodegenFailure, CodegenInstance, CodegenRequest, CodegenSymbolKey, CodegenTarget,
 };
@@ -275,34 +276,6 @@ pub(crate) fn frame_operation_function<'context>(
     module
         .get_function(symbol.name().as_str())
         .ok_or(CodegenFailure::GeneratedModuleInvariant)
-}
-
-pub(crate) fn protected_frame_type<'context>(
-    context: &'context Context,
-    target: &CodegenTarget,
-) -> StructType<'context> {
-    let usize = pointer_integer_type(context, target);
-    let pointer = context.ptr_type(AddressSpace::default());
-
-    context.struct_type(
-        &[
-            usize.into(),
-            context.i8_type().array_type(32).into(),
-            context.i32_type().into(),
-            usize.into(),
-            usize.into(),
-            usize.into(),
-            usize.into(),
-            pointer.into(),
-            pointer.into(),
-            pointer.into(),
-            pointer.into(),
-            pointer.into(),
-            pointer.into(),
-            pointer.into(),
-        ],
-        false,
-    )
 }
 
 pub(crate) fn inactive_frame_type(context: &Context) -> StructType<'_> {
@@ -586,10 +559,9 @@ pub(crate) fn frame_operation_type<'context>(
             ProtectedFrameOperation::MoveBeforeStart => {
                 unreachable!("move-before-start uses indirect results on every native ABI")
             }
-            ProtectedFrameOperation::StateDescription => context.i64_type().fn_type(
-                &parameters(&[usize.into(), context.i32_type().into()]),
-                false,
-            ),
+            ProtectedFrameOperation::StateDescription => context
+                .i64_type()
+                .fn_type(&parameters(&[context.i32_type().into()]), false),
             ProtectedFrameOperation::Resume | ProtectedFrameOperation::CancellationEntry => context
                 .void_type()
                 .fn_type(&parameters(&[pointer.into(), usize.into()]), false),
@@ -612,10 +584,9 @@ pub(crate) fn frame_operation_type<'context>(
         ProtectedFrameOperation::MoveBeforeStart => {
             unreachable!("move-before-start uses indirect results on every native ABI")
         }
-        ProtectedFrameOperation::StateDescription => context.i64_type().fn_type(
-            &parameters(&[usize.into(), context.i32_type().into()]),
-            false,
-        ),
+        ProtectedFrameOperation::StateDescription => context
+            .i64_type()
+            .fn_type(&parameters(&[context.i32_type().into()]), false),
         ProtectedFrameOperation::Resume | ProtectedFrameOperation::CancellationEntry => {
             super::abi::progress_register_type(context, target)
                 .fn_type(&parameters(&[usize.into()]), false)
@@ -807,7 +778,7 @@ mod tests {
             )
         );
 
-        assert_eq!(state.count_param_types(), 2);
+        assert_eq!(state.count_param_types(), 1);
 
         assert_eq!(state.get_return_type(), Some(context.i64_type().into()));
     }
@@ -873,7 +844,7 @@ mod tests {
         );
 
         assert_eq!(state.get_return_type(), Some(context.i64_type().into()));
-        assert_eq!(state.count_param_types(), 2);
+        assert_eq!(state.count_param_types(), 1);
 
         let panic = super::runtime_function_type(
             &context,

@@ -558,6 +558,8 @@ dependencies = [
  "bray-runtime-abi",
  "bray-runtime-model",
  "bray-testing",
+ "triomphe",
+ "trybox",
 ]
 
 [[package]]
@@ -593,6 +595,10 @@ dependencies = [
 [[package]]
 name = "bray-runtime-model"
 version = "0.0.0"
+dependencies = [
+ "arrayvec",
+ "triomphe",
+]
 
 [[package]]
 name = "bray-runtime-observation"
@@ -1657,6 +1663,12 @@ name = "triomphe"
 version = "0.1.16"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b40688ea6389c8171614b25491f71d4a27946e0c7ce2da1c6de27e25abf1a0ae"
+
+[[package]]
+name = "trybox"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff79c0d8cb778aeae16f06b64e7f7844c6fe653e61a912563e56276729ba1af0"
 
 [[package]]
 name = "typenum"

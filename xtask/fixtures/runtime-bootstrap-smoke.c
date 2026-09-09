@@ -225,7 +225,7 @@ uint32_t bray_runtime_substrate_panic_reporting(
     (void)source_identity;
     (void)source_version;
 
-    if (cause > 3 || source_present > 1 || source_start > source_end)
+    if (cause > 4 || source_present > 1 || source_start > source_end)
         return 3;
 
     if (message == NULL && message_length != 0)
@@ -624,10 +624,13 @@ int main(void)
     if (bray_runtime_panic_report_destruction(panic_report()) != 0)
         return 6;
 
-    uintptr_t rejected_task = bray_runtime_panic_report_construction(3, 0, 0, 0, 0, 0, NULL, 0);
+    for (uint32_t cause = 3; cause <= 4; ++cause)
+    {
+        uintptr_t allocation_failure = bray_runtime_panic_report_construction(cause, 0, 0, 0, 0, 0, NULL, 0);
 
-    if (bray_runtime_panic_reporting(rejected_task) != 0)
-        return 6;
+        if (bray_runtime_panic_reporting(allocation_failure) != 0)
+            return 6;
+    }
 
     if (!verify_owned_cleanup_reports())
         return 16;

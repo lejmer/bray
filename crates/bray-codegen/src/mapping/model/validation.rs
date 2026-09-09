@@ -375,9 +375,9 @@ fn operation_runtime_references(operation: &MirOperationKind) -> [Option<MirRunt
     match operation {
         MirOperationKind::Call(call) => match call.target() {
             bray_ir::MirCallTarget::Runtime(runtime) => [Some(*runtime), None, None],
-            bray_ir::MirCallTarget::Direct(_) | bray_ir::MirCallTarget::Indirect { .. } => {
-                [None, None, None]
-            }
+            bray_ir::MirCallTarget::Direct(_)
+            | bray_ir::MirCallTarget::ParameterDefault { .. }
+            | bray_ir::MirCallTarget::Indirect { .. } => [None, None, None],
         },
         MirOperationKind::Async(MirAsyncOperation::StartTask {
             allocation, start, ..

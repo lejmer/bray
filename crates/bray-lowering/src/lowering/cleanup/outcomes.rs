@@ -8,6 +8,7 @@ use bray_ir::{
 use super::control::{CleanupDestination, TerminalState};
 use crate::cleanup_outcome::CleanupOutcome;
 use crate::lowering::LoweringError;
+use crate::lowering::construction::ConstructionExit;
 use crate::lowering::lowerer::Lowerer;
 
 impl Lowerer<'_> {
@@ -55,6 +56,7 @@ impl Lowerer<'_> {
             &plans,
             None,
             &std::collections::BTreeMap::new(),
+            ConstructionExit::All,
         )?;
 
         let outcome = self
@@ -123,6 +125,11 @@ impl Lowerer<'_> {
             plans,
             abandoned,
             &std::collections::BTreeMap::new(),
+            if panicking {
+                self.abnormal_construction_exit(destination)
+            } else {
+                ConstructionExit::All
+            },
         )?;
 
         let outcome = self
@@ -139,6 +146,22 @@ impl Lowerer<'_> {
         self.finish_cancelled_cleanup(lifecycle, source, outcome, destination)
     }
 
+    pub(super) fn abnormal_construction_exit(
+        &self,
+        destination: CleanupDestination,
+    ) -> ConstructionExit {
+        if let CleanupDestination::Goto(block) = destination
+            && let Some(index) = self
+                .catch_targets
+                .iter()
+                .position(|target| target.block == block)
+        {
+            return ConstructionExit::Catch(index + 1);
+        }
+
+        ConstructionExit::All
+    }
+
     pub(super) fn resolve_cleanup(
         &mut self,
         mut broadcast: MirBlockId,
@@ -149,7 +172,17 @@ impl Lowerer<'_> {
             bray_bound_tree::BoundBlockId,
             (MirBlockId, MirBlockId, bray_symbols::TypeId),
         >,
+        construction_exit: ConstructionExit,
     ) -> Result<MirBlockId, LoweringError> {
+        let retained = self.cleanup_retained_storages.len();
+        let temporaries = self.construction_cleanup(construction_exit);
+
+        self.cleanup_retained_storages.extend(
+            temporaries
+                .iter()
+                .map(|temporary| temporary.place.storage()),
+        );
+
         if let Some(place) = abandoned {
             self.cleanup_retained_storages.push(place.storage());
         }
@@ -179,6 +212,7 @@ impl Lowerer<'_> {
             source,
             MirCleanupPhase::TaskCancellation,
             plans,
+            &temporaries,
             None,
             failures,
         )?;
@@ -213,14 +247,13 @@ impl Lowerer<'_> {
                 source,
                 MirCleanupPhase::LifecycleResolution,
                 plans,
+                &temporaries,
                 None,
                 failures,
             )
             .map(|(block, _)| block);
 
-        if abandoned.is_some() {
-            self.cleanup_retained_storages.pop();
-        }
+        self.cleanup_retained_storages.truncate(retained);
 
         result
     }

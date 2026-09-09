@@ -3,11 +3,11 @@ use bray_compiler_known::RepresentationRole;
 use bray_symbols::{
     CallableConditionSet, CallableConditions, ConstantTermData, ConstantTermId, ConstantTest,
     ExecutionProperty, GenericArgument, ProofOutcome, SemanticValueStore, SemanticValueStoreError,
-    SymbolOrdinal, TypeData, TypeId, UnionVariantSymbolId,
+    TypeData, TypeId, UnionVariantSymbolId,
 };
 
 use crate::contract::{
-    MAX_CONDITION_STEPS, applicable_postconditions_with, callable_input_count,
+    MAX_CONDITION_STEPS, applicable_postconditions_with, fresh_callable_argument,
     instantiate_condition, preconditions_hold_with, prove_condition,
 };
 use crate::guarantee::execution_property_coverage;
@@ -218,7 +218,7 @@ fn completion_evidence_with(
         return Ok(Some(evidence));
     };
 
-    let Some(fresh) = callable_input_count(
+    let Some(fresh) = fresh_callable_argument(
         values,
         arguments
             .iter()
@@ -229,9 +229,7 @@ fn completion_evidence_with(
         return Ok(None);
     };
 
-    let result = values.intern_constant_term(ConstantTermData::CallableArgument(
-        SymbolOrdinal::new(fresh),
-    ))?;
+    let result = values.intern_constant_term(ConstantTermData::CallableArgument(fresh))?;
 
     let goal = values.intern_constant_term(ConstantTermData::Test {
         subject: result,
@@ -356,6 +354,27 @@ mod tests {
             CallableProofObligation::Execution(total),
             CallableProofObligation::Postcondition(SymbolOrdinal::new(1)),
         ];
+
+        for ordinal in [4_096, 50_000, u32::MAX - 1] {
+            let observed = values
+                .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(
+                    ordinal,
+                )))
+                .unwrap();
+
+            assert_eq!(
+                completion_evidence(
+                    &values,
+                    &conditions,
+                    Some(&certified),
+                    &[observed],
+                    Some(success),
+                    &[(observed, true)],
+                )
+                .unwrap(),
+                Some(certified.to_vec()),
+            );
+        }
 
         assert_eq!(
             completion_evidence(

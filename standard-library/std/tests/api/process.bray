@@ -1,10 +1,12 @@
-module bray.standard_library_tests.process;
+trusted module bray.standard_library_tests.process;
 
 using std.io;
 using std.path;
 using std.process;
 using std.testing;
 using internal std.process.ChildOutputReader;
+using internal std.process.ChildProcess.state;
+using internal std.platform.file_close_completed;
 
 @test
 func process_context_accessors_observe_one_snapshot()
@@ -82,11 +84,72 @@ func child_processes_accept_an_empty_environment()
     assert(status matches Code(0));
 }
 
+@test(serial)
+func child_disposal_continues_after_the_first_pipe_close_fails()
+{
+    check_child_disposal_after_stale_pipe(false);
+}
+
+@test(serial)
+func child_disposal_continues_after_the_middle_pipe_close_fails()
+{
+    check_child_disposal_after_stale_pipe(true);
+}
+
+trusted func check_child_disposal_after_stale_pipe(pos output_fails: bool)
+    uses(foreign_call)
+{
+    let mut command = required_child_command(required_child_executable());
+
+    required_argument(&mut command, "--help");
+
+    command.standard_input(policy = std.process.ChildStreamPolicy.Piped);
+    command.standard_output(policy = std.process.ChildStreamPolicy.Piped);
+    command.standard_error(policy = std.process.ChildStreamPolicy.Piped);
+
+    let mut child = required_child(command);
+
+    let stale: u64 = if output_fails
+    {
+        yield child.state.standard_output;
+    }
+    else
+    {
+        yield child.state.standard_input;
+    };
+
+    // Close the native resource behind its retained handle to inject a real close failure.
+    let closed = trusted internal std.process.platform_process_pipe_close(handle = stale);
+
+    assert(internal std.platform.file_close_completed(closed));
+
+    let disposal = trusted internal std.process.dispose_child(&mut child);
+
+    assert(disposal matches Error(_));
+    assert(!child.state.is_open);
+    assert(child.state.standard_error == 0);
+
+    if output_fails
+    {
+        assert(child.state.standard_input == 0);
+    }
+    else
+    {
+        assert(child.state.standard_output == 0);
+    }
+
+    // The injected stale handle already has no native owner. Retire that test-only obligation.
+    child.state.standard_input = 0;
+
+    child.state.standard_output = 0;
+
+    assert(child.is_complete());
+}
+
 func required_child_executable() -> std.path.Path
 {
     let key: std.path.NativeText = required_native_text("BRAY_STANDARD_LIBRARY_TEST_EXECUTABLE");
     let environment: std.process.Environment = std.process.environment();
-
     let value: std.path.NativeText = std.testing.assert_present<std.path.NativeText>(environment.value(&key));
 
     return std.testing.assert_ok<std.path.Path, std.path.PathError>(std.path.Path.from_native(value));

@@ -1,5 +1,5 @@
 use std::cell::{Cell, RefCell};
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
 use std::rc::Rc;
@@ -13,8 +13,8 @@ use bray_runtime_abi::{
 use bray_runtime_model::RuntimeCapability;
 
 use crate::{
-    CleanupReportSink, ExecutionLanePlacement, ExecutionWorkload, JoinWaitRegistration,
-    RuntimeEventRegistration, Scheduler, SchedulerLimits, TaskControlBlock, TaskRegistration,
+    CleanupReportSink, ExecutionLanePlacement, ExecutionWorkload, JoinWaitRegistration, Scheduler,
+    SchedulerLimits, TaskControlBlock, TaskRegistration,
 };
 
 use super::super::frame::NativeTerminalState;
@@ -79,8 +79,7 @@ pub(crate) struct NativeRuntimeCore {
     pub(in crate::native) scheduler: Scheduler,
     pub(in crate::native) workers: super::super::workers::WorkerPool,
     pub(in crate::native) owners: AtomicUsize,
-    pub(in crate::native) tasks: Mutex<BTreeMap<NativeTaskHandle, NativeTaskSlot>>,
-    pub(in crate::native) awaited: Mutex<BTreeMap<NativeTaskHandle, NativeTaskHandle>>,
+    pub(in crate::native) tasks: Mutex<HashMap<NativeTaskHandle, NativeTaskSlot>>,
     pub(in crate::native) task_capacity: NonZeroUsize,
     pub(in crate::native) independent_tasks: AtomicUsize,
     pub(in crate::native) next_task: AtomicU64,
@@ -145,11 +144,6 @@ impl NativeRuntimeCore {
     }
 
     fn clear_tasks(&self) {
-        self.awaited
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .clear();
-
         let mut tasks = self
             .tasks
             .lock()
@@ -225,10 +219,10 @@ impl RetainedRuntime {
 pub(in crate::native) enum NativeTaskSlot {
     Allocated(crate::task::TaskAdmissionKind),
     Starting(crate::task::TaskAdmissionKind),
-    Started(Arc<StartedTask>),
+    Started(triomphe::Arc<StartedTask>),
     Terminal {
         outcome: TerminalOutcome,
-        _task: Arc<StartedTask>,
+        _task: triomphe::Arc<StartedTask>,
     },
 }
 
@@ -258,13 +252,15 @@ pub(in crate::native) enum TerminalOutcome {
 
 pub(in crate::native) struct StartedTask {
     pub(in crate::native) admission: crate::task::TaskAdmissionKind,
-    pub(in crate::native) task: Arc<NativeTask>,
+    pub(in crate::native) task: NativeTask,
     pub(in crate::native) registration: TaskRegistration,
-    pub(in crate::native) waits: Mutex<Vec<JoinWaitRegistration<usize>>>,
-    pub(in crate::native) event_wait: Mutex<Option<RuntimeEventRegistration>>,
+    pub(in crate::native) waits: Mutex<Vec<JoinWaitRegistration>>,
+    pub(super) continuation: super::continuation::ContinuationWait,
+    pub(super) event_wait: super::event_wait::EventWait,
+    pub(in crate::native) awaited: Mutex<Option<NativeTaskHandle>>,
     pub(in crate::native) observation_claimed: AtomicBool,
-    pub(in crate::native) terminal: Arc<NativeTerminalState>,
-    pub(in crate::native) cleanup_parent: Option<Arc<NativeTerminalState>>,
+    pub(in crate::native) terminal: triomphe::Arc<NativeTerminalState>,
+    pub(in crate::native) cleanup_parent: Option<triomphe::Arc<NativeTerminalState>>,
 }
 
 pub(in crate::native) fn initialize(
@@ -325,8 +321,7 @@ fn initialize_with_capabilities(
             scheduler,
             workers: super::super::workers::WorkerPool::new(),
             owners: AtomicUsize::new(1),
-            tasks: Mutex::new(BTreeMap::new()),
-            awaited: Mutex::new(BTreeMap::new()),
+            tasks: Mutex::new(HashMap::new()),
             task_capacity,
             independent_tasks: AtomicUsize::new(0),
             next_task: AtomicU64::new(1),
@@ -441,12 +436,11 @@ pub(in crate::native) fn run_worker(
         current.replace(Some(Rc::clone(&runtime)));
     });
 
-    let mut lanes =
-        super::binding::current_thread_lanes(runtime.thread.runtime().id(), false, true);
+    let lanes = super::binding::current_thread_lanes(runtime.thread.runtime().id(), false, true);
 
     // Affined children stay on this worker even when their workload differs from its pool.
     // Only migratable work is restricted to the pool's workload class.
-    lanes.retain(|lane| {
+    let lanes = lanes.filter(|lane| {
         lane.placement() != ExecutionLanePlacement::Migratable || lane.workload() == workload
     });
 
@@ -467,7 +461,7 @@ pub(in crate::native) fn run_worker(
         let deadline =
             bray_platform::MonotonicClock.deadline_after(std::time::Duration::from_millis(50));
 
-        match runtime.scheduler.wait_ready_from(&lanes, deadline) {
+        match runtime.scheduler.wait_ready_from(lanes.clone(), deadline) {
             Ok(Some(ready)) => {
                 if workload == ExecutionWorkload::Blocking {
                     runtime.workers.begin_blocking_work(&runtime.core);

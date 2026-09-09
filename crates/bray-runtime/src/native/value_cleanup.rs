@@ -25,7 +25,7 @@ pub(super) fn run(cleanup: NativeValueCleanup, value: usize) -> Vec<OwnedCleanup
         .collect::<Vec<_>>();
 
     match result {
-        Err(payload) => incidents.push(OwnedCleanupIncident::panic(payload)),
+        Err(payload) => incidents.push(OwnedCleanupIncident::host(payload)),
         Ok(status) if !status.is_success() => {
             incidents.push(OwnedCleanupIncident::runtime_failure())
         }
@@ -55,9 +55,9 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use bray_runtime_abi::{
-        NativeBrayCallOutcome, NativeCleanupExecution, NativeFrameAffinity, NativeFrameExit,
-        NativeFrameProgress, NativeFrameProgressKind, NativeFrameState, NativeInactiveFrame,
-        NativeLaneRequirements, NativeProtectedFrame, NativeRuntimeStatus, NativeValueCleanup,
+        NativeBrayCallOutcome, NativeCleanupExecution, NativeFrameExit, NativeFrameProgress,
+        NativeFrameProgressKind, NativeInactiveFrame, NativeProtectedFrame, NativeRuntimeStatus,
+        NativeValueCleanup,
     };
 
     static RESUMES: AtomicUsize = AtomicUsize::new(0);
@@ -81,26 +81,21 @@ mod tests {
     ) -> NativeProtectedFrame {
         NativeProtectedFrame::new(
             context,
-            [83; 32],
-            2,
-            8,
-            8,
-            0,
-            1,
-            state,
+            bray_runtime_abi::NativeFrameMetadata::new(
+                [83; 32],
+                2,
+                8,
+                8,
+                0,
+                1,
+                crate::test_support::native_origin_frame_state,
+            ),
             resume,
             resume,
             ignore,
             resolve,
             move_completion,
             destroy,
-        )
-    }
-
-    extern "C" fn state(_: usize, _: u32) -> NativeFrameState {
-        NativeFrameState::new(
-            NativeFrameAffinity::ORIGIN_THREAD,
-            NativeLaneRequirements::NONE,
         )
     }
 

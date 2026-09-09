@@ -8,6 +8,7 @@ use super::id::{AnalysisBlockId, AnalysisEdgeId, AnalysisOperationId, ProgramPoi
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum AnalysisOperationKind {
     Bound(AnyBoundNodeId),
+    PropagationFailure(BoundExpressionId),
     PatternObservation(BoundPatternId),
     Call {
         expression: BoundExpressionId,
@@ -36,9 +37,19 @@ impl AnalysisOperationKind {
             Self::Bound(node) | Self::Recovery(node) => node,
             Self::PatternObservation(pattern) => AnyBoundNodeId::Pattern(pattern),
             Self::Call { expression, .. }
+            | Self::PropagationFailure(expression)
             | Self::Suspension { expression, .. }
             | Self::TaskOperation { expression, .. } => AnyBoundNodeId::Expression(expression),
             Self::ScopeExit { block, .. } => AnyBoundNodeId::Block(block),
+        }
+    }
+
+    pub(crate) const fn point(self) -> bray_bound_tree::BoundOperationPoint {
+        match self {
+            Self::PropagationFailure(expression) => {
+                bray_bound_tree::BoundOperationPoint::PropagationFailure(expression)
+            }
+            _ => bray_bound_tree::BoundOperationPoint::Evaluation(self.node()),
         }
     }
 }
@@ -181,9 +192,9 @@ pub(crate) enum AnalysisRefinement {
         value: bool,
     },
     MatchExhaustion(BoundExpressionId),
-    ResultOutcome {
+    UnionVariant {
         expression: BoundExpressionId,
-        is_success: bool,
+        variant: bray_symbols::UnionVariantSymbolId,
     },
     TrustBoundary(BoundExpressionId),
 }
@@ -433,7 +444,7 @@ impl ControlFlowGraph {
                 AnalysisRefinement::Condition { expression, .. }
                 | AnalysisRefinement::CallFailure(expression)
                 | AnalysisRefinement::MatchExhaustion(expression)
-                | AnalysisRefinement::ResultOutcome { expression, .. }
+                | AnalysisRefinement::UnionVariant { expression, .. }
                 | AnalysisRefinement::NullablePresence { expression, .. }
                 | AnalysisRefinement::TrustBoundary(expression),
             ) => expression.unit() == self.unit,

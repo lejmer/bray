@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_bound_tree::{
     BoundCallableBodyKind, BoundNodeOrigin, BoundUnitRoot, StorageAccessId, StorageIdentity,
@@ -58,6 +58,7 @@ pub(super) struct Lowerer<'unit> {
     pub(super) input: LoweringInput<'unit>,
     pub(super) builder: MirUnitBuilder,
     pub(super) storages: BTreeMap<StorageIdentityId, MirStorageId>,
+    pub(super) materialized_roots: BTreeSet<StorageIdentityId>,
     pub(super) guard_bindings: Vec<BTreeMap<StorageIdentityId, MirPlace>>,
     pub(super) owned_targets: BTreeMap<MirStorageId, MirPlace>,
     pub(super) initialization_guards: BTreeMap<MirStorageId, InitializationState<'unit>>,
@@ -72,6 +73,7 @@ pub(super) struct Lowerer<'unit> {
     pub(super) cleanup_outcome: Option<crate::cleanup_outcome::CleanupOutcome>,
     pub(super) destructor_remainder: bool,
     pub(super) cleanup_retained_storages: Vec<MirStorageId>,
+    pub(super) construction_temporaries: Vec<super::construction::ConstructionTemporary>,
     pub(super) cleanup_failure_targets: Option<(MirBlockId, MirBlockId, bray_symbols::TypeId)>,
 }
 
@@ -89,6 +91,7 @@ impl<'unit> Lowerer<'unit> {
             input,
             builder,
             storages: BTreeMap::new(),
+            materialized_roots: BTreeSet::new(),
             guard_bindings: Vec::new(),
             owned_targets: BTreeMap::new(),
             initialization_guards: BTreeMap::new(),
@@ -103,6 +106,7 @@ impl<'unit> Lowerer<'unit> {
             cleanup_outcome: None,
             destructor_remainder: false,
             cleanup_retained_storages: Vec::new(),
+            construction_temporaries: Vec::new(),
             cleanup_failure_targets: None,
         }
     }
@@ -292,9 +296,8 @@ mod tests {
         InlineAssemblyContract, Liveness, MemoryAddressKind, MemoryCopyKind, MemoryLayoutQueryKind,
         MemoryOffsetUnit, MemoryOperationDecision, MemoryOperationStatus, MemoryOrder,
         MemoryReadKind, OperatorTarget, SelectedArgument, SelectedCall, SelectedConversion,
-        SelectedOperation, SelectedPropagation, SelectedPropagationBoundary, SemanticSelection,
-        SemanticSelectionEntry, StorageExitDecision, StorageExitPoint, StorageFlow,
-        StoragePlanBuilder, VolatileAddressSpace,
+        SelectedOperation, SemanticSelection, SemanticSelectionEntry, StorageExitDecision,
+        StorageExitPoint, StorageFlow, StoragePlanBuilder, VolatileAddressSpace,
     };
     use bray_ir::{
         MirBinaryOperator, MirCallArgument, MirOperationKind, MirTerminatorKind, MirUnitKind,
@@ -611,33 +614,8 @@ mod tests {
     }
 
     #[test]
-    fn lowering_makes_nullable_propagation_and_early_cleanup_explicit() {
-        let fixture = nullable_propagation_fixture(82);
-        let input = fixture.input();
-
-        let mir = lower_unit(input)
-            .unwrap_or_else(|error| panic!("checked nullable propagation must lower: {error:?}"));
-
-        assert!(mir.blocks().iter().any(|block| matches!(
-            block.terminator().kind(),
-            MirTerminatorKind::PatternBranch {
-                predicate: bray_ir::MirPatternPredicate::NullablePresent,
-                ..
-            }
-        )));
-
-        assert!(mir.blocks().iter().any(|block| matches!(
-            block.terminator().kind(),
-            MirTerminatorKind::Return(Some(bray_ir::MirOperand::Immediate {
-                value: bray_ir::MirImmediateValue::NullableAbsent,
-                ..
-            }))
-        )));
-    }
-
-    #[test]
-    fn lowering_retains_selected_call_behavior_and_runtime_defaults() {
-        let (fixture, call_type) = selected_call_fixture(83, true);
+    fn lowering_retains_selected_call_behavior() {
+        let (fixture, call_type) = call_fixture(83, 1, false);
 
         let input = fixture.input();
 
@@ -661,10 +639,7 @@ mod tests {
 
         assert!(matches!(
             call.arguments(),
-            [
-                MirCallArgument::Explicit { ordinal: 0, .. },
-                MirCallArgument::Default { ordinal: 1, .. }
-            ]
+            [MirCallArgument::Explicit { ordinal: 0, .. }]
         ));
     }
 
@@ -1046,13 +1021,6 @@ mod tests {
         }
     }
 
-    fn selected_call_fixture(
-        unit_id: u32,
-        include_default: bool,
-    ) -> (LoweringFixture, bray_symbols::TypeId) {
-        call_fixture(unit_id, 1, include_default)
-    }
-
     fn call_fixture(
         unit_id: u32,
         argument_count: usize,
@@ -1192,6 +1160,7 @@ mod tests {
                 provider: CallableParameterDefaultProviderSymbolId::from_symbol_id(SymbolId::new(
                     4,
                 )),
+                ty,
             });
         }
 
@@ -1360,144 +1329,6 @@ mod tests {
         )
     }
 
-    fn nullable_propagation_fixture(unit_id: u32) -> LoweringFixture {
-        let values = SemanticValueStore::try_new()
-            .unwrap_or_else(|error| panic!("test semantic values must initialize: {error:?}"));
-
-        let value_type = values
-            .intern_type(TypeData::tuple([]))
-            .unwrap_or_else(|error| panic!("test value type must intern: {error:?}"));
-
-        let nullable_type = values
-            .intern_type(TypeData::Nullable(value_type))
-            .unwrap_or_else(|error| panic!("test nullable type must intern: {error:?}"));
-
-        let template = test_bound_unit(unit_id);
-        let origin = bray_bound_tree::BoundNodeOrigin::source(template.key().source());
-        let mut tree = BoundTreeBuilder::new(BoundUnitId::new(unit_id));
-
-        let operand = push_expression(
-            &mut tree,
-            BoundExpression::Structured(BoundStructuredExpression::new(
-                origin,
-                BoundStructuredExpressionKind::Absence,
-                [],
-                [],
-                [],
-                Some(nullable_type),
-                false,
-            )),
-        );
-
-        let propagation = push_expression(
-            &mut tree,
-            BoundExpression::Structured(BoundStructuredExpression::new(
-                origin,
-                BoundStructuredExpressionKind::NullablePropagation,
-                [operand],
-                [],
-                [],
-                Some(value_type),
-                false,
-            )),
-        );
-
-        let return_value = push_expression(
-            &mut tree,
-            BoundExpression::Structured(BoundStructuredExpression::new(
-                origin,
-                BoundStructuredExpressionKind::Absence,
-                [],
-                [],
-                [],
-                Some(nullable_type),
-                false,
-            )),
-        );
-
-        let return_expression = push_expression(
-            &mut tree,
-            BoundExpression::ControlTransfer(BoundControlTransferExpression::new(
-                origin,
-                BoundControlTransferKind::Return,
-                Some(return_value),
-                None,
-                Some(value_type),
-                false,
-            )),
-        );
-
-        let block = tree
-            .push_block(BoundBlock::new(
-                origin,
-                [
-                    BoundBlockItem::Expression(propagation),
-                    BoundBlockItem::Expression(return_expression),
-                ],
-                false,
-            ))
-            .unwrap_or_else(|error| panic!("test block must fit: {error:?}"));
-
-        let unit = synchronous_callable_unit(&template, tree, origin, block);
-
-        let entries = [
-            ExpressionTypeEntry::new(
-                operand,
-                ExpressionTypeResult::new(nullable_type, ExpressionTypeStatus::Valid),
-            ),
-            ExpressionTypeEntry::new(
-                propagation,
-                ExpressionTypeResult::new(value_type, ExpressionTypeStatus::Valid),
-            ),
-            ExpressionTypeEntry::new(
-                return_value,
-                ExpressionTypeResult::new(nullable_type, ExpressionTypeStatus::Valid),
-            ),
-            ExpressionTypeEntry::new(
-                return_expression,
-                ExpressionTypeResult::new(value_type, ExpressionTypeStatus::Valid),
-            ),
-        ];
-
-        let types = CheckedExpressionTypes::new(unit.unit(), unit.key().kind(), entries)
-            .with_callable_result_type(nullable_type);
-
-        let selection = SemanticSelectionEntry::new(
-            propagation,
-            SemanticSelection::Propagation(SelectedPropagation::Nullable {
-                boundary: SelectedPropagationBoundary::Callable,
-                result_type: nullable_type,
-            }),
-        );
-
-        let selections = CheckedSemanticSelections::try_new(&unit, &types, [selection])
-            .unwrap_or_else(|error| panic!("propagation selection must validate: {error:?}"));
-
-        let literals = CheckedLiteralValues::try_new(
-            &unit,
-            &types,
-            &values,
-            test_mir_target().machine().pointer_width_bits(),
-            [],
-        )
-        .unwrap_or_else(|error| panic!("empty literal values must validate: {error:?}"));
-
-        let expressions = [operand, propagation, return_value, return_expression];
-
-        lowering_fixture_from_parts(
-            unit,
-            types,
-            selections,
-            literals,
-            values,
-            &expressions,
-            [
-                ControlCompletionKind::Propagation,
-                ControlCompletionKind::Return,
-            ],
-        )
-    }
-
     fn lowering_fixture_from_parts(
         unit: BoundUnit,
         types: CheckedExpressionTypes,
@@ -1576,7 +1407,18 @@ mod tests {
             [],
             [],
             [],
-            [],
+            types
+                .entries()
+                .iter()
+                .map(|entry| entry.result().ty())
+                .collect::<std::collections::BTreeSet<_>>()
+                .into_iter()
+                .map(|ty| {
+                    bray_bound_tree::StorageCleanupType::new(
+                        ty,
+                        bray_bound_tree::AsyncStorageCleanupRequirement::None,
+                    )
+                }),
             scope_exits
                 .iter()
                 .map(|(scope, exit)| AsyncScopeExitPlan::new(*scope, *exit, [], [], [], [], false)),

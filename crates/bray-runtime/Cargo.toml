@@ -19,6 +19,8 @@ bray-platform = {
 }
 bray-runtime-abi = { path = "../bray-runtime-abi" }
 bray-runtime-model = { path = "../bray-runtime-model" }
+triomphe = { version = "0.1.16", default-features = false, features = ["std"] }
+trybox = { version = "0.1.2", default-features = false }
 
 [dev-dependencies]
 bray-testing = { path = "../bray-testing" }

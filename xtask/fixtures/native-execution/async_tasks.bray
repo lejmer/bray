@@ -1,5 +1,6 @@
-module async_tasks;
+trusted module async_tasks;
 
+using std.memory;
 using std.task;
 using std.testing;
 
@@ -13,6 +14,21 @@ async func produce() -> Result<i32, i32>
     return Ok(42);
 }
 
+struct PendingPayload
+{
+    pending: Future<unit>;
+    value: i32;
+}
+
+func pending_payload() -> PendingPayload
+{
+    return PendingPayload
+    {
+        pending = complete(),
+        value = 42
+    };
+}
+
 @layout(c, align = 32)
 struct Payload
 {
@@ -21,14 +37,27 @@ struct Payload
     third: u64;
 }
 
-async func produce_payload() -> Payload
+trusted async func produce_payload() -> Payload
+    uses(intrinsic)
 {
-    return Payload
+    let payload: Payload = Payload
     {
         first = 17,
         second = 29,
         third = 41
     };
+
+    let before: usize = trusted core.target.expose_address<Payload>(std.memory.address_of<Payload>(&payload));
+
+    assert(before % 32 == 0, "payload frame must be aligned to 32 bytes");
+
+    await std.task.yield_now();
+
+    let after: usize = trusted core.target.expose_address<Payload>(std.memory.address_of<Payload>(&payload));
+
+    assert(after == before, "payload address must remain stable across yield");
+
+    return payload;
 }
 
 async func fail()
@@ -44,12 +73,14 @@ async func await_cancellation()
     }
 }
 
-async func main()
+trusted async func main()
+    uses(intrinsic)
 {
     let first: Task<unit> = complete().start();
     let second: Task<unit> = complete().start();
     let result_task: Task<Result<i32, i32>> = produce().start();
-    let payload_task: Task<Payload> = produce_payload().start();
+    let payload_future: Future<Payload> = trusted produce_payload();
+    let payload_task: Task<Payload> = payload_future.start();
     let failed: Task<unit> = fail().start();
     let cancelled: Task<unit> = await_cancellation().start();
 
@@ -58,13 +89,19 @@ async func main()
 
     let value: i32 = std.testing.assert_ok<i32, i32>(try await result_task.join());
 
-    assert(value == 42);
+    assert(value == 42, "task result must preserve its scalar payload");
 
     let payload: Payload = try await payload_task.join();
 
-    assert(payload.first == 17);
-    assert(payload.second == 29);
-    assert(payload.third == 41);
+    assert(payload.first == 17, "task result must preserve the first aligned field");
+    assert(payload.second == 29, "task result must preserve the second aligned field");
+    assert(payload.third == 41, "task result must preserve the third aligned field");
+
+    assert(pending_payload().value == 42, "projected temporary must evaluate its producer");
+
+    let borrowed: &PendingPayload = &pending_payload();
+
+    assert(borrowed.value == 42, "borrowed temporary must evaluate its producer");
 
     let _: PanicReport = std.testing.assert_panicked<unit>(await failed.join());
 

@@ -67,7 +67,10 @@ pub use directive::{
     CallableTypeDirectiveKey, DirectiveArgumentName, DirectiveArgumentTemplate,
     DirectiveAttachment, DirectiveKind, DirectiveSurface, DirectiveTemplate,
 };
-pub use evidence::{CallableContractEvidence, CallableContractObligation, CallableEvidenceOrigin};
+pub use evidence::{
+    CallableContractEvidence, CallableContractObligation, CallableEvidenceOrigin,
+    CallableEvidenceTarget, ResolvedCallableEvidenceTarget,
+};
 pub use execution::{
     CallableCapabilityRequirement, CallableEffectRequirement, CallableExecutionRequirement,
     CallablePhaseBehavior, CallablePhaseBehaviors, CurrentRunCancellation,

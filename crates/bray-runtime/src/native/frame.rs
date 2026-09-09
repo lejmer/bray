@@ -1,19 +1,20 @@
 use std::num::NonZeroUsize;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
+use triomphe::Arc;
 
 use bray_runtime_abi::{
     NativeFrameAffinity, NativeFrameExit, NativeFrameProgressKind, NativeLaneRequirements,
-    NativeProtectedFrame,
+    NativeProtectedFrame, NativeRuntimeStatus,
 };
 use bray_runtime_model::{
-    BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+    ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
     ProtectedFrameAffinity, ProtectedFrameDescriptor, ProtectedFrameLayout,
-    ProtectedFrameOperations, ProtectedFrameStateDescriptor, ProtectedFrameStateId,
-    RuntimeAbiVersion,
+    ProtectedFrameStateDescriptor, ProtectedFrameStateId, RuntimeAbiVersion,
 };
 
+use crate::incident::OwnedCleanupIncident;
 use crate::{
     FrameContext, FrameExit, FrameProgress, FrameSuspension, ProtectedFrame, RuntimePanic,
 };
@@ -35,11 +36,12 @@ pub(super) struct NativeFrame {
     descriptor: ProtectedFrameDescriptor,
     abi: NativeProtectedFrame,
     terminal: Arc<NativeTerminalState>,
+    completion: Option<NativeResultStorage>,
 }
 
 pub(super) struct NativeTerminalState {
     payload: Mutex<Option<NativeTerminalPayload>>,
-    cleanup_incidents: Mutex<Vec<Box<dyn std::any::Any + Send>>>,
+    cleanup_incidents: Mutex<Vec<OwnedCleanupIncident>>,
 }
 
 pub(super) enum NativeTerminalPayload {
@@ -48,12 +50,6 @@ pub(super) enum NativeTerminalPayload {
 }
 
 impl NativeTerminalPayload {
-    fn completion(size: usize, alignment: usize) -> Option<Self> {
-        NativeResultStorage::new(size, alignment)
-            .ok()
-            .map(Self::Completion)
-    }
-
     pub(super) fn handle(&self) -> usize {
         match self {
             Self::Completion(storage) => storage.address(),
@@ -64,20 +60,32 @@ impl NativeTerminalPayload {
 
 impl NativeFrame {
     pub(super) fn checked_descriptor(
-        abi: &NativeProtectedFrame,
-    ) -> Option<ProtectedFrameDescriptor> {
-        let alignment = NonZeroUsize::new(abi.alignment())?;
+        abi: &bray_runtime_abi::NativeFrameMetadata,
+    ) -> Result<ProtectedFrameDescriptor, NativeRuntimeStatus> {
+        if abi.state_count() == 0 {
+            return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
+        }
 
-        let completion_alignment = NonZeroUsize::new(abi.completion_alignment())?;
+        let alignment =
+            NonZeroUsize::new(abi.alignment()).ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
-        let layout = ProtectedFrameLayout::try_new(abi.size(), alignment).ok()?;
+        let completion_alignment = NonZeroUsize::new(abi.completion_alignment())
+            .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
+
+        let layout = ProtectedFrameLayout::try_new(abi.size(), alignment)
+            .map_err(|_| NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
         let completion_layout =
-            ProtectedFrameLayout::try_new(abi.completion_size(), completion_alignment).ok()?;
+            ProtectedFrameLayout::try_new(abi.completion_size(), completion_alignment)
+                .map_err(|_| NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
         let states = states(abi)?;
-        let operations = operations(abi.identity())?;
         let version = RuntimeAbiVersion::CURRENT;
+
+        #[cfg(test)]
+        if crate::test_support::allocation_should_fail() {
+            return Err(NativeRuntimeStatus::ALLOCATION_FAILURE);
+        }
 
         ProtectedFrameDescriptor::try_new(
             ProtectedAsyncFrameId::new(abi.identity()),
@@ -85,22 +93,33 @@ impl NativeFrame {
             ProtectedFrameAbiVersions::uniform(version),
             layout,
             completion_layout,
-            operations,
             states,
         )
-        .ok()
+        .map_err(|error| match error {
+            bray_runtime_model::ProtectedFrameDescriptorBuildError::AllocationFailed => {
+                NativeRuntimeStatus::ALLOCATION_FAILURE
+            }
+            bray_runtime_model::ProtectedFrameDescriptorBuildError::MissingState
+            | bray_runtime_model::ProtectedFrameDescriptorBuildError::NonContiguousState
+            | bray_runtime_model::ProtectedFrameDescriptorBuildError::DuplicateState
+            | bray_runtime_model::ProtectedFrameDescriptorBuildError::IdentityCapacityExceeded => {
+                NativeRuntimeStatus::INVALID_ARGUMENT
+            }
+        })
     }
 
-    pub(super) fn new(abi: NativeProtectedFrame, descriptor: ProtectedFrameDescriptor) -> Self {
+    pub(super) fn new(
+        abi: NativeProtectedFrame,
+        descriptor: ProtectedFrameDescriptor,
+        completion: NativeResultStorage,
+        terminal: Arc<NativeTerminalState>,
+    ) -> Self {
         Self {
             descriptor,
             abi,
-            terminal: Arc::new(NativeTerminalState::new()),
+            terminal,
+            completion: Some(completion),
         }
-    }
-
-    pub(super) fn terminal_state(&self) -> Arc<NativeTerminalState> {
-        self.terminal.clone()
     }
 
     fn record_terminal_payload(&self, payload: NativeTerminalPayload) {
@@ -113,6 +132,15 @@ impl NativeFrame {
 }
 
 impl NativeTerminalState {
+    pub(super) fn reserve() -> Result<Arc<Self>, NativeRuntimeStatus> {
+        #[cfg(test)]
+        if crate::test_support::allocation_should_fail() {
+            return Err(NativeRuntimeStatus::ALLOCATION_FAILURE);
+        }
+
+        Arc::try_new(Self::new()).map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)
+    }
+
     pub(super) const fn new() -> Self {
         Self {
             payload: Mutex::new(None),
@@ -120,7 +148,7 @@ impl NativeTerminalState {
         }
     }
 
-    pub(super) fn record_cleanup_incident(&self, payload: Box<dyn std::any::Any + Send>) {
+    pub(super) fn record_cleanup_incident(&self, payload: OwnedCleanupIncident) {
         self.cleanup_incidents
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -143,7 +171,7 @@ impl NativeTerminalState {
         retained.take().map(|payload| payload.handle())
     }
 
-    pub(super) fn take_cleanup_incidents(&self) -> Vec<Box<dyn std::any::Any + Send>> {
+    pub(super) fn take_cleanup_incidents(&self) -> Vec<OwnedCleanupIncident> {
         std::mem::take(
             &mut *self
                 .cleanup_incidents
@@ -157,12 +185,7 @@ impl NativeTerminalState {
 
         incidents.reverse();
 
-        incidents.retain_mut(|payload| {
-            let Some(incident) = payload.downcast_mut::<crate::incident::OwnedCleanupIncident>()
-            else {
-                return true;
-            };
-
+        incidents.retain_mut(|incident| {
             let Some(combined) = incident.attach_to_report(primary) else {
                 return true;
             };
@@ -203,11 +226,8 @@ impl NativeTerminalState {
             let primary = incidents
                 .iter_mut()
                 .enumerate()
-                .find_map(|(index, payload)| {
-                    payload
-                        .downcast_mut::<crate::incident::OwnedCleanupIncident>()?
-                        .take_panic_report()
-                        .map(|report| (index, report))
+                .find_map(|(index, incident)| {
+                    incident.take_panic_report().map(|report| (index, report))
                 });
 
             primary.map(|(index, report)| {
@@ -235,7 +255,7 @@ impl ProtectedFrame for NativeFrame {
         &self.descriptor
     }
 
-    fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output> {
+    fn resume(mut self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<Self::Output> {
         let progress = if context.cancellation_requested() {
             self.abi.cancel()(self.abi.context())
         } else {
@@ -275,17 +295,17 @@ impl ProtectedFrame for NativeFrame {
         }
 
         if kind == NativeFrameProgressKind::COMPLETED {
-            let Some(payload) = NativeTerminalPayload::completion(
-                self.abi.completion_size(),
-                self.abi.completion_alignment(),
-            ) else {
+            let Some(storage) = self.completion.take() else {
                 return FrameProgress::RuntimeFailure;
             };
+
+            let payload = NativeTerminalPayload::Completion(storage);
 
             if let Err(incident) = catch_unwind(AssertUnwindSafe(|| {
                 self.abi.move_completion()(self.abi.context(), payload.handle());
             })) {
-                self.terminal.record_cleanup_incident(incident);
+                self.terminal
+                    .record_cleanup_incident(OwnedCleanupIncident::host(incident));
 
                 return FrameProgress::RuntimeFailure;
             }
@@ -303,7 +323,7 @@ impl ProtectedFrame for NativeFrame {
         if kind == NativeFrameProgressKind::PANICKED {
             self.record_terminal_payload(NativeTerminalPayload::Opaque(progress.payload()));
 
-            return FrameProgress::Panicked(RuntimePanic::new(progress.payload()));
+            return FrameProgress::Panicked(RuntimePanic::from_native_handle(progress.payload()));
         }
 
         FrameProgress::RuntimeFailure
@@ -313,7 +333,8 @@ impl ProtectedFrame for NativeFrame {
         if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
             self.abi.broadcast_tasks()(self.abi.context());
         })) {
-            self.terminal.record_cleanup_incident(payload);
+            self.terminal
+                .record_cleanup_incident(OwnedCleanupIncident::host(payload));
         }
     }
 
@@ -328,7 +349,8 @@ impl ProtectedFrame for NativeFrame {
         if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
             (self.abi.resolve_lifecycle())(self.abi.context(), exit);
         })) {
-            self.terminal.record_cleanup_incident(payload);
+            self.terminal
+                .record_cleanup_incident(OwnedCleanupIncident::host(payload));
         }
     }
 }
@@ -338,27 +360,46 @@ impl Drop for NativeFrame {
         if let Err(payload) = catch_unwind(AssertUnwindSafe(|| {
             self.abi.destroy()(self.abi.context());
         })) {
-            self.terminal.record_cleanup_incident(payload);
+            self.terminal
+                .record_cleanup_incident(OwnedCleanupIncident::host(payload));
         }
     }
 }
 
-fn states(abi: &NativeProtectedFrame) -> Option<Vec<ProtectedFrameStateDescriptor>> {
-    (0..abi.state_count())
-        .map(|state| {
-            let native = abi.state()(abi.context(), state);
-            let affinity = affinity(native.affinity())?;
-            let requirements = lane_requirements(native.lane_requirements())?;
+fn states(
+    abi: &bray_runtime_abi::NativeFrameMetadata,
+) -> Result<Vec<ProtectedFrameStateDescriptor>, NativeRuntimeStatus> {
+    let count =
+        usize::try_from(abi.state_count()).map_err(|_| NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
-            Some(ProtectedFrameStateDescriptor::new(
-                ProtectedFrameStateId::new(state),
-                requirements,
-                [],
-                [],
-                affinity,
-            ))
-        })
-        .collect()
+    let mut states = Vec::new();
+
+    #[cfg(test)]
+    if crate::test_support::allocation_should_fail() {
+        return Err(NativeRuntimeStatus::ALLOCATION_FAILURE);
+    }
+
+    states
+        .try_reserve_exact(count)
+        .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
+
+    for state in 0..abi.state_count() {
+        let native = abi.state()(state);
+        let affinity = affinity(native.affinity()).ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
+
+        let requirements = lane_requirements(native.lane_requirements())
+            .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
+
+        states.push(ProtectedFrameStateDescriptor::new(
+            ProtectedFrameStateId::new(state),
+            requirements,
+            [],
+            [],
+            affinity,
+        ));
+    }
+
+    Ok(states)
 }
 
 pub(super) struct NativeFrameTransfer {
@@ -416,7 +457,9 @@ fn affinity(native: NativeFrameAffinity) -> Option<ProtectedFrameAffinity> {
     ProtectedFrameAffinity::from_code(native.code())
 }
 
-fn lane_requirements(native: NativeLaneRequirements) -> Option<Vec<ExecutionLaneRequirement>> {
+fn lane_requirements(
+    native: NativeLaneRequirements,
+) -> Option<impl Iterator<Item = ExecutionLaneRequirement>> {
     let known = NativeLaneRequirements::BLOCKING.bits()
         | NativeLaneRequirements::COMPUTE.bits()
         | NativeLaneRequirements::MAIN_THREAD.bits();
@@ -425,52 +468,19 @@ fn lane_requirements(native: NativeLaneRequirements) -> Option<Vec<ExecutionLane
         return None;
     }
 
-    let mut requirements = Vec::new();
+    Some(
+        ExecutionLaneRequirement::ALL
+            .into_iter()
+            .filter(move |requirement| {
+                let flag = match requirement {
+                    ExecutionLaneRequirement::Blocking => NativeLaneRequirements::BLOCKING,
+                    ExecutionLaneRequirement::Compute => NativeLaneRequirements::COMPUTE,
+                    ExecutionLaneRequirement::MainThread => NativeLaneRequirements::MAIN_THREAD,
+                };
 
-    if native.bits() & NativeLaneRequirements::BLOCKING.bits() != 0 {
-        requirements.push(ExecutionLaneRequirement::Blocking);
-    }
-
-    if native.bits() & NativeLaneRequirements::COMPUTE.bits() != 0 {
-        requirements.push(ExecutionLaneRequirement::Compute);
-    }
-
-    if native.bits() & NativeLaneRequirements::MAIN_THREAD.bits() != 0 {
-        requirements.push(ExecutionLaneRequirement::MainThread);
-    }
-
-    Some(requirements)
-}
-
-fn operations(identity: [u8; 32]) -> Option<ProtectedFrameOperations> {
-    let prefix = frame_symbol_prefix(identity);
-
-    Some(ProtectedFrameOperations::new(
-        operation_symbol(&prefix, "move_before_start")?,
-        operation_symbol(&prefix, "state_description")?,
-        operation_symbol(&prefix, "resume")?,
-        operation_symbol(&prefix, "cancellation_entry")?,
-        operation_symbol(&prefix, "task_broadcast")?,
-        operation_symbol(&prefix, "lifecycle_resolution")?,
-        operation_symbol(&prefix, "completion_move")?,
-        operation_symbol(&prefix, "destruction")?,
-    ))
-}
-
-fn frame_symbol_prefix(identity: [u8; 32]) -> String {
-    let mut prefix = String::from("bray_frame_");
-
-    for byte in identity {
-        use std::fmt::Write as _;
-
-        let _ = write!(prefix, "{byte:02x}");
-    }
-
-    prefix
-}
-
-fn operation_symbol(prefix: &str, operation: &str) -> Option<BinarySymbolName> {
-    BinarySymbolName::try_new(format!("{prefix}_{operation}"))
+                native.bits() & flag.bits() != 0
+            }),
+    )
 }
 
 #[cfg(test)]
@@ -486,6 +496,79 @@ mod tests {
     use super::{NativeTerminalPayload, NativeTerminalState};
     use crate::incident::OwnedCleanupIncident;
     use crate::{RunOutcome, RuntimePanic};
+
+    #[test]
+    fn completion_moves_into_admitted_storage_without_allocating_a_new_destination() {
+        use std::pin::Pin;
+
+        use bray_runtime_abi::{
+            NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind, NativeProtectedFrame,
+        };
+
+        use crate::{FrameContext, FrameProgress, ProtectedFrame};
+
+        extern "C-unwind" fn resume(_: usize) -> NativeFrameProgress {
+            NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0)
+        }
+
+        extern "C-unwind" fn action(_: usize) {}
+        extern "C-unwind" fn resolve(_: usize, _: NativeFrameExit) {}
+
+        extern "C-unwind" fn move_completion(expected: usize, destination: usize) {
+            assert_eq!(destination, expected);
+        }
+
+        let metadata = bray_runtime_abi::NativeFrameMetadata::new(
+            [83; 32],
+            1,
+            8,
+            8,
+            64,
+            64,
+            crate::test_support::native_movable_frame_state,
+        );
+
+        let descriptor = super::NativeFrame::checked_descriptor(&metadata).unwrap();
+        let completion = super::NativeResultStorage::new(64, 64).unwrap();
+        let address = completion.address();
+
+        let abi = NativeProtectedFrame::new(
+            address,
+            metadata,
+            resume,
+            resume,
+            action,
+            resolve,
+            move_completion,
+            action,
+        );
+
+        let terminal = NativeTerminalState::reserve().unwrap();
+
+        let mut frame =
+            super::NativeFrame::new(abi, descriptor, completion, triomphe::Arc::clone(&terminal));
+
+        assert!(matches!(
+            crate::test_support::with_allocation_failure(|| {
+                Pin::new(&mut frame).resume(FrameContext::new(false))
+            }),
+            FrameProgress::Completed(result) if result == address
+        ));
+
+        assert!(frame.completion.is_none());
+
+        assert_eq!(
+            terminal.payload.lock().unwrap().as_ref().unwrap().handle(),
+            address
+        );
+
+        drop(frame);
+
+        assert_eq!(
+            terminal.payload.lock().unwrap().as_ref().unwrap().handle(),
+            address
+        );
+    }
 
     #[test]
     fn terminal_panics_own_cleanup_errors_and_suppressed_reports_until_destruction() {
@@ -549,11 +632,10 @@ mod tests {
                 callbacks,
             );
 
-            terminal
-                .record_cleanup_incident(Box::new(OwnedCleanupIncident::native(incident).unwrap()));
+            terminal.record_cleanup_incident(OwnedCleanupIncident::native(incident).unwrap());
         }
 
-        let mut panic = RuntimePanic::new(64_usize);
+        let mut panic = RuntimePanic::from_native_handle(64);
 
         panic.push_suppressed(Box::new(
             OwnedCleanupIncident::boundary(NativeBrayCallOutcome::panicked(16).unwrap(), callbacks)
@@ -582,7 +664,9 @@ mod tests {
 
     #[test]
     fn a_completion_allocation_is_never_used_as_a_panic_report() {
-        let completion = NativeTerminalPayload::completion(8, 8).unwrap();
+        let completion =
+            NativeTerminalPayload::Completion(super::NativeResultStorage::new(8, 8).unwrap());
+
         let address = completion.handle();
 
         let terminal = NativeTerminalState {
@@ -642,8 +726,7 @@ mod tests {
                 crate::test_support::panic_callbacks(report, report),
             );
 
-            terminal
-                .record_cleanup_incident(Box::new(OwnedCleanupIncident::native(incident).unwrap()));
+            terminal.record_cleanup_incident(OwnedCleanupIncident::native(incident).unwrap());
 
             assert_eq!(
                 super::super::state::task_outcome(run, &terminal).unwrap(),
@@ -661,7 +744,7 @@ mod tests {
             assert_eq!(pending.len(), 1);
 
             for incident in pending {
-                sink.transfer_erased(
+                sink.transfer_owned(
                     crate::CleanupIncidentProducer::SynchronousRoot,
                     origin,
                     incident,

@@ -1,9 +1,8 @@
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Duration;
 
-use bray_platform::{MonotonicClock, MonotonicDeadline, MonotonicInstant};
-use bray_runtime_model::ProtectedFrameStateId;
+use bray_platform::{MonotonicClock, MonotonicDeadline, MonotonicInstant, RuntimeThreadId};
+use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId};
 
 use crate::lane::select_execution_lane;
 use crate::{
@@ -16,10 +15,11 @@ use super::engine::{DispatchState, ReadyTask, RegisteredTask, SchedulerData, Sch
 
 pub(super) fn select_task_lane(
     scheduler: &SchedulerData,
-    task: &RegisteredTask,
+    descriptor: &ProtectedFrameDescriptor,
+    origin: RuntimeThreadId,
     state_id: ProtectedFrameStateId,
 ) -> Result<ExecutionLane, SchedulerError> {
-    let Some(frame_state) = task.descriptor.state(state_id) else {
+    let Some(frame_state) = descriptor.state(state_id) else {
         return Err(SchedulerError::UnknownFrameState(state_id));
     };
 
@@ -27,7 +27,7 @@ pub(super) fn select_task_lane(
         frame_state.lane_requirements(),
         frame_state.affinity(),
         &scheduler.capabilities,
-        task.origin,
+        origin,
         scheduler.main_thread,
     )
     .map_err(Into::into)
@@ -39,7 +39,7 @@ pub(super) fn pop_ready(
     lane: ExecutionLane,
 ) -> Option<ReadyTask> {
     loop {
-        let queued = state.queues.get_mut(&lane)?.pop_front()?;
+        let queued = state.ready.pop(state.queues.get_mut(&lane)?)?;
 
         let Some(task) = state.tasks.get_mut(&queued.task) else {
             continue;
@@ -73,13 +73,22 @@ pub(super) fn scheduler_snapshot(
     state: &SchedulerState,
 ) -> Result<SchedulerSnapshot, SchedulerError> {
     let now = scheduler.observe_queue_time.then(|| MonotonicClock.now());
-    let queued = queued_observations(state, now);
 
     let tasks = state
         .tasks
         .iter()
         .map(|(&task_id, task)| {
-            scheduled_task_snapshot(scheduler, task_id, task, queued.get(&task_id).copied())
+            let queued = state
+                .ready
+                .queued(task.ready_slot)
+                .map(|queued| QueuedObservation {
+                    cause: queued.cause,
+                    age: now
+                        .zip(queued.queued_at)
+                        .map(|(now, queued_at)| now.elapsed_since(queued_at)),
+                });
+
+            scheduled_task_snapshot(scheduler, task_id, task, queued)
         })
         .collect::<Result<Vec<_>, _>>()?;
 
@@ -107,30 +116,6 @@ struct QueuedObservation {
     age: Option<Duration>,
 }
 
-fn queued_observations(
-    state: &SchedulerState,
-    now: Option<MonotonicInstant>,
-) -> BTreeMap<TaskId, QueuedObservation> {
-    state
-        .queues
-        .values()
-        .flatten()
-        .map(|queued| {
-            let age = now
-                .zip(queued.queued_at)
-                .map(|(now, queued_at)| now.elapsed_since(queued_at));
-
-            (
-                queued.task,
-                QueuedObservation {
-                    cause: queued.cause,
-                    age,
-                },
-            )
-        })
-        .collect()
-}
-
 fn scheduled_task_snapshot(
     scheduler: &SchedulerData,
     task_id: TaskId,
@@ -152,7 +137,7 @@ fn scheduled_task_snapshot(
         ),
     };
 
-    let lane = select_task_lane(scheduler, task, state)?;
+    let lane = select_task_lane(scheduler, &task.descriptor, task.origin, state)?;
 
     let Some(frame_state) = task.descriptor.state(state) else {
         return Err(SchedulerError::UnknownFrameState(state));

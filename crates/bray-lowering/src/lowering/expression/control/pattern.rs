@@ -179,6 +179,7 @@ impl Lowerer<'_> {
         };
 
         let destination = self.place_for_identity(identity, checked.input_type(), origin)?;
+        let value = self.checked_pattern_consumption(pattern, value, None)?;
 
         self.push_operation(
             current,
@@ -577,7 +578,9 @@ impl Lowerer<'_> {
             return Ok(());
         }
 
-        let value = match binding_type.projection().filter(|_| apply_projection) {
+        let projection = binding_type.projection().filter(|_| apply_projection);
+
+        let value = match projection {
             Some(projection) => {
                 if let Some(place) =
                     projected_pattern_place(&subject, projection, binding_type.ty())
@@ -611,6 +614,12 @@ impl Lowerer<'_> {
             None => subject,
         };
 
+        let value = if operation == PatternOperation::Consume {
+            self.checked_pattern_consumption(pattern, value, projection)?
+        } else {
+            value
+        };
+
         let destination = match storage {
             StorageBinding::Identity(identity) => {
                 if !self.guard_bindings.is_empty() {
@@ -642,6 +651,56 @@ impl Lowerer<'_> {
         Ok(())
     }
 
+    fn checked_pattern_consumption(
+        &self,
+        pattern: BoundPatternId,
+        subject: MirOperand,
+        projection: Option<PatternProjection>,
+    ) -> Result<MirOperand, LoweringError> {
+        let (MirOperand::Copy(place) | MirOperand::Move(place)) = subject else {
+            return Ok(subject);
+        };
+
+        let storage = self.input.storage_plan();
+
+        let Some(StorageBinding::Access(access)) =
+            storage.binding(StorageBindingTarget::PatternSubject(pattern))
+        else {
+            return Err(LoweringError::UnsupportedPattern(pattern));
+        };
+
+        let projection = projection.map(bray_bound_tree::StorageProjection::from);
+
+        let decision = self
+            .input
+            .storage_flow()
+            .operations()
+            .iter()
+            .copied()
+            .find(|decision| {
+                decision.node() == pattern.into()
+                    && matches!(
+                        decision.purpose(),
+                        bray_bound_tree::StorageAccessPurpose::Read
+                            | bray_bound_tree::StorageAccessPurpose::Copy
+                            | bray_bound_tree::StorageAccessPurpose::Move
+                            | bray_bound_tree::StorageAccessPurpose::ValueTransfer
+                    )
+                    && storage.projected_relationship(
+                        access,
+                        projection.as_slice(),
+                        decision.access(),
+                    ) == bray_bound_tree::StorageRelationship::Identical
+            })
+            .ok_or(LoweringError::UnsupportedPattern(pattern))?;
+
+        if decision.status() != bray_bound_tree::StorageOperationStatus::Valid {
+            return Err(LoweringError::RecoveredBoundNode(pattern.into()));
+        }
+
+        self.checked_place_operand(place, decision)
+    }
+
     pub(super) fn pattern_place_operand(
         &mut self,
         pattern: BoundPatternId,
@@ -654,37 +713,14 @@ impl Lowerer<'_> {
             .pattern(pattern)
             .ok_or(LoweringError::UnsupportedPattern(pattern))?;
 
-        match check.operation() {
-            PatternOperation::Consume => Ok(MirOperand::Move(place)),
-            PatternOperation::Observe | PatternOperation::Copy => Ok(MirOperand::Copy(place)),
-            PatternOperation::SharedBorrow | PatternOperation::MutableBorrow => {
-                let kind = match check.operation() {
-                    PatternOperation::SharedBorrow => BorrowKind::Shared,
-                    PatternOperation::MutableBorrow => BorrowKind::Mutable,
-                    PatternOperation::Observe
-                    | PatternOperation::Consume
-                    | PatternOperation::Copy
-                    | PatternOperation::Recovered => {
-                        return Err(LoweringError::UnsupportedPattern(pattern));
-                    }
-                };
-
-                let source = self.source(self.pattern(pattern)?.origin());
-
-                let result = self.push_operation(
-                    current,
-                    source,
-                    MirOperationKind::Borrow { kind, place },
-                    Some(check.input_type()),
-                )?;
-
-                result
-                    .result()
-                    .map(MirOperand::Value)
-                    .ok_or(LoweringError::UnsupportedPattern(pattern))
-            }
-            PatternOperation::Recovered => Err(LoweringError::UnsupportedPattern(pattern)),
-        }
+        self.pattern_projected_place_operand(
+            pattern,
+            place,
+            current,
+            check.operation(),
+            self.source(self.pattern(pattern)?.origin()),
+            check.input_type(),
+        )
     }
 
     fn pattern_operation(

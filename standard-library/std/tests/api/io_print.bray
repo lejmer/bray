@@ -404,14 +404,14 @@ func extracting_a_buffered_sink_preserves_ownership_and_partial_progress()
 
     assert(written == 4);
 
-    let (after_drain, drain_error) = std.testing.assert_error<
+    let (mut after_drain, drain_error) = std.testing.assert_error<
         RecoveringWriter,
         (std.io.BufferedWriter<RecoveringWriter>, std.io.IoError)
     >(writer.into_sink());
 
     assert(drain_error.transferred == 2);
 
-    let (after_flush, flush_error) = std.testing.assert_error<
+    let (mut after_flush, flush_error) = std.testing.assert_error<
         RecoveringWriter,
         (std.io.BufferedWriter<RecoveringWriter>, std.io.IoError)
     >(after_drain.into_sink());

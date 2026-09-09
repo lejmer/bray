@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 use std::io::Write;
-use std::sync::Arc;
+use triomphe::Arc;
 
 use bray_runtime_abi::{
     NativeCleanupIncident, NativeRunOutcome, NativeRuntimeStatus, NativeSourceAnchor,
@@ -46,7 +46,7 @@ pub(super) fn retain_cleanup_incident(
             return Err(incident);
         };
 
-        owner.record_cleanup_incident(Box::new(incident));
+        owner.record_cleanup_incident(incident);
 
         Ok(())
     })
@@ -72,7 +72,9 @@ pub(super) fn retain_cleanup_incidents(incidents: Vec<crate::incident::OwnedClea
 
         for incident in incidents {
             if let Err(incident) = retain_cleanup_incident(incident) {
-                runtime.cleanup_reports.transfer(producer, origin, incident);
+                runtime
+                    .cleanup_reports
+                    .transfer_owned(producer, origin, incident);
             }
         }
     })
@@ -84,23 +86,11 @@ pub(crate) fn with_cleanup_incident_owner<T>(
 ) -> (T, Vec<crate::incident::OwnedCleanupIncident>) {
     let terminal = Arc::new(NativeTerminalState::new());
     let owner = IncidentOwnerScope::enter(&terminal);
-    let result = callback(&|incident| terminal.record_cleanup_incident(Box::new(incident)));
+    let result = callback(&|incident| terminal.record_cleanup_incident(incident));
 
     drop(owner);
 
-    let incidents = terminal
-        .take_cleanup_incidents()
-        .into_iter()
-        .map(|payload| {
-            payload
-                .downcast::<crate::incident::OwnedCleanupIncident>()
-                .map_or_else(crate::incident::OwnedCleanupIncident::panic, |incident| {
-                    *incident
-                })
-        })
-        .collect();
-
-    (result, incidents)
+    (result, terminal.take_cleanup_incidents())
 }
 
 native_export! {
@@ -186,7 +176,7 @@ pub(super) fn finish_synchronous_incidents(
         }
 
         for incident in incidents.into_iter().rev() {
-            reports.transfer_erased(
+            reports.transfer_owned(
                 CleanupIncidentProducer::SynchronousRoot,
                 CleanupIncidentOrigin::SynchronousRoot,
                 incident,
@@ -220,7 +210,7 @@ pub(super) fn report_cleanup_incidents(reports: &CleanupReportSink) -> NativeRun
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
-    use std::sync::Arc;
+    use triomphe::Arc;
 
     use bray_runtime_abi::{
         NativeBrayCallOutcome, NativeCleanupIncident, NativePanicReportCallbacks, NativeRunOutcome,
@@ -589,9 +579,9 @@ mod tests {
             let scope = IncidentOwnerScope::enter(&terminal);
             let callbacks = incident(7).panics();
 
-            terminal.record_cleanup_incident(Box::new(
+            terminal.record_cleanup_incident(
                 crate::incident::OwnedCleanupIncident::native(incident(7)).unwrap(),
-            ));
+            );
 
             for payload in [32, 48] {
                 assert!(

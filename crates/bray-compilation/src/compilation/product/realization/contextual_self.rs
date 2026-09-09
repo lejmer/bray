@@ -1,8 +1,7 @@
 use bray_binder::{BindingQueryContext, SymbolQueryProvider};
 use bray_symbols::{
-    ExactSymbolId, GenericSubstitutionId, ImplementationCoherenceQuery, ImplementationSymbolId,
-    SelfTypeContext, SemanticValueStore, SymbolQueryRequest, TraitApplicationId, TraitSymbolId,
-    TypeId,
+    ExactSymbolId, ImplementationCoherenceQuery, ImplementationSymbolId, SelfTypeContext,
+    SymbolQueryRequest, TraitSymbolId, TypeId,
 };
 
 use super::super::super::binder::{CompilationBindingContext, binding_query_error};
@@ -10,48 +9,6 @@ use super::super::super::implementation::implementation_instance_requirement;
 use super::super::specialization::ConcreteCodegenInstance;
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::FactQueryError;
-
-pub(in crate::compilation::product) fn substitute_contextual_self(
-    values: &SemanticValueStore,
-    ty: TypeId,
-    substitution: Option<(SelfTypeContext, TypeId)>,
-) -> Result<TypeId, FactQueryError> {
-    let Some((context, replacement)) = substitution else {
-        return Ok(ty);
-    };
-
-    values
-        .substitute_contextual_self(ty, context, replacement)
-        .map_err(FactQueryError::SemanticValueStore)
-}
-
-pub(in crate::compilation::product) fn substitute_contextual_self_in_application(
-    values: &SemanticValueStore,
-    application: TraitApplicationId,
-    substitution: Option<(SelfTypeContext, TypeId)>,
-) -> Result<TraitApplicationId, FactQueryError> {
-    let Some((context, replacement)) = substitution else {
-        return Ok(application);
-    };
-
-    values
-        .substitute_contextual_self_in_application(application, context, replacement)
-        .map_err(FactQueryError::SemanticValueStore)
-}
-
-pub(in crate::compilation::product) fn substitute_contextual_self_in_substitution(
-    values: &SemanticValueStore,
-    substitution: GenericSubstitutionId,
-    contextual_self: Option<(SelfTypeContext, TypeId)>,
-) -> Result<GenericSubstitutionId, FactQueryError> {
-    let Some((context, replacement)) = contextual_self else {
-        return Ok(substitution);
-    };
-
-    values
-        .substitute_contextual_self_in_substitution(substitution, context, replacement)
-        .map_err(FactQueryError::SemanticValueStore)
-}
 
 pub(in crate::compilation::product) fn codegen_instance_contextual_self(
     binding_context: &CompilationBindingContext<'_>,
@@ -141,47 +98,4 @@ pub(super) fn implementation_subject(
         ))
         .map(|coherence| coherence.value().subject())
         .map_err(binding_query_error)
-}
-
-#[cfg(test)]
-mod tests {
-    use bray_symbols::{
-        ImplementationSymbolId, InherentImplementationSymbolId, SelfTypeContext,
-        SemanticValueStore, SymbolId, TypeData,
-    };
-
-    use super::substitute_contextual_self;
-
-    #[test]
-    fn codegen_contextual_self_substitution_reaches_nested_type_forms() {
-        let values = SemanticValueStore::try_new()
-            .unwrap_or_else(|error| panic!("test semantic values must initialize: {error:?}"));
-
-        let implementation = ImplementationSymbolId::Inherent(
-            InherentImplementationSymbolId::from_symbol_id(SymbolId::new(1)),
-        );
-
-        let context = SelfTypeContext::Implementation(implementation);
-
-        let contextual = values
-            .intern_type(TypeData::ContextualSelf(context))
-            .unwrap_or_else(|error| panic!("test contextual type must intern: {error:?}"));
-
-        let nested = values
-            .intern_type(TypeData::Nullable(contextual))
-            .unwrap_or_else(|error| panic!("test nested type must intern: {error:?}"));
-
-        let replacement = values
-            .intern_type(TypeData::tuple([]))
-            .unwrap_or_else(|error| panic!("test replacement type must intern: {error:?}"));
-
-        let substituted = substitute_contextual_self(&values, nested, Some((context, replacement)))
-            .unwrap_or_else(|error| panic!("test contextual type must substitute: {error:?}"));
-
-        let data = values
-            .type_data(substituted)
-            .unwrap_or_else(|error| panic!("test substituted type must resolve: {error:?}"));
-
-        assert_eq!(data.as_ref(), &TypeData::Nullable(replacement));
-    }
 }

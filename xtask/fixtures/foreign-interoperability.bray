@@ -1,5 +1,5 @@
 @link(name = "bray_foreign_fixture")
-module interoperability;
+trusted module interoperability;
 
 using std.dynamic;
 using std.ffi;
@@ -102,6 +102,7 @@ struct NativeResource
 {
     internal handle_value: u64;
     internal mut is_owned_value: bool;
+    predicate complete(value: &Self) = !value.is_owned_value;
 
     trusted construct(pos succeed: bool) -> Result<Self, NativeResourceError>
         uses(foreign_call)
@@ -122,12 +123,26 @@ struct NativeResource
     }
 
     trusted finalize() -> Result<unit, NativeResourceError>
+        when(Self.complete(&self))
+        {
+            executes(pure, total)
+            ensures(result matches Ok(_))
+        }
     {
+        if !self.is_owned_value
+        {
+            return Ok(unit);
+        }
+
         return trusted release_native_resource(&mut self, fail = false);
     }
 
     trusted destruct()
         uses(foreign_call)
+        when(Self.complete(&self))
+        {
+            executes(pure, total)
+        }
     {
         if self.is_owned_value
         {
@@ -164,18 +179,24 @@ struct NativeResource
     }
 
     trusted consume mut func transfer() -> Result<u64, NativeResourceError>
+        ensures(Self.complete(&self))
     {
-        if !self.is_owned_value
+        let result: Result<u64, NativeResourceError> = if self.is_owned_value
         {
-            return Error(NativeResourceError.Invalid);
+            yield Ok(self.handle_value);
         }
+        else
+        {
+            yield Error(NativeResourceError.Invalid);
+        };
 
         self.is_owned_value = false;
 
-        return Ok(self.handle_value);
+        return result;
     }
 
-    trusted consume mut func close(pos fail: bool) -> Result<unit, NativeResourceError>
+    trusted mut func close(pos fail: bool) -> Result<unit, NativeResourceError>
+        ensures((result matches Error(_)) || Self.complete(&self))
     {
         return trusted release_native_resource(&mut self, fail = fail);
     }
@@ -186,6 +207,7 @@ trusted func release_native_resource(
     pos fail: bool,
 ) -> Result<unit, NativeResourceError>
     uses(foreign_call)
+    ensures((result matches Error(_)) || NativeResource.complete(&resource))
 {
     if !resource.is_owned_value
     {
@@ -388,17 +410,29 @@ trusted func audit_resources()
         let _: NativeResourceError = std.testing.assert_error<unit, NativeResourceError>(
             trusted failed.close(fail = true),
         );
+
+        assert(failed.is_owned());
+        assert(trusted native_resource_live_count() == 2);
+        match trusted failed.close(fail = false)
+        {
+            case Ok(_) {}
+            case Error(_) { panic("resource close retry failed"); }
+        }
     }
 
     assert(trusted native_resource_live_count() == 1);
 
-    std.testing.assert_ok<unit, NativeResourceError>(trusted owner.close(fail = false));
+    match trusted owner.close(fail = false)
+    {
+        case Ok(_) {}
+        case Error(_) { panic("resource close failed"); }
+    }
 
     assert(trusted native_resource_live_count() == 0);
 }
 
 trusted func audit_callbacks()
-    uses(foreign_call, manual_alloc, raw_memory, unchecked_init)
+    uses(foreign_call)
 {
     let plain: @abi(c)
     trusted func(pos value: i32) -> i32 = plain_callback;
@@ -431,7 +465,6 @@ trusted func audit_callbacks()
 
 trusted func audit_dynamic_library()
     requires(blocking_execution())
-    uses(foreign_call, layout_reinterpret)
 {
     let path: std.path.Path = std.testing.assert_ok<std.path.Path, std.path.PathError>(
         std.path.Path.from_string(&"__SHARED_LIBRARY_PATH__"),

@@ -3,7 +3,7 @@ use std::num::NonZeroUsize;
 use bray_platform::PlatformError;
 use bray_runtime_model::ProtectedFrameStateId;
 
-use crate::{ExecutionLaneSelectionError, TaskId};
+use crate::{ExecutionLane, ExecutionLaneSelectionError, TaskId};
 
 /// Hard scheduler capacities selected by the product host.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -34,6 +34,12 @@ impl SchedulerLimits {
 pub enum SchedulerError {
     /// The hard registered-task capacity was reached.
     TaskCapacityReached,
+    /// Admission could not allocate the task's reserved scheduling storage.
+    AdmissionAllocation(std::collections::TryReserveError),
+    /// The reserved ready-queue slot count cannot accommodate another entry.
+    ReadyQueueCapacityReached,
+    /// The selected execution lane has no admission-owned ready queue.
+    MissingReadyQueue(ExecutionLane),
     /// The hard timer capacity was reached.
     TimerCapacityReached,
     /// Pending timer identities cannot be represented.
@@ -70,13 +76,26 @@ impl From<ExecutionLaneSelectionError> for SchedulerError {
 }
 
 impl From<crate::cancellation::CancellationWakeRegistrationError> for SchedulerError {
-    fn from(_: crate::cancellation::CancellationWakeRegistrationError) -> Self {
-        Self::CancellationWakeIdentityExhausted
+    fn from(error: crate::cancellation::CancellationWakeRegistrationError) -> Self {
+        match error {
+            crate::cancellation::CancellationWakeRegistrationError::IdentityExhausted => {
+                Self::CancellationWakeIdentityExhausted
+            }
+            crate::cancellation::CancellationWakeRegistrationError::Allocation(error) => {
+                Self::AdmissionAllocation(error)
+            }
+        }
     }
 }
 
 impl From<PlatformError> for SchedulerError {
     fn from(error: PlatformError) -> Self {
         Self::Platform(error)
+    }
+}
+
+impl From<std::collections::TryReserveError> for SchedulerError {
+    fn from(error: std::collections::TryReserveError) -> Self {
+        Self::AdmissionAllocation(error)
     }
 }

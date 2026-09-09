@@ -1,4 +1,4 @@
-module bray.standard_library_tests.memory;
+trusted module bray.standard_library_tests.memory;
 
 using std.memory;
 

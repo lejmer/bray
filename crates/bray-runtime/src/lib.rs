@@ -2,6 +2,7 @@
 
 #![deny(unsafe_code)]
 
+mod allocation;
 mod cancellation;
 #[cfg(test)]
 mod conformance;
@@ -24,7 +25,7 @@ mod timeout;
 #[cfg(test)]
 mod test_support;
 
-pub use cancellation::{CancellationContext, CancellationShield};
+pub use cancellation::{CancellationAdmissionError, CancellationContext, CancellationShield};
 pub use context::{
     TaskExecutionContext, current_run_cancellation_observable, current_run_cancellation_requested,
     current_task_execution_context,
@@ -60,6 +61,7 @@ pub use shutdown::{
 };
 pub use task::{
     JoinWaitRegistration, JoinWake, TaskControlBlock, TaskFailureKind, TaskId,
-    TaskObservationError, TaskResumeError, TaskResumeStatus, TaskStartError, TaskState,
+    TaskObservationError, TaskResumeError, TaskResumeStatus, TaskStartError, TaskStartFailure,
+    TaskState,
 };
 pub use timeout::{RunCancellationTimer, RunTimeoutError, RunTimeoutScheduler};

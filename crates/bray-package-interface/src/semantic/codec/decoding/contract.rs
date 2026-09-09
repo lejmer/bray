@@ -38,8 +38,8 @@ mod tests {
             write_count(&mut encoder, targets.len());
 
             for target in targets {
-                encoder.write_u32(1); // Local symbol reference.
                 encoder.write_u32(*target);
+                encoder.write_u32(0); // Direct callable instance.
                 encoder.write_u32(1); // Postcondition obligation.
                 encoder.write_u32(0);
             }
@@ -117,6 +117,65 @@ mod tests {
         assert_eq!(
             decoded[0].origin(),
             bray_symbols::CallableEvidenceOrigin::ForeignAssertion
+        );
+    }
+
+    #[test]
+    fn proof_dispatch_decoding_preserves_the_requirement_and_rejects_truncation() {
+        let limits = InterfaceValidationLimits::default();
+        let mut bytes = evidence_bytes(&[1], &[2]);
+
+        bytes[24..28].copy_from_slice(&1_u32.to_le_bytes());
+
+        bytes.splice(
+            28..28,
+            [3_u32, 4_u32].into_iter().flat_map(u32::to_le_bytes),
+        );
+
+        let decoded = decode_contract_evidence(
+            &mut WireReader::new(&bytes),
+            limits,
+            &mut SemanticDecodeContext::new(limits),
+        )
+        .unwrap();
+
+        assert_eq!(
+            decoded[0].dependencies(),
+            [(
+                crate::InterfaceCallableEvidenceTarget::new(
+                    crate::InterfaceCallableInstanceId::new(2),
+                    Some((
+                        crate::InterfaceTypeId::new(3),
+                        crate::InterfaceTraitApplicationId::new(4)
+                    )),
+                ),
+                bray_symbols::CallableContractObligation::Postcondition(
+                    bray_symbols::SymbolOrdinal::new(0)
+                )
+            )],
+        );
+
+        for length in 0..bytes.len() {
+            assert!(
+                decode_contract_evidence(
+                    &mut WireReader::new(&bytes[..length]),
+                    limits,
+                    &mut SemanticDecodeContext::new(limits),
+                )
+                .is_err(),
+                "length {length}"
+            );
+        }
+
+        bytes[24..28].copy_from_slice(&2_u32.to_le_bytes());
+
+        assert!(
+            decode_contract_evidence(
+                &mut WireReader::new(&bytes),
+                limits,
+                &mut SemanticDecodeContext::new(limits),
+            )
+            .is_err()
         );
     }
 }
@@ -269,7 +328,7 @@ fn decode_contract_evidence(
     limits: InterfaceValidationLimits,
     context: &mut SemanticDecodeContext,
 ) -> Result<
-    Vec<bray_symbols::CallableContractEvidence<crate::InterfaceSymbolReference>>,
+    Vec<bray_symbols::CallableContractEvidence<crate::InterfaceCallableEvidenceTarget>>,
     InterfaceValidationError,
 > {
     let count = read_count(reader, limits, InterfaceLimit::RecordCount)?;
@@ -292,8 +351,24 @@ fn decode_contract_evidence(
         let mut dependencies = context.allocate_items(reader, count)?;
 
         for _ in 0..count {
+            let callable = crate::InterfaceCallableInstanceId::new(read_u32(reader)?);
+
+            let dispatch = match read_u32(reader)? {
+                0 => None,
+                1 => Some((
+                    crate::InterfaceTypeId::new(read_u32(reader)?),
+                    crate::InterfaceTraitApplicationId::new(read_u32(reader)?),
+                )),
+                value => {
+                    return Err(crate::semantic::codec::invalid_discriminant(
+                        crate::InterfaceValidationField::Dependency,
+                        value,
+                    ));
+                }
+            };
+
             dependencies.push((
-                read_symbol_reference(reader, context)?,
+                crate::InterfaceCallableEvidenceTarget::new(callable, dispatch),
                 decode_contract_obligation(reader)?,
             ));
         }

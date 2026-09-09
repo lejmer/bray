@@ -205,7 +205,7 @@ impl MirOperationKind {
                 }
             }
             Self::PanicReport(cause) => match cause {
-                MirPanicCause::TaskAdmission => {}
+                MirPanicCause::TaskAdmission | MirPanicCause::FrameAllocation => {}
                 MirPanicCause::Message(operand) | MirPanicCause::ExplicitTestFailure(operand) => {
                     visit_operand(operand, &mut visit);
                 }
@@ -239,21 +239,29 @@ fn visit_call_operands(call: &MirCall, visit: &mut impl FnMut(&MirOperand)) {
     }
 
     for argument in call.arguments() {
-        if let Some(value) = argument.value() {
-            visit_operand(value, visit);
-        }
+        visit_operand(argument.value(), visit);
     }
 }
 
 fn visit_async_operands(operation: &MirAsyncOperation, visit: &mut impl FnMut(&MirOperand)) {
     match operation {
-        MirAsyncOperation::CreateFrame { initializer, .. } => match initializer {
-            MirFrameInitializer::Callable(call) => visit_call_operands(call, visit),
-            MirFrameInitializer::Lifecycle { receiver, .. } => visit_operand(receiver, visit),
-        },
+        MirAsyncOperation::CreateFrame {
+            initializer,
+            destination,
+            ..
+        } => {
+            visit_place_operands(destination, visit);
+
+            match initializer {
+                MirFrameInitializer::Callable(call) => visit_call_operands(call, visit),
+                MirFrameInitializer::Lifecycle { receiver, .. } => visit_operand(receiver, visit),
+            }
+        }
         MirAsyncOperation::ComposeAwaitedFrame { frame, .. }
         | MirAsyncOperation::DestroyInactiveCaptures { frame, .. } => visit_operand(frame, visit),
-        MirAsyncOperation::StartTask { value, destination, .. } => {
+        MirAsyncOperation::StartTask {
+            value, destination, ..
+        } => {
             visit_operand(value, visit);
             visit_place_operands(destination, visit);
         }

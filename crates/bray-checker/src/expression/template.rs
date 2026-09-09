@@ -267,6 +267,25 @@ where
             TemplateResolution::Unsupported => return Ok(TemplateResolution::Unsupported),
         };
 
+    let signature = match template.contextual_self() {
+        Some((context, replacement)) => {
+            let TemplateResolution::Resolved(replacement) =
+                resolve_type_template(request, replacement, diagnostics)?
+            else {
+                return Ok(TemplateResolution::Unsupported);
+            };
+
+            let replacement = values
+                .substitute_type(replacement, substitution)
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?;
+
+            signature
+                .try_map_types(|ty| values.substitute_contextual_self(ty, *context, replacement))
+                .map_err(CheckerInfrastructureError::SemanticValueStore)?
+        }
+        None => signature,
+    };
+
     let callable_type = values
         .type_data(signature.callable_type())
         .map_err(CheckerInfrastructureError::SemanticValueStore)?;

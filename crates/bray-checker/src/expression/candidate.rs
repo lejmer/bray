@@ -928,7 +928,14 @@ where
                 &mut diagnostics,
             )?;
 
-            candidates.push(candidate.with_implementation_selections(selections));
+            let candidate = candidate.with_implementation_selections(selections);
+
+            let candidate = match member {
+                Some(member) => candidate.with_member_selection(member),
+                None => candidate,
+            };
+
+            candidates.push(candidate);
         }
     }
 
@@ -969,16 +976,7 @@ where
             .unwrap_or(BoundCallableTarget::Indirect(callee_type.ty())),
     };
 
-    let witnesses = member
-        .into_iter()
-        .flat_map(bray_bound_tree::MemberTarget::witnesses)
-        .map(|witness| witness.witness());
-
-    let mut resolution = BoundResolvedCall::new(target, witnesses, result);
-
-    if let Some(dispatch) = member.and_then(bray_bound_tree::MemberTarget::trait_dispatch) {
-        resolution = resolution.with_trait_dispatch(dispatch);
-    }
+    let resolution = BoundResolvedCall::new(target, [], result);
 
     // Each materialized value candidate owns its reusable resolved-call description.
     candidates.extend(prepared.values.iter().map(|template| {
@@ -1008,17 +1006,10 @@ where
             ),
         };
 
-        candidate.with_implementation_selections(
-            member
-                .into_iter()
-                .flat_map(bray_bound_tree::MemberTarget::witnesses)
-                .map(|witness| {
-                    crate::ImplementationSelectionEvidence::new(
-                        witness.requirement(),
-                        ImplementationSelection::Selected(witness.witness()),
-                    )
-                }),
-        )
+        match member {
+            Some(member) => candidate.with_member_selection(member),
+            None => candidate,
+        }
     }));
 
     Ok(Some(MaterializedCallCandidates {

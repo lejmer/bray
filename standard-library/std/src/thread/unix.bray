@@ -42,11 +42,15 @@ trusted internal func unix_thread_entry(pos context: RawPointer<u8>) -> RawPoint
 
 trusted internal func native_thread_entry() -> RawPointer<u8>
 {
-    let entry: std.os.unix.ThreadStartRoutine = unix_thread_entry;
-    let pointer: RawPointer<std.os.unix.ThreadStartRoutine> = trusted std.memory.pointer_from_callable(entry);
+    let entry: UnixThreadEntry = unix_thread_entry;
+    let pointer: RawPointer<UnixThreadEntry> = trusted std.memory.pointer_from_callable(entry);
 
-    return trusted std.memory.reinterpret<u8, std.os.unix.ThreadStartRoutine>(pointer);
+    return trusted std.memory.reinterpret<u8, UnixThreadEntry>(pointer);
 }
+
+internal callable UnixThreadEntry = @abi(c)
+trusted func(pos context: RawPointer<u8>) -> RawPointer<u8>
+    requires(blocking_execution(), compute_execution());
 
 @abi(c)
 trusted internal func platform_thread_create(

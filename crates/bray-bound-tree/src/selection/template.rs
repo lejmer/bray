@@ -60,6 +60,10 @@ struct CallableDeclarationTemplateData {
     generic: GenericDeclarationTemplate,
     generic_arguments: Arc<[GenericArgumentTemplate]>,
     defaults: Arc<[CallableParameterDefaultTemplate]>,
+    contextual_self: Option<(
+        bray_symbols::SelfTypeContext,
+        bray_symbols::TypeExpressionTemplate,
+    )>,
 }
 
 impl CallableDeclarationTemplate {
@@ -81,6 +85,7 @@ impl CallableDeclarationTemplate {
                 generic,
                 generic_arguments: shared_slice(generic_arguments),
                 defaults: Arc::new([]),
+                contextual_self: None,
             }),
         }
     }
@@ -93,6 +98,27 @@ impl CallableDeclarationTemplate {
         Arc::make_mut(&mut self.data).defaults = shared_slice(defaults);
 
         self
+    }
+
+    /// Supplies the selected subject replacing declaration-local `Self` during instantiation.
+    pub fn with_contextual_self(
+        mut self,
+        context: bray_symbols::SelfTypeContext,
+        replacement: bray_symbols::TypeExpressionTemplate,
+    ) -> Self {
+        Arc::make_mut(&mut self.data).contextual_self = Some((context, replacement));
+
+        self
+    }
+
+    /// Returns the selected subject replacing declaration-local `Self` during instantiation.
+    pub fn contextual_self(
+        &self,
+    ) -> Option<&(
+        bray_symbols::SelfTypeContext,
+        bray_symbols::TypeExpressionTemplate,
+    )> {
+        self.data.contextual_self.as_ref()
     }
 
     /// Returns the declaration's stable semantic key.

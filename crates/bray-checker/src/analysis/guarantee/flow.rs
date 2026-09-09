@@ -45,9 +45,14 @@ pub(super) struct GuaranteeDomain<'a> {
     pub(super) assignments:
         &'a BTreeMap<super::super::id::AnalysisOperationId, (ConstantTermId, BoundExpressionId)>,
     pub(super) storage: &'a bray_bound_tree::StoragePlan,
+    pub(super) storage_exits:
+        &'a BTreeMap<bray_bound_tree::StorageExitPoint, &'a bray_bound_tree::StorageExitDecision>,
+    pub(super) mutable_borrow_accesses: &'a BTreeSet<bray_bound_tree::StorageAccessId>,
     pub(super) observation_accesses:
         &'a BTreeMap<ConstantTermId, BTreeSet<bray_bound_tree::StorageAccessId>>,
-    pub(super) mutations: &'a BTreeMap<AnyBoundNodeId, Box<[bray_bound_tree::StorageAccessId]>>,
+    pub(super) mutations:
+        &'a BTreeMap<bray_bound_tree::BoundOperationPoint, Box<[bray_bound_tree::StorageAccessId]>>,
+    pub(super) retained_mutations: Option<&'a [bray_bound_tree::StorageAccessId]>,
     pub(super) local_initializers:
         &'a BTreeMap<bray_bound_tree::BoundPatternId, (ConstantTermId, BoundExpressionId)>,
 }
@@ -167,38 +172,63 @@ impl GuaranteeDomain<'_> {
         match self.operation_dependencies(operation, ExecutionProperty::Pure, state)? {
             Some(dependencies) => state.dependencies.extend(dependencies),
             None => {
-                let mutations = self
-                    .mutations
-                    .get(&operation.kind().node())
-                    .filter(|_| self.assignments.contains_key(&operation.id()));
-
-                let mut preserved = BTreeMap::new();
-
-                if let Some(mutations) = mutations {
-                    for (subject, accesses) in self.observation_accesses {
-                        if super::super::storage_index::accesses_are_disjoint(
-                            self.storage,
-                            accesses.iter().copied(),
-                            mutations,
-                        ) && let Some(value) =
-                            self.current_observation(state, *subject, None, None)?
-                        {
-                            preserved.insert(*subject, value);
-                        }
+                let call_mutations = match operation.kind() {
+                    AnalysisOperationKind::Call {
+                        expression,
+                        phase: AnalysisCallPhase::Attempt,
+                    } if !self.storage_calls.contains(&operation.kind().node()) => {
+                        self.call_mutations(expression)?
                     }
-                }
+                    AnalysisOperationKind::Suspension { expression, .. } => {
+                        self.suspension_mutations(expression)?
+                    }
+                    AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression))
+                        if matches!(
+                            self.view.expression(expression),
+                            Some(bray_bound_tree::BoundExpression::Await(_))
+                        ) =>
+                    {
+                        self.suspension_mutations(expression)?
+                    }
+                    _ => None,
+                };
 
-                state.entry_observations_valid = false;
+                let checked_mutations = !self.storage_calls.contains(&operation.kind().node())
+                    && self.assignments.contains_key(&operation.id());
+
+                if let Some(mut mutations) = call_mutations {
+                    mutations.extend(
+                        self.mutations
+                            .get(&operation.kind().point())
+                            .into_iter()
+                            .flatten()
+                            .copied(),
+                    );
+
+                    self.invalidate_storage_observations(state, &mutations)?;
+                } else if checked_mutations {
+                    self.invalidate_storage_observations(
+                        state,
+                        self.mutations
+                            .get(&operation.kind().point())
+                            .map_or(&[], |accesses| accesses.as_ref()),
+                    )?;
+                } else if let AnalysisOperationKind::ScopeExit {
+                    block, exit, phase, ..
+                } = operation.kind()
+                {
+                    if let Some(mutations) = self.scope_exit_mutations(block, exit, phase)? {
+                        self.invalidate_storage_observations(state, &mutations)?;
+                    } else {
+                        self.invalidate_observations(state);
+                    }
+                } else {
+                    self.invalidate_observations(state);
+                }
 
                 state.invalidation = Some(super::super::id::AnalysisObservationSite::Operation(
                     operation.id(),
                 ));
-
-                state.observations = preserved;
-
-                state
-                    .evaluated_values
-                    .retain(|expression, _| self.input.is_scalar_observation(*expression));
             }
         }
 

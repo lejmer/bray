@@ -15,7 +15,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let context = self.types.context();
 
-        let function = self.builder.get_insert_block().and_then(|block| block.get_parent())
+        let function = self
+            .builder
+            .get_insert_block()
+            .and_then(|block| block.get_parent())
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
         let allocated = context.append_basic_block(function, "task.allocated");
@@ -32,10 +35,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
 
         let task = extract_value(&self.builder, allocation, 1)?;
 
-        let success = llvm(self.builder.build_int_compare(IntPredicate::EQ, status,
-            status.get_type().const_zero(), "task.allocation.success"))?;
+        let success = llvm(self.builder.build_int_compare(
+            IntPredicate::EQ,
+            status,
+            status.get_type().const_zero(),
+            "task.allocation.success",
+        ))?;
 
-        llvm(self.builder.build_conditional_branch(success, allocated, rejected))?;
+        llvm(
+            self.builder
+                .build_conditional_branch(success, allocated, rejected),
+        )?;
+
         self.builder.position_at_end(allocated);
 
         let status = self
@@ -43,10 +54,18 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             .and_then(int_value)
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-        let success = llvm(self.builder.build_int_compare(IntPredicate::EQ, status,
-            status.get_type().const_zero(), "task.publication.success"))?;
+        let success = llvm(self.builder.build_int_compare(
+            IntPredicate::EQ,
+            status,
+            status.get_type().const_zero(),
+            "task.publication.success",
+        ))?;
 
-        llvm(self.builder.build_conditional_branch(success, published, rejected))?;
+        llvm(
+            self.builder
+                .build_conditional_branch(success, published, rejected),
+        )?;
+
         self.builder.position_at_end(published);
 
         let destination = self.place(destination)?;

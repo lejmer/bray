@@ -580,9 +580,10 @@ fn push_text_unit(output: &mut String, unit: &InspectionBoundUnit) {
 
     for plan in unit.storage.plans() {
         output.push_str(&format!(
-            "  {}:{} {} -> access:{} [expression:{}]\n",
+            "  {}:{} {} {} -> access:{} [expression:{}]\n",
             plan.node_kind(),
             plan.node(),
+            plan.point_kind(),
             plan.purpose(),
             plan.access(),
             plan.expression()

@@ -934,7 +934,7 @@ fn phase_behavior_mismatch(
         return Ok(Some(CallableBehaviorComponent::TrustedCapabilities));
     }
 
-    if requirement.execution_requirements() != fulfillment.execution_requirements() {
+    if !fulfillment.execution_requirements_are_subset_of(requirement) {
         return Ok(Some(CallableBehaviorComponent::ExecutionRequirements));
     }
 

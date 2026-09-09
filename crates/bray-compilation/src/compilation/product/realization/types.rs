@@ -13,11 +13,9 @@ use bray_target::{TargetLayoutContract, TargetValueLayout};
 use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
 use super::super::super::checker::CompilationCheckerContext;
-use super::super::super::substitution::substitution_for_owner;
+use super::super::super::substitution::{substitute_contextual_self, substitution_for_owner};
 use super::super::specialization::ConcreteCodegenInstance;
-use super::contextual_self::{
-    codegen_instance_contextual_self, implementation_subject, substitute_contextual_self,
-};
+use super::contextual_self::{codegen_instance_contextual_self, implementation_subject};
 use super::support::{
     callable_type_signature, closed_array_length, pointer_layout, pointer_mapping,
     target_layout_contract,

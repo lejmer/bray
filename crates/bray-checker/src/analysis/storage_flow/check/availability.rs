@@ -19,10 +19,7 @@ pub(super) fn projection_is_available(
     }
 
     let related = refinements.iter().filter(|refinement| {
-        if let RefinementKind::Pattern {
-            access: subject, ..
-        } = refinement.kind()
-        {
+        if let Some((subject, _, _)) = refinement.kind().structural_predicate() {
             return storage.access_contains(subject, access)
                 && storage
                     .resolved_projections(subject)
@@ -55,12 +52,8 @@ pub(super) fn projection_is_available(
         StorageProjection::ActiveUnionPayloadField { variant, .. } => {
             related.into_iter().any(|refinement| {
                 matches!(
-                    refinement.kind(),
-                    RefinementKind::Pattern {
-                        predicate: PatternPredicate::ActiveUnionVariant(active),
-                        value: true,
-                        ..
-                    } if active == variant
+                    refinement.kind().structural_predicate(),
+                    Some((_, PatternPredicate::ActiveUnionVariant(active), true)) if active == variant
                 )
             })
         }
@@ -127,7 +120,18 @@ mod tests {
             SourceIdentity::new(0),
             SourceOrigin::virtual_source("pattern-prefix"),
             SourceVersion::new(1),
-            "module app; func main(input: i32?) { match input { case ?value {} case none {} } }",
+            r#"
+            module app;
+
+            func main(input: i32?)
+            {
+                match input
+                {
+                    case ?value {}
+                    case none {}
+                }
+            }
+            "#,
         )
         .unwrap();
 

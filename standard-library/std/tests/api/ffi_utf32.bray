@@ -1,5 +1,5 @@
 @target(target.c.WCHAR == "i32")
-module bray.standard_library_tests.ffi;
+trusted module bray.standard_library_tests.ffi;
 
 @test
 trusted func c_wide_strings_encode_and_validate_target_text() -> Result<unit, std.ffi.c.StringError>

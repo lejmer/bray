@@ -230,7 +230,9 @@ fn expand_action<C: SyntheticLoweringContext + ?Sized>(
         representation.cancelled_variant(),
     );
 
-    let future = crate::cleanup_await::create_lifecycle_frame(
+    let boolean = context.representation_type(RepresentationRole::ScalarBool)?;
+
+    let (block, rejected, future) = crate::cleanup_await::create_lifecycle_frame(
         builder,
         block,
         source,
@@ -238,15 +240,28 @@ fn expand_action<C: SyntheticLoweringContext + ?Sized>(
         ty,
         MirOperand::Value(receiver),
         bray_bound_tree::BoundFutureConstruction::new(completion, future),
+        boolean,
     )
     .map_err(|cause| failure(source, cause))?;
+
+    let report =
+        crate::frame_creation::allocation_panic(builder, rejected, source, panicked.report_type())
+            .map_err(|cause| failure(source, cause))?;
+
+    builder
+        .set_terminator(
+            rejected,
+            source.clone(),
+            MirTerminatorKind::Goto(MirEdge::new(panicked.target(), [report])),
+        )
+        .map_err(|cause| failure(source, cause))?;
 
     let (resume, result) = crate::cleanup_await::await_cleanup(
         builder,
         block,
         source,
         state,
-        crate::cleanup_await::CleanupAwait::Frame(future, MirFrameEntry::Body),
+        crate::cleanup_await::CleanupAwait::Frame(MirOperand::Move(future), MirFrameEntry::Body),
         result,
         variants,
     )

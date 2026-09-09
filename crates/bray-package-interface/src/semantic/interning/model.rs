@@ -214,12 +214,17 @@ impl ImportedConstraint {
 pub struct ImportedCallableContract {
     pub(super) owner: CallableSymbolId,
     pub(super) contract: CallableContractSet,
-    pub(super) evidence: Arc<[bray_symbols::CallableContractEvidence<CallableSymbolId>]>,
+    pub(super) evidence: Arc<
+        [bray_symbols::CallableContractEvidence<bray_symbols::ResolvedCallableEvidenceTarget>],
+    >,
 }
 
 impl ImportedCallableContract {
     /// Returns checked provider promises using compilation-local callable identities.
-    pub fn evidence(&self) -> &[bray_symbols::CallableContractEvidence<CallableSymbolId>] {
+    pub fn evidence(
+        &self,
+    ) -> &[bray_symbols::CallableContractEvidence<bray_symbols::ResolvedCallableEvidenceTarget>]
+    {
         &self.evidence
     }
 

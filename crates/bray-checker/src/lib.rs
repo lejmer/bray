@@ -123,7 +123,8 @@ pub use target::{
 };
 pub use type_check::{ExpressionTypeEvidence, ExpressionTypeExpectation, ExpressionTypeInput};
 pub use type_normalization::{
-    normalize_callable_signature_type_valued_members, normalize_type_valued_members,
+    normalize_callable_signature_type_valued_members, normalize_implementation_requirement,
+    normalize_type_valued_members,
 };
 pub use type_representation::{
     DeclaredStorageMember, DeclaredStorageMemberIdentity, DeclaredTypeDefinition,

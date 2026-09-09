@@ -1,3 +1,5 @@
+use bray_runtime_abi::{NativeFrameAffinity, NativeFrameState, NativeLaneRequirements};
+
 use std::collections::VecDeque;
 use std::num::NonZeroUsize;
 use std::pin::Pin;
@@ -5,16 +7,53 @@ use std::sync::{Arc, Barrier};
 
 use bray_platform::RuntimeThreadId;
 use bray_runtime_model::{
-    BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
+    ExecutionLaneRequirement, ProtectedAsyncFrameId, ProtectedFrameAbiVersions,
     ProtectedFrameAffinity, ProtectedFrameDependencyId, ProtectedFrameDescriptor,
-    ProtectedFrameLayout, ProtectedFrameOperations, ProtectedFrameStateDescriptor,
-    ProtectedFrameStateId, ProtectedFrameStorageId, RuntimeAbiVersion,
+    ProtectedFrameLayout, ProtectedFrameStateDescriptor, ProtectedFrameStateId,
+    ProtectedFrameStorageId, RuntimeAbiVersion,
 };
 
 use crate::{
     FrameContext, FrameExit, FrameProgress, FrameSuspension, ProtectedFrame, Scheduler,
     TaskControlBlock, TaskRegistration, current_task_execution_context,
 };
+
+thread_local! {
+    static FAIL_ALLOCATION_AFTER: std::cell::Cell<Option<usize>> = const { std::cell::Cell::new(None) };
+}
+
+pub(crate) fn allocation_should_fail() -> bool {
+    match FAIL_ALLOCATION_AFTER.get() {
+        None => false,
+        Some(0) => true,
+        Some(remaining) => {
+            FAIL_ALLOCATION_AFTER.set(Some(remaining - 1));
+
+            false
+        }
+    }
+}
+
+pub(crate) fn with_allocation_failure<T>(callback: impl FnOnce() -> T) -> T {
+    with_allocation_failure_after(0, callback)
+}
+
+pub(crate) fn with_allocation_failure_after<T>(
+    successful: usize,
+    callback: impl FnOnce() -> T,
+) -> T {
+    struct Restore(Option<usize>);
+
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            FAIL_ALLOCATION_AFTER.set(self.0);
+        }
+    }
+
+    let _restore = Restore(FAIL_ALLOCATION_AFTER.replace(Some(successful)));
+
+    callback()
+}
 
 pub(crate) const fn panic_callbacks(
     report: extern "C-unwind" fn(usize) -> bray_runtime_abi::NativeRuntimeStatus,
@@ -435,9 +474,11 @@ fn state_descriptor_with_storage(
     )
 }
 
-fn descriptor_from_states(
-    states: impl IntoIterator<Item = ProtectedFrameStateDescriptor>,
-) -> ProtectedFrameDescriptor {
+fn descriptor_from_states<S>(states: S) -> ProtectedFrameDescriptor
+where
+    S: IntoIterator<Item = ProtectedFrameStateDescriptor>,
+    S::IntoIter: ExactSizeIterator,
+{
     let Some(alignment) = NonZeroUsize::new(8) else {
         panic!("test frame alignment must be nonzero");
     };
@@ -454,26 +495,39 @@ fn descriptor_from_states(
         ProtectedFrameAbiVersions::uniform(abi),
         layout,
         layout,
-        operations(),
         states,
     )
     .unwrap_or_else(|error| panic!("test frame descriptor must be valid: {error:?}"))
 }
 
-fn operations() -> ProtectedFrameOperations {
-    ProtectedFrameOperations::new(
-        symbol("__bray_test_move"),
-        symbol("__bray_test_state"),
-        symbol("__bray_test_resume"),
-        symbol("__bray_test_cancel"),
-        symbol("__bray_test_broadcast"),
-        symbol("__bray_test_resolve_lifecycle"),
-        symbol("__bray_test_move_completion"),
-        symbol("__bray_test_destroy"),
+pub(crate) extern "C" fn native_movable_frame_state(_: u32) -> NativeFrameState {
+    NativeFrameState::new(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE)
+}
+
+pub(crate) extern "C" fn native_origin_frame_state(_: u32) -> NativeFrameState {
+    NativeFrameState::new(
+        NativeFrameAffinity::ORIGIN_THREAD,
+        NativeLaneRequirements::NONE,
     )
 }
 
-fn symbol(name: &'static str) -> BinarySymbolName {
-    BinarySymbolName::try_new(name)
-        .unwrap_or_else(|| panic!("test operation symbol must be nonempty"))
+pub(crate) extern "C" fn native_main_frame_state(_: u32) -> NativeFrameState {
+    NativeFrameState::new(
+        NativeFrameAffinity::MAIN_THREAD,
+        NativeLaneRequirements::MAIN_THREAD,
+    )
+}
+
+pub(crate) extern "C" fn native_blocking_frame_state(_: u32) -> NativeFrameState {
+    NativeFrameState::new(
+        NativeFrameAffinity::MOVABLE,
+        NativeLaneRequirements::BLOCKING,
+    )
+}
+
+pub(crate) extern "C" fn native_compute_frame_state(_: u32) -> NativeFrameState {
+    NativeFrameState::new(
+        NativeFrameAffinity::MOVABLE,
+        NativeLaneRequirements::COMPUTE,
+    )
 }

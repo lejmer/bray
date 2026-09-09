@@ -604,11 +604,11 @@ trusted internal func dispose_child(pos child: &mut ChildProcess) -> Result<unit
     requires(blocking_execution())
     ensures((result matches Error(_)) || ChildProcess.complete(&child))
 {
-    try trusted close_retained_pipes(&mut child);
+    let pipes = trusted close_retained_pipes(&mut child);
 
     if !child.state.is_open
     {
-        return Ok(unit);
+        return pipes;
     }
 
     let mut released: u32 = 0;
@@ -620,9 +620,10 @@ trusted internal func dispose_child(pos child: &mut ChildProcess) -> Result<unit
 
     if released == 1
     {
-        child.state = retired_child_state();
+        child.state.is_open = false;
     }
 
+    try pipes;
     try internal std.process.child_status(status, kind = Reaping);
 
     child.state = retired_child_state();
@@ -641,18 +642,16 @@ trusted internal func close_retained_pipes(pos child: &mut ChildProcess) -> Resu
 
     child.state.standard_input = input.0;
 
-    try input.1;
-
     let output = trusted close_retained_pipe(child.state.standard_output);
 
     child.state.standard_output = output.0;
-
-    try output.1;
 
     let error = trusted close_retained_pipe(child.state.standard_error);
 
     child.state.standard_error = error.0;
 
+    try input.1;
+    try output.1;
     try error.1;
 
     child.state.standard_input = 0;

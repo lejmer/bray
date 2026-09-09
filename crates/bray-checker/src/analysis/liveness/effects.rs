@@ -26,6 +26,7 @@ pub(super) struct OperationEffect {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(super) struct OperationEffects {
     by_node: BTreeMap<AnyBoundNodeId, OperationEffect>,
+    propagation_failures: BTreeMap<BoundExpressionId, OperationEffect>,
     operation_result_definitions: BTreeMap<BoundExpressionId, BTreeSet<BoundDependencySubject>>,
     pub(super) universe: BTreeSet<BoundDependencySubject>,
     pub(super) owner_dependencies: BTreeMap<BoundExpressionId, BTreeSet<BoundDependencySubject>>,
@@ -88,7 +89,15 @@ impl OperationEffects {
         for plan in storage.access_plans() {
             let subject = BoundDependencySubject::StorageAccess(plan.access());
             let node = plan.node();
-            let effect = effects.by_node.entry(node).or_default();
+
+            let effect = match plan.point() {
+                bray_bound_tree::BoundOperationPoint::Evaluation(node) => {
+                    effects.by_node.entry(node).or_default()
+                }
+                bray_bound_tree::BoundOperationPoint::PropagationFailure(expression) => {
+                    effects.propagation_failures.entry(expression).or_default()
+                }
+            };
 
             effect.uses.insert(subject);
             effect.definitions.insert(subject);
@@ -447,7 +456,12 @@ impl OperationEffects {
         &self,
         operation: &AnalysisOperation,
     ) -> Option<OperationEffectView<'_>> {
-        let effect = self.effect(operation.kind().node())?;
+        let effect = match operation.kind() {
+            AnalysisOperationKind::PropagationFailure(expression) => {
+                self.propagation_failures.get(&expression)?
+            }
+            _ => self.effect(operation.kind().node())?,
+        };
 
         let (phase, result_definitions) = match operation.kind() {
             AnalysisOperationKind::Call { expression, phase } => (

@@ -367,6 +367,24 @@ macro_rules! impl_generic_parameter_access {
 impl_generic_parameter_access!(SymbolGraph);
 impl_generic_parameter_access!(ImportedSymbolSkeleton);
 
+pub(in crate::compilation) fn declaration_generic_parameter_ids(
+    context: &CompilationBindingContext<'_>,
+    owner: AnySymbolId,
+) -> BindingQueryResult<Vec<GenericParameterSymbolId>> {
+    if context.symbols.symbol_key(owner).is_some() {
+        return generic_parameter_ids(context.symbols, owner);
+    }
+
+    let imported = context.imported_symbols()?.ok_or_else(|| {
+        binding_contract(
+            SemanticQueryContext::Symbol(owner),
+            SemanticQueryViolation::Missing(SemanticDataKind::Symbol),
+        )
+    })?;
+
+    generic_parameter_ids(imported, owner)
+}
+
 pub(in crate::compilation) fn generic_parameter_ids(
     symbols: &impl GenericParameterAccess,
     owner: AnySymbolId,

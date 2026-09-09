@@ -118,6 +118,16 @@ impl CallablePhaseBehavior {
         &self.execution_requirements
     }
 
+    /// Returns whether every execution lane required here is also required by `other`.
+    pub fn execution_requirements_are_subset_of(&self, other: &Self) -> bool {
+        self.execution_requirements.iter().all(|requirement| {
+            other
+                .execution_requirements
+                .binary_search(requirement)
+                .is_ok()
+        })
+    }
+
     /// Returns lifecycle obligations in canonical semantic order.
     pub fn lifecycle_obligations(&self) -> &[LifecycleObligationKind] {
         &self.lifecycle_obligations

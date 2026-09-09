@@ -562,10 +562,9 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use bray_runtime_abi::{
-        NativeFrameAffinity, NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind,
-        NativeFrameState, NativeInactiveFrame, NativeLaneRequirements, NativePanicCause,
-        NativeProtectedFrame, NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration,
-        NativeRuntimeStatus, NativeTaskHandle,
+        NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind, NativeInactiveFrame,
+        NativePanicCause, NativeProtectedFrame, NativeRunOutcome, NativeRunState,
+        NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskHandle,
     };
 
     use super::super::callback::{
@@ -640,13 +639,15 @@ mod tests {
 
             NativeProtectedFrame::new(
                 context,
-                [21; 32],
-                1,
-                8,
-                8,
-                8,
-                8,
-                frame_state,
+                bray_runtime_abi::NativeFrameMetadata::new(
+                    [21; 32],
+                    1,
+                    8,
+                    8,
+                    8,
+                    8,
+                    crate::test_support::native_main_frame_state,
+                ),
                 destroy,
                 cancel_frame,
                 ignore_action,
@@ -708,13 +709,15 @@ mod tests {
 
             NativeProtectedFrame::new(
                 context,
-                [22; 32],
-                1,
-                8,
-                8,
-                8,
-                8,
-                frame_state,
+                bray_runtime_abi::NativeFrameMetadata::new(
+                    [22; 32],
+                    1,
+                    8,
+                    8,
+                    8,
+                    8,
+                    crate::test_support::native_main_frame_state,
+                ),
                 quiesce,
                 cancel_frame,
                 ignore_action,
@@ -732,7 +735,10 @@ mod tests {
             NativeInactiveFrame::new(9, select).into_protected(NativeFrameEntry::CaptureQuiescence);
 
         assert_eq!(
-            (frame.completion_size(), frame.completion_alignment()),
+            (
+                frame.metadata().completion_size(),
+                frame.metadata().completion_alignment()
+            ),
             (0, 1)
         );
 
@@ -828,13 +834,15 @@ mod tests {
 
             NativeProtectedFrame::new(
                 context,
-                [23; 32],
-                2,
-                8,
-                8,
-                8,
-                8,
-                affined_cleanup_state,
+                bray_runtime_abi::NativeFrameMetadata::new(
+                    [23; 32],
+                    2,
+                    8,
+                    8,
+                    8,
+                    8,
+                    crate::test_support::native_origin_frame_state,
+                ),
                 resume,
                 forbidden_capture_body,
                 ignore_action,
@@ -979,13 +987,15 @@ mod tests {
     fn terminal_completion_storage_honors_overaligned_native_results() {
         let frame = NativeProtectedFrame::new(
             0,
-            [8; 32],
-            1,
-            8,
-            8,
-            65,
-            64,
-            frame_state,
+            bray_runtime_abi::NativeFrameMetadata::new(
+                [8; 32],
+                1,
+                8,
+                8,
+                65,
+                64,
+                crate::test_support::native_main_frame_state,
+            ),
             resume_frame,
             cancel_frame,
             ignore_action,
@@ -1306,6 +1316,123 @@ mod tests {
         );
     }
 
+    #[test]
+    fn task_storage_reservation_failures_preserve_inactive_ownership_and_allow_retry() {
+        static RESUMES: AtomicUsize = AtomicUsize::new(0);
+        static RELEASES: AtomicUsize = AtomicUsize::new(0);
+
+        extern "C-unwind" fn resume(_: usize) -> NativeFrameProgress {
+            RESUMES.fetch_add(1, Ordering::Relaxed);
+
+            NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0)
+        }
+
+        extern "C-unwind" fn release(_: usize) {
+            RELEASES.fetch_add(1, Ordering::Relaxed);
+        }
+
+        for successful_allocations in 0..64 {
+            RESUMES.store(0, Ordering::Relaxed);
+            RELEASES.store(0, Ordering::Relaxed);
+
+            assert_eq!(
+                super::initialize(NativeRuntimeConfiguration::new(1, 1)),
+                NativeRuntimeStatus::SUCCESS
+            );
+
+            // Use fresh tables for each failure site so retained capacity cannot skip a later allocation.
+            let admitted =
+                super::with_runtime(|runtime| {
+                    for continuation in [false, true] {
+                        let rejected = crate::test_support::with_allocation_failure(|| {
+                            if continuation {
+                                runtime.allocate_continuation()
+                            } else {
+                                runtime.allocate()
+                            }
+                        });
+
+                        assert_eq!(rejected.status(), NativeRuntimeStatus::ALLOCATION_FAILURE);
+                        assert!(rejected.task().is_none());
+                    }
+
+                    let handle = runtime.allocate().task().unwrap();
+
+                    assert_eq!(
+                        handle.raw(),
+                        1,
+                        "failed admission must not consume an identity"
+                    );
+
+                    let mut transfer = super::super::frame::NativeFrameTransfer::new(
+                        protected_frame(8, resume, ignore_completion_move, release),
+                    );
+
+                    let status = crate::test_support::with_allocation_failure_after(
+                        successful_allocations,
+                        || runtime.start(handle, &mut transfer, None),
+                    );
+
+                    let accepted = if status.is_success() {
+                        handle
+                    } else {
+                        assert_eq!(
+                            status,
+                            NativeRuntimeStatus::ALLOCATION_FAILURE,
+                            "allocation {successful_allocations}"
+                        );
+
+                        assert_eq!(transfer.frame().metadata().identity(), [7; 32]);
+                        assert_eq!(RESUMES.load(Ordering::Relaxed), 0);
+                        assert_eq!(RELEASES.load(Ordering::Relaxed), 0);
+
+                        assert_eq!(
+                            runtime.destroy_task(handle),
+                            NativeRuntimeStatus::UNKNOWN_TASK
+                        );
+
+                        let retry = runtime.allocate().task().unwrap();
+
+                        assert_eq!(
+                            runtime.start(retry, &mut transfer, None),
+                            NativeRuntimeStatus::SUCCESS
+                        );
+
+                        retry
+                    };
+
+                    assert_eq!(
+                        runtime.resolve_task(accepted).state(),
+                        NativeRunState::COMPLETED
+                    );
+
+                    assert_eq!(runtime.destroy_task(accepted), NativeRuntimeStatus::SUCCESS);
+
+                    status.is_success()
+                })
+                .unwrap();
+
+            assert_eq!(RESUMES.load(Ordering::Relaxed), 1);
+            assert_eq!(RELEASES.load(Ordering::Relaxed), 1);
+
+            assert_eq!(
+                bray_runtime_structured_shutdown(),
+                NativeRuntimeStatus::SUCCESS
+            );
+
+            if admitted {
+                assert!(
+                    successful_allocations >= 8,
+                    "every task-storage allocation must be exercised"
+                );
+
+                return;
+            }
+        }
+
+        panic!("task admission did not reach the end of its allocation sequence");
+    }
+
     extern "C-unwind" fn await_all_outcomes(_: usize) -> NativeFrameProgress {
         let stage = AWAITED_OUTCOME_STAGE.load(Ordering::Relaxed);
 
@@ -1367,6 +1494,14 @@ mod tests {
         bray_runtime_awaited_frame_composition(
             NativeInactiveFrame::new(stage, move_outcome_child),
             0,
+        );
+
+        assert_eq!(
+            super::with_runtime(|runtime| runtime.compose_awaited(move_outcome_child(
+                stage,
+                bray_runtime_abi::NativeFrameEntry::Body,
+            ))),
+            Ok(NativeRuntimeStatus::RUNTIME_FAILURE)
         );
 
         bray_runtime_suspension_registration(1)
@@ -1452,7 +1587,7 @@ mod tests {
         let start = execute_test_root(
             protected_frame_with_state(
                 8,
-                movable_frame_state,
+                crate::test_support::native_movable_frame_state,
                 resume_frame,
                 ignore_completion_move,
                 ignore_action,
@@ -1492,7 +1627,7 @@ mod tests {
         let start = execute_test_root(
             protected_frame_with_state(
                 8,
-                movable_frame_state,
+                crate::test_support::native_movable_frame_state,
                 await_blocking_children,
                 ignore_completion_move,
                 ignore_action,
@@ -1545,7 +1680,10 @@ mod tests {
 
     #[test]
     fn worker_drives_suspending_capture_cleanup_on_its_origin_thread() {
-        for state in [movable_frame_state, movable_blocking_frame_state] {
+        for state in [
+            crate::test_support::native_movable_frame_state,
+            crate::test_support::native_blocking_frame_state,
+        ] {
             AFFINED_CLEANUP_STAGE.store(0, Ordering::Relaxed);
             *AFFINED_CLEANUP_THREAD.lock().unwrap() = None;
 
@@ -1639,26 +1777,21 @@ mod tests {
     ) -> NativeProtectedFrame {
         NativeProtectedFrame::new(
             0,
-            [8; 32],
-            2,
-            8,
-            8,
-            8,
-            8,
-            affined_cleanup_state,
+            bray_runtime_abi::NativeFrameMetadata::new(
+                [8; 32],
+                2,
+                8,
+                8,
+                8,
+                8,
+                crate::test_support::native_origin_frame_state,
+            ),
             forbidden_capture_body,
             resume_affined_cleanup,
             ignore_action,
             ignore_resolution,
             ignore_completion_move,
             ignore_action,
-        )
-    }
-
-    extern "C" fn affined_cleanup_state(_: usize, _: u32) -> NativeFrameState {
-        NativeFrameState::new(
-            NativeFrameAffinity::ORIGIN_THREAD,
-            NativeLaneRequirements::NONE,
         )
     }
 
@@ -1724,13 +1857,15 @@ mod tests {
 
         let frame = NativeProtectedFrame::new(
             0,
-            [8; 32],
-            2,
-            8,
-            8,
-            8,
-            8,
-            frame_state,
+            bray_runtime_abi::NativeFrameMetadata::new(
+                [8; 32],
+                2,
+                8,
+                8,
+                8,
+                8,
+                crate::test_support::native_main_frame_state,
+            ),
             suspend_without_wake,
             record_cancel_entry,
             ignore_action,
@@ -1775,13 +1910,15 @@ mod tests {
     fn cleanup_callback_failures_are_owned_until_host_drain() {
         let frame = NativeProtectedFrame::new(
             0,
-            [9; 32],
-            1,
-            8,
-            8,
-            8,
-            8,
-            frame_state,
+            bray_runtime_abi::NativeFrameMetadata::new(
+                [9; 32],
+                1,
+                8,
+                8,
+                8,
+                8,
+                crate::test_support::native_main_frame_state,
+            ),
             resume_frame,
             cancel_frame,
             panic_action,
@@ -1836,13 +1973,15 @@ mod tests {
 
         let frame = NativeProtectedFrame::new(
             0,
-            [10; 32],
-            2,
-            8,
-            8,
-            8,
-            8,
-            frame_state,
+            bray_runtime_abi::NativeFrameMetadata::new(
+                [10; 32],
+                2,
+                8,
+                8,
+                8,
+                8,
+                crate::test_support::native_main_frame_state,
+            ),
             suspend_then_fail,
             cancel_frame,
             record_failure_broadcast,
@@ -2439,49 +2578,31 @@ mod tests {
         move_completion: extern "C-unwind" fn(usize, usize),
         destroy: extern "C-unwind" fn(usize),
     ) -> NativeProtectedFrame {
-        protected_frame_with_state(alignment, frame_state, resume, move_completion, destroy)
+        protected_frame_with_state(
+            alignment,
+            crate::test_support::native_main_frame_state,
+            resume,
+            move_completion,
+            destroy,
+        )
     }
 
     fn protected_frame_with_state(
         alignment: usize,
-        state: extern "C" fn(usize, u32) -> NativeFrameState,
+        state: bray_runtime_abi::NativeFrameStateCallback,
         resume: extern "C-unwind" fn(usize) -> NativeFrameProgress,
         move_completion: extern "C-unwind" fn(usize, usize),
         destroy: extern "C-unwind" fn(usize),
     ) -> NativeProtectedFrame {
         NativeProtectedFrame::new(
             0,
-            [7; 32],
-            2,
-            8,
-            alignment,
-            8,
-            8,
-            state,
+            bray_runtime_abi::NativeFrameMetadata::new([7; 32], 2, 8, alignment, 8, 8, state),
             resume,
             cancel_frame,
             ignore_action,
             ignore_resolution,
             move_completion,
             destroy,
-        )
-    }
-
-    extern "C" fn frame_state(_: usize, _: u32) -> NativeFrameState {
-        NativeFrameState::new(
-            NativeFrameAffinity::MAIN_THREAD,
-            NativeLaneRequirements::MAIN_THREAD,
-        )
-    }
-
-    extern "C" fn movable_frame_state(_: usize, _: u32) -> NativeFrameState {
-        NativeFrameState::new(NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE)
-    }
-
-    extern "C" fn movable_blocking_frame_state(_: usize, _: u32) -> NativeFrameState {
-        NativeFrameState::new(
-            NativeFrameAffinity::MOVABLE,
-            NativeLaneRequirements::BLOCKING,
         )
     }
 
@@ -2529,7 +2650,7 @@ mod tests {
     ) -> NativeProtectedFrame {
         protected_frame_with_state(
             8,
-            movable_blocking_frame_state,
+            crate::test_support::native_blocking_frame_state,
             resume_frame,
             ignore_completion_move,
             ignore_action,

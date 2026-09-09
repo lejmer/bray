@@ -70,6 +70,34 @@ impl CallableProofDependency {
     pub const fn obligation(self) -> CallableProofObligation {
         self.obligation
     }
+
+    /// Returns whether the dependency follows from the checked callable-value contract.
+    /// Establishing total execution or cleanup requires a resolved target to exclude proof cycles.
+    /// Purity and normal-completion proofs can use declared totality to exclude failure edges.
+    pub fn uses_indirect_contract(
+        self,
+        obligation: CallableProofObligation,
+        selections: &crate::CheckedSemanticSelections,
+    ) -> bool {
+        let CallableProofTarget::Call(expression) = self.target else {
+            return false;
+        };
+
+        let establishes_totality = !matches!(obligation,
+            CallableProofObligation::Execution(guarantee)
+                if guarantee.property() == bray_symbols::ExecutionProperty::Pure)
+            && !matches!(obligation, CallableProofObligation::Postcondition(_));
+
+        let supported = matches!(self.obligation,
+            CallableProofObligation::Execution(guarantee)
+                if guarantee.property() == bray_symbols::ExecutionProperty::Pure || !establishes_totality)
+            || matches!(self.obligation, CallableProofObligation::Postcondition(_));
+
+        supported
+            && matches!(selections.expression(expression),
+            Some(crate::SemanticSelection::Call(call))
+                if matches!(call.target(), crate::BoundCallableTarget::Indirect(_)))
+    }
 }
 
 /// A body-local proof whose selected implementation dependencies remain to be verified.

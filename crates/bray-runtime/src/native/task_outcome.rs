@@ -25,7 +25,7 @@ pub(super) fn destroy_terminal_task(
                     let Some(outcome) =
                         bray_runtime_abi::NativeBrayCallOutcome::panicked(outcome.payload())
                     else {
-                        return vec![crate::incident::OwnedCleanupIncident::panic(Box::new(
+                        return vec![crate::incident::OwnedCleanupIncident::host(Box::new(
                             NativeRuntimeStatus::INVALID_ARGUMENT,
                         ))];
                     };

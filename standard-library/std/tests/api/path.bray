@@ -1,4 +1,4 @@
-module bray.standard_library_tests.path;
+trusted module bray.standard_library_tests.path;
 
 using std.io;
 using std.path;

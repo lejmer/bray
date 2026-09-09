@@ -13,22 +13,12 @@ impl GuaranteeDomain<'_> {
         refinement: Option<AnalysisRefinement>,
     ) -> Result<Option<(ConstantTermId, bool)>, SemanticValueStoreError> {
         match refinement {
-            Some(AnalysisRefinement::ResultOutcome {
+            Some(AnalysisRefinement::UnionVariant {
                 expression,
-                is_success,
+                variant,
             }) => {
-                let Some(representation) = self.result_representation else {
+                let Some(subject) = self.current_expression(state, expression)? else {
                     return Ok(None);
-                };
-
-                let Some(subject) = self.propagation_subject(state, expression)? else {
-                    return Ok(None);
-                };
-
-                let variant = if is_success {
-                    representation.success_variant()
-                } else {
-                    representation.error_variant()
                 };
 
                 let condition = self.values.intern_constant_term(ConstantTermData::Test {
@@ -65,34 +55,45 @@ impl GuaranteeDomain<'_> {
                     return Ok(None);
                 };
 
-                let terms = PatternTerms {
-                    view: self.view,
-                    patterns: self.patterns,
-                    values: self.values,
-                    boolean: self.boolean,
-                    retain_types: false,
-                };
-
                 let mut remaining = MAX_CONDITION_STEPS;
 
-                let condition = terms.test(pattern, subject, || {
-                    remaining = remaining.checked_sub(1).ok_or(())?;
-
-                    Ok(())
-                });
-
-                match condition {
-                    Ok(condition) => Ok(Some((condition, value))),
-                    Err(PatternTermError::Semantic(error)) => Err(error),
-                    Err(
-                        PatternTermError::Step(())
-                        | PatternTermError::MissingPattern(_)
-                        | PatternTermError::MissingCheckedPattern(_)
-                        | PatternTermError::Unsupported,
-                    ) => Ok(None),
-                }
+                Ok(self
+                    .pattern_condition(pattern, subject, &mut remaining)?
+                    .map(|condition| (condition, value)))
             }
             _ => Ok(None),
+        }
+    }
+
+    pub(super) fn pattern_condition(
+        &self,
+        pattern: bray_bound_tree::BoundPatternId,
+        subject: ConstantTermId,
+        remaining: &mut usize,
+    ) -> Result<Option<ConstantTermId>, SemanticValueStoreError> {
+        let terms = PatternTerms {
+            view: self.view,
+            patterns: self.patterns,
+            values: self.values,
+            boolean: self.boolean,
+            retain_types: false,
+        };
+
+        let condition = terms.test(pattern, subject, || {
+            *remaining = remaining.checked_sub(1).ok_or(())?;
+
+            Ok(())
+        });
+
+        match condition {
+            Ok(condition) => Ok(Some(condition)),
+            Err(PatternTermError::Semantic(error)) => Err(error),
+            Err(
+                PatternTermError::Step(())
+                | PatternTermError::MissingPattern(_)
+                | PatternTermError::MissingCheckedPattern(_)
+                | PatternTermError::Unsupported,
+            ) => Ok(None),
         }
     }
 }

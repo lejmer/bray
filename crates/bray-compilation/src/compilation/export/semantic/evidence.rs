@@ -12,7 +12,7 @@ pub(super) fn export_callable_evidence(
     symbol: AnySymbolId,
     export: &mut SemanticExporter<'_>,
 ) -> Result<
-    Vec<CallableContractEvidence<bray_package_interface::InterfaceSymbolReference>>,
+    Vec<CallableContractEvidence<bray_package_interface::InterfaceCallableEvidenceTarget>>,
     PackageInterfaceExportError,
 > {
     let Some(definition) = CallableDefinitionId::try_new(symbol) else {
@@ -82,10 +82,20 @@ pub(super) fn export_callable_evidence(
         let dependencies = candidate
             .dependencies()
             .iter()
+            .filter(|dependency| {
+                !dependency.uses_indirect_contract(
+                    candidate.obligation(),
+                    expressions.result().value().selections(),
+                )
+            })
             .map(|dependency| {
-                let target = dependency
-                    .target()
-                    .definition(expressions.result().value().selections())
+                let target = compilation
+                    .source_callable_evidence_target(
+                        dependency.target(),
+                        expressions.result().value().selections(),
+                        cancellation,
+                    )
+                    .map_err(super::super::fact_query_export_error)?
                     .ok_or_else(|| incomplete(symbol))?;
 
                 let obligation = dependency
@@ -93,7 +103,24 @@ pub(super) fn export_callable_evidence(
                     .contract()
                     .ok_or_else(|| incomplete(symbol))?;
 
-                Ok((export.symbol_reference(target.symbol())?, obligation))
+                let callable = export.callable_instance_id(target.callable())?;
+
+                let dispatch = target
+                    .dispatch()
+                    .map(|requirement| {
+                        Ok((
+                            export.type_id(requirement.subject())?,
+                            export.trait_application_id(requirement.trait_application())?,
+                        ))
+                    })
+                    .transpose()?;
+
+                Ok((
+                    bray_package_interface::InterfaceCallableEvidenceTarget::new(
+                        callable, dispatch,
+                    ),
+                    obligation,
+                ))
             })
             .collect::<Result<Vec<_>, PackageInterfaceExportError>>()?;
 

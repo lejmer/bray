@@ -241,9 +241,9 @@ pub enum ProtectedFrameLayoutBuildError {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ProtectedFrameStateDescriptor {
     state: ProtectedFrameStateId,
-    lane_requirements: Arc<[ExecutionLaneRequirement]>,
-    initialized_storage: Arc<[ProtectedFrameStorageId]>,
-    dependencies: Arc<[ProtectedFrameDependencyId]>,
+    lane_requirements: arrayvec::ArrayVec<ExecutionLaneRequirement, { ExecutionLaneRequirement::ALL.len() }>,
+    initialized_storage: Option<Arc<[ProtectedFrameStorageId]>>,
+    dependencies: Option<Arc<[ProtectedFrameDependencyId]>>,
     affinity: ProtectedFrameAffinity,
 }
 
@@ -256,9 +256,19 @@ impl ProtectedFrameStateDescriptor {
         dependencies: impl IntoIterator<Item = ProtectedFrameDependencyId>,
         affinity: ProtectedFrameAffinity,
     ) -> Self {
+        let mut lanes = arrayvec::ArrayVec::new();
+
+        for requirement in lane_requirements {
+            if !lanes.contains(&requirement) {
+                lanes.push(requirement);
+            }
+        }
+
+        lanes.sort_unstable();
+
         Self {
             state,
-            lane_requirements: sorted_unique_slice(lane_requirements),
+            lane_requirements: lanes,
             initialized_storage: sorted_unique_slice(initialized_storage),
             dependencies: sorted_unique_slice(dependencies),
             affinity,
@@ -277,12 +287,12 @@ impl ProtectedFrameStateDescriptor {
 
     /// Returns storage known to be initialized while suspended in this state.
     pub fn initialized_storage(&self) -> &[ProtectedFrameStorageId] {
-        &self.initialized_storage
+        self.initialized_storage.as_deref().unwrap_or(&[])
     }
 
     /// Returns unresolved task dependencies owned in this state.
     pub fn dependencies(&self) -> &[ProtectedFrameDependencyId] {
-        &self.dependencies
+        self.dependencies.as_deref().unwrap_or(&[])
     }
 
     /// Returns the thread-affinity contract active in this state.
@@ -291,7 +301,7 @@ impl ProtectedFrameStateDescriptor {
     }
 }
 
-/// Complete runtime contract for one compiler-generated protected frame.
+/// Layout and scheduling contract for one compiler-generated protected frame.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ProtectedFrameDescriptor {
     frame: ProtectedAsyncFrameId,
@@ -299,37 +309,42 @@ pub struct ProtectedFrameDescriptor {
     frame_abi: ProtectedFrameAbiVersions,
     layout: ProtectedFrameLayout,
     completion_layout: ProtectedFrameLayout,
-    operations: ProtectedFrameOperations,
-    states: Arc<[ProtectedFrameStateDescriptor]>,
+    states: triomphe::ThinArc<(), ProtectedFrameStateDescriptor>,
 }
 
 impl ProtectedFrameDescriptor {
     /// Creates a descriptor with a nonempty contiguous state table.
-    pub fn try_new(
+    /// Returns an allocation failure if storage for the shared table is unavailable.
+    pub fn try_new<S>(
         frame: ProtectedAsyncFrameId,
         abi_version: RuntimeAbiVersion,
         frame_abi: ProtectedFrameAbiVersions,
         layout: ProtectedFrameLayout,
         completion_layout: ProtectedFrameLayout,
-        operations: ProtectedFrameOperations,
-        states: impl IntoIterator<Item = ProtectedFrameStateDescriptor>,
-    ) -> Result<Self, ProtectedFrameDescriptorBuildError> {
-        let states: Vec<_> = states.into_iter().collect();
+        states: S,
+    ) -> Result<Self, ProtectedFrameDescriptorBuildError>
+    where
+        S: IntoIterator<Item = ProtectedFrameStateDescriptor>,
+        S::IntoIter: ExactSizeIterator,
+    {
+        let states = states.into_iter();
 
-        if states.is_empty() {
+        if states.len() == 0 {
             return Err(ProtectedFrameDescriptorBuildError::MissingState);
         }
 
-        let mut state_ids = BTreeSet::new();
+        let states = triomphe::ThinArc::try_from_header_and_iter((), states)
+            .map_err(|_| ProtectedFrameDescriptorBuildError::AllocationFailed)?;
 
-        for (ordinal, state) in states.iter().enumerate() {
-            if !state_ids.insert(state.state()) {
-                return Err(ProtectedFrameDescriptorBuildError::DuplicateState);
-            }
-
+        for (ordinal, state) in states.slice.iter().enumerate() {
             let Ok(ordinal) = u32::try_from(ordinal) else {
                 return Err(ProtectedFrameDescriptorBuildError::IdentityCapacityExceeded);
             };
+
+            // Every preceding identity already equals its ordinal.
+            if state.state().raw() < ordinal {
+                return Err(ProtectedFrameDescriptorBuildError::DuplicateState);
+            }
 
             if state.state().raw() != ordinal {
                 return Err(ProtectedFrameDescriptorBuildError::NonContiguousState);
@@ -342,8 +357,7 @@ impl ProtectedFrameDescriptor {
             frame_abi,
             layout,
             completion_layout,
-            operations,
-            states: states.into(),
+            states,
         })
     }
 
@@ -372,37 +386,34 @@ impl ProtectedFrameDescriptor {
         self.completion_layout
     }
 
-    /// Returns the compiler-emitted operation table.
-    pub const fn operations(&self) -> &ProtectedFrameOperations {
-        &self.operations
-    }
-
     /// Returns the ordered resumable state table.
     pub fn states(&self) -> &[ProtectedFrameStateDescriptor] {
-        &self.states
+        &self.states.slice
     }
 
     /// Returns one resumable state when its identity belongs to this frame.
     pub fn state(&self, state: ProtectedFrameStateId) -> Option<&ProtectedFrameStateDescriptor> {
         let index = usize::try_from(state.raw()).ok()?;
 
-        self.states
+        self.states.slice
             .get(index)
             .filter(|entry| entry.state() == state)
     }
 }
 
-fn sorted_unique_slice<T: Ord>(values: impl IntoIterator<Item = T>) -> Arc<[T]> {
-    values
+fn sorted_unique_slice<T: Ord>(values: impl IntoIterator<Item = T>) -> Option<Arc<[T]>> {
+    let values = values
         .into_iter()
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect()
+        .collect::<BTreeSet<_>>();
+
+    (!values.is_empty()).then(|| values.into_iter().collect())
 }
 
-/// A malformed protected-frame descriptor.
+/// A descriptor construction failure.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ProtectedFrameDescriptorBuildError {
+    /// Storage for the shared state table could not be allocated.
+    AllocationFailed,
     /// The descriptor has no resumable state.
     MissingState,
     /// Ordered state identities are not contiguous from zero.
@@ -426,6 +437,23 @@ mod tests {
         BinarySymbolName, ExecutionLaneRequirement, ProtectedAsyncFrameId,
         ProtectedFrameAbiVersions, RuntimeAbiVersion,
     };
+
+    #[test]
+    fn state_descriptors_keep_lanes_inline_and_empty_metadata_unallocated() {
+        let descriptor = ProtectedFrameStateDescriptor::new(
+            ProtectedFrameStateId::new(0),
+            ExecutionLaneRequirement::ALL.into_iter().rev().chain(ExecutionLaneRequirement::ALL),
+            [],
+            [],
+            ProtectedFrameAffinity::Movable,
+        );
+
+        assert_eq!(descriptor.lane_requirements(), &ExecutionLaneRequirement::ALL);
+        assert!(descriptor.initialized_storage.is_none());
+        assert!(descriptor.dependencies.is_none());
+        assert!(descriptor.initialized_storage().is_empty());
+        assert!(descriptor.dependencies().is_empty());
+    }
 
     #[test]
     fn frame_layouts_require_power_of_two_alignment() {
@@ -478,18 +506,8 @@ mod tests {
             ProtectedFrameAffinity::Movable,
         );
 
-        let operations = test_operations();
-
         assert_eq!(
-            ProtectedFrameDescriptor::try_new(
-                frame,
-                abi,
-                frame_abi,
-                layout,
-                layout,
-                operations.clone(),
-                []
-            ),
+            ProtectedFrameDescriptor::try_new(frame, abi, frame_abi, layout, layout, []),
             Err(ProtectedFrameDescriptorBuildError::MissingState)
         );
 
@@ -500,7 +518,6 @@ mod tests {
                 frame_abi,
                 layout,
                 layout,
-                operations.clone(),
                 [state.clone(), state]
             ),
             Err(ProtectedFrameDescriptorBuildError::DuplicateState)
@@ -521,7 +538,6 @@ mod tests {
                 frame_abi,
                 layout,
                 layout,
-                operations,
                 [non_contiguous]
             ),
             Err(ProtectedFrameDescriptorBuildError::NonContiguousState)
@@ -529,7 +545,68 @@ mod tests {
     }
 
     #[test]
-    fn frame_descriptors_expose_emitted_operation_symbols() {
+    fn frame_state_lookup_matches_contiguous_identities_and_rejects_late_repeats() {
+        let frame = ProtectedAsyncFrameId::new([9; 32]);
+        let abi = RuntimeAbiVersion::CURRENT;
+        let frame_abi = ProtectedFrameAbiVersions::uniform(abi);
+        let layout = ProtectedFrameLayout::try_new(32, NonZeroUsize::new(8).unwrap()).unwrap();
+
+        let state = |ordinal| {
+            ProtectedFrameStateDescriptor::new(
+                ProtectedFrameStateId::new(ordinal),
+                [],
+                [],
+                [],
+                ProtectedFrameAffinity::Movable,
+            )
+        };
+
+        let descriptor = ProtectedFrameDescriptor::try_new(
+            frame,
+            abi,
+            frame_abi,
+            layout,
+            layout,
+            (0..4).map(state),
+        )
+        .unwrap();
+
+        for ordinal in 0..4 {
+            assert_eq!(
+                descriptor.state(ProtectedFrameStateId::new(ordinal)),
+                Some(&state(ordinal))
+            );
+        }
+
+        assert!(descriptor.state(ProtectedFrameStateId::new(4)).is_none());
+
+        assert!(
+            descriptor
+                .state(ProtectedFrameStateId::new(u32::MAX))
+                .is_none()
+        );
+
+        for (last, error) in [
+            (0, ProtectedFrameDescriptorBuildError::DuplicateState),
+            (2, ProtectedFrameDescriptorBuildError::DuplicateState),
+            (4, ProtectedFrameDescriptorBuildError::NonContiguousState),
+        ] {
+            assert_eq!(
+                ProtectedFrameDescriptor::try_new(
+                    frame,
+                    abi,
+                    frame_abi,
+                    layout,
+                    layout,
+                    [0, 1, 2, last].map(state),
+                ),
+                Err(error),
+            );
+        }
+    }
+
+    #[test]
+    fn frame_operation_tables_expose_emitted_symbols() {
         let operations = test_operations();
 
         assert_eq!(ProtectedFrameOperation::Resume.as_str(), "resume");

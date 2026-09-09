@@ -1,6 +1,7 @@
 use bray_bound_tree::{
-    BoundExpressionId, BoundStructuredExpression, PatternOperation, PatternProjection,
-    SelectedPropagation, SelectedPropagationBoundary, SemanticSelection,
+    BoundExpressionId, BoundOperationPoint, BoundStructuredExpression, PatternOperation,
+    PatternProjection, SelectedPropagation, SelectedPropagationBoundary, SemanticSelection,
+    StorageAccessPurpose,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
@@ -13,6 +14,11 @@ use super::super::super::LoweringError;
 use super::super::super::block::LoweredExpression;
 use super::super::super::lowerer::{Lowerer, YieldTarget};
 use super::super::super::projection::projected_pattern_place;
+
+pub(in crate::lowering) enum PropagationSource {
+    Checked,
+    Awaited,
+}
 
 #[derive(Clone, Copy)]
 enum PropagationDestination {
@@ -72,7 +78,7 @@ impl Lowerer<'_> {
         };
 
         let target = self.propagation_target(boundary, result_type)?;
-        let operand = self.lower_expression(*operand_id, current)?;
+        let operand = self.lower_propagation_subject(*operand_id, current)?;
 
         let Some(current) = operand.block else {
             return Ok(operand);
@@ -84,9 +90,9 @@ impl Lowerer<'_> {
 
         let source = self.source(expression.origin());
 
-        let (present, present_operand) = self.propagation_branch(&source, operand_type)?;
+        let present = self.propagation_branch(&source)?;
 
-        let (absent, _) = self.propagation_branch(&source, operand_type)?;
+        let absent = self.propagation_branch(&source)?;
 
         self.set_terminator(
             current,
@@ -94,16 +100,14 @@ impl Lowerer<'_> {
             MirTerminatorKind::PatternBranch {
                 subject: Self::retained_operand(&operand),
                 predicate: MirPatternPredicate::NullablePresent,
-                matched: MirEdge::new(present, [Self::retained_operand(&operand)]),
-                unmatched: MirEdge::new(absent, [Self::retained_operand(&operand)]),
+                matched: MirEdge::new(present, []),
+                unmatched: MirEdge::new(absent, []),
             },
         )?;
 
-        let value = self.project_pattern_value(
-            id,
-            present,
-            &source,
-            present_operand,
+        let value = self.project_checked_propagation_value(
+            BoundOperationPoint::Evaluation(id.into()),
+            operand,
             PatternProjection::NullableValue,
             value_type,
         )?;
@@ -175,7 +179,7 @@ impl Lowerer<'_> {
 
         let target = self.propagation_target(boundary, result_type)?;
 
-        let operand = self.lower_expression(operand_id, current)?;
+        let operand = self.lower_propagation_subject(operand_id, current)?;
 
         let Some(current) = operand.block else {
             return Ok(operand);
@@ -187,9 +191,9 @@ impl Lowerer<'_> {
 
         let source = self.source(expression.origin());
 
-        let (success, success_operand) = self.propagation_branch(&source, operand_type)?;
+        let success = self.propagation_branch(&source)?;
 
-        let (error, error_operand) = self.propagation_branch(&source, operand_type)?;
+        let error = self.propagation_branch(&source)?;
 
         self.set_terminator(
             current,
@@ -197,16 +201,14 @@ impl Lowerer<'_> {
             MirTerminatorKind::PatternBranch {
                 subject: Self::retained_operand(&operand),
                 predicate: MirPatternPredicate::ActiveUnionVariant(representation.success_variant),
-                matched: MirEdge::new(success, [Self::retained_operand(&operand)]),
-                unmatched: MirEdge::new(error, [operand]),
+                matched: MirEdge::new(success, []),
+                unmatched: MirEdge::new(error, []),
             },
         )?;
 
-        let value = self.project_pattern_value(
-            id,
-            success,
-            &source,
-            success_operand,
+        let value = self.project_checked_propagation_value(
+            BoundOperationPoint::Evaluation(id.into()),
+            Self::retained_operand(&operand),
             PatternProjection::ActiveUnionPayloadField {
                 variant: representation.success_variant,
                 field: representation.success_field,
@@ -214,11 +216,9 @@ impl Lowerer<'_> {
             *success_type,
         )?;
 
-        let error_value = self.project_pattern_value(
-            id,
-            error,
-            &source,
-            error_operand,
+        let error_value = self.project_checked_propagation_value(
+            BoundOperationPoint::PropagationFailure(id),
+            operand,
             PatternProjection::ActiveUnionPayloadField {
                 variant: representation.error_variant,
                 field: representation.error_field,
@@ -254,7 +254,7 @@ impl Lowerer<'_> {
             return Err(LoweringError::MissingSemanticSelection(id));
         }
 
-        let operand = self.lower_expression(operand_id, current)?;
+        let operand = self.lower_propagation_subject(operand_id, current)?;
 
         let Some(current) = operand.block else {
             return Ok(operand);
@@ -266,7 +266,14 @@ impl Lowerer<'_> {
 
         let source = self.source(expression.origin());
 
-        self.propagate_run_result(id, current, source, operand, operand_type)
+        self.propagate_run_result(
+            id,
+            current,
+            source,
+            operand,
+            operand_type,
+            PropagationSource::Checked,
+        )
     }
 
     pub(in crate::lowering) fn propagate_run_result(
@@ -276,6 +283,7 @@ impl Lowerer<'_> {
         source: MirSourceAnchor,
         operand: MirOperand,
         operand_type: TypeId,
+        ownership: PropagationSource,
     ) -> Result<LoweredExpression, LoweringError> {
         let arguments = self.named_type_arguments(operand_type)?;
 
@@ -286,13 +294,17 @@ impl Lowerer<'_> {
         let representation = self.run_result_representation()?;
         let report_type = self.representation_type(RepresentationRole::PanicReport)?;
 
-        let (completed, completed_operand) = self.propagation_branch(&source, operand_type)?;
+        let (completed, completed_operand) =
+            self.propagation_value_branch(&source, &operand, operand_type)?;
 
-        let (incomplete, incomplete_operand) = self.propagation_branch(&source, operand_type)?;
+        let (incomplete, incomplete_operand) =
+            self.propagation_value_branch(&source, &operand, operand_type)?;
 
-        let (panicked, panicked_operand) = self.propagation_branch(&source, operand_type)?;
+        let (panicked, panicked_operand) =
+            self.propagation_value_branch(&source, &incomplete_operand, operand_type)?;
 
-        let (cancelled, _) = self.propagation_branch(&source, operand_type)?;
+        let (cancelled, _) =
+            self.propagation_value_branch(&source, &incomplete_operand, operand_type)?;
 
         self.set_terminator(
             current,
@@ -302,29 +314,38 @@ impl Lowerer<'_> {
                 predicate: MirPatternPredicate::ActiveUnionVariant(
                     representation.completed_variant,
                 ),
-                matched: MirEdge::new(completed, [Self::retained_operand(&operand)]),
-                unmatched: MirEdge::new(incomplete, [operand]),
+                matched: completed.clone(),
+                unmatched: incomplete.clone(),
             },
         )?;
 
         self.set_terminator(
-            incomplete,
+            incomplete.target(),
             Self::retained_source(&source),
             MirTerminatorKind::PatternBranch {
                 subject: Self::retained_operand(&incomplete_operand),
                 predicate: MirPatternPredicate::ActiveUnionVariant(
                     representation.cancelled_variant,
                 ),
-                matched: MirEdge::new(cancelled, [Self::retained_operand(&incomplete_operand)]),
-                unmatched: MirEdge::new(panicked, [incomplete_operand]),
+                matched: cancelled.clone(),
+                unmatched: panicked.clone(),
             },
         )?;
 
-        let value = self.project_pattern_value(
-            id,
-            completed,
-            &source,
+        let project = |lowerer: &mut Self, block, operand, point, projection, ty| match ownership {
+            PropagationSource::Checked => {
+                lowerer.project_checked_propagation_value(point, operand, projection, ty)
+            }
+            PropagationSource::Awaited => {
+                lowerer.project_pattern_value(id, block, &source, operand, projection, ty)
+            }
+        };
+
+        let value = project(
+            self,
+            completed.target(),
             completed_operand,
+            BoundOperationPoint::Evaluation(id.into()),
             PatternProjection::ActiveUnionPayloadField {
                 variant: representation.completed_variant,
                 field: representation.completed_field,
@@ -332,11 +353,11 @@ impl Lowerer<'_> {
             *value_type,
         )?;
 
-        let report = self.project_pattern_value(
-            id,
-            panicked,
-            &source,
+        let report = project(
+            self,
+            panicked.target(),
             panicked_operand,
+            BoundOperationPoint::PropagationFailure(id),
             PatternProjection::ActiveUnionPayloadField {
                 variant: representation.panicked_variant,
                 field: representation.panicked_field,
@@ -344,11 +365,19 @@ impl Lowerer<'_> {
             report_type,
         )?;
 
-        self.finish_panic_to_active_catch(id, panicked, &source, report, report_type, None)?;
-        self.finish_cancellation(cancelled, &source, id.into())?;
+        self.finish_panic_to_active_catch(
+            id,
+            panicked.target(),
+            &source,
+            report,
+            report_type,
+            None,
+        )?;
+
+        self.finish_cancellation(cancelled.target(), &source, id.into())?;
 
         Ok(LoweredExpression::continuing(
-            completed,
+            completed.target(),
             Some(value),
             source,
         ))
@@ -400,19 +429,94 @@ impl Lowerer<'_> {
     fn propagation_branch(
         &mut self,
         source: &MirSourceAnchor,
-        operand_type: TypeId,
-    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
-        let block = self
+    ) -> Result<MirBlockId, LoweringError> {
+        Ok(self
             .builder
-            .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?;
+            .push_block(Self::retained_source(source), MirBlockKind::Ordinary)?)
+    }
 
-        let parameter = self.builder.push_block_parameter(
-            block,
-            Self::retained_source(source),
-            operand_type,
-        )?;
+    fn lower_propagation_subject(
+        &mut self,
+        expression: BoundExpressionId,
+        current: MirBlockId,
+    ) -> Result<LoweredExpression, LoweringError> {
+        let decision =
+            self.storage_decision(expression, |purpose| purpose == StorageAccessPurpose::Read)?;
 
-        Ok((block, MirOperand::Value(parameter)))
+        self.lower_materialized_access_place_with(
+            expression,
+            decision.access(),
+            current,
+            |lowerer, block, place| {
+                Ok(LoweredExpression::continuing(
+                    block,
+                    Some(MirOperand::Copy(place)),
+                    lowerer.expression_source(expression)?,
+                ))
+            },
+        )
+    }
+
+    fn propagation_value_branch(
+        &mut self,
+        source: &MirSourceAnchor,
+        operand: &MirOperand,
+        ty: TypeId,
+    ) -> Result<(MirEdge, MirOperand), LoweringError> {
+        let block = self.propagation_branch(source)?;
+
+        if matches!(operand, MirOperand::Value(_)) {
+            let parameter =
+                self.builder
+                    .push_block_parameter(block, Self::retained_source(source), ty)?;
+
+            return Ok((
+                MirEdge::new(block, [Self::retained_operand(operand)]),
+                MirOperand::Value(parameter),
+            ));
+        }
+
+        Ok((MirEdge::new(block, []), Self::retained_operand(operand)))
+    }
+
+    fn project_checked_propagation_value(
+        &self,
+        point: BoundOperationPoint,
+        subject: MirOperand,
+        projection: PatternProjection,
+        result_type: TypeId,
+    ) -> Result<MirOperand, LoweringError> {
+        let bray_bound_tree::AnyBoundNodeId::Expression(expression) = point.node() else {
+            return Err(LoweringError::SemanticValueUnavailable);
+        };
+
+        let accepts = |purpose| {
+            matches!(
+                purpose,
+                StorageAccessPurpose::Read
+                    | StorageAccessPurpose::Copy
+                    | StorageAccessPurpose::Move
+                    | StorageAccessPurpose::ValueTransfer
+            )
+        };
+
+        let decision = self
+            .storage_decision_matching(expression, |plan| {
+                plan.point() == point && accepts(plan.purpose())
+            })
+            .or_else(|error| match error {
+                LoweringError::MissingStorageAccess(_) => {
+                    self.storage_decision_matching(expression, |plan| {
+                        plan.point() == point && plan.purpose() == StorageAccessPurpose::Projection
+                    })
+                }
+                _ => Err(error),
+            })?;
+
+        let place = projected_pattern_place(&subject, projection, result_type)
+            .ok_or(LoweringError::UnsupportedStorageAccess(decision.access()))?;
+
+        self.checked_place_operand(place, decision)
     }
 
     fn finish_propagation(

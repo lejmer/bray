@@ -849,6 +849,13 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 abi: self.callable_abi()?,
             },
             2 => MirCallTarget::Runtime(self.runtime_reference()?),
+            3 => MirCallTarget::ParameterDefault {
+                callable: MirCallableReference::new(
+                    self.callable_instance()?,
+                    self.callable_abi()?,
+                ),
+                provider: self.exact_symbol()?,
+            },
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 
@@ -1031,11 +1038,6 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     value: self.operand()?,
                 })
             }
-            2 => Ok(MirCallArgument::Default {
-                parameter: self.exact_symbol()?,
-                ordinal: read_u32(&mut self.reader)?,
-                provider: self.exact_symbol()?,
-            }),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }
@@ -1718,6 +1720,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
             1 => Ok(MirPanicCause::Assertion(self.optional_operand()?)),
             2 => Ok(MirPanicCause::ExplicitTestFailure(self.operand()?)),
             3 => Ok(MirPanicCause::TaskAdmission),
+            4 => Ok(MirPanicCause::FrameAllocation),
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }
     }
@@ -1730,6 +1733,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
         match read_u32(&mut self.reader)? {
             0 => {
                 let frame = self.frame_reference()?;
+                let destination = self.place()?;
 
                 let initializer = match read_u32(&mut self.reader)? {
                     0 => bray_ir::MirFrameInitializer::Callable(self.call()?),
@@ -1751,7 +1755,11 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                     _ => return Err(ExecutableTemplateDecodeError::Malformed),
                 };
 
-                Ok(Operation::CreateFrame { frame, initializer })
+                Ok(Operation::CreateFrame {
+                    frame,
+                    initializer,
+                    destination,
+                })
             }
             2 => Ok(Operation::ResumeFrame {
                 frame: self.frame_id()?,

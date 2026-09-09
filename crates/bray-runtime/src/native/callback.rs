@@ -41,12 +41,8 @@ native_export! {
         copy_message: Option<NativePanicMessageCopyCallback>,
     ) -> NativeRuntimeStatus {
         std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            let cause = match cause {
-                0 => NativePanicCause::MESSAGE,
-                1 => NativePanicCause::ASSERTION,
-                2 => NativePanicCause::EXPLICIT_TEST_FAILURE,
-                3 => NativePanicCause::TASK_ADMISSION,
-                _ => return NativeRuntimeStatus::INVALID_ARGUMENT,
+            let Some(cause) = NativePanicCause::from_code(cause) else {
+                return NativeRuntimeStatus::INVALID_ARGUMENT;
             };
 
             let source = match source_present {
@@ -205,7 +201,7 @@ fn execute_callback_boundary(
     #[cfg(test)]
     let _test_isolation = super::state::test_runtime_isolation();
 
-    let terminal = std::sync::Arc::new(super::frame::NativeTerminalState::new());
+    let terminal = triomphe::Arc::new(super::frame::NativeTerminalState::new());
     let incidents = super::incident::IncidentOwnerScope::enter(&terminal);
     let thread = RuntimeThreadScope::enter_or_reuse();
 
@@ -213,15 +209,19 @@ fn execute_callback_boundary(
         Ok(_) if !main_thread || bray_platform::mark_current_runtime_thread_as_main() => {
             execute_synchronous_root(|| super::host::with_output(callback), on_started)
         }
-        Ok(_) | Err(_) => {
-            RunOutcome::Completed(runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE))
-        }
+        Ok(_) | Err(_) => Ok(RunOutcome::Completed(runtime_failure(
+            NativeRuntimeStatus::RUNTIME_FAILURE,
+        ))),
     };
 
     let mut outcome = match outcome {
-        RunOutcome::Completed(outcome) => outcome,
-        RunOutcome::Cancelled => NativeRunOutcome::new(NativeRunState::CANCELLED, 0),
-        RunOutcome::Panicked(_) => runtime_failure(NativeRuntimeStatus::PANICKED),
+        Ok(RunOutcome::Completed(outcome)) => outcome,
+        Ok(RunOutcome::Cancelled) => NativeRunOutcome::new(NativeRunState::CANCELLED, 0),
+        Ok(RunOutcome::Panicked(_)) => runtime_failure(NativeRuntimeStatus::PANICKED),
+        Err(crate::RootExecutionError::Cancellation(_)) => {
+            runtime_failure(NativeRuntimeStatus::ALLOCATION_FAILURE)
+        }
+        Err(_) => runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE),
     };
 
     cleanup();
@@ -325,20 +325,22 @@ mod tests {
             Err(NativeRuntimeStatus::UNKNOWN_TASK)
         );
 
-        assert_eq!(
-            super::bray_runtime_substrate_panic_reporting(
-                0,
-                0,
-                0,
-                0,
-                0,
-                0,
-                source.as_ptr(),
-                1,
-                Some(reject_copy)
-            ),
-            NativeRuntimeStatus::UNKNOWN_TASK
-        );
+        for cause in 0..=4 {
+            assert_eq!(
+                super::bray_runtime_substrate_panic_reporting(
+                    cause,
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    source.as_ptr(),
+                    1,
+                    Some(reject_copy)
+                ),
+                NativeRuntimeStatus::UNKNOWN_TASK
+            );
+        }
 
         assert_eq!(
             super::bray_runtime_substrate_panic_reporting(

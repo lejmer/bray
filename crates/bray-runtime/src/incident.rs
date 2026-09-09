@@ -16,9 +16,7 @@ enum CleanupIncidentKind {
         callbacks: NativePanicReportCallbacks,
     },
     Cancellation,
-    Panic {
-        _payload: Box<dyn Any + Send>,
-    },
+    Host(Box<dyn Any + Send>),
     RuntimeFailure,
 }
 
@@ -29,9 +27,19 @@ impl OwnedCleanupIncident {
         })
     }
 
-    pub(crate) fn panic(payload: Box<dyn Any + Send>) -> Self {
-        Self {
-            kind: CleanupIncidentKind::Panic { _payload: payload },
+    pub(crate) fn host(payload: Box<dyn Any + Send>) -> Self {
+        match payload.downcast::<Self>() {
+            Ok(incident) => *incident,
+            Err(payload) => Self {
+                kind: CleanupIncidentKind::Host(payload),
+            },
+        }
+    }
+
+    pub(crate) fn payload(&self) -> &(dyn Any + Send) {
+        match &self.kind {
+            CleanupIncidentKind::Host(payload) => payload.as_ref(),
+            _ => self,
         }
     }
 
@@ -64,7 +72,7 @@ impl OwnedCleanupIncident {
             CleanupIncidentKind::NativePanic { payload, .. } => payload.take(),
             CleanupIncidentKind::Native(_)
             | CleanupIncidentKind::Cancellation
-            | CleanupIncidentKind::Panic { .. }
+            | CleanupIncidentKind::Host(_)
             | CleanupIncidentKind::RuntimeFailure => None,
         }
     }
@@ -82,7 +90,7 @@ impl OwnedCleanupIncident {
                 (payload.take()?, *callbacks)
             }
             CleanupIncidentKind::Cancellation
-            | CleanupIncidentKind::Panic { .. }
+            | CleanupIncidentKind::Host(_)
             | CleanupIncidentKind::RuntimeFailure => return None,
         };
 
@@ -168,6 +176,40 @@ mod tests {
     static REPORTS: AtomicUsize = AtomicUsize::new(0);
     static DESTROYS: AtomicUsize = AtomicUsize::new(0);
 
+    #[test]
+    fn host_incidents_preserve_payload_identity_and_unwrap_retained_native_incidents() {
+        struct Payload(std::sync::Arc<AtomicUsize>);
+
+        impl Drop for Payload {
+            fn drop(&mut self) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let releases = std::sync::Arc::new(AtomicUsize::new(0));
+        let payload = Box::new(Payload(std::sync::Arc::clone(&releases)));
+        let address = std::ptr::from_ref(payload.as_ref());
+        let incident = OwnedCleanupIncident::host(payload);
+
+        assert!(std::ptr::eq(
+            incident.payload().downcast_ref::<Payload>().unwrap(),
+            address,
+        ));
+
+        assert!(!incident.report());
+        assert_eq!(releases.load(Ordering::SeqCst), 1);
+
+        let incident =
+            OwnedCleanupIncident::host(Box::new(OwnedCleanupIncident::runtime_failure()));
+
+        assert!(matches!(
+            incident.kind,
+            super::CleanupIncidentKind::RuntimeFailure
+        ));
+
+        assert!(incident.payload().is::<OwnedCleanupIncident>());
+    }
+
     extern "C-unwind" fn report(incident: &NativeCleanupIncident) -> NativeRuntimeStatus {
         REPORTS.fetch_add(incident.payload(), Ordering::SeqCst);
 
@@ -222,7 +264,7 @@ mod tests {
             bray_runtime_model::ProtectedFrameStateId::new(1),
         );
 
-        reports.transfer(
+        reports.transfer_owned(
             crate::CleanupIncidentProducer::SynchronousRoot,
             origin,
             native_incident(7),

@@ -35,8 +35,7 @@ impl Compilation {
             return Ok(DiagnosticResult::new(false, diagnostics));
         };
 
-        let certified =
-            self.declaration_callable_proofs(finalizer.callable().definition(), cancellation)?;
+        let certified = self.instance_callable_proofs(finalizer.callable(), cancellation)?;
 
         diagnostics = diagnostics.merged(certified.diagnostics());
 
@@ -108,6 +107,13 @@ impl Compilation {
         let cleanup_roots = storage
             .identity_entries()
             .filter_map(|(identity, _)| storage.storage_type(identity))
+            // Borrowed inputs expose their reached types without owning their cleanup.
+            // Mutation-footprint checking still needs those types' represented dependencies.
+            .chain(
+                storage
+                    .access_entries()
+                    .map(|(_, access)| access.reached_type()),
+            )
             .chain(cleanup_calls.values().copied());
 
         let cleanup_dependencies = crate::compilation::checker::checker_result(
@@ -187,6 +193,8 @@ impl Compilation {
                         structured.kind(),
                         bray_bound_tree::BoundStructuredExpressionKind::PatternTest
                             | bray_bound_tree::BoundStructuredExpressionKind::PatternBinding
+                            | bray_bound_tree::BoundStructuredExpressionKind::ResultPropagation
+                            | bray_bound_tree::BoundStructuredExpressionKind::NullablePropagation
                     ) =>
                 {
                     roots.extend(structured.operands().iter().copied())
@@ -431,33 +439,52 @@ impl Compilation {
             if !matches!(
                 call.resolution().result(),
                 bray_bound_tree::BoundCallResult::Immediate(_)
-            ) || call.resolution().trait_dispatch().is_some()
-                || inputs.iter().any(|(_, conversion)| {
-                    conversion.is_some_and(|conversion| {
-                        !matches!(
-                            conversion.target(),
-                            bray_bound_tree::ConversionTarget::Identity
-                        )
-                    })
-                })
-                || call.arguments().iter().any(|argument| {
-                    matches!(
-                        argument,
-                        bray_bound_tree::SelectedArgument::Explicit {
-                            parameter: None,
-                            ..
-                        }
+            ) || inputs.iter().any(|(_, conversion)| {
+                conversion.is_some_and(|conversion| {
+                    !matches!(
+                        conversion.target(),
+                        bray_bound_tree::ConversionTarget::Identity
                     )
                 })
-            {
+            }) || (!matches!(
+                call.target(),
+                bray_bound_tree::BoundCallableTarget::Indirect(_)
+            ) && call.arguments().iter().any(|argument| {
+                matches!(
+                    argument,
+                    bray_bound_tree::SelectedArgument::Explicit {
+                        parameter: None,
+                        ..
+                    }
+                )
+            })) {
                 continue;
             }
 
-            let bray_bound_tree::BoundCallableTarget::Declaration(instance) = call.target() else {
-                continue;
-            };
+            let declared = match call.target() {
+                bray_bound_tree::BoundCallableTarget::Declaration(instance) => {
+                    self.execution_callable_conditions(instance, cancellation)?
+                }
+                bray_bound_tree::BoundCallableTarget::Indirect(ty) => {
+                    let data = values.type_data(ty)?;
 
-            let declared = self.execution_callable_conditions(instance, cancellation)?;
+                    let TypeData::Callable(callable) = data.as_ref() else {
+                        continue;
+                    };
+
+                    if callable.is_variadic() {
+                        continue;
+                    }
+
+                    // Normalization owns an Arc-backed contract copy, leaving the callable type immutable.
+                    let mut conditions = callable.conditions().clone();
+                    self.normalize_execution_conditions(&mut conditions, cancellation)?;
+
+                    DiagnosticResult::without_diagnostics(conditions)
+                }
+                bray_bound_tree::BoundCallableTarget::Predicate(_)
+                | bray_bound_tree::BoundCallableTarget::Anonymous(_) => continue,
+            };
 
             diagnostics = diagnostics.merged(declared.diagnostics());
 
@@ -601,7 +628,7 @@ impl Compilation {
         Ok(DiagnosticResult::new(lifecycle, diagnostics))
     }
 
-    fn execution_callable_conditions(
+    pub(in crate::compilation) fn execution_callable_conditions(
         &self,
         instance: bray_symbols::CallableInstanceData,
         cancellation: &CancellationToken,
@@ -719,12 +746,239 @@ mod tests {
     #[test]
     fn execution_guarantees_compose_through_verified_calls() {
         let compilation = compilation(
-            "module app; func leaf() executes(pure, total) {} func middle() executes(pure, total) { leaf(); } func root() executes(pure, total) { middle(); }",
+            r#"
+            module app;
+
+            func leaf()
+                executes(pure, total) {}
+
+            func middle()
+                executes(pure, total)
+            {
+                leaf();
+            }
+
+            func root()
+                executes(pure, total)
+            {
+                middle();
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
 
         assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn generic_execution_proofs_follow_the_selected_witness() {
+        for (properties, body, accepted) in [
+            ("pure, total", "return true;", true),
+            ("pure, total", "return read<Value>(&self);", false),
+            ("pure", "return read<Value>(&self);", true),
+            ("pure, total", "panic(1);", false),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+                trait Reader
+                {{
+                    func read() -> bool executes({properties});
+                }}
+                struct Value
+                {{
+                }}
+                impl Value(Reader)
+                {{
+                    func read() -> bool executes({properties})
+                    {{
+                        {body}
+                    }}
+                }}
+                func read<T>(pos value: &T) -> bool with(T: Reader) executes({properties})
+                {{
+                    return value.read();
+                }}
+                func root() -> bool executes({properties})
+                {{
+                    let value = Value
+                    {{
+                    }};
+                    return read<Value>(&value);
+                }}
+                "#
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                accepted,
+                "{source}: {diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn generic_method_arguments_reach_selected_execution_proofs() {
+        let source = r#"
+        module app;
+
+        trait Reader
+        {
+            func read<Value>(pos value: Value) -> Value
+                executes(pure, total);
+        }
+
+        struct ReaderValue
+        {
+        }
+
+        impl ReaderValue(Reader)
+        {
+            func read<Output>(pos value: Output) -> Output
+                executes(pure, total)
+            {
+                return value;
+            }
+        }
+
+        func apply<T>(pos reader: &T) -> bool
+            with(T: Reader)
+            executes(pure, total)
+        {
+            return reader.read<bool>(true);
+        }
+
+        func root() -> bool
+            executes(pure, total)
+        {
+            let reader = ReaderValue
+            {
+            };
+
+            return apply<ReaderValue>(&reader);
+        }
+        "#;
+
+        let compilation = compilation(source);
+        let diagnostics = compilation.check_diagnostics();
+
+        assert!(!diagnostics.has_errors(), "{diagnostics:?}");
+    }
+
+    #[test]
+    fn callable_and_trait_contracts_allow_weaker_execution_lane_requirements() {
+        for (required, provided, accepted) in [
+            ("requires(blocking_execution())", "", true),
+            ("", "requires(blocking_execution())", false),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+
+                callable Operation = func() -> i32
+                    {required};
+
+                func operation() -> i32
+                    {provided}
+                {{
+                    return 1;
+                }}
+
+                func select() -> Operation
+                {{
+                    return operation;
+                }}
+
+                trait Reader
+                {{
+                    func read() -> i32
+                        {required};
+                }}
+
+                struct Value {{}}
+
+                impl Value(Reader)
+                {{
+                    func read() -> i32
+                        {provided}
+                    {{
+                        return 1;
+                    }}
+                }}
+                "#
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                accepted,
+                "{source}: {diagnostics:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn callable_value_contracts_support_purity_without_inventing_totality() {
+        for (provided, required, accepted) in [
+            ("executes(pure)", "executes(pure)", true),
+            ("executes(pure, total)", "executes(pure)", true),
+            ("", "executes(pure)", false),
+            ("executes(total)", "executes(pure)", false),
+            ("executes(pure, total)", "executes(pure, total)", false),
+        ] {
+            let source = format!(
+                r#"
+                module app;
+                func root(pos operation: func(pos value: bool) -> bool {provided}, pos value: bool) -> bool {required}
+                {{
+                    return operation(value);
+                }}
+                "#
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert_eq!(
+                !diagnostics.has_errors(),
+                accepted,
+                "{source}: {diagnostics:?}"
+            );
+
+            if !accepted {
+                assert!(diagnostics.iter().any(|diagnostic| diagnostic.kind()
+                    == DiagnosticKind::CheckingUnprovenExecutionGuarantee));
+            }
+        }
+    }
+
+    #[test]
+    fn callable_value_cleanup_is_pure_and_total_without_invoking_the_callable() {
+        for callable in [
+            "func() -> bool",
+            "async func() -> bool",
+            "trusted func() -> bool",
+        ] {
+            let source = format!(
+                r#"
+                module app;
+                func root(pos operation: {callable}) executes(pure, total)
+                {{
+                }}
+                "#
+            );
+
+            let compilation = compilation(&source);
+            let diagnostics = compilation.check_diagnostics();
+
+            assert!(!diagnostics.has_errors(), "{source}: {diagnostics:?}");
+        }
     }
 
     #[test]
@@ -786,15 +1040,47 @@ mod tests {
             ),
         ] {
             let source = format!(
-                "trusted module app; struct Policy {{ mut value: i32; }} \
-                 impl Policy(Storage<i32>) {{ \
-                 trusted static func create(pos value: i32) -> Self {{ return Self {{ value = value }}; }} \
-                 static func borrow(pos storage: &Self) -> &i32 {contract} {{ {shared} }} \
-                 static func borrow_mut(pos storage: &mut Self) -> &mut i32 {contract} {{ {mutable} }} \
-                 trusted static func destroy(pos storage: &mut Self) {{}} \
-                 trusted static func release(pos storage: Self) {{}} }} \
-                 func root(pos value: &box[Policy] i32) -> i32 executes(pure, total) \
-                 {{ return match value {{ case box(inner) {{ yield inner; }} }}; }}"
+                r#"
+                trusted module app;
+                struct Policy
+                {{
+                    mut value: i32;
+                }}
+                impl Policy(Storage<i32>)
+                {{
+                    trusted static func create(pos value: i32) -> Self
+                    {{
+                        return Self
+                        {{
+                            value = value
+                        }};
+                    }}
+                    static func borrow(pos storage: &Self) -> &i32 {contract}
+                    {{
+                        {shared}
+                    }}
+                    static func borrow_mut(pos storage: &mut Self) -> &mut i32 {contract}
+                    {{
+                        {mutable}
+                    }}
+                    trusted static func destroy(pos storage: &mut Self)
+                    {{
+                    }}
+                    trusted static func release(pos storage: Self)
+                    {{
+                    }}
+                }}
+                func root(pos value: &box[Policy] i32) -> i32 executes(pure, total)
+                {{
+                    return match value
+                    {{
+                        case box(inner)
+                        {{
+                            yield inner;
+                        }}
+                    }};
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -812,9 +1098,26 @@ mod tests {
     fn pure_projection_grants_mutation_authority_without_mutating() {
         for (contract, accepted) in [("executes(total)", true), ("executes(pure, total)", false)] {
             let source = format!(
-                "module app; struct Item {{ mut value: i32; }} struct Outer {{ mut item: Item; }} \
-                 func project(pos value: &mut Outer) -> &mut Item executes(pure, total) {{ return &mut value.item; }} \
-                 func root(pos value: &mut Outer) {contract} {{ let projected = project(value); projected.value = 1; }}",
+                r#"
+                module app;
+                struct Item
+                {{
+                    mut value: i32;
+                }}
+                struct Outer
+                {{
+                    mut item: Item;
+                }}
+                func project(pos value: &mut Outer) -> &mut Item executes(pure, total)
+                {{
+                    return &mut value.item;
+                }}
+                func root(pos value: &mut Outer) {contract}
+                {{
+                    let projected = project(value);
+                    projected.value = 1;
+                }}
+                "#,
             );
 
             let compilation = compilation(&source);
@@ -831,7 +1134,32 @@ mod tests {
     #[test]
     fn checked_call_results_establish_caller_postconditions() {
         let compilation = compilation(
-            "module app; func leaf() -> bool executes(pure, total) ensures(result) { return true; } func middle() -> bool executes(pure, total) ensures(result) { return leaf(); } func root() -> bool when(true) { ensures(result) } { return middle(); }",
+            r#"
+            module app;
+
+            func leaf() -> bool
+                executes(pure, total)
+                ensures(result)
+            {
+                return true;
+            }
+
+            func middle() -> bool
+                executes(pure, total)
+                ensures(result)
+            {
+                return leaf();
+            }
+
+            func root() -> bool
+                when(true)
+                {
+                    ensures(result)
+                }
+            {
+                return middle();
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -842,7 +1170,25 @@ mod tests {
     #[test]
     fn unchecked_callee_postconditions_cannot_certify_callers() {
         let compilation = compilation(
-            "module app; func leaf() -> bool executes(pure, total) ensures(result) { return false; } func root() -> bool when(true) { ensures(result) } { return leaf(); }",
+            r#"
+            module app;
+
+            func leaf() -> bool
+                executes(pure, total)
+                ensures(result)
+            {
+                return false;
+            }
+
+            func root() -> bool
+                when(true)
+                {
+                    ensures(result)
+                }
+            {
+                return leaf();
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -862,7 +1208,30 @@ mod tests {
     #[test]
     fn checked_call_results_refine_boolean_branches() {
         let compilation = compilation(
-            "module app; func leaf() -> bool executes(pure, total) ensures(result) { return true; } func root() -> bool when(true) { ensures(result) } { if leaf() { return true; } return false; }",
+            r#"
+            module app;
+
+            func leaf() -> bool
+                executes(pure, total)
+                ensures(result)
+            {
+                return true;
+            }
+
+            func root() -> bool
+                when(true)
+                {
+                    ensures(result)
+                }
+            {
+                if leaf()
+                {
+                    return true;
+                }
+
+                return false;
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -873,7 +1242,15 @@ mod tests {
     #[test]
     fn ordinary_postconditions_can_supply_independent_body_evidence() {
         let compilation = compilation(
-            "module app; func checked(pos mut ready: bool) ensures(!ready) { ready = false; }",
+            r#"
+            module app;
+
+            func checked(pos mut ready: bool)
+                ensures(!ready)
+            {
+                ready = false;
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -897,7 +1274,34 @@ mod tests {
     #[test]
     fn scalar_argument_guards_use_evaluation_time_values() {
         let compilation = compilation(
-            "module app; func leaf(pos ready: bool, pos other: bool) -> bool executes(pure) when(ready) { ensures(result) } { return ready; } func root(pos mut ready: bool) -> bool when(!ready) { ensures(result) } { return leaf(ready, { ready = true; yield true; }); }",
+            r#"
+            module app;
+
+            func leaf(pos ready: bool, pos other: bool) -> bool
+                executes(pure)
+                when(ready)
+                {
+                    ensures(result)
+                }
+            {
+                return ready;
+            }
+
+            func root(pos mut ready: bool) -> bool
+                when(!ready)
+                {
+                    ensures(result)
+                }
+            {
+                return leaf(
+                    ready,
+                    {
+                        ready = true;
+                        yield true;
+                    }
+                );
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -917,7 +1321,29 @@ mod tests {
             ("other = ready, ready = false", false),
         ] {
             let source = format!(
-                "module app; func leaf(ready: bool, other: bool) requires(ready) when(ready) {{ executes(pure, total) }} {{ if ready {{ return; }} loop {{}} }} func root(pos ready: bool) when(ready) {{ executes(pure, total) }} {{ leaf({arguments}); }}"
+                r#"
+                module app;
+                func leaf(ready: bool, other: bool) requires(ready) when(ready)
+                {{
+                    executes(pure, total)
+                }}
+                {{
+                    if ready
+                    {{
+                        return;
+                    }}
+                    loop
+                    {{
+                    }}
+                }}
+                func root(pos ready: bool) when(ready)
+                {{
+                    executes(pure, total)
+                }}
+                {{
+                    leaf({arguments});
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -930,7 +1356,21 @@ mod tests {
     #[test]
     fn execution_promises_do_not_certify_unverified_callee_bodies() {
         let compilation = compilation(
-            "module app; func leaf(pos mut ready: bool) executes(pure) { ready = false; } func root() executes(pure) { leaf(true); }",
+            r#"
+            module app;
+
+            func leaf(pos mut ready: bool)
+                executes(pure)
+            {
+                ready = false;
+            }
+
+            func root()
+                executes(pure)
+            {
+                leaf(true);
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -950,7 +1390,17 @@ mod tests {
     fn recursive_purity_and_termination_have_different_proof_rules() {
         for (property, accepted) in [("pure", true), ("total", false)] {
             let source = format!(
-                "module app; func first() executes({property}) {{ second(); }} func second() executes({property}) {{ first(); }}"
+                r#"
+                module app;
+                func first() executes({property})
+                {{
+                    second();
+                }}
+                func second() executes({property})
+                {{
+                    first();
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -963,7 +1413,23 @@ mod tests {
     #[test]
     fn dead_recursive_calls_do_not_create_termination_dependencies() {
         let compilation = compilation(
-            "module app; func checked(pos ready: bool) when(ready) { executes(pure, total) } { if ready { return; } checked(false); }",
+            r#"
+            module app;
+
+            func checked(pos ready: bool)
+                when(ready)
+                {
+                    executes(pure, total)
+                }
+            {
+                if ready
+                {
+                    return;
+                }
+
+                checked(false);
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -974,7 +1440,28 @@ mod tests {
     #[test]
     fn pure_calls_preserve_entry_observations_for_later_control_flow() {
         let compilation = compilation(
-            "module app; func leaf() executes(pure, total) {} func checked(pos ready: bool) when(ready) { executes(pure, total) } { leaf(); if ready { return; } loop {} }",
+            r#"
+            module app;
+
+            func leaf()
+                executes(pure, total) {}
+
+            func checked(pos ready: bool)
+                when(ready)
+                {
+                    executes(pure, total)
+                }
+            {
+                leaf();
+
+                if ready
+                {
+                    return;
+                }
+
+                loop {}
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -985,7 +1472,33 @@ mod tests {
     #[test]
     fn mutation_invalidates_guarded_callee_evidence() {
         let compilation = compilation(
-            "module app; func leaf(pos ready: bool) when(ready) { executes(total) } { if ready { return; } loop {} } func checked(pos mut ready: bool) when(ready) { executes(total) } { ready = false; leaf(ready); }",
+            r#"
+            module app;
+
+            func leaf(pos ready: bool)
+                when(ready)
+                {
+                    executes(total)
+                }
+            {
+                if ready
+                {
+                    return;
+                }
+
+                loop {}
+            }
+
+            func checked(pos mut ready: bool)
+                when(ready)
+                {
+                    executes(total)
+                }
+            {
+                ready = false;
+                leaf(ready);
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -1001,7 +1514,16 @@ mod tests {
     fn execution_guarantees_are_checked_against_source_body_operations() {
         for body in ["value = false;", "unknown();"] {
             let source = format!(
-                "module app; func unknown() {{}} func checked(pos mut value: bool) executes(pure) {{ {body} }}"
+                r#"
+                module app;
+                func unknown()
+                {{
+                }}
+                func checked(pos mut value: bool) executes(pure)
+                {{
+                    {body}
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1018,7 +1540,23 @@ mod tests {
     #[test]
     fn guarded_execution_checks_only_reachable_operations_in_its_entry_domain() {
         let compilation = compilation(
-            "module app; func checked(pos mut ready: bool) when(ready) { executes(pure, total) } { if ready { return; } ready = true; }",
+            r#"
+            module app;
+
+            func checked(pos mut ready: bool)
+                when(ready)
+                {
+                    executes(pure, total)
+                }
+            {
+                if ready
+                {
+                    return;
+                }
+
+                ready = true;
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -1028,7 +1566,18 @@ mod tests {
 
     #[test]
     fn total_execution_rejects_reachable_unbounded_loops() {
-        let compilation = compilation("module app; func checked() executes(total) { loop {} }");
+        let compilation = compilation(
+            r#"
+            module app;
+
+            func checked()
+                executes(total)
+            {
+                loop {}
+            }
+        "#,
+        );
+
         let diagnostics = compilation.check_diagnostics();
 
         assert!(
@@ -1041,7 +1590,22 @@ mod tests {
     #[test]
     fn execution_guarantees_include_owned_input_cleanup() {
         let compilation = compilation(
-            "module app; func observe() {} struct Owner { destruct() { observe(); } } func checked(pos owner: Owner) executes(pure) {}",
+            r#"
+            module app;
+
+            func observe() {}
+
+            struct Owner
+            {
+                destruct()
+                {
+                    observe();
+                }
+            }
+
+            func checked(pos owner: Owner)
+                executes(pure) {}
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -1056,7 +1620,26 @@ mod tests {
     #[test]
     fn anonymous_execution_guarantees_use_their_own_input_scope() {
         let compilation = compilation(
-            "module app; func outer(pos unrelated: bool) { let operation = lambda(pos mut ready: bool) when(ready) { executes(pure, total) } { if ready { return; } ready = true; }; }",
+            r#"
+            module app;
+
+            func outer(pos unrelated: bool)
+            {
+                let operation = lambda(pos mut ready: bool)
+                    when(ready)
+                    {
+                        executes(pure, total)
+                    }
+                {
+                    if ready
+                    {
+                        return;
+                    }
+
+                    ready = true;
+                };
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -1068,7 +1651,16 @@ mod tests {
     fn anonymous_mutation_requires_a_mutable_parameter_binding() {
         for (mode, allowed) in [("mut ", true), ("", false)] {
             let source = format!(
-                "module app; func outer() {{ let operation = lambda(pos {mode}value: bool) {{ value = true; }}; }}"
+                r#"
+                module app;
+                func outer()
+                {{
+                    let operation = lambda(pos {mode}value: bool)
+                    {{
+                        value = true;
+                    }};
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1086,8 +1678,26 @@ mod tests {
     #[test]
     fn total_execution_keeps_actual_assertion_and_cleanup_failures() {
         for source in [
-            "module app; func checked() executes(total) { assert(false); }",
-            "module app; struct Owner { destruct() {} } func checked(pos owner: Owner) executes(total) {}",
+            r#"
+            module app;
+
+            func checked()
+                executes(total)
+            {
+                assert(false);
+            }
+            "#,
+            r#"
+            module app;
+
+            struct Owner
+            {
+                destruct() {}
+            }
+
+            func checked(pos owner: Owner)
+                executes(total) {}
+            "#,
         ] {
             let compilation = compilation(source);
             let diagnostics = compilation.check_diagnostics();
@@ -1103,7 +1713,16 @@ mod tests {
     #[test]
     fn total_execution_can_prove_assertions_from_entry_requirements() {
         let compilation = compilation(
-            "module app; func checked(pos ready: bool) requires(ready) executes(total) { assert(ready); }",
+            r#"
+            module app;
+
+            func checked(pos ready: bool)
+                requires(ready)
+                executes(total)
+            {
+                assert(ready);
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -1114,7 +1733,25 @@ mod tests {
     #[test]
     fn mutated_inputs_do_not_reuse_entry_observations() {
         let compilation = compilation(
-            "module app; func checked(pos mut ready: bool) when(ready) { executes(total) } { ready = false; if ready { return; } loop {} }",
+            r#"
+            module app;
+
+            func checked(pos mut ready: bool)
+                when(ready)
+                {
+                    executes(total)
+                }
+            {
+                ready = false;
+
+                if ready
+                {
+                    return;
+                }
+
+                loop {}
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -1130,7 +1767,16 @@ mod tests {
     fn guarded_postconditions_check_the_actual_boolean_return() {
         for (returned, accepted) in [("ready", true), ("false", false)] {
             let source = format!(
-                "module app; func checked(pos ready: bool) -> bool when(ready) {{ executes(pure, total) ensures(result) }} {{ return {returned}; }}"
+                r#"
+                module app;
+                func checked(pos ready: bool) -> bool when(ready)
+                {{
+                    executes(pure, total) ensures(result)
+                }}
+                {{
+                    return {returned};
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1153,7 +1799,16 @@ mod tests {
     fn successful_completion_promises_distinguish_result_cases() {
         for (returned, accepted) in [("Ok(unit)", true), ("Error(unit)", false)] {
             let source = format!(
-                "module app; func checked(pos ready: bool) -> Result<unit, unit> when(ready) {{ executes(pure, total) ensures(result matches Ok(_)) }} {{ return {returned}; }}"
+                r#"
+                module app;
+                func checked(pos ready: bool) -> Result<unit, unit> when(ready)
+                {{
+                    executes(pure, total) ensures(result matches Ok(_))
+                }}
+                {{
+                    return {returned};
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1175,7 +1830,20 @@ mod tests {
     #[test]
     fn impossible_entry_domains_have_no_execution_or_completion_obligations() {
         let compilation = compilation(
-            "module app; func checked(pos mut ready: bool) -> bool when(false) { executes(pure, total) ensures(false) } { ready = true; loop {} }",
+            r#"
+            module app;
+
+            func checked(pos mut ready: bool) -> bool
+                when(false)
+                {
+                    executes(pure, total)
+                    ensures(false)
+                }
+            {
+                ready = true;
+                loop {}
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -1186,7 +1854,19 @@ mod tests {
     #[test]
     fn postconditions_observe_completion_state_and_preserve_entry_guard_activation() {
         let compilation = compilation(
-            "module app; func checked(pos mut ready: bool) -> bool when(ready) { ensures(ready) } { ready = false; return true; }",
+            r#"
+            module app;
+
+            func checked(pos mut ready: bool) -> bool
+                when(ready)
+                {
+                    ensures(ready)
+                }
+            {
+                ready = false;
+                return true;
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -1203,7 +1883,16 @@ mod tests {
     fn assigned_scalar_postconditions_use_the_new_value() {
         for (condition, accepted) in [("!ready", true), ("ready", false)] {
             let source = format!(
-                "module app; func checked(pos mut ready: bool) when(ready) {{ ensures({condition}) }} {{ ready = false; }}"
+                r#"
+                module app;
+                func checked(pos mut ready: bool) when(ready)
+                {{
+                    ensures({condition})
+                }}
+                {{
+                    ready = false;
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1216,7 +1905,24 @@ mod tests {
     #[test]
     fn assigned_fields_establish_completion_predicates() {
         let compilation = compilation(
-            "module app; struct Buffer { mut pending: bool; predicate complete(value: &Self) = !value.pending; mut func close() when(self.pending) { ensures(Self.complete(&self)) } { self.pending = false; } }",
+            r#"
+            module app;
+
+            struct Buffer
+            {
+                mut pending: bool;
+                predicate complete(value: &Self) = !value.pending;
+
+                mut func close()
+                    when(self.pending)
+                    {
+                        ensures(Self.complete(&self))
+                    }
+                {
+                    self.pending = false;
+                }
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -1231,7 +1937,20 @@ mod tests {
             ("value.ready = false", false),
         ] {
             let source = format!(
-                "module app; struct Flags {{ mut ready: bool; }} func root(pos mut value: Flags, mut other: Flags) requires(value.ready) when(true) {{ ensures(value.ready) }} {{ {assignment}; }}"
+                r#"
+                module app;
+                struct Flags
+                {{
+                    mut ready: bool;
+                }}
+                func root(pos mut value: Flags, mut other: Flags) requires(value.ready) when(true)
+                {{
+                    ensures(value.ready)
+                }}
+                {{
+                    {assignment};
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1249,7 +1968,21 @@ mod tests {
     fn assigned_checked_results_retain_scalar_snapshots() {
         for (assigned, accepted) in [("!ready()", true), ("ready()", false), ("!saved", true)] {
             let source = format!(
-                "module app; func ready() -> bool executes(pure, total) ensures(result) {{ return true; }} func root(pos mut pending: bool) when(true) {{ ensures(!pending) }} {{ let saved = ready(); pending = {assigned}; }}"
+                r#"
+                module app;
+                func ready() -> bool executes(pure, total) ensures(result)
+                {{
+                    return true;
+                }}
+                func root(pos mut pending: bool) when(true)
+                {{
+                    ensures(!pending)
+                }}
+                {{
+                    let saved = ready();
+                    pending = {assigned};
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1287,7 +2020,13 @@ mod tests {
             "let code: i64? = match value { case 0 { yield none; } case _ { yield value; } }; return code;",
         ] {
             let source = format!(
-                "module app; func root(pos value: i64) -> i64? executes(pure, total) {{ {body} }}"
+                r#"
+                module app;
+                func root(pos value: i64) -> i64? executes(pure, total)
+                {{
+                    {body}
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1310,7 +2049,31 @@ mod tests {
     fn matched_call_results_refine_delegated_postconditions() {
         for (failure_return, accepted) in [("Ok(unit)", false), ("Error(unit)", true)] {
             let source = format!(
-                "module app; func status(pos ready: bool) -> Result<unit, unit> executes(pure, total) ensures(result matches Error(_) || ready) {{ if ready {{ return Ok(unit); }} return Error(unit); }} func root(pos ready: bool) -> Result<unit, unit> executes(pure, total) ensures(result matches Error(_) || ready) {{ match status(ready) {{ case Ok(_) {{ return Ok(unit); }} case Error(_) {{ return {failure_return}; }} }} }}"
+                r#"
+                module app;
+                func status(pos ready: bool) -> Result<unit, unit> executes(pure, total) ensures(result matches Error(_) || ready)
+                {{
+                    if ready
+                    {{
+                        return Ok(unit);
+                    }}
+                    return Error(unit);
+                }}
+                func root(pos ready: bool) -> Result<unit, unit> executes(pure, total) ensures(result matches Error(_) || ready)
+                {{
+                    match status(ready)
+                    {{
+                        case Ok(_)
+                        {{
+                            return Ok(unit);
+                        }}
+                        case Error(_)
+                        {{
+                            return {failure_return};
+                        }}
+                    }}
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1346,7 +2109,23 @@ mod tests {
                 };
 
                 let source = format!(
-                    "module app; func root(pos value: Result<bool, unit>) -> bool executes(pure, total) ensures({guarantee}) {{ match value {{ case {pattern} {{ return true; }} case _ {{ return false; }} }} }}"
+                    r#"
+                    module app;
+                    func root(pos value: Result<bool, unit>) -> bool executes(pure, total) ensures({guarantee})
+                    {{
+                        match value
+                        {{
+                            case {pattern}
+                            {{
+                                return true;
+                            }}
+                            case _
+                            {{
+                                return false;
+                            }}
+                        }}
+                    }}
+                    "#
                 );
 
                 let compilation = compilation(&source);
@@ -1365,7 +2144,20 @@ mod tests {
     fn trusted_wrappers_preserve_results_without_certifying_unproved_contracts() {
         for valid in [false, true] {
             let source = format!(
-                "trusted module app; trusted func leaf() -> bool executes(pure, total) ensures(result) {{ return {valid}; }} func root() -> bool when(true) {{ ensures(result) }} {{ return trusted leaf(); }}"
+                r#"
+                trusted module app;
+                trusted func leaf() -> bool executes(pure, total) ensures(result)
+                {{
+                    return {valid};
+                }}
+                func root() -> bool when(true)
+                {{
+                    ensures(result)
+                }}
+                {{
+                    return trusted leaf();
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1395,7 +2187,21 @@ mod tests {
             ("effect()", "value = true", true),
         ] {
             let source = format!(
-                "module app; func effect() -> bool {{ panic(\"default effect\"); }} func leaf(value: bool = {default}) -> bool executes(pure, total) ensures(!value || result, value || !result) {{ return value; }} func root() -> bool executes(pure, total) ensures(result) {{ return leaf({argument}); }}"
+                r#"
+                module app;
+                func effect() -> bool
+                {{
+                    panic("default effect");
+                }}
+                func leaf(value: bool = {default}) -> bool executes(pure, total) ensures(!value || result, value || !result)
+                {{
+                    return value;
+                }}
+                func root() -> bool executes(pure, total) ensures(result)
+                {{
+                    return leaf({argument});
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1416,7 +2222,21 @@ mod tests {
         for ty in ["usize", "isize", "u64", "i32"] {
             for (default, accepted) in [("0", true), ("effect()", false)] {
                 let source = format!(
-                    "module app; func effect() -> {ty} {{ panic(\"default effect\"); }} func leaf(value: {ty} = {default}) -> {ty} executes(pure, total) {{ return value; }} func root() -> Result<unit, {ty}> executes(pure, total) ensures(result matches Error(_)) {{ return Error(leaf()); }}"
+                    r#"
+                    module app;
+                    func effect() -> {ty}
+                    {{
+                        panic("default effect");
+                    }}
+                    func leaf(value: {ty} = {default}) -> {ty} executes(pure, total)
+                    {{
+                        return value;
+                    }}
+                    func root() -> Result<unit, {ty}> executes(pure, total) ensures(result matches Error(_))
+                    {{
+                        return Error(leaf());
+                    }}
+                    "#
                 );
 
                 let compilation = compilation(&source);
@@ -1437,7 +2257,24 @@ mod tests {
     fn returned_union_construction_retains_checked_payload_results() {
         for (variant, accepted) in [("Error", true), ("Ok", false)] {
             let source = format!(
-                "module app; struct Payload {{ value: bool; }} func payload() -> Payload executes(pure, total) {{ return {{ value = true }}; }} func root() -> Result<Payload, Payload> executes(pure, total) ensures(result matches Error(_)) {{ return {variant}(payload()); }}"
+                r#"
+                module app;
+                struct Payload
+                {{
+                    value: bool;
+                }}
+                func payload() -> Payload executes(pure, total)
+                {{
+                    return
+                    {{
+                        value = true
+                    }};
+                }}
+                func root() -> Result<Payload, Payload> executes(pure, total) ensures(result matches Error(_))
+                {{
+                    return {variant}(payload());
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1462,43 +2299,79 @@ mod tests {
             for checked in ["checked", "forward_checked"] {
                 for (assigned, accepted) in [("!closed(status)", true), ("true", false)] {
                     let source = format!(
-                        r#"module app;
-@copy struct Status {{ category: u32; reserved: u32; }}
-struct Failure {{ transferred: usize; }}
-struct State {{ mut open: bool; }}
-struct Owner {{ mut state: State; predicate complete(value: &Self) = !value.state.open; }}
-func failure(transferred: usize = 0) -> Failure executes(pure, total) {{ return {{ transferred = transferred }}; }}
-func checked(pos status: Status) -> Result<unit, Failure>
-    executes(pure, total)
-    ensures((result matches Error(_)) || (status.category == 0 && status.reserved == 0))
-{{
-    if status.reserved != 0 {{ return Error(failure()); }}
-    if status.category != 0 {{ return Error(failure()); }}
-    return Ok(unit);
-}}
-func forward_checked(pos status: Status) -> Result<unit, Failure>
-    executes(pure, total)
-    ensures((result matches Error(_)) || (status.category == 0 && status.reserved == 0))
-{{ return checked(status); }}
-func closed(pos status: Status) -> bool executes(pure, total) ensures(status.category != 0 || result)
-{{ return status.category == 0; }}
-func unknown(pos status: Status) -> Status {{ return status; }}
-func close(pos value: &mut Owner, input_status: Status) -> Result<unit, Failure>
-    requires(Owner.complete(&value) || blocking_execution())
-    when(Owner.complete(&value)) {{ executes(pure, total) ensures(result matches Ok(_)) }}
-    ensures((result matches Error(_)) || Owner.complete(&value))
-{{
-    if !value.state.open {{ return Ok(unit); }}
-    {preparation}
-    value.state.open = {assigned};
-    return {checked}(status);
-}}
-func root(pos value: &mut Owner, status: Status) -> Result<unit, Failure>
-    requires(Owner.complete(&value) || blocking_execution())
-    when(Owner.complete(&value)) {{ executes(pure, total) ensures(result matches Ok(_)) }}
-    ensures((result matches Error(_)) || Owner.complete(&value))
-{{ return close(&mut value, input_status = status); }}
-"#
+                        r#"
+                        module app;
+                        @copy struct Status
+                        {{
+                            category: u32;
+                            reserved: u32;
+                        }}
+                        struct Failure
+                        {{
+                            transferred: usize;
+                        }}
+                        struct State
+                        {{
+                            mut open: bool;
+                        }}
+                        struct Owner
+                        {{
+                            mut state: State;
+                            predicate complete(value: &Self) = !value.state.open;
+                        }}
+                        func failure(transferred: usize = 0) -> Failure executes(pure, total)
+                        {{
+                            return
+                            {{
+                                transferred = transferred
+                            }};
+                        }}
+                        func checked(pos status: Status) -> Result<unit, Failure> executes(pure, total) ensures((result matches Error(_)) || (status.category == 0 && status.reserved == 0))
+                        {{
+                            if status.reserved != 0
+                            {{
+                                return Error(failure());
+                            }}
+                            if status.category != 0
+                            {{
+                                return Error(failure());
+                            }}
+                            return Ok(unit);
+                        }}
+                        func forward_checked(pos status: Status) -> Result<unit, Failure> executes(pure, total) ensures((result matches Error(_)) || (status.category == 0 && status.reserved == 0))
+                        {{
+                            return checked(status);
+                        }}
+                        func closed(pos status: Status) -> bool executes(pure, total) ensures(status.category != 0 || result)
+                        {{
+                            return status.category == 0;
+                        }}
+                        func unknown(pos status: Status) -> Status
+                        {{
+                            return status;
+                        }}
+                        func close(pos value: &mut Owner, input_status: Status) -> Result<unit, Failure> requires(Owner.complete(&value) || blocking_execution()) when(Owner.complete(&value))
+                        {{
+                            executes(pure, total) ensures(result matches Ok(_))
+                        }}
+                        ensures((result matches Error(_)) || Owner.complete(&value))
+                        {{
+                            if !value.state.open
+                            {{
+                                return Ok(unit);
+                            }}
+                            {preparation} value.state.open = {assigned};
+                            return {checked}(status);
+                        }}
+                        func root(pos value: &mut Owner, status: Status) -> Result<unit, Failure> requires(Owner.complete(&value) || blocking_execution()) when(Owner.complete(&value))
+                        {{
+                            executes(pure, total) ensures(result matches Ok(_))
+                        }}
+                        ensures((result matches Error(_)) || Owner.complete(&value))
+                        {{
+                            return close(&mut value, input_status = status);
+                        }}
+                        "#
                     );
 
                     let compilation = compilation(&source);
@@ -1580,7 +2453,25 @@ func root(pos value: &mut Owner, status: Status) -> Result<unit, Failure>
     fn error_results_do_not_require_unrelated_invalidated_observations() {
         for (returned, accepted) in [("Error(unit)", true), ("Ok(unit)", false)] {
             let source = format!(
-                "module app; struct Owner {{ mut ready: bool; }} func mutate(pos value: &mut Owner) {{ value.ready = false; }} func root(pos value: &mut Owner) -> Result<unit, unit> requires(value.ready) when(true) {{ ensures(result matches Error(_) || value.ready) }} {{ mutate(&mut value); return {returned}; }}"
+                r#"
+                module app;
+                struct Owner
+                {{
+                    mut ready: bool;
+                }}
+                func mutate(pos value: &mut Owner)
+                {{
+                    value.ready = false;
+                }}
+                func root(pos value: &mut Owner) -> Result<unit, unit> requires(value.ready) when(true)
+                {{
+                    ensures(result matches Error(_) || value.ready)
+                }}
+                {{
+                    mutate(&mut value);
+                    return {returned};
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1600,7 +2491,26 @@ func root(pos value: &mut Owner, status: Status) -> Result<unit, Failure>
     fn propagated_errors_preserve_the_result_case_and_success_conditions() {
         for (assigned, accepted) in [("false", true), ("true", false)] {
             let source = format!(
-                "module app; struct Owner {{ mut pending: bool; }} func operation() -> Result<unit, unit> {{ return Error(unit); }} func root(pos value: &mut Owner) -> Result<unit, unit> when(true) {{ ensures(result matches Error(_) || !value.pending) }} {{ try operation(); value.pending = {assigned}; return Ok(unit); }}"
+                r#"
+                module app;
+                struct Owner
+                {{
+                    mut pending: bool;
+                }}
+                func operation() -> Result<unit, unit>
+                {{
+                    return Error(unit);
+                }}
+                func root(pos value: &mut Owner) -> Result<unit, unit> when(true)
+                {{
+                    ensures(result matches Error(_) || !value.pending)
+                }}
+                {{
+                    try operation();
+                    value.pending = {assigned};
+                    return Ok(unit);
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1620,7 +2530,31 @@ func root(pos value: &mut Owner, status: Status) -> Result<unit, Failure>
     fn propagated_errors_from_calls_without_contract_inputs_preserve_the_result_case() {
         for (assigned, accepted) in [("false", true), ("true", false)] {
             let source = format!(
-                "module app; struct Owner {{ mut pending: bool; }} func default_flag() -> bool {{ return true; }} func operation(pos owner: &mut Owner, flag: bool = default_flag()) -> Result<unit, unit> {{ owner.pending = flag; return Error(unit); }} func root(pos owner: &mut Owner) -> Result<unit, unit> when(true) {{ ensures(result matches Error(_) || !owner.pending) }} {{ try operation(&mut owner); owner.pending = {assigned}; return Ok(unit); }}"
+                r#"
+                module app;
+                struct Owner
+                {{
+                    mut pending: bool;
+                }}
+                func default_flag() -> bool
+                {{
+                    return true;
+                }}
+                func operation(pos owner: &mut Owner, flag: bool = default_flag()) -> Result<unit, unit>
+                {{
+                    owner.pending = flag;
+                    return Error(unit);
+                }}
+                func root(pos owner: &mut Owner) -> Result<unit, unit> when(true)
+                {{
+                    ensures(result matches Error(_) || !owner.pending)
+                }}
+                {{
+                    try operation(&mut owner);
+                    owner.pending = {assigned};
+                    return Ok(unit);
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1645,21 +2579,43 @@ func root(pos value: &mut Owner, status: Status) -> Result<unit, Failure>
         ] {
             for (assigned, accepted) in [("false", true), ("true", false)] {
                 let source = format!(
-                    r#"module app;
-@copy union Kind {{ Other; }}
-@copy struct Failure {{ kind: Kind; code: i64?; }}
-struct Owner {{ mut pending: bool; predicate complete(value: &Self) = !value.pending; }}
-func operation() -> Result<unit, Failure> {{ return Ok(unit); }}
-func acquire() -> Result<u64, Failure> {{ return Ok(1); }}
-func root(pos owner: &mut Owner, flag: bool) -> Result<unit, Failure>
-    when(true) {{ ensures((result matches Error(_)) || Owner.complete(&owner)) }}
-{{
-    if !owner.pending {{ return Ok(unit); }}
-    {preparation}
-    owner.pending = {assigned};
-    return Ok(unit);
-}}
-"#
+                    r#"
+                    module app;
+                    @copy union Kind
+                    {{
+                        Other;
+                    }}
+                    @copy struct Failure
+                    {{
+                        kind: Kind;
+                        code: i64?;
+                    }}
+                    struct Owner
+                    {{
+                        mut pending: bool;
+                        predicate complete(value: &Self) = !value.pending;
+                    }}
+                    func operation() -> Result<unit, Failure>
+                    {{
+                        return Ok(unit);
+                    }}
+                    func acquire() -> Result<u64, Failure>
+                    {{
+                        return Ok(1);
+                    }}
+                    func root(pos owner: &mut Owner, flag: bool) -> Result<unit, Failure> when(true)
+                    {{
+                        ensures((result matches Error(_)) || Owner.complete(&owner))
+                    }}
+                    {{
+                        if !owner.pending
+                        {{
+                            return Ok(unit);
+                        }}
+                        {preparation} owner.pending = {assigned};
+                        return Ok(unit);
+                    }}
+                    "#
                 );
 
                 let compilation = compilation(&source);
@@ -1683,19 +2639,40 @@ func root(pos owner: &mut Owner, flag: bool) -> Result<unit, Failure>
             ("result matches Error(true)", false),
         ] {
             let source = format!(
-                r#"module app;
-struct Cleanup {{ value: bool; destruct() {{ }} }}
-struct Owner {{ mut pending: bool; }}
-func operation() -> Result<unit, bool> {{ return Error(false); }}
-func root(pos owner: &mut Owner, flag: bool) -> Result<unit, bool>
-    when(true) {{ ensures({condition}) }}
-{{
-    let cleanup: Cleanup = {{ value = true }};
-    if flag {{ owner.pending = false; }}
-    try operation();
-    return Error(true);
-}}
-"#
+                r#"
+                module app;
+                struct Cleanup
+                {{
+                    value: bool;
+                    destruct()
+                    {{
+                    }}
+                }}
+                struct Owner
+                {{
+                    mut pending: bool;
+                }}
+                func operation() -> Result<unit, bool>
+                {{
+                    return Error(false);
+                }}
+                func root(pos owner: &mut Owner, flag: bool) -> Result<unit, bool> when(true)
+                {{
+                    ensures({condition})
+                }}
+                {{
+                    let cleanup: Cleanup =
+                    {{
+                        value = true
+                    }};
+                    if flag
+                    {{
+                        owner.pending = false;
+                    }}
+                    try operation();
+                    return Error(true);
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1715,15 +2692,37 @@ func root(pos owner: &mut Owner, flag: bool) -> Result<unit, bool>
     fn assigned_call_results_transfer_record_postconditions() {
         for (pending, accepted) in [("false", true), ("true", false)] {
             let source = format!(
-                r#"module app;
-struct State {{ pending: bool; handle: u64; }}
-struct Owner {{ mut state: State; predicate complete(value: &Self) = !value.state.pending && value.state.handle == 0; }}
-func retired() -> State executes(pure, total) ensures(result.pending == {pending}, result.handle == 0)
-{{ return {{ pending = {pending}, handle = 0 }}; }}
-func effect() {{ }}
-func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }}
-{{ effect(); owner.state = retired(); }}
-"#
+                r#"
+                module app;
+                struct State
+                {{
+                    pending: bool;
+                    handle: u64;
+                }}
+                struct Owner
+                {{
+                    mut state: State;
+                    predicate complete(value: &Self) = !value.state.pending && value.state.handle == 0;
+                }}
+                func retired() -> State executes(pure, total) ensures(result.pending == {pending}, result.handle == 0)
+                {{
+                    return
+                    {{
+                        pending = {pending}, handle = 0
+                    }};
+                }}
+                func effect()
+                {{
+                }}
+                func root(pos owner: &mut Owner) when(true)
+                {{
+                    ensures(Owner.complete(&owner))
+                }}
+                {{
+                    effect();
+                    owner.state = retired();
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1742,7 +2741,29 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
     #[test]
     fn mutable_domain_calls_establish_caller_completion_state() {
         let compilation = compilation(
-            "module app; struct Buffer { mut pending: bool; mut func close() ensures(!self.pending) { self.pending = false; } mut func checked() when(true) { ensures(!self.pending) } { self.close(); } }",
+            r#"
+            module app;
+
+            struct Buffer
+            {
+                mut pending: bool;
+
+                mut func close()
+                    ensures(!self.pending)
+                {
+                    self.pending = false;
+                }
+
+                mut func checked()
+                    when(true)
+                    {
+                        ensures(!self.pending)
+                    }
+                {
+                    self.close();
+                }
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -1753,7 +2774,27 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
     #[test]
     fn local_bindings_retain_checked_call_results() {
         let compilation = compilation(
-            "module app; func ready() -> bool executes(pure, total) ensures(result) { return true; } func checked() -> bool when(true) { ensures(result) } { let value = ready(); return value; }",
+            r#"
+            module app;
+
+            func ready() -> bool
+                executes(pure, total)
+                ensures(result)
+            {
+                return true;
+            }
+
+            func checked() -> bool
+                when(true)
+                {
+                    ensures(result)
+                }
+            {
+                let value = ready();
+
+                return value;
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -1764,7 +2805,35 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
     #[test]
     fn local_owners_receive_domain_completion_state() {
         let compilation = compilation(
-            "module app; struct Buffer { mut pending: bool; mut func close() ensures(!self.pending) { self.pending = false; } } func checked() -> bool when(true) { ensures(result) } { let mut buffer: Buffer = { pending = true }; buffer.close(); return !buffer.pending; }",
+            r#"
+            module app;
+
+            struct Buffer
+            {
+                mut pending: bool;
+
+                mut func close()
+                    ensures(!self.pending)
+                {
+                    self.pending = false;
+                }
+            }
+
+            func checked() -> bool
+                when(true)
+                {
+                    ensures(result)
+                }
+            {
+                let mut buffer: Buffer =
+                {
+                    pending = true
+                };
+
+                buffer.close();
+                return !buffer.pending;
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -1776,18 +2845,45 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
     fn explicit_borrow_arguments_share_referent_contract_observations() {
         for (operation, contract, body) in [
             (
-                "func close(pos value: &mut Buffer) ensures(!value.pending) { value.pending = false; }",
+                r#"
+                func close(pos value: &mut Buffer)
+                    ensures(!value.pending)
+                {
+                    value.pending = false;
+                }
+                "#,
                 "",
                 "close(&mut value); return !value.pending;",
             ),
             (
-                "func observe(pos value: &Buffer) -> bool requires(!value.pending) executes(pure, total) ensures(result) { return !value.pending; }",
+                r#"
+                func observe(pos value: &Buffer) -> bool
+                    requires(!value.pending)
+                    executes(pure, total)
+                    ensures(result)
+                {
+                    return !value.pending;
+                }
+                "#,
                 "requires(!value.pending)",
                 "return observe(&value);",
             ),
         ] {
             let source = format!(
-                "module app; struct Buffer {{ mut pending: bool; }} {operation} func root(pos mut value: Buffer) -> bool {contract} when(true) {{ ensures(result) }} {{ {body} }}"
+                r#"
+                module app;
+                struct Buffer
+                {{
+                    mut pending: bool;
+                }}
+                {operation} func root(pos mut value: Buffer) -> bool {contract} when(true)
+                {{
+                    ensures(result)
+                }}
+                {{
+                    {body}
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1813,39 +2909,254 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
         let cases = [
             (
                 "explicit predicate reborrow",
-                "struct Buffer { mut pending: bool; predicate complete(value: &Self) = !value.pending; } func close(pos value: &mut Buffer) ensures(Buffer.complete(&value)) { value.pending = false; }",
+                r#"
+                struct Buffer
+                {
+                    mut pending: bool;
+                    predicate complete(value: &Self) = !value.pending;
+                }
+
+                func close(pos value: &mut Buffer)
+                    ensures(Buffer.complete(&value))
+                {
+                    value.pending = false;
+                }
+                "#,
             ),
             (
                 "borrow reborrow in body",
-                "struct Buffer { mut pending: bool; } func close(pos value: &mut Buffer) ensures(!value.pending) { value.pending = false; } func root(pos value: &mut Buffer) ensures(!value.pending) { close(&mut value); assert(!value.pending); }",
+                r#"
+                struct Buffer
+                {
+                    mut pending: bool;
+                }
+
+                func close(pos value: &mut Buffer)
+                    ensures(!value.pending)
+                {
+                    value.pending = false;
+                }
+
+                func root(pos value: &mut Buffer)
+                    ensures(!value.pending)
+                {
+                    close(&mut value);
+                    assert(!value.pending);
+                }
+                "#,
             ),
             (
                 "async forwarding",
-                "struct Buffer { mut pending: bool; mut func close() -> Result<unit, unit> ensures((result matches Error(_)) || !self.pending) { self.pending = false; return Ok(unit); } mut async func close_async() -> Result<unit, unit> ensures((result matches Error(_)) || !self.pending) { return self.close(); } }",
+                r#"
+                struct Buffer
+                {
+                    mut pending: bool;
+
+                    mut func close() -> Result<unit, unit>
+                        ensures((result matches Error(_)) || !self.pending)
+                    {
+                        self.pending = false;
+                        return Ok(unit);
+                    }
+
+                    mut async func close_async() -> Result<unit, unit>
+                        ensures((result matches Error(_)) || !self.pending)
+                    {
+                        return self.close();
+                    }
+                }
+                "#,
             ),
             (
                 "async resource forwarding",
-                "struct Buffer { mut pending: bool; finalize() -> Result<unit, unit> when(!self.pending) { executes(pure, total) ensures(result matches Ok(_)) } { if !self.pending { return Ok(unit); } return Error(unit); } destruct() {} mut func close() -> Result<unit, unit> ensures((result matches Error(_)) || !self.pending) { self.pending = false; return Ok(unit); } mut async func close_async() -> Result<unit, unit> ensures((result matches Error(_)) || !self.pending) { return self.close(); } }",
+                r#"
+                struct Buffer
+                {
+                    mut pending: bool;
+
+                    finalize() -> Result<unit, unit>
+                        when(!self.pending)
+                        {
+                            executes(pure, total)
+                            ensures(result matches Ok(_))
+                        }
+                    {
+                        if !self.pending
+                        {
+                            return Ok(unit);
+                        }
+
+                        return Error(unit);
+                    }
+
+                    destruct() {}
+
+                    mut func close() -> Result<unit, unit>
+                        ensures((result matches Error(_)) || !self.pending)
+                    {
+                        self.pending = false;
+                        return Ok(unit);
+                    }
+
+                    mut async func close_async() -> Result<unit, unit>
+                        ensures((result matches Error(_)) || !self.pending)
+                    {
+                        return self.close();
+                    }
+                }
+                "#,
             ),
             (
                 "async blocking forwarding",
-                "struct Buffer { mut pending: bool; mut func close() -> Result<unit, unit> requires(blocking_execution()) ensures((result matches Error(_)) || !self.pending) { self.pending = false; return Ok(unit); } mut async func close_async() -> Result<unit, unit> requires(blocking_execution()) ensures((result matches Error(_)) || !self.pending) { return self.close(); } }",
+                r#"
+                struct Buffer
+                {
+                    mut pending: bool;
+
+                    mut func close() -> Result<unit, unit>
+                        requires(blocking_execution())
+                        ensures((result matches Error(_)) || !self.pending)
+                    {
+                        self.pending = false;
+                        return Ok(unit);
+                    }
+
+                    mut async func close_async() -> Result<unit, unit>
+                        requires(blocking_execution())
+                        ensures((result matches Error(_)) || !self.pending)
+                    {
+                        return self.close();
+                    }
+                }
+                "#,
             ),
             (
                 "comparison complement",
-                "struct Status { code: u32; } func closed(pos status: Status) -> bool executes(pure, total) ensures(status.code != 0 || result) { return status.code == 0; }",
+                r#"
+                struct Status
+                {
+                    code: u32;
+                }
+
+                func closed(pos status: Status) -> bool
+                    executes(pure, total)
+                    ensures(status.code != 0 || result)
+                {
+                    return status.code == 0;
+                }
+                "#,
             ),
             (
                 "completed transfer needs no blocking lane",
-                "struct Buffer { mut pending: bool; finalize() -> Result<unit, unit> requires(!self.pending || blocking_execution()) when(!self.pending) { executes(pure, total) ensures(result matches Ok(_)) } { if !self.pending { return Ok(unit); } return Error(unit); } consume mut func transfer() -> Result<u64, unit> ensures(!self.pending) { let result: Result<u64, unit> = Ok(1); self.pending = false; return result; } }",
+                r#"
+                struct Buffer
+                {
+                    mut pending: bool;
+
+                    finalize() -> Result<unit, unit>
+                        requires(!self.pending || blocking_execution())
+                        when(!self.pending)
+                        {
+                            executes(pure, total)
+                            ensures(result matches Ok(_))
+                        }
+                    {
+                        if !self.pending
+                        {
+                            return Ok(unit);
+                        }
+
+                        return Error(unit);
+                    }
+
+                    consume mut func transfer() -> Result<u64, unit>
+                        ensures(!self.pending)
+                    {
+                        let result: Result<u64, unit> = Ok(1);
+
+                        self.pending = false;
+                        return result;
+                    }
+                }
+                "#,
             ),
             (
                 "returned owned error",
-                "struct Failure { code: u64; } struct Buffer { mut pending: bool; finalize() -> Result<unit, Failure> when(!self.pending) { executes(pure, total) ensures(result matches Ok(_)) } { if !self.pending { return Ok(unit); } return Error({ code = 1 }); } consume mut func transfer() -> Result<u64, Failure> ensures(!self.pending) { let result: Result<u64, Failure> = Ok(1); self.pending = false; return result; } }",
+                r#"
+                struct Failure
+                {
+                    code: u64;
+                }
+
+                struct Buffer
+                {
+                    mut pending: bool;
+
+                    finalize() -> Result<unit, Failure>
+                        when(!self.pending)
+                        {
+                            executes(pure, total)
+                            ensures(result matches Ok(_))
+                        }
+                    {
+                        if !self.pending
+                        {
+                            return Ok(unit);
+                        }
+
+                        return Error(
+                            {
+                                code = 1
+                            }
+                        );
+                    }
+
+                    consume mut func transfer() -> Result<u64, Failure>
+                        ensures(!self.pending)
+                    {
+                        let result: Result<u64, Failure> = Ok(1);
+
+                        self.pending = false;
+                        return result;
+                    }
+                }
+                "#,
             ),
             (
                 "guarded borrowed call",
-                "struct Buffer { mut pending: bool; predicate complete(value: &Self) = !value.pending; finalize() -> Result<unit, unit> when(Self.complete(&self)) { executes(pure, total) ensures(result matches Ok(_)) } { return close(&mut self); } } func close(pos value: &mut Buffer) -> Result<unit, unit> when(!value.pending) { executes(pure, total) ensures(result matches Ok(_)) } { if !value.pending { return Ok(unit); } value.pending = false; return Ok(unit); }",
+                r#"
+                struct Buffer
+                {
+                    mut pending: bool;
+                    predicate complete(value: &Self) = !value.pending;
+
+                    finalize() -> Result<unit, unit>
+                        when(Self.complete(&self))
+                        {
+                            executes(pure, total)
+                            ensures(result matches Ok(_))
+                        }
+                    {
+                        return close(&mut self);
+                    }
+                }
+
+                func close(pos value: &mut Buffer) -> Result<unit, unit>
+                    when(!value.pending)
+                    {
+                        executes(pure, total)
+                        ensures(result matches Ok(_))
+                    }
+                {
+                    if !value.pending
+                    {
+                        return Ok(unit);
+                    }
+
+                    value.pending = false;
+                    return Ok(unit);
+                }
+                "#,
             ),
         ];
 
@@ -1884,7 +3195,24 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
                             };
 
                             let lifecycle = if resource {
-                                "finalize() -> Result<unit, unit> when(!self.pending) { executes(pure, total) ensures(result matches Ok(_)) } { if !self.pending { return Ok(unit); } return Error(unit); } destruct() {}"
+                                r#"
+                                finalize() -> Result<unit, unit>
+                                    when(!self.pending)
+                                    {
+                                        executes(pure, total)
+                                        ensures(result matches Ok(_))
+                                    }
+                                {
+                                    if !self.pending
+                                    {
+                                        return Ok(unit);
+                                    }
+
+                                    return Error(unit);
+                                }
+
+                                destruct() {}
+                                "#
                             } else {
                                 ""
                             };
@@ -1892,7 +3220,27 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
                             let trust = if trusted { "trusted" } else { "" };
 
                             let source = format!(
-                                "{trust} module app; struct Failure {{ code: u64; }} struct Buffer {{ mut pending: bool; predicate complete(value: &Self) = !value.pending; {lifecycle} mut func close() -> Result<unit, {error}> requires(blocking_execution()) ensures((result matches Error(_)) || {completed}) {{ self.pending = false; return Ok(unit); }} mut {execution} func forward() -> Result<unit, {error}> requires(blocking_execution()) ensures((result matches Error(_)) || {completed}) {{ return self.close(); }} }}"
+                                r#"
+                                {trust} module app;
+                                struct Failure
+                                {{
+                                    code: u64;
+                                }}
+                                struct Buffer
+                                {{
+                                    mut pending: bool;
+                                    predicate complete(value: &Self) = !value.pending;
+                                    {lifecycle} mut func close() -> Result<unit, {error}> requires(blocking_execution()) ensures((result matches Error(_)) || {completed})
+                                    {{
+                                        self.pending = false;
+                                        return Ok(unit);
+                                    }}
+                                    mut {execution} func forward() -> Result<unit, {error}> requires(blocking_execution()) ensures((result matches Error(_)) || {completed})
+                                    {{
+                                        return self.close();
+                                    }}
+                                }}
+                                "#
                             );
 
                             let compilation = compilation(&source);
@@ -1913,7 +3261,25 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
     #[test]
     fn disjoint_field_assignments_preserve_completion_observations() {
         let compilation = compilation(
-            "module app; struct Buffer { mut pending: bool; mut dirty: bool; mut func close() when(true) { ensures(!self.pending && !self.dirty) } { self.pending = false; self.dirty = false; } }",
+            r#"
+            module app;
+
+            struct Buffer
+            {
+                mut pending: bool;
+                mut dirty: bool;
+
+                mut func close()
+                    when(true)
+                    {
+                        ensures(!self.pending && !self.dirty)
+                    }
+                {
+                    self.pending = false;
+                    self.dirty = false;
+                }
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -1924,7 +3290,24 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
     #[test]
     fn overlapping_assignments_replace_completion_observations() {
         let compilation = compilation(
-            "module app; struct Buffer { mut pending: bool; mut func close() when(true) { ensures(!self.pending) } { self.pending = false; self.pending = true; } }",
+            r#"
+            module app;
+
+            struct Buffer
+            {
+                mut pending: bool;
+
+                mut func close()
+                    when(true)
+                    {
+                        ensures(!self.pending)
+                    }
+                {
+                    self.pending = false;
+                    self.pending = true;
+                }
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -1940,7 +3323,32 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
     #[test]
     fn mutable_call_guards_are_fixed_before_the_body_changes_state() {
         let compilation = compilation(
-            "module app; struct Buffer { mut pending: bool; mut func close() when(self.pending) { ensures(!self.pending) } { self.pending = false; } mut func checked() when(self.pending) { ensures(!self.pending) } { self.close(); } }",
+            r#"
+            module app;
+
+            struct Buffer
+            {
+                mut pending: bool;
+
+                mut func close()
+                    when(self.pending)
+                    {
+                        ensures(!self.pending)
+                    }
+                {
+                    self.pending = false;
+                }
+
+                mut func checked()
+                    when(self.pending)
+                    {
+                        ensures(!self.pending)
+                    }
+                {
+                    self.close();
+                }
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -1952,7 +3360,16 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
     fn tuple_projection_conditions_retain_exact_element_identity() {
         for (element, unproven) in [(0, false), (1, true)] {
             let source = format!(
-                "module app; func root(pos value: (bool, bool)) -> bool requires(value.0) when(true) {{ ensures(result) }} {{ return value.{element}; }}"
+                r#"
+                module app;
+                func root(pos value: (bool, bool)) -> bool requires(value.0) when(true)
+                {{
+                    ensures(result)
+                }}
+                {{
+                    return value.{element};
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -1978,7 +3395,30 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
     #[test]
     fn terminal_domain_errors_preserve_their_checked_completion_state() {
         let compilation = compilation(
-            "module app; struct Buffer { mut pending: bool; mut func close() -> Result<unit, unit> ensures(!self.pending) { self.pending = false; return Error(unit); } mut func checked() -> Result<unit, unit> when(true) { ensures(!self.pending) } { return self.close(); } }",
+            r#"
+            module app;
+
+            struct Buffer
+            {
+                mut pending: bool;
+
+                mut func close() -> Result<unit, unit>
+                    ensures(!self.pending)
+                {
+                    self.pending = false;
+                    return Error(unit);
+                }
+
+                mut func checked() -> Result<unit, unit>
+                    when(true)
+                    {
+                        ensures(!self.pending)
+                    }
+                {
+                    return self.close();
+                }
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -1989,7 +3429,30 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
     #[test]
     fn mutating_after_a_domain_call_invalidates_its_completion_state() {
         let compilation = compilation(
-            "module app; struct Buffer { mut pending: bool; mut func close() ensures(!self.pending) { self.pending = false; } mut func checked() when(true) { ensures(!self.pending) } { self.close(); self.pending = true; } }",
+            r#"
+            module app;
+
+            struct Buffer
+            {
+                mut pending: bool;
+
+                mut func close()
+                    ensures(!self.pending)
+                {
+                    self.pending = false;
+                }
+
+                mut func checked()
+                    when(true)
+                    {
+                        ensures(!self.pending)
+                    }
+                {
+                    self.close();
+                    self.pending = true;
+                }
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -2005,7 +3468,24 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
     #[test]
     fn callee_owned_parameter_mutation_does_not_establish_caller_state() {
         let compilation = compilation(
-            "module app; func close(pos mut ready: bool) ensures(!ready) { ready = false; } func checked(pos ready: bool) when(ready) { ensures(!ready) } { close(ready); }",
+            r#"
+            module app;
+
+            func close(pos mut ready: bool)
+                ensures(!ready)
+            {
+                ready = false;
+            }
+
+            func checked(pos ready: bool)
+                when(ready)
+                {
+                    ensures(!ready)
+                }
+            {
+                close(ready);
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -2021,7 +3501,29 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
     #[test]
     fn unknown_calls_invalidate_assigned_observations() {
         let compilation = compilation(
-            "module app; struct Buffer { mut pending: bool; mut func change() { self.pending = true; } mut func close() when(true) { ensures(!self.pending) } { self.pending = false; self.change(); } }",
+            r#"
+            module app;
+
+            struct Buffer
+            {
+                mut pending: bool;
+
+                mut func change()
+                {
+                    self.pending = true;
+                }
+
+                mut func close()
+                    when(true)
+                    {
+                        ensures(!self.pending)
+                    }
+                {
+                    self.pending = false;
+                    self.change();
+                }
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -2038,7 +3540,23 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
     fn assignment_joins_require_matching_completion_values() {
         for (other, accepted) in [("false", true), ("true", false)] {
             let source = format!(
-                "module app; func checked(pos mut ready: bool, pos branch: bool) when(true) {{ ensures(!ready) }} {{ if branch {{ ready = false; }} else {{ ready = {other}; }} }}"
+                r#"
+                module app;
+                func checked(pos mut ready: bool, pos branch: bool) when(true)
+                {{
+                    ensures(!ready)
+                }}
+                {{
+                    if branch
+                    {{
+                        ready = false;
+                    }}
+                    else
+                    {{
+                        ready = {other};
+                    }}
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -2051,7 +3569,25 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
     #[test]
     fn branches_and_return_values_observe_assignments() {
         let compilation = compilation(
-            "module app; func checked(pos mut ready: bool) -> bool when(ready) { ensures(!result) } { ready = false; if ready { return true; } return ready; }",
+            r#"
+            module app;
+
+            func checked(pos mut ready: bool) -> bool
+                when(ready)
+                {
+                    ensures(!result)
+                }
+            {
+                ready = false;
+
+                if ready
+                {
+                    return true;
+                }
+
+                return ready;
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -2063,7 +3599,25 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
     fn finalizer_completion_guarantees_use_the_declared_observation_predicate() {
         for declaration in ["Buffer", "Buffer<T>"] {
             let source = format!(
-                "module app; struct {declaration} {{ mut pending: bool; predicate complete(value: &Self) = !value.pending; finalize() -> Result<unit, unit> when(Self.complete(&self)) {{ executes(pure, total) ensures(result matches Ok(_)) }} {{ if !self.pending {{ return Ok(unit); }} return Error(unit); }} }}"
+                r#"
+                module app;
+                struct {declaration}
+                {{
+                    mut pending: bool;
+                    predicate complete(value: &Self) = !value.pending;
+                    finalize() -> Result<unit, unit> when(Self.complete(&self))
+                    {{
+                        executes(pure, total) ensures(result matches Ok(_))
+                    }}
+                    {{
+                        if !self.pending
+                        {{
+                            return Ok(unit);
+                        }}
+                        return Error(unit);
+                    }}
+                }}
+                "#
             );
 
             let compilation = compilation(&source);
@@ -2076,7 +3630,22 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
     #[test]
     fn ordinary_static_members_can_use_the_contextual_type_qualifier() {
         let compilation = compilation(
-            "module app; struct Buffer { static func ready() -> bool { return true; } static func checked() -> bool { return Self.ready(); } }",
+            r#"
+            module app;
+
+            struct Buffer
+            {
+                static func ready() -> bool
+                {
+                    return true;
+                }
+
+                static func checked() -> bool
+                {
+                    return Self.ready();
+                }
+            }
+            "#,
         );
 
         let diagnostics = compilation.check_diagnostics();
@@ -2088,7 +3657,16 @@ func root(pos owner: &mut Owner) when(true) {{ ensures(Owner.complete(&owner)) }
     fn contextual_type_qualifiers_do_not_produce_runtime_values() {
         for qualifier in ["Self", "Buffer"] {
             let source = format!(
-                "module app; struct Buffer {{ static func checked() {{ let value = {qualifier}; }} }}"
+                r#"
+                module app;
+                struct Buffer
+                {{
+                    static func checked()
+                    {{
+                        let value = {qualifier};
+                    }}
+                }}
+                "#
             );
 
             let compilation = compilation(&source);

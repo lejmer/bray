@@ -576,43 +576,38 @@ mod tests {
         "}\n",
     );
 
-    const TARGET_FENCE_SOURCE: &str = concat!(
-        "trusted module app;\n",
-        "\n",
-        "@copy\n",
-        "public union FenceChoice\n",
-        "{\n",
-        "    Acquire;\n",
-        "    Release;\n",
-        "    AcquireRelease;\n",
-        "    SequentiallyConsistent;\n",
-        "}\n",
-        "\n",
-        "public trusted func fence(order: FenceChoice) uses(intrinsic)\n",
-        "{\n",
-        "    match order\n",
-        "    {\n",
-        "        case FenceChoice.Acquire\n",
-        "        {\n",
-        "            trusted core.target.hardware_fence(MemoryOrder.Acquire);\n",
-        "        }\n",
-        "        case FenceChoice.Release\n",
-        "        {\n",
-        "            trusted core.target.hardware_fence(MemoryOrder.Release);\n",
-        "        }\n",
-        "        case FenceChoice.AcquireRelease\n",
-        "        {\n",
-        "            trusted core.target.hardware_fence(MemoryOrder.AcquireRelease);\n",
-        "        }\n",
-        "        case FenceChoice.SequentiallyConsistent\n",
-        "        {\n",
-        "            trusted core.target.hardware_fence(\n",
-        "                MemoryOrder.SequentiallyConsistent,\n",
-        "            );\n",
-        "        }\n",
-        "    }\n",
-        "}\n",
-    );
+    const TARGET_FENCE_SOURCE: &str = r#"
+    trusted module app;
+    @copy public union FenceChoice
+    {
+        Acquire;
+        Release;
+        AcquireRelease;
+        SequentiallyConsistent;
+    }
+    public trusted func fence(order: FenceChoice) uses(intrinsic)
+    {
+        match order
+        {
+            case FenceChoice.Acquire
+            {
+                trusted core.target.hardware_fence(MemoryOrder.Acquire);
+            }
+            case FenceChoice.Release
+            {
+                trusted core.target.hardware_fence(MemoryOrder.Release);
+            }
+            case FenceChoice.AcquireRelease
+            {
+                trusted core.target.hardware_fence(MemoryOrder.AcquireRelease);
+            }
+            case FenceChoice.SequentiallyConsistent
+            {
+                trusted core.target.hardware_fence( MemoryOrder.SequentiallyConsistent, );
+            }
+        }
+    }
+    "#;
 
     const ATOMIC_GENERIC_SOURCE: &str = concat!(
         "module app;\n",
@@ -666,73 +661,35 @@ mod tests {
         "}\n",
     );
 
-    const STRUCTURAL_ASSEMBLY_SOURCE: &str = concat!(
-        "trusted module app;\n",
-        "\n",
-        "public trusted func assemble(pos value: i32) -> i32\n",
-        "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
-        "{\n",
-        "    let outputs: (i32, i32) = trusted core.target.assembly<\n",
-        "        (i32, i32, i32),\n",
-        "        (i32, i32),\n",
-        "    >(\n",
-        "        template = \"\",\n",
-        "        constraints = \"+reg,=reg,reg,i\",\n",
-        "        clobbers = \"\",\n",
-        "        features = \"\",\n",
-        "        options = 1,\n",
-        "        inputs = (value, value, 7),\n",
-        "    );\n",
-        "\n",
-        "    return outputs.0;\n",
-        "}\n",
-        "\n",
-        "func alternate() -> never\n",
-        "{\n",
-        "    loop {}\n",
-        "}\n",
-        "\n",
-        "func generic_alternate<T>(pos value: T) -> never\n",
-        "{\n",
-        "    loop {}\n",
-        "}\n",
-        "\n",
-        "public trusted func assemble_addresses(pos pointer: RawPointer<u8>)\n",
-        "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
-        "{\n",
-        "    let ignored: (i32,) = trusted core.target.assembly<\n",
-        "        (func() -> never, func(pos value: i32) -> never, RawPointer<u8>),\n",
-        "        (i32,),\n",
-        "    >(\n",
-        "        template = \"\",\n",
-        "        constraints = \"=reg,s,s,m\",\n",
-        "        clobbers = \"\",\n",
-        "        features = \"\",\n",
-        "        options = 1,\n",
-        "        inputs = (alternate, generic_alternate, pointer),\n",
-        "    );\n",
-        "}\n",
-        "\n",
-        "public trusted func branch(pos value: i32) -> i32\n",
-        "    uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)\n",
-        "{\n",
-        "    let output: (i32,) = trusted core.target.branching_assembly<\n",
-        "        (i32,),\n",
-        "        (i32,),\n",
-        "        (func() -> never,),\n",
-        "    >(\n",
-        "        template = \"\",\n",
-        "        constraints = \"+reg,label\",\n",
-        "        clobbers = \"\",\n",
-        "        features = \"\",\n",
-        "        options = 1,\n",
-        "        inputs = (value,),\n",
-        "        labels = (alternate,),\n",
-        "    );\n",
-        "\n",
-        "    return output.0;\n",
-        "}\n",
-    );
+    const STRUCTURAL_ASSEMBLY_SOURCE: &str = r#"
+    trusted module app;
+    public trusted func assemble(pos value: i32) -> i32 uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
+    {
+        let outputs: (i32, i32) = trusted core.target.assembly< (i32, i32, i32), (i32, i32), >( template = "", constraints = "+reg,=reg,reg,i", clobbers = "", features = "", options = 1, inputs = (value, value, 7), );
+        return outputs.0;
+    }
+    func alternate() -> never
+    {
+        loop
+        {
+        }
+    }
+    func generic_alternate<T>(pos value: T) -> never
+    {
+        loop
+        {
+        }
+    }
+    public trusted func assemble_addresses(pos pointer: RawPointer<u8>) uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
+    {
+        let ignored: (i32,) = trusted core.target.assembly< (func() -> never, func(pos value: i32) -> never, RawPointer<u8>), (i32,), >( template = "", constraints = "=reg,s,s,m", clobbers = "", features = "", options = 1, inputs = (alternate, generic_alternate, pointer), );
+    }
+    public trusted func branch(pos value: i32) -> i32 uses(device_memory, intrinsic, raw_memory, unchecked_alias, unchecked_init)
+    {
+        let output: (i32,) = trusted core.target.branching_assembly< (i32,), (i32,), (func() -> never,), >( template = "", constraints = "+reg,label", clobbers = "", features = "", options = 1, inputs = (value,), labels = (alternate,), );
+        return output.0;
+    }
+    "#;
 
     const MEMORY_ASSEMBLY_SOURCE: &str = concat!(
         "trusted module memory_assembly;\n",
@@ -1619,8 +1576,23 @@ mod tests {
             crate::BuildConfiguration::Release,
         ] {
             assert_source_emits_valid_native_units(
-                "module app; func weaken(operation: func() executes(pure, total)) -> func() { return operation; } \
-                 func convert(operation: func() executes(pure, total)) -> func() { return operation as func(); }",
+                r#"
+                module app;
+
+                func weaken(operation: func()
+                        executes(pure, total)
+                    ) -> func()
+                    {
+                        return operation;
+                    }
+
+                    func convert(operation: func()
+                            executes(pure, total)
+                        ) -> func()
+                        {
+                            return operation as func();
+                        }
+                "#,
                 configuration,
             );
         }
@@ -1829,22 +1801,46 @@ mod tests {
 
     #[test]
     fn task_outcome_transfers_use_concrete_callbacks_on_every_native_target() {
-        let source = concat!(
-            "module app;\n",
-            "@layout(c, align = 32)\n",
-            "struct Payload { first: u64; second: u64; third: u64; }\n",
-            "async func empty() {}\n",
-            "async func integer() -> u64 { return 42; }\n",
-            "async func aggregate() -> Payload { return Payload { first = 17, second = 29, third = 41 }; }\n",
-            "async func main() {\n",
-            "    let first: Task<unit> = empty().start();\n",
-            "    let second: Task<u64> = integer().start();\n",
-            "    let third: Task<Payload> = aggregate().start();\n",
-            "    try await first.join();\n",
-            "    let integer_result: u64 = try await second.join();\n",
-            "    let aggregate_result: Payload = try await third.join();\n",
-            "}\n",
-        );
+        let source = r#"
+        module app;
+
+        @layout(c, align = 32)
+        struct Payload
+        {
+            first: u64;
+            second: u64;
+            third: u64;
+        }
+
+        async func empty() {}
+
+        async func integer() -> u64
+        {
+            return 42;
+        }
+
+        async func aggregate() -> Payload
+        {
+            return Payload
+            {
+                first = 17,
+                second = 29,
+                third = 41
+            };
+        }
+
+        async func main()
+        {
+            let first: Task<unit> = empty().start();
+            let second: Task<u64> = integer().start();
+            let third: Task<Payload> = aggregate().start();
+
+            try await first.join();
+
+            let integer_result: u64 = try await second.join();
+            let aggregate_result: Payload = try await third.join();
+        }
+        "#;
 
         for target in NativeTarget::ALL {
             let (backend, plan) = runtime_native_plan_for_sources_target(
@@ -1886,16 +1882,32 @@ mod tests {
     fn entry_errors_keep_async_cleanup_owned_through_host_resolution() {
         for execution in ["", "async "] {
             let source = format!(
-                "module app;\n\
-                 async func suspend() {{}}\n\
-                 struct Failure {{\n\
-                     mut complete: bool;\n\
-                     async finalize() {{ await suspend(); self.complete = true; }}\n\
-                     destruct() {{ assert(self.complete); }}\n\
-                 }}\n\
-                 {execution}func main() -> Result<unit, Failure> {{\n\
-                     return Error(Failure {{ complete = false }});\n\
-                 }}\n"
+                r#"
+                module app;
+                async func suspend()
+                {{
+                }}
+                struct Failure
+                {{
+                    mut complete: bool;
+                    async finalize()
+                    {{
+                        await suspend();
+                        self.complete = true;
+                    }}
+                    destruct()
+                    {{
+                        assert(self.complete);
+                    }}
+                }}
+                {execution}func main() -> Result<unit, Failure>
+                {{
+                    return Error(Failure
+                    {{
+                        complete = false
+                    }});
+                }}
+                "#
             );
 
             for target in [
@@ -2444,6 +2456,88 @@ mod tests {
     }
 
     #[test]
+    fn generic_method_arguments_specialize_fulfillments_and_trait_defaults() {
+        for (required_parameter, provided_parameter, required_type, provided_type, argument) in [
+            ("Value", "Output", "Value", "Output", "bool"),
+            (
+                "const COUNT: usize",
+                "const LENGTH: usize",
+                "bool",
+                "bool",
+                "3",
+            ),
+        ] {
+            for default in [false, true] {
+                let required_body = if default { "{ return value; }" } else { ";" };
+
+                let fulfillment = if default {
+                    String::new()
+                } else {
+                    format!(
+                        r#"
+                        func read<{provided_parameter}>(pos value: {provided_type}) -> {provided_type}
+                        {{
+                            return value;
+                        }}
+                        "#
+                    )
+                };
+
+                let source = format!(
+                    r#"
+                    module app;
+                    trait Reader
+                    {{
+                        func read<{required_parameter}>(pos value: {required_type}) -> {required_type} {required_body}
+                    }}
+                    struct ReaderValue
+                    {{
+                    }}
+                    impl ReaderValue(Reader)
+                    {{
+                        {fulfillment}
+                    }}
+                    func apply<T>(pos reader: &T) -> bool with(T: Reader)
+                    {{
+                        return reader.read<{argument}>(true);
+                    }}
+                    public func root() -> bool
+                    {{
+                        let reader = ReaderValue
+                        {{
+                        }};
+                        return apply<ReaderValue>(&reader);
+                    }}
+                    "#
+                );
+
+                let (backend, compilation) =
+                    codegen_compilation_for_product(&source, ProductKind::Library);
+
+                let diagnostics = compilation.check_diagnostics();
+
+                assert!(!diagnostics.has_errors(), "{source}: {diagnostics:?}");
+
+                let plan = compilation
+                    .native_product_plan(
+                        test_product_identity(),
+                        crate::BuildConfiguration::Development,
+                        None,
+                        [],
+                        None,
+                    )
+                    .unwrap();
+
+                assert!(
+                    generated_artifacts(&backend, &plan)
+                        .iter()
+                        .all(|artifact| !artifact.is_empty())
+                );
+            }
+        }
+    }
+
+    #[test]
     fn trait_owned_default_bodies_specialize_with_the_selected_implementation() {
         let source = concat!(
             "module app;\n",
@@ -2696,7 +2790,16 @@ mod tests {
             true,
             false,
             GenericDependencyFixture {
-                source: "module templates; public func weaken<T>(operation: func(pos value: T) -> T executes(pure, total)) -> func(pos value: T) -> T { return operation; }",
+                source: r#"
+                module templates;
+
+                public func weaken<T>(operation: func(pos value: T) -> T
+                        executes(pure, total)
+                    ) -> func(pos value: T) -> T
+                    {
+                        return operation;
+                    }
+                "#,
                 runtime_frames: None,
                 executable_templates: 1,
                 platform_service: None,
@@ -2706,7 +2809,23 @@ mod tests {
         let compilation = generic_consumer_for_target_with_source(
             dependency,
             SelectedTarget::baseline(),
-            "module application; using example.dependency.templates.weaken; func main() { let operation = lambda(pos value: i32) -> i32 executes(pure, total) { return value; }; let erased = example.dependency.templates.weaken<i32>(operation = operation); let result = erased(1); }",
+            r#"
+            module application;
+
+            using example.dependency.templates.weaken;
+
+            func main()
+            {
+                let operation = lambda(pos value: i32) -> i32
+                    executes(pure, total)
+                {
+                    return value;
+                };
+
+                let erased = example.dependency.templates.weaken<i32>(operation = operation);
+                let result = erased(1);
+            }
+            "#,
         );
 
         assert_eq!(concrete_generic_specializations(&compilation).len(), 1);
@@ -3904,7 +4023,7 @@ public func invoke<T>(pos value: T)
             .iter()
             .filter_map(|operation| match operation.kind() {
                 MirOperationKind::Store {
-                    value: MirOperand::Move(place),
+                    value: MirOperand::Copy(place),
                     ..
                 } => match place.projections() {
                     [projection] => match projection.kind() {
@@ -4116,9 +4235,24 @@ public func invoke<T>(pos value: T)
             let execution = if asynchronous { "async" } else { "" };
 
             let source = format!(
-                "module app;\nstruct Guard {{ {execution} finalize() {{}} }}\n\
-                 async func dispose<T>(pos value: T) {{}}\n\
-                 async func main() {{ await dispose<Guard>(Guard {{}}); }}\n"
+                r#"
+                module app;
+                struct Guard
+                {{
+                    {execution} finalize()
+                    {{
+                    }}
+                }}
+                async func dispose<T>(pos value: T)
+                {{
+                }}
+                async func main()
+                {{
+                    await dispose<Guard>(Guard
+                    {{
+                    }});
+                }}
+                "#
             );
 
             let (backend, plan) = runtime_native_plan(&source);
@@ -4170,12 +4304,30 @@ public func invoke<T>(pos value: T)
                 let execution = if asynchronous { "async " } else { "" };
 
                 let source = format!(
-                    concat!(
-                        "module app;\n",
-                        "struct Owner{parameters} {{ leaf: {field}; mut flag: i32; destruct() {{ self.flag = 7; }} }}\n",
-                        "struct Leaf {{ {execution}finalize() {{}} destruct() {{}} }}\n",
-                        "func main() {{}}\n",
-                    ),
+                    r#"
+                    module app;
+                    struct Owner{parameters}
+                    {{
+                        leaf: {field};
+                        mut flag: i32;
+                        destruct()
+                        {{
+                            self.flag = 7;
+                        }}
+                    }}
+                    struct Leaf
+                    {{
+                        {execution}finalize()
+                        {{
+                        }}
+                        destruct()
+                        {{
+                        }}
+                    }}
+                    func main()
+                    {{
+                    }}
+                    "#,
                     parameters = parameters,
                     field = field,
                     execution = execution
@@ -4335,12 +4487,38 @@ public func invoke<T>(pos value: T)
 
     #[test]
     fn source_destructor_remainder_suspends_after_its_synchronous_body() {
-        let source = concat!(
-            "module app;\n",
-            "struct Owner { leaf: Leaf; mut flag: i32; destruct() { self.flag = 7; } }\n",
-            "struct Leaf { async finalize() {} destruct() {} }\n",
-            "async func main() { let owner = Owner { leaf = Leaf {}, flag = 0 }; }\n",
-        );
+        let source = r#"
+        module app;
+
+        struct Owner
+        {
+            leaf: Leaf;
+            mut flag: i32;
+
+            destruct()
+            {
+                self.flag = 7;
+            }
+        }
+
+        struct Leaf
+        {
+            async finalize() {}
+
+            destruct() {}
+        }
+
+        async func main()
+        {
+            let owner = Owner
+            {
+                leaf = Leaf
+                {
+                },
+                flag = 0
+            };
+        }
+        "#;
 
         let (backend, plan) = runtime_native_plan(source);
 
@@ -4355,12 +4533,26 @@ public func invoke<T>(pos value: T)
     fn source_destructors_require_completion_of_new_async_obligations() {
         for body in ["self.leaf = Leaf {};", "let fresh = Leaf {};"] {
             let source = format!(
-                concat!(
-                    "module app;\n",
-                    "struct Owner {{ mut leaf: Leaf; destruct() {{ {body} }} }}\n",
-                    "struct Leaf {{ async finalize() {{}} }}\n",
-                    "func main() {{}}\n",
-                ),
+                r#"
+                module app;
+                struct Owner
+                {{
+                    mut leaf: Leaf;
+                    destruct()
+                    {{
+                        {body}
+                    }}
+                }}
+                struct Leaf
+                {{
+                    async finalize()
+                    {{
+                    }}
+                }}
+                func main()
+                {{
+                }}
+                "#,
                 body = body
             );
 
@@ -4374,12 +4566,36 @@ public func invoke<T>(pos value: T)
 
     #[test]
     fn source_destructor_preserves_proven_no_work_remainder() {
-        let source = concat!(
-            "module app;\n",
-            "struct Owner { leaf: Leaf; destruct() executes(pure, total) {} }\n",
-            "struct Leaf { async finalize() executes(pure, total) {} destruct() executes(pure, total) {} }\n",
-            "func main() { let owner = Owner { leaf = Leaf {} }; }\n",
-        );
+        let source = r#"
+        module app;
+
+        struct Owner
+        {
+            leaf: Leaf;
+
+            destruct()
+                executes(pure, total) {}
+        }
+
+        struct Leaf
+        {
+            async finalize()
+                executes(pure, total) {}
+
+            destruct()
+                executes(pure, total) {}
+        }
+
+        func main()
+        {
+            let owner = Owner
+            {
+                leaf = Leaf
+                {
+                }
+            };
+        }
+        "#;
 
         let (backend, plan) = runtime_native_plan(source);
 
@@ -4398,13 +4614,72 @@ public func invoke<T>(pos value: T)
     }
 
     #[test]
-    fn inactive_future_destruction_composes_capture_cleanup() {
-        let source = concat!(
-            "module app;\n",
-            "struct Guard { async finalize() {} }\n",
-            "async func produce(pos guard: Guard) -> i32 { return 42; }\n",
-            "async func main() { let pending = produce(Guard {}); }\n",
+    fn indirect_async_construction_uses_the_selected_callable_and_checks_allocation() {
+        let source = r#"
+        module app;
+
+        async func produce(pos value: i32) -> i32
+        {
+            return value;
+        }
+
+        async func main() -> i32
+        {
+            let producer: async func(pos value: i32) -> i32 = produce;
+
+            return await producer(42);
+        }
+        "#;
+
+        let (backend, plan) = runtime_native_plan(source);
+
+        let creation = plan
+            .units()
+            .iter()
+            .flat_map(bray_codegen::CodegenUnit::mir_units)
+            .flat_map(bray_ir::MirUnit::operations)
+            .find(|operation| {
+                matches!(operation.kind(),
+                    bray_ir::MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                        initializer: bray_ir::MirFrameInitializer::Callable(call), ..
+                    }) if matches!(call.target(), bray_ir::MirCallTarget::Indirect { .. })
+                )
+            })
+            .expect("indirect invocation must construct its selected frame");
+
+        assert!(creation.kind().helper_references().is_empty());
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
         );
+    }
+
+    #[test]
+    fn inactive_future_destruction_composes_capture_cleanup() {
+        let source = r#"
+        module app;
+
+        struct Guard
+        {
+            async finalize() {}
+        }
+
+        async func produce(pos guard: Guard) -> i32
+        {
+            return 42;
+        }
+
+        async func main()
+        {
+            let pending = produce(
+                Guard
+                {
+                }
+            );
+        }
+        "#;
 
         let (backend, plan) = runtime_native_plan(source);
 
@@ -4440,12 +4715,26 @@ public func invoke<T>(pos value: T)
         for operation in ["join", "cancel"] {
             for asynchronous in ["", "async "] {
                 let source = format!(
-                    concat!(
-                        "module app;\n",
-                        "struct Guard {{ {asynchronous}finalize() {{}} }}\n",
-                        "async func produce(pos guard: Guard) -> Guard {{ return guard; }}\n",
-                        "async func main() {{ let task = produce(Guard {{}}).start(); let pending = task.{}(); }}\n",
-                    ),
+                    r#"
+                    module app;
+                    struct Guard
+                    {{
+                        {asynchronous}finalize()
+                        {{
+                        }}
+                    }}
+                    async func produce(pos guard: Guard) -> Guard
+                    {{
+                        return guard;
+                    }}
+                    async func main()
+                    {{
+                        let task = produce(Guard
+                        {{
+                        }}).start();
+                        let pending = task.{}();
+                    }}
+                    "#,
                     operation,
                     asynchronous = asynchronous
                 );
@@ -4494,22 +4783,40 @@ public func invoke<T>(pos value: T)
     #[test]
     fn static_mapping_retains_fallible_finalizers() {
         for asynchronous in [false, true] {
-            let source = concat!(
-                "module app;\n",
-                "struct Resource { mut state: i32; }\n",
-                "impl Resource\n",
-                "{\n",
-                "    async finalize() -> Result<unit, i32>\n",
-                "    {\n",
-                "        self.state = 2;\n",
-                "        return await finish();\n",
-                "    }\n",
-                "    destruct() { self.state = 3; }\n",
-                "}\n",
-                "async func finish() -> Result<unit, i32> { return Error(42); }\n",
-                "static RESOURCE: Resource = Resource { state = 1 };\n",
-                "func main() {}\n",
-            );
+            let source = r#"
+            module app;
+
+            struct Resource
+            {
+                mut state: i32;
+            }
+
+            impl Resource
+            {
+                async finalize() -> Result<unit, i32>
+                {
+                    self.state = 2;
+                    return await finish();
+                }
+
+                destruct()
+                {
+                    self.state = 3;
+                }
+            }
+
+            async func finish() -> Result<unit, i32>
+            {
+                return Error(42);
+            }
+
+            static RESOURCE: Resource = Resource
+            {
+                state = 1
+            };
+
+            func main() {}
+            "#;
 
             let source = if asynchronous {
                 source.to_owned()
@@ -4572,12 +4879,34 @@ public func invoke<T>(pos value: T)
     fn fallible_value_finalizers_transfer_owned_errors_after_successful_completion() {
         for asynchronous in ["", "async "] {
             let source = format!(
-                concat!(
-                    "module app;\n",
-                    "@layout(c) struct Failure {{ category: u8; code: i64; destruct() {{}} }}\n",
-                    "struct Resource {{ {asynchronous}finalize() -> Result<unit, Failure> {{ return Error(Failure {{ category = 1, code = 42 }}); }} }}\n",
-                    "{asynchronous}func main() {{ let value = Resource {{}}; panic(\"abnormal exit\"); }}\n",
-                ),
+                r#"
+                module app;
+                @layout(c) struct Failure
+                {{
+                    category: u8;
+                    code: i64;
+                    destruct()
+                    {{
+                    }}
+                }}
+                struct Resource
+                {{
+                    {asynchronous}finalize() -> Result<unit, Failure>
+                    {{
+                        return Error(Failure
+                        {{
+                            category = 1, code = 42
+                        }});
+                    }}
+                }}
+                {asynchronous}func main()
+                {{
+                    let value = Resource
+                    {{
+                    }};
+                    panic("abnormal exit");
+                }}
+                "#,
                 asynchronous = asynchronous
             );
 
@@ -4687,31 +5016,37 @@ public func invoke<T>(pos value: T)
 
     #[test]
     fn native_exports_and_opaque_storage_survive_reachability_and_codegen() {
-        let source = concat!(
-            "trusted module app;\n",
-            "@layout(c, size = 40, align = 8)\n",
-            "struct NativeMutex;\n",
-            "@link(name = \"native\")\n",
-            "@symbol(name = \"native_mutex\")\n",
-            "extern trusted static NATIVE_MUTEX_STORAGE: NativeMutex;\n",
-            "@link(name = \"native\")\n",
-            "@symbol(name = \"native_pointer\")\n",
-            "extern trusted static mut NATIVE_POINTER: RawPointer<u8>;\n",
-            "@symbol(name = \"unused_export\")\n",
-            "static UNUSED_EXPORT: i32 = 7;\n",
-            "@symbol(name = \"weak_export\", binding = weak)\n",
-            "@abi(c)\n",
-            "func weak_export() -> i32\n",
-            "{\n",
-            "    return 1;\n",
-            "}\n",
-            "func main()\n",
-            "{\n",
-            "    let value: i32 = weak_export();\n",
-            "    let pointer: RawPointer<NativeMutex> = NATIVE_MUTEX_STORAGE;\n",
-            "    let pointer_storage: RawPointer<RawPointer<u8>> = NATIVE_POINTER;\n",
-            "}\n",
-        );
+        let source = r#"
+        trusted module app;
+
+        @layout(c, size = 40, align = 8)
+        struct NativeMutex;
+
+        @link(name = "native")
+        @symbol(name = "native_mutex")
+        extern trusted static NATIVE_MUTEX_STORAGE: NativeMutex;
+
+        @link(name = "native")
+        @symbol(name = "native_pointer")
+        extern trusted static mut NATIVE_POINTER: RawPointer<u8>;
+
+        @symbol(name = "unused_export")
+        static UNUSED_EXPORT: i32 = 7;
+
+        @symbol(name = "weak_export", binding = weak)
+        @abi(c)
+        func weak_export() -> i32
+        {
+            return 1;
+        }
+
+        func main()
+        {
+            let value: i32 = weak_export();
+            let pointer: RawPointer<NativeMutex> = NATIVE_MUTEX_STORAGE;
+            let pointer_storage: RawPointer<RawPointer<u8>> = NATIVE_POINTER;
+        }
+        "#;
 
         let native_link = NativeLinkRequirement::new(
             NonEmptySharedStr::try_new("native")

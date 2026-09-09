@@ -210,7 +210,7 @@ impl RuntimeConformance for BrayRuntime {
     }
 
     fn erased_direct_await(&self, value: i32) -> i32 {
-        let mut frame = erase_protected_frame(TestFrame::completing(value));
+        let mut frame = erase_protected_frame(TestFrame::completing(value)).unwrap();
 
         let FrameProgress::Completed(result) =
             resume_direct(frame.as_mut(), FrameContext::new(false))
@@ -227,12 +227,12 @@ impl RuntimeConformance for BrayRuntime {
         let task = TaskControlBlock::start(TestFrame::completing(value))
             .unwrap_or_else(|error| panic!("task must start: {error:?}"));
 
-        let before = Arc::as_ptr(&task);
+        let before = triomphe::Arc::as_ptr(&task);
 
         task.resume()
             .unwrap_or_else(|error| panic!("task must complete: {error:?}"));
 
-        let after = Arc::as_ptr(&task);
+        let after = triomphe::Arc::as_ptr(&task);
 
         let RunOutcome::Completed(result) = task
             .take_outcome()
@@ -279,7 +279,7 @@ impl RuntimeConformance for BrayRuntime {
     }
 
     fn observe_cancellation_shield(&self) -> ShieldObservation {
-        let cancellation = CancellationContext::root();
+        let cancellation = CancellationContext::root().unwrap();
         let before_request = cancellation.observation();
         let shield = cancellation.shield();
 

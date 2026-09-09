@@ -7,8 +7,8 @@ use bray_symbols::{
 };
 
 use crate::{
-    MirAnonymousCallableReference, MirAsyncOperation, MirCall, MirCallArgument, MirCleanupPhase,
-    MirFrameInitializer, MirFrameReference, MirGeneratorOperation, MirOperationKind,
+    MirAnonymousCallableReference, MirAsyncOperation, MirCleanupPhase, MirFrameInitializer,
+    MirFrameReference, MirGeneratorOperation, MirOperationKind,
 };
 
 /// Exact semantic role of one callable helper required to realize MIR.
@@ -210,7 +210,11 @@ impl MirOperationKind {
             Self::Memory(memory) => collect_memory_helpers(memory, &mut helpers),
             Self::Text(operation) => collect_text_helpers(operation, &mut helpers),
             Self::PanicReport(_) => helpers.push(MirHelperReference::PanicReport),
-            Self::Call(call) => collect_call_defaults(call, &mut helpers),
+            Self::Call(call) => {
+                if let crate::MirCallTarget::ParameterDefault { provider, .. } = call.target() {
+                    helpers.push(MirHelperReference::CallableDefault(*provider));
+                }
+            }
             Self::Finalize(place) => helpers.push(MirHelperReference::Finalize(place.ty())),
             Self::Destroy(place) => helpers.push(MirHelperReference::Destroy(place.ty())),
             Self::DestructorRemainder { role, place } => helpers.push(role.reference(place.ty())),
@@ -222,11 +226,16 @@ impl MirOperationKind {
                 phase: *phase,
                 ty: place.ty(),
             }),
-            Self::Async(MirAsyncOperation::CreateFrame { frame, initializer }) => {
+            Self::Async(MirAsyncOperation::CreateFrame {
+                frame, initializer, ..
+            }) => {
                 match initializer {
-                    MirFrameInitializer::Callable(call) => {
-                        collect_call_defaults(call, &mut helpers);
+                    MirFrameInitializer::Callable(call)
+                        if matches!(call.target(), crate::MirCallTarget::Indirect { .. }) =>
+                    {
+                        return helpers;
                     }
+                    MirFrameInitializer::Callable(_) => {}
                     MirFrameInitializer::Lifecycle { role, ty, .. } => {
                         helpers.push(role.reference(*ty));
                     }
@@ -418,14 +427,4 @@ fn collect_conversion_helpers(
         | ConversionTarget::BuiltInScalar
         | ConversionTarget::CVariadicPromotion => {}
     }
-}
-
-fn collect_call_defaults(call: &MirCall, helpers: &mut Vec<MirHelperReference>) {
-    helpers.extend(call.arguments().iter().filter_map(|argument| {
-        let MirCallArgument::Default { provider, .. } = argument else {
-            return None;
-        };
-
-        Some(MirHelperReference::CallableDefault(*provider))
-    }));
 }

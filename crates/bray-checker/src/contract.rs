@@ -125,6 +125,16 @@ pub(crate) fn callable_input_count(
     values: &SemanticValueStore,
     roots: impl IntoIterator<Item = ConstantTermId>,
 ) -> Result<Option<u32>, SemanticValueStoreError> {
+    Ok(fresh_callable_argument(values, roots)?
+        .map(|ordinal| ordinal.raw())
+        .filter(|count| usize::try_from(*count).is_ok_and(|count| count <= MAX_CONDITION_STEPS)))
+}
+
+/// Finds an unused observation identity with bounded traversal, independent of ordinal density.
+pub(crate) fn fresh_callable_argument(
+    values: &SemanticValueStore,
+    roots: impl IntoIterator<Item = ConstantTermId>,
+) -> Result<Option<bray_symbols::SymbolOrdinal>, SemanticValueStoreError> {
     let mut pending = roots.into_iter().collect::<Vec<_>>();
     let mut visited = BTreeSet::new();
     let mut count = 0;
@@ -167,10 +177,7 @@ pub(crate) fn callable_input_count(
         }
     }
 
-    Ok(usize::try_from(count)
-        .ok()
-        .filter(|count| *count <= MAX_CONDITION_STEPS)
-        .map(|_| count))
+    Ok(Some(bray_symbols::SymbolOrdinal::new(count)))
 }
 
 /// Instantiates a checked condition's receiver-first value inputs without executing it.
@@ -352,6 +359,7 @@ pub(crate) fn conditions_are_inconsistent(
 
 struct ConditionBranch {
     pending: Vec<(ConstantTermId, bool)>,
+    alternatives: Vec<[(ConstantTermId, bool); 2]>,
     known: BTreeMap<ConstantTermId, bool>,
     active_variants: BTreeMap<ConstantTermId, bray_symbols::UnionVariantSymbolId>,
 }
@@ -368,76 +376,79 @@ fn satisfiable(
 
     let mut branches = vec![ConditionBranch {
         pending: initial,
+        alternatives: Vec::new(),
         known: BTreeMap::new(),
         active_variants: BTreeMap::new(),
     }];
 
     'branch: while let Some(mut branch) = branches.pop() {
-        while let Some((term, truth)) = branch.pending.pop() {
-            let Some(next) = remaining.checked_sub(1) else {
-                return Ok(Satisfiability::Unknown);
-            };
+        loop {
+            while let Some((term, truth)) = branch.pending.pop() {
+                let Some(next) = remaining.checked_sub(1) else {
+                    return Ok(Satisfiability::Unknown);
+                };
 
-            *remaining = next;
+                *remaining = next;
 
-            if let Some(previous) = branch.known.insert(term, truth) {
-                if previous != truth {
-                    continue 'branch;
-                }
-
-                continue;
-            }
-
-            let data = values.constant_term_data(term)?;
-
-            match &*data {
-                ConstantTermData::Typed { term, .. } => branch.pending.push((*term, truth)),
-                ConstantTermData::Projection(_) => {
-                    let Some(observed) =
-                        crate::constant::shape::observation_subject(values, term, remaining)?
-                    else {
-                        return Ok(Satisfiability::Unknown);
-                    };
-
-                    if observed != term {
-                        branch.pending.push((observed, truth));
+                if let Some(previous) = branch.known.insert(term, truth) {
+                    if previous != truth {
+                        continue 'branch;
                     }
+
+                    continue;
                 }
-                ConstantTermData::Unary {
-                    operation: ConstantUnaryOperation::LogicalNot,
-                    operand,
-                } => branch.pending.push((*operand, !truth)),
-                ConstantTermData::Binary {
-                    operation:
-                        operation @ (ConstantBinaryOperation::Equal | ConstantBinaryOperation::NotEqual),
-                    left,
-                    right,
-                } => {
-                    let Some(left) =
-                        crate::constant::shape::observation_subject(values, *left, remaining)?
-                    else {
-                        return Ok(Satisfiability::Unknown);
-                    };
 
-                    let Some(right) =
-                        crate::constant::shape::observation_subject(values, *right, remaining)?
-                    else {
-                        return Ok(Satisfiability::Unknown);
-                    };
+                let data = values.constant_term_data(term)?;
 
-                    if let Some(equal) = crate::constant::shape::literal_observations_equal(
-                        values, left, right, remaining,
-                    )? {
-                        if equal != (truth == (*operation == ConstantBinaryOperation::Equal)) {
-                            continue 'branch;
+                match &*data {
+                    ConstantTermData::Typed { term, .. } => branch.pending.push((*term, truth)),
+                    ConstantTermData::Projection(_) => {
+                        let Some(observed) =
+                            crate::constant::shape::observation_subject(values, term, remaining)?
+                        else {
+                            return Ok(Satisfiability::Unknown);
+                        };
+
+                        if observed != term {
+                            branch.pending.push((observed, truth));
+                        }
+                    }
+                    ConstantTermData::Unary {
+                        operation: ConstantUnaryOperation::LogicalNot,
+                        operand,
+                    } => branch.pending.push((*operand, !truth)),
+                    ConstantTermData::Binary {
+                        operation:
+                            operation @ (ConstantBinaryOperation::Equal
+                            | ConstantBinaryOperation::NotEqual),
+                        left,
+                        right,
+                    } => {
+                        let Some(left) =
+                            crate::constant::shape::observation_subject(values, *left, remaining)?
+                        else {
+                            return Ok(Satisfiability::Unknown);
+                        };
+
+                        let Some(right) =
+                            crate::constant::shape::observation_subject(values, *right, remaining)?
+                        else {
+                            return Ok(Satisfiability::Unknown);
+                        };
+
+                        if let Some(equal) = crate::constant::shape::literal_observations_equal(
+                            values, left, right, remaining,
+                        )? {
+                            if equal != (truth == (*operation == ConstantBinaryOperation::Equal)) {
+                                continue 'branch;
+                            }
+
+                            continue;
                         }
 
-                        continue;
-                    }
-
-                    let boolean =
-                        match crate::constant::shape::observation_boolean(values, left, remaining)?
-                        {
+                        let boolean = match crate::constant::shape::observation_boolean(
+                            values, left, remaining,
+                        )? {
                             Some(value) => Some((right, value)),
                             None => crate::constant::shape::observation_boolean(
                                 values, right, remaining,
@@ -445,128 +456,290 @@ fn satisfiable(
                             .map(|value| (left, value)),
                         };
 
-                    if let Some((operand, value)) = boolean {
-                        let equal = truth == (*operation == ConstantBinaryOperation::Equal);
+                        if let Some((operand, value)) = boolean {
+                            let equal = truth == (*operation == ConstantBinaryOperation::Equal);
 
-                        branch.pending.push((operand, value == equal));
+                            branch.pending.push((operand, value == equal));
 
-                        continue;
+                            continue;
+                        }
+
+                        let (left, right) = if left <= right {
+                            (left, right)
+                        } else {
+                            (right, left)
+                        };
+
+                        let equal = values.intern_constant_term(ConstantTermData::Binary {
+                            operation: ConstantBinaryOperation::Equal,
+                            left,
+                            right,
+                        })?;
+
+                        if equal != term || *operation == ConstantBinaryOperation::NotEqual {
+                            branch.pending.push((
+                                equal,
+                                truth == (*operation == ConstantBinaryOperation::Equal),
+                            ));
+                        }
                     }
-
-                    let (left, right) = if left <= right {
-                        (left, right)
-                    } else {
-                        (right, left)
-                    };
-
-                    let equal = values.intern_constant_term(ConstantTermData::Binary {
-                        operation: ConstantBinaryOperation::Equal,
+                    ConstantTermData::Binary {
+                        operation:
+                            operation @ (ConstantBinaryOperation::LogicalAnd
+                            | ConstantBinaryOperation::LogicalOr),
                         left,
                         right,
-                    })?;
-
-                    if equal != term || *operation == ConstantBinaryOperation::NotEqual {
-                        branch.pending.push((
-                            equal,
-                            truth == (*operation == ConstantBinaryOperation::Equal),
-                        ));
+                    } => {
+                        if (*operation == ConstantBinaryOperation::LogicalAnd) == truth {
+                            branch.pending.extend([(*left, truth), (*right, truth)]);
+                        } else {
+                            branch.alternatives.push([(*left, truth), (*right, truth)]);
+                        }
                     }
-                }
-                ConstantTermData::Binary {
-                    operation:
-                        operation @ (ConstantBinaryOperation::LogicalAnd
-                        | ConstantBinaryOperation::LogicalOr),
-                    left,
-                    right,
-                } => {
-                    if (*operation == ConstantBinaryOperation::LogicalAnd) == truth {
-                        branch.pending.extend([(*left, truth), (*right, truth)]);
-                    } else {
-                        let cost = branch
-                            .pending
-                            .len()
-                            .saturating_add(branch.known.len())
-                            .saturating_add(branch.active_variants.len());
-
-                        let Some(next) = remaining.checked_sub(cost) else {
+                    ConstantTermData::Test { subject, kind } => {
+                        let Some(observed) = crate::constant::shape::observation_subject(
+                            values, *subject, remaining,
+                        )?
+                        else {
                             return Ok(Satisfiability::Unknown);
                         };
 
-                        *remaining = next;
+                        if observed != *subject {
+                            let test = values.intern_constant_term(ConstantTermData::Test {
+                                subject: observed,
+                                kind: *kind,
+                            })?;
 
-                        // Alternatives own independent bounded maps of copyable condition identities.
-                        let mut alternative = branch.pending.clone();
-                        alternative.push((*right, truth));
+                            branch.pending.push((test, truth));
 
-                        branches.push(ConditionBranch {
-                            pending: alternative,
-                            known: branch.known.clone(),
-                            active_variants: branch.active_variants.clone(),
-                        });
+                            continue;
+                        }
 
-                        branch.pending.push((*left, truth));
-                    }
-                }
-                ConstantTermData::Test { subject, kind } => {
-                    let Some(observed) =
-                        crate::constant::shape::observation_subject(values, *subject, remaining)?
-                    else {
-                        return Ok(Satisfiability::Unknown);
-                    };
+                        if let Some(actual) = crate::constant::shape::test_term_shape(
+                            values, *subject, *kind, remaining,
+                        )? {
+                            if actual != truth {
+                                continue 'branch;
+                            }
+                        }
 
-                    if observed != *subject {
-                        let test = values.intern_constant_term(ConstantTermData::Test {
-                            subject: observed,
-                            kind: *kind,
-                        })?;
-
-                        branch.pending.push((test, truth));
-
-                        continue;
-                    }
-
-                    if let Some(actual) =
-                        crate::constant::shape::test_term_shape(values, *subject, *kind, remaining)?
-                    {
-                        if actual != truth {
+                        if truth
+                            && let bray_symbols::ConstantTest::ActiveUnionVariant(variant) = kind
+                            && branch
+                                .active_variants
+                                .insert(*subject, *variant)
+                                .is_some_and(|previous| previous != *variant)
+                        {
                             continue 'branch;
                         }
                     }
+                    ConstantTermData::Value(value) => {
+                        match values.constant_value_data(*value)?.kind() {
+                            ConstantValueKind::Boolean(actual) if *actual != truth => {
+                                continue 'branch;
+                            }
+                            ConstantValueKind::Error => return Ok(Satisfiability::Recovered),
+                            _ => {}
+                        }
+                    }
+                    _ => {}
+                }
+            }
 
-                    if truth
-                        && let bray_symbols::ConstantTest::ActiveUnionVariant(variant) = kind
-                        && branch
-                            .active_variants
-                            .insert(*subject, *variant)
-                            .is_some_and(|previous| previous != *variant)
-                    {
-                        continue 'branch;
-                    }
-                }
-                ConstantTermData::Value(value) => {
-                    match values.constant_value_data(*value)?.kind() {
-                        ConstantValueKind::Boolean(actual) if *actual != truth => continue 'branch,
-                        ConstantValueKind::Error => return Ok(Satisfiability::Recovered),
-                        _ => {}
-                    }
-                }
-                _ => {}
+            match expand_condition_alternatives(&mut branch, &mut branches, remaining) {
+                Some(Satisfiability::Impossible) => continue 'branch,
+                Some(outcome) => return Ok(outcome),
+                None => {}
             }
         }
-
-        return Ok(Satisfiability::Possible);
     }
 
     Ok(Satisfiability::Impossible)
 }
 
+fn expand_condition_alternatives(
+    branch: &mut ConditionBranch,
+    branches: &mut Vec<ConditionBranch>,
+    remaining: &mut usize,
+) -> Option<Satisfiability> {
+    // Apply determined facts before exploring alternatives. Unrelated disjunctions must not
+    // consume the search budget before a known contradiction or implication is examined.
+    let mut index = 0;
+
+    while index < branch.alternatives.len() {
+        let Some(next) = remaining.checked_sub(1) else {
+            return Some(Satisfiability::Unknown);
+        };
+
+        *remaining = next;
+
+        let [left, right] = branch.alternatives[index];
+
+        let known = |(term, truth)| branch.known.get(&term).map(|value| *value == truth);
+
+        match (known(left), known(right)) {
+            (Some(true), _) | (_, Some(true)) => {
+                branch.alternatives.swap_remove(index);
+            }
+            (Some(false), Some(false)) => return Some(Satisfiability::Impossible),
+            (Some(false), None) => {
+                branch.alternatives.swap_remove(index);
+                branch.pending.push(right);
+            }
+            (None, Some(false)) => {
+                branch.alternatives.swap_remove(index);
+                branch.pending.push(left);
+            }
+            (None, None) => index += 1,
+        }
+    }
+
+    if !branch.pending.is_empty() {
+        return None;
+    }
+
+    let Some([left, right]) = branch.alternatives.pop() else {
+        return Some(Satisfiability::Possible);
+    };
+
+    let cost = branch
+        .known
+        .len()
+        .saturating_add(branch.active_variants.len())
+        .saturating_add(branch.alternatives.len().saturating_mul(2));
+
+    let Some(next) = remaining.checked_sub(cost) else {
+        return Some(Satisfiability::Unknown);
+    };
+
+    *remaining = next;
+
+    // Alternatives own independent bounded maps of copyable condition identities.
+    branches.push(ConditionBranch {
+        pending: vec![right],
+        alternatives: branch.alternatives.clone(),
+        known: branch.known.clone(),
+        active_variants: branch.active_variants.clone(),
+    });
+
+    branch.pending.push(left);
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{MAX_CONDITION_STEPS, instantiate_condition, prove_condition};
+    use super::{
+        MAX_CONDITION_STEPS, callable_input_count, fresh_callable_argument, instantiate_condition,
+        prove_condition,
+    };
     use bray_symbols::{
         ConstantBinaryOperation, ConstantTermData, ConstantUnaryOperation, ConstantValueKind,
         ProofOutcome, SemanticValueStore, SymbolOrdinal,
     };
+
+    #[test]
+    fn fresh_observations_allow_sparse_ordinals_while_dense_inputs_remain_bounded() {
+        let values = SemanticValueStore::try_new().unwrap();
+
+        let argument = |ordinal| {
+            values
+                .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(
+                    ordinal,
+                )))
+                .unwrap()
+        };
+
+        for ordinal in [0, 4_095, 4_096, 50_000, u32::MAX - 1] {
+            let input = argument(ordinal);
+
+            assert_eq!(
+                fresh_callable_argument(&values, [input]).unwrap(),
+                Some(SymbolOrdinal::new(ordinal + 1))
+            );
+
+            assert_eq!(
+                callable_input_count(&values, [input]).unwrap(),
+                (ordinal < 4_096).then_some(ordinal + 1)
+            );
+        }
+
+        assert_eq!(
+            fresh_callable_argument(&values, [argument(u32::MAX)]).unwrap(),
+            None
+        );
+
+        assert_eq!(
+            fresh_callable_argument(&values, []).unwrap(),
+            Some(SymbolOrdinal::new(0))
+        );
+
+        assert_eq!(
+            fresh_callable_argument(
+                &values,
+                std::iter::repeat_n(argument(0), MAX_CONDITION_STEPS + 1)
+            )
+            .unwrap(),
+            None
+        );
+    }
+
+    #[test]
+    fn unrelated_alternatives_do_not_hide_a_determined_implication() {
+        let values = SemanticValueStore::try_new().unwrap();
+
+        let argument = |ordinal| {
+            values
+                .intern_constant_term(ConstantTermData::CallableArgument(SymbolOrdinal::new(
+                    ordinal,
+                )))
+                .unwrap()
+        };
+
+        let observed = argument(0);
+        let complete = argument(1);
+
+        let not_observed = values
+            .intern_constant_term(ConstantTermData::Unary {
+                operation: ConstantUnaryOperation::LogicalNot,
+                operand: observed,
+            })
+            .unwrap();
+
+        let implication = values
+            .intern_constant_term(ConstantTermData::Binary {
+                operation: ConstantBinaryOperation::LogicalOr,
+                left: not_observed,
+                right: complete,
+            })
+            .unwrap();
+
+        let mut assumptions = vec![(implication, true), (observed, true)];
+
+        for ordinal in 1..=64 {
+            let unrelated = values
+                .intern_constant_term(ConstantTermData::Binary {
+                    operation: ConstantBinaryOperation::LogicalOr,
+                    left: argument(ordinal * 2),
+                    right: argument(ordinal * 2 + 1),
+                })
+                .unwrap();
+
+            assumptions.push((unrelated, true));
+        }
+
+        assert_eq!(
+            prove_condition(&values, &assumptions, complete).unwrap(),
+            ProofOutcome::Proven
+        );
+
+        assumptions[1].1 = false;
+
+        assert_eq!(
+            prove_condition(&values, &assumptions, complete).unwrap(),
+            ProofOutcome::Unknown
+        );
+    }
 
     #[test]
     fn boolean_projection_facts_share_typed_roots_but_preserve_distinct_paths() {

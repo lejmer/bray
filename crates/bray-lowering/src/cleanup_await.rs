@@ -7,7 +7,7 @@ use bray_ir::{
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::TypeId;
 
-/// Constructs an inactive lifecycle helper from its already borrowed receiver.
+/// Attempts to construct an inactive lifecycle helper from its already borrowed receiver.
 pub(crate) fn create_lifecycle_frame(
     builder: &mut MirUnitBuilder,
     block: MirBlockId,
@@ -16,31 +16,20 @@ pub(crate) fn create_lifecycle_frame(
     ty: TypeId,
     receiver: MirOperand,
     result: bray_bound_tree::BoundFutureConstruction,
-) -> Result<MirOperand, MirUnitBuildError> {
-    let future = result.future_type();
-
-    let operation = builder.push_operation(
+    boolean: TypeId,
+) -> Result<(MirBlockId, MirBlockId, MirPlace), MirUnitBuildError> {
+    crate::frame_creation::create_frame(
+        builder,
         block,
-        source.clone(),
-        MirOperationKind::Async(MirAsyncOperation::CreateFrame {
-            frame: MirFrameReference::Erased,
-            initializer: bray_ir::MirFrameInitializer::Lifecycle {
-                role,
-                ty,
-                receiver,
-                result,
-            },
-        }),
-        Some(future),
-    )?;
-
-    let value = operation
-        .result()
-        .ok_or(MirUnitBuildError::MissingOperationResult(
-            operation.operation(),
-        ))?;
-
-    Ok(MirOperand::Value(value))
+        source,
+        bray_ir::MirFrameInitializer::Lifecycle {
+            role,
+            ty,
+            receiver,
+            result,
+        },
+        boolean,
+    )
 }
 
 /// The owner whose terminal outcome is awaited by a cleanup continuation.

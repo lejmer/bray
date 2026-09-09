@@ -184,6 +184,26 @@ fn remap_callable_contract(
         )
     })?;
 
+    for proof in Arc::make_mut(&mut contract.evidence) {
+        *proof = proof.try_map_targets(|target| {
+            let callable = remap.callable_instance(target.callable())?;
+
+            let dispatch = target
+                .dispatch()
+                .map(|(subject, application)| {
+                    Ok::<_, InterfaceSemanticCommitError>((
+                        remap.ty(subject)?,
+                        remap.trait_application(application)?,
+                    ))
+                })
+                .transpose()?;
+
+            Ok::<_, InterfaceSemanticCommitError>(crate::InterfaceCallableEvidenceTarget::new(
+                callable, dispatch,
+            ))
+        })?;
+    }
+
     remap_callable_behavior(&mut contract.invocation_behavior, remap)?;
 
     if let Some(behavior) = &mut contract.deferred_execution_behavior {
@@ -294,9 +314,143 @@ mod tests {
     use super::{
         InterfaceSemanticCommitError, InterfaceSemanticIdRemap, InterfaceSemanticTableKind,
     };
-    use bray_symbols::InterfaceSymbolId;
+    use bray_symbols::{
+        CallableContractEvidence, CallableContractObligation, CallableExecutionGuarantee,
+        ExecutionProperty, InterfaceSymbolId, SymbolOrdinal,
+    };
 
-    use crate::InterfaceSymbolReference;
+    use crate::{
+        InterfaceCallableContract, InterfaceCallableEvidenceTarget, InterfaceCallableInstanceId,
+        InterfaceDependencyContractId, InterfaceSymbolReference, InterfaceTraitApplicationId,
+    };
+
+    fn contract_with_proof_dependencies() -> InterfaceCallableContract {
+        let obligation = CallableContractObligation::Postcondition(SymbolOrdinal::new(2));
+
+        InterfaceCallableContract::new(
+            InterfaceSymbolReference::Local(InterfaceSymbolId::new(0)),
+            [],
+            crate::test_support::callable_phase_behavior(),
+            None,
+        )
+        .with_evidence([CallableContractEvidence::new(
+            obligation,
+            [
+                (
+                    InterfaceCallableEvidenceTarget::new(InterfaceCallableInstanceId::new(0), None),
+                    obligation,
+                ),
+                (
+                    InterfaceCallableEvidenceTarget::new(
+                        InterfaceCallableInstanceId::new(1),
+                        Some((InterfaceTypeId::new(0), InterfaceTraitApplicationId::new(0))),
+                    ),
+                    obligation,
+                ),
+            ],
+        )])
+    }
+
+    #[test]
+    fn proof_dependencies_receive_package_wide_callable_and_dispatch_identities() {
+        let mut contract = contract_with_proof_dependencies();
+        let obligation = contract.evidence()[0].obligation();
+
+        let remap = InterfaceSemanticIdRemap::new()
+            .with_applications(
+                [],
+                [InterfaceTraitApplicationId::new(9)],
+                [
+                    InterfaceCallableInstanceId::new(8),
+                    InterfaceCallableInstanceId::new(4),
+                ],
+                [],
+            )
+            .with_values(
+                [InterfaceDependencyContractId::new(0)],
+                [InterfaceTypeId::new(7)],
+                [],
+                [],
+            );
+
+        super::remap_callable_contract(&mut contract, &remap).unwrap();
+
+        assert_eq!(
+            contract.evidence(),
+            [CallableContractEvidence::new(
+                obligation,
+                [
+                    (
+                        InterfaceCallableEvidenceTarget::new(
+                            InterfaceCallableInstanceId::new(8),
+                            None
+                        ),
+                        obligation
+                    ),
+                    (
+                        InterfaceCallableEvidenceTarget::new(
+                            InterfaceCallableInstanceId::new(4),
+                            Some((InterfaceTypeId::new(7), InterfaceTraitApplicationId::new(9))),
+                        ),
+                        obligation
+                    ),
+                ],
+            )]
+        );
+
+        let foreign =
+            CallableContractEvidence::foreign_assertion(CallableContractObligation::Execution(
+                CallableExecutionGuarantee::new(ExecutionProperty::Pure, None),
+            ));
+
+        contract = contract.with_evidence([foreign.clone()]);
+        super::remap_callable_contract(&mut contract, &remap).unwrap();
+
+        assert_eq!(contract.evidence(), [foreign]);
+    }
+
+    #[test]
+    fn missing_proof_dependency_mapping_preserves_its_exact_table() {
+        for (callables, types, applications, table, reference) in [
+            (
+                false,
+                false,
+                false,
+                InterfaceSemanticTableKind::CallableInstance,
+                1,
+            ),
+            (true, false, false, InterfaceSemanticTableKind::Type, 0),
+            (
+                true,
+                true,
+                false,
+                InterfaceSemanticTableKind::TraitApplication,
+                0,
+            ),
+        ] {
+            let mut contract = contract_with_proof_dependencies();
+
+            let remap = InterfaceSemanticIdRemap::new()
+                .with_applications(
+                    [],
+                    applications.then_some(InterfaceTraitApplicationId::new(9)),
+                    std::iter::once(InterfaceCallableInstanceId::new(8))
+                        .chain(callables.then_some(InterfaceCallableInstanceId::new(4))),
+                    [],
+                )
+                .with_values(
+                    [InterfaceDependencyContractId::new(0)],
+                    types.then_some(InterfaceTypeId::new(7)),
+                    [],
+                    [],
+                );
+
+            assert_eq!(
+                super::remap_callable_contract(&mut contract, &remap),
+                Err(InterfaceSemanticCommitError::MissingReference { table, reference }),
+            );
+        }
+    }
 
     #[test]
     fn shared_fragment_types_receive_one_package_identity() {

@@ -1,4 +1,4 @@
-module bray.standard_library_tests.bytes;
+trusted module bray.standard_library_tests.bytes;
 
 using std.bytes;
 using std.memory;

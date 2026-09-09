@@ -46,6 +46,8 @@ impl NativeRuntimeStatus {
     pub const PENDING: Self = Self(6);
     /// The supplied task handle does not identify owned runtime state.
     pub const UNKNOWN_TASK: Self = Self(7);
+    /// Storage could not be secured before the operation's ownership transfer.
+    pub const ALLOCATION_FAILURE: Self = Self(8);
 
     /// Retains a status code received through the native ABI.
     pub const fn from_code(code: u32) -> Self {
@@ -136,10 +138,19 @@ impl NativePanicCause {
     pub const EXPLICIT_TEST_FAILURE: Self = Self(2);
     /// Runtime admission rejected a task before publication.
     pub const TASK_ADMISSION: Self = Self(3);
+    /// Storage for an inactive protected frame could not be allocated.
+    pub const FRAME_ALLOCATION: Self = Self(4);
+
+    /// Decodes a cause defined by the current native ABI.
+    pub const fn from_code(code: u32) -> Option<Self> {
+        let cause = Self(code);
+
+        if cause.is_known() { Some(cause) } else { None }
+    }
 
     /// Returns whether this cause is defined by the current native ABI.
     pub const fn is_known(&self) -> bool {
-        matches!(self.0, 0..=3)
+        matches!(self.0, 0..=4)
     }
 
     /// Returns the stable native ABI code.
@@ -599,7 +610,7 @@ impl NativeFrameExit {
 }
 
 /// Callback returning runtime-visible state for one frame-state ordinal.
-pub type NativeFrameStateCallback = extern "C" fn(context: usize, state: u32) -> NativeFrameState;
+pub type NativeFrameStateCallback = extern "C" fn(state: u32) -> NativeFrameState;
 
 /// Callback entering or resuming one compiler-generated frame.
 pub type NativeFrameResumeCallback = extern "C-unwind" fn(context: usize) -> NativeFrameProgress;
@@ -627,13 +638,7 @@ pub type NativeFrameResolveCallback = extern "C-unwind" fn(context: usize, exit:
 #[derive(Debug)]
 pub struct NativeProtectedFrame {
     context: usize,
-    identity: [u8; 32],
-    state_count: u32,
-    size: usize,
-    alignment: usize,
-    completion_size: usize,
-    completion_alignment: usize,
-    state: NativeFrameStateCallback,
+    metadata: crate::NativeFrameMetadata,
     resume: NativeFrameResumeCallback,
     cancel: NativeFrameCancellationCallback,
     broadcast_tasks: NativeFrameActionCallback,
@@ -643,20 +648,14 @@ pub struct NativeProtectedFrame {
 }
 
 impl NativeProtectedFrame {
-    /// Creates the complete generated-frame ABI adapter.
+    /// Attaches owned context and executable operations to immutable frame metadata.
     #[expect(
         clippy::too_many_arguments,
-        reason = "the frame ABI keeps independent layout and callback state explicit"
+        reason = "the frame ABI keeps independent executable callbacks explicit"
     )]
     pub const fn new(
         context: usize,
-        identity: [u8; 32],
-        state_count: u32,
-        size: usize,
-        alignment: usize,
-        completion_size: usize,
-        completion_alignment: usize,
-        state: NativeFrameStateCallback,
+        metadata: crate::NativeFrameMetadata,
         resume: NativeFrameResumeCallback,
         cancel: NativeFrameCancellationCallback,
         broadcast_tasks: NativeFrameActionCallback,
@@ -666,13 +665,7 @@ impl NativeProtectedFrame {
     ) -> Self {
         Self {
             context,
-            identity,
-            state_count,
-            size,
-            alignment,
-            completion_size,
-            completion_alignment,
-            state,
+            metadata,
             resume,
             cancel,
             broadcast_tasks,
@@ -687,39 +680,9 @@ impl NativeProtectedFrame {
         self.context
     }
 
-    /// Returns the stable frame representation identity.
-    pub const fn identity(&self) -> [u8; 32] {
-        self.identity
-    }
-
-    /// Returns the number of resumable frame states.
-    pub const fn state_count(&self) -> u32 {
-        self.state_count
-    }
-
-    /// Returns the frame storage size.
-    pub const fn size(&self) -> usize {
-        self.size
-    }
-
-    /// Returns the frame storage alignment.
-    pub const fn alignment(&self) -> usize {
-        self.alignment
-    }
-
-    /// Returns the completion storage size.
-    pub const fn completion_size(&self) -> usize {
-        self.completion_size
-    }
-
-    /// Returns the completion storage alignment.
-    pub const fn completion_alignment(&self) -> usize {
-        self.completion_alignment
-    }
-
-    /// Returns the state-description callback.
-    pub const fn state(&self) -> NativeFrameStateCallback {
-        self.state
+    /// Returns the context-independent frame metadata.
+    pub const fn metadata(&self) -> &crate::NativeFrameMetadata {
+        &self.metadata
     }
 
     /// Returns the frame-resume callback.
@@ -782,8 +745,8 @@ impl NativeInactiveFrame {
             crate::NativeFrameEntry::CaptureCleanup => frame.resume = frame.cancel,
             crate::NativeFrameEntry::CaptureQuiescence
             | crate::NativeFrameEntry::CaptureDestruction => {
-                frame.completion_size = 0;
-                frame.completion_alignment = 1;
+                frame.metadata.completion_size = 0;
+                frame.metadata.completion_alignment = 1;
                 frame.move_completion = ignore_capture_completion;
                 frame.resolve_lifecycle = retain_capture_context;
                 frame.broadcast_tasks = retain_borrowed_context;
@@ -891,8 +854,25 @@ mod tests {
     }
 
     #[test]
+    fn panic_causes_decode_only_defined_codes() {
+        for cause in [
+            NativePanicCause::MESSAGE,
+            NativePanicCause::ASSERTION,
+            NativePanicCause::EXPLICIT_TEST_FAILURE,
+            NativePanicCause::TASK_ADMISSION,
+            NativePanicCause::FRAME_ALLOCATION,
+        ] {
+            assert_eq!(NativePanicCause::from_code(cause.code()), Some(cause));
+        }
+
+        for code in [5, u32::MAX] {
+            assert_eq!(NativePanicCause::from_code(code), None);
+        }
+    }
+
+    #[test]
     fn native_runtime_status_codes_round_trip_without_narrowing() {
-        for code in [0, 1, 3, 5, 7, u32::MAX] {
+        for code in [0, 1, 3, 5, 7, 8, u32::MAX] {
             assert_eq!(NativeRuntimeStatus::from_code(code).code(), code);
         }
 
@@ -904,6 +884,11 @@ mod tests {
         assert_eq!(
             NativeRuntimeStatus::from_code(7),
             NativeRuntimeStatus::UNKNOWN_TASK
+        );
+
+        assert_eq!(
+            NativeRuntimeStatus::from_code(8),
+            NativeRuntimeStatus::ALLOCATION_FAILURE
         );
     }
 
@@ -968,13 +953,7 @@ mod tests {
     fn protected_frame_descriptor_has_the_native_abi_layout() {
         assert_abi_layout!(NativeProtectedFrame, size: 136, align: 8, fields: {
             context: 0,
-            identity: 8,
-            state_count: 40,
-            size: 48,
-            alignment: 56,
-            completion_size: 64,
-            completion_alignment: 72,
-            state: 80,
+            metadata: 8,
             resume: 88,
             cancel: 96,
             broadcast_tasks: 104,

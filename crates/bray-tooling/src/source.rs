@@ -116,7 +116,8 @@ where
 ///
 /// Source identities are assigned deterministically by file argument order,
 /// starting at zero. The resulting inputs are validated when compilation loads
-/// their source text.
+/// their source text. File paths are resolved before reading so alternate spellings
+/// of the same file produce the same source-input digest.
 pub fn source_inputs_from_file_arguments<I, P>(
     file_arguments: I,
 ) -> Result<Vec<SourceInput>, SourceInputError>
@@ -146,8 +147,9 @@ fn source_input_from_file_argument(
         }
     })?;
 
-    let bytes = match fs::read(&path) {
-        Ok(bytes) => bytes,
+    let (resolved, bytes) = match fs::canonicalize(&path)
+        .and_then(|resolved| fs::read(&resolved).map(|bytes| (resolved, bytes))) {
+        Ok(source) => source,
         Err(error) => {
             return Err(SourceInputError::ReadFile {
                 input_index,
@@ -159,7 +161,7 @@ fn source_input_from_file_argument(
 
     Ok(SourceInput::file_bytes(
         identity,
-        path,
+        resolved,
         FILE_ARGUMENT_SOURCE_VERSION,
         bytes,
     ))
@@ -209,12 +211,26 @@ mod tests {
         assert_eq!(second_input.identity(), SourceIdentity::new(1));
         assert_eq!(first_input.version(), SourceVersion::new(0));
         assert_eq!(second_input.version(), SourceVersion::new(0));
-        assert_eq!(first_input.file_path(), Some(first_file.path()));
-        assert_eq!(second_input.file_path(), Some(second_file.path()));
+        assert_eq!(first_input.file_path(), Some(first_file.path().canonicalize().unwrap().as_path()));
+        assert_eq!(second_input.file_path(), Some(second_file.path().canonicalize().unwrap().as_path()));
         assert_eq!(first_input.text(), None);
         assert_eq!(second_input.text(), None);
         assert_eq!(first_input.bytes(), &[0xef, 0xbb, 0xbf, b'm', b'o', b'd']);
         assert_eq!(second_input.bytes(), &[0xff, b'x']);
+    }
+
+    #[test]
+    fn equivalent_file_argument_spellings_share_source_identity() {
+        let relative = PathBuf::from("Cargo.toml");
+        let absolute = relative.canonicalize().unwrap();
+        let spelled = PathBuf::from(".").join(&relative);
+        let expected = source_inputs_from_file_arguments([&absolute]).unwrap();
+
+        for path in [relative, spelled, absolute] {
+            let actual = source_inputs_from_file_arguments([path]).unwrap();
+            assert_eq!(actual[0].file_path(), expected[0].file_path());
+            assert_eq!(super::source_input_digest(&actual), super::source_input_digest(&expected));
+        }
     }
 
     #[test]

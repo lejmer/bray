@@ -865,12 +865,18 @@ mod tests {
 
     #[test]
     fn merge_populates_child_containers_for_signatures_and_variants() {
-        let sources = source_store([concat!(
-            "trusted module core;\n",
-            "func main<T, const N: Int>(value: T) {}\n",
-            "trusted predicate valid<T, const N: Int>(value: T);\n",
-            "union Maybe { Some(value: Int, fallback: Int); }",
-        )]);
+        let sources = source_store([r#"
+        trusted module core;
+
+        func main<T, const N: Int>(value: T) {}
+
+        trusted predicate valid<T, const N: Int>(value: T);
+
+        union Maybe
+        {
+            Some(value: Int, fallback: Int);
+        }
+        "#]);
 
         let chunk = discover_source_unit_declarations(&parse_valid_source_unit_for_test(source(
             &sources, 0,

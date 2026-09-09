@@ -179,7 +179,10 @@ where
         let mut sources = Vec::new();
         let mut destinations = Vec::new();
 
-        for plan in self.input.plans(node) {
+        for plan in self
+            .input
+            .plans(bray_bound_tree::BoundOperationPoint::Evaluation(node))
+        {
             let Some(root) = self.storage.root_identity(plan.access()) else {
                 continue;
             };

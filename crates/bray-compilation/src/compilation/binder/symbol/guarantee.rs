@@ -116,10 +116,25 @@ mod tests {
     #[test]
     fn guarded_contract_binding_retains_entry_ancestry_and_conditional_postconditions() {
         let compilation = compilation(
-            "module app; func check(pos ready: bool) -> bool \
-            when(ready) { executes(pure, total) ensures(result) \
-                when(false) { executes(total) ensures(!result) } } \
-            ensures(true) { return ready; }",
+            r#"
+            module app;
+
+            func check(pos ready: bool) -> bool
+                when(ready)
+                {
+                    executes(pure, total)
+                    ensures(result)
+                    when(false)
+                    {
+                        executes(total)
+                        ensures(!result)
+                    }
+                }
+                ensures(true)
+            {
+                return ready;
+            }
+            "#,
         );
 
         let owner = CallableSymbolId::from(source_function(&compilation, "check"));
@@ -188,8 +203,17 @@ mod tests {
 
     #[test]
     fn guarded_contract_binding_rejects_unknown_execution_properties_with_the_identifier() {
-        let compilation =
-            compilation("module app; func check() when(true) { executes(constant) } {}");
+        let compilation = compilation(
+            r#"
+            module app;
+
+            func check()
+                when(true)
+                {
+                    executes(constant)
+                } {}
+            "#,
+        );
 
         let owner = CallableSymbolId::from(source_function(&compilation, "check"));
 
@@ -227,7 +251,18 @@ mod tests {
     #[test]
     fn guarded_contract_binding_does_not_bind_result_at_execution_entry() {
         let compilation = compilation(
-            "module app; func check() -> bool when(result) { executes(pure) } { return true; }",
+            r#"
+            module app;
+
+            func check() -> bool
+                when(result)
+                {
+                    executes(pure)
+                }
+            {
+                return true;
+            }
+            "#,
         );
 
         assert!(

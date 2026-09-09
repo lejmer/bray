@@ -34,6 +34,8 @@ pub enum MirPanicCause {
     ExplicitTestFailure(MirOperand),
     /// Runtime admission rejected an independent task before publication.
     TaskAdmission,
+    /// Storage for an inactive protected frame could not be allocated.
+    FrameAllocation,
 }
 
 /// Typed unary operation selected during lowering.
@@ -430,12 +432,14 @@ impl MirFrameInitializer {
 /// Explicit protected-frame and task operation selected by checked lowering.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub enum MirAsyncOperation {
-    /// Create an inactive protected frame value.
+    /// Try to create an inactive protected frame, returning whether ownership transferred.
     CreateFrame {
         /// Static or existential frame representation.
         frame: MirFrameReference,
         /// Deferred work captured by the frame.
         initializer: MirFrameInitializer,
+        /// Future storage initialized only when creation succeeds. Inputs remain owned by the caller on failure.
+        destination: MirPlace,
     },
     /// Enter or resume a protected frame state.
     ResumeFrame {

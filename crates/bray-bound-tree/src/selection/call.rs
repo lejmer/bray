@@ -5,7 +5,7 @@ use bray_compiler_known::ImplementationHook;
 use bray_symbols::{
     CallableAbi, CallableContractTemplate, CallableParameterDefaultProviderSymbolId,
     CallableParameterSymbolId, CallablePhaseBehaviors, ImplementationInstanceId,
-    ImplementationRequirementKey, ReceiverMode, ReceiverParameterSymbolId,
+    ImplementationRequirementKey, ReceiverMode, ReceiverParameterSymbolId, TypeId,
 };
 
 use crate::{BoundCallableTarget, BoundExpressionId, BoundResolvedCall, SelectedConversion};
@@ -116,6 +116,8 @@ pub enum SelectedArgument {
         ordinal: u32,
         /// The declaration-owned default provider evaluated by the call.
         provider: CallableParameterDefaultProviderSymbolId,
+        /// The substituted parameter type checked for the produced default value.
+        ty: TypeId,
     },
 }
 
@@ -204,6 +206,17 @@ impl SelectedCall {
     /// Returns explicit arguments in source order followed by defaults in parameter order.
     pub fn arguments(&self) -> &[SelectedArgument] {
         &self.arguments
+    }
+
+    /// Returns the substituted input types, including the receiver and defaulted arguments.
+    pub fn input_types(&self) -> impl Iterator<Item = TypeId> + '_ {
+        self.receiver()
+            .map(SelectedReceiver::target_type)
+            .into_iter()
+            .chain(self.arguments().iter().map(|argument| match argument {
+                SelectedArgument::Explicit { conversion, .. } => conversion.target_type(),
+                SelectedArgument::Default { ty, .. } => *ty,
+            }))
     }
 
     /// Returns argument mappings in declaration parameter order, excluding the receiver.

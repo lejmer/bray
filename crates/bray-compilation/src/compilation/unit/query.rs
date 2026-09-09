@@ -8384,30 +8384,39 @@ func other()
         for (input, pattern) in [("Payload?", "?payload"), ("Message", "Data(payload)")] {
             let source = format!(
                 r#"
-trusted module app;
-@copy struct Payload {{ first: i32; second: i32?; }}
-@copy union Message {{ Data(pos payload: Payload); Empty; }}
-@link(name = "pattern_probe", kind = system)
-@symbol(name = "pattern_touch")
-@abi(c) extern trusted func touch() uses(foreign_call);
-trusted func main(pos input: {input}) -> i32 uses(foreign_call)
-{{
-    match input
-    {{
-        case {pattern}
-        {{
-            touch();
-            if let ?second = payload.second
-            {{
-                touch();
-                return payload.first + second;
-            }}
-            return payload.first;
-        }}
-        case _ {{ return 0; }}
-    }}
-}}
-"#
+                trusted module app;
+                @copy struct Payload
+                {{
+                    first: i32;
+                    second: i32?;
+                }}
+                @copy union Message
+                {{
+                    Data(pos payload: Payload);
+                    Empty;
+                }}
+                @link(name = "pattern_probe", kind = system) @symbol(name = "pattern_touch") @abi(c) extern trusted func touch() uses(foreign_call);
+                trusted func main(pos input: {input}) -> i32 uses(foreign_call)
+                {{
+                    match input
+                    {{
+                        case {pattern}
+                        {{
+                            touch();
+                            if let ?second = payload.second
+                            {{
+                                touch();
+                                return payload.first + second;
+                            }}
+                            return payload.first;
+                        }}
+                        case _
+                        {{
+                            return 0;
+                        }}
+                    }}
+                }}
+                "#
             );
 
             let options = crate::CompilationOptions::default().with_native_link_inputs([

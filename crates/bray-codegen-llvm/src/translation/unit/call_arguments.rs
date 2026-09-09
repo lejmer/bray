@@ -1,49 +1,18 @@
 use std::collections::BTreeMap;
 
 use bray_codegen::{CodegenFailure, CodegenHelperMapping};
-use bray_ir::{MirCall, MirCallArgument, MirHelperReference};
-use inkwell::IntPredicate;
-use inkwell::basic_block::BasicBlock;
+use bray_ir::{MirCall, MirCallArgument};
 use inkwell::values::{BasicValueEnum, PointerValue};
 
 use super::core::UnitTranslator;
-use super::support::{llvm, next_helper};
-
-pub(super) struct EvaluatedCallArguments<'context> {
-    values: Vec<BasicValueEnum<'context>>,
-    checked_defaults: Option<CheckedDefaultEvaluation<'context>>,
-}
-
-impl<'context> EvaluatedCallArguments<'context> {
-    pub(super) fn values(&self) -> &[BasicValueEnum<'context>] {
-        &self.values
-    }
-
-    pub(super) fn into_parts(
-        self,
-    ) -> (
-        Vec<BasicValueEnum<'context>>,
-        Option<CheckedDefaultEvaluation<'context>>,
-    ) {
-        (self.values, self.checked_defaults)
-    }
-}
-
-pub(super) struct CheckedDefaultEvaluation<'context> {
-    context: PointerValue<'context>,
-    panicked: BasicBlock<'context>,
-}
 
 impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'request, 'types> {
-    pub(super) fn evaluate_call_arguments<'mapping>(
+    pub(super) fn evaluate_call_arguments(
         &mut self,
         call: &MirCall,
-        helpers: &mut impl Iterator<Item = &'mapping CodegenHelperMapping>,
-        checked_default_context: Option<PointerValue<'context>>,
-    ) -> Result<EvaluatedCallArguments<'context>, CodegenFailure> {
+    ) -> Result<Vec<BasicValueEnum<'context>>, CodegenFailure> {
         let mut receiver = None;
         let mut parameters = BTreeMap::new();
-        let mut defaults = Vec::new();
 
         for argument in call.arguments() {
             match argument {
@@ -61,52 +30,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                         return Err(CodegenFailure::GeneratedModuleInvariant);
                     }
                 }
-                MirCallArgument::Default {
-                    ordinal, provider, ..
-                } => defaults.push((*ordinal, *provider)),
-            }
-        }
-
-        let checked_defaults = checked_default_context.map(|context| CheckedDefaultEvaluation {
-            context,
-            panicked: self
-                .types
-                .context()
-                .append_basic_block(self.function, "call.default.panicked"),
-        });
-
-        for (ordinal, provider) in defaults {
-            let helper = next_helper(helpers, &MirHelperReference::CallableDefault(provider))?;
-
-            let mut preceding =
-                Vec::with_capacity(parameters.len() + usize::from(receiver.is_some()));
-
-            preceding.extend(receiver);
-            preceding.extend(parameters.range(..ordinal).map(|(_, value)| *value));
-
-            let value = match checked_defaults.as_ref() {
-                Some(defaults) => {
-                    let value = self.invoke_helper_with_panic_report_context(
-                        helper,
-                        &preceding,
-                        defaults.context,
-                    )?;
-
-                    self.branch_on_checked_default(defaults)?;
-
-                    value
-                }
-                None => self.invoke_helper(helper, &preceding)?,
-            }
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-            if parameters.insert(ordinal, value).is_some() {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
             }
         }
 
         let mut arguments = Vec::with_capacity(parameters.len() + usize::from(receiver.is_some()));
-
         arguments.extend(receiver);
 
         for (expected, (ordinal, value)) in (0_u32..).zip(parameters) {
@@ -117,14 +44,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             arguments.push(value);
         }
 
-        if arguments.len() != call.arguments().len() {
-            return Err(CodegenFailure::GeneratedModuleInvariant);
-        }
-
-        Ok(EvaluatedCallArguments {
-            values: arguments,
-            checked_defaults,
-        })
+        Ok(arguments)
     }
 
     pub(super) fn invoke_helper_with_panic_report_context(
@@ -159,81 +79,5 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             "call.default",
             Some(context),
         )
-    }
-
-    fn branch_on_checked_default(
-        &mut self,
-        defaults: &CheckedDefaultEvaluation<'context>,
-    ) -> Result<(), CodegenFailure> {
-        let ty = crate::native::pointer_integer_type(self.types.context(), self.request.target());
-
-        let report = llvm(self.builder.build_load(
-            ty,
-            defaults.context,
-            "call.default.panic.report",
-        ))?
-        .into_int_value();
-
-        let pending = llvm(self.builder.build_int_compare(
-            IntPredicate::NE,
-            report,
-            ty.const_zero(),
-            "call.default.panic.pending",
-        ))?;
-
-        let continued = self
-            .types
-            .context()
-            .append_basic_block(self.function, "call.default.continue");
-
-        llvm(
-            self.builder
-                .build_conditional_branch(pending, defaults.panicked, continued),
-        )?;
-
-        self.builder.position_at_end(continued);
-
-        Ok(())
-    }
-
-    pub(super) fn finish_checked_default_evaluation(
-        &mut self,
-        defaults: CheckedDefaultEvaluation<'context>,
-        result: Option<BasicValueEnum<'context>>,
-    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
-        let completed = self
-            .builder
-            .get_insert_block()
-            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-        let finished = self
-            .types
-            .context()
-            .append_basic_block(self.function, "call.default.finished");
-
-        llvm(self.builder.build_unconditional_branch(finished))?;
-
-        self.builder.position_at_end(defaults.panicked);
-
-        llvm(self.builder.build_unconditional_branch(finished))?;
-
-        self.builder.position_at_end(finished);
-
-        self.retain_checked_call_context(defaults.context)?;
-
-        let Some(result) = result else {
-            return Ok(None);
-        };
-
-        let fallback = result.get_type().const_zero();
-
-        let phi = llvm(
-            self.builder
-                .build_phi(result.get_type(), "call.default.result"),
-        )?;
-
-        phi.add_incoming(&[(&result, completed), (&fallback, defaults.panicked)]);
-
-        Ok(Some(phi.as_basic_value()))
     }
 }

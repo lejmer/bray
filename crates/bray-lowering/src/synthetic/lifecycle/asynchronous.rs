@@ -63,14 +63,19 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 .map_err(|cause| self.mir_error(source, cause));
         }
 
-        let value = self.create_lifecycle_frame(builder, block, source, role, place.clone())?;
+        let (block, rejected, value) =
+            self.create_lifecycle_frame(builder, block, source, role, place.clone())?;
+
         let completion = self.context.representation_type(RepresentationRole::Unit)?;
 
         let (block, result, variants) = self.await_lifecycle_result(
             builder,
             block,
             source,
-            crate::cleanup_await::CleanupAwait::Frame(value, bray_ir::MirFrameEntry::Body),
+            crate::cleanup_await::CleanupAwait::Frame(
+                MirOperand::Move(value),
+                bray_ir::MirFrameEntry::Body,
+            ),
             completion,
         )?;
 
@@ -95,6 +100,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )
             .map_err(|cause| self.mir_error(source, cause))?;
 
+        outcome
+            .retain_allocation_failure(builder, rejected, source, finished)
+            .map_err(|cause| self.mir_error(source, cause))?;
+
         Ok(finished)
     }
 
@@ -105,7 +114,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         role: bray_ir::MirGeneratedLifecycleRole,
         place: MirPlace,
-    ) -> Result<MirOperand, C::Error> {
+    ) -> Result<(MirBlockId, MirBlockId, MirPlace), C::Error> {
         let ty = place.ty();
 
         let pointer = self
@@ -119,6 +128,10 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
         let receiver = self.lifecycle_receiver_operand(builder, block, source, place, pointer)?;
         let completion = self.context.representation_type(RepresentationRole::Unit)?;
+
+        let boolean = self
+            .context
+            .representation_type(RepresentationRole::ScalarBool)?;
 
         let future = self
             .context
@@ -142,6 +155,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             ty,
             receiver,
             bray_bound_tree::BoundFutureConstruction::new(completion, future),
+            boolean,
         )
         .map_err(|cause| self.mir_error(source, cause))
     }

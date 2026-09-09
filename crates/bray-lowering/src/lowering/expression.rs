@@ -14,3 +14,5 @@ mod static_access;
 mod testing;
 mod text;
 mod value;
+
+pub(super) use control::PropagationSource;

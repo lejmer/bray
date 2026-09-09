@@ -173,7 +173,13 @@ mod tests {
             ),
         ] {
             let source = format!(
-                "{module_trust} module app; @link(name = \"native\") @symbol(name = \"native_value\") @abi(c) {external} {trusted} func native_value() -> i32 {capability} executes(pure, total) {body} {wrapper_trust} func root() -> i32 {wrapper_capability} executes(pure, total) {{ return {call_trust} native_value(); }}"
+                r#"
+                {module_trust} module app;
+                @link(name = "native") @symbol(name = "native_value") @abi(c) {external} {trusted} func native_value() -> i32 {capability} executes(pure, total) {body} {wrapper_trust} func root() -> i32 {wrapper_capability} executes(pure, total)
+                {{
+                    return {call_trust} native_value();
+                }}
+                "#
             );
 
             let compilation =
@@ -212,7 +218,14 @@ mod tests {
             ),
         ] {
             let source = format!(
-                "trusted module app; @link(name = \"native\") @symbol(name = \"native_value\") @abi(c) extern trusted func native_value(pos value: i32) -> i32 uses(foreign_call) {foreign_contract}; trusted func root(pos value: i32) -> i32 uses(foreign_call) {caller_contract} {{ return native_value(value); }}"
+                r#"
+                trusted module app;
+                @link(name = "native") @symbol(name = "native_value") @abi(c) extern trusted func native_value(pos value: i32) -> i32 uses(foreign_call) {foreign_contract};
+                trusted func root(pos value: i32) -> i32 uses(foreign_call) {caller_contract}
+                {{
+                    return native_value(value);
+                }}
+                "#
             );
 
             let compilation =

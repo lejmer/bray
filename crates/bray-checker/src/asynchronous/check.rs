@@ -112,13 +112,7 @@ where
 
     let execution = match containing_execution(request).map_err(CheckerQueryError::with_upstream) {
         Ok(execution) => execution,
-        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
-        Err(CheckerQueryError::Upstream(error)) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
+        Err(error) => return error.into(),
     };
 
     let local_initializers = request.unit().collect_local_initializers();
@@ -266,6 +260,7 @@ where
             }
             AnalysisOperationKind::Recovery(_) => is_recovered = true,
             AnalysisOperationKind::Bound(_)
+            | AnalysisOperationKind::PropagationFailure(_)
             | AnalysisOperationKind::PatternObservation(_)
             | AnalysisOperationKind::Call { .. }
             | AnalysisOperationKind::ScopeExit { .. } => {}
@@ -296,21 +291,18 @@ where
         dependencies,
         guarantees,
         execution == Some(CallableExecution::Asynchronous),
-        types.callable_result_type(),
+        pending_cleanup_types(types, selections),
     ) {
         Ok(plans) => plans,
-        Err(CheckerQueryError::Cancelled) => return CheckerOutcome::Cancelled,
-        Err(CheckerQueryError::Infrastructure(error)) => {
-            return CheckerOutcome::InfrastructureFailure(error);
-        }
-        Err(CheckerQueryError::Upstream(error)) => {
-            return CheckerOutcome::UpstreamFailure(error);
-        }
+        Err(error) => return error.into(),
     };
 
     is_recovered |= scope_exits.iter().any(|exit| exit.is_recovered());
 
     diagnostics.add_range(cleanup_diagnostics);
+
+    let cleanup_free_futures =
+        super::future::cleanup_free_futures(request.unit(), storage, selections, &cleanup_types);
 
     let analysis = match CheckedAsync::try_new(
         request.unit().unit(),
@@ -325,6 +317,7 @@ where
     )
     .and_then(|analysis| analysis.with_replacements(replacements))
     .and_then(|analysis| analysis.with_capture_cleanup(capture_cleanup))
+    .and_then(|analysis| analysis.with_cleanup_free_futures(cleanup_free_futures))
     {
         Ok(analysis) => analysis,
         Err(error) => {
@@ -335,6 +328,22 @@ where
     };
 
     CheckerOutcome::complete(analysis, diagnostics)
+}
+
+fn pending_cleanup_types<'a>(
+    types: &'a CheckedExpressionTypes,
+    selections: &'a CheckedSemanticSelections,
+) -> impl Iterator<Item = bray_symbols::TypeId> + 'a {
+    let inputs = selections
+        .entries()
+        .iter()
+        .filter_map(|entry| match entry.selection() {
+            SemanticSelection::Call(call) => Some(call),
+            _ => None,
+        })
+        .flat_map(bray_bound_tree::SelectedCall::input_types);
+
+    types.callable_result_type().into_iter().chain(inputs)
 }
 
 fn add_selected_task_operations<C>(

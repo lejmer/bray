@@ -22,7 +22,7 @@ rustc_apfloat = "0.2.3"
 bray-bound-tree = { path = "../bray-bound-tree", features = ["test-support"] }
 bray-parser = { path = "../bray-parser" }
 bray-symbols = { path = "../bray-symbols", features = ["test-support"] }
-bray-testing = { path = "../bray-testing" }
+bray-testing = { path = "../bray-testing", features = ["bound-unit"] }
 bray-target = { path = "../bray-target", features = ["test-support"] }
 
 [lints]

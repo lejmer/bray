@@ -143,7 +143,7 @@ fn arbitrary_element_index(
         )
         .chain(state.evaluated_values.values().copied());
 
-    let Some(ordinal) = crate::contract::callable_input_count(domain.values, terms)
+    let Some(ordinal) = crate::contract::fresh_callable_argument(domain.values, terms)
         .map_err(CheckerInfrastructureError::SemanticValueStore)?
     else {
         return Ok(None);
@@ -151,9 +151,7 @@ fn arbitrary_element_index(
 
     domain
         .values
-        .intern_constant_term(ConstantTermData::CallableArgument(
-            bray_symbols::SymbolOrdinal::new(ordinal),
-        ))
+        .intern_constant_term(ConstantTermData::CallableArgument(ordinal))
         .map(Some)
         .map_err(CheckerInfrastructureError::SemanticValueStore)
 }

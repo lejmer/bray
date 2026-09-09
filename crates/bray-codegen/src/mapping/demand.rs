@@ -269,12 +269,20 @@ fn collect_generator_values(operation: &MirGeneratorOperation, demands: &mut Con
 
 fn collect_async_values(operation: &MirAsyncOperation, demands: &mut ConstantDemands) {
     match operation {
-        MirAsyncOperation::CreateFrame { initializer, .. } => match initializer {
-            MirFrameInitializer::Callable(call) => collect_call_values(call, demands),
-            MirFrameInitializer::Lifecycle { receiver, .. } => {
-                collect_operand_value(receiver, demands)
+        MirAsyncOperation::CreateFrame {
+            initializer,
+            destination,
+            ..
+        } => {
+            collect_place_values(destination, demands);
+
+            match initializer {
+                MirFrameInitializer::Callable(call) => collect_call_values(call, demands),
+                MirFrameInitializer::Lifecycle { receiver, .. } => {
+                    collect_operand_value(receiver, demands)
+                }
             }
-        },
+        }
         MirAsyncOperation::ResumeFrame { .. }
         | MirAsyncOperation::ResolveAwaitedFrame { .. }
         | MirAsyncOperation::ObserveCurrentRunCancellation { .. }
@@ -328,15 +336,13 @@ fn collect_call_values(call: &MirCall, demands: &mut ConstantDemands) {
     }
 
     for argument in call.arguments() {
-        if let Some(value) = argument.value() {
-            collect_operand_value(value, demands);
-        }
+        collect_operand_value(argument.value(), demands);
     }
 }
 
 fn collect_panic_values(cause: &MirPanicCause, demands: &mut ConstantDemands) {
     match cause {
-        MirPanicCause::TaskAdmission => {}
+        MirPanicCause::TaskAdmission | MirPanicCause::FrameAllocation => {}
         MirPanicCause::Message(message) | MirPanicCause::ExplicitTestFailure(message) => {
             collect_operand_value(message, demands);
         }

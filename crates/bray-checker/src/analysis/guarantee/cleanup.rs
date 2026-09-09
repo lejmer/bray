@@ -114,7 +114,12 @@ impl GuaranteeDomain<'_> {
                         )? {
                             dependencies.extend(proof);
                         } else {
-                            self.invalidate_observations(&mut state);
+                            self.invalidate_cleanup_observations(
+                                &mut state,
+                                *access,
+                                path,
+                                bray_bound_tree::StorageExitPoint::new(scope, exit),
+                            )?;
                         }
                     }
                 }

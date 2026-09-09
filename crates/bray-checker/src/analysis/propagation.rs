@@ -8,7 +8,7 @@ use crate::{CheckerInfrastructureError, CheckerRequestContext};
 
 use super::build::ControlFlowGraphBuilder;
 use super::id::AnalysisBlockId;
-use super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisRefinement};
+use super::model::{AnalysisEdgeKind, AnalysisExitKind, AnalysisOperationKind, AnalysisRefinement};
 
 impl<C> ControlFlowGraphBuilder<'_, C>
 where
@@ -22,24 +22,34 @@ where
         let success = self.push_block();
         let failure = self.push_block();
 
+        let representation = self
+            .request()
+            .available_compiler_known_symbols()
+            .result_representation();
+
         self.push_edge(
             current,
             success,
             AnalysisEdgeKind::ResultSuccess,
-            Some(AnalysisRefinement::ResultOutcome {
+            self.propagation_variant(
                 expression,
-                is_success: true,
-            }),
+                representation.map(|value| value.success_variant()),
+            ),
         );
 
         self.push_edge(
             current,
             failure,
             AnalysisEdgeKind::ResultErrorPropagation,
-            Some(AnalysisRefinement::ResultOutcome {
+            self.propagation_variant(
                 expression,
-                is_success: false,
-            }),
+                representation.map(|value| value.error_variant()),
+            ),
+        );
+
+        self.storage.push_operation(
+            failure,
+            AnalysisOperationKind::PropagationFailure(expression),
         );
 
         self.push_exit(
@@ -47,6 +57,8 @@ where
             AnalysisExitKind::ResultErrorPropagation,
             expression.into(),
         );
+
+        self.push_bound(success, expression.into());
 
         Some(Some(success))
     }
@@ -160,26 +172,73 @@ where
         let panicked = self.push_block();
         let cancelled = self.push_block();
 
+        let representation = self
+            .request()
+            .available_compiler_known_symbols()
+            .run_result_representation();
+
         self.push_edge(
             current,
             completed,
             AnalysisEdgeKind::RunResultCompleted,
-            None,
+            self.propagation_variant(
+                expression,
+                representation.map(|value| value.completed_variant()),
+            ),
         );
 
-        self.push_edge(current, panicked, AnalysisEdgeKind::RunResultPanicked, None);
+        self.push_edge(
+            current,
+            panicked,
+            AnalysisEdgeKind::RunResultPanicked,
+            self.propagation_variant(
+                expression,
+                representation.map(|value| value.panicked_variant()),
+            ),
+        );
 
         self.push_edge(
             current,
             cancelled,
             AnalysisEdgeKind::RunResultCancelled,
-            None,
+            self.propagation_variant(
+                expression,
+                representation.map(|value| value.cancelled_variant()),
+            ),
+        );
+
+        self.storage.push_operation(
+            panicked,
+            AnalysisOperationKind::PropagationFailure(expression),
         );
 
         self.push_exit(panicked, AnalysisExitKind::Panic, expression.into());
 
         self.push_exit(cancelled, AnalysisExitKind::Cancellation, expression.into());
 
+        self.push_bound(completed, expression.into());
+
         completed
+    }
+
+    fn propagation_variant(
+        &self,
+        expression: BoundExpressionId,
+        variant: Option<bray_symbols::UnionVariantSymbolId>,
+    ) -> Option<AnalysisRefinement> {
+        let bray_bound_tree::BoundExpression::Structured(expression) =
+            self.view().expression(expression)?
+        else {
+            return None;
+        };
+
+        let [subject] = expression.operands() else {
+            return None;
+        };
+
+        Some(AnalysisRefinement::UnionVariant {
+            expression: *subject,
+            variant: variant?,
+        })
     }
 }

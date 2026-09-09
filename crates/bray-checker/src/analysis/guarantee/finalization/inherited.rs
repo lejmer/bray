@@ -1,6 +1,5 @@
 use bray_bound_tree::{
-    CheckedAsync, StorageAccessId, StorageCleanupProjection, StorageCleanupProjectionKind,
-    StorageProjection, StorageRelationship,
+    CheckedAsync, StorageAccessId, StorageCleanupProjection, StorageRelationship,
 };
 
 use super::super::super::model::AnalysisOperationKind;
@@ -27,15 +26,7 @@ pub(super) fn inherited_destructor_part<C: CheckerRequestContext + ?Sized>(
         return false;
     }
 
-    // A family projection conservatively retains its enclosing storage as the mutation dependency.
-    let path = path
-        .iter()
-        .map_while(|projection| match projection.projection() {
-            StorageCleanupProjectionKind::Component(component) => Some(component),
-            StorageCleanupProjectionKind::OwnedTarget(_) => Some(StorageProjection::OwnedTarget),
-            _ => None,
-        })
-        .collect::<Vec<_>>();
+    let path = super::super::super::storage_index::cleanup_mutation_path(path);
 
     domain
         .graph
@@ -70,7 +61,7 @@ pub(super) fn inherited_destructor_part<C: CheckerRequestContext + ?Sized>(
                 && !domain.storage_calls.contains(&operation.kind().node())
                 && domain
                     .mutations
-                    .get(&operation.kind().node())
+                    .get(&operation.kind().point())
                     .is_some_and(|mutations| {
                         mutations.iter().all(|mutation| {
                             domain

@@ -270,6 +270,64 @@ impl ImplementationCallableInstance {
     pub(in crate::compilation) const fn uses_trait_default(self) -> bool {
         self.uses_trait_default
     }
+
+    pub(in crate::compilation) fn with_call_arguments(
+        self,
+        binding: &CompilationBindingContext<'_>,
+        required: CallableInstanceData,
+    ) -> Result<Self, FactQueryError> {
+        let values = binding.semantic_values();
+
+        let required_parameters = super::super::binder::declaration_generic_parameter_ids(
+            binding,
+            required.definition().symbol(),
+        )
+        .map_err(binding_query_error)?;
+
+        let provided_parameters = super::super::binder::declaration_generic_parameter_ids(
+            binding,
+            self.instance.definition().symbol(),
+        )
+        .map_err(binding_query_error)?;
+
+        let required_arguments = values.generic_substitution_data(required.substitution())?;
+
+        let arguments = required_parameters
+            .iter()
+            .map(|parameter| {
+                required_arguments.argument_for(*parameter).ok_or_else(|| {
+                    crate::compilation::SemanticQueryFailure::contract(
+                        crate::compilation::SemanticQueryContext::Symbol(
+                            required.definition().symbol(),
+                        ),
+                        crate::compilation::SemanticQueryViolation::Missing(
+                            crate::compilation::SemanticDataKind::GenericSubstitution,
+                        ),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let owner = super::super::substitution::generic_owner(self.instance.definition().symbol())?;
+
+        let method_arguments =
+            GenericSubstitutionData::try_new(owner, provided_parameters, arguments).map_err(
+                |cause| crate::compilation::SemanticQueryFailure::GenericSubstitution {
+                    owner: Some(owner),
+                    cause,
+                },
+            )?;
+
+        let method_arguments = values.intern_generic_substitution(method_arguments)?;
+
+        let instance = callable_instance(
+            values,
+            self.instance.definition().symbol(),
+            [self.instance.substitution(), method_arguments],
+        )?;
+
+        Ok(Self::new(instance, self.uses_trait_default))
+    }
 }
 
 pub(in crate::compilation) fn implementation_callable_instance(

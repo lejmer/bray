@@ -388,11 +388,11 @@ mod tests {
                     operation,
                 };
 
-                let mut arguments = vec![context.i64_type().const_zero().into()];
-
-                if operation == ProtectedFrameOperation::StateDescription {
-                    arguments.push(context.i32_type().const_zero().into());
-                }
+                let arguments = if operation == ProtectedFrameOperation::StateDescription {
+                    vec![context.i32_type().const_zero().into()]
+                } else {
+                    vec![context.i64_type().const_zero().into()]
+                };
 
                 let result = invoke_function(
                     &context, &builder, &target, &key, function, &arguments, "callback",

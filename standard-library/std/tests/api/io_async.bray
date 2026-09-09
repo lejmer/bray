@@ -289,14 +289,14 @@ async func extracting_an_async_buffered_sink_preserves_ownership_and_partial_pro
 
     assert(written == 4);
 
-    let (after_drain, drain_error) = std.testing.assert_error<
+    let (mut after_drain, drain_error) = std.testing.assert_error<
         AsyncRecoveringWriter,
         (std.io.BufferedWriter<AsyncRecoveringWriter>, std.io.IoError)
     >(await writer.into_sink_async());
 
     assert(drain_error.transferred == 2);
 
-    let (after_flush, flush_error) = std.testing.assert_error<
+    let (mut after_flush, flush_error) = std.testing.assert_error<
         AsyncRecoveringWriter,
         (std.io.BufferedWriter<AsyncRecoveringWriter>, std.io.IoError)
     >(await after_drain.into_sink_async());

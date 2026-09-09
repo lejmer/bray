@@ -112,7 +112,14 @@ where
         }
 
         if self.call_may_propagate_panic(id, hook) {
-            return Some(Some(self.push_propagating_call(id, current)));
+            let continuation = self.push_fallible_call_attempt(id, current);
+
+            match hook.and_then(AnalysisTaskOperationKind::from_implementation_hook) {
+                Some(kind) => self.push_task_operation(continuation, id, kind),
+                None => self.push_call(continuation, id, AnalysisCallPhase::Completion),
+            }
+
+            return Some(Some(continuation));
         }
 
         match hook.and_then(AnalysisTaskOperationKind::from_implementation_hook) {
@@ -138,20 +145,24 @@ where
         expression: BoundExpressionId,
         hook: Option<ImplementationHook>,
     ) -> bool {
-        if !implementation_hook_may_propagate_synchronous_panic(hook) {
-            return false;
-        }
-
         let Some(selections) = self.selections() else {
-            return true;
+            return implementation_hook_may_propagate_synchronous_panic(hook);
         };
 
+        let Some(SemanticSelection::Call(selection)) = selections.expression(expression) else {
+            return false;
+        };
+
+        // Capture allocation and omitted defaults execute before the deferred body starts.
         matches!(
-            selections.expression(expression),
-            Some(SemanticSelection::Call(selection))
-                if selection.abi() == CallableAbi::Bray
-                    && matches!(selection.resolution().result(), BoundCallResult::Immediate(_))
-        )
+            selection.resolution().result(),
+            BoundCallResult::LazyFuture(_)
+        ) || selection
+            .arguments()
+            .iter()
+            .any(|argument| matches!(argument, bray_bound_tree::SelectedArgument::Default { .. }))
+            || (selection.abi() == CallableAbi::Bray
+                && implementation_hook_may_propagate_synchronous_panic(hook))
     }
 
     fn implementation_hook(

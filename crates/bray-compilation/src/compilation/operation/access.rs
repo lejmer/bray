@@ -61,6 +61,23 @@ struct ResolvedCallableMember {
     template: Option<bray_bound_tree::CallableDeclarationTemplate>,
 }
 
+impl ResolvedCallableMember {
+    fn substitute_self(
+        mut self,
+        binding: &CompilationBindingContext<'_>,
+        context: SelfTypeContext,
+        replacement: TypeId,
+    ) -> Result<Self, FactQueryError> {
+        self.signature = substitute_callable_self(binding, self.signature, context, replacement)?;
+
+        self.template = self.template.map(|template| {
+            template.with_contextual_self(context, TypeExpressionTemplate::Resolved(replacement))
+        });
+
+        Ok(self)
+    }
+}
+
 fn member_call_generic_arguments(
     compilation: &Compilation,
     unit: &bray_bound_tree::BoundUnit,
@@ -279,15 +296,24 @@ impl Compilation {
                     return Ok(None);
                 };
 
-                let result_type = callable.signature.callable_type();
+                let callable = match member_origin {
+                    bray_symbols::TypeAssociatedMemberOrigin::InherentImplementation(owner) => {
+                        callable.substitute_self(
+                            binding_context,
+                            SelfTypeContext::Implementation(owner.into()),
+                            receiver_type,
+                        )?
+                    }
+                    bray_symbols::TypeAssociatedMemberOrigin::Direct => callable,
+                };
 
-                let defaults = self.resolve_callable_defaults(
-                    binding_context,
-                    &callable.signature,
-                    diagnostics,
-                )?;
+                let signature = callable.signature;
+                let result_type = signature.callable_type();
 
-                let signature = member_callable_signature(callable.signature, receiver_type);
+                let defaults =
+                    self.resolve_callable_defaults(binding_context, &signature, diagnostics)?;
+
+                let signature = member_callable_signature(signature, receiver_type);
 
                 let mut target = MemberTarget::new(member, result_type, []).with_callable(
                     callable.instance,
@@ -575,21 +601,14 @@ impl Compilation {
             diagnostics,
         )?;
 
-        let signature = if uses_trait_default {
-            substitute_callable_self(
-                binding_context,
-                callable.signature,
-                SelfTypeContext::Trait(application_data.definition()),
-                subject_type,
-            )?
+        let self_context = if uses_trait_default {
+            SelfTypeContext::Trait(application_data.definition())
         } else {
-            substitute_callable_self(
-                binding_context,
-                callable.signature,
-                SelfTypeContext::Implementation(implementation.definition()),
-                subject_type,
-            )?
+            SelfTypeContext::Implementation(implementation.definition())
         };
+
+        let callable = callable.substitute_self(binding_context, self_context, subject_type)?;
+        let signature = callable.signature;
 
         let signature = if uses_trait_default {
             normalize_callable_type_valued_members(
@@ -788,12 +807,9 @@ impl Compilation {
 
         let trait_context = SelfTypeContext::Trait(application.definition());
 
-        let signature = substitute_callable_self(
-            binding_context,
-            callable.signature,
-            trait_context,
-            subject_type,
-        )?;
+        let callable = callable.substitute_self(binding_context, trait_context, subject_type)?;
+
+        let signature = callable.signature;
 
         let signature =
             normalize_callable_type_equalities(binding_context, signature, constraints)?;

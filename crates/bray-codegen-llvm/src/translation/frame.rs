@@ -1,5 +1,6 @@
 mod cleanup;
 mod core;
+mod storage;
 mod support;
 
 pub(crate) use core::translate_protected_instance;

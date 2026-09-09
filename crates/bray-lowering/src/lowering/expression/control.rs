@@ -9,3 +9,5 @@ mod matching;
 mod pattern;
 mod propagation;
 mod transfer;
+
+pub(in crate::lowering) use propagation::PropagationSource;

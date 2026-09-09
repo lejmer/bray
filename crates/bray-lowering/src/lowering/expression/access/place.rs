@@ -39,7 +39,10 @@ impl Lowerer<'_> {
         expression: BoundExpressionId,
         accepts: impl Fn(StorageAccessPurpose) -> bool,
     ) -> Result<bray_bound_tree::StorageOperationDecision, LoweringError> {
-        self.storage_decision_matching(expression, |plan| accepts(plan.purpose()))
+        self.storage_decision_matching(expression, |plan| {
+            plan.point() == bray_bound_tree::BoundOperationPoint::Evaluation(expression.into())
+                && accepts(plan.purpose())
+        })
     }
 
     pub(in crate::lowering) fn storage_decision_reaching(
@@ -49,7 +52,8 @@ impl Lowerer<'_> {
         accepts: impl Fn(StorageAccessPurpose) -> bool,
     ) -> Result<bray_bound_tree::StorageOperationDecision, LoweringError> {
         self.storage_decision_matching(expression, |plan| {
-            accepts(plan.purpose())
+            plan.point() == bray_bound_tree::BoundOperationPoint::Evaluation(expression.into())
+                && accepts(plan.purpose())
                 && self
                     .input
                     .storage_plan()
@@ -58,7 +62,7 @@ impl Lowerer<'_> {
         })
     }
 
-    fn storage_decision_matching(
+    pub(in crate::lowering::expression) fn storage_decision_matching(
         &self,
         expression: BoundExpressionId,
         accepts: impl Fn(bray_bound_tree::StorageAccessPlan) -> bool,
@@ -78,6 +82,7 @@ impl Lowerer<'_> {
             .copied()
             .find(|decision| {
                 decision.expression() == expression
+                    && decision.point() == plan.point()
                     && decision.access() == plan.access()
                     && plan.purpose().matches_checked(decision.purpose())
             })
@@ -232,7 +237,7 @@ impl Lowerer<'_> {
             .input
             .storage_plan()
             .root_identity(id)
-            .filter(|identity| !self.storages.contains_key(identity))
+            .filter(|identity| !self.materialized_roots.contains(identity))
             .and_then(|identity| {
                 self.input
                     .storage_plan()
@@ -244,6 +249,7 @@ impl Lowerer<'_> {
             });
 
         let current = if let Some(temporary) = temporary {
+            // Cleanup guards may reserve this slot before its producer has been evaluated.
             let lowered = self.lower_expression(temporary, current)?;
             let lowered = self.materialize_for_later_evaluation(temporary, lowered)?;
 
@@ -294,18 +300,6 @@ impl Lowerer<'_> {
             None
         };
 
-        let existing = static_reference.as_ref().map_or_else(
-            || self.storages.get(&identity).copied(),
-            |reference| self.static_storages.get(reference).copied(),
-        );
-
-        if let Some(storage) = existing {
-            return Ok(RootInitialization::Continuing {
-                block: current,
-                place: MirPlace::new(storage, [], self.storage_identity_type(identity)?),
-            });
-        }
-
         let (owner, custom_index) = match model {
             StorageIdentity::CustomIndexBorrow(owner) => (Some(owner), true),
             StorageIdentity::Temporary(owner) | StorageIdentity::Allocation(owner)
@@ -315,6 +309,8 @@ impl Lowerer<'_> {
             }
             _ => (None, false),
         };
+
+        let owner = owner.filter(|_| !self.materialized_roots.contains(&identity));
 
         let mut current = current;
         let mut initial_value = None;

@@ -6,7 +6,9 @@ We're building a compiler for a brand-new programming language. It's an opiniona
 
 Bray is currently a greenfield project. Therefore, do not preserve backwards-compatibility unless explicitly requested. Always go for clean, coherent design changes instead of compatibility layers, migration shims, deprecated aliases, or legacy fallbacks.
 
-Treat discovered gaps as part of the active PR unless folding them in would turn it into a multi-thousand-line change or a genuinely independent subsystem. 
+Plan substantial work as coherent, independently reviewable outcomes before implementation. Reassess the split when a discovered gap introduces substantial new machinery, before the diff becomes too large for a human to review. Fix bounded defects in the active PR, and track substantial prerequisites or follow-on outcomes in dependency-ordered issues and PRs. Preserve the complete intended result across the stack, and honor explicit instructions to finish an already expanded PR in full.
+
+Commit and push coherent, tested milestones during long tasks rather than waiting for review readiness. Label incomplete checkpoints as work in progress and retain their known gaps and verification status.
 
 Do not dismiss a discovered defect as unrelated. Fix bounded defects in the active work; otherwise link an existing tracking issue or create one before proceeding. Treat failures in fail-fast workflows as blocking because later checks did not run.
 

@@ -302,7 +302,7 @@ mod tests {
             SchedulerLimits::new(nonzero(1), nonzero(1)),
         );
 
-        let cancellation = CancellationContext::root();
+        let cancellation = CancellationContext::root().unwrap();
 
         let registration = scheduler
             .register_task(
@@ -366,7 +366,7 @@ mod tests {
             SchedulerLimits::new(nonzero(1), nonzero(1)),
         );
 
-        let cancellation = CancellationContext::root();
+        let cancellation = CancellationContext::root().unwrap();
 
         let registration = scheduler
             .register_task(
@@ -409,7 +409,7 @@ mod tests {
 
     #[test]
     fn requested_state_remains_visible_while_delivery_is_shielded() {
-        let cancellation = CancellationContext::root();
+        let cancellation = CancellationContext::root().unwrap();
         let shield = cancellation.shield();
 
         assert!(cancellation.request());
@@ -424,7 +424,7 @@ mod tests {
 
     #[test]
     fn generated_cleanup_shields_nest_and_restore_delivery() {
-        let cancellation = CancellationContext::root();
+        let cancellation = CancellationContext::root().unwrap();
 
         super::with_run_cancellation_context(cancellation, || {
             super::enter_current_run_cleanup_shield();

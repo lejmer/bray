@@ -81,7 +81,7 @@ fn phase_contract_matches(
 ) -> bool {
     required.effects() == provided.effects()
         && required.capabilities() == provided.capabilities()
-        && required.execution_requirements() == provided.execution_requirements()
+        && provided.execution_requirements_are_subset_of(required)
         && required.lifecycle_obligations() == provided.lifecycle_obligations()
         && required.dependency_contract() == provided.dependency_contract()
         && required.current_run_cancellation() == provided.current_run_cancellation()
@@ -456,6 +456,54 @@ mod tests {
             super::callable_type_contract_is_compatible(&values, &plain, &restricted),
             Ok(false)
         );
+    }
+
+    #[test]
+    fn phase_adaptation_allows_fewer_execution_requirements() {
+        use bray_symbols::{
+            CallableExecutionRequirement, CallablePhaseBehavior, CurrentRunCancellation,
+            PredicateSymbolId, SymbolId,
+        };
+
+        let values = SemanticValueStore::try_new().unwrap();
+        let dependency = values.empty_dependency_contract_template().unwrap();
+
+        let first = CallableExecutionRequirement::new(
+            PredicateSymbolId::from_symbol_id(SymbolId::new(1)).into(),
+        );
+
+        let second = CallableExecutionRequirement::new(
+            PredicateSymbolId::from_symbol_id(SymbolId::new(2)).into(),
+        );
+
+        let phase = |requirements: &[CallableExecutionRequirement]| {
+            CallablePhaseBehavior::new(
+                [],
+                [],
+                [],
+                requirements.iter().copied(),
+                [],
+                dependency,
+                CurrentRunCancellation::NotEntered,
+            )
+        };
+
+        let unrestricted = phase(&[]);
+        let one_lane = phase(&[first]);
+        let other_lane = phase(&[second]);
+        let both_lanes = phase(&[second, first, second]);
+
+        for (required, provided, accepted) in [
+            (&unrestricted, &unrestricted, true),
+            (&one_lane, &unrestricted, true),
+            (&both_lanes, &one_lane, true),
+            (&both_lanes, &both_lanes, true),
+            (&unrestricted, &one_lane, false),
+            (&one_lane, &both_lanes, false),
+            (&one_lane, &other_lane, false),
+        ] {
+            assert_eq!(super::phase_contract_matches(required, provided), accepted);
+        }
     }
 
     fn argument(values: &SemanticValueStore, ordinal: u32) -> ConstantTermId {

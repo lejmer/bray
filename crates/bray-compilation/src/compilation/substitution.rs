@@ -2,7 +2,7 @@ use bray_binder::BindingQueryContext;
 use bray_symbols::{
     AnySymbolId, GenericArgument, GenericOwnerId, GenericParameterSymbolId,
     GenericSubstitutionData, GenericSubstitutionId, NamedTypeSymbolId, SelfTypeContext,
-    SemanticValueStore, TypeData, TypeId,
+    SemanticValueStore, TraitApplicationId, TypeData, TypeId,
 };
 
 use super::binder::CompilationBindingContext;
@@ -192,4 +192,109 @@ pub(super) fn named_type(
             substitution,
         })
         .map_err(FactQueryError::SemanticValueStore)
+}
+
+pub(in crate::compilation) fn substitute_contextual_self(
+    values: &SemanticValueStore,
+    ty: TypeId,
+    substitution: Option<(SelfTypeContext, TypeId)>,
+) -> Result<TypeId, FactQueryError> {
+    let Some((context, replacement)) = substitution else {
+        return Ok(ty);
+    };
+
+    values
+        .substitute_contextual_self(ty, context, replacement)
+        .map_err(FactQueryError::SemanticValueStore)
+}
+
+pub(in crate::compilation) fn substitute_callable_context(
+    values: &SemanticValueStore,
+    callable: bray_symbols::CallableInstanceData,
+    parent: Option<GenericSubstitutionId>,
+    contextual_self: Option<(SelfTypeContext, TypeId)>,
+) -> Result<bray_symbols::CallableInstanceData, FactQueryError> {
+    let substitution = match parent {
+        Some(parent) => values.substitute_generic_substitution(callable.substitution(), parent)?,
+        None => callable.substitution(),
+    };
+
+    let substitution =
+        substitute_contextual_self_in_substitution(values, substitution, contextual_self)?;
+
+    Ok(bray_symbols::CallableInstanceData::new(
+        callable.definition(),
+        substitution,
+    ))
+}
+
+pub(in crate::compilation) fn substitute_contextual_self_in_application(
+    values: &SemanticValueStore,
+    application: TraitApplicationId,
+    substitution: Option<(SelfTypeContext, TypeId)>,
+) -> Result<TraitApplicationId, FactQueryError> {
+    let Some((context, replacement)) = substitution else {
+        return Ok(application);
+    };
+
+    values
+        .substitute_contextual_self_in_application(application, context, replacement)
+        .map_err(FactQueryError::SemanticValueStore)
+}
+
+pub(in crate::compilation) fn substitute_contextual_self_in_substitution(
+    values: &SemanticValueStore,
+    substitution: GenericSubstitutionId,
+    contextual_self: Option<(SelfTypeContext, TypeId)>,
+) -> Result<GenericSubstitutionId, FactQueryError> {
+    let Some((context, replacement)) = contextual_self else {
+        return Ok(substitution);
+    };
+
+    values
+        .substitute_contextual_self_in_substitution(substitution, context, replacement)
+        .map_err(FactQueryError::SemanticValueStore)
+}
+
+#[cfg(test)]
+mod contextual_self_tests {
+    use bray_symbols::{
+        ImplementationSymbolId, InherentImplementationSymbolId, SelfTypeContext,
+        SemanticValueStore, SymbolId, TypeData,
+    };
+
+    use super::substitute_contextual_self;
+
+    #[test]
+    fn contextual_self_substitution_reaches_nested_type_forms() {
+        let values = SemanticValueStore::try_new()
+            .unwrap_or_else(|error| panic!("test semantic values must initialize: {error:?}"));
+
+        let implementation = ImplementationSymbolId::Inherent(
+            InherentImplementationSymbolId::from_symbol_id(SymbolId::new(1)),
+        );
+
+        let context = SelfTypeContext::Implementation(implementation);
+
+        let contextual = values
+            .intern_type(TypeData::ContextualSelf(context))
+            .unwrap_or_else(|error| panic!("test contextual type must intern: {error:?}"));
+
+        let nested = values
+            .intern_type(TypeData::Nullable(contextual))
+            .unwrap_or_else(|error| panic!("test nested type must intern: {error:?}"));
+
+        let replacement = values
+            .intern_type(TypeData::tuple([]))
+            .unwrap_or_else(|error| panic!("test replacement type must intern: {error:?}"));
+
+        let substituted = substitute_contextual_self(&values, nested, Some((context, replacement)))
+            .unwrap_or_else(|error| panic!("test contextual type must substitute: {error:?}"));
+
+        let data = values
+            .type_data(substituted)
+            .unwrap_or_else(|error| panic!("test substituted type must resolve: {error:?}"));
+
+        assert_eq!(data.as_ref(), &TypeData::Nullable(replacement));
+    }
 }

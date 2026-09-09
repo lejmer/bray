@@ -175,10 +175,24 @@ mod tests {
     #[test]
     fn source_templates_retain_guard_ancestry_without_promoting_declarations_to_proofs() {
         let compilation = compilation(
-            "module app; func check(pos ready: bool) requires(true) \
-            when(ready) { executes(pure, total) ensures(true) \
-                when(false) { executes(total) ensures(false) } } \
-            executes(total) ensures(true) {}",
+            r#"
+            module app;
+
+            func check(pos ready: bool)
+                requires(true)
+                when(ready)
+                {
+                    executes(pure, total)
+                    ensures(true)
+                    when(false)
+                    {
+                        executes(total)
+                        ensures(false)
+                    }
+                }
+                executes(total)
+                ensures(true) {}
+            "#,
         );
 
         let symbols = symbol_graph(&compilation);

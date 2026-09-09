@@ -774,6 +774,7 @@ fn operation_parts(
         MirOperationKind::PanicReport(cause) => {
             match cause {
                 MirPanicCause::TaskAdmission => parts.attribute("cause", "task_admission"),
+                MirPanicCause::FrameAllocation => parts.attribute("cause", "frame_allocation"),
                 MirPanicCause::Message(message) => parts.operand("message", message, context)?,
                 MirPanicCause::Assertion(message) => {
                     parts.attribute("cause", "assertion");
@@ -1115,6 +1116,11 @@ fn call_parts(
             parts.attribute("dispatch", "runtime");
             runtime_reference("callee", *reference, parts);
         }
+        MirCallTarget::ParameterDefault { callable, provider } => {
+            parts.attribute("dispatch", "parameter_default");
+            callable_reference("callee", *callable, parts, context);
+            parts.symbol("provider", (*provider).into(), context.symbols);
+        }
         MirCallTarget::Indirect { callee, abi } => {
             parts.attribute("dispatch", "indirect");
             parts.attribute("callable_abi", callable_abi(*abi));
@@ -1154,23 +1160,6 @@ fn call_parts(
                 }
 
                 parts.operand(format!("argument[{ordinal}]"), value, context)?;
-            }
-            MirCallArgument::Default {
-                parameter,
-                ordinal,
-                provider,
-            } => {
-                parts.symbol(
-                    format!("parameter[{ordinal}]"),
-                    (*parameter).into(),
-                    context.symbols,
-                );
-
-                parts.symbol(
-                    format!("default_provider[{ordinal}]"),
-                    (*provider).into(),
-                    context.symbols,
-                );
             }
         }
     }
@@ -1377,8 +1366,13 @@ fn async_operation(
     context: &MirInspectionContext<'_>,
 ) -> Result<&'static str, MirInspectionModelError> {
     let kind = match operation {
-        MirAsyncOperation::CreateFrame { frame, initializer } => {
+        MirAsyncOperation::CreateFrame {
+            frame,
+            initializer,
+            destination,
+        } => {
             frame_reference("frame", *frame, parts);
+            parts.place("destination", destination, context)?;
 
             match initializer {
                 MirFrameInitializer::Callable(call) => {

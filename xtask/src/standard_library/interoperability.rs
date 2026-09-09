@@ -454,7 +454,7 @@ fn bray_path(path: &Path) -> String {
 
 fn target_module_audit(target: NativeTarget) -> String {
     format!(
-        r#"module bray.interoperability.audit;
+        r#"trusted module bray.interoperability.audit;
 
 using std.os.windows;
 using std.os.linux;

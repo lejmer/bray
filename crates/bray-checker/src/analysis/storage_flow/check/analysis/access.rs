@@ -1,6 +1,6 @@
 use bray_bound_tree::{
     AnyBoundNodeId, BorrowCapabilityId, Refinement, StorageAccessId, StorageAccessPlan,
-    StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StorageIdentityId, StorageProjection,
+    StorageAccessPurpose, StorageAccessRoot, StorageIdentity, StorageIdentityId,
     StorageRelationship,
 };
 use bray_symbols::BorrowKind;
@@ -138,35 +138,6 @@ where
                 || self.owned_storage_is_mutable(storage)),
             StorageAccessRoot::Borrow(_) | StorageAccessRoot::BorrowedStorage { .. } => Ok(false),
         }
-    }
-
-    pub(super) fn fields_allow_mutation(&self, access: StorageAccessId) -> bool {
-        let Some(access) = self.storage.access(access) else {
-            return false;
-        };
-
-        access
-            .projections()
-            .iter()
-            .all(|projection| match projection {
-                StorageProjection::ProductField(field) => self
-                    .request
-                    .symbols()
-                    .struct_field(*field)
-                    .is_some_and(bray_symbols::StructFieldSymbol::allows_mutation),
-                StorageProjection::ActiveUnionPayloadField { field, .. } => self
-                    .request
-                    .symbols()
-                    .union_payload_field(*field)
-                    .is_some_and(bray_symbols::UnionPayloadFieldSymbol::allows_mutation),
-                StorageProjection::TupleElement(_)
-                | StorageProjection::ElementFromStart(_)
-                | StorageProjection::ElementFromEnd(_)
-                | StorageProjection::Element(_)
-                | StorageProjection::SliceRange { .. }
-                | StorageProjection::NullableValue
-                | StorageProjection::OwnedTarget => true,
-            })
     }
 
     pub(super) fn operation_access(

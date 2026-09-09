@@ -82,7 +82,17 @@ pub(super) fn encode_contracts(semantics: &InterfaceSemantics) -> EncodedSemanti
                 write_count(encoder, proof.dependencies().len());
 
                 for (target, obligation) in proof.dependencies() {
-                    write_symbol_reference(encoder, target);
+                    encoder.write_u32(target.callable().raw());
+
+                    match target.dispatch() {
+                        Some((subject, application)) => {
+                            encoder.write_u32(1);
+                            encoder.write_u32(subject.raw());
+                            encoder.write_u32(application.raw());
+                        }
+                        None => encoder.write_u32(0),
+                    }
+
                     encode_contract_obligation(encoder, *obligation);
                 }
             }

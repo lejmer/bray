@@ -116,32 +116,30 @@ fn translate_constructor<'context>(
     let block = context.append_basic_block(function, "frame.create");
     builder.position_at_end(block);
 
+    let integer = crate::native::pointer_integer_type(types.context(), request.target());
     let pointer = context.ptr_type(AddressSpace::default());
-    let usize = crate::native::pointer_integer_type(types.context(), request.target());
-    let calloc_type = pointer.fn_type(&[usize.into(), usize.into()], false);
 
-    let calloc = module
-        .get_function("calloc")
-        .unwrap_or_else(|| module.add_function("calloc", calloc_type, None));
+    let storage = super::storage::allocate(
+        module,
+        &builder,
+        integer,
+        types.target_data().get_store_size(&context_type),
+        types.target_data().get_abi_alignment(&context_type),
+        types.target_data().get_abi_alignment(&pointer),
+    )?;
 
-    let size = types.target_data().get_store_size(&context_type);
+    let initialized = context.append_basic_block(function, "frame.initialize");
+    let finished = context.append_basic_block(function, "frame.allocation.finished");
 
-    let call = builder
-        .build_call(
-            calloc,
-            &[
-                usize.const_int(1, false).into(),
-                usize.const_int(size, false).into(),
-            ],
-            "frame.storage",
-        )
+    let allocated = builder
+        .build_is_not_null(storage, "frame.allocated")
         .map_err(CodegenFailure::backend_library)?;
 
-    let storage = call
-        .try_as_basic_value()
-        .basic()
-        .and_then(pointer_value)
-        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+    builder
+        .build_conditional_branch(allocated, initialized, finished)
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder.position_at_end(initialized);
 
     initialize_parameters(
         &builder,
@@ -152,6 +150,12 @@ fn translate_constructor<'context>(
         storage,
         types,
     )?;
+
+    builder
+        .build_unconditional_branch(finished)
+        .map_err(CodegenFailure::backend_library)?;
+
+    builder.position_at_end(finished);
 
     let adapter = frame_operation_function(
         module,
@@ -375,7 +379,29 @@ fn translate_frame_adapter<'context>(
 
     let usize = crate::native::pointer_integer_type(context, request.target());
 
-    let fields: [BasicValueEnum<'context>; 14] = [
+    let metadata = crate::native::frame_metadata_type(context, request.target())
+        .const_named_struct(&[
+            identity.into(),
+            context
+                .i32_type()
+                .const_int(
+                    crate::conversion::resource_limit(
+                        descriptor.states().len(),
+                        "frame_state_count",
+                    )?,
+                    false,
+                )
+                .into(),
+            usize.const_int(frame_layout.0, false).into(),
+            usize.const_int(u64::from(frame_layout.1), false).into(),
+            usize.const_int(completion_layout.0, false).into(),
+            usize
+                .const_int(u64::from(completion_layout.1), false)
+                .into(),
+            state?.into(),
+        ]);
+
+    let fields: [BasicValueEnum<'context>; 8] = [
         function
             .get_nth_param(crate::native::frame_parameter_index(
                 request.target(),
@@ -383,21 +409,7 @@ fn translate_frame_adapter<'context>(
                 0,
             ))
             .ok_or(CodegenFailure::GeneratedModuleInvariant)?,
-        identity.into(),
-        context
-            .i32_type()
-            .const_int(
-                crate::conversion::resource_limit(descriptor.states().len(), "frame_state_count")?,
-                false,
-            )
-            .into(),
-        usize.const_int(frame_layout.0, false).into(),
-        usize.const_int(u64::from(frame_layout.1), false).into(),
-        usize.const_int(completion_layout.0, false).into(),
-        usize
-            .const_int(u64::from(completion_layout.1), false)
-            .into(),
-        state?.into(),
+        metadata.into(),
         resume?.into(),
         cancel?.into(),
         broadcast?.into(),
@@ -491,7 +503,7 @@ fn translate_state_callback(
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     let state = function
-        .get_nth_param(1)
+        .get_nth_param(0)
         .and_then(|value| match value {
             BasicValueEnum::IntValue(value) => Some(value),
             _ => None,

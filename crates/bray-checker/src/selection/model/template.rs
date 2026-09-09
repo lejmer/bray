@@ -82,6 +82,17 @@ impl CallableDeclarationCandidateTemplate {
         self
     }
 
+    /// Supplies the selected subject for declaration-local `Self` references.
+    pub fn with_contextual_self(
+        mut self,
+        context: bray_symbols::SelfTypeContext,
+        replacement: bray_symbols::TypeExpressionTemplate,
+    ) -> Self {
+        self.declaration = self.declaration.with_contextual_self(context, replacement);
+
+        self
+    }
+
     /// Returns the candidate's stable semantic key.
     pub fn key(&self) -> &SymbolKey {
         self.declaration.key()
@@ -95,6 +106,16 @@ impl CallableDeclarationCandidateTemplate {
     /// Returns the complete unevaluated callable signature.
     pub fn signature(&self) -> &CallableSignatureTemplate {
         self.declaration.signature()
+    }
+
+    /// Returns the selected subject replacing declaration-local `Self` during instantiation.
+    pub(crate) fn contextual_self(
+        &self,
+    ) -> Option<&(
+        bray_symbols::SelfTypeContext,
+        bray_symbols::TypeExpressionTemplate,
+    )> {
+        self.declaration.contextual_self()
     }
 
     /// Returns source or imported contract clauses retained for semantic checking.

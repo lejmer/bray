@@ -40,7 +40,7 @@ pub struct StoragePlanBuilder {
     pub(super) bindings: BTreeMap<StorageBindingTarget, StorageBinding>,
     pub(super) plans: Vec<StorageAccessPlan>,
     pub(super) planned_accesses: BTreeSet<(
-        crate::AnyBoundNodeId,
+        crate::BoundOperationPoint,
         crate::BoundExpressionId,
         StorageAccessPurpose,
         StorageAccessId,
@@ -235,7 +235,25 @@ impl StoragePlanBuilder {
         purpose: StorageAccessPurpose,
         access: StorageAccessId,
     ) -> Result<(), StoragePlanBuildError> {
-        if node.unit() != self.unit || expression.unit() != self.unit || access.unit() != self.unit
+        self.plan_access_at(
+            crate::BoundOperationPoint::Evaluation(node),
+            expression,
+            purpose,
+            access,
+        )
+    }
+
+    /// Records an access at one exact evaluation point, retaining its source expression.
+    pub fn plan_access_at(
+        &mut self,
+        point: crate::BoundOperationPoint,
+        expression: crate::BoundExpressionId,
+        purpose: StorageAccessPurpose,
+        access: StorageAccessId,
+    ) -> Result<(), StoragePlanBuildError> {
+        if point.node().unit() != self.unit
+            || expression.unit() != self.unit
+            || access.unit() != self.unit
         {
             return Err(StoragePlanBuildError::ForeignUnit);
         }
@@ -246,13 +264,13 @@ impl StoragePlanBuilder {
 
         if !self
             .planned_accesses
-            .insert((node, expression, purpose, access))
+            .insert((point, expression, purpose, access))
         {
             return Ok(());
         }
 
         self.plans
-            .push(StorageAccessPlan::new(node, expression, purpose, access));
+            .push(StorageAccessPlan::new(point, expression, purpose, access));
 
         Ok(())
     }
@@ -425,6 +443,58 @@ mod tests {
     use crate::{
         BoundUnitId, BoundUnitKind, StorageBinding, StorageBindingTarget, StorageIdentity,
     };
+
+    #[test]
+    fn access_plans_distinguish_propagation_branches_and_deduplicate_exact_points() {
+        let unit = BoundUnitId::new(4);
+        let expression = crate::BoundExpressionId::from_slot(unit, 0);
+        let mut builder = StoragePlanBuilder::new(unit, BoundUnitKind::CallableBody);
+
+        let root = builder
+            .push_identity(StorageIdentity::Temporary(expression))
+            .unwrap();
+
+        let access = builder
+            .push_access(crate::StorageAccess::new(
+                crate::StorageAccessRoot::Storage(root),
+                [],
+                crate::test_support::error_type(),
+                crate::test_support::source_anchor(),
+                false,
+            ))
+            .unwrap();
+
+        let evaluation = crate::BoundOperationPoint::Evaluation(expression.into());
+        let failure = crate::BoundOperationPoint::PropagationFailure(expression);
+
+        for point in [evaluation, failure, evaluation, failure] {
+            builder
+                .plan_access_at(point, expression, crate::StorageAccessPurpose::Read, access)
+                .unwrap();
+        }
+
+        assert_eq!(
+            builder.plan_access_at(
+                crate::BoundOperationPoint::PropagationFailure(
+                    crate::BoundExpressionId::from_slot(BoundUnitId::new(5), 0)
+                ),
+                expression,
+                crate::StorageAccessPurpose::Read,
+                access,
+            ),
+            Err(StoragePlanBuildError::ForeignUnit)
+        );
+
+        let plan = builder.finish();
+
+        assert_eq!(
+            plan.access_plans()
+                .iter()
+                .map(|plan| plan.point())
+                .collect::<Vec<_>>(),
+            [evaluation, failure]
+        );
+    }
 
     #[test]
     fn owned_borrow_selections_are_stable_and_distinguish_borrow_kinds() {

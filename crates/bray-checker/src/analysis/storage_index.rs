@@ -1,15 +1,15 @@
 use std::collections::BTreeMap;
 
 use bray_bound_tree::{
-    AnyBoundNodeId, BoundExpressionId, StorageAccessId, StorageAccessPurpose, StorageIdentityId,
-    StoragePlan, StorageRelationship,
+    BoundExpressionId, BoundOperationPoint, StorageAccessId, StorageAccessPurpose,
+    StorageIdentityId, StoragePlan, StorageRelationship,
 };
 use bray_symbols::TypeId;
 
 pub(super) fn invalidating_operation_accesses(
     storage: &StoragePlan,
-) -> BTreeMap<AnyBoundNodeId, Box<[StorageAccessId]>> {
-    let mut accesses = BTreeMap::<AnyBoundNodeId, Vec<StorageAccessId>>::new();
+) -> BTreeMap<BoundOperationPoint, Box<[StorageAccessId]>> {
+    let mut accesses = BTreeMap::<BoundOperationPoint, Vec<StorageAccessId>>::new();
 
     for plan in storage.access_plans().iter().filter(|plan| {
         matches!(
@@ -22,7 +22,10 @@ pub(super) fn invalidating_operation_accesses(
                 | StorageAccessPurpose::Assignment
         )
     }) {
-        accesses.entry(plan.node()).or_default().push(plan.access());
+        accesses
+            .entry(plan.point())
+            .or_default()
+            .push(plan.access());
     }
 
     accesses
@@ -41,6 +44,21 @@ pub(super) fn accesses_are_disjoint(
             storage.relationship(dependency, *mutation) == StorageRelationship::Disjoint
         })
     })
+}
+
+/// A cleanup family conservatively mutates the enclosing storage before its first dynamic projection.
+pub(super) fn cleanup_mutation_path(
+    path: &[bray_bound_tree::StorageCleanupProjection],
+) -> Vec<bray_bound_tree::StorageProjection> {
+    path.iter()
+        .map_while(|projection| match projection.projection() {
+            bray_bound_tree::StorageCleanupProjectionKind::Component(component) => Some(component),
+            bray_bound_tree::StorageCleanupProjectionKind::OwnedTarget(_) => {
+                Some(bray_bound_tree::StorageProjection::OwnedTarget)
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 pub(super) fn index_storage_roots(

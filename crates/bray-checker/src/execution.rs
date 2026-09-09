@@ -156,6 +156,21 @@ impl ExecutionGuaranteeInput {
     ) -> Result<Self, bray_symbols::SemanticValueStoreError> {
         use bray_bound_tree::{StorageBinding, StorageBindingTarget};
 
+        for (identity, storage) in storage.identity_entries() {
+            let bray_bound_tree::StorageIdentity::Temporary(expression) = storage else {
+                continue;
+            };
+
+            let observation = match self.call(expression) {
+                Some(call) => call.result_observation(values)?,
+                None => None,
+            };
+
+            if let Some(observation) = observation {
+                self.storage_observations.insert(identity, observation);
+            }
+        }
+
         let mut aliases = std::collections::BTreeMap::new();
 
         for (target, binding) in storage.bindings() {
@@ -280,11 +295,17 @@ impl ExecutionGuaranteeInput {
         &self,
         ty: bray_symbols::TypeId,
     ) -> impl Iterator<Item = bray_symbols::TypeId> + '_ {
-        self.cleanup_dependencies
-            .get(&ty)
+        self.known_cleanup_dependencies(ty)
             .into_iter()
             .flatten()
             .copied()
+    }
+
+    pub(crate) fn known_cleanup_dependencies(
+        &self,
+        ty: bray_symbols::TypeId,
+    ) -> Option<&std::collections::BTreeSet<bray_symbols::TypeId>> {
+        self.cleanup_dependencies.get(&ty)
     }
 
     pub(crate) fn requires_completion_plan(&self, ty: bray_symbols::TypeId) -> bool {
@@ -447,6 +468,7 @@ impl ExecutionLifecycleInput {
 
 /// A selected synchronous call's instantiated declaration contract and receiver-first value inputs.
 /// Its promises are candidates for dependency checking, not implementation evidence.
+#[derive(Debug)]
 pub struct ExecutionCallInput {
     conditions: bray_symbols::CallableConditionSet,
     arguments: Box<[ExecutionCallArgument]>,
@@ -455,7 +477,7 @@ pub struct ExecutionCallInput {
 }
 
 /// An explicit evaluated input or an independently checked inert default.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum ExecutionCallArgument {
     /// An expression occurrence in the caller's evaluation order.
     Expression(bray_bound_tree::BoundExpressionId),
@@ -493,6 +515,21 @@ impl ExecutionCallInput {
             .raw()
             .checked_add(u32::try_from(index).ok()?)
             .map(bray_symbols::SymbolOrdinal::new)
+    }
+
+    pub(crate) fn result_observation(
+        &self,
+        values: &bray_symbols::SemanticValueStore,
+    ) -> Result<Option<bray_symbols::ConstantTermId>, bray_symbols::SemanticValueStoreError> {
+        self.arguments
+            .len()
+            .checked_mul(2)
+            .and_then(|index| self.observation_ordinal(index))
+            .map(|ordinal| {
+                values
+                    .intern_constant_term(bray_symbols::ConstantTermData::CallableArgument(ordinal))
+            })
+            .transpose()
     }
 
     pub(crate) fn borrows_argument(&self, expression: bray_bound_tree::BoundExpressionId) -> bool {

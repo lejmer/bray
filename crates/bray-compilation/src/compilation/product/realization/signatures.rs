@@ -14,11 +14,12 @@ use super::super::super::CodegenPreparationError;
 use super::super::super::Compilation;
 use super::super::super::checker::CompilationCheckerContext;
 use super::super::specialization::ConcreteCodegenInstance;
-use super::contextual_self::{codegen_instance_contextual_self, substitute_contextual_self};
+use super::contextual_self::codegen_instance_contextual_self;
 use super::support::{
     callable_type_signature, is_void_result, receiver_codegen_type, synchronous_bray_signature,
     void_signature,
 };
+use crate::compilation::substitution::substitute_contextual_self;
 use crate::compilation::{ProductDataKind, ProductQueryContext, ProductQueryFailure};
 use crate::fact::{CancellationToken, FactQueryError};
 

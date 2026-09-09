@@ -260,6 +260,21 @@ where
             return self.temporary_access(expression);
         };
 
+        self.project_typed_access(
+            expression,
+            base,
+            projection,
+            self.expression_type(expression)?.ty(),
+        )
+    }
+
+    pub(super) fn project_typed_access(
+        &mut self,
+        expression: BoundExpressionId,
+        base: StorageAccessId,
+        projection: StorageProjection,
+        reached_type: TypeId,
+    ) -> Result<StorageAccessId, PlanError<C::UpstreamError>> {
         let base = self
             .builder()?
             .access(base)
@@ -274,7 +289,10 @@ where
             expression,
             root,
             projections,
-            self.expression_type(expression)?,
+            bray_bound_tree::ExpressionTypeResult::new(
+                reached_type,
+                self.expression_type(expression)?.status(),
+            ),
         )
     }
 

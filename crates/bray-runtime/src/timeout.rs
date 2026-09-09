@@ -242,7 +242,7 @@ mod tests {
         drop(timer);
         drop(timeouts);
 
-        assert!(matches!(outcome, RunOutcome::Completed(())));
+        assert!(matches!(outcome.unwrap(), RunOutcome::Completed(())));
 
         assert_eq!(
             cancellation.and_then(|cancellation| cancellation.source()),
@@ -274,7 +274,7 @@ mod tests {
         drop(timer);
         drop(timeouts);
 
-        assert!(matches!(outcome, RunOutcome::Completed(())));
+        assert!(matches!(outcome.unwrap(), RunOutcome::Completed(())));
 
         assert_eq!(
             cancellation.and_then(|cancellation| cancellation.source()),

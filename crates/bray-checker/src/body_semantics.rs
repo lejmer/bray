@@ -140,6 +140,8 @@ where
             expressions.selections(),
             patterns,
             storage,
+            &flow,
+            &liveness,
             &asynchronous,
             &graph,
         ))

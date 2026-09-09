@@ -271,6 +271,19 @@ impl CleanupOutcome {
         self.retain_panic(builder, panicked, source, MirOperand::Value(report), failed)
     }
 
+    pub(crate) fn retain_allocation_failure(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        completed: MirBlockId,
+    ) -> Result<(), MirUnitBuildError> {
+        let report =
+            crate::frame_creation::allocation_panic(builder, block, source, self.report.ty())?;
+
+        self.retain_panic(builder, block, source, report, completed)
+    }
+
     fn retain_panic(
         &self,
         builder: &mut MirUnitBuilder,

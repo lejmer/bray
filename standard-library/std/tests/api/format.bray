@@ -1,4 +1,4 @@
-module bray.standard_library_tests.format;
+trusted module bray.standard_library_tests.format;
 
 using std.format;
 using std.format.BooleanFormat;

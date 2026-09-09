@@ -137,7 +137,7 @@ fn with_selected_static_cleanup_runtime<T>(
 mod tests {
     use bray_runtime_abi::{
         NativeBrayCallOutcome, NativeFrameAffinity, NativeFrameExit, NativeFrameProgress,
-        NativeFrameProgressKind, NativeFrameState, NativeInactiveFrame, NativeLaneRequirements,
+        NativeFrameProgressKind, NativeInactiveFrame, NativeLaneRequirements,
         NativePanicReportCallbacks, NativeProtectedFrame, NativeRuntimeStatus,
         NativeStaticFinalizerStatus,
     };
@@ -172,13 +172,15 @@ mod tests {
         ) -> NativeProtectedFrame {
             NativeProtectedFrame::new(
                 0,
-                [42; 32],
-                1,
-                1,
-                1,
-                0,
-                1,
-                state,
+                bray_runtime_abi::NativeFrameMetadata::new(
+                    [42; 32],
+                    1,
+                    1,
+                    1,
+                    0,
+                    1,
+                    crate::test_support::native_movable_frame_state,
+                ),
                 resume,
                 resume,
                 ignore_action,
@@ -315,54 +317,64 @@ mod tests {
         assert!(super::super::state::shutdown().is_success());
     }
 
+    static FRAMES: crate::test_support::NativeTestValues<NativeProtectedFrame> =
+        crate::test_support::NativeTestValues::new();
+
     fn inactive_frame(
         affinity: NativeFrameAffinity,
         requirements: NativeLaneRequirements,
     ) -> NativeInactiveFrame {
-        let context =
-            usize::try_from(u64::from(affinity.code()) | (u64::from(requirements.bits()) << 32))
-                .unwrap_or_else(|_| panic!("native frame state must fit the test target"));
+        use crate::test_support::{
+            native_blocking_frame_state, native_compute_frame_state, native_main_frame_state,
+            native_movable_frame_state, native_origin_frame_state,
+        };
 
-        NativeInactiveFrame::new(context, move_before_start)
-    }
+        let state: bray_runtime_abi::NativeFrameStateCallback = match (affinity, requirements) {
+            (NativeFrameAffinity::MOVABLE, NativeLaneRequirements::NONE) => {
+                native_movable_frame_state
+            }
+            (NativeFrameAffinity::MOVABLE, NativeLaneRequirements::BLOCKING) => {
+                native_blocking_frame_state
+            }
+            (NativeFrameAffinity::MOVABLE, NativeLaneRequirements::COMPUTE) => {
+                native_compute_frame_state
+            }
+            (NativeFrameAffinity::ORIGIN_THREAD, NativeLaneRequirements::NONE) => {
+                native_origin_frame_state
+            }
+            (NativeFrameAffinity::MAIN_THREAD, NativeLaneRequirements::MAIN_THREAD) => {
+                native_main_frame_state
+            }
+            _ => panic!("fixture frame state must be supported"),
+        };
 
-    extern "C" fn move_before_start(
-        context: usize,
-        _: bray_runtime_abi::NativeFrameEntry,
-    ) -> NativeProtectedFrame {
-        NativeProtectedFrame::new(
-            context,
-            [9; 32],
-            1,
-            1,
-            1,
-            1,
-            1,
-            state,
+        let mut identity = [9; 32];
+        identity[0] = u8::try_from(affinity.code()).unwrap();
+        identity[1] = u8::try_from(requirements.bits()).unwrap();
+
+        let metadata = bray_runtime_abi::NativeFrameMetadata::new(identity, 1, 1, 1, 1, 1, state);
+
+        let frame = NativeProtectedFrame::new(
+            0,
+            metadata,
             resume,
             cancel,
             ignore_action,
             ignore_resolution,
             ignore_completion_move,
             ignore_action,
-        )
+        );
+
+        NativeInactiveFrame::new(FRAMES.insert(frame), move_before_start)
     }
 
-    extern "C" fn state(context: usize, _: u32) -> NativeFrameState {
-        let context = u64::try_from(context)
-            .unwrap_or_else(|_| panic!("test frame context must fit the native ABI"));
-
-        let affinity = match context as u32 {
-            0 => NativeFrameAffinity::MOVABLE,
-            1 => NativeFrameAffinity::ORIGIN_THREAD,
-            2 => NativeFrameAffinity::MAIN_THREAD,
-            _ => panic!("test frame affinity must be known"),
-        };
-
-        NativeFrameState::new(
-            affinity,
-            NativeLaneRequirements::from_bits((context >> 32) as u32),
-        )
+    extern "C" fn move_before_start(
+        context: usize,
+        _: bray_runtime_abi::NativeFrameEntry,
+    ) -> NativeProtectedFrame {
+        FRAMES
+            .take(context)
+            .expect("fixture frame must remain owned")
     }
 
     extern "C-unwind" fn resume(_: usize) -> NativeFrameProgress {
