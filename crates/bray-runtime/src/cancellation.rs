@@ -53,7 +53,7 @@ impl Drop for CancellationState {
 #[derive(Default)]
 struct CancellationWakes {
     next_id: u64,
-    registered: Vec<(u64, CancellationWake)>,
+    registered: Vec<(u64, Option<CancellationWake>)>,
 }
 
 impl fmt::Debug for CancellationState {
@@ -274,12 +274,21 @@ impl CancellationContext {
     }
 
     /// Registers a notification that makes suspended work observe cancellation.
+    #[cfg(test)]
     pub(crate) fn register_wake(
         &self,
         wake: impl Into<CancellationWake>,
     ) -> Result<CancellationWakeRegistration, CancellationWakeRegistrationError> {
-        let wake = wake.into();
+        let mut registration = self.reserve_wake()?;
+        registration.bind(wake);
 
+        Ok(registration)
+    }
+
+    /// Retains a notification slot and identity before its execution target is known.
+    pub(crate) fn reserve_wake(
+        &self,
+    ) -> Result<CancellationWakeRegistration, CancellationWakeRegistrationError> {
         let id = {
             let mut wakes = self
                 .state
@@ -297,14 +306,10 @@ impl CancellationContext {
                 .map_err(CancellationWakeRegistrationError::Allocation)?;
 
             wakes.next_id = next_id;
-            wakes.registered.push((id, wake.clone()));
+            wakes.registered.push((id, None));
 
             id
         };
-
-        if self.is_requested() {
-            wake.wake();
-        }
 
         Ok(CancellationWakeRegistration {
             id,
@@ -383,6 +388,44 @@ pub(crate) enum CancellationWakeRegistrationError {
 pub(crate) struct CancellationWakeRegistration {
     id: u64,
     state: StateArc<CancellationState>,
+}
+
+impl CancellationWakeRegistration {
+    pub(crate) fn bind(&mut self, wake: impl Into<CancellationWake>) {
+        let wake = wake.into();
+
+        {
+            let mut wakes = self
+                .state
+                .wakes
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+            let Ok(index) = wakes
+                .registered
+                .binary_search_by_key(&self.id, |(id, _)| *id)
+            else {
+                unreachable!("reserved cancellation wake must retain its slot");
+            };
+
+            let retained = &mut wakes.registered[index].1;
+
+            assert!(
+                retained.is_none(),
+                "cancellation wake must bind exactly once"
+            );
+
+            *retained = Some(wake.clone());
+        }
+
+        // A request may precede binding or race with it. Publication precedes this observation,
+        // so either the requester or this branch delivers the wake, and duplicate wakes are safe.
+        if self.state.requested.load(Ordering::Acquire)
+            && self.state.shields.load(Ordering::Acquire) == 0
+        {
+            wake.wake();
+        }
+    }
 }
 
 impl Drop for CancellationWakeRegistration {
@@ -472,7 +515,10 @@ fn notify_if_observable(state: &CancellationState) {
 
         // Admission reserves the successor identity before publishing each registration.
         first = id + 1;
-        wake.wake();
+
+        if let Some(wake) = wake {
+            wake.wake();
+        }
     }
 }
 
@@ -482,6 +528,65 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::CancellationContext;
+
+    #[test]
+    fn reserved_notification_binds_after_cancellation_without_allocating() {
+        for requested_before_binding in [false, true] {
+            let context = CancellationContext::root().unwrap();
+            let count = Arc::new(AtomicUsize::new(0));
+            let observed = Arc::clone(&count);
+
+            let callback = Arc::new(move || {
+                observed.fetch_add(1, Ordering::SeqCst);
+            });
+
+            let mut registration = context.reserve_wake().unwrap();
+
+            crate::test_support::with_allocation_failure(|| {
+                if requested_before_binding {
+                    assert!(context.request());
+                    assert_eq!(count.load(Ordering::SeqCst), 0);
+                }
+
+                registration.bind(callback);
+
+                if !requested_before_binding {
+                    assert_eq!(count.load(Ordering::SeqCst), 0);
+                    assert!(context.request());
+                }
+
+                assert_eq!(count.load(Ordering::SeqCst), 1);
+                drop(registration);
+            });
+
+            assert!(context.state.wakes.lock().unwrap().registered.is_empty());
+        }
+    }
+
+    #[test]
+    fn reserved_notification_observes_shield_and_unbound_slots_do_not_stop_delivery() {
+        let context = CancellationContext::root().unwrap();
+        let count = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&count);
+
+        let callback = Arc::new(move || {
+            observed.fetch_add(1, Ordering::SeqCst);
+        });
+
+        let unbound = context.reserve_wake().unwrap();
+        let mut registration = context.reserve_wake().unwrap();
+        let shield = context.shield();
+        context.request();
+
+        crate::test_support::with_allocation_failure(|| {
+            registration.bind(callback);
+            assert_eq!(count.load(Ordering::SeqCst), 0);
+            drop(shield);
+            assert_eq!(count.load(Ordering::SeqCst), 1);
+            drop(unbound);
+            drop(registration);
+        });
+    }
 
     #[test]
     fn failed_root_and_child_admission_preserve_existing_contexts_and_allow_retry() {

@@ -123,6 +123,7 @@ impl NativeRuntime {
 // admits the scheduler registration, and publication requires both binding and a live context.
 struct NativeTaskReservation {
     task: UniqueArc<StartedTask>,
+    registration_storage: crate::scheduler::TaskRegistrationStorage,
     frame_storage: Box<std::mem::MaybeUninit<NativeFrame>>,
     completion: super::super::result_storage::NativeResultStorage,
 }
@@ -168,6 +169,17 @@ impl NativeTaskReservation {
         let event_wait = super::event_wait::EventWait::reserve()
             .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
 
+        let registration_storage = crate::scheduler::TaskRegistrationStorage::prepare(
+            control.descriptor().clone(),
+            control.cancellation_context(),
+        )
+        .map_err(|error| match error {
+            crate::SchedulerError::AdmissionAllocation(_) => {
+                NativeRuntimeStatus::ALLOCATION_FAILURE
+            }
+            _ => NativeRuntimeStatus::RUNTIME_FAILURE,
+        })?;
+
         #[cfg(test)]
         if crate::test_support::allocation_should_fail() {
             return Err(NativeRuntimeStatus::ALLOCATION_FAILURE);
@@ -189,6 +201,7 @@ impl NativeTaskReservation {
 
         Ok(Self {
             task,
+            registration_storage,
             frame_storage,
             completion,
         })
@@ -204,16 +217,26 @@ impl NativeTaskReservation {
         }
 
         let control = &self.task.task;
-        let descriptor = control.descriptor().clone();
         let state = ProtectedFrameStateId::new(0);
 
-        let registration = match runtime.scheduler.register_admitted_task(
+        let lane = self
+            .registration_storage
+            .lane(&runtime.scheduler, runtime.thread.runtime().id(), state)
+            .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)?;
+
+        if runtime.cleanup_workloads.get()
+            && !runtime.main_thread_lane
+            && matches!(lane.placement(), ExecutionLanePlacement::MainThread(_))
+        {
+            return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
+        }
+
+        let registration = match runtime.scheduler.register_prepared_task(
             control.id(),
-            descriptor,
             runtime.thread.runtime().id(),
             state,
-            control.cancellation_context(),
             self.task.admission,
+            &mut self.registration_storage,
         ) {
             Ok(registration) => registration,
             Err(crate::SchedulerError::AdmissionAllocation(_)) => {
@@ -222,15 +245,6 @@ impl NativeTaskReservation {
             Err(_) => return Err(NativeRuntimeStatus::RUNTIME_FAILURE),
         };
 
-        if runtime.cleanup_workloads.get()
-            && !runtime.main_thread_lane
-            && registration
-                .lane(state)
-                .is_ok_and(|lane| matches!(lane.placement(), ExecutionLanePlacement::MainThread(_)))
-        {
-            return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
-        }
-
         self.task.continuation.bind(registration.wake_handle());
         self.task.event_wait.bind(registration.wake_handle());
         self.task.registration = Some(registration);
@@ -238,6 +252,7 @@ impl NativeTaskReservation {
 
         Ok(())
     }
+
     fn install(mut self, abi: bray_runtime_abi::NativeProtectedFrame) -> Arc<StartedTask> {
         assert!(
             self.task.registration.is_some(),
@@ -312,7 +327,14 @@ mod tests {
             assert_eq!(reservation.task.task.id(), identity);
             assert_eq!(runtime.scheduler.task_count().unwrap(), 0);
 
-            reservation.bind(runtime, None).unwrap();
+            // Reuse admitted scheduler slots. Per-task lane and cancellation storage already
+            // belongs to the reservation, so binding itself needs no further allocation.
+            let mut warm =
+                NativeTaskReservation::prepare(&metadata, TaskAdmissionKind::Independent).unwrap();
+
+            warm.bind(runtime, None).unwrap();
+            drop(warm);
+            with_allocation_failure(|| reservation.bind(runtime, None)).unwrap();
             let state = ProtectedFrameStateId::new(0);
 
             assert_eq!(
