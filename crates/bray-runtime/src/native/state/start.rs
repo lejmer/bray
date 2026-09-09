@@ -77,15 +77,15 @@ impl NativeRuntime {
             return NativeRuntimeStatus::UNKNOWN_TASK;
         };
 
-        let reservation = match NativeTaskReservation::prepare(
-            self,
-            frame.frame().metadata(),
-            start.admission,
-            cleanup_parent,
-        ) {
-            Ok(reservation) => reservation,
-            Err(status) => return status,
-        };
+        let mut reservation =
+            match NativeTaskReservation::prepare(frame.frame().metadata(), start.admission) {
+                Ok(reservation) => reservation,
+                Err(status) => return status,
+            };
+
+        if let Err(status) = reservation.bind(self, cleanup_parent) {
+            return status;
+        }
 
         let mut tasks = self
             .tasks
@@ -100,7 +100,7 @@ impl NativeRuntime {
         // visible now, but no worker can enter the frame before its ownership is published.
         if reservation
             .task
-            .registration
+            .registration()
             .wake_handle()
             .wake(ProtectedFrameStateId::new(0))
             .is_err()
@@ -119,8 +119,8 @@ impl NativeRuntime {
     }
 }
 
-// A reservation owns the allocations needed to install one native frame on its admitted
-// runtime and origin. It contains no live frame context and never makes itself ready.
+// Frame storage is reserved before its execution runtime and origin are known. Binding still
+// admits the scheduler registration, and publication requires both binding and a live context.
 struct NativeTaskReservation {
     task: UniqueArc<StartedTask>,
     frame_storage: Box<std::mem::MaybeUninit<NativeFrame>>,
@@ -129,10 +129,8 @@ struct NativeTaskReservation {
 
 impl NativeTaskReservation {
     fn prepare(
-        runtime: &NativeRuntime,
         metadata: &bray_runtime_abi::NativeFrameMetadata,
         admission: crate::task::TaskAdmissionKind,
-        cleanup_parent: Option<Arc<super::super::frame::NativeTerminalState>>,
     ) -> Result<Self, NativeRuntimeStatus> {
         let descriptor = NativeFrame::checked_descriptor(metadata)?;
 
@@ -146,7 +144,7 @@ impl NativeTaskReservation {
         let cancellation =
             CancellationContext::root().map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
 
-        let control = match TaskControlBlock::prepare(cancellation, descriptor.clone()) {
+        let control = match TaskControlBlock::prepare(cancellation, descriptor) {
             Ok(admission) => admission,
             Err(crate::TaskStartError::AllocationFailed) => {
                 return Err(NativeRuntimeStatus::ALLOCATION_FAILURE);
@@ -170,6 +168,43 @@ impl NativeTaskReservation {
         let event_wait = super::event_wait::EventWait::reserve()
             .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
 
+        #[cfg(test)]
+        if crate::test_support::allocation_should_fail() {
+            return Err(NativeRuntimeStatus::ALLOCATION_FAILURE);
+        }
+
+        let task = UniqueArc::try_new(StartedTask {
+            admission,
+            task: control,
+            registration: None,
+            waits: Mutex::new(Vec::new()),
+            continuation,
+            event_wait,
+            awaited: Mutex::new(None),
+            observation_claimed: AtomicBool::new(false),
+            terminal,
+            cleanup_parent: None,
+        })
+        .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
+
+        Ok(Self {
+            task,
+            frame_storage,
+            completion,
+        })
+    }
+
+    fn bind(
+        &mut self,
+        runtime: &NativeRuntime,
+        cleanup_parent: Option<Arc<super::super::frame::NativeTerminalState>>,
+    ) -> Result<(), NativeRuntimeStatus> {
+        if self.task.registration.is_some() {
+            return Err(NativeRuntimeStatus::ALREADY_INITIALIZED);
+        }
+
+        let control = &self.task.task;
+        let descriptor = control.descriptor().clone();
         let state = ProtectedFrameStateId::new(0);
 
         let registration = match runtime.scheduler.register_admitted_task(
@@ -178,7 +213,7 @@ impl NativeTaskReservation {
             runtime.thread.runtime().id(),
             state,
             control.cancellation_context(),
-            admission,
+            self.task.admission,
         ) {
             Ok(registration) => registration,
             Err(crate::SchedulerError::AdmissionAllocation(_)) => {
@@ -196,36 +231,19 @@ impl NativeTaskReservation {
             return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
         }
 
-        continuation.bind(registration.wake_handle());
-        event_wait.bind(registration.wake_handle());
+        self.task.continuation.bind(registration.wake_handle());
+        self.task.event_wait.bind(registration.wake_handle());
+        self.task.registration = Some(registration);
+        self.task.cleanup_parent = cleanup_parent;
 
-        #[cfg(test)]
-        if crate::test_support::allocation_should_fail() {
-            return Err(NativeRuntimeStatus::ALLOCATION_FAILURE);
-        }
-
-        let task = UniqueArc::try_new(StartedTask {
-            admission,
-            task: control,
-            registration,
-            waits: Mutex::new(Vec::new()),
-            continuation,
-            event_wait,
-            awaited: Mutex::new(None),
-            observation_claimed: AtomicBool::new(false),
-            terminal,
-            cleanup_parent,
-        })
-        .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
-
-        Ok(Self {
-            task,
-            frame_storage,
-            completion,
-        })
+        Ok(())
     }
-
     fn install(mut self, abi: bray_runtime_abi::NativeProtectedFrame) -> Arc<StartedTask> {
+        assert!(
+            self.task.registration.is_some(),
+            "native frame storage must bind before installation"
+        );
+
         let frame = NativeFrame::new(
             abi,
             self.task.task.descriptor().clone(),
@@ -262,6 +280,66 @@ mod tests {
     static RELEASES: AtomicUsize = AtomicUsize::new(0);
 
     #[test]
+    fn unbound_storage_survives_runtime_shutdown_and_failed_binding_preserves_it() {
+        let metadata = NativeFrameMetadata::new([29; 32], 1, 8, 8, 0, 1, native_origin_frame_state);
+
+        assert_eq!(
+            initialize(NativeRuntimeConfiguration::new(1, 1)),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        let mut reservation =
+            NativeTaskReservation::prepare(&metadata, TaskAdmissionKind::Independent).unwrap();
+
+        let identity = reservation.task.task.id();
+        assert!(reservation.task.registration.is_none());
+        assert_eq!(shutdown(), NativeRuntimeStatus::SUCCESS);
+
+        assert_eq!(
+            initialize(NativeRuntimeConfiguration::new(1, 1)),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        with_runtime(|runtime| {
+            assert_eq!(runtime.scheduler.task_count().unwrap(), 0);
+
+            assert_eq!(
+                with_allocation_failure(|| reservation.bind(runtime, None)),
+                Err(NativeRuntimeStatus::ALLOCATION_FAILURE),
+            );
+
+            assert!(reservation.task.registration.is_none());
+            assert_eq!(reservation.task.task.id(), identity);
+            assert_eq!(runtime.scheduler.task_count().unwrap(), 0);
+
+            reservation.bind(runtime, None).unwrap();
+            let state = ProtectedFrameStateId::new(0);
+
+            assert_eq!(
+                reservation
+                    .task
+                    .registration()
+                    .lane(state)
+                    .unwrap()
+                    .placement(),
+                crate::ExecutionLanePlacement::OriginThread(runtime.thread.runtime().id()),
+            );
+
+            assert_eq!(
+                with_allocation_failure(|| reservation.bind(runtime, None)),
+                Err(NativeRuntimeStatus::ALREADY_INITIALIZED),
+            );
+
+            assert_eq!(runtime.scheduler.task_count().unwrap(), 1);
+            with_allocation_failure(|| drop(reservation));
+            assert_eq!(runtime.scheduler.task_count().unwrap(), 0);
+        })
+        .unwrap();
+
+        assert_eq!(shutdown(), NativeRuntimeStatus::SUCCESS);
+    }
+
+    #[test]
     fn metadata_admission_rolls_back_without_a_context_and_installation_needs_no_allocation() {
         let metadata = NativeFrameMetadata::new([19; 32], 1, 8, 8, 0, 1, native_origin_frame_state);
 
@@ -276,12 +354,12 @@ mod tests {
 
             let admitted = with_runtime(|runtime| {
                 let result = with_allocation_failure_after(allowed, || {
-                    NativeTaskReservation::prepare(
-                        runtime,
-                        &metadata,
-                        TaskAdmissionKind::Independent,
-                        None,
-                    )
+                    NativeTaskReservation::prepare(&metadata, TaskAdmissionKind::Independent)
+                        .and_then(|mut reservation| {
+                            reservation.bind(runtime, None)?;
+
+                            Ok(reservation)
+                        })
                 });
 
                 let reservation = match result {
@@ -301,7 +379,7 @@ mod tests {
 
                 assert_eq!(runtime.scheduler.task_count().unwrap(), 1);
                 let state = ProtectedFrameStateId::new(0);
-                let lane = reservation.task.registration.lane(state).unwrap();
+                let lane = reservation.task.registration().lane(state).unwrap();
                 assert!(runtime.scheduler.take_ready(lane).unwrap().is_none());
 
                 // Discarding unused capacity unregisters it without invoking frame code.
@@ -310,13 +388,11 @@ mod tests {
                 assert_eq!(RESUMES.load(Ordering::Relaxed), 0);
                 assert_eq!(RELEASES.load(Ordering::Relaxed), 0);
 
-                let reservation = NativeTaskReservation::prepare(
-                    runtime,
-                    &metadata,
-                    TaskAdmissionKind::Independent,
-                    None,
-                )
-                .unwrap();
+                let mut reservation =
+                    NativeTaskReservation::prepare(&metadata, TaskAdmissionKind::Independent)
+                        .unwrap();
+
+                reservation.bind(runtime, None).unwrap();
 
                 // The context and its callbacks first exist after all task machinery is reserved.
                 let abi = NativeProtectedFrame::new(
@@ -332,7 +408,7 @@ mod tests {
 
                 with_allocation_failure(|| {
                     let task = reservation.install(abi);
-                    let wake = task.registration.wake_handle();
+                    let wake = task.registration().wake_handle();
                     wake.wake(state).unwrap();
                     let ready = runtime.scheduler.take_ready(lane).unwrap().unwrap();
                     task.task.resume().unwrap();

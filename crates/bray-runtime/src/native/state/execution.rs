@@ -128,7 +128,7 @@ impl NativeRuntime {
         };
 
         let task = &started.task;
-        let wake = started.registration.wake_handle();
+        let wake = started.registration().wake_handle();
 
         if started.continuation.disarm().is_err() {
             return NativeRuntimeStatus::RUNTIME_FAILURE;
@@ -344,7 +344,7 @@ impl NativeRuntime {
         state: u32,
     ) -> NativeRuntimeStatus {
         self.with_started(handle, |task| {
-            task.registration
+            task.registration()
                 .wake_handle()
                 .wake(ProtectedFrameStateId::new(state))
                 .map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |_| {
@@ -601,7 +601,7 @@ impl NativeRuntime {
         state: u32,
     ) -> NativeExecutionLaneResult {
         self.with_started(handle, |task| {
-            task.registration
+            task.registration()
                 .lane(ProtectedFrameStateId::new(state))
                 .map(lane_result)
                 .unwrap_or_else(|_| {

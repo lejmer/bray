@@ -253,7 +253,7 @@ pub(in crate::native) enum TerminalOutcome {
 pub(in crate::native) struct StartedTask {
     pub(in crate::native) admission: crate::task::TaskAdmissionKind,
     pub(in crate::native) task: NativeTask,
-    pub(in crate::native) registration: TaskRegistration,
+    pub(super) registration: Option<TaskRegistration>,
     pub(in crate::native) waits: Mutex<Vec<JoinWaitRegistration>>,
     pub(super) continuation: super::continuation::ContinuationWait,
     pub(super) event_wait: super::event_wait::EventWait,
@@ -261,6 +261,14 @@ pub(in crate::native) struct StartedTask {
     pub(in crate::native) observation_claimed: AtomicBool,
     pub(in crate::native) terminal: triomphe::Arc<NativeTerminalState>,
     pub(in crate::native) cleanup_parent: Option<triomphe::Arc<NativeTerminalState>>,
+}
+
+impl StartedTask {
+    pub(super) fn registration(&self) -> &TaskRegistration {
+        self.registration.as_ref().unwrap_or_else(|| {
+            unreachable!("an executable native task must have a scheduler registration")
+        })
+    }
 }
 
 pub(in crate::native) fn initialize(

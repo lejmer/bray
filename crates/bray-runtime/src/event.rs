@@ -6,6 +6,3 @@ pub use contract::{RuntimeEventError, RuntimeEventGeneration, RuntimeEventWake};
 pub use core::RuntimeEvent;
 pub use wait::RuntimeEventRegistration;
 pub(crate) use wait::{EventNotification, ReservedEventWait};
-
-#[cfg(test)]
-mod tests;

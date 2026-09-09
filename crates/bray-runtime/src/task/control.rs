@@ -126,7 +126,7 @@ impl<T, F: ?Sized + ProtectedFrame<Output = T>> TaskControlBlock<T, F> {
 
         Ok(Self {
             id: next_task_id()?,
-            start_site: current_task_start_site(),
+            start_site: None,
             descriptor,
             data: Mutex::new(TaskData {
                 frame: None,
@@ -136,12 +136,15 @@ impl<T, F: ?Sized + ProtectedFrame<Output = T>> TaskControlBlock<T, F> {
             }),
             join_waiters,
             cancellation,
-            output: current_task_output(),
+            output: TaskOutput::default(),
             resuming: AtomicBool::new(false),
         })
     }
 
     pub(crate) fn install_frame(&mut self, frame: Pin<Box<F>>) {
+        self.start_site = current_task_start_site();
+        self.output = current_task_output();
+
         self.data
             .get_mut()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -716,10 +719,18 @@ mod tests {
             registration.wake_handle(),
         );
 
-        let child = with_task_execution_context(context, || {
-            TaskControlBlock::start(TestFrame::retaining_state(2))
-        })
-        .unwrap_or_else(|error| panic!("child task must start: {error:?}"));
+        let child_frame = TestFrame::retaining_state(2);
+
+        let mut child = TaskControlBlock::<i32>::prepare(
+            crate::CancellationContext::root().unwrap(),
+            child_frame.descriptor().clone(),
+        )
+        .unwrap();
+
+        assert!(child.snapshot().unwrap().start_site().is_none());
+
+        // Storage reservation does not choose the parent or output context of later execution.
+        with_task_execution_context(context, || child.install_frame(Box::pin(child_frame)));
 
         child
             .resume()
