@@ -77,6 +77,7 @@ pub fn specialize_lifecycle_execution<C: SyntheticLoweringContext + ?Sized>(
                 block_id,
                 *operation_id,
                 role,
+                *ty,
                 place.clone(),
                 operation.source().clone(),
             ));
@@ -97,7 +98,7 @@ pub fn specialize_lifecycle_execution<C: SyntheticLoweringContext + ?Sized>(
 
     let entry = unit.entry();
     let mut builder = MirUnitBuilder::from_unit(unit);
-    let source = &actions[0].4;
+    let source = &actions[0].5;
 
     let descriptor = builder
         .take_frame_descriptor()
@@ -115,19 +116,29 @@ pub fn specialize_lifecycle_execution<C: SyntheticLoweringContext + ?Sized>(
     // Existing resumptions keep their IDs. New states inherit the checked frame execution context.
     let mut states = descriptor.states().to_vec();
 
-    for (block, operation, role, place, source) in actions {
-        let state = u32::try_from(states.len())
-            .map(MirFrameStateId::new)
-            .map_err(|_| failure(&source, MirUnitBuildError::IdentityCapacityExceeded))?;
+    let first_new_state = u32::try_from(states.len())
+        .map_err(|_| failure(source, MirUnitBuildError::IdentityCapacityExceeded))?;
 
-        let resume = expand_action(
+    let lowerer = crate::synthetic::SyntheticLowerer { context };
+
+    for (block, operation, role, concrete, place, source) in actions {
+        let next = lowerer.next_lifecycle_state(&builder, &source)?;
+        let state = MirFrameStateId::new(next.raw().max(first_new_state));
+
+        expand_action(
             context,
             &mut builder,
             (block, operation),
             &source,
-            (role, place),
+            (role, concrete, place),
             state,
         )?;
+    }
+
+    for (state, resume) in builder.suspension_states() {
+        if state.raw() < first_new_state {
+            continue;
+        }
 
         states.push(
             MirFrameState::new(
@@ -139,6 +150,8 @@ pub fn specialize_lifecycle_execution<C: SyntheticLoweringContext + ?Sized>(
             .with_affinity(initial.affinity()),
         );
     }
+
+    states.sort_unstable_by_key(MirFrameState::state);
 
     let mut updated = MirFrameDescriptor::try_new(
         descriptor.frame(),
@@ -167,12 +180,12 @@ fn expand_action<C: SyntheticLoweringContext + ?Sized>(
     builder: &mut MirUnitBuilder,
     location: (MirBlockId, MirOperationId),
     source: &MirSourceAnchor,
-    action: (MirGeneratedLifecycleRole, MirPlace),
+    action: (MirGeneratedLifecycleRole, TypeId, MirPlace),
     state: MirFrameStateId,
 ) -> Result<MirBlockId, C::Error> {
     let (block, operation) = location;
 
-    let (role, place) = action;
+    let (role, concrete, place) = action;
 
     let terminator = builder
         .take_terminator(block)
@@ -186,6 +199,29 @@ fn expand_action<C: SyntheticLoweringContext + ?Sized>(
     else {
         return Err(failure(source, MirUnitBuildError::InvalidCallPanicCheck(block)).into());
     };
+
+    let completion = context
+        .compiler_known_symbols()
+        .unary_representation_argument(
+            context.semantic_values(),
+            RepresentationRole::Future,
+            concrete,
+        )
+        .map_err(SyntheticLoweringError::SemanticValue)?;
+
+    if let (Some(entry), Some(completion)) =
+        (crate::cleanup_await::future_cleanup_entry(role), completion)
+    {
+        return super::future::expand_future_cleanup(
+            context,
+            builder,
+            location,
+            source,
+            (entry, place, completion),
+            state,
+            (completed, *panicked, cancelled),
+        );
+    }
 
     let ty = place.ty();
 
@@ -365,7 +401,10 @@ fn unary_type<C: SyntheticLoweringContext + ?Sized>(
         })
 }
 
-fn failure(source: &MirSourceAnchor, cause: MirUnitBuildError) -> SyntheticLoweringError {
+pub(super) fn failure(
+    source: &MirSourceAnchor,
+    cause: MirUnitBuildError,
+) -> SyntheticLoweringError {
     // Transformation failures retain provenance from source and imported executable templates.
     SyntheticLoweringError::SpecializedMir {
         source: source.clone(),

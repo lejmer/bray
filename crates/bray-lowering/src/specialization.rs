@@ -1,5 +1,6 @@
 mod destruction;
 mod destructor;
+mod future;
 mod lifecycle;
 
 pub use destruction::specialize_destruction_body;

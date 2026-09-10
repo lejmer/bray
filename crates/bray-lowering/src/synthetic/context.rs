@@ -85,7 +85,7 @@ pub(crate) struct SyntheticLowerer<'context, C: SyntheticLoweringContext + ?Size
 }
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
-    pub(super) fn run_result(
+    pub(crate) fn run_result(
         &self,
         completion: TypeId,
     ) -> Result<(TypeId, bray_ir::MirRunResultVariants), C::Error> {

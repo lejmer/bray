@@ -110,6 +110,19 @@ pub(crate) fn await_cleanup(
 
     let resume = suspend_cleanup(builder, block, source, state, kind, payload)?;
 
+    let place = resolve_cleanup_result(builder, resume, source, resolution, result)?;
+
+    Ok((resume, place))
+}
+
+/// Moves a resumed cleanup result into storage retained across any nested payload cleanup.
+pub(crate) fn resolve_cleanup_result(
+    builder: &mut MirUnitBuilder,
+    resume: MirBlockId,
+    source: &MirSourceAnchor,
+    resolution: MirAsyncOperation,
+    result: TypeId,
+) -> Result<MirPlace, MirUnitBuildError> {
     let value = builder.push_operation(
         resume,
         source.clone(),
@@ -135,7 +148,7 @@ pub(crate) fn await_cleanup(
         None,
     )?;
 
-    Ok((resume, place))
+    Ok(place)
 }
 
 /// Suspends a shielded cleanup continuation while preserving its owner's values in place.

@@ -293,7 +293,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         Ok((resume, place, variants))
     }
 
-    pub(super) fn next_lifecycle_state(
+    pub(crate) fn next_lifecycle_state(
         &self,
         builder: &MirUnitBuilder,
         source: &MirSourceAnchor,

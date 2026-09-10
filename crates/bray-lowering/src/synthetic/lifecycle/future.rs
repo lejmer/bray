@@ -134,6 +134,27 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             completion,
         )?;
 
+        self.resolve_future_completion(
+            builder,
+            block,
+            source,
+            result,
+            (variants, completion),
+            outcome,
+        )
+    }
+
+    pub(crate) fn resolve_future_completion(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        result: MirPlace,
+        contract: (bray_ir::MirRunResultVariants, bray_symbols::TypeId),
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
+    ) -> Result<MirBlockId, C::Error> {
+        let (variants, completion) = contract;
+
         let (completed, finished, payload) = outcome
             .resolve_inactive_completion(builder, block, source, result, (variants, completion))
             .map_err(|cause| self.mir_error(source, cause))?;

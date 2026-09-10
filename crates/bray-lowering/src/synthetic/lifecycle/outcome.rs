@@ -9,7 +9,7 @@ use super::super::{SyntheticLowerer, SyntheticLoweringContext};
 use crate::cleanup_outcome::CleanupOutcome;
 
 impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
-    pub(in crate::synthetic) fn cleanup_outcome(
+    pub(crate) fn cleanup_outcome(
         &self,
         builder: &mut MirUnitBuilder,
         block: MirBlockId,

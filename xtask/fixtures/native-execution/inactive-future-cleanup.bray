@@ -132,6 +132,25 @@ async func discard_bundle(pos trace: &std.atomic.Atomic<usize>)
     };
 }
 
+async func dispose<T>(pos value: T) {}
+
+async func discard_generic(pos trace: &std.atomic.Atomic<usize>)
+{
+    let remaining = RemainingCapture
+    {
+        trace = trace,
+    };
+
+    await dispose<Future<unit>>(
+        inactive_failure(
+            FailingCapture
+            {
+                trace = trace,
+            }
+        )
+    );
+}
+
 async func main() -> i32
 {
     let mut counter = Counter
@@ -171,6 +190,19 @@ async func main() -> i32
     if trace.load(order = std.atomic.LoadOrder.Acquire) != 123
     {
         return 5;
+    }
+
+    let generic_trace = std.atomic.Atomic<usize>(0);
+    let generic_result = catch await discard_generic(&generic_trace);
+
+    if !(generic_result matches Error(_))
+    {
+        return 6;
+    }
+
+    if generic_trace.load(order = std.atomic.LoadOrder.Acquire) != 123
+    {
+        return 7;
     }
 
     return 0;
