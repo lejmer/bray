@@ -116,13 +116,8 @@ impl<T, F: ?Sized + ProtectedFrame<Output = T>> TaskControlBlock<T, F> {
         cancellation: CancellationContext,
         descriptor: ProtectedFrameDescriptor,
     ) -> Result<Self, TaskStartError> {
-        #[cfg(test)]
-        if crate::test_support::allocation_should_fail() {
-            return Err(TaskStartError::AllocationFailed);
-        }
-
-        let join_waiters =
-            TaskArc::try_new(JoinWaitState::new()).map_err(|_| TaskStartError::AllocationFailed)?;
+        let join_waiters = crate::allocation::allocate_shared(JoinWaitState::new())
+            .map_err(|_| TaskStartError::AllocationFailed)?;
 
         Ok(Self {
             id: next_task_id()?,

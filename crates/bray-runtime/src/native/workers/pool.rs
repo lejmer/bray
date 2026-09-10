@@ -52,7 +52,8 @@ impl WorkerRegistry {
 
         controls.push(Arc::clone(control));
 
-        triomphe::Arc::try_new(controls).map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)
+        crate::allocation::allocate_shared(controls)
+            .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)
     }
 }
 

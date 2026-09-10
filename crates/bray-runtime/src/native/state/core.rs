@@ -105,6 +105,50 @@ mod tests {
     }
 
     #[test]
+    fn retained_runtime_admission_failure_preserves_owner_count_and_release_is_once() {
+        use bray_runtime_abi::{NativeRuntimeConfiguration, NativeRuntimeStatus};
+        use std::sync::atomic::Ordering;
+        assert!(super::initialize(NativeRuntimeConfiguration::new(4, 1)).is_success());
+
+        let core =
+            super::NATIVE_RUNTIME.with(|runtime| runtime.borrow().as_ref().unwrap().core.clone());
+
+        let owners = core.owners.load(Ordering::Acquire);
+        let failed = crate::test_support::with_allocation_failure(super::retain_runtime);
+
+        if let Ok(retained) = &failed {
+            retained.release();
+        }
+
+        assert!(matches!(
+            failed,
+            Err(NativeRuntimeStatus::ALLOCATION_FAILURE)
+        ));
+
+        assert_eq!(core.owners.load(Ordering::Acquire), owners);
+        let retained = super::retain_runtime().unwrap();
+        let duplicate = retained.clone();
+        assert_eq!(core.owners.load(Ordering::Acquire), owners + 1);
+
+        crate::test_support::with_allocation_failure(|| {
+            retained.release();
+            duplicate.release();
+        });
+
+        assert_eq!(core.owners.load(Ordering::Acquire), owners);
+        assert!(super::shutdown().is_success());
+        assert_eq!(core.owners.load(Ordering::Acquire), 0);
+
+        assert!(matches!(
+            crate::test_support::with_allocation_failure(super::retain_runtime),
+            Err(NativeRuntimeStatus::ALLOCATION_FAILURE)
+        ));
+
+        assert!(super::NATIVE_RUNTIME.with(|runtime| runtime.borrow().is_none()));
+        assert!(bray_platform::current_runtime_thread().is_none());
+    }
+
+    #[test]
     fn callback_isolation_allows_nested_runtime_creation() {
         let isolation = super::test_runtime_isolation();
 
@@ -128,7 +172,7 @@ mod tests {
 pub(crate) struct RetainedRuntime {
     pub(in crate::native) core: Arc<NativeRuntimeCore>,
     pub(in crate::native) main_thread: Option<RuntimeThreadId>,
-    pub(in crate::native) released: Arc<AtomicBool>,
+    pub(in crate::native) released: triomphe::Arc<AtomicBool>,
 }
 
 impl Deref for NativeRuntime {
@@ -399,6 +443,9 @@ pub(in crate::native) fn shutdown() -> NativeRuntimeStatus {
 }
 
 pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
+    let released = crate::allocation::allocate_shared(AtomicBool::new(false))
+        .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
+
     if let Some(runtime) = NATIVE_RUNTIME.with(|runtime| runtime.borrow().clone()) {
         if !runtime.core.retain_owner() {
             return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
@@ -409,7 +456,7 @@ pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
             main_thread: runtime
                 .main_thread_lane
                 .then(|| runtime.thread.runtime().id()),
-            released: Arc::new(AtomicBool::new(false)),
+            released,
         });
     }
 
@@ -439,7 +486,7 @@ pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
     let retained = RetainedRuntime {
         core: Arc::clone(&runtime.core),
         main_thread: None,
-        released: Arc::new(AtomicBool::new(false)),
+        released,
     };
 
     drop(runtime);

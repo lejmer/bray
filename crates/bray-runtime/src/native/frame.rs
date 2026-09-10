@@ -133,12 +133,8 @@ impl NativeFrame {
 
 impl NativeTerminalState {
     pub(super) fn reserve() -> Result<Arc<Self>, NativeRuntimeStatus> {
-        #[cfg(test)]
-        if crate::test_support::allocation_should_fail() {
-            return Err(NativeRuntimeStatus::ALLOCATION_FAILURE);
-        }
-
-        Arc::try_new(Self::new()).map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)
+        crate::allocation::allocate_shared(Self::new())
+            .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)
     }
 
     pub(super) const fn new() -> Self {

@@ -1,6 +1,16 @@
 use std::collections::{HashMap, TryReserveError};
 use std::hash::Hash;
 
+/// Allocates shared state before publishing the obligation that owns it.
+pub(crate) fn allocate_shared<T>(value: T) -> Result<triomphe::Arc<T>, triomphe::AllocError> {
+    #[cfg(test)]
+    if crate::test_support::allocation_should_fail() {
+        return Err(triomphe::AllocError);
+    }
+
+    triomphe::Arc::try_new(value)
+}
+
 /// Secures sequential entries before publishing the obligations that need them.
 pub(crate) fn reserve_vec_entries<T>(
     entries: &mut Vec<T>,

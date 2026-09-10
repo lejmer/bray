@@ -42,12 +42,7 @@ pub(super) struct PendingEventWait {
 
 impl ReservedEventWait {
     pub(crate) fn reserve() -> Result<Self, RuntimeEventError> {
-        #[cfg(test)]
-        if crate::test_support::allocation_should_fail() {
-            return Err(RuntimeEventError::AllocationFailed);
-        }
-
-        let node = triomphe::Arc::try_new(EventWaitNode {
+        let node = crate::allocation::allocate_shared(EventWaitNode {
             registered: AtomicBool::new(false),
             pending: Mutex::new(None),
         })

@@ -1008,18 +1008,22 @@ mod tests {
             NativeProductHostStatus::SUCCESS
         );
 
-        let failed = crate::test_support::with_allocation_failure(|| {
-            control(candidate, NativeProductHostOperation::FORM)
-        });
+        // Entry storage, dependency scratch, final metadata and the retained-runtime token.
+        for successful in 0..4 {
+            let failed = crate::test_support::with_allocation_failure_after(successful, || {
+                control(candidate, NativeProductHostOperation::FORM)
+            });
 
-        assert_eq!(failed.status(), NativeProductHostStatus::ALLOCATION_FAILURE);
+            assert_eq!(failed.status(), NativeProductHostStatus::ALLOCATION_FAILURE);
+            assert_eq!(failed.state(), NativeProductHostState::UNFORMED);
 
-        assert!(
-            !super::product_hosts()
-                .lock()
-                .unwrap()
-                .contains_key(&super::product_key(candidate))
-        );
+            assert!(
+                !super::product_hosts()
+                    .lock()
+                    .unwrap()
+                    .contains_key(&super::product_key(candidate))
+            );
+        }
 
         assert_eq!(
             control(existing, NativeProductHostOperation::OBSERVE).state(),

@@ -321,14 +321,7 @@ impl CancellationContext {
 fn reserve_state(
     state: CancellationState,
 ) -> Result<StateArc<CancellationState>, CancellationAdmissionError> {
-    #[cfg(test)]
-    if crate::test_support::allocation_should_fail() {
-        return Err(CancellationAdmissionError::StateAllocation(
-            triomphe::AllocError,
-        ));
-    }
-
-    StateArc::try_new(state).map_err(CancellationAdmissionError::StateAllocation)
+    crate::allocation::allocate_shared(state).map_err(CancellationAdmissionError::StateAllocation)
 }
 
 /// Scoped suppression of cancellation observation during cleanup.

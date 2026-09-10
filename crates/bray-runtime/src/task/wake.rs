@@ -46,12 +46,7 @@ pub(crate) struct TaskWaitWake<S> {
 
 impl<S: Copy + Eq> TaskWaitWake<S> {
     pub(crate) fn reserve() -> Result<triomphe::Arc<Self>, TaskStartError> {
-        #[cfg(test)]
-        if crate::test_support::allocation_should_fail() {
-            return Err(TaskStartError::AllocationFailed);
-        }
-
-        triomphe::Arc::try_new(Self {
+        crate::allocation::allocate_shared(Self {
             wake: OnceLock::new(),
             target: Mutex::new(None),
         })
