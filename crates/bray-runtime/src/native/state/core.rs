@@ -25,6 +25,9 @@ thread_local! {
         const { Cell::new(None) };
 }
 
+// Cleanup borrows a stack-owned context for exactly the callback's dynamic scope.
+scoped_tls::scoped_thread_local!(pub(super) static CLEANUP_RUNTIME: NativeRuntime);
+
 type NativeTask = TaskControlBlock<usize>;
 
 pub(in crate::native) struct NativeRuntime {
@@ -60,9 +63,7 @@ impl Drop for TestRuntimeIsolation {
 
 #[cfg(test)]
 pub(in crate::native) fn test_runtime_isolation() -> Option<TestRuntimeIsolation> {
-    if HOLDS_TEST_RUNTIME_ISOLATION.get()
-        || NATIVE_RUNTIME.with(|runtime| runtime.borrow().is_some())
-    {
+    if HOLDS_TEST_RUNTIME_ISOLATION.get() || with_runtime(|_| ()).is_ok() {
         None
     } else {
         let guard = NATIVE_RUNTIME_TEST_ISOLATION
@@ -105,6 +106,51 @@ mod tests {
     }
 
     #[test]
+    fn cleanup_binding_keeps_the_physical_worker_identity_for_retirement() {
+        assert!(
+            super::initialize(bray_runtime_abi::NativeRuntimeConfiguration::new(4, 1)).is_success()
+        );
+
+        let retained = super::retain_runtime().unwrap();
+        assert!(super::shutdown().is_success());
+
+        assert!(
+            super::initialize(bray_runtime_abi::NativeRuntimeConfiguration::new(4, 1)).is_success()
+        );
+
+        let control = triomphe::Arc::new(crate::native::workers::WorkerControl::default());
+
+        let core = super::NATIVE_RUNTIME.with(|active| {
+            let mut active = active.borrow_mut();
+            let runtime = triomphe::Arc::get_mut(active.as_mut().unwrap()).unwrap();
+            runtime.worker = Some(control.clone());
+
+            runtime.core.clone()
+        });
+
+        super::super::binding::with_cleanup_runtime(Some(&retained), || {
+            assert!(!retained.owns_current_worker());
+
+            assert!(triomphe::Arc::ptr_eq(
+                &core.current_worker().unwrap(),
+                &control
+            ));
+
+            assert!(retained.core.current_worker().is_none());
+        })
+        .unwrap();
+
+        super::NATIVE_RUNTIME.with(|active| {
+            triomphe::Arc::get_mut(active.borrow_mut().as_mut().unwrap())
+                .unwrap()
+                .worker = None;
+        });
+
+        retained.release();
+        assert!(super::shutdown().is_success());
+    }
+
+    #[test]
     fn worker_context_admission_failure_preserves_the_active_runtime() {
         assert!(
             super::initialize(bray_runtime_abi::NativeRuntimeConfiguration::new(4, 1)).is_success()
@@ -127,7 +173,10 @@ mod tests {
             )
         });
 
-        assert_eq!(control.wait_started(), bray_runtime_abi::NativeRuntimeStatus::ALLOCATION_FAILURE);
+        assert_eq!(
+            control.wait_started(),
+            bray_runtime_abi::NativeRuntimeStatus::ALLOCATION_FAILURE
+        );
 
         assert!(super::NATIVE_RUNTIME.with(|runtime| {
             runtime
@@ -249,18 +298,23 @@ impl NativeRuntimeCore {
             .is_ok()
     }
 
+    fn current_worker(&self) -> Option<triomphe::Arc<super::super::workers::WorkerControl>> {
+        // Cleanup can temporarily select another runtime while this physical worker stays owned.
+        NATIVE_RUNTIME.with(|active| {
+            active
+                .borrow()
+                .as_ref()
+                .filter(|runtime| std::ptr::eq(Arc::as_ptr(&runtime.core), self))
+                .and_then(|runtime| runtime.worker.clone())
+        })
+    }
+
     fn release_owner(&self) {
         if self.owners.fetch_sub(1, Ordering::AcqRel) != 1 {
             return;
         }
 
-        let current = NATIVE_RUNTIME.with(|runtime| {
-            runtime
-                .borrow()
-                .as_ref()
-                .filter(|runtime| std::ptr::eq(Arc::as_ptr(&runtime.core), self))
-                .and_then(|runtime| runtime.worker.clone())
-        });
+        let current = self.current_worker();
 
         self.workers.stop(&self.scheduler, current.as_ref());
         self.clear_tasks();
@@ -271,38 +325,26 @@ impl NativeRuntimeCore {
 
 impl RetainedRuntime {
     pub(crate) fn owns_current_worker(&self) -> bool {
-        NATIVE_RUNTIME.with(|runtime| {
-            runtime.borrow().as_ref().is_some_and(|runtime| {
-                runtime.worker.is_some() && Arc::ptr_eq(&runtime.core, &self.core)
-            })
-        })
+        with_runtime(|runtime| runtime.worker.is_some() && Arc::ptr_eq(&runtime.core, &self.core))
+            .unwrap_or(false)
     }
 
     pub(crate) fn admit_product_worker_cleanup(
         &self,
         product: usize,
     ) -> Result<(), NativeRuntimeStatus> {
-        NATIVE_RUNTIME.with(|runtime| {
-            let runtime = runtime.borrow();
-
-            let worker = runtime
-                .as_ref()
-                .filter(|runtime| Arc::ptr_eq(&runtime.core, &self.core))
-                .and_then(|runtime| runtime.worker.as_ref())
+        with_runtime(|runtime| {
+            let worker = Arc::ptr_eq(&runtime.core, &self.core)
+                .then_some(runtime.worker.as_ref())
+                .flatten()
                 .ok_or(NativeRuntimeStatus::NOT_INITIALIZED)?;
 
             worker.admit(product)
-        })
+        })?
     }
 
     pub(crate) fn detach_product_workers(&self, product: usize) {
-        let current = NATIVE_RUNTIME.with(|runtime| {
-            runtime
-                .borrow()
-                .as_ref()
-                .filter(|runtime| Arc::ptr_eq(&runtime.core, &self.core))
-                .and_then(|runtime| runtime.worker.clone())
-        });
+        let current = self.core.current_worker();
 
         self.core
             .workers
@@ -405,11 +447,11 @@ fn initialize_with_capabilities(
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     };
 
-    NATIVE_RUNTIME.with(|runtime| {
-        if runtime.borrow().is_some() {
-            return NativeRuntimeStatus::ALREADY_INITIALIZED;
-        }
+    if with_runtime(|_| ()).is_ok() {
+        return NativeRuntimeStatus::ALREADY_INITIALIZED;
+    }
 
+    NATIVE_RUNTIME.with(|runtime| {
         #[cfg(test)]
         let test_isolation = test_runtime_isolation();
 
@@ -470,6 +512,10 @@ fn initialize_with_capabilities(
 pub(in crate::native) fn with_runtime<T>(
     callback: impl FnOnce(&NativeRuntime) -> T,
 ) -> Result<T, NativeRuntimeStatus> {
+    if CLEANUP_RUNTIME.is_set() {
+        return Ok(CLEANUP_RUNTIME.with(callback));
+    }
+
     let runtime = NATIVE_RUNTIME.with(|runtime| runtime.borrow().clone());
     let runtime = runtime.ok_or(NativeRuntimeStatus::NOT_INITIALIZED)?;
 
@@ -477,6 +523,11 @@ pub(in crate::native) fn with_runtime<T>(
 }
 
 pub(in crate::native) fn shutdown() -> NativeRuntimeStatus {
+    // A temporary cleanup binding borrows its runtime owner and cannot shut it down.
+    if CLEANUP_RUNTIME.is_set() {
+        return NativeRuntimeStatus::INVALID_ARGUMENT;
+    }
+
     let runtime = NATIVE_RUNTIME.take();
 
     let Some(runtime) = runtime else {
@@ -492,16 +543,21 @@ pub(crate) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
     let released = crate::allocation::allocate_shared(AtomicBool::new(false))
         .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
 
-    if let Some(runtime) = NATIVE_RUNTIME.with(|runtime| runtime.borrow().clone()) {
-        if !runtime.core.retain_owner() {
+    if let Ok((core, main_thread)) = with_runtime(|runtime| {
+        (
+            Arc::clone(&runtime.core),
+            runtime
+                .main_thread_lane
+                .then(|| runtime.thread.runtime().id()),
+        )
+    }) {
+        if !core.retain_owner() {
             return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
         }
 
         return Ok(RetainedRuntime {
-            core: Arc::clone(&runtime.core),
-            main_thread: runtime
-                .main_thread_lane
-                .then(|| runtime.thread.runtime().id()),
+            core,
+            main_thread,
             released,
         });
     }

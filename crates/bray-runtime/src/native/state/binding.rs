@@ -1,7 +1,6 @@
 use std::cell::Cell;
 use std::io::Write;
 use std::sync::Arc;
-use triomphe::Arc as RuntimeArc;
 
 use bray_platform::{RuntimeThreadId, RuntimeThreadScope};
 use bray_runtime_abi::{
@@ -15,7 +14,8 @@ use crate::{
 
 use super::super::frame::NativeTerminalState;
 use super::core::{
-    CURRENT_NATIVE_TASK, NATIVE_RUNTIME, NativeRuntime, RetainedRuntime, retain_runtime,
+    CLEANUP_RUNTIME, CURRENT_NATIVE_TASK, NativeRuntime, RetainedRuntime, retain_runtime,
+    with_runtime,
 };
 
 pub(crate) fn thread_attachment_status(error: bray_platform::PlatformError) -> NativeRuntimeStatus {
@@ -77,19 +77,15 @@ fn with_retained_runtime<T>(
     retained: &RetainedRuntime,
     callback: impl FnOnce() -> T,
 ) -> Result<T, NativeRuntimeStatus> {
-    let current = NATIVE_RUNTIME.with(|runtime| runtime.borrow().clone());
-
-    if let Some(runtime) = current.as_ref()
-        && Arc::ptr_eq(&runtime.core, &retained.core)
-    {
-        return Ok(runtime.with_cleanup_driving(callback));
+    if with_runtime(|runtime| Arc::ptr_eq(&runtime.core, &retained.core)).unwrap_or(false) {
+        return with_runtime(|runtime| runtime.with_cleanup_driving(callback));
     }
 
     let thread = RuntimeThreadScope::enter_or_reuse().map_err(thread_attachment_status)?;
 
     let main_thread_lane = retained.main_thread == Some(thread.runtime().id());
 
-    let runtime = crate::allocation::allocate_shared(NativeRuntime {
+    let runtime = NativeRuntime {
         thread,
         main_thread_lane,
         cleanup_workloads: Cell::new(true),
@@ -97,13 +93,9 @@ fn with_retained_runtime<T>(
         core: Arc::clone(&retained.core),
         #[cfg(test)]
         _test_isolation: None,
-    })
-    .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
+    };
 
-    let previous = NATIVE_RUNTIME.with(|active| active.replace(Some(RuntimeArc::clone(&runtime))));
-    let _binding = RuntimeBindingScope { previous };
-
-    Ok(callback())
+    Ok(CLEANUP_RUNTIME.set(&runtime, callback))
 }
 
 pub(in crate::native) struct CleanupWorkloadScope<'a> {
@@ -117,23 +109,11 @@ impl Drop for CleanupWorkloadScope<'_> {
     }
 }
 
-struct RuntimeBindingScope {
-    previous: Option<RuntimeArc<NativeRuntime>>,
-}
-
 struct OwnedRuntimeScope<'a>(&'a RetainedRuntime);
 
 impl Drop for OwnedRuntimeScope<'_> {
     fn drop(&mut self) {
         self.0.release();
-    }
-}
-
-impl Drop for RuntimeBindingScope {
-    fn drop(&mut self) {
-        NATIVE_RUNTIME.with(|runtime| {
-            runtime.replace(self.previous.take());
-        });
     }
 }
 
@@ -229,8 +209,13 @@ pub(in crate::native) fn runtime_failure(status: NativeRuntimeStatus) -> NativeR
 
 #[cfg(test)]
 mod tests {
+    use super::with_cleanup_runtime;
     use super::{current_native_task, with_native_task, write_cleanup_incident_report};
+    use crate::native::state::{initialize, retain_runtime, shutdown, with_runtime};
+    use crate::test_support::with_allocation_failure;
     use crate::{CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink};
+    use bray_runtime_abi::{NativeRuntimeConfiguration, NativeRuntimeStatus};
+    use std::sync::Arc;
 
     #[test]
     fn cleanup_lane_search_preserves_placement_and_workload_priority() {
@@ -395,5 +380,94 @@ mod tests {
             String::from_utf8(output).unwrap(),
             "cleanup_incident ordinal=0 producer=synchronous_root\n"
         );
+    }
+
+    #[test]
+    fn borrowed_cleanup_binding_preserves_runtime_owners_and_rejects_root_shutdown() {
+        assert!(initialize(NativeRuntimeConfiguration::new(4, 1)).is_success());
+        let retained = retain_runtime().unwrap();
+        assert!(shutdown().is_success());
+        assert!(initialize(NativeRuntimeConfiguration::new(4, 1)).is_success());
+        let previous = retain_runtime().unwrap();
+
+        let owners = retained
+            .core
+            .owners
+            .load(std::sync::atomic::Ordering::Acquire);
+
+        with_cleanup_runtime(Some(&retained), || {
+            assert_eq!(
+                initialize(NativeRuntimeConfiguration::new(4, 1)),
+                NativeRuntimeStatus::ALREADY_INITIALIZED
+            );
+
+            assert_eq!(shutdown(), NativeRuntimeStatus::INVALID_ARGUMENT);
+            let selected = retain_runtime().unwrap();
+            assert!(Arc::ptr_eq(&selected.core, &retained.core));
+            selected.release();
+
+            assert_eq!(
+                retained
+                    .core
+                    .owners
+                    .load(std::sync::atomic::Ordering::Acquire),
+                owners
+            );
+
+            with_cleanup_runtime(Some(&previous), || {
+                with_runtime(|runtime| assert!(Arc::ptr_eq(&runtime.core, &previous.core)))
+                    .unwrap();
+            })
+            .unwrap();
+
+            with_runtime(|runtime| assert!(Arc::ptr_eq(&runtime.core, &retained.core))).unwrap();
+        })
+        .unwrap();
+
+        with_runtime(|runtime| assert!(Arc::ptr_eq(&runtime.core, &previous.core))).unwrap();
+        previous.release();
+        retained.release();
+        assert!(shutdown().is_success());
+    }
+
+    #[test]
+    fn retained_binding_on_an_attached_thread_needs_no_allocation_and_restores_after_unwind() {
+        assert!(initialize(NativeRuntimeConfiguration::new(4, 1)).is_success());
+        let retained = retain_runtime().unwrap();
+        assert!(shutdown().is_success());
+        assert!(initialize(NativeRuntimeConfiguration::new(4, 1)).is_success());
+        let previous = with_runtime(|runtime| Arc::clone(&runtime.core)).unwrap();
+        let thread = bray_platform::current_runtime_thread().unwrap().id();
+
+        let result = with_allocation_failure(|| {
+            with_cleanup_runtime(Some(&retained), || {
+                with_runtime(|runtime| {
+                    assert!(Arc::ptr_eq(&runtime.core, &retained.core));
+                    assert_eq!(runtime.thread.runtime().id(), thread);
+                    assert!(runtime.cleanup_workloads.get());
+                })
+                .unwrap();
+
+                with_cleanup_runtime(Some(&retained), || 42).unwrap().0
+            })
+        });
+
+        assert_eq!(result, Ok((42, NativeRuntimeStatus::SUCCESS)));
+
+        let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = with_cleanup_runtime(Some(&retained), || panic!("restore cleanup binding"));
+        }));
+
+        assert!(unwind.is_err());
+
+        with_runtime(|runtime| {
+            assert!(Arc::ptr_eq(&runtime.core, &previous));
+            assert!(!runtime.cleanup_workloads.get());
+            assert_eq!(runtime.thread.runtime().id(), thread);
+        })
+        .unwrap();
+
+        retained.release();
+        assert!(shutdown().is_success());
     }
 }

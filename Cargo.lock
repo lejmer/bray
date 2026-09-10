@@ -559,6 +559,7 @@ dependencies = [
  "bray-runtime-abi",
  "bray-runtime-model",
  "bray-testing",
+ "scoped-tls",
  "triomphe",
  "trybox",
 ]
@@ -1484,6 +1485,12 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
+
+[[package]]
+name = "scoped-tls"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e1cf6437eb19a8f4a6cc0f7dca544973b0b78843adbfeb3683d1a94a0024a294"
 
 [[package]]
 name = "semver"

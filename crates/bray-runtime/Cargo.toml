@@ -20,6 +20,7 @@ bray-platform = {
 bray-runtime-abi = { path = "../bray-runtime-abi" }
 bray-runtime-model = { path = "../bray-runtime-model" }
 triomphe = { version = "0.1.16", default-features = false, features = ["std"] }
+scoped-tls = "1.0.1"
 trybox = { version = "0.1.2", default-features = false }
 
 [dev-dependencies]
