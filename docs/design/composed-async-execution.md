@@ -183,6 +183,16 @@ demand-driven product formation.
 
 ## Capacity, results and provider lifetime
 
+Each new owner whose concrete type requires runtime cleanup capacity admits a uniform local bundle before publication.
+Current-value completion evidence can skip execution but does not change that bundle. Its credits survive completion and
+later mutation until ownership ends. Only a type-universal proof removes a requirement from the bundle. This gives moves,
+returns and consuming boundaries a uniform capacity contract without a per-value capacity flag.
+
+Checking accounts for admission and discharge effects in construction and owned cleanup. Allocation, deallocation and
+synchronization contribute impurity. An uncaught admission panic prevents totality, while returning a handled admission
+error can still satisfy it. Lowering must preserve these checked guarantees. A borrowed complete-state finalizer's proof
+remains distinct from the effects of creating or disposing of its owner.
+
 Logical cleanup capacity follows the ownership obligation. Physical activation storage and retained outcomes can outlive
 the discharge of that logical reservation. Keep their release conditions separate.
 

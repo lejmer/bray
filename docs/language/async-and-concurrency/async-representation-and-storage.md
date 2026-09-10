@@ -60,6 +60,23 @@ If the required capacity cannot be secured, the operation fails before establish
 retain their values and cleanup capacity through failure propagation. The same rule applies to partially initialized
 values, inactive captures, and static owners.
 
+Owners requiring runtime cleanup capacity use a uniform local allowance for their concrete type throughout ownership.
+A proof that the current value has completed its finalization can omit the finalizer invocation, but does not release
+that allowance. Later mutation can invalidate the proof without requiring new cleanup admission. A proof that an action
+is unnecessary for every value of the concrete type can remove that action's capacity requirement entirely.
+
+An aggregate admits capacity only for additional local obligations it establishes. Existing represented children retain
+their own capacity through moves and wrapping. Creating an additional owner must secure its additional capacity before
+publication. Partial construction retains the initialized inputs and their allowances until ownership transfer commits.
+
+The local allowance is discharged when ownership ends. It covers the mandatory terminal cleanup path, not unlimited
+explicit finalizer calls or retries on a surviving owner. Those calls retain their ordinary execution requirements.
+Storage already transferred into a retained incident or used by a live activation remains owned until that use ends.
+
+Admission and discharge contribute their actual allocation, deallocation, synchronization and failure behavior to
+[execution guarantees](../contracts-and-trust/execution-guarantees.md). A currently complete value's construction or
+disposal is not automatically pure or total merely because its finalizer invocation can be omitted.
+
 Capacity can be supplied by existing frame storage, co-allocated backing storage, or separately reserved storage.
 Cleanup steps with disjoint storage lifetimes can reuse capacity. Recursive and erased representations retain enough
 capacity for each live obligation rather than relying on a fixed global allowance.

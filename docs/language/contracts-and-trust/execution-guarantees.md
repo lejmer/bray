@@ -53,6 +53,10 @@ Purity is determined by the selected operations and their observation dependenci
 cleanup, and owned-input cleanup contribute to execution effects. Ownership transfer follows the ordinary ownership
 rules. Later cleanup of a returned owner belongs to its caller.
 
+Uniform [cleanup capacity](../async-and-concurrency/async-representation-and-storage.md#cleanup-capacity) admission and
+discharge contribute their actual effects. A current-value completion proof can omit a finalizer invocation without
+making the owner's construction or disposal pure. Ordinary moves transfer the existing allowance without new admission.
+
 Forming a pointer to protected storage with `uninit_pointer` or `uninit_pointer_mut`, and deriving an anchored
 borrow with `borrow_from` or `borrow_mut_from`, are pure and total on their valid input domains. The pointer and
 borrow retain the source storage and capability dependencies. Exposing or comparing numerical addresses remains
