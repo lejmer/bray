@@ -267,7 +267,7 @@ No backend can infer async semantics from calls to functions named `start`, `joi
 
 ## Direct-await lowering
 
-The proposed runtime execution, wake, cancellation, reservation and host-root design is described in
+The runtime execution, wake, cancellation, reservation and host-root design is described in
 [Composed async execution](composed-async-execution.md).
 
 Direct await consumes an inactive child frame into the current task. Lowering can embed the child frame in the parent

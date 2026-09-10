@@ -1,6 +1,6 @@
 # Composed async execution
 
-This proposed goal-state design specifies native execution of directly awaited frames and mandatory cleanup within
+This goal-state design specifies native execution of directly awaited frames and mandatory cleanup within
 their owning run.
 It refines [Async and runtime design](async-runtime.md#direct-await-lowering). Independent starts retain the task
 boundary defined there. Ordinary synchronous calls and foreign callback roots retain their existing language contracts.
