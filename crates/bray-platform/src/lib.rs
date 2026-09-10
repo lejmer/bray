@@ -57,7 +57,7 @@ pub use process::{
 #[cfg(feature = "thread")]
 pub use thread::{
     NativeThread, NativeThreadOutcome, RuntimeThread, RuntimeThreadEntry,
-    RuntimeThreadExitRegistrationError, RuntimeThreadId, RuntimeThreadScope,
-    current_runtime_thread, main_runtime_thread, mark_current_runtime_thread_as_main,
-    register_runtime_thread_exit_callback,
+    RuntimeThreadExitRegistrationError, RuntimeThreadId, RuntimeThreadReservation,
+    RuntimeThreadScope, current_runtime_thread, main_runtime_thread,
+    mark_current_runtime_thread_as_main, register_runtime_thread_exit_callback,
 };

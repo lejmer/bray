@@ -446,9 +446,15 @@ fn prepare_cleanup(product: usize, host: &mut ProductHost) -> Option<PendingClea
         return None;
     }
 
+    let thread = host
+        .cleanup_thread
+        .take()
+        .unwrap_or_else(|| unreachable!("an unclosed product owns its cleanup thread reservation"));
+
     host.cleanup_running = true;
 
     Some(PendingCleanup {
+        thread,
         product,
         runtime: host.runtime.clone(),
         statics: host.take_product_cleanups(),
@@ -456,6 +462,8 @@ fn prepare_cleanup(product: usize, host: &mut ProductHost) -> Option<PendingClea
 }
 
 fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
+    let thread = cleanup.thread.enter_or_reuse();
+
     let (mut incidents, runtime_incidents) =
         crate::native::with_retained_static_cleanup_runtime(&cleanup.runtime, || {
             let mut incidents = Vec::new();
@@ -470,6 +478,8 @@ fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
 
             incidents
         });
+
+    drop(thread);
 
     let runtime_identity = cleanup
         .statics
@@ -822,6 +832,79 @@ mod tests {
 
             order.set(value);
         });
+    }
+
+    #[test]
+    fn admitted_product_cleanup_attaches_a_foreign_thread_and_drains_it_before_closure_returns() {
+        extern "C-unwind" fn thread_exit() {
+            append_thread_cleanup(3);
+        }
+
+        extern "C-unwind" fn finish(
+            _: usize,
+            _: &mut NativeBrayCallOutcome,
+        ) -> NativeStaticFinalizerStatus {
+            assert!(bray_platform::current_runtime_thread().is_some());
+            append_thread_cleanup(1);
+            bray_platform::register_runtime_thread_exit_callback(thread_exit).unwrap();
+
+            NativeStaticFinalizerStatus::SUCCESS
+        }
+
+        extern "C-unwind" fn destroy() -> NativeBrayCallOutcome {
+            append_thread_cleanup(2);
+
+            NativeBrayCallOutcome::completed()
+        }
+
+        extern "C" fn entry(_: usize) -> NativeStaticHostEntry {
+            NativeStaticHostEntry::new(
+                NativeStaticDuration::PRODUCT,
+                NativeStaticIdentity::new([156; 32]),
+                0,
+                1,
+                access,
+                detach_thread_static,
+                finalizer(finish),
+                destroy,
+                detach_thread_static,
+                no_dependency,
+                0,
+            )
+        }
+
+        let descriptor: &'static NativeProductHostDescriptor = Box::leak(Box::new(
+            NativeProductHostDescriptor::new(NativeProductIdentity::new([156; 32]), entry, 1),
+        ));
+
+        assert_eq!(
+            control(descriptor, NativeProductHostOperation::FORM).status(),
+            NativeProductHostStatus::SUCCESS
+        );
+
+        std::thread::spawn(move || {
+            assert!(bray_platform::current_runtime_thread().is_none());
+            THREAD_CLEANUP_ORDER.set(0);
+
+            let closed = crate::test_support::with_allocation_failure(|| {
+                control(descriptor, NativeProductHostOperation::CLOSE)
+            });
+
+            assert_eq!(closed.state(), NativeProductHostState::CLOSED);
+            assert_eq!(closed.cleanup_incidents(), 0);
+            assert_eq!(closed.cleaned_statics(), 1);
+            assert_eq!(THREAD_CLEANUP_ORDER.get(), 123);
+            assert!(bray_platform::current_runtime_thread().is_none());
+
+            assert_eq!(
+                control(descriptor, NativeProductHostOperation::CLOSE).state(),
+                NativeProductHostState::CLOSED
+            );
+
+            assert_eq!(THREAD_CLEANUP_ORDER.get(), 123);
+        })
+        .join()
+        .unwrap();
     }
 
     #[test]

@@ -23,6 +23,9 @@ pub(super) fn ensure_formed(
     drop(hosts);
     let statics = read_statics(descriptor).map_err(unformed)?;
 
+    let cleanup_thread = bray_platform::RuntimeThreadReservation::reserve()
+        .map_err(|error| unformed(host_status(crate::native::thread_attachment_status(error))))?;
+
     let runtime =
         crate::native::retain_runtime().map_err(|status| unformed(host_status(status)))?;
 
@@ -46,6 +49,7 @@ pub(super) fn ensure_formed(
         cleanup_running: false,
         cleanup_blocked: false,
         statics,
+        cleanup_thread: Some(cleanup_thread),
     };
 
     // Release a losing or failed owner only after its registry guard has been dropped.

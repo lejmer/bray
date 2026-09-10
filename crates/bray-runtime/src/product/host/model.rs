@@ -46,6 +46,7 @@ pub(super) struct ProductHost {
     pub(super) cleanup_running: bool,
     pub(super) cleanup_blocked: bool,
     pub(super) statics: Vec<ProductStatic>,
+    pub(super) cleanup_thread: Option<bray_platform::RuntimeThreadReservation>,
 }
 
 impl ProductHost {
@@ -89,6 +90,7 @@ pub(super) struct PendingCleanup {
     pub(super) product: usize,
     pub(super) runtime: crate::native::RetainedRuntime,
     pub(super) statics: Vec<ProductStatic>,
+    pub(super) thread: bray_platform::RuntimeThreadReservation,
 }
 
 #[derive(Clone, Copy)]

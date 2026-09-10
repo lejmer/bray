@@ -118,6 +118,49 @@ pub fn main_runtime_thread() -> Option<RuntimeThread> {
         .map(RuntimeThread::new)
 }
 
+/// Admitted storage and identity for attaching one future runtime thread.
+/// This reservation can move between threads before it is consumed.
+pub struct RuntimeThreadReservation {
+    id: RuntimeThreadId,
+    callbacks: triomphe::UniqueArc<ThreadExitCallbacks>,
+}
+
+impl std::fmt::Debug for RuntimeThreadReservation {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("RuntimeThreadReservation")
+            .field("id", &self.id)
+            .finish_non_exhaustive()
+    }
+}
+
+impl RuntimeThreadReservation {
+    /// Reserves a future attachment without changing the current thread.
+    pub fn reserve() -> Result<Self, PlatformError> {
+        let callbacks = reserve_thread_callbacks()?;
+        let id = next_runtime_thread_id()?;
+
+        Ok(Self { id, callbacks })
+    }
+
+    /// Attaches the current thread without allocating, rejecting an existing attachment.
+    pub fn enter(self) -> Result<RuntimeThreadScope, PlatformError> {
+        ensure_thread_unattached()?;
+
+        Ok(RuntimeThreadScope::attach(self.id, self.callbacks))
+    }
+
+    /// Reuses the current attachment or consumes the reservation without allocating.
+    pub fn enter_or_reuse(self) -> RuntimeThreadEntry {
+        match current_runtime_thread() {
+            Some(runtime) => RuntimeThreadEntry::Current(runtime),
+            None => {
+                RuntimeThreadEntry::Attached(RuntimeThreadScope::attach(self.id, self.callbacks))
+            }
+        }
+    }
+}
+
 /// Scoped initialization of Bray runtime state on an existing native thread.
 #[derive(Debug)]
 pub struct RuntimeThreadScope {
@@ -158,9 +201,8 @@ impl RuntimeThreadScope {
     /// Initializes the current thread until this scope is dropped.
     pub fn enter() -> Result<Self, PlatformError> {
         ensure_thread_unattached()?;
-        let callbacks = reserve_thread_callbacks()?;
 
-        Self::enter_with_id(next_runtime_thread_id()?, callbacks)
+        RuntimeThreadReservation::reserve()?.enter()
     }
 
     /// Reuses an active runtime thread or attaches the current foreign thread for this entry.
@@ -176,21 +218,17 @@ impl RuntimeThreadScope {
         &self.runtime
     }
 
-    fn enter_with_id(
-        id: RuntimeThreadId,
-        callbacks: triomphe::UniqueArc<ThreadExitCallbacks>,
-    ) -> Result<Self, PlatformError> {
-        ensure_thread_unattached()?;
+    fn attach(id: RuntimeThreadId, callbacks: triomphe::UniqueArc<ThreadExitCallbacks>) -> Self {
         let callbacks = callbacks.shareable();
         CURRENT_RUNTIME_THREAD.set(Some(id));
         RUNTIME_THREAD_EXIT_CALLBACKS.with(|current| current.replace(Some(callbacks.clone())));
 
-        Ok(Self {
+        Self {
             runtime: RuntimeThread::new(id),
             callbacks,
             active: true,
             thread_bound: PhantomData,
-        })
+        }
     }
 
     /// Finishes this attachment and returns the number of cleanup callbacks that panicked.
@@ -285,8 +323,7 @@ impl<T: Send + 'static> NativeThread<T> {
         name: Option<NativeThreadName>,
         callback: impl FnOnce(RuntimeThread) -> T + Send + 'static,
     ) -> Result<Self, PlatformError> {
-        let callbacks = reserve_thread_callbacks()?;
-        let id = next_runtime_thread_id()?;
+        let reservation = RuntimeThreadReservation::reserve()?;
         let mut builder = thread::Builder::new();
 
         if let Some(name) = name {
@@ -294,7 +331,7 @@ impl<T: Send + 'static> NativeThread<T> {
         }
 
         let join = builder
-            .spawn(move || run_initialized_thread(id, callbacks, callback))
+            .spawn(move || run_initialized_thread(reservation, callback))
             .map_err(|error| PlatformError::from_io(PlatformOperation::ThreadSpawn, &error))?;
 
         // The wake authority must remain available after the join handle is moved.
@@ -370,15 +407,17 @@ fn next_runtime_thread_id() -> Result<RuntimeThreadId, PlatformError> {
 }
 
 fn run_initialized_thread<T>(
-    id: RuntimeThreadId,
-    callbacks: triomphe::UniqueArc<ThreadExitCallbacks>,
+    reservation: RuntimeThreadReservation,
     callback: impl FnOnce(RuntimeThread) -> T,
 ) -> NativeThreadOutcome<T> {
-    let Ok(_scope) = RuntimeThreadScope::enter_with_id(id, callbacks) else {
+    let Ok(scope) = reservation.enter() else {
         return NativeThreadOutcome::Panicked;
     };
 
-    catch_unwind(AssertUnwindSafe(|| callback(RuntimeThread::new(id)))).map_or(
+    catch_unwind(AssertUnwindSafe(|| {
+        callback(RuntimeThread::new(scope.runtime().id()))
+    }))
+    .map_or(
         NativeThreadOutcome::Panicked,
         NativeThreadOutcome::Completed,
     )
@@ -386,6 +425,53 @@ fn run_initialized_thread<T>(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn reserved_attachment_moves_to_its_destination_and_enters_without_allocation() {
+        let current = super::RuntimeThreadScope::enter().unwrap();
+        let original = current.runtime().id();
+        let reservation = super::RuntimeThreadReservation::reserve().unwrap();
+        let reserved = reservation.id;
+        assert_eq!(super::current_runtime_thread().unwrap().id(), original);
+
+        std::thread::spawn(move || {
+            assert!(super::current_runtime_thread().is_none());
+            super::FAIL_THREAD_STORAGE.set(true);
+            let scope = reservation.enter_or_reuse();
+            super::FAIL_THREAD_STORAGE.set(false);
+            assert_eq!(scope.runtime().id(), reserved);
+            assert_eq!(super::current_runtime_thread().unwrap().id(), reserved);
+            drop(scope);
+            assert!(super::current_runtime_thread().is_none());
+        })
+        .join()
+        .unwrap();
+
+        assert_eq!(super::current_runtime_thread().unwrap().id(), original);
+        let reservation = super::RuntimeThreadReservation::reserve().unwrap();
+        super::FAIL_THREAD_STORAGE.set(true);
+        let reused = reservation.enter_or_reuse();
+        let failed = super::RuntimeThreadReservation::reserve();
+        super::FAIL_THREAD_STORAGE.set(false);
+        assert_eq!(reused.runtime().id(), original);
+
+        assert_eq!(
+            failed.unwrap_err().kind(),
+            crate::PlatformErrorKind::Io(std::io::ErrorKind::OutOfMemory)
+        );
+
+        drop(reused);
+        assert_eq!(super::current_runtime_thread().unwrap().id(), original);
+        let duplicate = super::RuntimeThreadReservation::reserve().unwrap().enter();
+
+        assert_eq!(
+            duplicate.unwrap_err().kind(),
+            crate::PlatformErrorKind::RuntimeThreadAlreadyInitialized
+        );
+
+        drop(current);
+        assert!(super::current_runtime_thread().is_none());
+    }
+
     #[test]
     fn attachment_storage_failure_precedes_identity_and_native_callback_execution() {
         use crate::{PlatformErrorKind, PlatformOperation};
