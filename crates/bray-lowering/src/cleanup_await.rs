@@ -44,6 +44,7 @@ pub(crate) fn create_lifecycle_frame(
             receiver,
             result,
         },
+        bray_ir::MirFrameStorageSource::Fresh,
         boolean,
     )
 }

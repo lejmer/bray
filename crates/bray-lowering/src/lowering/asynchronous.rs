@@ -202,6 +202,7 @@ impl Lowerer<'_> {
             block,
             &source,
             MirFrameInitializer::Callable(call),
+            bray_ir::MirFrameStorageSource::Fresh,
             boolean,
         )?;
 

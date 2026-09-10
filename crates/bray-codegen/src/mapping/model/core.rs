@@ -241,7 +241,9 @@ impl CodegenMappings {
             .iter()
             .filter_map(|symbol| match symbol.key() {
                 CodegenSymbolKey::Instance(instance) => Some(instance),
-                CodegenSymbolKey::Runtime(_) | CodegenSymbolKey::ProtectedFrame { .. } => None,
+                CodegenSymbolKey::CleanupFrameConstructor(_)
+                | CodegenSymbolKey::Runtime(_)
+                | CodegenSymbolKey::ProtectedFrame { .. } => None,
             })
             .collect();
 
@@ -278,7 +280,9 @@ impl CodegenMappings {
             .iter()
             .filter_map(|symbol| match symbol.key() {
                 CodegenSymbolKey::Runtime(reference) => Some(*reference),
-                CodegenSymbolKey::Instance(_) | CodegenSymbolKey::ProtectedFrame { .. } => None,
+                CodegenSymbolKey::CleanupFrameConstructor(_)
+                | CodegenSymbolKey::Instance(_)
+                | CodegenSymbolKey::ProtectedFrame { .. } => None,
             })
             .collect();
 
@@ -301,7 +305,9 @@ impl CodegenMappings {
             .iter()
             .filter_map(|symbol| match symbol.key() {
                 CodegenSymbolKey::ProtectedFrame { frame, operation } => Some((*frame, *operation)),
-                CodegenSymbolKey::Instance(_) | CodegenSymbolKey::Runtime(_) => None,
+                CodegenSymbolKey::CleanupFrameConstructor(_)
+                | CodegenSymbolKey::Instance(_)
+                | CodegenSymbolKey::Runtime(_) => None,
             })
             .collect();
 
@@ -447,9 +453,9 @@ impl CodegenMappings {
         self.symbols
             .binary_search_by(|mapping| match mapping.key() {
                 CodegenSymbolKey::Instance(candidate) => candidate.cmp(instance),
-                CodegenSymbolKey::Runtime(_) | CodegenSymbolKey::ProtectedFrame { .. } => {
-                    std::cmp::Ordering::Greater
-                }
+                CodegenSymbolKey::CleanupFrameConstructor(_)
+                | CodegenSymbolKey::Runtime(_)
+                | CodegenSymbolKey::ProtectedFrame { .. } => std::cmp::Ordering::Greater,
             })
             .ok()
             .map(|index| &self.symbols[index])

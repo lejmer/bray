@@ -369,6 +369,7 @@ impl Compilation {
             .filter_map(|symbol| match symbol.key() {
                 bray_codegen::CodegenSymbolKey::Runtime(reference) => Some(reference.role()),
                 bray_codegen::CodegenSymbolKey::Instance(_)
+                | bray_codegen::CodegenSymbolKey::CleanupFrameConstructor(_)
                 | bray_codegen::CodegenSymbolKey::ProtectedFrame { .. } => None,
             });
 

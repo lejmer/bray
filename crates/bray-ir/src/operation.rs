@@ -10,8 +10,8 @@ use bray_symbols::{BorrowKind, ConstantTermId, TypeId};
 
 use crate::{
     MirAnonymousCallableReference, MirCall, MirCallableReference, MirCleanupPhase,
-    MirFrameReference, MirFrameStateId, MirNullableQuery, MirOperand, MirOperationId, MirPlace,
-    MirRuntimeReference, MirSourceAnchor, MirStorageId, MirValueId,
+    MirFrameReference, MirFrameStateId, MirFrameStorageSource, MirNullableQuery, MirOperand,
+    MirOperationId, MirPlace, MirRuntimeReference, MirSourceAnchor, MirStorageId, MirValueId,
 };
 
 /// The checked semantic role of one store operation.
@@ -429,6 +429,8 @@ impl MirFrameInitializer {
 pub enum MirAsyncOperation {
     /// Try to create an inactive protected frame, returning whether ownership transferred.
     CreateFrame {
+        /// Fresh admission or previously secured cleanup capacity.
+        storage: MirFrameStorageSource,
         /// Static or existential frame representation.
         frame: MirFrameReference,
         /// Deferred work captured by the frame.

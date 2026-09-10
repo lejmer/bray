@@ -11,6 +11,6 @@ pub use callable_demand::{
 };
 pub use core::{CodegenMappings, CodegenMappingsBuildError};
 pub use validation::{
-    demanded_debug_sources, demanded_runtime_references, demanded_runtime_references_for_mir,
-    demanded_types, mapped_runtime_references,
+    demanded_cleanup_frame_constructors, demanded_debug_sources, demanded_runtime_references,
+    demanded_runtime_references_for_mir, demanded_types, mapped_runtime_references,
 };

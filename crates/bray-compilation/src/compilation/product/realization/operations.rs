@@ -339,24 +339,57 @@ impl Compilation {
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<CodegenSymbolKey, CodegenPreparationError> {
-        let MirOperationKind::Async(MirAsyncOperation::CreateFrame { initializer, .. }) = operation
+        let MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+            initializer,
+            storage,
+            ..
+        }) = operation
         else {
             return Err(CodegenPreparationError::MissingHelperInstance(
                 reference.clone(),
             ));
         };
 
+        let dependency = self.concrete_frame_constructor(
+            owner_realization,
+            operation_id,
+            initializer,
+            reference,
+            target,
+            cancellation,
+        )?;
+
+        let symbol = dependency_symbol(owner, dependency.key(), reference)?;
+
+        let CodegenSymbolKey::Instance(instance) = symbol else {
+            return Err(CodegenPreparationError::MissingHelperInstance(
+                reference.clone(),
+            ));
+        };
+
+        Ok(CodegenSymbolKey::frame_constructor(instance, *storage))
+    }
+
+    pub(in crate::compilation::product) fn concrete_frame_constructor(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        operation_id: MirOperationId,
+        initializer: &MirFrameInitializer,
+        reference: &MirHelperReference,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
         match initializer {
             MirFrameInitializer::Lifecycle { role, ty, .. } => {
                 let lifecycle = self.concrete_codegen_helper_reference(
-                    owner_realization,
+                    owner,
                     &role.reference(*ty),
                     cancellation,
                 )?;
 
                 let dependency = self.concrete_codegen_lifecycle(lifecycle, target)?;
 
-                dependency_symbol(owner, dependency.key(), reference)
+                Ok(dependency)
             }
             MirFrameInitializer::Callable(call) => match call.target() {
                 MirCallTarget::Direct(_) => {
@@ -368,20 +401,15 @@ impl Compilation {
                         CodegenPreparationError::MissingHelperInstance(reference.clone())
                     })?;
 
-                    let ConcreteCodegenCallee::Instance(dependency) = self
-                        .concrete_codegen_callee(
-                            owner_realization,
-                            &demand,
-                            target,
-                            cancellation,
-                        )?
+                    let ConcreteCodegenCallee::Instance(dependency) =
+                        self.concrete_codegen_callee(owner, &demand, target, cancellation)?
                     else {
                         return Err(CodegenPreparationError::MissingHelperInstance(
                             reference.clone(),
                         ));
                     };
 
-                    dependency_symbol(owner, dependency.key(), reference)
+                    Ok(dependency)
                 }
                 MirCallTarget::Indirect { .. }
                 | MirCallTarget::Runtime(_)

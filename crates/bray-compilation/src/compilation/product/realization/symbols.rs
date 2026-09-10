@@ -18,6 +18,7 @@ use super::super::super::binder::CompilationBindingContext;
 use super::super::specialization::{ConcreteCodegenInstance, ConcreteCodegenReachability};
 use super::names::{
     binary_symbol_name, generated_frame_symbol_name, generated_instance_symbol_name,
+    generated_symbol_name,
 };
 use super::support::{
     codegen_runtime_references, native_boundary_mapping, source_backed_symbol_key, void_signature,
@@ -81,6 +82,8 @@ impl Compilation {
         cancellation: &CancellationToken,
     ) -> Result<Vec<CodegenSymbolMapping>, CodegenPreparationError> {
         let mut symbols = Vec::new();
+
+        let cleanup_constructors = bray_codegen::demanded_cleanup_frame_constructors(operations);
 
         for instance in unit.instances() {
             let (name, linkage, signature, native_entry) =
@@ -155,6 +158,24 @@ impl Compilation {
                         (name, linkage, signature, native_entry)
                     }
                 };
+
+            if cleanup_constructors.contains(instance.key()) {
+                // The co-located caller uses this definition's private state callback and layout.
+                let cleanup_linkage = CodegenLinkage::Internal;
+
+                symbols.push(CodegenSymbolMapping::new(
+                    CodegenSymbolKey::CleanupFrameConstructor(instance.key().clone()),
+                    generated_symbol_name(
+                        target,
+                        cleanup_linkage,
+                        "cleanup_frame",
+                        instance.key(),
+                    )?,
+                    cleanup_linkage,
+                    // Both constructor entries initialize the same frame with the same operands.
+                    signature.clone(),
+                ));
+            }
 
             let mut symbol = CodegenSymbolMapping::new(
                 CodegenSymbolKey::Instance(instance.key().clone()),

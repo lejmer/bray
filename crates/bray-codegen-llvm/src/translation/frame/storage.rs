@@ -1,4 +1,5 @@
 use bray_codegen::{CodegenFailure, CodegenTarget};
+use bray_ir::MirFrameStorageSource;
 use bray_runtime_interface::RuntimeAbiRole;
 use inkwell::AddressSpace;
 use inkwell::builder::Builder;
@@ -13,18 +14,15 @@ pub(super) fn allocate<'context>(
     builder: &Builder<'context>,
     target: &CodegenTarget,
     metadata: StructValue<'context>,
+    source: MirFrameStorageSource,
 ) -> Result<PointerValue<'context>, CodegenFailure> {
     let retained = module.add_global(metadata.get_type(), None, "frame.metadata");
     retained.set_initializer(&metadata);
     retained.set_constant(true);
     retained.set_linkage(Linkage::Private);
 
-    let admission = crate::native::declare_runtime_function(
-        module,
-        context,
-        target,
-        RuntimeAbiRole::FrameStorageAdmission,
-    )?;
+    let admission =
+        crate::native::declare_runtime_function(module, context, target, source.runtime_role())?;
 
     let address = builder
         .build_call(
@@ -86,7 +84,13 @@ mod tests {
 
     #[test]
     fn every_target_uses_matched_runtime_admission_and_release_with_constant_metadata() {
-        for native in NativeTarget::ALL {
+        for (native, source) in NativeTarget::ALL.into_iter().flat_map(|native| {
+            [
+                bray_ir::MirFrameStorageSource::Fresh,
+                bray_ir::MirFrameStorageSource::CleanupCapacity,
+            ]
+            .map(|source| (native, source))
+        }) {
             let context = Context::create();
             let module = context.create_module("frame.storage");
             let target = CodegenTarget::for_native(native);
@@ -95,7 +99,10 @@ mod tests {
             let create = module.add_function("create", pointer.fn_type(&[], false), None);
             builder.position_at_end(context.append_basic_block(create, "entry"));
             let metadata = crate::native::frame_metadata_type(&context, &target).const_zero();
-            let storage = super::allocate(&module, &context, &builder, &target, metadata).unwrap();
+
+            let storage =
+                super::allocate(&module, &context, &builder, &target, metadata, source).unwrap();
+
             builder.build_return(Some(&storage)).unwrap();
 
             let destroy = module.add_function(
@@ -110,11 +117,18 @@ mod tests {
             builder.build_return(None).unwrap();
             module.verify().unwrap();
 
-            assert!(
-                module
-                    .get_function(bray_runtime_abi::symbols::FRAME_STORAGE_ADMISSION_SYMBOL)
-                    .is_some()
-            );
+            for (mode, symbol) in [
+                (
+                    bray_ir::MirFrameStorageSource::Fresh,
+                    bray_runtime_abi::symbols::FRAME_STORAGE_ADMISSION_SYMBOL,
+                ),
+                (
+                    bray_ir::MirFrameStorageSource::CleanupCapacity,
+                    bray_runtime_abi::symbols::FRAME_STORAGE_ACTIVATION_SYMBOL,
+                ),
+            ] {
+                assert_eq!(module.get_function(symbol).is_some(), mode == source);
+            }
 
             assert!(
                 module

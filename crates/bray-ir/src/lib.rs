@@ -34,7 +34,7 @@ pub use control::{
 };
 pub use frame::{
     MirFrameDescriptor, MirFrameDescriptorBuildError, MirFrameEntry, MirFrameReference,
-    MirFrameState,
+    MirFrameState, MirFrameStorageSource,
 };
 pub use helper::{MirHelperReference, MirStandardLibraryHelper};
 pub use id::{MirBlockId, MirFrameStateId, MirOperationId, MirStorageId, MirUnitId, MirValueId};

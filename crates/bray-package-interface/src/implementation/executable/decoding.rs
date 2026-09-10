@@ -1727,6 +1727,12 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
 
         match read_u32(&mut self.reader)? {
             0 => {
+                let storage = match read_u32(&mut self.reader)? {
+                    0 => bray_ir::MirFrameStorageSource::Fresh,
+                    1 => bray_ir::MirFrameStorageSource::CleanupCapacity,
+                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
+                };
+
                 let frame = self.frame_reference()?;
                 let destination = self.place()?;
 
@@ -1751,6 +1757,7 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 };
 
                 Ok(Operation::CreateFrame {
+                    storage,
                     frame,
                     initializer,
                     destination,

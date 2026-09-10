@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use bray_codegen::{
     CodegenInstance, CodegenInstanceDependency, CodegenInstanceKey, CodegenReachabilityBuilder,
@@ -18,6 +18,41 @@ enum ReachabilityEvaluation {
 }
 
 impl Compilation {
+    fn cleanup_frame_dependencies(
+        &self,
+        owner: &ConcreteCodegenInstance,
+        mir: &MirUnit,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<BTreeSet<CodegenInstanceKey>, super::super::super::CodegenPreparationError> {
+        let mut dependencies = BTreeSet::new();
+
+        for (id, operation) in mir.operations_with_ids() {
+            let bray_ir::MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                frame,
+                initializer,
+                storage: bray_ir::MirFrameStorageSource::CleanupCapacity,
+                ..
+            }) = operation.kind()
+            else {
+                continue;
+            };
+
+            let dependency = self.concrete_frame_constructor(
+                owner,
+                id,
+                initializer,
+                &bray_ir::MirHelperReference::CreateFrame(*frame),
+                target,
+                cancellation,
+            )?;
+
+            dependencies.insert(dependency.key().clone());
+        }
+
+        Ok(dependencies)
+    }
+
     pub(super) fn codegen_reachability(
         &self,
         roots: impl IntoIterator<Item = ConcreteCodegenInstance>,
@@ -103,10 +138,23 @@ impl Compilation {
                         concrete_dependencies.sort_unstable();
                         concrete_dependencies.dedup();
 
+                        let cleanup_frames = self.cleanup_frame_dependencies(
+                            &realization,
+                            &mir,
+                            target,
+                            cancellation,
+                        )?;
+
                         let dependencies = concrete_dependencies
                             .iter()
                             .map(|dependency| {
-                                CodegenInstanceDependency::definition(dependency.key().clone())
+                                let kind = if cleanup_frames.contains(dependency.key()) {
+                                    bray_codegen::CodegenInstanceDependencyKind::DirectAwaitedFrame
+                                } else {
+                                    bray_codegen::CodegenInstanceDependencyKind::Definition
+                                };
+
+                                CodegenInstanceDependency::new(kind, dependency.key().clone())
                             })
                             .collect::<Vec<_>>();
 

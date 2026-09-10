@@ -111,6 +111,12 @@ pub(super) fn validate_operation_mappings(
                         (instance.key().clone(), id),
                         (
                             operation.kind().helper_references(),
+                            match operation.kind() {
+                                bray_ir::MirOperationKind::Async(
+                                    bray_ir::MirAsyncOperation::CreateFrame { storage, .. },
+                                ) => Some(*storage),
+                                _ => None,
+                            },
                             matches!(
                                 operation.kind(),
                                 bray_ir::MirOperationKind::Async(
@@ -121,32 +127,102 @@ pub(super) fn validate_operation_mappings(
                     )
                 })
         })
-        .filter(|(_, (helpers, incident))| !helpers.is_empty() || *incident)
+        .filter(|(_, (helpers, _, incident))| !helpers.is_empty() || *incident)
         .collect();
 
     if mappings.len() != expected.len()
         || mappings.iter().any(|mapping| {
             let key = (mapping.owner().clone(), mapping.operation());
 
-            expected.get(&key).is_none_or(|(references, incident)| {
-                *incident != mapping.incident().is_some()
-                    || references.len() != mapping.helpers().len()
-                    || references
+            expected
+                .get(&key)
+                .is_none_or(|(references, storage, incident)| {
+                    *incident != mapping.incident().is_some()
+                        || references.len() != mapping.helpers().len()
+                        || references
+                            .iter()
+                            .zip(mapping.helpers())
+                            .any(|(reference, helper)| {
+                                reference != helper.reference()
+                                    || !valid_frame_storage(*storage, helper)
+                            })
+                })
+                || mapping.incident().is_some_and(|incident| {
+                    incident
+                        .dependencies()
                         .iter()
-                        .zip(mapping.helpers())
-                        .any(|(reference, helper)| reference != helper.reference())
-            }) || mapping.incident().is_some_and(|incident| {
-                incident
-                    .dependencies()
+                        .any(|dependency| !instances.contains(dependency))
+                })
+                || mapping
+                    .helpers()
                     .iter()
-                    .any(|dependency| !instances.contains(dependency))
-            }) || mapping
-                .helpers()
-                .iter()
-                .any(|helper| !valid_helper(symbols, helper))
+                    .any(|helper| !valid_helper(symbols, helper))
         })
     {
         return Err(CodegenMappingsBuildError::OperationCoverageMismatch);
+    }
+
+    validate_cleanup_constructors(unit, symbols, mappings)
+}
+
+fn valid_frame_storage(
+    storage: Option<bray_ir::MirFrameStorageSource>,
+    helper: &CodegenHelperMapping,
+) -> bool {
+    if !matches!(
+        helper.reference(),
+        bray_ir::MirHelperReference::CreateFrame(_)
+    ) {
+        return !matches!(
+            helper.symbol(),
+            Some(CodegenSymbolKey::CleanupFrameConstructor(_))
+        );
+    }
+
+    matches!(
+        (storage, helper.symbol()),
+        (
+            Some(bray_ir::MirFrameStorageSource::Fresh),
+            Some(CodegenSymbolKey::Instance(_))
+        ) | (
+            Some(bray_ir::MirFrameStorageSource::CleanupCapacity),
+            Some(CodegenSymbolKey::CleanupFrameConstructor(_))
+        )
+    )
+}
+
+fn validate_cleanup_constructors(
+    unit: &CodegenUnit,
+    symbols: &[CodegenSymbolMapping],
+    mappings: &[CodegenOperationMapping],
+) -> Result<(), CodegenMappingsBuildError> {
+    let expected = super::validation::demanded_cleanup_frame_constructors(mappings);
+
+    let actual: BTreeSet<_> = symbols
+        .iter()
+        .filter_map(|symbol| match symbol.key() {
+            CodegenSymbolKey::CleanupFrameConstructor(instance) => Some(instance),
+            _ => None,
+        })
+        .collect();
+
+    if actual != expected
+        || symbols.iter().any(|symbol| {
+            let CodegenSymbolKey::CleanupFrameConstructor(instance) = symbol.key() else {
+                return false;
+            };
+
+            !unit.instances().iter().any(|member| {
+                member.key() == instance && member.protected_frame_identity().is_some()
+            }) || symbol.native_entry().is_some()
+                || symbol.linkage() != crate::CodegenLinkage::Internal
+                || !symbols.iter().any(|ordinary| {
+                    matches!(ordinary.key(), CodegenSymbolKey::Instance(key) if key == instance)
+                        && ordinary.signature() == symbol.signature()
+                })
+        })
+    {
+        return Err(CodegenMappingsBuildError::FrameSymbolCoverageMismatch);
     }
 
     Ok(())
@@ -305,4 +381,85 @@ fn valid_helper(symbols: &[CodegenSymbolMapping], helper: &CodegenHelperMapping)
         .binary_search_by(|symbol| symbol.key().cmp(key))
         .ok()
         .is_some_and(|index| symbols[index].signature().abi() == helper.reference().abi())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{CodegenHelperMapping, CodegenInstanceKey, CodegenSymbolKey};
+    use bray_ir::{MirFrameReference, MirFrameStorageSource, MirHelperReference};
+
+    #[test]
+    fn cleanup_storage_cannot_be_replaced_with_fresh_admission_or_an_unmapped_helper() {
+        let instance = CodegenInstanceKey::non_generic(&bray_testing::test_mir_unit(1));
+        let reference = MirHelperReference::CreateFrame(MirFrameReference::Erased);
+
+        let fresh = CodegenHelperMapping::new(
+            reference.clone(),
+            CodegenSymbolKey::Instance(instance.clone()),
+        );
+
+        let cleanup = CodegenHelperMapping::new(
+            reference.clone(),
+            CodegenSymbolKey::CleanupFrameConstructor(instance.clone()),
+        );
+
+        let unmapped = CodegenHelperMapping::lowered(reference);
+
+        for source in [
+            MirFrameStorageSource::Fresh,
+            MirFrameStorageSource::CleanupCapacity,
+        ] {
+            assert_eq!(
+                super::valid_frame_storage(Some(source), &fresh),
+                source == MirFrameStorageSource::Fresh
+            );
+
+            assert_eq!(
+                super::valid_frame_storage(Some(source), &cleanup),
+                source == MirFrameStorageSource::CleanupCapacity
+            );
+
+            assert!(!super::valid_frame_storage(Some(source), &unmapped));
+        }
+
+        assert!(!super::valid_frame_storage(None, &cleanup));
+
+        let ordinary = CodegenHelperMapping::new(
+            MirHelperReference::PanicReport,
+            CodegenSymbolKey::CleanupFrameConstructor(instance),
+        );
+
+        assert!(!super::valid_frame_storage(None, &ordinary));
+    }
+
+    #[test]
+    fn undemanded_cleanup_constructor_is_rejected_before_codegen() {
+        let fixture = crate::test_support::codegen_request();
+        let request = fixture.request();
+
+        let ordinary = request
+            .mappings()
+            .instance_symbol(request.unit().instances()[0].key())
+            .unwrap();
+
+        let extra = crate::CodegenSymbolMapping::new(
+            CodegenSymbolKey::CleanupFrameConstructor(request.unit().instances()[0].key().clone()),
+            bray_runtime_interface::BinarySymbolName::try_new("unused_cleanup_constructor")
+                .unwrap(),
+            crate::CodegenLinkage::Internal,
+            ordinary.signature().clone(),
+        );
+
+        let mut symbols = request.mappings().symbols().to_vec();
+        symbols.push(extra);
+
+        assert_eq!(
+            super::validate_cleanup_constructors(
+                request.unit(),
+                &symbols,
+                request.mappings().operations()
+            ),
+            Err(super::CodegenMappingsBuildError::FrameSymbolCoverageMismatch)
+        );
+    }
 }

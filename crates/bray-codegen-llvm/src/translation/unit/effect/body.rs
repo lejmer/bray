@@ -445,6 +445,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 frame,
                 initializer,
                 destination,
+                ..
             } => {
                 let value = self
                     .translate_frame_creation(operation_id, *frame, initializer)?

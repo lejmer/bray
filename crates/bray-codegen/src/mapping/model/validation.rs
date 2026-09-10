@@ -158,6 +158,20 @@ fn boundary_panic_propagation_is_demanded(mir: &bray_ir::MirUnit) -> bool {
     })
 }
 
+/// Returns the exact protected constructors demanded by explicit cleanup storage activation.
+pub fn demanded_cleanup_frame_constructors(
+    operations: &[CodegenOperationMapping],
+) -> BTreeSet<&crate::CodegenInstanceKey> {
+    operations
+        .iter()
+        .flat_map(|operation| operation.helpers())
+        .filter_map(|helper| match helper.symbol() {
+            Some(CodegenSymbolKey::CleanupFrameConstructor(instance)) => Some(instance),
+            _ => None,
+        })
+        .collect()
+}
+
 /// Returns direct MIR roles plus runtime helpers selected by operation mappings.
 pub fn mapped_runtime_references(
     unit: &CodegenUnit,
@@ -165,6 +179,16 @@ pub fn mapped_runtime_references(
     symbols: &[CodegenSymbolMapping],
 ) -> BTreeSet<MirRuntimeReference> {
     let mut references = demanded_runtime_references(unit);
+
+    if symbols
+        .iter()
+        .any(|symbol| matches!(symbol.key(), CodegenSymbolKey::CleanupFrameConstructor(_)))
+    {
+        references.insert(MirRuntimeReference::new(
+            bray_runtime_interface::RuntimeAbiRole::FrameStorageActivation,
+            unit.target().runtime_abi(),
+        ));
+    }
 
     references.extend(operations.iter().flat_map(|operation| {
         operation.helpers().iter().filter_map(|helper| {

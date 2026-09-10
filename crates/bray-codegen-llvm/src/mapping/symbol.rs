@@ -22,7 +22,8 @@ pub(crate) fn declare_symbols<'context, 'mappings>(
 ) -> Result<(), CodegenFailure> {
     for mapping in mappings.symbols() {
         let defines_symbol = match mapping.key() {
-            bray_codegen::CodegenSymbolKey::Instance(instance) => {
+            bray_codegen::CodegenSymbolKey::Instance(instance)
+            | bray_codegen::CodegenSymbolKey::CleanupFrameConstructor(instance) => {
                 mappings.unit().instances().contains(instance)
                     && mapping.linkage() != CodegenLinkage::Import
             }

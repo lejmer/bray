@@ -5,7 +5,7 @@ use bray_codegen::{
     CodegenFailure, CodegenInstance, CodegenParameterMapping, CodegenRequest, CodegenResultMapping,
     CodegenSymbolKey,
 };
-use bray_ir::{MirStorageId, MirStorageKind};
+use bray_ir::{MirFrameStorageSource, MirStorageId, MirStorageKind};
 use bray_runtime_interface::ProtectedFrameOperation;
 use inkwell::AddressSpace;
 use inkwell::context::Context;
@@ -30,7 +30,22 @@ pub(crate) fn translate_protected_instance<'context, 'request>(
 
     let context_type = frame_context_type(context, instance, types)?;
 
-    translate_constructor(module, request, instance, context_type, types)?;
+    for storage in [
+        MirFrameStorageSource::Fresh,
+        MirFrameStorageSource::CleanupCapacity,
+    ] {
+        if request
+            .mappings()
+            .symbol(&CodegenSymbolKey::frame_constructor(
+                instance.key().clone(),
+                storage,
+            ))
+            .is_some()
+        {
+            translate_constructor(module, request, instance, context_type, storage, types)?;
+        }
+    }
+
     translate_frame_adapter(module, request, instance, context_type, types)?;
     translate_state_callback(context, module, request, instance)?;
     translate_cancellation_entry(module, request, instance, context_type, types)?;
@@ -100,11 +115,15 @@ fn translate_constructor<'context>(
     request: CodegenRequest<'_>,
     instance: &CodegenInstance,
     context_type: StructType<'context>,
+    storage_source: MirFrameStorageSource,
     types: &mut LlvmTypeMappings<'context, '_>,
 ) -> Result<(), CodegenFailure> {
     let symbol = request
         .mappings()
-        .instance_symbol(instance.key())
+        .symbol(&CodegenSymbolKey::frame_constructor(
+            instance.key().clone(),
+            storage_source,
+        ))
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     let function = module
@@ -117,7 +136,15 @@ fn translate_constructor<'context>(
     builder.position_at_end(block);
 
     let metadata = frame_metadata(module, request, instance, context_type, types)?;
-    let storage = super::storage::allocate(module, context, &builder, request.target(), metadata)?;
+
+    let storage = super::storage::allocate(
+        module,
+        context,
+        &builder,
+        request.target(),
+        metadata,
+        storage_source,
+    )?;
 
     let initialized = context.append_basic_block(function, "frame.initialize");
     let finished = context.append_basic_block(function, "frame.allocation.finished");

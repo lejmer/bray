@@ -801,10 +801,18 @@ fn validate_async_operation(
 ) -> Result<(), MirUnitBuildError> {
     match operation {
         MirAsyncOperation::CreateFrame {
+            storage,
             initializer,
             destination,
             ..
         } => {
+            if *storage == crate::MirFrameStorageSource::CleanupCapacity
+                && matches!(initializer, crate::MirFrameInitializer::Callable(call)
+                    if !matches!(call.target(), crate::MirCallTarget::Direct(_)))
+            {
+                return Err(MirUnitBuildError::ProtectedFrameMismatch);
+            }
+
             validate_frame_initializer(unit, block, operation_id, initializer)?;
             validate_place(unit, destination, block, Some(operation_id))?;
         }

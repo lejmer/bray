@@ -11,6 +11,7 @@ pub(crate) fn create_frame(
     block: MirBlockId,
     source: &MirSourceAnchor,
     initializer: MirFrameInitializer,
+    storage_source: bray_ir::MirFrameStorageSource,
     boolean: TypeId,
 ) -> Result<(MirBlockId, MirBlockId, MirPlace), MirUnitBuildError> {
     let future = initializer
@@ -27,6 +28,7 @@ pub(crate) fn create_frame(
         block,
         source.clone(),
         MirOperationKind::Async(MirAsyncOperation::CreateFrame {
+            storage: storage_source,
             frame: MirFrameReference::Erased,
             initializer,
             destination: destination.clone(),

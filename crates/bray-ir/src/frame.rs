@@ -10,6 +10,33 @@ use bray_symbols::TypeId;
 
 use crate::{MirBlockId, MirFrameStateId, MirStorageId};
 
+/// The storage ownership boundary used to create one inactive frame.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum MirFrameStorageSource {
+    /// Secure fresh storage before accepting ordinary capture ownership.
+    Fresh,
+    /// Activate capacity secured before the corresponding cleanup obligation was established.
+    CleanupCapacity,
+}
+
+impl MirFrameStorageSource {
+    /// Returns the stable inspection name of this storage source.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Fresh => "fresh",
+            Self::CleanupCapacity => "cleanup_capacity",
+        }
+    }
+
+    /// Returns the runtime storage operation implementing this ownership boundary.
+    pub const fn runtime_role(self) -> bray_runtime_interface::RuntimeAbiRole {
+        match self {
+            Self::Fresh => bray_runtime_interface::RuntimeAbiRole::FrameStorageAdmission,
+            Self::CleanupCapacity => bray_runtime_interface::RuntimeAbiRole::FrameStorageActivation,
+        }
+    }
+}
+
 /// How one inactive future identifies its protected frame representation.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum MirFrameReference {

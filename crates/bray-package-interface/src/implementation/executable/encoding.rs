@@ -2074,11 +2074,18 @@ impl<C: ExecutableTemplateEncodeContext> Encoder<'_, C> {
 
         match operation {
             Operation::CreateFrame {
+                storage,
                 frame,
                 initializer,
                 destination,
             } => {
                 self.wire.write_u32(0);
+
+                self.wire.write_u32(match storage {
+                    bray_ir::MirFrameStorageSource::Fresh => 0,
+                    bray_ir::MirFrameStorageSource::CleanupCapacity => 1,
+                });
+
                 self.frame_reference(*frame);
                 self.place(destination)?;
 

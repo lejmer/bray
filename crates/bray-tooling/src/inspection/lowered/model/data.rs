@@ -1349,10 +1349,12 @@ fn async_operation(
 ) -> Result<&'static str, MirInspectionModelError> {
     let kind = match operation {
         MirAsyncOperation::CreateFrame {
+            storage,
             frame,
             initializer,
             destination,
         } => {
+            parts.attribute("storage", storage.as_str());
             frame_reference("frame", *frame, parts);
             parts.place("destination", destination, context)?;
 

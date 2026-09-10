@@ -1,5 +1,5 @@
 use crate::{CodegenCallableSignature, CodegenInstanceKey, CodegenLinkage};
-use bray_ir::MirRuntimeReference;
+use bray_ir::{MirFrameStorageSource, MirRuntimeReference};
 use bray_runtime_interface::{
     BinarySymbolName, ProtectedAsyncFrameId, ProtectedFrameOperation, RuntimeAbiRole,
 };
@@ -47,6 +47,8 @@ impl CodegenNativeEntryMapping {
 pub enum CodegenSymbolKey {
     /// One concrete Bray definition.
     Instance(CodegenInstanceKey),
+    /// One protected-frame constructor consuming previously admitted cleanup storage.
+    CleanupFrameConstructor(CodegenInstanceKey),
     /// One external runtime ABI role.
     Runtime(MirRuntimeReference),
     /// One compiler-generated protected-frame operation.
@@ -56,6 +58,19 @@ pub enum CodegenSymbolKey {
         /// Operation emitted for the frame descriptor.
         operation: ProtectedFrameOperation,
     },
+}
+
+impl CodegenSymbolKey {
+    /// Selects the constructor entry for the explicit frame storage source.
+    pub const fn frame_constructor(
+        instance: CodegenInstanceKey,
+        storage: MirFrameStorageSource,
+    ) -> Self {
+        match storage {
+            MirFrameStorageSource::Fresh => Self::Instance(instance),
+            MirFrameStorageSource::CleanupCapacity => Self::CleanupFrameConstructor(instance),
+        }
+    }
 }
 
 /// Exact binary spelling, linkage, and machine signature selected for one symbol.

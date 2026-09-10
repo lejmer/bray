@@ -89,6 +89,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                     block,
                     source,
                     MirFrameInitializer::Callable(call),
+                    bray_ir::MirFrameStorageSource::Fresh,
                     boolean,
                 )
                 .map_err(|cause| self.mir_error(source, cause))?;
