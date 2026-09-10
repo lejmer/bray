@@ -194,6 +194,23 @@ impl RetainedRuntime {
         })
     }
 
+    pub(crate) fn admit_product_worker_cleanup(
+        &self,
+        product: usize,
+    ) -> Result<(), NativeRuntimeStatus> {
+        NATIVE_RUNTIME.with(|runtime| {
+            let runtime = runtime.borrow();
+
+            let worker = runtime
+                .as_ref()
+                .filter(|runtime| Arc::ptr_eq(&runtime.core, &self.core))
+                .and_then(|runtime| runtime.worker.as_ref())
+                .ok_or(NativeRuntimeStatus::NOT_INITIALIZED)?;
+
+            worker.admit(product)
+        })
+    }
+
     pub(crate) fn detach_product_workers(&self, product: usize) {
         let current = NATIVE_RUNTIME.with(|runtime| {
             runtime

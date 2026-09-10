@@ -1,4 +1,6 @@
-use bray_runtime_abi::{NativeProductIdentity, NativeRuntimeStatus, NativeStaticDuration};
+use bray_runtime_abi::{
+    NativeProductHostState, NativeProductIdentity, NativeRuntimeStatus, NativeStaticDuration,
+};
 
 use super::model::{ThreadStaticEntry, product_hosts};
 
@@ -74,6 +76,10 @@ impl ThreadStaticRegistry {
 
         self.ensure_exit_callback()?;
 
+        if worker {
+            admit_worker_cleanup(product)?;
+        }
+
         self.products.push(ThreadProductAttachment {
             product,
             product_identity,
@@ -118,4 +124,22 @@ impl ThreadStaticRegistry {
 
         Ok(())
     }
+}
+
+fn admit_worker_cleanup(product: usize) -> Result<(), NativeRuntimeStatus> {
+    let hosts = product_hosts()
+        .lock()
+        .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)?;
+
+    let host = hosts
+        .get(&product)
+        .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
+
+    if host.state != NativeProductHostState::OPEN {
+        return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
+    }
+
+    // Serialize admission with closure's transition before it broadcasts worker requests.
+    // Worker controls never invoke cleanup while holding their request lock.
+    host.runtime.admit_product_worker_cleanup(product)
 }
