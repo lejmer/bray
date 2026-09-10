@@ -4307,11 +4307,15 @@ public func invoke<T>(pos value: T)
 
     #[test]
     fn concrete_generic_cleanup_selects_suspension_after_substitution() {
-        for asynchronous in [false, true] {
-            let execution = if asynchronous { "async" } else { "" };
+        for (ty, value) in [
+            ("Guard", "Guard {}"),
+            ("[Guard; 2]", "[Guard {}, Guard {}]"),
+        ] {
+            for asynchronous in [false, true] {
+                let execution = if asynchronous { "async" } else { "" };
 
-            let source = format!(
-                r#"
+                let source = format!(
+                    r#"
                 module app;
                 struct Guard
                 {{
@@ -4324,46 +4328,45 @@ public func invoke<T>(pos value: T)
                 }}
                 async func main()
                 {{
-                    await dispose<Guard>(Guard
-                    {{
-                    }});
+                    await dispose<{ty}>({value});
                 }}
                 "#
-            );
+                );
 
-            let (backend, plan) = runtime_native_plan(&source);
+                let (backend, plan) = runtime_native_plan(&source);
 
-            let instances = plan
-                .units()
-                .iter()
-                .flat_map(bray_codegen::CodegenUnit::instances)
-                .filter(|instance| {
-                    matches!(instance.key().template(), bray_ir::MirUnitKey::Bound(_))
-                        && !instance.key().specialization().arguments().is_empty()
-                })
-                .collect::<Vec<_>>();
-
-            assert_eq!(instances.len(), 1);
-
-            let mir = instances[0].mir();
-            let frame = mir.frame_descriptor().unwrap();
-
-            let suspended = mir.blocks().iter().any(|block| {
-                matches!(
-                    block.terminator().kind(),
-                    bray_ir::MirTerminatorKind::Suspend { .. }
-                )
-            });
-
-            assert_eq!(suspended, asynchronous);
-            assert_eq!(frame.states().len() > 1, asynchronous);
-            assert!(frame.inactive_cleanup().is_some());
-
-            assert!(
-                generated_artifacts(&backend, &plan)
+                let instances = plan
+                    .units()
                     .iter()
-                    .all(|artifact| !artifact.is_empty())
-            );
+                    .flat_map(bray_codegen::CodegenUnit::instances)
+                    .filter(|instance| {
+                        matches!(instance.key().template(), bray_ir::MirUnitKey::Bound(_))
+                            && !instance.key().specialization().arguments().is_empty()
+                    })
+                    .collect::<Vec<_>>();
+
+                assert_eq!(instances.len(), 1);
+
+                let mir = instances[0].mir();
+                let frame = mir.frame_descriptor().unwrap();
+
+                let suspended = mir.blocks().iter().any(|block| {
+                    matches!(
+                        block.terminator().kind(),
+                        bray_ir::MirTerminatorKind::Suspend { .. }
+                    )
+                });
+
+                assert_eq!(suspended, asynchronous);
+                assert_eq!(frame.states().len() > 1, asynchronous);
+                assert!(frame.inactive_cleanup().is_some());
+
+                assert!(
+                    generated_artifacts(&backend, &plan)
+                        .iter()
+                        .all(|artifact| !artifact.is_empty())
+                );
+            }
         }
     }
 

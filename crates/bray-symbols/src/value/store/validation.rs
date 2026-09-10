@@ -441,7 +441,7 @@ fn validate_concrete_work(
                     TypeData::Array { element, length } => {
                         pending.push(ConcreteWork::Type(*element));
 
-                        validate_closed_term(tables, store, *length, &mut pending)?;
+                        validate_closed_array_length(tables, store, *length, &mut pending)?;
                     }
                     TypeData::FlexibleArray(target)
                     | TypeData::Slice(target)
@@ -493,6 +493,26 @@ fn validate_concrete_work(
     }
 
     Ok(())
+}
+
+fn validate_closed_array_length(
+    tables: &SemanticTables,
+    store: SemanticValueStoreId,
+    term: super::super::ConstantTermId,
+    pending: &mut Vec<ConcreteWork>,
+) -> Result<(), SemanticValueStoreError> {
+    let mut term = term;
+
+    loop {
+        match tables.constant_terms.get(store, term)? {
+            ConstantTermData::IntegerLiteral { .. } => return Ok(()),
+            ConstantTermData::Typed { term: inner, ty } => {
+                pending.push(ConcreteWork::Type(*ty));
+                term = *inner;
+            }
+            _ => return validate_closed_term(tables, store, term, pending),
+        }
+    }
 }
 
 fn validate_closed_term(

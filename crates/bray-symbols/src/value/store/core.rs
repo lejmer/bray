@@ -792,6 +792,90 @@ mod tests {
     }
 
     #[test]
+    fn array_length_concreteness_checks_literal_and_wrapper_types() {
+        let values = store();
+        let owner = generic_owner(StructSymbolId::from_symbol_id(SymbolId::new(70)).into());
+        let type_parameter = GenericTypeParameterSymbolId::from_symbol_id(SymbolId::new(71));
+        let const_parameter = GenericConstParameterSymbolId::from_symbol_id(SymbolId::new(72));
+        let concrete = concrete_named_type(&values, 73);
+
+        let open = values
+            .intern_type(TypeData::TypeParameter(type_parameter))
+            .unwrap();
+
+        let literal = values
+            .intern_constant_term(ConstantTermData::IntegerLiteral {
+                ty: crate::TargetSizedIntegerType::Usize,
+                value: IntegerConstant::from_u64(2),
+            })
+            .unwrap();
+
+        let typed = values
+            .intern_constant_term(ConstantTermData::Typed {
+                term: literal,
+                ty: concrete,
+            })
+            .unwrap();
+
+        let open_typed = values
+            .intern_constant_term(ConstantTermData::Typed {
+                term: literal,
+                ty: open,
+            })
+            .unwrap();
+
+        let parameter = values
+            .intern_constant_term(ConstantTermData::Parameter(const_parameter))
+            .unwrap();
+
+        for (term, expected) in [
+            (literal, true),
+            (typed, true),
+            (open_typed, false),
+            (parameter, false),
+        ] {
+            let array = values
+                .intern_type(TypeData::Array {
+                    element: concrete,
+                    length: term,
+                })
+                .unwrap();
+
+            for (parameter, argument, expected) in [
+                (
+                    GenericParameterSymbolId::from(type_parameter),
+                    GenericArgument::Type(array),
+                    expected,
+                ),
+                (
+                    GenericParameterSymbolId::from(const_parameter),
+                    GenericArgument::Constant(term),
+                    false,
+                ),
+            ] {
+                let substitution = values
+                    .intern_generic_substitution(
+                        GenericSubstitutionData::try_new(owner, [parameter], [argument]).unwrap(),
+                    )
+                    .unwrap();
+
+                let result = values
+                    .require_concrete_substitution(substitution)
+                    .map(|closed| closed.substitution());
+
+                assert_eq!(
+                    result,
+                    if expected {
+                        Ok(substitution)
+                    } else {
+                        Err(SemanticValueStoreError::OpenSubstitution)
+                    }
+                );
+            }
+        }
+    }
+
+    #[test]
     fn implementation_requirement_concreteness_checks_subject_and_trait_arguments() {
         let values = store();
         let definition = TraitSymbolId::from_symbol_id(SymbolId::new(60));
