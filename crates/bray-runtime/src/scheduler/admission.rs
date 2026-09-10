@@ -18,6 +18,7 @@ pub(crate) struct TaskRegistrationStorage {
     cancellation: CancellationContext,
     cancellation_wake: Option<crate::cancellation::CancellationWakeRegistration>,
     ready_lanes: Vec<ExecutionLane>,
+    pub(crate) cleanup_admitted: bool,
 }
 
 impl TaskRegistrationStorage {
@@ -43,11 +44,28 @@ impl TaskRegistrationStorage {
             cancellation: cancellation.clone(),
             cancellation_wake: Some(cancellation_wake),
             ready_lanes,
+            cleanup_admitted: false,
         })
     }
 }
 
 impl Scheduler {
+    /// Protects spare table and queue storage for the process's admitted cleanup tasks.
+    pub(crate) fn reserve_cleanup_capacity(
+        &self,
+        tasks: usize,
+        lanes: usize,
+    ) -> Result<(), SchedulerError> {
+        let mut state = self.lock_state()?;
+        let tasks = tasks.max(state.cleanup_tasks);
+        let lanes = lanes.max(state.cleanup_lanes);
+        state.reserve_registration_capacity(tasks, lanes)?;
+        state.cleanup_tasks = tasks;
+        state.cleanup_lanes = lanes;
+
+        Ok(())
+    }
+
     /// Registers one independent task without making it ready.
     pub fn register_task(
         &self,
@@ -94,6 +112,46 @@ impl Scheduler {
         admission: TaskAdmissionKind,
         storage: &mut TaskRegistrationStorage,
     ) -> Result<TaskRegistration, SchedulerError> {
+        self.register_prepared(task, origin, initial_state, admission, storage, None)
+    }
+
+    /// Publishes the initial wake before consuming the task's reusable registration storage.
+    pub(crate) fn register_ready_prepared_task(
+        &self,
+        task: TaskId,
+        origin: RuntimeThreadId,
+        initial_state: ProtectedFrameStateId,
+        admission: TaskAdmissionKind,
+        storage: &mut TaskRegistrationStorage,
+    ) -> Result<TaskRegistration, SchedulerError> {
+        let mut wake = || {
+            self.data
+                .event
+                .wake_handle()
+                .wake()
+                .map(|_| ())
+                .map_err(Into::into)
+        };
+
+        self.register_prepared(
+            task,
+            origin,
+            initial_state,
+            admission,
+            storage,
+            Some(&mut wake),
+        )
+    }
+
+    fn register_prepared(
+        &self,
+        task: TaskId,
+        origin: RuntimeThreadId,
+        initial_state: ProtectedFrameStateId,
+        admission: TaskAdmissionKind,
+        storage: &mut TaskRegistrationStorage,
+        initial_wake: Option<&mut dyn FnMut() -> Result<(), SchedulerError>>,
+    ) -> Result<TaskRegistration, SchedulerError> {
         let descriptor = &storage.descriptor;
         select_task_lane(&self.data, descriptor, origin, initial_state)?;
 
@@ -117,6 +175,20 @@ impl Scheduler {
             let mut state = self.lock_state()?;
 
             state.check_task_admission(task, admission, self.data.limits.tasks().get())?;
+
+            if !storage.cleanup_admitted {
+                let tasks = state
+                    .cleanup_tasks
+                    .checked_add(1)
+                    .ok_or(SchedulerError::ReadyQueueCapacityReached)?;
+
+                let lanes = state
+                    .cleanup_lanes
+                    .checked_add(ready_lanes.len())
+                    .ok_or(SchedulerError::ReadyQueueCapacityReached)?;
+
+                state.reserve_registration_capacity(tasks, lanes)?;
+            }
 
             crate::allocation::reserve_map_entries(&mut state.tasks, 1)?;
             let ready_slot = state.ready.reserve()?;
@@ -145,6 +217,31 @@ impl Scheduler {
             if admission == TaskAdmissionKind::Independent {
                 state.independent_tasks += 1;
             }
+
+            if let Some(wake) = initial_wake {
+                let result = super::engine::enqueue_task(
+                    &self.data,
+                    &mut state,
+                    task,
+                    initial_state,
+                    crate::TaskWakeCause::Explicit,
+                )
+                .and_then(|_| wake());
+
+                if let Err(error) = result {
+                    if let Some(registered) = state.tasks.get_mut(&task) {
+                        *ready_lanes = std::mem::take(&mut registered.ready_lanes);
+                    }
+
+                    state.remove_task(task);
+
+                    // The lane vector belongs to the retrying owner. Release the reservations
+                    // separately because remove_task now sees the emptied vector.
+                    state.release_ready_queues(ready_lanes);
+
+                    return Err(error);
+                }
+            }
         }
 
         let Some(mut cancellation_wake) = storage.cancellation_wake.take() else {
@@ -165,6 +262,18 @@ impl Scheduler {
 }
 
 impl SchedulerState {
+    fn reserve_registration_capacity(
+        &mut self,
+        tasks: usize,
+        lanes: usize,
+    ) -> Result<(), SchedulerError> {
+        crate::allocation::reserve_map_entries(&mut self.tasks, tasks)?;
+        self.ready.reserve_capacity(tasks)?;
+        crate::allocation::reserve_map_entries(&mut self.queues, lanes)?;
+
+        Ok(())
+    }
+
     fn check_task_admission(
         &self,
         task: TaskId,
@@ -239,6 +348,70 @@ mod tests {
     use super::Scheduler;
     use crate::test_support::{TestFrame, register_task, with_allocation_failure};
     use crate::{FrameSuspension, SchedulerError, SchedulerLimits, TaskControlBlock};
+
+    #[test]
+    fn failed_initial_wake_returns_all_registration_storage_for_retry() {
+        let runtime = RuntimeThreadScope::enter().unwrap();
+        let thread = runtime.runtime().id();
+
+        let scheduler = Scheduler::new(
+            [
+                RuntimeCapability::CooperativeExecution,
+                RuntimeCapability::MigratableLanes,
+                RuntimeCapability::MainThreadLane,
+            ],
+            thread,
+            SchedulerLimits::new(NonZeroUsize::new(1).unwrap(), NonZeroUsize::new(1).unwrap()),
+        );
+
+        let task = TaskControlBlock::start(TestFrame::main_thread_then_movable(7)).unwrap();
+
+        let mut storage = super::TaskRegistrationStorage::prepare(
+            task.descriptor().clone(),
+            task.cancellation_context(),
+        )
+        .unwrap();
+
+        let capacity = storage.ready_lanes.capacity();
+        let initial = ProtectedFrameStateId::new(0);
+        let lane = storage.lane(&scheduler, thread, initial).unwrap();
+
+        let failure = bray_platform::PlatformError::new(
+            bray_platform::PlatformOperation::Event,
+            bray_platform::PlatformErrorKind::EventGenerationExhausted,
+        );
+
+        let mut wake = || Err(SchedulerError::Platform(failure));
+
+        assert!(matches!(scheduler.register_prepared(
+            task.id(), thread, initial, crate::task::TaskAdmissionKind::Independent,
+            &mut storage, Some(&mut wake),
+        ), Err(SchedulerError::Platform(error)) if error == failure));
+
+        assert_eq!(scheduler.task_count().unwrap(), 0);
+        assert!(scheduler.lock_state().unwrap().queues.is_empty());
+        assert_eq!(storage.ready_lanes.capacity(), capacity);
+        assert!(storage.cancellation_wake.is_some());
+        assert!(scheduler.take_ready(lane).unwrap().is_none());
+
+        let registration = with_allocation_failure(|| {
+            scheduler.register_ready_prepared_task(
+                task.id(),
+                thread,
+                initial,
+                crate::task::TaskAdmissionKind::Independent,
+                &mut storage,
+            )
+        })
+        .unwrap();
+
+        assert_eq!(scheduler.task_count().unwrap(), 1);
+        let ready = scheduler.take_ready(lane).unwrap().unwrap();
+        assert_eq!(ready.task(), task.id());
+        ready.complete().unwrap();
+        with_allocation_failure(|| drop(registration));
+        assert_eq!(scheduler.task_count().unwrap(), 0);
+    }
 
     #[test]
     fn prepared_registration_retries_each_scheduler_allocation_without_losing_storage() {

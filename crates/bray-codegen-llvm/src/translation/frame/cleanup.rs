@@ -19,7 +19,7 @@ pub(super) fn translate_action_callbacks<'context>(
     translate_failure_cleanup(module, request, instance, context_type, types)?;
 
     translate_completion_move(module, request, instance, context_type, types)?;
-    translate_destruction(module, request, instance, context_type, types)?;
+    translate_destruction(module, request, instance, types)?;
 
     Ok(())
 }
@@ -198,7 +198,6 @@ fn translate_destruction<'context>(
     module: &Module<'context>,
     request: CodegenRequest<'_>,
     instance: &CodegenInstance,
-    context_type: StructType<'context>,
     types: &LlvmTypeMappings<'context, '_>,
 ) -> Result<(), CodegenFailure> {
     let function = frame_operation_function(
@@ -228,14 +227,7 @@ fn translate_destruction<'context>(
         .build_int_to_ptr(storage, pointer, "frame.storage")
         .map_err(CodegenFailure::backend_library)?;
 
-    super::storage::release(
-        module,
-        &builder,
-        crate::native::pointer_integer_type(types.context(), request.target()),
-        storage,
-        types.target_data().get_abi_alignment(&context_type),
-        types.target_data().get_abi_alignment(&pointer),
-    )?;
+    super::storage::release(module, types.context(), &builder, request.target(), storage)?;
 
     builder
         .build_return(None)

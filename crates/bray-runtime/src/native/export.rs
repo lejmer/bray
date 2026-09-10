@@ -231,9 +231,9 @@ native_export! {
         let entry = bray_runtime_abi::NativeFrameEntry::from_code(entry)
             .filter(|entry| *entry != bray_runtime_abi::NativeFrameEntry::CaptureDestruction)
             .expect("awaited-frame entry selection must be valid");
-        let mut transfer = super::frame::NativeFrameTransfer::new(frame.into_protected(entry));
+        let transfer = super::frame::NativeFrameTransfer::from_inactive(frame, entry);
 
-        let status = with_runtime(|runtime| runtime.compose_awaited(transfer.take()))
+        let status = with_runtime(|runtime| runtime.compose_awaited(transfer))
             .unwrap_or_else(|status| status);
 
         assert!(status.is_success(), "awaited-frame composition failed");
@@ -1497,10 +1497,12 @@ mod tests {
         );
 
         assert_eq!(
-            super::with_runtime(|runtime| runtime.compose_awaited(move_outcome_child(
-                stage,
-                bray_runtime_abi::NativeFrameEntry::Body,
-            ))),
+            super::with_runtime(|runtime| runtime.compose_awaited(
+                super::super::frame::NativeFrameTransfer::new(move_outcome_child(
+                    stage,
+                    bray_runtime_abi::NativeFrameEntry::Body,
+                ))
+            )),
             Ok(NativeRuntimeStatus::RUNTIME_FAILURE)
         );
 

@@ -407,7 +407,28 @@ mod tests {
             )
         });
 
-        let symbols = [instance].into_iter().chain(frame_operations);
+        let runtime_symbols =
+            crate::demanded_runtime_references(unit)
+                .into_iter()
+                .map(|reference| {
+                    let name = reference
+                        .role()
+                        .native_symbol()
+                        .unwrap_or_else(|| panic!("demanded frame role must have a native symbol"));
+
+                    CodegenSymbolMapping::new(
+                        CodegenSymbolKey::Runtime(reference),
+                        binary_symbol_name(name),
+                        CodegenLinkage::Import,
+                        signature.clone(),
+                    )
+                });
+
+        let symbols = [instance]
+            .into_iter()
+            .chain(frame_operations)
+            .chain(runtime_symbols);
+
         let fixture = codegen_request();
         let type_mapping = &fixture.request().mappings().types()[0];
 

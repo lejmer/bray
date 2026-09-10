@@ -76,6 +76,17 @@ pub fn demanded_runtime_references_for_mir(
         .iter()
         .flat_map(|operation| operation_runtime_references(operation.kind()))
         .chain(
+            mir.frame_descriptor()
+                .is_some()
+                .then_some([
+                    bray_runtime_interface::RuntimeAbiRole::FrameStorageAdmission,
+                    bray_runtime_interface::RuntimeAbiRole::FrameStorageRelease,
+                ])
+                .into_iter()
+                .flatten()
+                .map(|role| Some(MirRuntimeReference::new(role, runtime_abi))),
+        )
+        .chain(
             mir.blocks()
                 .iter()
                 .flat_map(|block| terminator_runtime_references(block.terminator().kind())),

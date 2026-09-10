@@ -739,14 +739,13 @@ impl NativeInactiveFrame {
     /// Materializes the selected adapter, borrowing or consuming context according to its entry.
     pub fn into_protected(self, entry: crate::NativeFrameEntry) -> NativeProtectedFrame {
         let mut frame = (self.move_before_start)(self.context, entry);
+        frame.metadata = frame.metadata.for_entry(entry);
 
         match entry {
             crate::NativeFrameEntry::Body => {}
             crate::NativeFrameEntry::CaptureCleanup => frame.resume = frame.cancel,
             crate::NativeFrameEntry::CaptureQuiescence
             | crate::NativeFrameEntry::CaptureDestruction => {
-                frame.metadata.completion_size = 0;
-                frame.metadata.completion_alignment = 1;
                 frame.move_completion = ignore_capture_completion;
                 frame.resolve_lifecycle = retain_capture_context;
                 frame.broadcast_tasks = retain_borrowed_context;

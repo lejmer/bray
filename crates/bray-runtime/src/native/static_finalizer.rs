@@ -28,7 +28,7 @@ pub(super) fn run_cleanup_frame(
     );
 
     let incidents = super::state::with_runtime(|runtime| {
-        let allocation = runtime.allocate_continuation();
+        let allocation = runtime.allocate_frame_continuation(&transfer);
 
         let Some(task) = allocation.task() else {
             return vec![crate::incident::OwnedCleanupIncident::runtime_failure()];

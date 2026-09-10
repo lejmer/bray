@@ -241,7 +241,8 @@ pub enum ProtectedFrameLayoutBuildError {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct ProtectedFrameStateDescriptor {
     state: ProtectedFrameStateId,
-    lane_requirements: arrayvec::ArrayVec<ExecutionLaneRequirement, { ExecutionLaneRequirement::ALL.len() }>,
+    lane_requirements:
+        arrayvec::ArrayVec<ExecutionLaneRequirement, { ExecutionLaneRequirement::ALL.len() }>,
     initialized_storage: Option<Arc<[ProtectedFrameStorageId]>>,
     dependencies: Option<Arc<[ProtectedFrameDependencyId]>>,
     affinity: ProtectedFrameAffinity,
@@ -395,16 +396,15 @@ impl ProtectedFrameDescriptor {
     pub fn state(&self, state: ProtectedFrameStateId) -> Option<&ProtectedFrameStateDescriptor> {
         let index = usize::try_from(state.raw()).ok()?;
 
-        self.states.slice
+        self.states
+            .slice
             .get(index)
             .filter(|entry| entry.state() == state)
     }
 }
 
 fn sorted_unique_slice<T: Ord>(values: impl IntoIterator<Item = T>) -> Option<Arc<[T]>> {
-    let values = values
-        .into_iter()
-        .collect::<BTreeSet<_>>();
+    let values = values.into_iter().collect::<BTreeSet<_>>();
 
     (!values.is_empty()).then(|| values.into_iter().collect())
 }
@@ -442,13 +442,20 @@ mod tests {
     fn state_descriptors_keep_lanes_inline_and_empty_metadata_unallocated() {
         let descriptor = ProtectedFrameStateDescriptor::new(
             ProtectedFrameStateId::new(0),
-            ExecutionLaneRequirement::ALL.into_iter().rev().chain(ExecutionLaneRequirement::ALL),
+            ExecutionLaneRequirement::ALL
+                .into_iter()
+                .rev()
+                .chain(ExecutionLaneRequirement::ALL),
             [],
             [],
             ProtectedFrameAffinity::Movable,
         );
 
-        assert_eq!(descriptor.lane_requirements(), &ExecutionLaneRequirement::ALL);
+        assert_eq!(
+            descriptor.lane_requirements(),
+            &ExecutionLaneRequirement::ALL
+        );
+
         assert!(descriptor.initialized_storage.is_none());
         assert!(descriptor.dependencies.is_none());
         assert!(descriptor.initialized_storage().is_empty());

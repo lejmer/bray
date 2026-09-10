@@ -1407,8 +1407,8 @@ mod tests {
                 "driver test executor only accepts compiler requests"
             );
 
-            let result = bray_driver::run_result(
-                std::iter::once(OsString::from("brayc")).chain(request.arguments().iter().map(|argument| {
+            let result = bray_driver::run_result(std::iter::once(OsString::from("brayc")).chain(
+                request.arguments().iter().map(|argument| {
                     let path = Path::new(argument);
 
                     // Emulate the child working directory without changing process-global state.
@@ -1417,8 +1417,8 @@ mod tests {
                     } else {
                         argument.clone()
                     }
-                })),
-            );
+                }),
+            ));
 
             let mut stdout = Vec::new();
             let mut stderr = Vec::new();
@@ -1508,13 +1508,26 @@ mod tests {
             "sample-project"
         ));
 
-        let sources = request.arguments.iter().map(Path::new)
+        let sources = request
+            .arguments
+            .iter()
+            .map(Path::new)
             .filter(|path| path.extension() == Some(OsStr::new("bray")))
             .collect::<Vec<_>>();
 
         assert!(!sources.is_empty());
-        assert!(sources.iter().all(|path| path.starts_with(".") && path.is_relative()));
-        assert!(sources.iter().all(|path| request.working_directory.join(path).is_file()));
+
+        assert!(
+            sources
+                .iter()
+                .all(|path| path.starts_with(".") && path.is_relative())
+        );
+
+        assert!(
+            sources
+                .iter()
+                .all(|path| request.working_directory.join(path).is_file())
+        );
 
         let _ = std::fs::remove_dir_all(parent);
     }

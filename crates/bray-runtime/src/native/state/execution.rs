@@ -2,9 +2,8 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use bray_runtime_abi::{
-    NativeExecutionLaneResult, NativeProtectedFrame, NativeRootHandle, NativeRunOutcome,
-    NativeRunState, NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle,
-    NativeWakeCallback,
+    NativeExecutionLaneResult, NativeRootHandle, NativeRunOutcome, NativeRunState,
+    NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle, NativeWakeCallback,
 };
 use bray_runtime_model::ProtectedFrameStateId;
 
@@ -41,14 +40,33 @@ impl NativeRuntime {
     }
 
     pub(in crate::native) fn allocate(&self) -> NativeTaskAllocation {
-        self.allocate_kind(crate::task::TaskAdmissionKind::Independent)
+        self.allocate_kind(crate::task::TaskAdmissionKind::Independent, false)
     }
 
     pub(in crate::native) fn allocate_continuation(&self) -> NativeTaskAllocation {
-        self.allocate_kind(crate::task::TaskAdmissionKind::Continuation)
+        self.allocate_kind(crate::task::TaskAdmissionKind::Continuation, false)
     }
 
-    fn allocate_kind(&self, kind: crate::task::TaskAdmissionKind) -> NativeTaskAllocation {
+    pub(in crate::native) fn allocate_cleanup(&self) -> NativeTaskAllocation {
+        self.allocate_kind(crate::task::TaskAdmissionKind::Continuation, true)
+    }
+
+    pub(in crate::native) fn allocate_frame_continuation(
+        &self,
+        frame: &super::super::frame::NativeFrameTransfer,
+    ) -> NativeTaskAllocation {
+        if super::super::frames::is_admitted(frame.frame().context()) {
+            self.allocate_cleanup()
+        } else {
+            self.allocate_continuation()
+        }
+    }
+
+    fn allocate_kind(
+        &self,
+        kind: crate::task::TaskAdmissionKind,
+        cleanup_admitted: bool,
+    ) -> NativeTaskAllocation {
         let mut tasks = self
             .tasks
             .lock()
@@ -70,7 +88,25 @@ impl NativeRuntime {
             return NativeTaskAllocation::failure(NativeRuntimeStatus::RUNTIME_FAILURE);
         };
 
-        if crate::allocation::reserve_map_entries(&mut tasks, 1).is_err() {
+        let headroom = if cleanup_admitted {
+            0
+        } else {
+            self.cleanup_task_capacity.load(Ordering::Relaxed)
+        };
+
+        let Some(additional) = headroom.checked_add(1) else {
+            return NativeTaskAllocation::failure(NativeRuntimeStatus::ALLOCATION_FAILURE);
+        };
+
+        if u64::try_from(headroom)
+            .ok()
+            .and_then(|count| next.checked_add(count))
+            .is_none()
+        {
+            return NativeTaskAllocation::failure(NativeRuntimeStatus::RUNTIME_FAILURE);
+        }
+
+        if crate::allocation::reserve_map_entries(&mut tasks, additional).is_err() {
             return NativeTaskAllocation::failure(NativeRuntimeStatus::ALLOCATION_FAILURE);
         }
 
@@ -269,10 +305,8 @@ impl NativeRuntime {
 
     pub(in crate::native) fn compose_awaited(
         &self,
-        frame: NativeProtectedFrame,
+        mut transfer: super::super::frame::NativeFrameTransfer,
     ) -> NativeRuntimeStatus {
-        let mut transfer = super::super::frame::NativeFrameTransfer::new(frame);
-
         let Some(parent) = current_native_task() else {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
         };
@@ -287,7 +321,7 @@ impl NativeRuntime {
                 return NativeRuntimeStatus::RUNTIME_FAILURE;
             }
 
-            let allocation = self.allocate_continuation();
+            let allocation = self.allocate_frame_continuation(&transfer);
 
             let Some(child) = allocation.task() else {
                 return allocation.status();

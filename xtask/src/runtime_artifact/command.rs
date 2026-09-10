@@ -1252,6 +1252,8 @@ mod tests {
                 RuntimeAbiRole::AwaitedFrameResolution,
                 RuntimeAbiRole::PanicReportConstruction,
                 RuntimeAbiRole::PanicPropagation,
+                RuntimeAbiRole::FrameStorageAdmission,
+                RuntimeAbiRole::FrameStorageRelease,
                 RuntimeAbiRole::AwaitedFrameComposition,
                 RuntimeAbiRole::TaskDestruction,
                 RuntimeAbiRole::InactiveCaptureDestruction,

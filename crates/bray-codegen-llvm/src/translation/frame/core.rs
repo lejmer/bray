@@ -116,17 +116,8 @@ fn translate_constructor<'context>(
     let block = context.append_basic_block(function, "frame.create");
     builder.position_at_end(block);
 
-    let integer = crate::native::pointer_integer_type(types.context(), request.target());
-    let pointer = context.ptr_type(AddressSpace::default());
-
-    let storage = super::storage::allocate(
-        module,
-        &builder,
-        integer,
-        types.target_data().get_store_size(&context_type),
-        types.target_data().get_abi_alignment(&context_type),
-        types.target_data().get_abi_alignment(&pointer),
-    )?;
+    let metadata = frame_metadata(module, request, instance, context_type, types)?;
+    let storage = super::storage::allocate(module, context, &builder, request.target(), metadata)?;
 
     let initialized = context.append_basic_block(function, "frame.initialize");
     let finished = context.append_basic_block(function, "frame.allocation.finished");
@@ -306,32 +297,19 @@ fn store_frame_parameter<'context>(
     Ok(())
 }
 
-fn translate_frame_adapter<'context>(
+fn frame_metadata<'context>(
     module: &Module<'context>,
     request: CodegenRequest<'_>,
     instance: &CodegenInstance,
     context_type: StructType<'context>,
     types: &mut LlvmTypeMappings<'context, '_>,
-) -> Result<(), CodegenFailure> {
-    let function = frame_operation_function(
-        module,
-        request,
-        instance,
-        ProtectedFrameOperation::MoveBeforeStart,
-    )?;
-
+) -> Result<inkwell::values::StructValue<'context>, CodegenFailure> {
     let descriptor = instance
         .mir()
         .frame_descriptor()
         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
     let context = types.context();
-    let builder = context.create_builder();
-    let block = context.append_basic_block(function, "frame.adapter");
-    builder.position_at_end(block);
-
-    initialize_frame_entry(&builder, function, request, context_type, types)?;
-
     let completion = types.map(descriptor.result_type())?;
 
     let frame_layout = (
@@ -353,29 +331,14 @@ fn translate_frame_adapter<'context>(
             .collect::<Vec<_>>(),
     );
 
-    let callbacks = [
+    let state = frame_operation_function(
+        module,
+        request,
+        instance,
         ProtectedFrameOperation::StateDescription,
-        ProtectedFrameOperation::Resume,
-        ProtectedFrameOperation::CancellationEntry,
-        ProtectedFrameOperation::TaskBroadcast,
-        ProtectedFrameOperation::LifecycleResolution,
-        ProtectedFrameOperation::CompletionMove,
-        ProtectedFrameOperation::Destruction,
-    ]
-    .map(|operation| {
-        frame_operation_function(module, request, instance, operation)
-            .map(|function| function.as_global_value().as_pointer_value())
-    });
-
-    let [
-        state,
-        resume,
-        cancel,
-        broadcast,
-        resolve,
-        move_completion,
-        destroy,
-    ] = callbacks;
+    )?
+    .as_global_value()
+    .as_pointer_value();
 
     let usize = crate::native::pointer_integer_type(context, request.target());
 
@@ -398,8 +361,49 @@ fn translate_frame_adapter<'context>(
             usize
                 .const_int(u64::from(completion_layout.1), false)
                 .into(),
-            state?.into(),
+            state.into(),
         ]);
+
+    Ok(metadata)
+}
+
+fn translate_frame_adapter<'context>(
+    module: &Module<'context>,
+    request: CodegenRequest<'_>,
+    instance: &CodegenInstance,
+    context_type: StructType<'context>,
+    types: &mut LlvmTypeMappings<'context, '_>,
+) -> Result<(), CodegenFailure> {
+    let function = frame_operation_function(
+        module,
+        request,
+        instance,
+        ProtectedFrameOperation::MoveBeforeStart,
+    )?;
+
+    let context = types.context();
+    let builder = context.create_builder();
+    let block = context.append_basic_block(function, "frame.adapter");
+    builder.position_at_end(block);
+
+    initialize_frame_entry(&builder, function, request, context_type, types)?;
+
+    let callbacks = [
+        ProtectedFrameOperation::Resume,
+        ProtectedFrameOperation::CancellationEntry,
+        ProtectedFrameOperation::TaskBroadcast,
+        ProtectedFrameOperation::LifecycleResolution,
+        ProtectedFrameOperation::CompletionMove,
+        ProtectedFrameOperation::Destruction,
+    ]
+    .map(|operation| {
+        frame_operation_function(module, request, instance, operation)
+            .map(|function| function.as_global_value().as_pointer_value())
+    });
+
+    let [resume, cancel, broadcast, resolve, move_completion, destroy] = callbacks;
+
+    let metadata = frame_metadata(module, request, instance, context_type, types)?;
 
     let fields: [BasicValueEnum<'context>; 8] = [
         function

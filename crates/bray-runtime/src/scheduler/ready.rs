@@ -49,6 +49,12 @@ pub(super) struct ReadyQueue {
 }
 
 impl ReadySlots {
+    pub(super) fn reserve_capacity(&mut self, additional: usize) -> Result<(), SchedulerError> {
+        crate::allocation::reserve_vec_entries(&mut self.slots, additional)?;
+
+        Ok(())
+    }
+
     pub(super) fn reserve(&mut self) -> Result<ReadySlotId, SchedulerError> {
         if let Some(slot) = self.free {
             let ReadySlot::Vacant(next) = self.slots[slot.0] else {

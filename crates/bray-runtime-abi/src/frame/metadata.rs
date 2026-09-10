@@ -8,12 +8,26 @@ pub struct NativeFrameMetadata {
     state_count: u32,
     size: usize,
     alignment: usize,
-    pub(crate) completion_size: usize,
-    pub(crate) completion_alignment: usize,
+    completion_size: usize,
+    completion_alignment: usize,
     state: NativeFrameStateCallback,
 }
 
 impl NativeFrameMetadata {
+    /// Returns the completion layout required by the selected ownership entry.
+    pub const fn for_entry(mut self, entry: crate::NativeFrameEntry) -> Self {
+        if matches!(
+            entry,
+            crate::NativeFrameEntry::CaptureQuiescence
+                | crate::NativeFrameEntry::CaptureDestruction
+        ) {
+            self.completion_size = 0;
+            self.completion_alignment = 1;
+        }
+
+        self
+    }
+
     /// Describes a generated frame without constructing or borrowing its owned context.
     pub const fn new(
         identity: [u8; 32],

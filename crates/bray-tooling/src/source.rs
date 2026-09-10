@@ -148,7 +148,8 @@ fn source_input_from_file_argument(
     })?;
 
     let (resolved, bytes) = match fs::canonicalize(&path)
-        .and_then(|resolved| fs::read(&resolved).map(|bytes| (resolved, bytes))) {
+        .and_then(|resolved| fs::read(&resolved).map(|bytes| (resolved, bytes)))
+    {
         Ok(source) => source,
         Err(error) => {
             return Err(SourceInputError::ReadFile {
@@ -211,8 +212,17 @@ mod tests {
         assert_eq!(second_input.identity(), SourceIdentity::new(1));
         assert_eq!(first_input.version(), SourceVersion::new(0));
         assert_eq!(second_input.version(), SourceVersion::new(0));
-        assert_eq!(first_input.file_path(), Some(first_file.path().canonicalize().unwrap().as_path()));
-        assert_eq!(second_input.file_path(), Some(second_file.path().canonicalize().unwrap().as_path()));
+
+        assert_eq!(
+            first_input.file_path(),
+            Some(first_file.path().canonicalize().unwrap().as_path())
+        );
+
+        assert_eq!(
+            second_input.file_path(),
+            Some(second_file.path().canonicalize().unwrap().as_path())
+        );
+
         assert_eq!(first_input.text(), None);
         assert_eq!(second_input.text(), None);
         assert_eq!(first_input.bytes(), &[0xef, 0xbb, 0xbf, b'm', b'o', b'd']);
@@ -229,7 +239,11 @@ mod tests {
         for path in [relative, spelled, absolute] {
             let actual = source_inputs_from_file_arguments([path]).unwrap();
             assert_eq!(actual[0].file_path(), expected[0].file_path());
-            assert_eq!(super::source_input_digest(&actual), super::source_input_digest(&expected));
+
+            assert_eq!(
+                super::source_input_digest(&actual),
+                super::source_input_digest(&expected)
+            );
         }
     }
 

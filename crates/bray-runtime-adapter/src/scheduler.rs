@@ -1,9 +1,22 @@
 use bray_runtime::native::implementation;
+
 use bray_runtime_abi::{
     NativeExecutionLaneResult, NativeFrameProgress, NativeInactiveFrame, NativeRootStart,
     NativeRunOutcome, NativeRunResultLayout, NativeRunState, NativeRuntimeConfiguration,
     NativeRuntimeStatus, NativeTaskAllocation, NativeTaskHandle, NativeWakeCallback,
 };
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_frame_storage_admission(metadata: Option<&bray_runtime_abi::NativeFrameMetadata>) -> usize {
+        implementation::bray_runtime_frame_storage_admission(metadata)
+    }
+}
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_frame_storage_release(context: usize) {
+        implementation::bray_runtime_frame_storage_release(context)
+    }
+}
 
 native_adapter! {
     pub extern "C" fn bray_runtime_root_execution(

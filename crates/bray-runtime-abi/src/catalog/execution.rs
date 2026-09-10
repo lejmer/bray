@@ -516,6 +516,24 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [CreateFrame]
             }
+            FrameStorageAdmission {
+                "Reserve generated frame storage and cleanup capacity before capture ownership.", "frame_storage_admission",
+                native: (FRAME_STORAGE_ADMISSION_SYMBOL = "bray_runtime_frame_storage_admission", [Pointer] -> Usize),
+                call_hook: (),
+                compiler: C [Pointer] -> Usize,
+                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [CreateFrame]
+            }
+            FrameStorageRelease {
+                "Release resolved generated frame storage and unused cleanup capacity.", "frame_storage_release",
+                native: (FRAME_STORAGE_RELEASE_SYMBOL = "bray_runtime_frame_storage_release", [Usize] -> Void),
+                call_hook: (),
+                compiler: C [Usize] -> Void,
+                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [DestroyFrame]
+            }
             InactiveFrameMove {
                 "Move one inactive erased protected frame before first resume.", "inactive_frame_move",
                 native: (),

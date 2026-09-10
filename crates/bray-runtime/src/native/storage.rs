@@ -2,13 +2,13 @@ use std::alloc::Layout;
 
 use bray_runtime_abi::NativeRuntimeStatus;
 
-/// Owns stable, zero-initialized storage for a compiler-described native result.
-pub(super) struct NativeResultStorage {
+/// Owns stable, zero-initialized bytes for compiler-described native frames and results.
+pub(super) struct NativeStorage {
     storage: Vec<u8>,
     offset: usize,
 }
 
-impl NativeResultStorage {
+impl NativeStorage {
     pub(super) fn new(size: usize, alignment: usize) -> Result<Self, NativeRuntimeStatus> {
         let layout = Layout::from_size_align(size.max(1), alignment)
             .map_err(|_| NativeRuntimeStatus::INVALID_ARGUMENT)?;
@@ -53,14 +53,14 @@ impl NativeResultStorage {
 
 #[cfg(test)]
 mod tests {
-    use super::NativeResultStorage;
+    use super::NativeStorage;
     use bray_runtime_abi::NativeRuntimeStatus;
 
     #[test]
     fn result_allocations_preserve_alignment_zeroing_and_address_across_moves() {
         for size in [0, 1, 15, 16, 17, 1024] {
             for alignment in [1, 2, 8, 16, 32, 64, 4096] {
-                let storage = NativeResultStorage::new(size, alignment).unwrap();
+                let storage = NativeStorage::new(size, alignment).unwrap();
                 let address = storage.address();
 
                 assert_ne!(address, 0);
@@ -85,7 +85,7 @@ mod tests {
     fn empty_completion_storage_remains_available_when_allocations_fail() {
         crate::test_support::with_allocation_failure(|| {
             for alignment in [1, 8, 64, 4096] {
-                let storage = NativeResultStorage::new(0, alignment).unwrap();
+                let storage = NativeStorage::new(0, alignment).unwrap();
 
                 assert_ne!(storage.address(), 0);
                 assert_eq!(storage.address() % alignment, 0);
@@ -98,7 +98,7 @@ mod tests {
     fn invalid_result_layouts_fail_before_allocation() {
         for (size, alignment) in [(1, 0), (1, 3), (usize::MAX, 1), (usize::MAX, 4096)] {
             assert_eq!(
-                NativeResultStorage::new(size, alignment).err(),
+                NativeStorage::new(size, alignment).err(),
                 Some(NativeRuntimeStatus::INVALID_ARGUMENT)
             );
         }

@@ -5,13 +5,14 @@ mod entry;
 mod event;
 mod export;
 mod frame;
+mod frames;
 mod host;
 #[doc(hidden)]
 pub mod implementation;
 mod incident;
-mod result_storage;
 mod state;
 mod static_finalizer;
+mod storage;
 mod task_outcome;
 mod value_cleanup;
 mod workers;

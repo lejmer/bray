@@ -19,7 +19,7 @@ use crate::{
     FrameContext, FrameExit, FrameProgress, FrameSuspension, ProtectedFrame, RuntimePanic,
 };
 
-use super::result_storage::NativeResultStorage;
+use super::storage::NativeStorage;
 
 pub(crate) fn inactive_frame_output() -> bray_runtime_abi::NativeInactiveFrame {
     extern "C" fn uninitialized_frame(
@@ -36,7 +36,7 @@ pub(super) struct NativeFrame {
     descriptor: ProtectedFrameDescriptor,
     abi: NativeProtectedFrame,
     terminal: Arc<NativeTerminalState>,
-    completion: Option<NativeResultStorage>,
+    completion: Option<NativeStorage>,
 }
 
 pub(super) struct NativeTerminalState {
@@ -45,7 +45,7 @@ pub(super) struct NativeTerminalState {
 }
 
 pub(super) enum NativeTerminalPayload {
-    Completion(NativeResultStorage),
+    Completion(NativeStorage),
     Opaque(usize),
 }
 
@@ -111,7 +111,7 @@ impl NativeFrame {
     pub(super) fn new(
         abi: NativeProtectedFrame,
         descriptor: ProtectedFrameDescriptor,
-        completion: NativeResultStorage,
+        completion: NativeStorage,
         terminal: Arc<NativeTerminalState>,
     ) -> Self {
         Self {
@@ -403,13 +403,30 @@ fn states(
 }
 
 pub(super) struct NativeFrameTransfer {
+    entry: bray_runtime_abi::NativeFrameEntry,
     frame: Option<NativeProtectedFrame>,
     destroy_on_drop: bool,
 }
 
 impl NativeFrameTransfer {
+    pub(super) fn from_inactive(
+        frame: bray_runtime_abi::NativeInactiveFrame,
+        entry: bray_runtime_abi::NativeFrameEntry,
+    ) -> Self {
+        Self {
+            frame: Some(frame.into_protected(entry)),
+            entry,
+            destroy_on_drop: true,
+        }
+    }
+
+    pub(super) const fn entry(&self) -> bray_runtime_abi::NativeFrameEntry {
+        self.entry
+    }
+
     pub(super) const fn new(frame: NativeProtectedFrame) -> Self {
         Self {
+            entry: bray_runtime_abi::NativeFrameEntry::Body,
             frame: Some(frame),
             destroy_on_drop: true,
         }
@@ -417,6 +434,7 @@ impl NativeFrameTransfer {
 
     pub(super) const fn borrowed(frame: NativeProtectedFrame) -> Self {
         Self {
+            entry: bray_runtime_abi::NativeFrameEntry::Body,
             frame: Some(frame),
             destroy_on_drop: false,
         }
@@ -529,7 +547,7 @@ mod tests {
         );
 
         let descriptor = super::NativeFrame::checked_descriptor(&metadata).unwrap();
-        let completion = super::NativeResultStorage::new(64, 64).unwrap();
+        let completion = super::NativeStorage::new(64, 64).unwrap();
         let address = completion.address();
 
         let abi = NativeProtectedFrame::new(
@@ -665,7 +683,7 @@ mod tests {
     #[test]
     fn a_completion_allocation_is_never_used_as_a_panic_report() {
         let completion =
-            NativeTerminalPayload::Completion(super::NativeResultStorage::new(8, 8).unwrap());
+            NativeTerminalPayload::Completion(super::NativeStorage::new(8, 8).unwrap());
 
         let address = completion.handle();
 

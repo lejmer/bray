@@ -34,6 +34,8 @@ pub(super) struct SchedulerData {
 pub(super) struct SchedulerState {
     pub(super) tasks: HashMap<TaskId, RegisteredTask>,
     pub(super) independent_tasks: usize,
+    pub(super) cleanup_tasks: usize,
+    pub(super) cleanup_lanes: usize,
     pub(super) queues: HashMap<ExecutionLane, ReadyQueue>,
     pub(super) ready: ReadySlots,
     pub(super) timers: BTreeMap<MonotonicDeadline, BTreeMap<u64, TimerWake>>,
@@ -699,7 +701,7 @@ fn release_dispatch(
     Ok(next.is_some())
 }
 
-fn enqueue_task(
+pub(super) fn enqueue_task(
     scheduler: &SchedulerData,
     state: &mut SchedulerState,
     task_id: TaskId,
