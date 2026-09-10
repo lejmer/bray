@@ -126,7 +126,7 @@ impl Lowerer<'_> {
         ))
     }
 
-    pub(super) fn await_cleanup_frame(
+    pub(in crate::lowering::cleanup) fn await_cleanup_frame(
         &mut self,
         block: MirBlockId,
         source: &MirSourceAnchor,

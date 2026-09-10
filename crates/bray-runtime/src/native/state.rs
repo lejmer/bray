@@ -1,4 +1,5 @@
 mod binding;
+mod cancellation;
 mod continuation;
 mod core;
 mod event_wait;

@@ -163,6 +163,19 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .resolve_completion(builder, block, source, result, (variants, completion))
             .map_err(|cause| self.mir_error(source, cause))?;
 
+        let cleanup = self.context.cleanup_type_execution(completion)?;
+
+        // Cancellation and lifecycle resolution independently own the completed payload path.
+        let completed = crate::cleanup_payload::broadcast_cancellation(
+            builder,
+            completed,
+            source,
+            payload.clone(),
+            cleanup.cleanup(),
+            outcome,
+        )
+        .map_err(|cause| self.mir_error(source, cause))?;
+
         let completed = self.resolve_lifecycle_action(
             builder,
             completed,

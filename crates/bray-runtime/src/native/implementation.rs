@@ -14,10 +14,10 @@ pub use super::callback::{
     bray_runtime_substrate_synchronous_root_execution,
 };
 pub use super::export::{
-    bray_runtime_awaited_frame_composition, bray_runtime_awaited_frame_resolution,
-    bray_runtime_cleanup_incident_reporting, bray_runtime_cleanup_shield_enter,
-    bray_runtime_cleanup_shield_leave, bray_runtime_compatible_lane_selection,
-    bray_runtime_current_run_cancellation_observation,
+    bray_runtime_awaited_frame_cancellation_request, bray_runtime_awaited_frame_composition,
+    bray_runtime_awaited_frame_resolution, bray_runtime_cleanup_incident_reporting,
+    bray_runtime_cleanup_shield_enter, bray_runtime_cleanup_shield_leave,
+    bray_runtime_compatible_lane_selection, bray_runtime_current_run_cancellation_observation,
     bray_runtime_current_run_cancellation_propagation, bray_runtime_entry_failure_resolution,
     bray_runtime_event, bray_runtime_inactive_capture_destruction, bray_runtime_join_registration,
     bray_runtime_main_thread_lane_drive, bray_runtime_main_thread_lane_startup,

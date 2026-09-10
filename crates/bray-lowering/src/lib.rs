@@ -5,6 +5,7 @@
 mod cleanup_await;
 mod cleanup_loop;
 mod cleanup_outcome;
+mod cleanup_payload;
 mod frame_creation;
 mod host;
 mod identity;

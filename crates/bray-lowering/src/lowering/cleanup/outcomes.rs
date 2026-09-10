@@ -37,6 +37,7 @@ impl Lowerer<'_> {
         &mut self,
         source: &MirSourceAnchor,
         exit: AnyBoundNodeId,
+        awaited: Option<bray_symbols::TypeId>,
     ) -> Result<MirCleanupEdge, LoweringError> {
         let plans = self.cleanup_plans(0, exit)?;
 
@@ -57,6 +58,7 @@ impl Lowerer<'_> {
             None,
             &std::collections::BTreeMap::new(),
             ConstructionExit::All,
+            awaited,
         )?;
 
         let outcome = self
@@ -130,6 +132,7 @@ impl Lowerer<'_> {
             } else {
                 ConstructionExit::All
             },
+            None,
         )?;
 
         let outcome = self
@@ -173,6 +176,7 @@ impl Lowerer<'_> {
             (MirBlockId, MirBlockId, bray_symbols::TypeId),
         >,
         construction_exit: ConstructionExit,
+        awaited: Option<bray_symbols::TypeId>,
     ) -> Result<MirBlockId, LoweringError> {
         let retained = self.cleanup_retained_storages.len();
         let temporaries = self.construction_cleanup(construction_exit);
@@ -207,6 +211,10 @@ impl Lowerer<'_> {
                 .0;
         }
 
+        if awaited.is_some() {
+            self.request_awaited_cancellation(broadcast, source)?;
+        }
+
         let (broadcast, _) = self.push_cleanup_operations(
             broadcast,
             source,
@@ -225,6 +233,10 @@ impl Lowerer<'_> {
                 MirEdge::new(lifecycle, []),
             )),
         )?;
+
+        if let Some(completion) = awaited {
+            lifecycle = self.resolve_cancelled_await(lifecycle, source, completion)?;
+        }
 
         if let Some(place) = abandoned {
             lifecycle = self

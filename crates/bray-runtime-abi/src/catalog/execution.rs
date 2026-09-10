@@ -192,6 +192,15 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [RequestCancellation]
             }
+            AwaitedFrameCancellationRequest {
+                "Request cancellation of the current frame's attached child.", "awaited_frame_cancellation_request",
+                native: (AWAITED_FRAME_CANCELLATION_REQUEST_SYMBOL = "bray_runtime_awaited_frame_cancellation_request", [] -> Void),
+                call_hook: (),
+                compiler: Bray [] -> Void,
+                owner: Cancellation, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [RequestCancellation]
+            }
             CurrentRunCancellationObservation {
                 "Observe cancellation requested for the current run.", "current_run_cancellation_observation",
                 native: (CURRENT_RUN_CANCELLATION_OBSERVATION_SYMBOL = "bray_runtime_current_run_cancellation_observation", [] -> U8),

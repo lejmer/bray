@@ -363,6 +363,15 @@ native_export! {
 }
 
 native_export! {
+    pub extern "C-unwind" fn bray_runtime_awaited_frame_cancellation_request() {
+        let status = with_runtime(|runtime| runtime.request_awaited_cancellation())
+            .unwrap_or_else(|status| status);
+
+        assert!(status.is_success(), "awaited-frame cancellation failed: {status:?}");
+    }
+}
+
+native_export! {
     pub extern "C" fn bray_runtime_task_cancellation_request(
         task: NativeTaskHandle,
     ) -> NativeRuntimeStatus {

@@ -22,6 +22,12 @@ native_adapter! {
 }
 
 native_adapter! {
+    pub extern "C-unwind" fn bray_runtime_awaited_frame_cancellation_request() {
+        implementation::bray_runtime_awaited_frame_cancellation_request()
+    }
+}
+
+native_adapter! {
     pub extern "C" fn bray_runtime_task_cancellation_request(
         task: NativeTaskHandle,
     ) -> NativeRuntimeStatus {

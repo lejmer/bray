@@ -43,6 +43,26 @@ impl Lowerer<'_> {
             types,
         )?;
 
+        let cleanup = self
+            .input
+            .lowering_plans()
+            .cleanup_type(completion)
+            .ok_or(LoweringError::MissingCleanupExecution(payload.storage()))?;
+
+        let outcome = self
+            .cleanup_outcome
+            .as_ref()
+            .ok_or(LoweringError::SemanticValueUnavailable)?;
+
+        let completed = crate::cleanup_payload::broadcast_cancellation(
+            &mut self.builder,
+            completed,
+            source,
+            Self::retained_place(&payload),
+            cleanup.cleanup(),
+            outcome,
+        )?;
+
         self.cleanup_retained_storages.push(payload.storage());
 
         let (completed, _) = self.push_lifecycle_cleanup(

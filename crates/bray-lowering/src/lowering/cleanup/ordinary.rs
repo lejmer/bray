@@ -75,8 +75,15 @@ impl Lowerer<'_> {
             )),
         )?;
 
-        let lifecycle =
-            self.resolve_cleanup(broadcast, source, plans, None, &failures, construction_exit)?;
+        let lifecycle = self.resolve_cleanup(
+            broadcast,
+            source,
+            plans,
+            None,
+            &failures,
+            construction_exit,
+            None,
+        )?;
 
         if pending.is_some() {
             self.cleanup_retained_storages.pop();

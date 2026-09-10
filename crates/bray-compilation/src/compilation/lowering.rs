@@ -1706,6 +1706,111 @@ mod tests {
     }
 
     #[test]
+    fn cancelled_await_resolves_attached_child_before_owner_finalizers() {
+        let compilation = compilation(
+            r#"
+            module app;
+            async func main() {
+                let guard = Guard {};
+                await child();
+            }
+            struct Guard { async finalize() { await child(); } }
+            async func child() {}
+        "#,
+        );
+
+        assert!(
+            compilation.check_diagnostics().is_empty(),
+            "{:?}",
+            compilation.check_diagnostics()
+        );
+
+        let lowered = compilation
+            .lowered_unit(source_callable_body_key(&compilation))
+            .unwrap();
+
+        let mir = lowered_mir(&lowered);
+
+        let cancellation = mir
+            .blocks()
+            .iter()
+            .find_map(|block| match block.terminator().kind() {
+                MirTerminatorKind::Suspend {
+                    kind: bray_ir::MirSuspensionKind::Awaited,
+                    cancellation: Some(edge),
+                    ..
+                } => Some(edge.edge().target()),
+                _ => None,
+            })
+            .expect("ordinary await must have cancellation cleanup");
+
+        let mut pending = vec![cancellation];
+        let mut visited = std::collections::BTreeSet::new();
+        let mut resolved = 0;
+        let mut requested = 0;
+        let mut waited = 0;
+
+        while let Some(id) = pending.pop() {
+            if !visited.insert(id) {
+                continue;
+            }
+
+            let block = mir.block(id).unwrap();
+            let mut releases_child = false;
+
+            for operation in block.operations() {
+                match mir.operation(*operation).unwrap().kind() {
+                    MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame {
+                        ..
+                    }) => {
+                        panic!(
+                            "owner finalization cannot compose another child before resolving the cancelled await"
+                        );
+                    }
+                    MirOperationKind::Async(bray_ir::MirAsyncOperation::ResolveAwaitedFrame {
+                        ..
+                    }) => {
+                        releases_child = true;
+                        resolved += 1;
+                        break;
+                    }
+                    MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::Runtime(runtime) if runtime.role() == bray_runtime_interface::RuntimeAbiRole::AwaitedFrameCancellationRequest) =>
+                    {
+                        assert_eq!(block.kind(), bray_ir::MirBlockKind::CleanupBroadcast);
+                        requested += 1;
+                    }
+                    _ => {}
+                }
+            }
+
+            if releases_child {
+                continue;
+            }
+
+            if let MirTerminatorKind::Suspend {
+                kind, cancellation, ..
+            } = block.terminator().kind()
+            {
+                assert_eq!(*kind, bray_ir::MirSuspensionKind::Awaited);
+
+                assert!(
+                    cancellation.is_none(),
+                    "child draining must remain shielded"
+                );
+
+                waited += 1;
+            }
+
+            block
+                .terminator()
+                .kind()
+                .for_each_successor(|successor| pending.push(successor));
+        }
+
+        assert_eq!((requested, waited, resolved), (1, 1, 1));
+    }
+
+    #[test]
     fn direct_await_resolves_typed_outcomes_inside_and_outside_catch() {
         for caught in [false, true] {
             let awaited = if caught {

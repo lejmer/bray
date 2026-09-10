@@ -114,7 +114,9 @@ impl Lowerer<'_> {
                     .builder
                     .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-                let cancellation = self.suspension_cleanup_edge(&source, expression.into())?;
+                let cancellation =
+                    self.suspension_cleanup_edge(&source, expression.into(), None)?;
+
                 let state = self.next_frame_state()?;
 
                 let suspension = self

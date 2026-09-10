@@ -220,44 +220,46 @@ impl NativeRuntime {
                     return self.suspend_on_task_event(ready, &started, suspension);
                 }
 
-                if kind == FrameSuspensionKind::TaskCompletion {
-                    let Some(child) = suspension
-                        .payload()
-                        .and_then(|payload| u64::try_from(payload).ok())
-                        .and_then(NativeTaskHandle::new)
-                    else {
-                        return NativeRuntimeStatus::INVALID_ARGUMENT;
-                    };
+                let child = match kind {
+                    FrameSuspensionKind::TaskCompletion => {
+                        let Some(child) = suspension
+                            .payload()
+                            .and_then(|payload| u64::try_from(payload).ok())
+                            .and_then(NativeTaskHandle::new)
+                        else {
+                            return NativeRuntimeStatus::INVALID_ARGUMENT;
+                        };
 
-                    // Publish registration while dispatch is running. An already-terminal child
-                    // records a pending wake that becomes runnable when suspension is committed.
+                        Some(child)
+                    }
+                    FrameSuspensionKind::Awaited => self.awaited_child(handle),
+                    FrameSuspensionKind::Yield => None,
+                    FrameSuspensionKind::TaskEvent => {
+                        unreachable!("event suspension was handled above")
+                    }
+                };
+
+                if let Some(child) = child {
+                    // Arm while dispatch still owns the parent. Publication or cancellation can
+                    // queue its next state, but no worker may resume it before registration finishes.
                     let status = self.register_continuation_wait(handle, child, state);
 
                     if !status.is_success() {
                         return status;
                     }
-
-                    return ready
-                        .suspend(suspension)
-                        .map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |()| {
-                            NativeRuntimeStatus::SUCCESS
-                        });
                 }
 
                 if ready.suspend(suspension).is_err() {
                     return NativeRuntimeStatus::RUNTIME_FAILURE;
                 }
 
-                match kind {
-                    FrameSuspensionKind::Awaited => self.register_awaited_wake(handle, state),
-                    FrameSuspensionKind::Yield => wake
-                        .wake(state)
+                if kind == FrameSuspensionKind::Yield {
+                    wake.wake(state)
                         .map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |_| {
                             NativeRuntimeStatus::SUCCESS
-                        }),
-                    FrameSuspensionKind::TaskEvent | FrameSuspensionKind::TaskCompletion => {
-                        unreachable!("task suspension must publish its registration first")
-                    }
+                        })
+                } else {
+                    NativeRuntimeStatus::SUCCESS
                 }
             }
             TaskResumeStatus::Terminal(_) => ready
@@ -712,7 +714,7 @@ impl NativeRuntime {
         }
     }
 
-    fn awaited_child(&self, parent: NativeTaskHandle) -> Option<NativeTaskHandle> {
+    pub(super) fn awaited_child(&self, parent: NativeTaskHandle) -> Option<NativeTaskHandle> {
         self.with_started(parent, |task| {
             *task
                 .awaited
@@ -721,18 +723,6 @@ impl NativeRuntime {
         })
         .ok()
         .flatten()
-    }
-
-    fn register_awaited_wake(
-        &self,
-        parent: NativeTaskHandle,
-        state: ProtectedFrameStateId,
-    ) -> NativeRuntimeStatus {
-        let Some(child) = self.awaited_child(parent) else {
-            return NativeRuntimeStatus::SUCCESS;
-        };
-
-        self.register_continuation_wait(parent, child, state)
     }
 
     fn register_continuation_wait(
@@ -932,8 +922,8 @@ mod tests {
                 if !completed_early {
                     assert_eq!(runtime.drive_main_thread(), NativeRuntimeStatus::SUCCESS);
 
-                    // Repeated polling reuses the admission-owned continuation slot. A second
-                    // target or state cannot displace the wait protecting the current child.
+                    // Polling and cancellation retarget the same admission-owned continuation.
+                    // A different child cannot displace the waiter protecting the current child.
                     let state = bray_runtime_model::ProtectedFrameStateId::new(1);
 
                     assert_eq!(
@@ -946,14 +936,21 @@ mod tests {
                         NativeRuntimeStatus::RUNTIME_FAILURE
                     );
 
-                    assert_eq!(
-                        runtime.register_continuation_wait(
-                            parent,
-                            child,
-                            bray_runtime_model::ProtectedFrameStateId::new(0)
-                        ),
-                        NativeRuntimeStatus::RUNTIME_FAILURE
-                    );
+                    crate::test_support::with_allocation_failure(|| {
+                        assert_eq!(
+                            runtime.register_continuation_wait(
+                                parent,
+                                child,
+                                bray_runtime_model::ProtectedFrameStateId::new(0)
+                            ),
+                            NativeRuntimeStatus::SUCCESS
+                        );
+
+                        assert_eq!(
+                            runtime.register_continuation_wait(parent, child, state),
+                            NativeRuntimeStatus::SUCCESS
+                        );
+                    });
 
                     runtime
                         .with_started(parent, |task| {

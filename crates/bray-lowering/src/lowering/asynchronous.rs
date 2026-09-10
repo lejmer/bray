@@ -70,7 +70,8 @@ impl Lowerer<'_> {
             .builder
             .push_block(Self::retained_source(&source), MirBlockKind::Ordinary)?;
 
-        let cancellation = self.suspension_cleanup_edge(&source, id.into())?;
+        let completion = self.expression_type(id)?;
+        let cancellation = self.suspension_cleanup_edge(&source, id.into(), Some(completion))?;
         let state = self.next_frame_state()?;
 
         self.set_terminator(
@@ -98,8 +99,6 @@ impl Lowerer<'_> {
             )
             .with_affinity(self.frame_affinity()),
         );
-
-        let completion = self.expression_type(id)?;
 
         let result = self.unary_representation_type(
             bray_compiler_known::RepresentationRole::RunResult,

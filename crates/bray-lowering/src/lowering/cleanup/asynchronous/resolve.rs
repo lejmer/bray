@@ -267,20 +267,7 @@ impl Lowerer<'_> {
         }
 
         let completed = if let Some(payload) = payload {
-            self.cleanup_retained_storages.push(result_storage);
-
-            let (completed, _) = self.push_lifecycle_cleanup(
-                completed,
-                source,
-                MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::LifecycleResolution),
-                payload,
-                None,
-                false,
-            )?;
-
-            self.cleanup_retained_storages.pop();
-
-            completed
+            self.resolve_cleanup_payload(completed, source, result_storage, payload)?
         } else {
             completed
         };
@@ -296,6 +283,49 @@ impl Lowerer<'_> {
         )?;
 
         Ok(finished)
+    }
+
+    pub(in crate::lowering::cleanup) fn resolve_cleanup_payload(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        storage: bray_ir::MirStorageId,
+        payload: MirPlace,
+    ) -> Result<MirBlockId, LoweringError> {
+        let cleanup = self
+            .input
+            .lowering_plans()
+            .cleanup_type(payload.ty())
+            .ok_or(LoweringError::MissingCleanupExecution(payload.storage()))?;
+
+        let outcome = self
+            .cleanup_outcome
+            .as_ref()
+            .ok_or(LoweringError::SemanticValueUnavailable)?;
+
+        let block = crate::cleanup_payload::broadcast_cancellation(
+            &mut self.builder,
+            block,
+            source,
+            Self::retained_place(&payload),
+            cleanup.cleanup(),
+            outcome,
+        )?;
+
+        self.cleanup_retained_storages.push(storage);
+
+        let result = self.push_lifecycle_cleanup(
+            block,
+            source,
+            MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::LifecycleResolution),
+            payload,
+            None,
+            false,
+        );
+
+        self.cleanup_retained_storages.pop();
+
+        result.map(|(block, _)| block)
     }
 
     fn future_has_cleanup_free_captures(&self, place: &MirPlace) -> bool {

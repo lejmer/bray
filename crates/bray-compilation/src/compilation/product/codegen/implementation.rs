@@ -4297,6 +4297,7 @@ public func invoke<T>(pos value: T)
             for (completion, value) in [
                 ("i32", "7"),
                 ("Future<i32>", "integer()"),
+                ("Task<i32>", "integer().start()"),
                 ("Guard", "Guard {}"),
             ] {
                 let start = if owner_kind == "Task" { ".start()" } else { "" };

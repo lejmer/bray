@@ -95,6 +95,19 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         )
         .map_err(|cause| self.mir_error(source, cause))?;
 
+        let cleanup = self.context.cleanup_type_execution(completion)?;
+
+        // Borrowed completion tasks were not available during the enclosing owner's broadcast.
+        let completed = crate::cleanup_payload::broadcast_cancellation(
+            builder,
+            completed,
+            source,
+            payload.clone(),
+            cleanup.cleanup(),
+            outcome,
+        )
+        .map_err(|cause| self.mir_error(source, cause))?;
+
         let completed = self.resolve_lifecycle_action(
             builder,
             completed,

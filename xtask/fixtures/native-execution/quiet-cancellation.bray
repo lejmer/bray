@@ -3,7 +3,20 @@ module quiet_cancellation;
 using std.atomic;
 using std.task;
 
-async func wait_for_cancellation(pos started: &std.atomic.Atomic<bool>)
+async func complete() {}
+
+struct Guard
+{
+    finished: &std.atomic.Atomic<bool>;
+
+    async finalize()
+    {
+        await complete();
+        self.finished.store(true, order = std.atomic.StoreOrder.Release);
+    }
+}
+
+async func wait_for_cancellation(pos started: &std.atomic.Atomic<bool>, pos guard: Guard)
 {
     started.store(true, order = std.atomic.StoreOrder.Release);
 
@@ -13,10 +26,25 @@ async func wait_for_cancellation(pos started: &std.atomic.Atomic<bool>)
     }
 }
 
+async func produce_task(pos started: &std.atomic.Atomic<bool>, pos guard: Guard) -> Task<unit>
+{
+    return wait_for_cancellation(started, guard).start();
+}
+
+async func dispose<T>(pos value: T) {}
+
 async func main()
 {
     let started = std.atomic.Atomic<bool>(false);
-    let task = wait_for_cancellation(&started).start();
+    let finished = std.atomic.Atomic<bool>(false);
+
+    let task = wait_for_cancellation(
+        &started,
+        Guard
+        {
+            finished = &finished
+        }
+    ).start();
 
     while !started.load(order = std.atomic.LoadOrder.Acquire)
     {
@@ -26,4 +54,24 @@ async func main()
     let result = await task.cancel();
 
     assert(result matches Cancelled);
+    assert(finished.load(order = std.atomic.LoadOrder.Acquire));
+
+    let nested_started = std.atomic.Atomic<bool>(false);
+    let nested_finished = std.atomic.Atomic<bool>(false);
+
+    let owner = produce_task(
+        &nested_started,
+        Guard
+        {
+            finished = &nested_finished
+        }
+    ).start();
+
+    while !nested_started.load(order = std.atomic.LoadOrder.Acquire)
+    {
+        await std.task.yield_now();
+    }
+
+    await dispose<Task<Task<unit>>>(owner);
+    assert(nested_finished.load(order = std.atomic.LoadOrder.Acquire));
 }

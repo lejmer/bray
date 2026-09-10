@@ -51,6 +51,7 @@ pub(crate) fn create_lifecycle_frame(
 /// The owner whose terminal outcome is awaited by a cleanup continuation.
 pub(crate) enum CleanupAwait {
     Frame(MirOperand, bray_ir::MirFrameEntry),
+    AttachedFrame,
     Task(MirOperand),
 }
 
@@ -71,7 +72,7 @@ pub(crate) fn await_cleanup(
 
     let abi = builder.target().runtime_abi();
 
-    let (kind, payload, resolution) = match awaited {
+    let task = match awaited {
         CleanupAwait::Frame(frame, entry) => {
             builder.push_operation(
                 block,
@@ -85,16 +86,22 @@ pub(crate) fn await_cleanup(
                 None,
             )?;
 
-            (
-                MirSuspensionKind::Awaited,
-                None,
-                MirAsyncOperation::ResolveAwaitedFrame {
-                    variants,
-                    runtime: MirRuntimeReference::new(RuntimeAbiRole::AwaitedFrameResolution, abi),
-                },
-            )
+            None
         }
-        CleanupAwait::Task(task) => {
+        CleanupAwait::AttachedFrame => None,
+        CleanupAwait::Task(task) => Some(task),
+    };
+
+    let (kind, payload, resolution) = match task {
+        None => (
+            MirSuspensionKind::Awaited,
+            None,
+            MirAsyncOperation::ResolveAwaitedFrame {
+                variants,
+                runtime: MirRuntimeReference::new(RuntimeAbiRole::AwaitedFrameResolution, abi),
+            },
+        ),
+        Some(task) => {
             // Suspension borrows the task identity and the resumed transfer consumes its result.
             (
                 MirSuspensionKind::TaskCompletion,
