@@ -1,9 +1,8 @@
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirAsyncOperation, MirEdge, MirOperand, MirOperationKind, MirPlace, MirProjectionKind,
-    MirRuntimeReference, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder,
+    MirAsyncOperation, MirEdge, MirOperand, MirOperationKind, MirPlace, MirSourceAnchor,
+    MirTerminatorKind, MirUnitBuilder,
 };
-use bray_runtime_interface::RuntimeAbiRole;
 
 use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
 use crate::cleanup_outcome::CleanupOutcome;
@@ -36,25 +35,32 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         block: bray_ir::MirBlockId,
         source: &MirSourceAnchor,
         task: MirPlace,
-        runtime_abi: bray_runtime_interface::RuntimeAbiVersion,
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
+        let outcome = self.cleanup_outcome(builder, block, source)?;
+        let finished = self.await_task_quiescence(builder, block, source, task, &outcome)?;
+
+        self.finish_cleanup_outcome(builder, finished, source, &outcome)
+    }
+
+    pub(super) fn await_task_quiescence(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        task: MirPlace,
+        outcome: &CleanupOutcome,
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         let completion = self.task_completion_type(task.ty())?;
-        let values = self.context.semantic_values();
 
-        let pointer = values
-            .intern_type(bray_symbols::TypeData::Borrow {
-                kind: bray_symbols::BorrowKind::Mutable,
-                target: completion,
-            })
-            .map_err(SyntheticLoweringError::SemanticValue)?;
+        let types = crate::cleanup_await::task_completion_borrow_types(
+            self.context.semantic_values(),
+            completion,
+        )
+        .map_err(SyntheticLoweringError::SemanticValue)?;
 
-        let nullable = values
-            .intern_type(bray_symbols::TypeData::Nullable(pointer))
-            .map_err(SyntheticLoweringError::SemanticValue)?;
-
-        let outcome = self.cleanup_outcome(builder, block, source)?;
         let state = self.next_lifecycle_state(builder, source)?;
 
+        // Suspension, payload observation and borrow release each retain the same owner's path.
         let resumed = crate::cleanup_await::suspend_cleanup(
             builder,
             block,
@@ -65,70 +71,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         )
         .map_err(|cause| self.mir_error(source, cause))?;
 
-        let borrowed = builder
-            .push_operation(
-                resumed,
-                source.clone(),
-                MirOperationKind::Async(MirAsyncOperation::BorrowTaskCompletion {
-                    task: MirOperand::Copy(task.clone()),
-                    runtime: MirRuntimeReference::new(
-                        RuntimeAbiRole::TaskCompletionBorrow,
-                        runtime_abi,
-                    ),
-                }),
-                Some(nullable),
-            )
-            .map_err(|cause| self.mir_error(source, cause))?;
-
-        let value =
-            borrowed
-                .result()
-                .ok_or_else(|| SyntheticLoweringError::MissingOperationResult {
-                    source: source.clone(),
-                    operation: borrowed.operation(),
-                })?;
-
-        let storage = builder
-            .push_storage(source.clone(), bray_ir::MirStorageKind::Temporary, nullable)
-            .map_err(|cause| self.mir_error(source, cause))?;
-
-        let borrowed = MirPlace::new(storage, [], nullable);
-
-        self.push_lifecycle_operation(
+        let (completed, finished, payload) = crate::cleanup_await::borrow_task_completion(
             builder,
             resumed,
             source,
-            MirOperationKind::Store {
-                kind: bray_ir::MirStoreKind::Initialize,
-                destination: borrowed.clone(),
-                value: MirOperand::Value(value),
-            },
-        )?;
-
-        let completed = builder
-            .push_block(source.clone(), bray_ir::MirBlockKind::LifecycleResolution)
-            .map_err(|cause| self.mir_error(source, cause))?;
-
-        let finished = builder
-            .push_block(source.clone(), bray_ir::MirBlockKind::LifecycleResolution)
-            .map_err(|cause| self.mir_error(source, cause))?;
-
-        builder
-            .set_terminator(
-                resumed,
-                source.clone(),
-                MirTerminatorKind::PatternBranch {
-                    subject: MirOperand::Copy(borrowed.clone()),
-                    predicate: bray_ir::MirPatternPredicate::NullablePresent,
-                    matched: MirEdge::new(completed, []),
-                    unmatched: MirEdge::new(finished, []),
-                },
-            )
-            .map_err(|cause| self.mir_error(source, cause))?;
-
-        let completion = borrowed
-            .project(MirProjectionKind::NullableValue, pointer)
-            .project(MirProjectionKind::Dereference, completion);
+            MirOperand::Copy(task.clone()),
+            completion,
+            types,
+        )
+        .map_err(|cause| self.mir_error(source, cause))?;
 
         let completed = self.resolve_lifecycle_action(
             builder,
@@ -136,24 +87,18 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             source,
             MirOperationKind::Abandon {
                 action: bray_ir::MirAbandonmentAction::Quiesce,
-                place: completion,
+                place: payload,
             },
-            &outcome,
+            outcome,
         )?;
 
-        // Every source outcome rejoins here before the borrowed owner's outcome propagates.
-        self.push_lifecycle_operation(
+        crate::cleanup_await::release_task_completion_borrow(
             builder,
             completed,
             source,
-            MirOperationKind::Async(MirAsyncOperation::ReleaseTaskCompletionBorrow {
-                task: MirOperand::Copy(task),
-                runtime: MirRuntimeReference::new(
-                    RuntimeAbiRole::TaskCompletionBorrowRelease,
-                    runtime_abi,
-                ),
-            }),
-        )?;
+            MirOperand::Copy(task),
+        )
+        .map_err(|cause| self.mir_error(source, cause))?;
 
         builder
             .set_terminator(
@@ -163,7 +108,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )
             .map_err(|cause| self.mir_error(source, cause))?;
 
-        self.finish_cleanup_outcome(builder, finished, source, &outcome)
+        Ok(finished)
     }
 
     pub(super) fn push_abandoned_task_destruction(
@@ -206,27 +151,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             completion,
         )?;
 
-        // The outcome branch consumes the selected tag while payload cleanup retains its projection.
-        let (completed, finished) = outcome
-            .resolve_run_result(
+        let (completed, finished, completion_place) = outcome
+            .resolve_completion(
                 builder,
                 resumed,
                 source,
-                result_place.clone(),
-                (
-                    variants,
-                    crate::cleanup_outcome::CleanupCancellation::Propagate,
-                ),
+                result_place,
+                (variants, completion),
             )
             .map_err(|cause| self.mir_error(source, cause))?;
-
-        let completion_place = result_place.project(
-            MirProjectionKind::ActiveUnionPayloadElement {
-                variant: variants.completed(),
-                ordinal: bray_symbols::SymbolOrdinal::new(0),
-            },
-            completion,
-        );
 
         let completed = self.resolve_lifecycle_action(
             builder,

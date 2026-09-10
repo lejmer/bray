@@ -3075,6 +3075,80 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
     }
 
     #[test]
+    fn opaque_task_cleanup_uses_its_existing_completion_storage() {
+        for completion in ["i32", "Future<i32>", "Guard"] {
+            let source = format!(
+                r#"
+                module app;
+                struct Guard {{ async finalize() {{}} }}
+                async func discard(pos pending: Task<{completion}>) {{}}
+                "#
+            );
+
+            let compilation = compilation(&source);
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{:?}",
+                compilation.check_diagnostics()
+            );
+
+            let lowered = compilation
+                .lowered_unit(source_function_body_key(&compilation, "discard"))
+                .unwrap();
+
+            let mir = lowered_mir(&lowered);
+
+            let task = mir
+                .storages()
+                .iter()
+                .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
+                .unwrap()
+                .ty();
+
+            assert!(
+                mir.blocks().iter().any(|block| matches!(
+                    block.terminator().kind(),
+                    bray_ir::MirTerminatorKind::Suspend {
+                        kind: bray_ir::MirSuspensionKind::TaskCompletion,
+                        ..
+                    }
+                )),
+                "opaque Task<{completion}> cleanup must await its existing task directly"
+            );
+
+            assert!(
+                mir.operations().iter().any(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Async(
+                        bray_ir::MirAsyncOperation::BorrowTaskCompletion { .. }
+                    )
+                )),
+                "opaque Task<{completion}> quiescence must retain its completed owner"
+            );
+
+            assert!(
+                mir.operations().iter().any(|operation| matches!(
+                    operation.kind(),
+                    MirOperationKind::Async(bray_ir::MirAsyncOperation::ResolveTask { .. })
+                )),
+                "opaque Task<{completion}> resolution must transfer its completed owner"
+            );
+
+            assert!(
+                !mir.operations()
+                    .iter()
+                    .any(|operation| matches!(operation.kind(),
+                        MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                            initializer: bray_ir::MirFrameInitializer::Lifecycle { ty, .. }, ..
+                        }) if *ty == task || completion != "Guard"
+                    )),
+                "opaque Task<{completion}> cleanup must not allocate a wrapper frame"
+            );
+        }
+    }
+
+    #[test]
     fn cleanup_free_inactive_futures_resolve_without_a_protected_frame() {
         let compilation = compilation(
             r#"

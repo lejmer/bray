@@ -105,8 +105,8 @@ impl CleanupOutcome {
         )
     }
 
-    /// Retains an inactive observer's completed payload while resolving its outcome tag.
-    pub(crate) fn resolve_inactive_completion(
+    /// Retains a completed payload and accepts cancellation requested by automatic owner cleanup.
+    pub(crate) fn resolve_completion(
         &self,
         builder: &mut MirUnitBuilder,
         block: MirBlockId,

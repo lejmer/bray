@@ -156,7 +156,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let (variants, completion) = contract;
 
         let (completed, finished, payload) = outcome
-            .resolve_inactive_completion(builder, block, source, result, (variants, completion))
+            .resolve_completion(builder, block, source, result, (variants, completion))
             .map_err(|cause| self.mir_error(source, cause))?;
 
         let completed = self.resolve_lifecycle_action(

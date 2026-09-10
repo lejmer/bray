@@ -206,3 +206,88 @@ pub(crate) fn finish_cleanup_frame(
 
     builder.set_terminator(block, source.clone(), MirTerminatorKind::Return(None))
 }
+
+/// Resolves the pointer representations used while a task retains its completed payload.
+pub(crate) fn task_completion_borrow_types(
+    values: &bray_symbols::SemanticValueStore,
+    completion: TypeId,
+) -> Result<(TypeId, TypeId), bray_symbols::SemanticValueStoreError> {
+    let pointer = values.intern_type(bray_symbols::TypeData::Borrow {
+        kind: bray_symbols::BorrowKind::Mutable,
+        target: completion,
+    })?;
+
+    let nullable = values.intern_type(bray_symbols::TypeData::Nullable(pointer))?;
+
+    Ok((pointer, nullable))
+}
+
+/// Borrows a completed task payload, branching past cleanup when no completed value exists.
+pub(crate) fn borrow_task_completion(
+    builder: &mut MirUnitBuilder,
+    block: MirBlockId,
+    source: &MirSourceAnchor,
+    task: MirOperand,
+    completion: TypeId,
+    borrow_types: (TypeId, TypeId),
+) -> Result<(MirBlockId, MirBlockId, MirPlace), MirUnitBuildError> {
+    let (pointer, nullable) = borrow_types;
+
+    let borrowed = resolve_cleanup_result(
+        builder,
+        block,
+        source,
+        MirAsyncOperation::BorrowTaskCompletion {
+            task,
+            runtime: MirRuntimeReference::new(
+                RuntimeAbiRole::TaskCompletionBorrow,
+                builder.target().runtime_abi(),
+            ),
+        },
+        nullable,
+    )?;
+
+    let completed = builder.push_block(source.clone(), MirBlockKind::LifecycleResolution)?;
+    let finished = builder.push_block(source.clone(), MirBlockKind::LifecycleResolution)?;
+
+    // The branch owns its path while the caller retains the payload projection for quiescence.
+    builder.set_terminator(
+        block,
+        source.clone(),
+        MirTerminatorKind::PatternBranch {
+            subject: MirOperand::Copy(borrowed.clone()),
+            predicate: bray_ir::MirPatternPredicate::NullablePresent,
+            matched: MirEdge::new(completed, []),
+            unmatched: MirEdge::new(finished, []),
+        },
+    )?;
+
+    let payload = borrowed
+        .project(bray_ir::MirProjectionKind::NullableValue, pointer)
+        .project(bray_ir::MirProjectionKind::Dereference, completion);
+
+    Ok((completed, finished, payload))
+}
+
+/// Releases a retained completion after every selected nested quiescence path has rejoined.
+pub(crate) fn release_task_completion_borrow(
+    builder: &mut MirUnitBuilder,
+    block: MirBlockId,
+    source: &MirSourceAnchor,
+    task: MirOperand,
+) -> Result<(), MirUnitBuildError> {
+    builder.push_operation(
+        block,
+        source.clone(),
+        MirOperationKind::Async(MirAsyncOperation::ReleaseTaskCompletionBorrow {
+            task,
+            runtime: MirRuntimeReference::new(
+                RuntimeAbiRole::TaskCompletionBorrowRelease,
+                builder.target().runtime_abi(),
+            ),
+        }),
+        None,
+    )?;
+
+    Ok(())
+}

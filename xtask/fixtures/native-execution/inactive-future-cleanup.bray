@@ -1,10 +1,39 @@
 module inactive_future_cleanup;
 
 using std.atomic;
+using std.task;
 
 struct Counter
 {
     mut value: i32;
+}
+
+struct Completion
+{
+    mut continued: bool;
+
+    destruct()
+    {
+        assert(self.continued);
+    }
+}
+
+async func cancelled_guard(pos guard: Guard)
+{
+    loop
+    {
+        await std.task.yield_now();
+    }
+}
+
+async func discard_task(pos counter: &mut Counter)
+{
+    let task = cancelled_guard(
+        Guard
+        {
+            counter = counter
+        }
+    ).start();
 }
 
 async func complete() {}
@@ -56,6 +85,18 @@ async func discard_join(pos counter: &mut Counter)
     ).start();
 
     let pending = task.join();
+}
+
+async func discard_result_task(pos counter: &mut Counter)
+{
+    let task = return_guard(
+        Guard
+        {
+            counter = counter
+        }
+    ).start();
+
+    await std.task.yield_now();
 }
 
 async func discard_cancellation(pos counter: &mut Counter)
@@ -153,6 +194,11 @@ async func discard_generic(pos trace: &std.atomic.Atomic<usize>)
 
 async func main() -> i32
 {
+    let mut completion = Completion
+    {
+        continued = false
+    };
+
     let mut counter = Counter
     {
         value = 0
@@ -204,6 +250,22 @@ async func main() -> i32
     {
         return 7;
     }
+
+    await discard_task(&mut counter);
+
+    if counter.value != 444
+    {
+        return 8;
+    }
+
+    await discard_result_task(&mut counter);
+
+    if counter.value != 555
+    {
+        return 9;
+    }
+
+    completion.continued = true;
 
     return 0;
 }

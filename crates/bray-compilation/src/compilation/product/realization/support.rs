@@ -1960,17 +1960,9 @@ mod tests {
                             action: MirAbandonmentAction::Quiesce,
                             ..
                         } => !asynchronous,
-                        MirOperationKind::Async(MirAsyncOperation::CreateFrame {
-                            initializer:
-                                MirFrameInitializer::Lifecycle {
-                                    role:
-                                        MirGeneratedLifecycleRole::Abandon(
-                                            MirAbandonmentAction::Quiesce,
-                                        ),
-                                    ..
-                                },
+                        MirOperationKind::Async(MirAsyncOperation::BorrowTaskCompletion {
                             ..
-                        }) => asynchronous && error != "Future<unit>",
+                        }) => error == "Task<unit>",
                         MirOperationKind::Async(MirAsyncOperation::ComposeAwaitedFrame {
                             entry: bray_ir::MirFrameEntry::CaptureQuiescence,
                             ..
@@ -2210,7 +2202,7 @@ mod tests {
                         )
                     ))
                     .count(),
-                1
+                1 + usize::from(completion != payload)
             );
 
             assert_eq!(
@@ -2224,7 +2216,7 @@ mod tests {
                         )
                     ))
                     .count(),
-                1
+                1 + usize::from(completion != payload)
             );
 
             assert!(!generated.operations().iter().any(|operation| matches!(
@@ -2248,8 +2240,42 @@ mod tests {
                         }
                     ))
                     .count(),
-                1
+                1 + usize::from(completion != payload)
             );
+
+            let borrowed = generated
+                .operations()
+                .iter()
+                .filter_map(|operation| match operation.kind() {
+                    MirOperationKind::Async(bray_ir::MirAsyncOperation::BorrowTaskCompletion {
+                        task,
+                        ..
+                    }) => Some(task),
+                    _ => None,
+                })
+                .collect::<Vec<_>>();
+
+            let released = generated
+                .operations()
+                .iter()
+                .filter_map(|operation| match operation.kind() {
+                    MirOperationKind::Async(
+                        bray_ir::MirAsyncOperation::ReleaseTaskCompletionBorrow { task, .. },
+                    ) => Some(task),
+                    _ => None,
+                })
+                .rev()
+                .collect::<Vec<_>>();
+
+            assert_eq!(
+                borrowed, released,
+                "nested completions must release before their owners"
+            );
+
+            assert!(!generated.operations().iter().any(|operation| matches!(
+                operation.kind(),
+                MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame { .. })
+            )));
 
             let release = generated
                 .blocks()
@@ -2284,7 +2310,7 @@ mod tests {
                         }
                     ))
                     .count(),
-                usize::from(completion != payload)
+                0
             );
         }
     }

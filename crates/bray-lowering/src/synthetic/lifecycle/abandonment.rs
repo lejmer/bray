@@ -107,7 +107,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
 
             match self.context.representation_role(*definition) {
                 Some(RepresentationRole::Task) if action == MirAbandonmentAction::Quiesce => {
-                    return self.push_task_quiescence(builder, block, source, place, runtime_abi);
+                    return self.push_task_quiescence(builder, block, source, place);
                 }
                 Some(RepresentationRole::Task) if action == MirAbandonmentAction::Destroy => {
                     return self.push_abandoned_task_destruction(builder, block, source, place);

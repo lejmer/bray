@@ -98,6 +98,46 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             }
         }
 
+        if self
+            .context
+            .compiler_known_symbols()
+            .unary_representation_argument(
+                self.context.semantic_values(),
+                RepresentationRole::Task,
+                ty,
+            )
+            .map_err(SyntheticLoweringError::SemanticValue)?
+            .is_some()
+        {
+            // Each emitted protocol operation owns its path while this dispatch retains the action.
+            match role {
+                bray_ir::MirGeneratedLifecycleRole::Abandon(
+                    bray_ir::MirAbandonmentAction::Quiesce,
+                ) => {
+                    return self.await_task_quiescence(
+                        builder,
+                        block,
+                        source,
+                        place.clone(),
+                        outcome,
+                    );
+                }
+                bray_ir::MirGeneratedLifecycleRole::Destroy
+                | bray_ir::MirGeneratedLifecycleRole::Cleanup(
+                    bray_ir::MirCleanupPhase::LifecycleResolution,
+                ) => {
+                    return self.push_task_resolution(
+                        builder,
+                        block,
+                        source,
+                        place.clone(),
+                        outcome,
+                    );
+                }
+                _ => {}
+            }
+        }
+
         let (block, rejected, value) =
             self.create_lifecycle_frame(builder, block, source, role, place.clone())?;
 
