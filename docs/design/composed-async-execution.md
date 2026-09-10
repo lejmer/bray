@@ -223,6 +223,11 @@ valid through activation, result transfer and storage release. A destination run
 resources and must satisfy the frame's checked requirements. An ordinary move does not perform fallible runtime rebinding.
 A separate start or host entry remains an admission boundary.
 
+Providers exchanging ordinary owned values use the same validated
+[admission-domain binding](cleanup-storage-and-reports.md#shared-admission-domain-binding) for construction, activation
+and discharge. Provider retention alone does not route reservations. Host formation establishes this binding before
+accepting transferable ownership, including ownership of concrete generic instantiations.
+
 Use the existing product dependency and unload-quiescence contract to retain code, descriptors and release callbacks.
 Release storage through its owning provider. Frame identity and descriptor equivalence permit pooling only within a shared,
 validated ownership domain. They do not authorize transferring credits to an unrelated registry or freeing storage through

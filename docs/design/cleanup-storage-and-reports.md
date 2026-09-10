@@ -31,6 +31,27 @@ buffers use checked element traversal rather than duplicating a cleanup body for
 calls and recursive or erased boundaries retain their necessary activation storage. Capacity belongs to those actual
 storage lifetimes, not to a helper introduced merely to separate compiler code.
 
+## Shared admission-domain binding
+
+Providers that exchange owned Bray values bind their cleanup-capacity operations to one shared admission-domain service
+before accepting transferable ownership. Host/provider formation validates the service identity and ABI contract. The
+binding remains stable while obligations or transferred storage depend on it. Incompatible providers cannot exchange
+ownership through an entry that assumes this contract.
+
+Generated admission, activation and discharge operations all use the validated binding. This includes local construction,
+imported nominal types, generic instantiations and locally generated cleanup. An ordinary value needs no capacity-domain
+flag, and an ordinary move performs no fallible rebinding. Neither the current scheduler nor an image-local registry may
+implicitly select a different domain for cleanup.
+
+The service owns shared cleanup-capacity routing. Independent runtime schedulers retain their own scheduling state and
+admission. Binding does not reserve every frame in every scheduler. Concrete storage keeps its provider-owned release
+operation and lifetime dependency. Domain metadata must not retain unloaded providers after their dependent obligations
+and storage have been released.
+
+Provider formation establishes the binding before initialization can publish relevant owners. Lazy registration of a
+concrete shape may occur during its first fallible owner admission, before that obligation is established. Mandatory
+activation and discharge use existing domain and shape registration without allocating or growing routing metadata.
+
 ## Admission and outgoing incidents
 
 Each local mandatory cleanup action that can produce a retained failure has an outgoing incident record in its uniform
