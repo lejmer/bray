@@ -1,6 +1,10 @@
 //! Internal implementation surface consumed by link-isolated native adapters.
 
-pub use super::frames::{bray_runtime_frame_storage_admission, bray_runtime_frame_storage_release};
+pub use super::frames::{
+    bray_runtime_cleanup_capacity_admission, bray_runtime_cleanup_capacity_discharge,
+    bray_runtime_frame_storage_activation, bray_runtime_frame_storage_admission,
+    bray_runtime_frame_storage_release,
+};
 
 pub use super::incident::{
     bray_runtime_cleanup_incident_detail_reporting, bray_runtime_cleanup_incident_transfer,

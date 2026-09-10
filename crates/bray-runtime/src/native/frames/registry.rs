@@ -47,23 +47,6 @@ pub(super) fn registry() -> &'static Mutex<FrameRegistry> {
     FRAMES.get_or_init(|| Mutex::new(FrameRegistry::default()))
 }
 
-/// Reserves a generated context before any captures transfer into it.
-pub extern "C" fn bray_runtime_frame_storage_admission(
-    metadata: Option<&NativeFrameMetadata>,
-) -> usize {
-    std::panic::catch_unwind(|| {
-        metadata
-            .and_then(|metadata| admit(*metadata).ok())
-            .unwrap_or(0)
-    })
-    .unwrap_or(0)
-}
-
-/// Releases a resolved context and all remaining unused task reservations.
-pub extern "C" fn bray_runtime_frame_storage_release(context: usize) {
-    release(context);
-}
-
 pub(in crate::native) fn admit(
     metadata: NativeFrameMetadata,
 ) -> Result<usize, NativeRuntimeStatus> {

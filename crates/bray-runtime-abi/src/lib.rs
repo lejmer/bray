@@ -21,7 +21,7 @@ pub use cleanup::{
     NativeCleanupExecution, NativeTaskTerminalCleanup, NativeValueCleanup,
     NativeValueCleanupCallback,
 };
-pub use frame::{NativeFrameEntry, NativeFrameMetadata};
+pub use frame::{NativeFrameEntry, NativeFrameMetadata, NativeFrameMetadataProvider};
 pub use platform::{
     NativePlatformEnvironmentEntry, NativePlatformEnvironmentList, NativePlatformFileMetadata,
     NativePlatformFileOptions, NativePlatformPath, NativePlatformSpanList, NativePlatformStatus,

@@ -54,7 +54,7 @@ impl Drop for PreparedFrames {
 }
 
 pub(in crate::native) fn admit_cleanup(
-    metadata: impl ExactSizeIterator<Item = NativeFrameMetadata>,
+    metadata: impl ExactSizeIterator<Item = Result<NativeFrameMetadata, NativeRuntimeStatus>>,
 ) -> Result<(), NativeRuntimeStatus> {
     let mut prepared = PreparedFrames(Vec::new());
 
@@ -62,6 +62,7 @@ pub(in crate::native) fn admit_cleanup(
         .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
 
     for frame in metadata {
+        let frame = frame?;
         prepared.0.push((FrameShape::of(&frame), admit(frame)?));
     }
 
@@ -219,7 +220,7 @@ mod tests {
         let first = metadata(180);
         let second = metadata(181);
         let ordinary = admit(first).unwrap();
-        super::admit_cleanup([first, second, first].into_iter()).unwrap();
+        super::admit_cleanup([first, second, first].into_iter().map(Ok)).unwrap();
 
         with_allocation_failure(|| {
             let wrong_size =
@@ -271,12 +272,12 @@ mod tests {
     fn incomplete_bundle_failure_never_publishes_partial_capacity() {
         let _isolation = test_runtime_isolation();
         let existing = metadata(182);
-        super::admit_cleanup([existing].into_iter()).unwrap();
+        super::admit_cleanup([existing].into_iter().map(Ok)).unwrap();
         let mut completed = false;
 
         for allowed in 0..256 {
             let result = with_allocation_failure_after(allowed, || {
-                super::admit_cleanup([metadata(183), metadata(184)].into_iter())
+                super::admit_cleanup([metadata(183), metadata(184)].into_iter().map(Ok))
             });
 
             match result {
@@ -319,7 +320,7 @@ mod tests {
     fn ordinary_entry_points_cannot_consume_or_release_unactivated_cleanup_storage() {
         let _isolation = test_runtime_isolation();
         let frame = metadata(185);
-        super::admit_cleanup([frame].into_iter()).unwrap();
+        super::admit_cleanup([frame].into_iter().map(Ok)).unwrap();
         let address = *registry().lock().unwrap().frames.keys().next().unwrap();
 
         with_allocation_failure(|| {
@@ -354,7 +355,7 @@ mod tests {
         for order in orders {
             for executed in 0_u8..64 {
                 for _ in 0..3 {
-                    super::admit_cleanup(phases.into_iter()).unwrap();
+                    super::admit_cleanup(phases.into_iter().map(Ok)).unwrap();
                 }
 
                 with_allocation_failure(|| {
@@ -408,11 +409,11 @@ mod tests {
     fn late_admission_keeps_unused_capacity_after_another_owner_retires_a_spent_credit() {
         let _isolation = test_runtime_isolation();
         let frame = metadata(188);
-        super::admit_cleanup([frame, frame].into_iter()).unwrap();
+        super::admit_cleanup([frame, frame].into_iter().map(Ok)).unwrap();
         let active = super::activate_cleanup(&frame).unwrap();
 
         with_allocation_failure(|| super::discharge_cleanup(&frame).unwrap());
-        super::admit_cleanup([frame].into_iter()).unwrap();
+        super::admit_cleanup([frame].into_iter().map(Ok)).unwrap();
 
         with_allocation_failure(|| {
             let later = super::activate_cleanup(&frame).unwrap();
@@ -431,7 +432,7 @@ mod tests {
     fn activated_storage_survives_discharge_of_its_last_credit() {
         let _isolation = test_runtime_isolation();
         let frame = metadata(189);
-        super::admit_cleanup([frame].into_iter()).unwrap();
+        super::admit_cleanup([frame].into_iter().map(Ok)).unwrap();
         let active = super::activate_cleanup(&frame).unwrap();
 
         with_allocation_failure(|| {
@@ -460,7 +461,7 @@ mod tests {
         let _isolation = test_runtime_isolation();
         let frame = metadata(190);
         let shape = super::FrameShape::of(&frame);
-        super::admit_cleanup([frame].into_iter()).unwrap();
+        super::admit_cleanup([frame].into_iter().map(Ok)).unwrap();
 
         {
             let mut state = registry().lock().unwrap();
@@ -470,7 +471,7 @@ mod tests {
         }
 
         assert_eq!(
-            super::admit_cleanup([metadata(191), frame, frame].into_iter()),
+            super::admit_cleanup([metadata(191), frame, frame].into_iter().map(Ok)),
             Err(NativeRuntimeStatus::ALLOCATION_FAILURE)
         );
 

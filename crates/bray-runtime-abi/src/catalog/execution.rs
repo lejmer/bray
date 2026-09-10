@@ -534,6 +534,33 @@ macro_rules! runtime_role_catalog {
                 capabilities: [],
                 effects: [CreateFrame]
             }
+            CleanupCapacityAdmission {
+                "Secure a complete generated cleanup bundle before owner construction.", "cleanup_capacity_admission",
+                native: (CLEANUP_CAPACITY_ADMISSION_SYMBOL = "bray_runtime_cleanup_capacity_admission", [Usize, Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Usize, Pointer] -> U32,
+                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [CreateFrame]
+            }
+            CleanupCapacityDischarge {
+                "Retire a generated cleanup capacity credit after ownership is resolved.", "cleanup_capacity_discharge",
+                native: (CLEANUP_CAPACITY_DISCHARGE_SYMBOL = "bray_runtime_cleanup_capacity_discharge", [Pointer] -> U32),
+                call_hook: (),
+                compiler: C [Pointer] -> U32,
+                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [DestroyFrame]
+            }
+            FrameStorageActivation {
+                "Activate reserved generated cleanup storage without allocating.", "frame_storage_activation",
+                native: (FRAME_STORAGE_ACTIVATION_SYMBOL = "bray_runtime_frame_storage_activation", [Pointer] -> Usize),
+                call_hook: (),
+                compiler: C [Pointer] -> Usize,
+                owner: Scheduler, availability: All, bootstrap: (), host_control: false,
+                capabilities: [],
+                effects: [CreateFrame]
+            }
             FrameStorageRelease {
                 "Release resolved generated frame storage and unused cleanup capacity.", "frame_storage_release",
                 native: (FRAME_STORAGE_RELEASE_SYMBOL = "bray_runtime_frame_storage_release", [Usize] -> Void),

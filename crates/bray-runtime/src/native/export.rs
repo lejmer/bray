@@ -521,7 +521,9 @@ native_export! {
     }
 }
 
-fn contain_status(callback: impl FnOnce() -> NativeRuntimeStatus) -> NativeRuntimeStatus {
+pub(super) fn contain_status(
+    callback: impl FnOnce() -> NativeRuntimeStatus,
+) -> NativeRuntimeStatus {
     catch_unwind(AssertUnwindSafe(callback)).unwrap_or(NativeRuntimeStatus::PANICKED)
 }
 

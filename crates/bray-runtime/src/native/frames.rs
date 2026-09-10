@@ -1,5 +1,10 @@
+mod boundary;
 mod cleanup;
 mod registry;
 
+pub use boundary::{
+    bray_runtime_cleanup_capacity_admission, bray_runtime_cleanup_capacity_discharge,
+    bray_runtime_frame_storage_activation, bray_runtime_frame_storage_admission,
+    bray_runtime_frame_storage_release,
+};
 pub(super) use registry::{FrameTaskClaim, claim, is_admitted, register_runtime};
-pub use registry::{bray_runtime_frame_storage_admission, bray_runtime_frame_storage_release};
