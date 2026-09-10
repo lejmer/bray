@@ -63,6 +63,41 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 .map_err(|cause| self.mir_error(source, cause));
         }
 
+        // Each composed MIR operation owns a place path while this dispatch still borrows it.
+        if self
+            .context
+            .compiler_known_symbols()
+            .unary_representation_argument(
+                self.context.semantic_values(),
+                RepresentationRole::Future,
+                ty,
+            )
+            .map_err(SyntheticLoweringError::SemanticValue)?
+            .is_some()
+        {
+            match crate::cleanup_await::future_cleanup_entry(role) {
+                Some(bray_ir::MirFrameEntry::CaptureQuiescence) => {
+                    return self.await_future_quiescence(
+                        builder,
+                        block,
+                        source,
+                        place.clone(),
+                        outcome,
+                    );
+                }
+                Some(bray_ir::MirFrameEntry::CaptureCleanup) => {
+                    return self.await_future_cleanup(
+                        builder,
+                        block,
+                        source,
+                        place.clone(),
+                        outcome,
+                    );
+                }
+                _ => {}
+            }
+        }
+
         let (block, rejected, value) =
             self.create_lifecycle_frame(builder, block, source, role, place.clone())?;
 
@@ -169,23 +204,13 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         if builder.protected_frame().is_some() {
             let ty = self.context.representation_type(RepresentationRole::Unit)?;
 
-            let operation = MirAsyncOperation::PublishTerminalState {
-                state: MirTaskTerminalState::Completed(MirOperand::Immediate {
-                    value: MirImmediateValue::Unit,
-                    ty,
-                }),
-                runtime: MirRuntimeReference::new(
-                    RuntimeAbiRole::TerminalPublication,
-                    builder.target().runtime_abi(),
-                ),
-            };
+            let state = MirTaskTerminalState::Completed(MirOperand::Immediate {
+                value: MirImmediateValue::Unit,
+                ty,
+            });
 
-            self.push_lifecycle_operation(
-                builder,
-                block,
-                source,
-                MirOperationKind::Async(operation),
-            )?;
+            return crate::cleanup_await::finish_cleanup_frame(builder, block, source, state)
+                .map_err(|cause| self.mir_error(source, cause));
         }
 
         builder

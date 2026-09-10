@@ -7,6 +7,22 @@ use bray_ir::{
 use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::TypeId;
 
+/// Selects an existing future entry for asynchronous ownership resolution.
+pub(crate) fn future_cleanup_entry(
+    role: bray_ir::MirGeneratedLifecycleRole,
+) -> Option<bray_ir::MirFrameEntry> {
+    match role {
+        bray_ir::MirGeneratedLifecycleRole::Destroy
+        | bray_ir::MirGeneratedLifecycleRole::Cleanup(
+            bray_ir::MirCleanupPhase::LifecycleResolution,
+        ) => Some(bray_ir::MirFrameEntry::CaptureCleanup),
+        bray_ir::MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Quiesce) => {
+            Some(bray_ir::MirFrameEntry::CaptureQuiescence)
+        }
+        _ => None,
+    }
+}
+
 /// Attempts to construct an inactive lifecycle helper from its already borrowed receiver.
 pub(crate) fn create_lifecycle_frame(
     builder: &mut MirUnitBuilder,
@@ -153,4 +169,27 @@ pub(crate) fn suspend_cleanup(
     )?;
 
     Ok(resume)
+}
+
+/// Publishes a generated cleanup frame's outcome to its awaiting owner.
+pub(crate) fn finish_cleanup_frame(
+    builder: &mut MirUnitBuilder,
+    block: MirBlockId,
+    source: &MirSourceAnchor,
+    state: bray_ir::MirTaskTerminalState,
+) -> Result<(), MirUnitBuildError> {
+    builder.push_operation(
+        block,
+        source.clone(),
+        MirOperationKind::Async(MirAsyncOperation::PublishTerminalState {
+            state,
+            runtime: MirRuntimeReference::new(
+                RuntimeAbiRole::TerminalPublication,
+                builder.target().runtime_abi(),
+            ),
+        }),
+        None,
+    )?;
+
+    builder.set_terminator(block, source.clone(), MirTerminatorKind::Return(None))
 }

@@ -3020,6 +3020,61 @@ async func partial(pos values: [[Guard; 2]; 2], pos index: usize, pos pending: F
     }
 
     #[test]
+    fn opaque_future_cleanup_reuses_its_admitted_frame_entries() {
+        for completion in ["i32", "Future<i32>", "Guard"] {
+            let source = format!(
+                r#"
+                module app;
+                struct Guard {{ async finalize() {{}} }}
+                async func discard(pos pending: Future<{completion}>) {{}}
+            "#
+            );
+
+            let compilation = compilation(&source);
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{:?}",
+                compilation.check_diagnostics()
+            );
+
+            let lowered = compilation
+                .lowered_unit(source_function_body_key(&compilation, "discard"))
+                .unwrap();
+
+            let mir = lowered_mir(&lowered);
+
+            let future = mir
+                .storages()
+                .iter()
+                .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
+                .unwrap()
+                .ty();
+
+            for expected in [
+                bray_ir::MirFrameEntry::CaptureCleanup,
+                bray_ir::MirFrameEntry::CaptureQuiescence,
+            ] {
+                assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+                    MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame { entry, .. })
+                        if *entry == expected
+                )), "opaque Future<{completion}> cleanup must enter {expected:?} directly");
+            }
+
+            assert!(
+                !mir.operations()
+                    .iter()
+                    .any(|operation| matches!(operation.kind(),
+                        MirOperationKind::Async(bray_ir::MirAsyncOperation::CreateFrame {
+                            initializer: bray_ir::MirFrameInitializer::Lifecycle { ty, .. }, ..
+                        }) if *ty == future || completion != "Guard"
+                    )),
+                "opaque Future<{completion}> cleanup must not allocate a wrapper lifecycle frame"
+            );
+        }
+    }
+
+    #[test]
     fn cleanup_free_inactive_futures_resolve_without_a_protected_frame() {
         let compilation = compilation(
             r#"

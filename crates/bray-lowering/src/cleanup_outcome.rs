@@ -105,6 +105,36 @@ impl CleanupOutcome {
         )
     }
 
+    /// Retains an inactive observer's completed payload while resolving its outcome tag.
+    pub(crate) fn resolve_inactive_completion(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        result: MirPlace,
+        contract: (bray_ir::MirRunResultVariants, TypeId),
+    ) -> Result<(MirBlockId, MirBlockId, MirPlace), MirUnitBuildError> {
+        let (variants, completion) = contract;
+
+        let payload = result.project(
+            bray_ir::MirProjectionKind::ActiveUnionPayloadElement {
+                variant: variants.completed(),
+                ordinal: bray_symbols::SymbolOrdinal::new(0),
+            },
+            completion,
+        );
+
+        let (completed, finished) = self.resolve_run_result(
+            builder,
+            block,
+            source,
+            result,
+            (variants, CleanupCancellation::Resolved),
+        )?;
+
+        Ok((completed, finished, payload))
+    }
+
     /// Moves failed run outcomes into the retained incident state and exposes the completed branch.
     pub(crate) fn resolve_run_result(
         &self,

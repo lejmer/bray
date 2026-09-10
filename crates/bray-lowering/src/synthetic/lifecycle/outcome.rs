@@ -81,29 +81,39 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let panicked = self.cleanup_propagation_block(builder, panicked, source)?;
         let cancelled = self.cleanup_propagation_block(builder, cancelled, source)?;
 
-        builder
-            .set_terminator(
+        for (block, termination, state) in [
+            (
                 panicked,
-                source.clone(),
                 MirTerminatorKind::PropagatePanic {
                     report: outcome.report(),
                     runtime: MirRuntimeReference::new(RuntimeAbiRole::PanicPropagation, abi),
                 },
-            )
-            .map_err(invalid)?;
-
-        builder
-            .set_terminator(
+                bray_ir::MirTaskTerminalState::Panicked(outcome.report()),
+            ),
+            (
                 cancelled,
-                source.clone(),
                 MirTerminatorKind::PropagateCancellation {
                     runtime: MirRuntimeReference::new(
                         RuntimeAbiRole::CurrentRunCancellationPropagation,
                         abi,
                     ),
                 },
-            )
-            .map_err(invalid)?;
+                bray_ir::MirTaskTerminalState::Cancelled,
+            ),
+        ] {
+            if builder.protected_frame().is_some() {
+                // A cleanup continuation reports failure to its awaiting owner through the frame
+                // protocol. The synchronous propagation ABI has no caller outcome slot here.
+                crate::cleanup_await::finish_cleanup_frame(builder, block, source, state)
+                    .map_err(invalid)?;
+
+                continue;
+            }
+
+            builder
+                .set_terminator(block, source.clone(), termination)
+                .map_err(invalid)?;
+        }
 
         Ok(completed)
     }

@@ -1,10 +1,9 @@
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirAsyncOperation, MirBlockKind, MirEdge, MirGeneratedLifecycleRole, MirImmediateValue,
-    MirOperand, MirOperationKind, MirPlace, MirProjectionKind, MirRuntimeReference, MirStorageKind,
-    MirTaskTerminalState, MirTerminatorKind, MirUnit, MirUnitBuilder, MirUnitKey, MirUnitKind,
+    MirBlockKind, MirEdge, MirGeneratedLifecycleRole, MirImmediateValue, MirOperand,
+    MirOperationKind, MirPlace, MirProjectionKind, MirStorageKind, MirTaskTerminalState,
+    MirTerminatorKind, MirUnit, MirUnitBuilder, MirUnitKey, MirUnitKind,
 };
-use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::{BorrowKind, CallableExecution, TypeData, TypeId};
 
 use crate::{SyntheticLoweringContext, SyntheticLoweringError};
@@ -164,22 +163,5 @@ fn publish_destructor_outcome(
 
     builder.take_terminator(block)?;
 
-    builder.push_operation(
-        block,
-        terminator.source().clone(),
-        MirOperationKind::Async(MirAsyncOperation::PublishTerminalState {
-            state,
-            runtime: MirRuntimeReference::new(
-                RuntimeAbiRole::TerminalPublication,
-                builder.target().runtime_abi(),
-            ),
-        }),
-        None,
-    )?;
-
-    builder.set_terminator(
-        block,
-        terminator.source().clone(),
-        MirTerminatorKind::Return(None),
-    )
+    crate::cleanup_await::finish_cleanup_frame(builder, block, terminator.source(), state)
 }

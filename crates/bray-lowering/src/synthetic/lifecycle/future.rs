@@ -1,9 +1,8 @@
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
     MirBlockId, MirCleanupPhase, MirEdge, MirFrameEntry, MirOperand, MirOperationKind, MirPlace,
-    MirProjectionKind, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder,
+    MirSourceAnchor, MirTerminatorKind, MirUnitBuilder,
 };
-use bray_symbols::SymbolOrdinal;
 
 use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
 use crate::cleanup_outcome::CleanupCancellation;
@@ -16,8 +15,21 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         future: MirPlace,
     ) -> Result<MirBlockId, C::Error> {
-        let completion = self.context.representation_type(RepresentationRole::Unit)?;
         let outcome = self.cleanup_outcome(builder, block, source)?;
+        let finished = self.await_future_quiescence(builder, block, source, future, &outcome)?;
+
+        self.finish_cleanup_outcome(builder, finished, source, &outcome)
+    }
+
+    pub(super) fn await_future_quiescence(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        future: MirPlace,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
+    ) -> Result<MirBlockId, C::Error> {
+        let completion = self.context.representation_type(RepresentationRole::Unit)?;
 
         let (block, result, variants) = self.await_lifecycle_result(
             builder,
@@ -48,7 +60,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )
             .map_err(|cause| self.mir_error(source, cause))?;
 
-        self.finish_cleanup_outcome(builder, finished, source, &outcome)
+        Ok(finished)
     }
 
     pub(super) fn destroy_inactive_captures(
@@ -83,6 +95,20 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         source: &MirSourceAnchor,
         future: MirPlace,
     ) -> Result<MirBlockId, C::Error> {
+        let outcome = self.cleanup_outcome(builder, block, source)?;
+        let finished = self.await_future_cleanup(builder, block, source, future, &outcome)?;
+
+        self.finish_cleanup_outcome(builder, finished, source, &outcome)
+    }
+
+    pub(super) fn await_future_cleanup(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        future: MirPlace,
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
+    ) -> Result<MirBlockId, C::Error> {
         let completion = self
             .context
             .compiler_known_symbols()
@@ -97,8 +123,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 argument: Some(future.ty()),
             })?;
 
-        let outcome = self.cleanup_outcome(builder, block, source)?;
-
         let (block, result, variants) = self.await_lifecycle_result(
             builder,
             block,
@@ -110,25 +134,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             completion,
         )?;
 
-        // A task-observation future can own a terminal value even when its body was never driven.
-        // Retain the result path for payload cleanup after the outcome branch consumes its tag.
-        let (completed, finished) = outcome
-            .resolve_run_result(
-                builder,
-                block,
-                source,
-                result.clone(),
-                (variants, CleanupCancellation::Resolved),
-            )
+        let (completed, finished, payload) = outcome
+            .resolve_inactive_completion(builder, block, source, result, (variants, completion))
             .map_err(|cause| self.mir_error(source, cause))?;
-
-        let payload = result.project(
-            MirProjectionKind::ActiveUnionPayloadElement {
-                variant: variants.completed(),
-                ordinal: SymbolOrdinal::new(0),
-            },
-            completion,
-        );
 
         let completed = self.resolve_lifecycle_action(
             builder,
@@ -138,7 +146,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 phase: MirCleanupPhase::LifecycleResolution,
                 place: payload,
             },
-            &outcome,
+            outcome,
         )?;
 
         builder
@@ -149,6 +157,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             )
             .map_err(|cause| self.mir_error(source, cause))?;
 
-        self.finish_cleanup_outcome(builder, finished, source, &outcome)
+        Ok(finished)
     }
 }

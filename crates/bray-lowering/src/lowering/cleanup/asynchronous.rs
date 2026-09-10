@@ -143,49 +143,7 @@ impl Lowerer<'_> {
 
             self.check_cleanup_action_outcome(block, source)?
         } else {
-            let (block, rejected, future) =
-                self.create_cleanup_frame(block, source, role, &place)?;
-
-            if role != MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Quiesce) {
-                self.set_storage_initialized(block, source, &place, false)?;
-            }
-
-            if let Some(pending) = &pending {
-                self.cleanup_retained_storages.push(pending.storage());
-            }
-
-            let (block, result, variants) =
-                self.await_cleanup_frame(block, source, MirOperand::Move(future))?;
-
-            if pending.is_some() {
-                self.cleanup_retained_storages.pop();
-            }
-
-            let outcome = self
-                .cleanup_outcome
-                .as_ref()
-                .ok_or(LoweringError::SemanticValueUnavailable)?;
-
-            let (completed, finished) = outcome.resolve_run_result(
-                &mut self.builder,
-                block,
-                source,
-                result,
-                (
-                    variants,
-                    crate::cleanup_outcome::CleanupCancellation::Propagate,
-                ),
-            )?;
-
-            outcome.retain_allocation_failure(&mut self.builder, rejected, source, finished)?;
-
-            self.set_terminator(
-                completed,
-                Self::retained_source(source),
-                MirTerminatorKind::Goto(MirEdge::new(finished, [])),
-            )?;
-
-            finished
+            self.resolve_async_cleanup(block, source, role, &place, pending.as_ref())?
         };
 
         let finished = if own_outcome {
@@ -220,6 +178,101 @@ impl Lowerer<'_> {
         Ok((continuation, Some((value, ty))))
     }
 
+    fn resolve_async_cleanup(
+        &mut self,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        role: MirGeneratedLifecycleRole,
+        place: &MirPlace,
+        pending: Option<&MirPlace>,
+    ) -> Result<MirBlockId, LoweringError> {
+        let (block, rejected, awaited, completion) =
+            self.prepare_cleanup_await(block, source, role, place)?;
+
+        let resolves_future = matches!(
+            &awaited,
+            crate::cleanup_await::CleanupAwait::Frame(_, bray_ir::MirFrameEntry::CaptureCleanup)
+        );
+
+        if role != MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Quiesce) {
+            self.set_storage_initialized(block, source, place, false)?;
+        }
+
+        if let Some(pending) = pending {
+            self.cleanup_retained_storages.push(pending.storage());
+        }
+
+        let (block, result, variants) =
+            self.await_cleanup_frame(block, source, awaited, completion)?;
+
+        let outcome = self
+            .cleanup_outcome
+            .as_ref()
+            .ok_or(LoweringError::SemanticValueUnavailable)?;
+
+        let result_storage = result.storage();
+
+        let (completed, finished, payload) = if resolves_future {
+            let (completed, finished, payload) = outcome.resolve_inactive_completion(
+                &mut self.builder,
+                block,
+                source,
+                result,
+                (variants, completion),
+            )?;
+
+            (completed, finished, Some(payload))
+        } else {
+            let (completed, finished) = outcome.resolve_run_result(
+                &mut self.builder,
+                block,
+                source,
+                result,
+                (
+                    variants,
+                    crate::cleanup_outcome::CleanupCancellation::Propagate,
+                ),
+            )?;
+
+            (completed, finished, None)
+        };
+
+        if let Some(rejected) = rejected {
+            outcome.retain_allocation_failure(&mut self.builder, rejected, source, finished)?;
+        }
+
+        let completed = if let Some(payload) = payload {
+            self.cleanup_retained_storages.push(result_storage);
+
+            let (completed, _) = self.push_lifecycle_cleanup(
+                completed,
+                source,
+                MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::LifecycleResolution),
+                payload,
+                None,
+                false,
+            )?;
+
+            self.cleanup_retained_storages.pop();
+
+            completed
+        } else {
+            completed
+        };
+
+        if pending.is_some() {
+            self.cleanup_retained_storages.pop();
+        }
+
+        self.set_terminator(
+            completed,
+            Self::retained_source(source),
+            MirTerminatorKind::Goto(MirEdge::new(finished, [])),
+        )?;
+
+        Ok(finished)
+    }
+
     fn future_has_cleanup_free_captures(&self, place: &MirPlace) -> bool {
         place.projections().is_empty()
             && self.storages.iter().any(|(identity, storage)| {
@@ -231,14 +284,51 @@ impl Lowerer<'_> {
             })
     }
 
-    fn create_cleanup_frame(
+    fn prepare_cleanup_await(
         &mut self,
         block: MirBlockId,
         source: &MirSourceAnchor,
         role: MirGeneratedLifecycleRole,
         place: &MirPlace,
-    ) -> Result<(MirBlockId, MirBlockId, MirPlace), LoweringError> {
+    ) -> Result<
+        (
+            MirBlockId,
+            Option<MirBlockId>,
+            crate::cleanup_await::CleanupAwait,
+            TypeId,
+        ),
+        LoweringError,
+    > {
         let ty = place.ty();
+
+        let completion = self
+            .input
+            .available_compiler_known_symbols()
+            .unary_representation_argument(
+                self.input.semantic_values(),
+                RepresentationRole::Future,
+                ty,
+            )?;
+
+        let entry = crate::cleanup_await::future_cleanup_entry(role);
+
+        if let (Some(completion), Some(entry)) = (completion, entry) {
+            let (operand, completion) = if entry == bray_ir::MirFrameEntry::CaptureQuiescence {
+                (
+                    MirOperand::Copy(Self::retained_place(place)),
+                    self.representation_type(RepresentationRole::Unit)?,
+                )
+            } else {
+                (MirOperand::Move(Self::retained_place(place)), completion)
+            };
+
+            return Ok((
+                block,
+                None,
+                crate::cleanup_await::CleanupAwait::Frame(operand, entry),
+                completion,
+            ));
+        }
 
         let receiver = self.input.semantic_values().intern_type(TypeData::Borrow {
             kind: BorrowKind::Mutable,
@@ -263,7 +353,7 @@ impl Lowerer<'_> {
         let future = self.unary_representation_type(RepresentationRole::Future, completion)?;
         let boolean = self.representation_type(RepresentationRole::ScalarBool)?;
 
-        crate::cleanup_await::create_lifecycle_frame(
+        let (block, rejected, future) = crate::cleanup_await::create_lifecycle_frame(
             &mut self.builder,
             block,
             source,
@@ -272,17 +362,26 @@ impl Lowerer<'_> {
             receiver,
             BoundFutureConstruction::new(completion, future),
             boolean,
-        )
-        .map_err(Into::into)
+        )?;
+
+        Ok((
+            block,
+            Some(rejected),
+            crate::cleanup_await::CleanupAwait::Frame(
+                MirOperand::Move(future),
+                bray_ir::MirFrameEntry::Body,
+            ),
+            completion,
+        ))
     }
 
     fn await_cleanup_frame(
         &mut self,
         block: MirBlockId,
         source: &MirSourceAnchor,
-        future: MirOperand,
+        awaited: crate::cleanup_await::CleanupAwait,
+        completion: TypeId,
     ) -> Result<(MirBlockId, MirPlace, MirRunResultVariants), LoweringError> {
-        let completion = self.representation_type(RepresentationRole::Unit)?;
         let result = self.unary_representation_type(RepresentationRole::RunResult, completion)?;
         let representation = self.run_result_representation()?;
 
@@ -299,7 +398,7 @@ impl Lowerer<'_> {
             block,
             source,
             state,
-            crate::cleanup_await::CleanupAwait::Frame(future, bray_ir::MirFrameEntry::Body),
+            awaited,
             result,
             variants,
         )?;

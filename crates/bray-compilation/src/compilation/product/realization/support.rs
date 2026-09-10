@@ -1970,7 +1970,11 @@ mod tests {
                                     ..
                                 },
                             ..
-                        }) => asynchronous,
+                        }) => asynchronous && error != "Future<unit>",
+                        MirOperationKind::Async(MirAsyncOperation::ComposeAwaitedFrame {
+                            entry: bray_ir::MirFrameEntry::CaptureQuiescence,
+                            ..
+                        }) => error == "Future<unit>",
                         _ => false,
                     }),
                 "{error}"
@@ -1991,8 +1995,23 @@ mod tests {
                     block.terminator().kind(),
                     MirTerminatorKind::PropagatePanic { .. }
                         | MirTerminatorKind::PropagateCancellation { .. }
-                )
+                ) || block.operations().iter().any(|operation| {
+                    matches!(
+                        generated.operation(*operation).unwrap().kind(),
+                        MirOperationKind::Async(MirAsyncOperation::PublishTerminalState {
+                            state: bray_ir::MirTaskTerminalState::Panicked(_)
+                                | bray_ir::MirTaskTerminalState::Cancelled,
+                            ..
+                        })
+                    )
+                })
             }) {
+                assert_eq!(
+                    matches!(block.terminator().kind(), MirTerminatorKind::Return(None)),
+                    asynchronous,
+                    "{error}: protected cleanup failure must return through the frame protocol"
+                );
+
                 assert!(
                     !generated.reachable_blocks([id]).contains(&transfer_block),
                     "{error}: {block:?}"

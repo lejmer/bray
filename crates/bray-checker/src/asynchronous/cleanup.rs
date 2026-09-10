@@ -167,7 +167,7 @@ where
             TypeData::Named {
                 definition,
                 substitution,
-            } => self.named_shape(*definition, *substitution)?,
+            } => self.named_shape(ty, *definition, *substitution)?,
             TypeData::Tuple(elements) => self.aggregate(elements.iter().copied())?,
             TypeData::Array { element, length } => {
                 let length = self
@@ -207,6 +207,7 @@ where
 
     fn named_shape(
         &mut self,
+        ty: TypeId,
         definition: bray_symbols::NamedTypeSymbolId,
         substitution: bray_symbols::GenericSubstitutionId,
     ) -> Result<CleanupShape, CheckerQueryError<C::UpstreamError>> {
@@ -221,7 +222,21 @@ where
         }
 
         match role {
-            Some(RepresentationRole::Future | RepresentationRole::Task) => Ok(CleanupShape::BOTH),
+            Some(role @ (RepresentationRole::Future | RepresentationRole::Task)) => {
+                // Inactive task observations can already own their terminal value. Publish its
+                // checked cleanup modes together with the opaque future or task owner's modes.
+                if let Some(completion) = self
+                    .context
+                    .available_compiler_known_symbols()
+                    .unary_representation_argument(self.context.semantic_values(), role, ty)
+                    .map_err(CheckerInfrastructureError::SemanticValueStore)
+                    .map_err(CheckerQueryError::Infrastructure)?
+                {
+                    self.resolve(completion)?;
+                }
+
+                Ok(CleanupShape::BOTH)
+            }
             Some(RepresentationRole::String | RepresentationRole::PanicReport) => {
                 Ok(CleanupShape::LIFECYCLE)
             }

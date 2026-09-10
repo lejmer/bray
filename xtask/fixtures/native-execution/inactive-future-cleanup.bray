@@ -1,5 +1,7 @@
 module inactive_future_cleanup;
 
+using std.atomic;
+
 struct Counter
 {
     mut value: i32;
@@ -68,6 +70,68 @@ async func discard_cancellation(pos counter: &mut Counter)
     let pending = task.cancel();
 }
 
+func record(pos trace: &std.atomic.Atomic<usize>, pos value: usize)
+{
+    let previous = trace.load(order = std.atomic.LoadOrder.Acquire);
+
+    trace.store(previous * 10 + value, order = std.atomic.StoreOrder.Release);
+}
+
+struct FailingCapture
+{
+    trace: &std.atomic.Atomic<usize>;
+
+    async finalize()
+    {
+        record(self.trace, 1);
+        await complete();
+        panic("capture finalization failed");
+    }
+
+    destruct()
+    {
+        record(self.trace, 2);
+    }
+}
+
+struct RemainingCapture
+{
+    trace: &std.atomic.Atomic<usize>;
+
+    destruct()
+    {
+        record(self.trace, 3);
+    }
+}
+
+struct Bundle
+{
+    remaining: RemainingCapture;
+    pending: Future<unit>;
+}
+
+async func inactive_failure(pos capture: FailingCapture)
+{
+    panic("discarded failing future entered its body");
+}
+
+async func discard_bundle(pos trace: &std.atomic.Atomic<usize>)
+{
+    let bundle = Bundle
+    {
+        remaining = RemainingCapture
+        {
+            trace = trace
+        },
+        pending = inactive_failure(
+            FailingCapture
+            {
+                trace = trace
+            }
+        ),
+    };
+}
+
 async func main() -> i32
 {
     let mut counter = Counter
@@ -94,6 +158,19 @@ async func main() -> i32
     if counter.value != 333
     {
         return 3;
+    }
+
+    let trace = std.atomic.Atomic<usize>(0);
+    let result = catch await discard_bundle(&trace);
+
+    if !(result matches Error(_))
+    {
+        return 4;
+    }
+
+    if trace.load(order = std.atomic.LoadOrder.Acquire) != 123
+    {
+        return 5;
     }
 
     return 0;
