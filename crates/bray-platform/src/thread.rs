@@ -23,24 +23,40 @@ type ThreadExitCallbacks = RefCell<Vec<RuntimeThreadExitCallback>>;
 /// One infallible native callback owned by an exact Bray thread attachment.
 pub type RuntimeThreadExitCallback = extern "C-unwind" fn();
 
+/// Failure to admit cleanup for the current exact-thread attachment.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RuntimeThreadExitRegistrationError {
+    /// No active attachment accepts new cleanup callbacks.
+    NotAttached,
+    /// Storage for the new callback could not be reserved.
+    AllocationFailed,
+}
+
 /// Registers cleanup to run in reverse order before the current attachment ends.
-/// Returns false outside an attachment or after attachment cleanup has started.
-pub fn register_runtime_thread_exit_callback(callback: RuntimeThreadExitCallback) -> bool {
+/// Admission failure leaves previously registered callbacks intact.
+pub fn register_runtime_thread_exit_callback(
+    callback: RuntimeThreadExitCallback,
+) -> Result<(), RuntimeThreadExitRegistrationError> {
+    let unavailable = RuntimeThreadExitRegistrationError::NotAttached;
+
     if current_runtime_thread().is_none() {
-        return false;
+        return Err(unavailable);
     }
 
     RUNTIME_THREAD_EXIT_CALLBACKS
         .try_with(|current| {
-            let Some(callbacks) = current.borrow().upgrade() else {
-                return false;
-            };
+            let callbacks = current.borrow().upgrade().ok_or(unavailable)?;
+            let mut callbacks = callbacks.borrow_mut();
 
-            callbacks.borrow_mut().push(callback);
+            callbacks
+                .try_reserve(1)
+                .map_err(|_| RuntimeThreadExitRegistrationError::AllocationFailed)?;
 
-            true
+            callbacks.push(callback);
+
+            Ok(())
         })
-        .unwrap_or(false)
+        .unwrap_or(Err(unavailable))
 }
 
 /// Process-local identity of a native thread initialized for Bray execution.
@@ -346,8 +362,9 @@ mod tests {
 
     use super::{
         NativeThread, NativeThreadName, NativeThreadOutcome, RuntimeThread, RuntimeThreadEntry,
-        RuntimeThreadScope, current_runtime_thread, main_runtime_thread,
-        mark_current_runtime_thread_as_main, register_runtime_thread_exit_callback,
+        RuntimeThreadExitRegistrationError, RuntimeThreadScope, current_runtime_thread,
+        main_runtime_thread, mark_current_runtime_thread_as_main,
+        register_runtime_thread_exit_callback,
     };
 
     thread_local! {
@@ -466,18 +483,22 @@ mod tests {
         let scope = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must attach: {error:?}"));
 
-        assert!(register_runtime_thread_exit_callback(first_exit));
-        assert!(register_runtime_thread_exit_callback(second_exit));
+        assert!(register_runtime_thread_exit_callback(first_exit).is_ok());
+        assert!(register_runtime_thread_exit_callback(second_exit).is_ok());
 
         drop(scope);
 
         assert_eq!(EXIT_ORDER.get(), 21);
-        assert!(!register_runtime_thread_exit_callback(first_exit));
+
+        assert_eq!(
+            register_runtime_thread_exit_callback(first_exit),
+            Err(RuntimeThreadExitRegistrationError::NotAttached)
+        );
 
         let scope = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must reattach: {error:?}"));
 
-        assert!(register_runtime_thread_exit_callback(first_exit));
+        assert!(register_runtime_thread_exit_callback(first_exit).is_ok());
 
         drop(scope);
 
@@ -492,7 +513,12 @@ mod tests {
 
         extern "C-unwind" fn exit() {
             assert!(current_runtime_thread().is_some());
-            assert!(!register_runtime_thread_exit_callback(exit));
+
+            assert_eq!(
+                register_runtime_thread_exit_callback(exit),
+                Err(RuntimeThreadExitRegistrationError::NotAttached)
+            );
+
             EXITS.fetch_add(1, Ordering::Relaxed);
         }
 
@@ -505,7 +531,7 @@ mod tests {
 
             let scope = RuntimeThreadScope::enter().unwrap();
 
-            assert!(register_runtime_thread_exit_callback(exit));
+            assert!(register_runtime_thread_exit_callback(exit).is_ok());
             RETAINED_SCOPE.with(|retained| retained.replace(Some(scope)));
         }).join().unwrap();
 
@@ -516,12 +542,16 @@ mod tests {
     fn attachment_cleanup_closes_registration_before_running_callbacks() {
         extern "C-unwind" fn exit() {
             assert!(current_runtime_thread().is_some());
-            assert!(!register_runtime_thread_exit_callback(exit));
+
+            assert_eq!(
+                register_runtime_thread_exit_callback(exit),
+                Err(RuntimeThreadExitRegistrationError::NotAttached)
+            );
         }
 
         let scope = RuntimeThreadScope::enter().unwrap();
 
-        assert!(register_runtime_thread_exit_callback(exit));
+        assert!(register_runtime_thread_exit_callback(exit).is_ok());
         assert_eq!(scope.finish(), 0);
     }
 
@@ -532,9 +562,9 @@ mod tests {
         let scope = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must attach: {error:?}"));
 
-        assert!(register_runtime_thread_exit_callback(first_exit));
-        assert!(register_runtime_thread_exit_callback(panicking_exit));
-        assert!(register_runtime_thread_exit_callback(second_exit));
+        assert!(register_runtime_thread_exit_callback(first_exit).is_ok());
+        assert!(register_runtime_thread_exit_callback(panicking_exit).is_ok());
+        assert!(register_runtime_thread_exit_callback(second_exit).is_ok());
 
         drop(scope);
 
@@ -549,9 +579,9 @@ mod tests {
         let scope = RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must attach: {error:?}"));
 
-        assert!(register_runtime_thread_exit_callback(first_exit));
-        assert!(register_runtime_thread_exit_callback(panicking_exit));
-        assert!(register_runtime_thread_exit_callback(second_exit));
+        assert!(register_runtime_thread_exit_callback(first_exit).is_ok());
+        assert!(register_runtime_thread_exit_callback(panicking_exit).is_ok());
+        assert!(register_runtime_thread_exit_callback(second_exit).is_ok());
 
         assert_eq!(scope.finish(), 1);
         assert_eq!(EXIT_ORDER.get(), 21);

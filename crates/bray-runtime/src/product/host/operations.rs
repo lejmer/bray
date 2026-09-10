@@ -80,7 +80,12 @@ pub(crate) fn thread_attachment_identity(descriptor: &'static NativeProductHostD
     let product = product_key(descriptor);
 
     let allowed = THREAD_STATICS.with(|registry| {
-        if registry.borrow().products.contains_key(&product) {
+        if registry
+            .borrow()
+            .products
+            .iter()
+            .any(|attachment| attachment.product == product)
+        {
             return true;
         }
 
@@ -119,8 +124,7 @@ pub(crate) fn register_thread_static(
     let product = product_key(registration.product());
     let worker = current_thread_is_product_worker(product);
 
-    let Some((product_identity, entry)) = static_entry(product, registration.static_identity())
-    else {
+    let Some((_, entry)) = static_entry(product, registration.static_identity()) else {
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     };
 
@@ -131,40 +135,38 @@ pub(crate) fn register_thread_static(
     THREAD_STATICS.with(|registry| {
         let mut registry = registry.borrow_mut();
 
-        if registry.entries.iter().any(|registered| {
-            registered.product == product
-                && registered.static_identity == registration.static_identity()
-        }) {
+        let attachment = match registry.attachment(product, worker) {
+            Ok(attachment) => attachment,
+            Err(status) => return status,
+        };
+
+        if attachment
+            .entries
+            .iter()
+            .any(|entry| entry.static_identity == registration.static_identity())
+        {
             return NativeRuntimeStatus::SUCCESS;
         }
-
-        if !registry.ensure_exit_callback() {
-            return NativeRuntimeStatus::NOT_INITIALIZED;
-        }
-
-        let Some(attachment) = registry.attachment(product, worker) else {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
-        };
 
         if !attachment.acquired {
             let observation = acquire_thread_attachment(product, attachment.worker);
 
             if observation.status() != NativeProductHostStatus::SUCCESS {
-                registry.products.remove(&product);
+                registry.remove_product(product);
 
                 return runtime_status(observation.status());
             }
 
-            let Some(attachment) = registry.products.get_mut(&product) else {
-                return NativeRuntimeStatus::RUNTIME_FAILURE;
-            };
-
             attachment.acquired = true;
         }
 
-        registry.entries.push(ThreadStaticEntry {
-            product,
-            product_identity,
+        // Each validated exact-thread declaration registers at most once in this attachment.
+        assert!(
+            attachment.entries.len() < attachment.entries.capacity(),
+            "thread-static records must fit admitted attachment storage"
+        );
+
+        attachment.entries.push(ThreadStaticEntry {
             static_identity: registration.static_identity(),
             order: entry.order,
             prepare: registration.prepare(),
@@ -239,12 +241,9 @@ pub(in crate::product) fn prepare_thread_attachment(product: usize) -> Option<bo
     THREAD_STATICS.with(|registry| {
         let mut registry = registry.borrow_mut();
 
-        if !registry.ensure_exit_callback() {
-            return None;
-        }
-
         registry
             .attachment(product, false)
+            .ok()
             .map(|attachment| attachment.acquired)
     })
 }
@@ -267,7 +266,12 @@ pub(super) fn release_thread_attachment(
 
 pub(in crate::product) fn mark_thread_attachment_acquired(product: usize) {
     THREAD_STATICS.with(|registry| {
-        if let Some(attachment) = registry.borrow_mut().products.get_mut(&product) {
+        if let Some(attachment) = registry
+            .borrow_mut()
+            .products
+            .iter_mut()
+            .find(|attachment| attachment.product == product)
+        {
             attachment.acquired = true;
         }
     });
@@ -275,7 +279,7 @@ pub(in crate::product) fn mark_thread_attachment_acquired(product: usize) {
 
 pub(in crate::product) fn discard_thread_attachment(product: usize) {
     THREAD_STATICS.with(|registry| {
-        registry.borrow_mut().products.remove(&product);
+        registry.borrow_mut().remove_product(product);
     });
 }
 
@@ -1132,6 +1136,87 @@ mod tests {
         assert_eq!(CONTINUING_PRODUCT_CLEANUPS.load(Ordering::SeqCst), 1);
         assert_eq!(PRODUCT_DESTRUCTIONS.load(Ordering::SeqCst), 2);
         assert_eq!(PRODUCT_PHASE_ORDER.load(Ordering::SeqCst), 1212);
+    }
+
+    #[test]
+    fn thread_attachment_admission_preserves_existing_cleanup_on_failure() {
+        THREAD_CLEANUP_ORDER.set(0);
+        let scope = bray_platform::RuntimeThreadScope::enter().unwrap();
+
+        let first = Box::leak(Box::new(NativeProductHostDescriptor::new(
+            NativeProductIdentity::new([131; 32]),
+            thread_order_entry,
+            2,
+        )));
+
+        let second = Box::leak(Box::new(NativeProductHostDescriptor::new(
+            NativeProductIdentity::new([132; 32]),
+            thread_order_entry,
+            2,
+        )));
+
+        for descriptor in [&*first, &*second] {
+            assert_eq!(
+                control(descriptor, NativeProductHostOperation::OBSERVE).state(),
+                NativeProductHostState::OPEN
+            );
+        }
+
+        let original = thread_attachment_identity(first);
+        assert_ne!(original, 0);
+
+        let first_registration = NativeThreadStaticCleanupRegistration::new(
+            first,
+            NativeStaticIdentity::new([11; 32]),
+            detach_thread_static,
+            finalizer(first_thread_cleanup),
+            no_cleanup,
+            detach_thread_static,
+        );
+
+        assert!(register_thread_static(&first_registration).is_success());
+
+        crate::test_support::with_allocation_failure(|| {
+            assert_eq!(thread_attachment_identity(first), original);
+            assert_eq!(thread_attachment_identity(second), 0);
+        });
+
+        assert_eq!(thread_attachment_identity(second), original + 1);
+
+        let registrations = [
+            NativeThreadStaticCleanupRegistration::new(
+                second,
+                NativeStaticIdentity::new([11; 32]),
+                detach_thread_static,
+                finalizer(first_thread_cleanup),
+                no_cleanup,
+                detach_thread_static,
+            ),
+            NativeThreadStaticCleanupRegistration::new(
+                second,
+                NativeStaticIdentity::new([12; 32]),
+                detach_thread_static,
+                finalizer(second_thread_cleanup),
+                no_cleanup,
+                detach_thread_static,
+            ),
+        ];
+
+        crate::test_support::with_allocation_failure(|| {
+            for registration in registrations.iter().rev() {
+                assert!(register_thread_static(registration).is_success());
+            }
+        });
+
+        drop(scope);
+        assert_eq!(THREAD_CLEANUP_ORDER.get(), 112);
+
+        for descriptor in [&*first, &*second] {
+            assert_eq!(
+                control(descriptor, NativeProductHostOperation::CLOSE).state(),
+                NativeProductHostState::CLOSED
+            );
+        }
     }
 
     #[test]

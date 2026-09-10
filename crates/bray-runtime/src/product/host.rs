@@ -1,3 +1,4 @@
+mod attachment;
 mod model;
 mod operations;
 mod thread;

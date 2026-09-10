@@ -1,6 +1,4 @@
-use std::collections::BTreeMap;
-
-use bray_runtime_abi::{NativeProductHostObservation, NativeProductIdentity};
+use bray_runtime_abi::NativeProductHostObservation;
 
 use super::super::cleanup::run_static_cleanup;
 
@@ -8,77 +6,48 @@ use super::model::{THREAD_STATICS, ThreadStaticEntry, product_hosts};
 use super::operations::{release_thread_attachment, report_incidents};
 
 pub(super) extern "C-unwind" fn drain_thread_statics() {
-    let (mut entries, products) = THREAD_STATICS.with(|registry| {
+    let mut products = THREAD_STATICS.with(|registry| {
         let mut registry = registry.borrow_mut();
-        let entries = std::mem::take(&mut registry.entries);
-        let products = std::mem::take(&mut registry.products);
-
         registry.callback_registered = false;
 
-        (entries, products)
+        std::mem::take(&mut registry.products)
     });
 
-    entries.sort_unstable_by_key(|entry| (entry.product_identity, entry.product, entry.order));
+    products.sort_unstable_by_key(|attachment| (attachment.product_identity, attachment.product));
 
-    run_thread_cleanups(entries);
+    for attachment in &mut products {
+        attachment.entries.sort_unstable_by_key(|entry| entry.order);
+        run_product_thread_cleanups(attachment.product, std::mem::take(&mut attachment.entries));
+    }
 
-    for (product, attachment) in products {
+    products.sort_unstable_by_key(|attachment| attachment.product);
+
+    // Keep every product attachment alive until all exact-thread finalizers have run.
+    for attachment in products {
         if attachment.acquired {
-            let _ = release_attachment(product, attachment.worker);
+            let _ = release_thread_attachment(attachment.product, attachment.worker);
         }
     }
 }
 
 pub(crate) fn drain_product_thread_statics(product: usize) -> Option<NativeProductHostObservation> {
-    let (mut entries, attachment) = THREAD_STATICS.with(|registry| {
-        let mut registry = registry.borrow_mut();
-        let mut selected = Vec::new();
+    let mut attachment =
+        THREAD_STATICS.with(|registry| registry.borrow_mut().remove_product(product))?;
 
-        registry.entries.retain(|entry| {
-            if entry.product == product {
-                selected.push(*entry);
+    attachment.entries.sort_unstable_by_key(|entry| entry.order);
+    run_product_thread_cleanups(product, attachment.entries);
 
-                false
-            } else {
-                true
-            }
-        });
-
-        let attachment = registry.products.remove(&product);
-
-        (selected, attachment)
-    });
-
-    entries.sort_unstable_by_key(|entry| entry.order);
-
-    run_thread_cleanups(entries);
-
-    if let Some(attachment) = attachment
-        && attachment.acquired
-    {
-        return release_attachment(product, attachment.worker);
+    if attachment.acquired {
+        return Some(release_thread_attachment(product, attachment.worker));
     }
 
     None
 }
 
-fn run_thread_cleanups(entries: Vec<ThreadStaticEntry>) {
-    let mut products = BTreeMap::<(NativeProductIdentity, usize), Vec<ThreadStaticEntry>>::new();
-
-    for entry in entries {
-        products
-            .entry((entry.product_identity, entry.product))
-            .or_default()
-            .push(entry);
-    }
-
-    for ((_, product), entries) in products {
-        run_product_thread_cleanups(product, entries);
-    }
-}
-
 fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) {
-    let owner = entries.first().copied();
+    let Some(owner) = entries.first().copied() else {
+        return;
+    };
 
     let runtime = product_hosts()
         .lock()
@@ -96,7 +65,7 @@ fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) 
                 let _ = incident.report();
             }
 
-            report_incidents(entry.product, entry.static_identity, count);
+            report_incidents(product, entry.static_identity, count);
         }
     };
 
@@ -105,19 +74,11 @@ fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) 
         None => crate::native::with_static_cleanup_runtime(cleanup),
     };
 
-    let Some(owner) = owner else {
-        return;
-    };
-
     let count = runtime_incidents.len();
 
     for incident in runtime_incidents {
         let _ = incident.report();
     }
 
-    report_incidents(owner.product, owner.static_identity, count);
-}
-
-fn release_attachment(product: usize, worker: bool) -> Option<NativeProductHostObservation> {
-    Some(release_thread_attachment(product, worker))
+    report_incidents(product, owner.static_identity, count);
 }
