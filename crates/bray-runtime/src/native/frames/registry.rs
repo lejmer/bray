@@ -33,6 +33,7 @@ pub(super) struct FrameRegistry {
 pub(super) struct FrameStorage {
     _bytes: NativeStorage,
     pub(super) metadata: NativeFrameMetadata,
+    pub(super) descriptor: bray_runtime_model::ProtectedFrameDescriptor,
     pub(super) availability: FrameAvailability,
     tasks: [Option<NativeTaskReservation>; 3],
     lanes: usize,
@@ -66,9 +67,18 @@ pub(in crate::native) fn admit(
         .and_then(|states| states.checked_mul(TASK_ENTRIES.len()))
         .ok_or(NativeRuntimeStatus::ALLOCATION_FAILURE)?;
 
+    // The frame retains the existing shared state contract after task entries are consumed.
+    let descriptor = tasks
+        .first()
+        .and_then(Option::as_ref)
+        .unwrap_or_else(|| unreachable!("every admitted frame prepares its body task entry"))
+        .descriptor()
+        .clone();
+
     let storage = FrameStorage {
         _bytes: bytes,
         metadata,
+        descriptor,
         availability: FrameAvailability::Owned,
         tasks,
         lanes,
@@ -233,18 +243,41 @@ pub(in crate::native) fn claim(
     entry: NativeFrameEntry,
     metadata: &NativeFrameMetadata,
 ) -> Result<Option<FrameTaskClaim>, NativeRuntimeStatus> {
+    let descriptor = {
+        let state = registry()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        let Some(storage) = state.frames.get(&address) else {
+            return Ok(None);
+        };
+
+        let expected = storage.metadata.for_entry(entry);
+
+        if !matches!(storage.availability, FrameAvailability::Owned)
+            || FrameShape::of(&expected) != FrameShape::of(metadata)
+        {
+            return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
+        }
+
+        // State callbacks may reenter the runtime. Retain the shared contract outside its lock.
+        storage.descriptor.clone()
+    };
+
+    if !super::super::frame::NativeFrame::matches_metadata_states(&descriptor, metadata) {
+        return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
+    }
+
     let mut state = registry()
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-    let Some(storage) = state.frames.get_mut(&address) else {
-        return Ok(None);
-    };
+    let storage = state
+        .frames
+        .get_mut(&address)
+        .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
 
-    let expected = storage.metadata.for_entry(entry);
-
-    if !matches!(storage.availability, FrameAvailability::Owned)
-        || FrameShape::of(&expected) != FrameShape::of(metadata)
+    if !matches!(storage.availability, FrameAvailability::Owned) || storage.descriptor != descriptor
     {
         return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
     }

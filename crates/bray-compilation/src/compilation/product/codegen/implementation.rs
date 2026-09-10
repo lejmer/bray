@@ -1441,6 +1441,81 @@ mod tests {
     }
 
     #[test]
+    fn native_frame_metadata_uses_concrete_identities_for_generic_instances() {
+        let source = r#"
+        module app;
+        async func identity<T>(pos value: T) -> T
+        {
+            return value;
+        }
+        async func main()
+        {
+            let first: i32 = await identity<i32>(1);
+            let second: u32 = await identity<u32>(2);
+        }
+        "#;
+
+        for target in NativeTarget::ALL {
+            let (backend, plan) = runtime_native_plan_for_sources_target(
+                &[source],
+                ProductKind::Executable,
+                SelectedTarget::for_native(target),
+                &[],
+            );
+
+            let artifacts =
+                generated_artifacts_of_kind(&backend, &plan, BackendArtifactKind::BackendIr);
+
+            let mut identities =
+                std::collections::BTreeMap::<_, std::collections::BTreeSet<_>>::new();
+
+            for (unit, artifact) in plan.units().iter().zip(&artifacts) {
+                let ir = std::str::from_utf8(artifact).unwrap();
+
+                for instance in unit.instances() {
+                    let Some(descriptor) = instance.mir().frame_descriptor() else {
+                        continue;
+                    };
+
+                    let identity = instance.protected_frame_identity().unwrap();
+
+                    identities
+                        .entry(descriptor.frame())
+                        .or_default()
+                        .insert(identity);
+
+                    let encoded: String = identity
+                        .digest()
+                        .iter()
+                        .map(|byte| {
+                            if *byte == b'\\' {
+                                "\\\\".to_owned()
+                            } else if (0x20..=0x7e).contains(byte) && *byte != b'"' {
+                                char::from(*byte).to_string()
+                            } else {
+                                format!("\\{byte:02X}")
+                            }
+                        })
+                        .collect();
+
+                    assert!(
+                        ir.contains(&format!(r#"[32 x i8] c"{encoded}""#)),
+                        "{target:?} must emit the concrete frame identity {identity:?}. Expected {encoded:?}. Metadata: {:?}",
+                        ir.lines()
+                            .filter(|line| line.starts_with("@frame.metadata"))
+                            .collect::<Vec<_>>()
+                    );
+                }
+            }
+
+            assert!(
+                identities.values().any(|instances| instances.len() >= 2),
+                "{target:?} must exercise distinct specializations of the same frame template"
+            );
+        }
+    }
+
+    #[test]
     fn indirect_memory_assembly_emits_valid_native_units() {
         let (backend, compilation) =
             codegen_compilation_for_product(MEMORY_ASSEMBLY_SOURCE, ProductKind::Library);

@@ -2,7 +2,7 @@ use bray_runtime_abi::{NativeFrameMetadata, NativeRuntimeStatus};
 
 use super::registry::{FrameRegistry, admit, registry, release};
 
-/// Process-local identity includes every field required to use the prepared task records.
+/// Concrete frame identity and native layouts select one compatible cleanup capacity group.
 #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub(super) struct FrameShape {
     identity: [u8; 32],
@@ -11,7 +11,6 @@ pub(super) struct FrameShape {
     alignment: usize,
     completion_size: usize,
     completion_alignment: usize,
-    state: usize,
 }
 
 impl FrameShape {
@@ -23,8 +22,6 @@ impl FrameShape {
             alignment: metadata.alignment(),
             completion_size: metadata.completion_size(),
             completion_alignment: metadata.completion_alignment(),
-            // Function identity is local to this runtime registry, never a persisted contract.
-            state: metadata.state() as usize,
         }
     }
 }
@@ -35,8 +32,8 @@ pub(super) enum FrameAvailability {
 }
 
 /// Credits outlive activation so an owner can retire its whole bundle even when phases are omitted.
-#[derive(Default)]
 pub(super) struct CleanupCapacity {
+    descriptor: bray_runtime_model::ProtectedFrameDescriptor,
     credits: usize,
     spent: usize,
     available: Option<usize>,
@@ -76,9 +73,29 @@ pub(in crate::native) fn admit_cleanup(
         .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
 
     for group in prepared.0.chunk_by(|left, right| left.0 == right.0) {
-        let Some((shape, _)) = group.first() else {
+        let Some((shape, address)) = group.first() else {
             continue;
         };
+
+        let descriptor = &state
+            .frames
+            .get(address)
+            .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?
+            .descriptor;
+
+        if state
+            .cleanup_capacity
+            .get(shape)
+            .is_some_and(|capacity| capacity.descriptor != *descriptor)
+            || group.iter().any(|(_, address)| {
+                state
+                    .frames
+                    .get(address)
+                    .is_none_or(|storage| storage.descriptor != *descriptor)
+            })
+        {
+            return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
+        }
 
         state
             .cleanup_capacity
@@ -90,7 +107,26 @@ pub(in crate::native) fn admit_cleanup(
 
     // Every fallible step is complete. Publish the entire bundle under one registry lock.
     for (shape, address) in prepared.0.drain(..) {
-        let capacity = state.cleanup_capacity.entry(shape).or_default();
+        // The capacity group shares the state table already owned by its prepared frame.
+        let descriptor = state
+            .frames
+            .get(&address)
+            .unwrap_or_else(|| {
+                unreachable!("prepared cleanup frames retain their checked descriptor")
+            })
+            .descriptor
+            .clone();
+
+        let capacity = state
+            .cleanup_capacity
+            .entry(shape)
+            .or_insert(CleanupCapacity {
+                descriptor,
+                credits: 0,
+                spent: 0,
+                available: None,
+            });
+
         capacity.credits += 1;
         let next = capacity.available.replace(address);
 
@@ -109,35 +145,27 @@ pub(in crate::native) fn admit_cleanup(
 pub(in crate::native) fn activate_cleanup(
     metadata: &NativeFrameMetadata,
 ) -> Result<usize, NativeRuntimeStatus> {
-    let shape = FrameShape::of(metadata);
+    with_matching_capacity(metadata, |state, shape| {
+        let address = take_available(state, shape)?;
 
-    let mut state = registry()
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner);
+        // Removing an available frame preserves credits = spent + available frame count.
+        state
+            .cleanup_capacity
+            .get_mut(&shape)
+            .unwrap_or_else(|| {
+                unreachable!("activating cleanup storage retains its capacity credit")
+            })
+            .spent += 1;
 
-    let address = take_available(&mut state, shape)?;
-
-    // Removing an available frame preserves credits = spent + available frame count.
-    state
-        .cleanup_capacity
-        .get_mut(&shape)
-        .unwrap_or_else(|| unreachable!("activating cleanup storage retains its capacity credit"))
-        .spent += 1;
-
-    Ok(address)
+        Ok(address)
+    })
 }
 
 /// Retires one credit when its owner's obligation is resolved, whether or not its phase ran.
 pub(in crate::native) fn discharge_cleanup(
     metadata: &NativeFrameMetadata,
 ) -> Result<(), NativeRuntimeStatus> {
-    let shape = FrameShape::of(metadata);
-
-    let address = {
-        let mut state = registry()
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-
+    let address = with_matching_capacity(metadata, |state, shape| {
         let capacity = state
             .cleanup_capacity
             .get_mut(&shape)
@@ -150,7 +178,7 @@ pub(in crate::native) fn discharge_cleanup(
 
             None
         } else {
-            Some(take_available(&mut state, shape)?)
+            Some(take_available(state, shape)?)
         };
 
         let capacity = state.cleanup_capacity.get_mut(&shape).unwrap_or_else(|| {
@@ -163,8 +191,8 @@ pub(in crate::native) fn discharge_cleanup(
             state.cleanup_capacity.remove(&shape);
         }
 
-        address
-    };
+        Ok(address)
+    })?;
 
     // Releasing task reservations may drop runtime-owned state. Do it outside the registry lock.
     if let Some(address) = address {
@@ -172,6 +200,46 @@ pub(in crate::native) fn discharge_cleanup(
     }
 
     Ok(())
+}
+
+fn with_matching_capacity<T>(
+    metadata: &NativeFrameMetadata,
+    operation: impl FnOnce(&mut FrameRegistry, FrameShape) -> Result<T, NativeRuntimeStatus>,
+) -> Result<T, NativeRuntimeStatus> {
+    let shape = FrameShape::of(metadata);
+
+    let descriptor = {
+        let state = registry()
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        // The descriptor shares already admitted state storage, so this clone cannot allocate.
+        state
+            .cleanup_capacity
+            .get(&shape)
+            .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?
+            .descriptor
+            .clone()
+    };
+
+    // Generated callbacks run outside the registry mutex, including during mandatory cleanup.
+    if !super::super::frame::NativeFrame::matches_metadata_states(&descriptor, metadata) {
+        return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
+    }
+
+    let mut state = registry()
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+    if state
+        .cleanup_capacity
+        .get(&shape)
+        .is_none_or(|capacity| capacity.descriptor != descriptor)
+    {
+        return Err(NativeRuntimeStatus::INVALID_ARGUMENT);
+    }
+
+    operation(&mut state, shape)
 }
 
 fn take_available(
@@ -212,6 +280,172 @@ mod tests {
 
     fn metadata(identity: u8) -> NativeFrameMetadata {
         NativeFrameMetadata::new([identity; 32], 2, 256, 64, 0, 1, native_origin_frame_state)
+    }
+
+    static CALLBACK_LOCKED: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+    static REPLACE_CAPACITY: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+    static REPLACEMENT_FAILED: std::sync::atomic::AtomicBool =
+        std::sync::atomic::AtomicBool::new(false);
+
+    #[inline(never)]
+    extern "C" fn equivalent_state(state: u32) -> bray_runtime_abi::NativeFrameState {
+        std::hint::black_box(state);
+
+        if registry().try_lock().is_err() {
+            CALLBACK_LOCKED.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+
+        native_origin_frame_state(state)
+    }
+
+    extern "C" fn different_state(state: u32) -> bray_runtime_abi::NativeFrameState {
+        bray_runtime_abi::NativeFrameState::new(
+            bray_runtime_abi::NativeFrameAffinity::ORIGIN_THREAD,
+            if state == 0 {
+                bray_runtime_abi::NativeLaneRequirements::COMPUTE
+            } else {
+                bray_runtime_abi::NativeLaneRequirements::NONE
+            },
+        )
+    }
+
+    fn with_state(
+        identity: u8,
+        state: bray_runtime_abi::NativeFrameStateCallback,
+    ) -> NativeFrameMetadata {
+        NativeFrameMetadata::new([identity; 32], 2, 256, 64, 0, 1, state)
+    }
+
+    #[test]
+    fn equivalent_callbacks_share_capacity_and_claims_without_allocation_or_locked_callbacks() {
+        let _isolation = test_runtime_isolation();
+        CALLBACK_LOCKED.store(false, std::sync::atomic::Ordering::Relaxed);
+        let original = metadata(194);
+        let equivalent = with_state(194, equivalent_state);
+        assert_ne!(original.state() as usize, equivalent.state() as usize);
+        super::admit_cleanup([original, equivalent].into_iter().map(Ok)).unwrap();
+        let ordinary = admit(original).unwrap();
+
+        with_allocation_failure(|| {
+            for incoming in [equivalent, original] {
+                let address = super::activate_cleanup(&incoming).unwrap();
+
+                assert!(
+                    claim(address, NativeFrameEntry::Body, &equivalent)
+                        .unwrap()
+                        .is_some()
+                );
+
+                release(address);
+                super::discharge_cleanup(&equivalent).unwrap();
+            }
+
+            assert!(
+                claim(ordinary, NativeFrameEntry::Body, &equivalent)
+                    .unwrap()
+                    .is_some()
+            );
+
+            release(ordinary);
+        });
+
+        assert!(!CALLBACK_LOCKED.load(std::sync::atomic::Ordering::Relaxed));
+        let state = registry().lock().unwrap();
+        assert!(state.frames.is_empty());
+        assert!(state.cleanup_capacity.is_empty());
+    }
+
+    #[test]
+    fn conflicting_state_requirements_roll_back_bundles_and_preserve_existing_capacity() {
+        let _isolation = test_runtime_isolation();
+        let original = metadata(195);
+        let incompatible = with_state(195, different_state);
+
+        assert_eq!(
+            super::admit_cleanup([original, incompatible].into_iter().map(Ok)),
+            Err(NativeRuntimeStatus::INVALID_ARGUMENT)
+        );
+
+        assert!(registry().lock().unwrap().frames.is_empty());
+        super::admit_cleanup([original].into_iter().map(Ok)).unwrap();
+
+        assert_eq!(
+            super::admit_cleanup([metadata(196), incompatible].into_iter().map(Ok)),
+            Err(NativeRuntimeStatus::INVALID_ARGUMENT)
+        );
+
+        with_allocation_failure(|| {
+            assert_eq!(
+                super::activate_cleanup(&incompatible),
+                Err(NativeRuntimeStatus::INVALID_ARGUMENT)
+            );
+
+            assert_eq!(
+                super::discharge_cleanup(&incompatible),
+                Err(NativeRuntimeStatus::INVALID_ARGUMENT)
+            );
+
+            let address = super::activate_cleanup(&original).unwrap();
+
+            assert!(matches!(
+                claim(address, NativeFrameEntry::Body, &incompatible),
+                Err(NativeRuntimeStatus::INVALID_ARGUMENT)
+            ));
+
+            assert!(
+                claim(address, NativeFrameEntry::Body, &original)
+                    .unwrap()
+                    .is_some()
+            );
+
+            release(address);
+            super::discharge_cleanup(&original).unwrap();
+        });
+
+        let state = registry().lock().unwrap();
+        assert!(state.frames.is_empty());
+        assert!(state.cleanup_capacity.is_empty());
+    }
+
+    extern "C" fn replacing_state(state: u32) -> bray_runtime_abi::NativeFrameState {
+        if REPLACE_CAPACITY.swap(false, std::sync::atomic::Ordering::Relaxed) {
+            let retired = super::discharge_cleanup(&metadata(197));
+
+            let admitted =
+                super::admit_cleanup([with_state(197, different_state)].into_iter().map(Ok));
+
+            REPLACEMENT_FAILED.store(
+                retired.is_err() || admitted.is_err(),
+                std::sync::atomic::Ordering::Relaxed,
+            );
+        }
+
+        native_origin_frame_state(state)
+    }
+
+    #[test]
+    fn capacity_changed_during_metadata_validation_is_rechecked_before_activation() {
+        let _isolation = test_runtime_isolation();
+        super::admit_cleanup([metadata(197)].into_iter().map(Ok)).unwrap();
+        REPLACEMENT_FAILED.store(false, std::sync::atomic::Ordering::Relaxed);
+        REPLACE_CAPACITY.store(true, std::sync::atomic::Ordering::Relaxed);
+
+        assert_eq!(
+            super::activate_cleanup(&with_state(197, replacing_state)),
+            Err(NativeRuntimeStatus::INVALID_ARGUMENT)
+        );
+
+        assert!(!REPLACEMENT_FAILED.load(std::sync::atomic::Ordering::Relaxed));
+        let replacement = with_state(197, different_state);
+
+        with_allocation_failure(|| {
+            release(super::activate_cleanup(&replacement).unwrap());
+            super::discharge_cleanup(&replacement).unwrap();
+        });
+
+        assert!(registry().lock().unwrap().frames.is_empty());
     }
 
     #[test]

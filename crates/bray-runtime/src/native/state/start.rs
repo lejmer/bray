@@ -3,7 +3,7 @@ use std::sync::atomic::AtomicBool;
 use triomphe::{Arc, UniqueArc};
 
 use bray_runtime_abi::{NativeRuntimeStatus, NativeTaskHandle};
-use bray_runtime_model::ProtectedFrameStateId;
+use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId};
 
 use crate::{CancellationContext, ExecutionLanePlacement, TaskControlBlock};
 
@@ -128,6 +128,10 @@ pub(in crate::native) struct NativeTaskReservation {
 }
 
 impl NativeTaskReservation {
+    pub(in crate::native) fn descriptor(&self) -> &ProtectedFrameDescriptor {
+        self.task.task.descriptor()
+    }
+
     pub(in crate::native) fn admit_cleanup(&mut self) {
         self.registration_storage.cleanup_admitted = true;
     }

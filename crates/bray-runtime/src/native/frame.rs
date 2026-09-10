@@ -59,6 +59,21 @@ impl NativeTerminalPayload {
 }
 
 impl NativeFrame {
+    pub(in crate::native) fn matches_metadata_states(
+        descriptor: &ProtectedFrameDescriptor,
+        metadata: &bray_runtime_abi::NativeFrameMetadata,
+    ) -> bool {
+        usize::try_from(metadata.state_count()).ok() == Some(descriptor.states().len())
+            && descriptor.states().iter().all(|state| {
+                let native = metadata.state()(state.state().raw());
+
+                affinity(native.affinity()) == Some(state.affinity())
+                    && lane_requirements(native.lane_requirements()).is_some_and(|requirements| {
+                        requirements.eq(state.lane_requirements().iter().copied())
+                    })
+            })
+    }
+
     pub(super) fn checked_descriptor(
         abi: &bray_runtime_abi::NativeFrameMetadata,
     ) -> Result<ProtectedFrameDescriptor, NativeRuntimeStatus> {

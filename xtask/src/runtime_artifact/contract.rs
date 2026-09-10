@@ -149,8 +149,18 @@ fn validate_signature(role: RuntimeAbiRole, signature: &syn::Signature) -> Resul
 }
 
 fn native_type(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
-    if let Some(reference) = optional_reference(ty) {
-        return pointer_kind(&reference.elem);
+    if native_callback(ty) {
+        return Ok(RuntimeAbiType::Pointer);
+    }
+
+    if let Some(inner) = optional_type(ty) {
+        if let syn::Type::Reference(reference) = inner {
+            return pointer_kind(&reference.elem);
+        }
+
+        if native_callback(inner) {
+            return Ok(RuntimeAbiType::Pointer);
+        }
     }
 
     let name = match ty {
@@ -180,7 +190,6 @@ fn native_type(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
         Some("NativeFrameProgress") => RuntimeAbiType::FrameProgress,
         Some("NativeExecutionLaneResult") => RuntimeAbiType::LaneResult,
         Some("NativeProductHostObservation") => RuntimeAbiType::ProductObservation,
-        Some("NativeWakeCallback" | "NativeRuntimeEventCallback") => RuntimeAbiType::Pointer,
         _ => {
             return Err(format!(
                 "unsupported native adapter type {}",
@@ -207,7 +216,21 @@ fn pointer_kind(ty: &syn::Type) -> Result<RuntimeAbiType, String> {
     }
 }
 
-fn optional_reference(ty: &syn::Type) -> Option<&syn::TypeReference> {
+fn native_callback(ty: &syn::Type) -> bool {
+    let syn::Type::Path(path) = ty else {
+        return false;
+    };
+
+    path.path.segments.last().is_some_and(|segment| {
+        matches!(segment.arguments, syn::PathArguments::None)
+            && matches!(
+                segment.ident.to_string().as_str(),
+                "NativeWakeCallback" | "NativeRuntimeEventCallback" | "NativeFrameMetadataProvider"
+            )
+    })
+}
+
+fn optional_type(ty: &syn::Type) -> Option<&syn::Type> {
     let syn::Type::Path(path) = ty else {
         return None;
     };
@@ -223,11 +246,7 @@ fn optional_reference(ty: &syn::Type) -> Option<&syn::TypeReference> {
     };
 
     match arguments.args.first() {
-        Some(syn::GenericArgument::Type(syn::Type::Reference(reference)))
-            if arguments.args.len() == 1 =>
-        {
-            Some(reference)
-        }
+        Some(syn::GenericArgument::Type(inner)) if arguments.args.len() == 1 => Some(inner),
         _ => None,
     }
 }
@@ -299,6 +318,40 @@ mod tests {
             assert!(
                 native_type(&ty).is_err(),
                 "{source} has no guaranteed nullable-reference ABI"
+            );
+        }
+    }
+
+    #[test]
+    fn nullable_native_callbacks_use_the_function_pointer_abi() {
+        for name in [
+            "NativeWakeCallback",
+            "NativeRuntimeEventCallback",
+            "NativeFrameMetadataProvider",
+        ] {
+            for source in [
+                format!("bray_runtime_abi::{name}"),
+                format!("Option<bray_runtime_abi::{name}>"),
+            ] {
+                let ty = syn::parse_str::<syn::Type>(&source).unwrap();
+
+                assert_eq!(
+                    native_type(&ty),
+                    Ok(bray_runtime_interface::RuntimeAbiType::Pointer)
+                );
+            }
+        }
+
+        for source in [
+            "Option<Option<NativeFrameMetadataProvider>>",
+            "Option<NativeFrameMetadata>",
+            "NativeFrameMetadataProvider<u32>",
+        ] {
+            let ty = syn::parse_str::<syn::Type>(source).unwrap();
+
+            assert!(
+                native_type(&ty).is_err(),
+                "{source} is not a native callback pointer"
             );
         }
     }

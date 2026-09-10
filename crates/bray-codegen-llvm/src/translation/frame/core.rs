@@ -350,8 +350,9 @@ fn frame_metadata<'context>(
     );
 
     let identity = context.i8_type().const_array(
-        &descriptor
-            .frame()
+        &instance
+            .protected_frame_identity()
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?
             .digest()
             .iter()
             .map(|byte| context.i8_type().const_int(u64::from(*byte), false))
