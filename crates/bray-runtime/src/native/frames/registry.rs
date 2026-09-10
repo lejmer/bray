@@ -8,7 +8,7 @@ use bray_runtime_abi::{
 
 use super::super::state::{NativeRuntimeCore, NativeTaskReservation};
 use super::super::storage::NativeStorage;
-use super::cleanup::{FrameAvailability, FrameShape};
+use super::cleanup::{CleanupCapacity, FrameAvailability, FrameShape};
 
 // Inactive generated frames can move between product runtimes and native threads. This runtime artifact's
 // registry owns their opaque native storage until generated destruction releases it. Runtime
@@ -24,7 +24,7 @@ const TASK_ENTRIES: [NativeFrameEntry; 3] = [
 #[derive(Default)]
 pub(super) struct FrameRegistry {
     pub(super) frames: HashMap<usize, FrameStorage>,
-    pub(super) available: HashMap<FrameShape, usize>,
+    pub(super) cleanup_capacity: HashMap<FrameShape, CleanupCapacity>,
     runtimes: Vec<Weak<NativeRuntimeCore>>,
     tasks: usize,
     lanes: usize,
