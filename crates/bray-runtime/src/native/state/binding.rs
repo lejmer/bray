@@ -1,7 +1,7 @@
 use std::cell::Cell;
 use std::io::Write;
-use std::rc::Rc;
 use std::sync::Arc;
+use triomphe::Arc as RuntimeArc;
 
 use bray_platform::{RuntimeThreadId, RuntimeThreadScope};
 use bray_runtime_abi::{
@@ -89,7 +89,7 @@ fn with_retained_runtime<T>(
 
     let main_thread_lane = retained.main_thread == Some(thread.runtime().id());
 
-    let runtime = Rc::new(NativeRuntime {
+    let runtime = crate::allocation::allocate_shared(NativeRuntime {
         thread,
         main_thread_lane,
         cleanup_workloads: Cell::new(true),
@@ -97,9 +97,10 @@ fn with_retained_runtime<T>(
         core: Arc::clone(&retained.core),
         #[cfg(test)]
         _test_isolation: None,
-    });
+    })
+    .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
 
-    let previous = NATIVE_RUNTIME.with(|active| active.replace(Some(Rc::clone(&runtime))));
+    let previous = NATIVE_RUNTIME.with(|active| active.replace(Some(RuntimeArc::clone(&runtime))));
     let _binding = RuntimeBindingScope { previous };
 
     Ok(callback())
@@ -117,7 +118,7 @@ impl Drop for CleanupWorkloadScope<'_> {
 }
 
 struct RuntimeBindingScope {
-    previous: Option<Rc<NativeRuntime>>,
+    previous: Option<RuntimeArc<NativeRuntime>>,
 }
 
 struct OwnedRuntimeScope<'a>(&'a RetainedRuntime);

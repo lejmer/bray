@@ -12,6 +12,7 @@ pub(in crate::native) struct WorkerControl {
 struct WorkerControlState {
     requests: Vec<WorkerRequest>,
     retired: bool,
+    startup: Option<NativeRuntimeStatus>,
 }
 
 struct WorkerRequest {
@@ -27,7 +28,53 @@ enum RequestStatus {
     Complete,
 }
 
+pub(in crate::native) struct WorkerStartup<'a>(&'a WorkerControl);
+
+impl WorkerStartup<'_> {
+    pub(in crate::native) fn finish(self, status: NativeRuntimeStatus) {
+        self.0.complete_startup(status);
+    }
+}
+
+impl Drop for WorkerStartup<'_> {
+    fn drop(&mut self) {
+        self.0
+            .complete_startup(NativeRuntimeStatus::RUNTIME_FAILURE);
+    }
+}
+
 impl WorkerControl {
+    pub(in crate::native) fn startup(&self) -> WorkerStartup<'_> {
+        WorkerStartup(self)
+    }
+
+    fn complete_startup(&self, status: NativeRuntimeStatus) {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        state.startup.get_or_insert(status);
+        drop(state);
+        self.completed.notify_all();
+    }
+
+    pub(in crate::native) fn wait_started(&self) -> NativeRuntimeStatus {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        let state = self
+            .completed
+            .wait_while(state, |state| state.startup.is_none())
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        state
+            .startup
+            .unwrap_or(NativeRuntimeStatus::RUNTIME_FAILURE)
+    }
+
     pub(in crate::native) fn admit(&self, product: usize) -> Result<(), NativeRuntimeStatus> {
         let mut state = self
             .state
@@ -168,6 +215,34 @@ mod tests {
     use bray_runtime_abi::NativeRuntimeStatus;
     use std::sync::{Arc, mpsc};
     use std::time::Duration;
+
+    #[test]
+    fn startup_reports_unwind_and_preserves_the_first_completion_without_allocation() {
+        let failed = WorkerControl::default();
+
+        let unwind = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _startup = failed.startup();
+            panic!("startup must publish failure while unwinding");
+        }));
+
+        assert!(unwind.is_err());
+        assert_eq!(failed.wait_started(), NativeRuntimeStatus::RUNTIME_FAILURE);
+        let started = WorkerControl::default();
+        with_allocation_failure(|| started.startup().finish(NativeRuntimeStatus::SUCCESS));
+        assert_eq!(started.wait_started(), NativeRuntimeStatus::SUCCESS);
+        let rejected = WorkerControl::default();
+
+        with_allocation_failure(|| {
+            rejected
+                .startup()
+                .finish(NativeRuntimeStatus::ALLOCATION_FAILURE)
+        });
+
+        assert_eq!(
+            rejected.wait_started(),
+            NativeRuntimeStatus::ALLOCATION_FAILURE
+        );
+    }
 
     #[test]
     fn worker_admission_preserves_existing_requests_on_failure() {

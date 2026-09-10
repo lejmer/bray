@@ -2,9 +2,9 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::num::NonZeroUsize;
 use std::ops::Deref;
-use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use triomphe::Arc as RuntimeArc;
 
 use bray_platform::{RuntimeThreadEntry, RuntimeThreadId, RuntimeThreadScope};
 use bray_runtime_abi::{
@@ -19,7 +19,7 @@ use crate::{
 
 use super::super::frame::NativeTerminalState;
 thread_local! {
-    pub(in crate::native) static NATIVE_RUNTIME: RefCell<Option<Rc<NativeRuntime>>> =
+    pub(in crate::native) static NATIVE_RUNTIME: RefCell<Option<RuntimeArc<NativeRuntime>>> =
         const { RefCell::new(None) };
     pub(in crate::native) static CURRENT_NATIVE_TASK: Cell<Option<NativeTaskHandle>> =
         const { Cell::new(None) };
@@ -31,7 +31,7 @@ pub(in crate::native) struct NativeRuntime {
     pub(in crate::native) thread: RuntimeThreadEntry,
     pub(in crate::native) main_thread_lane: bool,
     pub(in crate::native) cleanup_workloads: Cell<bool>,
-    pub(in crate::native) worker: Option<Arc<super::super::workers::WorkerControl>>,
+    pub(in crate::native) worker: Option<triomphe::Arc<super::super::workers::WorkerControl>>,
     pub(in crate::native) core: Arc<NativeRuntimeCore>,
     #[cfg(test)]
     pub(in crate::native) _test_isolation: Option<TestRuntimeIsolation>,
@@ -102,6 +102,46 @@ mod tests {
 
             RETAINED_ISOLATION.with(|retained| *retained.borrow_mut() = Some(isolation));
         }).join().unwrap();
+    }
+
+    #[test]
+    fn worker_context_admission_failure_preserves_the_active_runtime() {
+        assert!(
+            super::initialize(bray_runtime_abi::NativeRuntimeConfiguration::new(4, 1)).is_success()
+        );
+
+        let core =
+            super::NATIVE_RUNTIME.with(|runtime| runtime.borrow().as_ref().unwrap().core.clone());
+
+        core.workers.stop(&core.scheduler, None);
+        let thread = bray_platform::current_runtime_thread().unwrap();
+        let identity = thread.id();
+        let control = triomphe::Arc::new(crate::native::workers::WorkerControl::default());
+
+        crate::test_support::with_allocation_failure(|| {
+            super::run_worker(
+                core.clone(),
+                thread,
+                crate::ExecutionWorkload::Cooperative,
+                triomphe::Arc::clone(&control),
+            )
+        });
+
+        assert_eq!(control.wait_started(), bray_runtime_abi::NativeRuntimeStatus::ALLOCATION_FAILURE);
+
+        assert!(super::NATIVE_RUNTIME.with(|runtime| {
+            runtime
+                .borrow()
+                .as_ref()
+                .is_some_and(|runtime| std::sync::Arc::ptr_eq(&runtime.core, &core))
+        }));
+
+        assert_eq!(
+            bray_platform::current_runtime_thread().unwrap().id(),
+            identity
+        );
+
+        assert!(super::shutdown().is_success());
     }
 
     #[test]
@@ -400,23 +440,28 @@ fn initialize_with_capabilities(
             cleanup_reports: CleanupReportSink::new(),
         });
 
-        if let Err(status) = super::super::frames::register_runtime(&core) {
-            return status;
-        }
-
-        if !core.workers.start(&core) {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
-        }
-
-        runtime.replace(Some(Rc::new(NativeRuntime {
+        let native = match crate::allocation::allocate_shared(NativeRuntime {
             thread,
             main_thread_lane,
             cleanup_workloads: Cell::new(cleanup_workloads),
             worker: None,
-            core,
+            core: Arc::clone(&core),
             #[cfg(test)]
             _test_isolation: test_isolation,
-        })));
+        }) {
+            Ok(native) => native,
+            Err(_) => return NativeRuntimeStatus::ALLOCATION_FAILURE,
+        };
+
+        if let Err(status) = super::super::frames::register_runtime(&core) {
+            return status;
+        }
+
+        if let Err(status) = core.workers.start(&core) {
+            return status;
+        }
+
+        runtime.replace(Some(native));
 
         NativeRuntimeStatus::SUCCESS
     })
@@ -499,21 +544,31 @@ pub(in crate::native) fn run_worker(
     core: Arc<NativeRuntimeCore>,
     thread: bray_platform::RuntimeThread,
     workload: ExecutionWorkload,
-    control: Arc<super::super::workers::WorkerControl>,
+    control: triomphe::Arc<super::super::workers::WorkerControl>,
 ) {
-    let runtime = Rc::new(NativeRuntime {
+    let startup = control.startup();
+
+    let runtime = match crate::allocation::allocate_shared(NativeRuntime {
         thread: RuntimeThreadEntry::Current(thread),
         main_thread_lane: false,
         cleanup_workloads: Cell::new(false),
-        worker: Some(Arc::clone(&control)),
+        worker: Some(triomphe::Arc::clone(&control)),
         core,
         #[cfg(test)]
         _test_isolation: None,
-    });
+    }) {
+        Ok(runtime) => runtime,
+        Err(_) => {
+            startup.finish(NativeRuntimeStatus::ALLOCATION_FAILURE);
+            return;
+        }
+    };
 
     NATIVE_RUNTIME.with(|current| {
-        current.replace(Some(Rc::clone(&runtime)));
+        current.replace(Some(RuntimeArc::clone(&runtime)));
     });
+
+    startup.finish(NativeRuntimeStatus::SUCCESS);
 
     let lanes = super::binding::current_thread_lanes(runtime.thread.runtime().id(), false, true);
 

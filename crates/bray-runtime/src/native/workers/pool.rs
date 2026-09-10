@@ -16,19 +16,19 @@ pub(in crate::native) struct WorkerPool {
 
 struct WorkerRegistry {
     workers: Vec<Worker>,
-    controls: Option<triomphe::Arc<Vec<Arc<WorkerControl>>>>,
+    controls: Option<triomphe::Arc<Vec<triomphe::Arc<WorkerControl>>>>,
 }
 
 struct Worker {
     thread: NativeThread<()>,
-    control: Arc<WorkerControl>,
+    control: triomphe::Arc<WorkerControl>,
 }
 
 impl WorkerRegistry {
     fn prepare_control(
         &mut self,
-        control: &Arc<WorkerControl>,
-    ) -> Result<triomphe::Arc<Vec<Arc<WorkerControl>>>, NativeRuntimeStatus> {
+        control: &triomphe::Arc<WorkerControl>,
+    ) -> Result<triomphe::Arc<Vec<triomphe::Arc<WorkerControl>>>, NativeRuntimeStatus> {
         crate::allocation::reserve_vec_entries(&mut self.workers, 1)
             .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
 
@@ -47,10 +47,10 @@ impl WorkerRegistry {
         controls.extend(
             self.workers
                 .iter()
-                .map(|worker| Arc::clone(&worker.control)),
+                .map(|worker| triomphe::Arc::clone(&worker.control)),
         );
 
-        controls.push(Arc::clone(control));
+        controls.push(triomphe::Arc::clone(control));
 
         crate::allocation::allocate_shared(controls)
             .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)
@@ -69,26 +69,36 @@ impl WorkerPool {
         }
     }
 
-    pub(in crate::native) fn start(&self, runtime: &Arc<NativeRuntimeCore>) -> bool {
+    pub(in crate::native) fn start(
+        &self,
+        runtime: &Arc<NativeRuntimeCore>,
+    ) -> Result<(), NativeRuntimeStatus> {
         for workload in [
             ExecutionWorkload::Cooperative,
             ExecutionWorkload::Blocking,
             ExecutionWorkload::Compute,
         ] {
-            if !self.spawn(runtime, workload) {
+            if let Err(status) = self.spawn(runtime, workload) {
                 self.stop(runtime.scheduler(), None);
 
-                return false;
+                return Err(status);
             }
         }
 
-        true
+        Ok(())
     }
 
-    fn spawn(&self, runtime: &Arc<NativeRuntimeCore>, workload: ExecutionWorkload) -> bool {
+    fn spawn(
+        &self,
+        runtime: &Arc<NativeRuntimeCore>,
+        workload: ExecutionWorkload,
+    ) -> Result<(), NativeRuntimeStatus> {
         let worker_runtime = Arc::clone(runtime);
-        let control = Arc::new(WorkerControl::default());
-        let worker_control = Arc::clone(&control);
+
+        let control = crate::allocation::allocate_shared(WorkerControl::default())
+            .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
+
+        let worker_control = triomphe::Arc::clone(&control);
 
         let mut registry = self
             .workers
@@ -96,7 +106,7 @@ impl WorkerPool {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
         if self.is_stopping() {
-            return false;
+            return Err(NativeRuntimeStatus::NOT_INITIALIZED);
         }
 
         let mut index = 0;
@@ -110,9 +120,7 @@ impl WorkerPool {
             }
         }
 
-        let Ok(controls) = registry.prepare_control(&control) else {
-            return false;
-        };
+        let controls = registry.prepare_control(&control)?;
 
         if workload == ExecutionWorkload::Blocking {
             self.idle_blocking_workers.fetch_add(1, Ordering::AcqRel);
@@ -122,18 +130,29 @@ impl WorkerPool {
             super::super::state::run_worker(worker_runtime, thread, workload, worker_control);
         });
 
-        let Ok(thread) = thread else {
-            if workload == ExecutionWorkload::Blocking {
-                self.idle_blocking_workers.fetch_sub(1, Ordering::AcqRel);
-            }
+        let thread = match thread {
+            Ok(thread) => thread,
+            Err(error) => {
+                self.retire(workload, &control, workload == ExecutionWorkload::Blocking);
 
-            return false;
+                return Err(super::super::state::thread_attachment_status(error));
+            }
         };
+
+        let status = control.wait_started();
+
+        if !status.is_success() {
+            self.retire(workload, &control, workload == ExecutionWorkload::Blocking);
+            drop(registry);
+            let _ = thread.join();
+
+            return Err(status);
+        }
 
         registry.workers.push(Worker { thread, control });
         registry.controls = Some(controls);
 
-        true
+        Ok(())
     }
 
     pub(in crate::native) fn begin_blocking_work(&self, runtime: &Arc<NativeRuntimeCore>) {
@@ -190,7 +209,7 @@ impl WorkerPool {
     pub(in crate::native) fn retire(
         &self,
         workload: ExecutionWorkload,
-        control: &Arc<WorkerControl>,
+        control: &triomphe::Arc<WorkerControl>,
         accounted_as_idle: bool,
     ) {
         if workload == ExecutionWorkload::Blocking && accounted_as_idle {
@@ -207,7 +226,7 @@ impl WorkerPool {
     pub(in crate::native) fn stop(
         &self,
         scheduler: &crate::Scheduler,
-        current: Option<&Arc<WorkerControl>>,
+        current: Option<&triomphe::Arc<WorkerControl>>,
     ) {
         self.stopping.store(true, Ordering::Release);
         scheduler.wake_waiters();
@@ -224,7 +243,7 @@ impl WorkerPool {
         };
 
         for worker in workers {
-            if current.is_some_and(|current| Arc::ptr_eq(current, &worker.control)) {
+            if current.is_some_and(|current| triomphe::Arc::ptr_eq(current, &worker.control)) {
                 continue;
             }
 
@@ -235,7 +254,7 @@ impl WorkerPool {
     pub(in crate::native) fn detach_product(
         &self,
         product: usize,
-        current: Option<&Arc<WorkerControl>>,
+        current: Option<&triomphe::Arc<WorkerControl>>,
         scheduler: &crate::Scheduler,
     ) {
         // Keep the published worker set alive without holding its lock through cleanup.
@@ -270,7 +289,49 @@ impl WorkerPool {
 mod tests {
     use super::{WorkerControl, WorkerPool, WorkerRegistry};
     use crate::test_support::with_allocation_failure;
-    use std::sync::Arc;
+    use triomphe::Arc;
+
+    #[test]
+    fn failed_worker_admission_preserves_published_workers_and_idle_accounting() {
+        use bray_runtime_abi::{NativeRuntimeConfiguration, NativeRuntimeStatus};
+
+        assert!(
+            crate::native::state::initialize(NativeRuntimeConfiguration::new(4, 1)).is_success()
+        );
+
+        crate::native::state::with_runtime(|runtime| {
+            let workers = &runtime.core.workers;
+
+            let (count, snapshot) = {
+                let registry = workers.workers.lock().unwrap();
+
+                (registry.workers.len(), registry.controls.clone().unwrap())
+            };
+
+            let idle = workers.idle_blocking_workers.load(Ordering::Acquire);
+
+            for successful in 0..3 {
+                assert_eq!(
+                    crate::test_support::with_allocation_failure_after(successful, || workers
+                        .spawn(&runtime.core, crate::ExecutionWorkload::Blocking)),
+                    Err(NativeRuntimeStatus::ALLOCATION_FAILURE)
+                );
+
+                let registry = workers.workers.lock().unwrap();
+                assert_eq!(registry.workers.len(), count);
+
+                assert!(triomphe::Arc::ptr_eq(
+                    registry.controls.as_ref().unwrap(),
+                    &snapshot
+                ));
+
+                assert_eq!(workers.idle_blocking_workers.load(Ordering::Acquire), idle);
+            }
+        })
+        .unwrap();
+
+        assert!(crate::native::state::shutdown().is_success());
+    }
 
     #[test]
     fn failed_worker_snapshot_admission_preserves_published_controls() {
