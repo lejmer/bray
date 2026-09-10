@@ -108,9 +108,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             &quiescence,
         )?;
 
-        // The runtime descriptor can destroy this payload only after every owned run has settled.
-        let failed = self.finish_cleanup_outcome(builder, failed, source, &quiescence)?;
-
+        // Retain the original Error after its runs settle, before forwarding their failures.
         self.push_lifecycle_operation(
             builder,
             failed,
@@ -124,13 +122,17 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             }),
         )?;
 
-        outcome
-            .check_into(
-                builder,
+        let failed = outcome.check(builder, failed, source).map_err(invalid)?;
+
+        let failed = quiescence
+            .retain_into(builder, failed, source, outcome)
+            .map_err(invalid)?;
+
+        builder
+            .set_terminator(
                 failed,
-                source,
-                MirEdge::new(finished, []),
-                finished,
+                source.clone(),
+                MirTerminatorKind::Goto(MirEdge::new(finished, [])),
             )
             .map_err(invalid)?;
 

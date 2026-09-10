@@ -119,7 +119,8 @@ pub(super) fn expand_future_cleanup<C: SyntheticLoweringContext + ?Sized>(
         finished
     };
 
-    super::outcome::forward_collected_outcome(builder, finished, source, &outcome, edges)
+    outcome
+        .forward(builder, finished, source, edges)
         .map_err(invalid)?;
 
     Ok(resume)

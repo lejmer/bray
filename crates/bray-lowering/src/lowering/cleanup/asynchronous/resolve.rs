@@ -1,4 +1,3 @@
-use bray_compiler_known::RepresentationRole;
 use bray_ir::{
     MirBlockId, MirBlockKind, MirEdge, MirGeneratedLifecycleRole, MirOperand, MirOperationKind,
     MirPlace, MirSourceAnchor, MirStorageKind, MirStoreKind, MirTerminatorKind, MirValueId,
@@ -184,22 +183,20 @@ impl Lowerer<'_> {
         place: &MirPlace,
         pending: Option<&MirPlace>,
     ) -> Result<MirBlockId, LoweringError> {
-        if role == MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Quiesce) {
-            let completion = self
-                .input
-                .available_compiler_known_symbols()
-                .unary_representation_argument(
-                    self.input.semantic_values(),
-                    RepresentationRole::Task,
-                    place.ty(),
-                )?;
+        let owner = crate::cleanup_await::CleanupOwner::for_action(
+            self.input.available_compiler_known_symbols(),
+            self.input.semantic_values(),
+            role,
+            place.ty(),
+        )?;
 
-            if let Some(completion) = completion {
+        if role == MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Quiesce) {
+            if let Some(crate::cleanup_await::CleanupOwner::Task { completion }) = &owner {
                 if let Some(pending) = pending {
                     self.cleanup_retained_storages.push(pending.storage());
                 }
 
-                let finished = self.quiesce_task(block, source, place, completion)?;
+                let finished = self.quiesce_task(block, source, place, *completion)?;
 
                 if pending.is_some() {
                     self.cleanup_retained_storages.pop();
@@ -210,7 +207,7 @@ impl Lowerer<'_> {
         }
 
         let (block, rejected, awaited, completion) =
-            self.prepare_cleanup_await(block, source, role, place)?;
+            self.prepare_cleanup_await(block, source, role, place, owner)?;
 
         let resolves_future = matches!(
             &awaited,

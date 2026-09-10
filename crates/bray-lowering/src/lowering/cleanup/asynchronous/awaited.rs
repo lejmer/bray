@@ -16,6 +16,7 @@ impl Lowerer<'_> {
         source: &MirSourceAnchor,
         role: MirGeneratedLifecycleRole,
         place: &MirPlace,
+        owner: Option<crate::cleanup_await::CleanupOwner>,
     ) -> Result<
         (
             MirBlockId,
@@ -27,49 +28,25 @@ impl Lowerer<'_> {
     > {
         let ty = place.ty();
 
-        let completion = self
-            .input
-            .available_compiler_known_symbols()
-            .unary_representation_argument(
-                self.input.semantic_values(),
-                RepresentationRole::Future,
-                ty,
-            )?;
+        match owner {
+            Some(crate::cleanup_await::CleanupOwner::Future { entry, completion }) => {
+                let (operand, completion) = if entry == bray_ir::MirFrameEntry::CaptureQuiescence {
+                    (
+                        MirOperand::Copy(Self::retained_place(place)),
+                        self.representation_type(RepresentationRole::Unit)?,
+                    )
+                } else {
+                    (MirOperand::Move(Self::retained_place(place)), completion)
+                };
 
-        let entry = crate::cleanup_await::future_cleanup_entry(role);
-
-        if let (Some(completion), Some(entry)) = (completion, entry) {
-            let (operand, completion) = if entry == bray_ir::MirFrameEntry::CaptureQuiescence {
-                (
-                    MirOperand::Copy(Self::retained_place(place)),
-                    self.representation_type(RepresentationRole::Unit)?,
-                )
-            } else {
-                (MirOperand::Move(Self::retained_place(place)), completion)
-            };
-
-            return Ok((
-                block,
-                None,
-                crate::cleanup_await::CleanupAwait::Frame(operand, entry),
-                completion,
-            ));
-        }
-
-        if matches!(
-            role,
-            MirGeneratedLifecycleRole::Destroy
-                | MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::LifecycleResolution)
-        ) {
-            if let Some(completion) = self
-                .input
-                .available_compiler_known_symbols()
-                .unary_representation_argument(
-                    self.input.semantic_values(),
-                    RepresentationRole::Task,
-                    ty,
-                )?
-            {
+                return Ok((
+                    block,
+                    None,
+                    crate::cleanup_await::CleanupAwait::Frame(operand, entry),
+                    completion,
+                ));
+            }
+            Some(crate::cleanup_await::CleanupOwner::Task { completion }) => {
                 return Ok((
                     block,
                     None,
@@ -79,6 +56,7 @@ impl Lowerer<'_> {
                     completion,
                 ));
             }
+            None => {}
         }
 
         let receiver = self.input.semantic_values().intern_type(TypeData::Borrow {

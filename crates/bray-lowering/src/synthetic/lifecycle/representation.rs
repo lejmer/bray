@@ -151,6 +151,9 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             ),
             TypeData::Nullable(target) => self
                 .push_nullable_lifecycle_operations(builder, block, source, role, place, *target),
+            TypeData::Array { element, length } => {
+                self.push_array_lifecycle(builder, block, source, role, place, *element, *length)
+            }
             TypeData::Generator(element) => {
                 self.push_buffer_lifecycle(builder, block, source, role, place, *element)
             }
@@ -167,7 +170,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             | TypeData::TraitView(_) => {
                 Err(SyntheticLoweringError::UnsupportedType(place.ty()).into())
             }
-            TypeData::Named { .. } | TypeData::Tuple(_) | TypeData::Array { .. } => {
+            TypeData::Named { .. } | TypeData::Tuple(_) => {
                 let children = self.lifecycle_children(place)?;
 
                 self.push_child_lifecycle_operations(builder, block, source, role, children)
@@ -347,31 +350,46 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         let mut operations = Vec::new();
 
         for child in children.into_iter().rev() {
-            match role {
-                bray_ir::MirGeneratedLifecycleRole::Destroy => {
-                    // Both lifecycle stages operate on the same represented child.
-                    operations.push(MirOperationKind::Finalize(child.clone()));
-                    operations.push(MirOperationKind::Destroy(child));
-                }
-                bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => {
-                    operations.push(MirOperationKind::Cleanup {
-                        phase,
-                        place: child,
-                    });
-                }
-                bray_ir::MirGeneratedLifecycleRole::Abandon(action) => {
-                    operations.push(MirOperationKind::Abandon {
-                        action,
-                        place: child,
-                    });
-                }
-                bray_ir::MirGeneratedLifecycleRole::Finalize
-                | bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
-                    return Err(SyntheticLoweringError::UnsupportedLifecycleRole(role).into());
-                }
-            }
+            operations.extend(
+                child_lifecycle_operations(role, child)?
+                    .into_iter()
+                    .flatten(),
+            );
         }
 
         self.resolve_lifecycle_sequence(builder, block, source, operations)
     }
+}
+
+pub(super) fn child_lifecycle_operations(
+    role: bray_ir::MirGeneratedLifecycleRole,
+    child: MirPlace,
+) -> Result<[Option<MirOperationKind>; 2], SyntheticLoweringError> {
+    let operations = match role {
+        // Finalization and destruction retain the same represented child path.
+        bray_ir::MirGeneratedLifecycleRole::Destroy => [
+            Some(MirOperationKind::Finalize(child.clone())),
+            Some(MirOperationKind::Destroy(child)),
+        ],
+        bray_ir::MirGeneratedLifecycleRole::Cleanup(phase) => [
+            Some(MirOperationKind::Cleanup {
+                phase,
+                place: child,
+            }),
+            None,
+        ],
+        bray_ir::MirGeneratedLifecycleRole::Abandon(action) => [
+            Some(MirOperationKind::Abandon {
+                action,
+                place: child,
+            }),
+            None,
+        ],
+        bray_ir::MirGeneratedLifecycleRole::Finalize
+        | bray_ir::MirGeneratedLifecycleRole::StaticFinalize => {
+            return Err(SyntheticLoweringError::UnsupportedLifecycleRole(role));
+        }
+    };
+
+    Ok(operations)
 }

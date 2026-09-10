@@ -63,79 +63,34 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
                 .map_err(|cause| self.mir_error(source, cause));
         }
 
-        // Each composed MIR operation owns a place path while this dispatch still borrows it.
-        if self
-            .context
-            .compiler_known_symbols()
-            .unary_representation_argument(
-                self.context.semantic_values(),
-                RepresentationRole::Future,
-                ty,
-            )
-            .map_err(SyntheticLoweringError::SemanticValue)?
-            .is_some()
-        {
-            match crate::cleanup_await::future_cleanup_entry(role) {
-                Some(bray_ir::MirFrameEntry::CaptureQuiescence) => {
-                    return self.await_future_quiescence(
-                        builder,
-                        block,
-                        source,
-                        place.clone(),
-                        outcome,
-                    );
-                }
-                Some(bray_ir::MirFrameEntry::CaptureCleanup) => {
-                    return self.await_future_cleanup(
-                        builder,
-                        block,
-                        source,
-                        place.clone(),
-                        outcome,
-                    );
-                }
-                _ => {}
-            }
-        }
+        let owner = crate::cleanup_await::CleanupOwner::for_action(
+            self.context.compiler_known_symbols(),
+            self.context.semantic_values(),
+            role,
+            ty,
+        )
+        .map_err(SyntheticLoweringError::SemanticValue)?;
 
-        if self
-            .context
-            .compiler_known_symbols()
-            .unary_representation_argument(
-                self.context.semantic_values(),
-                RepresentationRole::Task,
-                ty,
-            )
-            .map_err(SyntheticLoweringError::SemanticValue)?
-            .is_some()
-        {
-            // Each emitted protocol operation owns its path while this dispatch retains the action.
-            match role {
-                bray_ir::MirGeneratedLifecycleRole::Abandon(
-                    bray_ir::MirAbandonmentAction::Quiesce,
-                ) => {
-                    return self.await_task_quiescence(
-                        builder,
-                        block,
-                        source,
-                        place.clone(),
-                        outcome,
-                    );
-                }
-                bray_ir::MirGeneratedLifecycleRole::Destroy
-                | bray_ir::MirGeneratedLifecycleRole::Cleanup(
-                    bray_ir::MirCleanupPhase::LifecycleResolution,
-                ) => {
-                    return self.push_task_resolution(
-                        builder,
-                        block,
-                        source,
-                        place.clone(),
-                        outcome,
-                    );
-                }
-                _ => {}
+        // Each composed operation owns the shared place path retained by this action.
+        match owner {
+            Some(crate::cleanup_await::CleanupOwner::Future { entry, .. }) => {
+                return if entry == bray_ir::MirFrameEntry::CaptureQuiescence {
+                    self.await_future_quiescence(builder, block, source, place.clone(), outcome)
+                } else {
+                    self.await_future_cleanup(builder, block, source, place.clone(), outcome)
+                };
             }
+            Some(crate::cleanup_await::CleanupOwner::Task { .. }) => {
+                return if role
+                    == bray_ir::MirGeneratedLifecycleRole::Abandon(
+                        bray_ir::MirAbandonmentAction::Quiesce,
+                    ) {
+                    self.await_task_quiescence(builder, block, source, place.clone(), outcome)
+                } else {
+                    self.push_task_resolution(builder, block, source, place.clone(), outcome)
+                };
+            }
+            None => {}
         }
 
         let (block, rejected, value) =

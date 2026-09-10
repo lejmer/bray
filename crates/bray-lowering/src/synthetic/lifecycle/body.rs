@@ -328,7 +328,7 @@ mod tests {
         ) -> Result<bray_bound_tree::StorageCleanupType, Self::Error> {
             assert!(matches!(
                 self.0.type_data(ty).unwrap().as_ref(),
-                TypeData::Tuple(_) | TypeData::Nullable(_)
+                TypeData::Tuple(_) | TypeData::Nullable(_) | TypeData::Array { .. }
             ));
 
             Ok(bray_bound_tree::StorageCleanupType::new(
@@ -350,7 +350,7 @@ mod tests {
         {
             assert!(matches!(
                 self.0.type_data(ty).unwrap().as_ref(),
-                TypeData::Tuple(_) | TypeData::Nullable(_)
+                TypeData::Tuple(_) | TypeData::Nullable(_) | TypeData::Array { .. }
             ));
 
             Ok(None)
@@ -396,6 +396,7 @@ mod tests {
             assert!(matches!(
                 role,
                 RepresentationRole::ScalarBool
+                    | RepresentationRole::ScalarUsize
                     | RepresentationRole::PanicReport
                     | RepresentationRole::Unit
             ));
@@ -405,8 +406,20 @@ mod tests {
                 .map_err(SyntheticLoweringError::SemanticValue)
         }
 
-        fn array_length(&self, _: ConstantTermId) -> Result<u64, Self::Error> {
-            panic!("tuple lowering must not evaluate array extents");
+        fn array_length(&self, length: ConstantTermId) -> Result<u64, Self::Error> {
+            let term = self.0.constant_term_data(length).unwrap();
+
+            let bray_symbols::ConstantTermData::Value(value) = term.as_ref() else {
+                panic!("test array length must be a closed constant");
+            };
+
+            let value = self.0.constant_value_data(*value).unwrap();
+
+            let bray_symbols::ConstantValueKind::Integer(value) = value.kind() else {
+                panic!("test array length must be an integer");
+            };
+
+            Ok(value.to_u64().unwrap())
         }
 
         fn standard_library_callable(
@@ -414,6 +427,78 @@ mod tests {
             _: MirStandardLibraryHelper,
         ) -> Result<CallableInstanceData, Self::Error> {
             panic!("tuple lowering must not resolve standard-library helpers");
+        }
+    }
+
+    #[test]
+    fn array_lifecycle_body_size_is_independent_of_length() {
+        let context = TupleContext(SemanticValueStore::try_new().unwrap());
+        let leaf = context.0.intern_type(TypeData::tuple([])).unwrap();
+
+        for role in [
+            MirGeneratedLifecycleRole::Destroy,
+            MirGeneratedLifecycleRole::Cleanup(MirCleanupPhase::TaskCancellation),
+            MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Destroy),
+        ] {
+            let mut nonempty_size = None;
+
+            for length in [0, 1, 4, u64::from(u32::MAX)] {
+                let bray_ir::MirOperand::Constant { value, .. } =
+                    crate::operand::integer_constant(&context.0, leaf, length).unwrap()
+                else {
+                    panic!("array length must be constant");
+                };
+
+                let length = context
+                    .0
+                    .intern_constant_term(bray_symbols::ConstantTermData::Value(value))
+                    .unwrap();
+
+                let array = context
+                    .0
+                    .intern_type(TypeData::Array {
+                        element: leaf,
+                        length,
+                    })
+                    .unwrap();
+
+                let mir = lower_lifecycle(
+                    &context,
+                    MirUnitKey::GeneratedLifecycle(MirGeneratedLifecycleKey::new(role, [9; 32])),
+                    &role.reference(array),
+                    MirUnitId::new(9),
+                    &bray_testing::test_mir_target(),
+                )
+                .unwrap();
+
+                let array_length = context.array_length(length).unwrap();
+
+                let indexed = mir
+                    .operations()
+                    .iter()
+                    .filter_map(|operation| {
+                        let place = match operation.kind() {
+                            MirOperationKind::Finalize(place)
+                            | MirOperationKind::Destroy(place)
+                            | MirOperationKind::Cleanup { place, .. }
+                            | MirOperationKind::Abandon { place, .. } => place,
+                            _ => return None,
+                        };
+
+                        place.projections().last().filter(|projection| {
+                            matches!(projection.kind(), MirProjectionKind::Index(_))
+                        })
+                    })
+                    .count();
+
+                if array_length == 0 {
+                    assert_eq!(indexed, 0);
+                } else {
+                    assert!(indexed > 0);
+                    let size = (mir.blocks().len(), mir.operations().len(), indexed);
+                    assert_eq!(*nonempty_size.get_or_insert(size), size);
+                }
+            }
         }
     }
 

@@ -70,7 +70,8 @@ pub(super) fn expand_task_cleanup<C: SyntheticLoweringContext + ?Sized>(
         )?
     };
 
-    super::outcome::forward_collected_outcome(builder, finished, source, &outcome, edges)
+    outcome
+        .forward(builder, finished, source, edges)
         .map_err(invalid)?;
 
     Ok(resume)

@@ -200,44 +200,27 @@ fn expand_action<C: SyntheticLoweringContext + ?Sized>(
         return Err(failure(source, MirUnitBuildError::InvalidCallPanicCheck(block)).into());
     };
 
-    let completion = context
-        .compiler_known_symbols()
-        .unary_representation_argument(
-            context.semantic_values(),
-            RepresentationRole::Future,
-            concrete,
-        )
-        .map_err(SyntheticLoweringError::SemanticValue)?;
-
-    if let (Some(entry), Some(completion)) =
-        (crate::cleanup_await::future_cleanup_entry(role), completion)
-    {
-        return super::future::expand_future_cleanup(
-            context,
-            builder,
-            location,
-            source,
-            (entry, place, completion),
-            state,
-            (completed, *panicked, cancelled),
-        );
-    }
-
-    if matches!(
+    let owner = crate::cleanup_await::CleanupOwner::for_action(
+        context.compiler_known_symbols(),
+        context.semantic_values(),
         role,
-        MirGeneratedLifecycleRole::Destroy
-            | MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::LifecycleResolution)
-            | MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Quiesce)
-    ) {
-        if let Some(completion) = context
-            .compiler_known_symbols()
-            .unary_representation_argument(
-                context.semantic_values(),
-                RepresentationRole::Task,
-                concrete,
-            )
-            .map_err(SyntheticLoweringError::SemanticValue)?
-        {
+        concrete,
+    )
+    .map_err(SyntheticLoweringError::SemanticValue)?;
+
+    match owner {
+        Some(crate::cleanup_await::CleanupOwner::Future { entry, completion }) => {
+            return super::future::expand_future_cleanup(
+                context,
+                builder,
+                location,
+                source,
+                (entry, place, completion),
+                state,
+                (completed, *panicked, cancelled),
+            );
+        }
+        Some(crate::cleanup_await::CleanupOwner::Task { completion }) => {
             return super::task::expand_task_cleanup(
                 context,
                 builder,
@@ -248,6 +231,7 @@ fn expand_action<C: SyntheticLoweringContext + ?Sized>(
                 (completed, *panicked, cancelled),
             );
         }
+        None => {}
     }
 
     let ty = place.ty();

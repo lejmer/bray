@@ -1951,26 +1951,58 @@ mod tests {
 
             assert!(matches!(transfer, MirOperand::Move(_)));
 
-            assert!(
-                generated
-                    .operations()
-                    .iter()
-                    .any(|operation| match operation.kind() {
-                        MirOperationKind::Abandon {
-                            action: MirAbandonmentAction::Quiesce,
-                            ..
-                        } => !asynchronous,
-                        MirOperationKind::Async(MirAsyncOperation::BorrowTaskCompletion {
-                            ..
-                        }) => error == "Task<unit>",
-                        MirOperationKind::Async(MirAsyncOperation::ComposeAwaitedFrame {
-                            entry: bray_ir::MirFrameEntry::CaptureQuiescence,
-                            ..
-                        }) => error == "Future<unit>",
-                        _ => false,
-                    }),
-                "{error}"
-            );
+            let quiescence = generated
+                .blocks_with_ids()
+                .find_map(|(id, block)| {
+                    block
+                        .operations()
+                        .iter()
+                        .any(
+                            |operation| match generated.operation(*operation).unwrap().kind() {
+                                MirOperationKind::Abandon {
+                                    action: MirAbandonmentAction::Quiesce,
+                                    ..
+                                } => !asynchronous,
+                                MirOperationKind::Async(
+                                    MirAsyncOperation::BorrowTaskCompletion { .. },
+                                ) => error == "Task<unit>",
+                                MirOperationKind::Async(
+                                    MirAsyncOperation::ComposeAwaitedFrame {
+                                        entry: bray_ir::MirFrameEntry::CaptureQuiescence,
+                                        ..
+                                    },
+                                ) => error == "Future<unit>",
+                                _ => false,
+                            },
+                        )
+                        .then_some(id)
+                })
+                .expect("returned error owners must quiesce before incident transfer");
+
+            // No success, panic or cancellation path may exit before retaining the original Error.
+            let mut pending = vec![quiescence];
+            let mut visited = std::collections::BTreeSet::new();
+
+            while let Some(id) = pending.pop() {
+                if id == transfer_block || !visited.insert(id) {
+                    continue;
+                }
+
+                let block = generated.block(id).unwrap();
+                let mut successors = Vec::new();
+
+                block
+                    .terminator()
+                    .kind()
+                    .for_each_successor(|id| successors.push(id));
+
+                assert!(
+                    !successors.is_empty(),
+                    "{error}: quiescence exits before retaining the original Error: {block:?}"
+                );
+
+                pending.extend(successors);
+            }
 
             assert!(!generated.operations().iter().any(|operation| matches!(
                 operation.kind(),

@@ -8,7 +8,7 @@ use bray_runtime_interface::RuntimeAbiRole;
 use bray_symbols::TypeId;
 
 /// Selects an existing future entry for asynchronous ownership resolution.
-pub(crate) fn future_cleanup_entry(
+fn future_cleanup_entry(
     role: bray_ir::MirGeneratedLifecycleRole,
 ) -> Option<bray_ir::MirFrameEntry> {
     match role {
@@ -20,6 +20,46 @@ pub(crate) fn future_cleanup_entry(
             Some(bray_ir::MirFrameEntry::CaptureQuiescence)
         }
         _ => None,
+    }
+}
+
+/// An existing owner protocol that performs this cleanup without a generated helper frame.
+pub(crate) enum CleanupOwner {
+    Future {
+        entry: bray_ir::MirFrameEntry,
+        completion: TypeId,
+    },
+    Task {
+        completion: TypeId,
+    },
+}
+
+impl CleanupOwner {
+    pub(crate) fn for_action(
+        symbols: &bray_symbols::AvailableCompilerKnownSymbols,
+        values: &bray_symbols::SemanticValueStore,
+        role: bray_ir::MirGeneratedLifecycleRole,
+        ty: TypeId,
+    ) -> Result<Option<Self>, bray_symbols::SemanticValueStoreError> {
+        let Some(entry) = future_cleanup_entry(role) else {
+            return Ok(None);
+        };
+
+        if let Some(completion) = symbols.unary_representation_argument(
+            values,
+            bray_compiler_known::RepresentationRole::Future,
+            ty,
+        )? {
+            return Ok(Some(Self::Future { entry, completion }));
+        }
+
+        symbols
+            .unary_representation_argument(
+                values,
+                bray_compiler_known::RepresentationRole::Task,
+                ty,
+            )
+            .map(|completion| completion.map(|completion| Self::Task { completion }))
     }
 }
 

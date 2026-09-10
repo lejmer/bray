@@ -1,8 +1,8 @@
 use bray_bound_tree::BoundCallResult;
 use bray_ir::{
-    MirBlockId, MirCall, MirCallPanicEdge, MirCallTarget, MirEdge, MirImmediateValue, MirOperand,
-    MirOperationKind, MirPlace, MirRuntimeReference, MirSourceAnchor, MirStorageKind, MirStoreKind,
-    MirTerminatorKind, MirUnitBuildError, MirUnitBuilder,
+    MirBlockId, MirBlockKind, MirCall, MirCallPanicEdge, MirCallTarget, MirEdge, MirImmediateValue,
+    MirOperand, MirOperationKind, MirPlace, MirRuntimeReference, MirSourceAnchor, MirStorageKind,
+    MirStoreKind, MirTerminatorKind, MirUnitBuildError, MirUnitBuilder,
 };
 use bray_runtime_interface::{RuntimeAbiRole, RuntimeAbiVersion};
 use bray_symbols::TypeId;
@@ -399,6 +399,63 @@ impl CleanupOutcome {
             source.clone(),
             MirTerminatorKind::Goto(MirEdge::new(completed, [])),
         )
+    }
+
+    /// Forwards collected failures through the caller's existing outcome continuations.
+    pub(crate) fn forward(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        edges: (&MirEdge, MirCallPanicEdge, &MirEdge),
+    ) -> Result<(), MirUnitBuildError> {
+        let (completed_edge, panicked, cancelled_edge) = edges;
+
+        let panic_bridge = builder.push_block(source.clone(), MirBlockKind::LifecycleResolution)?;
+
+        let cancellation_bridge =
+            builder.push_block(source.clone(), MirBlockKind::LifecycleResolution)?;
+
+        let completed = self.dispatch(builder, block, source, panic_bridge, cancellation_bridge)?;
+
+        // Preserve the caller's ownership arguments while forwarding only the newly collected failure.
+        for (block, edge) in [
+            (completed, completed_edge.clone()),
+            (
+                panic_bridge,
+                MirEdge::new(panicked.target(), [self.report()]),
+            ),
+            (cancellation_bridge, cancelled_edge.clone()),
+        ] {
+            builder.set_terminator(block, source.clone(), MirTerminatorKind::Goto(edge))?;
+        }
+
+        Ok(())
+    }
+
+    /// Transfers this child's failures to its parent and resumes the parent's remaining cleanup.
+    pub(crate) fn retain_into(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        parent: &Self,
+    ) -> Result<MirBlockId, MirUnitBuildError> {
+        let kind = builder.block_kind(block)?;
+        let panicked = builder.push_block(source.clone(), kind)?;
+        let cancelled = builder.push_block(source.clone(), kind)?;
+        let completed = self.dispatch(builder, block, source, panicked, cancelled)?;
+
+        parent.retain_panic(builder, panicked, source, self.report(), completed)?;
+        parent.initialize_cancellation(builder, cancelled, source)?;
+
+        builder.set_terminator(
+            cancelled,
+            source.clone(),
+            MirTerminatorKind::Goto(MirEdge::new(completed, [])),
+        )?;
+
+        Ok(completed)
     }
 
     /// Branches to caller-owned completion paths, with panic taking precedence.

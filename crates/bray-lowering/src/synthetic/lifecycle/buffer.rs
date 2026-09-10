@@ -149,33 +149,15 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .map_err(invalid)?;
         }
 
-        let body = if role == MirGeneratedLifecycleRole::Destroy {
-            self.resolve_lifecycle_action(
-                builder,
-                cleanup.body,
-                source,
-                MirOperationKind::Finalize(element_place.clone()),
-                &outcome,
-            )?
-        } else {
-            cleanup.body
-        };
+        let mut completed = cleanup.body;
 
-        let operation = match role {
-            MirGeneratedLifecycleRole::Abandon(action) => MirOperationKind::Abandon {
-                action,
-                place: element_place,
-            },
-            MirGeneratedLifecycleRole::Cleanup(phase) => MirOperationKind::Cleanup {
-                phase,
-                place: element_place,
-            },
-            MirGeneratedLifecycleRole::Destroy => MirOperationKind::Destroy(element_place),
-            _ => return Err(SyntheticLoweringError::UnsupportedLifecycleRole(role).into()),
-        };
-
-        let completed =
-            self.resolve_lifecycle_action(builder, body, source, operation, &outcome)?;
+        for operation in super::representation::child_lifecycle_operations(role, element_place)?
+            .into_iter()
+            .flatten()
+        {
+            completed =
+                self.resolve_lifecycle_action(builder, completed, source, operation, &outcome)?;
+        }
 
         cleanup
             .close(builder, completed, source, None)
