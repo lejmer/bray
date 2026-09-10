@@ -339,6 +339,9 @@ fn validate_call_panic_check(
         .and_then(|operation| unit.operation(*operation))
         .is_some_and(|operation| match operation.kind() {
             crate::MirOperationKind::Call(call) => call.may_propagate_panic(),
+            crate::MirOperationKind::Construct(construction) => {
+                construction.target().callable().is_some()
+            }
             crate::MirOperationKind::Memory(memory) => memory.standard_library_helper().is_some(),
             crate::MirOperationKind::Cleanup { .. }
             | crate::MirOperationKind::Async(crate::MirAsyncOperation::TransferCleanupIncident {

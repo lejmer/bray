@@ -146,77 +146,85 @@ impl Lowerer<'_> {
         id: BoundExpressionId,
         current: MirBlockId,
     ) -> Result<LoweredExpression, LoweringError> {
+        let retained = self.construction_temporaries.len();
+        let result = self.lower_construction_inputs(id, current);
+        self.construction_temporaries.truncate(retained);
+
+        result
+    }
+
+    fn lower_construction_inputs(
+        &mut self,
+        id: BoundExpressionId,
+        mut block: MirBlockId,
+    ) -> Result<LoweredExpression, LoweringError> {
         let source = self.expression_source(id)?;
 
+        // Keep the checked selection while recursively lowering its input expressions.
         let selection = self.selected_operation(id)?.clone();
+        let mut inputs: Vec<MirConstructionInput> = Vec::new();
 
-        let (target, block, inputs) = match selection {
+        let target = match selection {
             SelectedOperation::Construction(selection) => {
-                let mut block = current;
-                let mut inputs = Vec::with_capacity(selection.inputs().len());
-
-                for (index, input) in selection.inputs().iter().enumerate() {
-                    match *input {
+                for selected in selection.inputs() {
+                    let (input, ordinal, ty, value) = match *selected {
                         SelectedConstructionInput::Explicit {
                             expression,
                             input,
                             ordinal,
-                            ..
+                            ty,
                         } => {
                             let lowered = self.lower_expression(expression, block)?;
 
-                            let has_later_expression =
-                                selection.inputs()[index + 1..].iter().any(|input| {
-                                    matches!(input, SelectedConstructionInput::Explicit { .. })
-                                });
-
-                            let lowered = if has_later_expression {
-                                self.materialize_for_later_evaluation(expression, lowered)?
-                            } else {
-                                lowered
-                            };
-
-                            let Some(continuation) = lowered.block else {
+                            let Some(continued) = lowered.block else {
                                 return Ok(lowered);
                             };
 
-                            let Some(value) = lowered.value else {
-                                return Err(LoweringError::MissingOperationResult(expression));
-                            };
+                            let value = lowered
+                                .value
+                                .ok_or(LoweringError::MissingOperationResult(expression))?;
 
-                            block = continuation;
+                            block = continued;
+                            let actual = self.builder.operand_type(&value)?;
 
-                            inputs.push(MirConstructionInput::Explicit {
-                                input,
-                                ordinal,
+                            let (value, ty) = self.adapt_value(
+                                id,
+                                block,
+                                Self::retained_source(&source),
                                 value,
-                            });
+                                actual,
+                                ty,
+                            )?;
+
+                            (input, ordinal, ty, value)
                         }
                         SelectedConstructionInput::Default {
-                            input,
-                            provider,
-                            ordinal,
-                            ..
-                        } => inputs.push(MirConstructionInput::Default {
-                            input,
-                            ordinal,
-                            provider,
-                        }),
-                    }
+                            input, ordinal, ty, ..
+                        } => {
+                            let (continued, value) = self.lower_construction_default(
+                                id, block, &source, &selection, selected, &inputs,
+                            )?;
+
+                            block = continued;
+
+                            (input, ordinal, ty, value)
+                        }
+                    };
+
+                    let value =
+                        self.materialize_construction_input(id, block, &source, value, ty, None)?;
+
+                    inputs.push(MirConstructionInput::new(input, ordinal, value));
                 }
 
-                (selection.target(), block, inputs)
+                selection.target()
             }
             SelectedOperation::Member(member) => {
                 let AnySymbolId::UnionVariant(variant) = member.member() else {
                     return Err(LoweringError::MissingSemanticSelection(id));
                 };
 
-                (
-                    ConstructionTarget::UnionVariant(variant),
-                    current,
-                    Vec::new(),
-                )
+                ConstructionTarget::UnionVariant(variant)
             }
             _ => return Err(LoweringError::MissingSemanticSelection(id)),
         };
@@ -228,7 +236,63 @@ impl Lowerer<'_> {
             MirOperationKind::Construct(MirConstruction::new(target, inputs)),
         )?;
 
+        let (block, value) = if target.callable().is_some() {
+            let result_type = self.expression_type(id)?;
+
+            self.finish_typed_call_panic_check(id, block, &source, &value, result_type)?
+        } else {
+            (block, value)
+        };
+
         Ok(LoweredExpression::continuing(block, Some(value), source))
+    }
+
+    fn lower_construction_default(
+        &mut self,
+        id: BoundExpressionId,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        selection: &bray_bound_tree::SelectedConstruction,
+        selected: &SelectedConstructionInput,
+        inputs: &[MirConstructionInput],
+    ) -> Result<(MirBlockId, MirOperand), LoweringError> {
+        let SelectedConstructionInput::Default {
+            ordinal,
+            provider,
+            ty,
+            ..
+        } = *selected
+        else {
+            return Err(LoweringError::MissingSemanticSelection(id));
+        };
+
+        let arguments = Self::default_arguments(
+            inputs
+                .iter()
+                .filter(|input| {
+                    selection.target().callable().is_some() && input.ordinal() < ordinal
+                })
+                .map(|input| (Some(input.ordinal()), input.value())),
+        );
+
+        let call = bray_ir::MirCall::protocol(
+            bray_ir::MirCallTarget::ConstructionDefault {
+                target: selection.target(),
+                owner_type: selection.result_type(),
+                provider,
+            },
+            bray_bound_tree::BoundCallResult::Immediate(ty),
+            arguments,
+            [],
+        );
+
+        self.push_checked_value_operation(
+            id,
+            block,
+            Self::retained_source(source),
+            MirOperationKind::Call(call),
+            ty,
+        )
     }
 
     fn lower_operands(

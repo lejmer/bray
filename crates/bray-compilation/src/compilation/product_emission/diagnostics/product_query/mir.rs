@@ -88,6 +88,7 @@ pub(super) fn push_mir_call_target(
         match target {
             Target::Direct(_) => "direct",
             Target::ParameterDefault { .. } => "parameter_default",
+            Target::ConstructionDefault { .. } => "construction_default",
             Target::Runtime(_) => "runtime",
             Target::Indirect { .. } => "indirect",
         },
@@ -109,6 +110,21 @@ pub(super) fn push_mir_call_target(
             if let Target::ParameterDefault { provider, .. } = target {
                 fields.push(identity_field("call_default_provider", provider));
             }
+        }
+        Target::ConstructionDefault {
+            target,
+            owner_type,
+            provider,
+        } => {
+            fields.push(identity_field("call_construction_target", target));
+            fields.push(identity_field("call_construction_owner_type", owner_type));
+
+            push_symbol(
+                fields,
+                "call_default_provider_kind",
+                "call_default_provider",
+                provider.symbol(),
+            );
         }
         Target::Runtime(reference) => {
             let version = reference.abi_version();

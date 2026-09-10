@@ -69,9 +69,7 @@ fn collect_operation_types(operation: &MirOperationKind, types: &mut BTreeSet<Ty
         }
         MirOperationKind::Construct(construction) => {
             for input in construction.inputs() {
-                if let crate::MirConstructionInput::Explicit { value, .. } = input {
-                    collect_operand_types(value, types);
-                }
+                collect_operand_types(input.value(), types);
             }
         }
         MirOperationKind::Convert {
@@ -431,6 +429,10 @@ fn collect_host_types(operation: &MirHostOperation, types: &mut BTreeSet<TypeId>
 }
 
 fn collect_call_types(call: &MirCall, types: &mut BTreeSet<TypeId>) {
+    if let MirCallTarget::ConstructionDefault { owner_type, .. } = call.target() {
+        types.insert(*owner_type);
+    }
+
     if let MirCallTarget::Indirect { callee, .. } = call.target() {
         collect_operand_types(callee, types);
     }

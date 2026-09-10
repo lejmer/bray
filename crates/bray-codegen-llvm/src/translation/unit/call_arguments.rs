@@ -47,6 +47,19 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         Ok(arguments)
     }
 
+    pub(super) fn invoke_operation_helper(
+        &mut self,
+        operation: bray_ir::MirOperationId,
+        helper: &CodegenHelperMapping,
+        arguments: &[BasicValueEnum<'context>],
+    ) -> Result<Option<BasicValueEnum<'context>>, CodegenFailure> {
+        if let Some(context) = self.operation_panic_report_context(operation)? {
+            self.invoke_helper_with_panic_report_context(helper, arguments, context)
+        } else {
+            self.invoke_helper(helper, arguments)
+        }
+    }
+
     pub(super) fn invoke_helper_with_panic_report_context(
         &mut self,
         helper: &CodegenHelperMapping,

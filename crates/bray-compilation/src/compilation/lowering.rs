@@ -1613,6 +1613,112 @@ mod tests {
     }
 
     #[test]
+    fn static_construction_inputs_have_checked_cleanup_types() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            struct Value
+            {
+                number: i32;
+            }
+
+            static VALUE: Value = Value { number = 17 };
+            "#,
+        );
+
+        assert!(compilation.check_diagnostics().is_empty());
+
+        let key = declared_unit_key(&compilation, BoundUnitKind::ConstantTemplate);
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("static construction inputs must have cleanup classifications");
+
+        let mir = lowered_mir(&lowered);
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::Construct(construction)
+                if construction.inputs().len() == 1
+                    && matches!(construction.inputs()[0].value(), MirOperand::Move(_))
+        )));
+    }
+
+    #[test]
+    fn construction_defaults_are_checked_before_complete_owner_publication() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            struct Guard
+            {
+                destruct() {}
+            }
+
+            struct Value
+            {
+                guard: Guard;
+                first: i32 = 1;
+                second: i32 = 2;
+            }
+
+            func main()
+            {
+                let value = Value { guard = Guard {} };
+            }
+        "#,
+        );
+
+        let key = source_function_body_key(&compilation, "main");
+
+        let lowered = compilation
+            .lowered_unit(key)
+            .expect("defaulted construction must lower");
+
+        let mir = lowered_mir(&lowered);
+
+        let defaults = mir
+            .operations()
+            .iter()
+            .filter_map(|operation| match operation.kind() {
+                MirOperationKind::Call(call)
+                    if matches!(call.target(), MirCallTarget::ConstructionDefault { .. }) =>
+                {
+                    Some(call)
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert_eq!(defaults.len(), 2);
+
+        assert!(
+            defaults
+                .iter()
+                .all(|call| call.arguments().is_empty() && call.may_propagate_panic())
+        );
+
+        assert!(
+            mir.blocks()
+                .iter()
+                .filter(|block| matches!(
+                    block.terminator().kind(),
+                    MirTerminatorKind::CheckCallOutcome { .. }
+                ))
+                .count()
+                >= 2
+        );
+
+        assert!(mir.operations().iter().any(|operation| matches!(operation.kind(), MirOperationKind::Construct(construction) if construction.inputs().len() == 3 && construction.inputs().iter().all(|input| matches!(input.value(), MirOperand::Move(_))))));
+
+        assert!(mir.operations().iter().any(|operation| matches!(
+            operation.kind(),
+            MirOperationKind::Cleanup { .. } | MirOperationKind::Destroy(_)
+        )));
+    }
+
+    #[test]
     fn async_callables_lower_to_protected_frames_and_explicit_suspension() {
         let compilation = compilation(ASYNC_LOWERING_SOURCE);
         let key = source_callable_body_key(&compilation);
@@ -3566,14 +3672,7 @@ struct Receiver<T>
         )));
 
         assert!(mir.operations().iter().any(|operation| {
-            let MirOperationKind::Construct(construction) = operation.kind() else {
-                return false;
-            };
-
-            construction
-                .inputs()
-                .iter()
-                .any(|input| matches!(input, bray_ir::MirConstructionInput::Default { .. }))
+            matches!(operation.kind(), MirOperationKind::Call(call) if matches!(call.target(), MirCallTarget::ConstructionDefault { .. }))
         }));
 
         assert!(mir.operations().iter().any(|operation| {
@@ -3581,15 +3680,10 @@ struct Receiver<T>
                 return false;
             };
 
-            construction.inputs().iter().all(|input| {
-                matches!(
-                    input,
-                    bray_ir::MirConstructionInput::Explicit {
-                        value: MirOperand::Copy(place),
-                        ..
-                    } if !place.projections().is_empty()
-                )
-            })
+            construction
+                .inputs()
+                .iter()
+                .all(|input| matches!(input.value(), MirOperand::Move(_)))
         }));
 
         assert!(mir.operations().iter().any(|operation| matches!(

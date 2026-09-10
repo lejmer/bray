@@ -33,6 +33,21 @@ impl ConstructionExit {
 }
 
 impl Lowerer<'_> {
+    pub(super) fn default_arguments<'a>(
+        arguments: impl IntoIterator<Item = (Option<u32>, &'a MirOperand)>,
+    ) -> Vec<MirOperand> {
+        let mut arguments = arguments.into_iter().collect::<Vec<_>>();
+        arguments.sort_by_key(|(position, _)| *position);
+
+        arguments
+            .into_iter()
+            .map(|(_, value)| match value {
+                MirOperand::Move(place) => MirOperand::Copy(Self::retained_place(place)),
+                value => Self::retained_operand(value),
+            })
+            .collect()
+    }
+
     pub(super) fn materialize_construction_input(
         &mut self,
         expression: BoundExpressionId,

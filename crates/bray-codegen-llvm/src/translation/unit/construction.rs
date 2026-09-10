@@ -4,11 +4,11 @@ use super::core::UnitTranslator;
 use super::support::{
     aggregate_value_length, extract_value, insert_value, llvm, next_helper, pointer_value,
 };
-use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenResultMapping, CodegenTypeKind};
+use bray_codegen::{CodegenFailure, CodegenHelperMapping, CodegenTypeKind};
 use bray_ir::{
     ConstructionInputId, ConstructionTarget, ConversionTarget, MirAggregate, MirAggregateKind,
-    MirConstruction, MirConstructionInput, MirHelperReference, MirOperation, PatternOperation,
-    PatternProjection, SelectedConversion,
+    MirConstruction, MirHelperReference, MirOperation, PatternOperation, PatternProjection,
+    SelectedConversion,
 };
 use inkwell::values::BasicValueEnum;
 
@@ -94,7 +94,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
     ) -> Result<BasicValueEnum<'context>, CodegenFailure> {
         let helpers = self.operation_helpers(operation_id)?;
         let mut helpers = helpers.iter();
-        let inputs = self.evaluate_construction_inputs(construction, &mut helpers)?;
+        let inputs = self.evaluate_construction_inputs(construction)?;
 
         let result = self.operation_result_type(operation)?;
 
@@ -118,7 +118,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                 let input_values = inputs.iter().map(|input| input.value).collect::<Vec<_>>();
 
                 let value = self
-                    .invoke_helper(helper, &input_values)?
+                    .invoke_operation_helper(operation_id, helper, &input_values)?
                     .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                 if helpers.next().is_some() {
@@ -130,68 +130,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
     }
 
-    fn evaluate_construction_inputs<'mapping>(
+    fn evaluate_construction_inputs(
         &mut self,
         construction: &MirConstruction,
-        helpers: &mut impl Iterator<Item = &'mapping CodegenHelperMapping>,
     ) -> Result<Vec<EvaluatedConstructionInput<'context>>, CodegenFailure> {
         let mut values = BTreeMap::new();
 
         for input in construction.inputs() {
-            let MirConstructionInput::Explicit { ordinal, value, .. } = input else {
-                continue;
-            };
+            let ty = self.operand_type(input.value())?;
+            let value = self.operand(input.value())?;
 
-            let ty = self.operand_type(value)?;
-            let value = self.operand(value)?;
-            let input = EvaluatedConstructionInput { value, ty };
-
-            if values.insert(*ordinal, input).is_some() {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
-            }
-        }
-
-        for input in construction.inputs() {
-            let MirConstructionInput::Default {
-                ordinal, provider, ..
-            } = input
-            else {
-                continue;
-            };
-
-            let helper = next_helper(helpers, &MirHelperReference::ConstructionDefault(*provider))?;
-
-            let (parameter_count, ty) = helper
-                .symbol()
-                .and_then(|key| self.request.mappings().symbol(key))
-                .and_then(|symbol| {
-                    let ty = match symbol.signature().result() {
-                        CodegenResultMapping::Direct { ty, .. } => *ty,
-                        CodegenResultMapping::Indirect { pointee, .. } => *pointee,
-                        CodegenResultMapping::Void => return None,
-                    };
-
-                    Some((symbol.signature().parameters().len(), ty))
-                })
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-            let preceding = values
-                .range(..*ordinal)
-                .take(parameter_count)
-                .map(|(_, input)| input.value)
-                .collect::<Vec<_>>();
-
-            if preceding.len() != parameter_count {
-                return Err(CodegenFailure::GeneratedModuleInvariant);
-            }
-
-            let value = self
-                .invoke_helper(helper, &preceding)?
-                .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-            let input = EvaluatedConstructionInput { value, ty };
-
-            if values.insert(*ordinal, input).is_some() {
+            if values
+                .insert(input.ordinal(), EvaluatedConstructionInput { value, ty })
+                .is_some()
+            {
                 return Err(CodegenFailure::GeneratedModuleInvariant);
             }
         }
@@ -228,8 +180,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let mut value = self.types.map(result)?.const_zero();
 
         for construction_input in construction.inputs() {
-            let (MirConstructionInput::Explicit { input, .. }
-            | MirConstructionInput::Default { input, .. }) = construction_input;
+            let input = construction_input.input();
 
             let input_value = inputs
                 .get(crate::conversion::resource_limit::<usize, _>(
@@ -245,7 +196,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             let index = fields
                 .iter()
                 .position(|layout| {
-                    layout.reference() == Some(bray_ir::MirFieldReference::Struct(*field))
+                    layout.reference() == Some(bray_ir::MirFieldReference::Struct(field))
                 })
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
@@ -295,8 +246,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         self.store_union_tag(storage, *tag, variant.tag())?;
 
         for construction_input in construction.inputs() {
-            let (MirConstructionInput::Explicit { input, .. }
-            | MirConstructionInput::Default { input, .. }) = construction_input;
+            let input = construction_input.input();
 
             let input_value = inputs
                 .get(crate::conversion::resource_limit::<usize, _>(
@@ -310,7 +260,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             };
 
             let layout = variant
-                .payload_field(*field)
+                .payload_field(field)
                 .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
             let destination = self.constant_offset_pointer(storage, layout.offset_bytes())?;

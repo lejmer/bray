@@ -103,6 +103,15 @@ pub enum MirCallTarget {
         /// Declaration-owned provider being evaluated.
         provider: CallableParameterDefaultProviderSymbolId,
     },
+    /// Evaluate a construction default before transferring any initialized inputs.
+    ConstructionDefault {
+        /// Selected declaration or type-form construction.
+        target: bray_bound_tree::ConstructionTarget,
+        /// Constructed owner type, retaining its declaration substitution.
+        owner_type: bray_symbols::TypeId,
+        /// Declaration-owned provider being evaluated.
+        provider: bray_bound_tree::ConstructionDefaultProvider,
+    },
     /// One private runtime ABI operation.
     Runtime(MirRuntimeReference),
     /// A checked callable value.
@@ -115,11 +124,24 @@ pub enum MirCallTarget {
 }
 
 impl MirCallTarget {
+    /// Returns the generated helper used to evaluate a declaration-owned default.
+    pub const fn default_helper(&self) -> Option<crate::MirHelperReference> {
+        match self {
+            Self::ParameterDefault { provider, .. } => {
+                Some(crate::MirHelperReference::CallableDefault(*provider))
+            }
+            Self::ConstructionDefault { provider, .. } => {
+                Some(crate::MirHelperReference::ConstructionDefault(*provider))
+            }
+            Self::Direct(_) | Self::Runtime(_) | Self::Indirect { .. } => None,
+        }
+    }
+
     /// Returns the checked calling convention used by this target.
     pub const fn abi(&self) -> CallableAbi {
         match self {
             Self::Direct(reference) => reference.abi(),
-            Self::ParameterDefault { .. } => CallableAbi::Bray,
+            Self::ParameterDefault { .. } | Self::ConstructionDefault { .. } => CallableAbi::Bray,
             Self::Runtime(_) => CallableAbi::Bray,
             Self::Indirect { abi, .. } => *abi,
         }
@@ -208,6 +230,7 @@ impl MirCall {
                 abi: CallableAbi::Bray,
                 ..
             }) | MirCallTarget::ParameterDefault { .. }
+                | MirCallTarget::ConstructionDefault { .. }
                 | MirCallTarget::Indirect {
                     abi: CallableAbi::Bray,
                     ..

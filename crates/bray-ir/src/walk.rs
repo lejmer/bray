@@ -1,8 +1,8 @@
 use crate::{
-    MirAsyncOperation, MirBlock, MirBlockId, MirCall, MirCallTarget, MirConstructionInput,
-    MirFrameInitializer, MirGeneratorOperation, MirOperand, MirOperation, MirOperationId,
-    MirOperationKind, MirPanicCause, MirPlace, MirProjectionKind, MirStorage, MirStorageId,
-    MirTaskTerminalState, MirTerminator, MirTerminatorKind, MirUnit, MirValue, MirValueId,
+    MirAsyncOperation, MirBlock, MirBlockId, MirCall, MirCallTarget, MirFrameInitializer,
+    MirGeneratorOperation, MirOperand, MirOperation, MirOperationId, MirOperationKind,
+    MirPanicCause, MirPlace, MirProjectionKind, MirStorage, MirStorageId, MirTaskTerminalState,
+    MirTerminator, MirTerminatorKind, MirUnit, MirValue, MirValueId,
 };
 
 /// Controls deterministic traversal of immutable MIR.
@@ -176,9 +176,7 @@ impl MirOperationKind {
             }
             Self::Construct(construction) => {
                 for input in construction.inputs() {
-                    if let MirConstructionInput::Explicit { value, .. } = input {
-                        visit_operand(value, &mut visit);
-                    }
+                    visit_operand(input.value(), &mut visit);
                 }
             }
             Self::NullableQuery(query) => visit_operand(query.operand(), &mut visit),

@@ -5,14 +5,14 @@ use bray_symbols::CallableConditions;
 use std::fmt::Write;
 
 use bray_bound_tree::{
-    BoundCallResult, CheckedMemoryOperationKind, ConstructionDefaultProvider, ConstructionInputId,
-    ConstructionTarget, ConversionTarget, MemoryLayoutQueryKind, PatternOperation,
-    PatternProjection, SelectedConversion,
+    BoundCallResult, CheckedMemoryOperationKind, ConstructionInputId, ConstructionTarget,
+    ConversionTarget, MemoryLayoutQueryKind, PatternOperation, PatternProjection,
+    SelectedConversion,
 };
 use bray_ir::{
     MirAggregateKind, MirAsyncOperation, MirBinaryOperator, MirBlockKind, MirCallArgument,
-    MirCallTarget, MirCallableReference, MirCleanupEdge, MirCleanupPhase, MirConstructionInput,
-    MirEdge, MirFieldReference, MirFrameInitializer, MirFrameReference, MirGeneratorKind,
+    MirCallTarget, MirCallableReference, MirCleanupEdge, MirCleanupPhase, MirEdge,
+    MirFieldReference, MirFrameInitializer, MirFrameReference, MirGeneratorKind,
     MirGeneratorOperation, MirHelperReference, MirHostOperation, MirImmediateValue, MirOperand,
     MirOperation, MirOperationKind, MirPanicCause, MirPatternPredicate, MirPlace,
     MirProjectionKind, MirRuntimeReference, MirSourceAnchor, MirSourceOrigin, MirStorageKind,
@@ -668,48 +668,20 @@ fn operation_parts(
             construction_target(construction.target(), parts, context)?;
 
             for input in construction.inputs() {
-                match input {
-                    MirConstructionInput::Explicit {
-                        input,
-                        ordinal,
-                        value,
-                    } => {
-                        parts.attribute(
-                            "input",
-                            format!("{}:{ordinal}", construction_input(*input)),
-                        );
+                let ordinal = input.ordinal();
 
-                        parts.symbol(
-                            format!("input[{ordinal}]"),
-                            construction_input_symbol(*input),
-                            context.symbols,
-                        );
+                parts.attribute(
+                    "input",
+                    format!("{}:{ordinal}", construction_input(input.input())),
+                );
 
-                        parts.operand(format!("input[{ordinal}]"), value, context)?;
-                    }
-                    MirConstructionInput::Default {
-                        input,
-                        ordinal,
-                        provider,
-                    } => {
-                        parts.attribute(
-                            "default",
-                            format!("{}:{ordinal}", construction_input(*input)),
-                        );
+                parts.symbol(
+                    format!("input[{ordinal}]"),
+                    construction_input_symbol(input.input()),
+                    context.symbols,
+                );
 
-                        parts.symbol(
-                            format!("input[{ordinal}]"),
-                            construction_input_symbol(*input),
-                            context.symbols,
-                        );
-
-                        parts.symbol(
-                            format!("default_provider[{ordinal}]"),
-                            construction_default_provider_symbol(*provider),
-                            context.symbols,
-                        );
-                    }
-                }
+                parts.operand(format!("input[{ordinal}]"), input.value(), context)?;
             }
 
             "construct"
@@ -1115,6 +1087,16 @@ fn call_parts(
         MirCallTarget::Runtime(reference) => {
             parts.attribute("dispatch", "runtime");
             runtime_reference("callee", *reference, parts);
+        }
+        MirCallTarget::ConstructionDefault {
+            target,
+            owner_type,
+            provider,
+        } => {
+            parts.attribute("dispatch", "construction_default");
+            construction_target(*target, parts, context)?;
+            parts.r#type("owner", *owner_type, context)?;
+            parts.symbol("provider", provider.symbol(), context.symbols);
         }
         MirCallTarget::ParameterDefault { callable, provider } => {
             parts.attribute("dispatch", "parameter_default");
@@ -2490,22 +2472,6 @@ const fn construction_input_symbol(input: ConstructionInputId) -> AnySymbolId {
         ConstructionInputId::UnionPayloadField(field) => AnySymbolId::UnionPayloadField(field),
         ConstructionInputId::CallableParameter(parameter) => {
             AnySymbolId::CallableParameter(parameter)
-        }
-    }
-}
-
-const fn construction_default_provider_symbol(
-    provider: ConstructionDefaultProvider,
-) -> AnySymbolId {
-    match provider {
-        ConstructionDefaultProvider::StructField(provider) => {
-            AnySymbolId::StructFieldDefaultProvider(provider)
-        }
-        ConstructionDefaultProvider::UnionPayload(provider) => {
-            AnySymbolId::UnionPayloadDefaultProvider(provider)
-        }
-        ConstructionDefaultProvider::CallableParameter(provider) => {
-            AnySymbolId::CallableParameterDefaultProvider(provider)
         }
     }
 }

@@ -209,8 +209,95 @@ async func discard_generic_task(pos trace: &std.atomic.Atomic<usize>)
     );
 }
 
+static DEFAULT_CLEANUP_ORDER: core.atomic.Atomic<usize> = core.atomic.initialize<usize>(0);
+
+struct DefaultGuard
+{
+    digit: usize;
+
+    async finalize()
+    {
+        await std.task.yield_now();
+
+        let before = core.atomic.load<usize, 1>(&DEFAULT_CLEANUP_ORDER);
+
+        core.atomic.store<usize, 4>(&DEFAULT_CLEANUP_ORDER, before * 10 + self.digit);
+    }
+
+    destruct()
+    {
+        let before = core.atomic.load<usize, 1>(&DEFAULT_CLEANUP_ORDER);
+
+        core.atomic.store<usize, 4>(&DEFAULT_CLEANUP_ORDER, before * 10 + self.digit + 1);
+    }
+}
+
+func fail_default() -> i32
+{
+    panic("construction default failed");
+}
+
+struct FailedDefaults
+{
+    explicit: DefaultGuard;
+    initialized: DefaultGuard = DefaultGuard
+    {
+        digit = 3
+    };
+    failed: i32 = fail_default();
+    uninitialized: DefaultGuard = DefaultGuard
+    {
+        digit = 9
+    };
+}
+
+union FailedDefaultUnion
+{
+    Entry(
+        explicit: DefaultGuard,
+        initialized: DefaultGuard = DefaultGuard
+        {
+            digit = 3
+        },
+        failed: i32 = fail_default()
+    );
+}
+
+async func discard_failed_defaults()
+{
+    let value = FailedDefaults
+    {
+        explicit = DefaultGuard
+        {
+            digit = 1
+        }
+    };
+}
+
+async func discard_failed_union_defaults()
+{
+    let value: FailedDefaultUnion = Entry(
+        explicit = DefaultGuard
+        {
+            digit = 1
+        }
+    );
+}
+
 async func main() -> i32
 {
+    let default_result = catch await discard_failed_defaults();
+
+    assert(default_result matches Error(_));
+    assert(core.atomic.load<usize, 1>(&DEFAULT_CLEANUP_ORDER) == 3412);
+
+    core.atomic.store<usize, 4>(&DEFAULT_CLEANUP_ORDER, 0);
+
+    let union_default_result = catch await discard_failed_union_defaults();
+
+    assert(union_default_result matches Error(_));
+    assert(core.atomic.load<usize, 1>(&DEFAULT_CLEANUP_ORDER) == 3412);
+
     let mut completion = Completion
     {
         continued = false

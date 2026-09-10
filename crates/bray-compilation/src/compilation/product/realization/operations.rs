@@ -253,7 +253,6 @@ impl Compilation {
                     owner,
                     operation_id,
                     operation,
-                    operation_result_type,
                     *provider,
                     target,
                     cancellation,
@@ -386,7 +385,8 @@ impl Compilation {
                 }
                 MirCallTarget::Indirect { .. }
                 | MirCallTarget::Runtime(_)
-                | MirCallTarget::ParameterDefault { .. } => Err(
+                | MirCallTarget::ParameterDefault { .. }
+                | MirCallTarget::ConstructionDefault { .. } => Err(
                     CodegenPreparationError::MissingHelperInstance(reference.clone()),
                 ),
             },

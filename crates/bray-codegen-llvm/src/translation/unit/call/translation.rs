@@ -17,15 +17,12 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         let semantic_arguments = self.evaluate_call_arguments(call)?;
         let semantic_arguments = semantic_arguments.as_slice();
 
-        let default_helper = if let MirCallTarget::ParameterDefault { provider, .. } = call.target()
-        {
-            Some(super::super::support::next_helper(
-                &mut helpers,
-                &bray_ir::MirHelperReference::CallableDefault(*provider),
-            )?)
-        } else {
-            None
-        };
+        let default_reference = call.target().default_helper();
+
+        let default_helper = default_reference
+            .as_ref()
+            .map(|reference| super::super::support::next_helper(&mut helpers, reference))
+            .transpose()?;
 
         if helpers.next().is_some() {
             return Err(CodegenFailure::GeneratedModuleInvariant);
@@ -83,21 +80,10 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     self.invoke_function(function, &signature, semantic_arguments, "call")
                 }
             }
-            MirCallTarget::ParameterDefault { .. } => {
+            MirCallTarget::ParameterDefault { .. } | MirCallTarget::ConstructionDefault { .. } => {
                 let helper = default_helper.ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                if checks_call_panic {
-                    let context = self.checked_call_panic_report_context()?;
-                    self.retain_checked_call_context(context)?;
-
-                    self.invoke_helper_with_panic_report_context(
-                        helper,
-                        semantic_arguments,
-                        context,
-                    )
-                } else {
-                    self.invoke_helper(helper, semantic_arguments)
-                }
+                self.invoke_operation_helper(operation, helper, semantic_arguments)
             }
             MirCallTarget::Runtime(runtime) => self.invoke_runtime(*runtime, semantic_arguments),
             MirCallTarget::Indirect { callee, .. } => self.invoke_indirect_callable(

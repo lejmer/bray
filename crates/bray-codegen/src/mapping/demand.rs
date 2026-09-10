@@ -127,9 +127,7 @@ fn collect_operation_values(operation: &MirOperationKind, demands: &mut Constant
         }
         MirOperationKind::Construct(construction) => {
             for input in construction.inputs() {
-                if let bray_ir::MirConstructionInput::Explicit { value, .. } = input {
-                    collect_operand_value(value, demands);
-                }
+                collect_operand_value(input.value(), demands);
             }
         }
         MirOperationKind::PatternProjection { subject, .. } => {

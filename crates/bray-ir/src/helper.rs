@@ -183,12 +183,6 @@ impl MirOperationKind {
                 helpers.push(MirHelperReference::DeclaredCallable(*callable));
             }
             Self::Construct(construction) => {
-                for input in construction.inputs() {
-                    if let crate::MirConstructionInput::Default { provider, .. } = input {
-                        helpers.push(MirHelperReference::ConstructionDefault(*provider));
-                    }
-                }
-
                 if let ConstructionTarget::TypeForm { callable, .. } = construction.target() {
                     helpers.push(MirHelperReference::TypeForm(callable));
                 }
@@ -210,11 +204,7 @@ impl MirOperationKind {
             Self::Memory(memory) => collect_memory_helpers(memory, &mut helpers),
             Self::Text(operation) => collect_text_helpers(operation, &mut helpers),
             Self::PanicReport(_) => helpers.push(MirHelperReference::PanicReport),
-            Self::Call(call) => {
-                if let crate::MirCallTarget::ParameterDefault { provider, .. } = call.target() {
-                    helpers.push(MirHelperReference::CallableDefault(*provider));
-                }
-            }
+            Self::Call(call) => helpers.extend(call.target().default_helper()),
             Self::Finalize(place) => helpers.push(MirHelperReference::Finalize(place.ty())),
             Self::Destroy(place) => helpers.push(MirHelperReference::Destroy(place.ty())),
             Self::DestructorRemainder { role, place } => helpers.push(role.reference(place.ty())),

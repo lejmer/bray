@@ -856,6 +856,11 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
                 ),
                 provider: self.exact_symbol()?,
             },
+            4 => MirCallTarget::ConstructionDefault {
+                target: self.construction_target()?,
+                owner_type: self.ty()?,
+                provider: self.construction_default_provider()?,
+            },
             _ => return Err(ExecutableTemplateDecodeError::Malformed),
         };
 
@@ -1067,35 +1072,25 @@ impl<R: InterfaceSymbolResolver> Decoder<'_, '_, R> {
     fn construction_input(
         &mut self,
     ) -> Result<MirConstructionInput, ExecutableTemplateDecodeError> {
-        match read_u32(&mut self.reader)? {
-            0 => Ok(MirConstructionInput::Explicit {
-                input: self.construction_input_id()?,
-                ordinal: read_u32(&mut self.reader)?,
-                value: self.operand()?,
-            }),
-            1 => {
-                let input = self.construction_input_id()?;
-                let ordinal = read_u32(&mut self.reader)?;
-                let symbol = self.symbol()?;
+        Ok(MirConstructionInput::new(
+            self.construction_input_id()?,
+            read_u32(&mut self.reader)?,
+            self.operand()?,
+        ))
+    }
 
-                let provider = match symbol {
-                    AnySymbolId::StructFieldDefaultProvider(provider) => {
-                        ConstructionDefaultProvider::StructField(provider)
-                    }
-                    AnySymbolId::UnionPayloadDefaultProvider(provider) => {
-                        ConstructionDefaultProvider::UnionPayload(provider)
-                    }
-                    AnySymbolId::CallableParameterDefaultProvider(provider) => {
-                        ConstructionDefaultProvider::CallableParameter(provider)
-                    }
-                    _ => return Err(ExecutableTemplateDecodeError::Malformed),
-                };
-
-                Ok(MirConstructionInput::Default {
-                    input,
-                    ordinal,
-                    provider,
-                })
+    fn construction_default_provider(
+        &mut self,
+    ) -> Result<ConstructionDefaultProvider, ExecutableTemplateDecodeError> {
+        match self.symbol()? {
+            AnySymbolId::StructFieldDefaultProvider(provider) => {
+                Ok(ConstructionDefaultProvider::StructField(provider))
+            }
+            AnySymbolId::UnionPayloadDefaultProvider(provider) => {
+                Ok(ConstructionDefaultProvider::UnionPayload(provider))
+            }
+            AnySymbolId::CallableParameterDefaultProvider(provider) => {
+                Ok(ConstructionDefaultProvider::CallableParameter(provider))
             }
             _ => Err(ExecutableTemplateDecodeError::Malformed),
         }

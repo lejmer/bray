@@ -285,6 +285,30 @@ pub enum ConstructionTarget {
 }
 
 impl ConstructionTarget {
+    /// Returns the selected synchronous implementation when construction invokes a callable.
+    pub const fn callable(self) -> Option<CallableInstanceData> {
+        match self {
+            Self::TypeForm { callable, .. } => Some(callable),
+            Self::Struct(_) | Self::UnionVariant(_) => None,
+        }
+    }
+
+    /// Returns whether this target owns the supplied default provider category.
+    pub const fn accepts_default(self, provider: ConstructionDefaultProvider) -> bool {
+        matches!(
+            (self, provider),
+            (Self::Struct(_), ConstructionDefaultProvider::StructField(_))
+                | (
+                    Self::UnionVariant(_),
+                    ConstructionDefaultProvider::UnionPayload(_)
+                )
+                | (
+                    Self::TypeForm { .. },
+                    ConstructionDefaultProvider::CallableParameter(_)
+                )
+        )
+    }
+
     /// Returns whether this target owns the supplied construction input category.
     pub const fn accepts_input(self, input: ConstructionInputId) -> bool {
         matches!(
@@ -569,7 +593,7 @@ impl SelectedOperation {
     }
 
     /// Returns whether realizing this operation invokes a synchronous Bray implementation.
-    pub const fn may_propagate_synchronous_panic(&self) -> bool {
+    pub fn may_propagate_synchronous_panic(&self) -> bool {
         match self {
             Self::Operator { target, .. } => matches!(target, OperatorTarget::Trait { .. }),
             Self::CompoundAssignment(selection) => {
@@ -579,7 +603,14 @@ impl SelectedOperation {
             Self::Conversion(conversion) => {
                 matches!(conversion.target(), ConversionTarget::Trait { .. })
             }
-            Self::Member(_) | Self::Construction(_) | Self::Implementation(_) => false,
+            Self::Construction(construction) => {
+                construction.target().callable().is_some()
+                    || construction
+                        .inputs()
+                        .iter()
+                        .any(|input| matches!(input, SelectedConstructionInput::Default { .. }))
+            }
+            Self::Member(_) | Self::Implementation(_) => false,
         }
     }
 

@@ -5,7 +5,7 @@ use bray_bound_tree::{
     BodyBehaviorCall, BodyBehaviorPhase, BoundBlockItem, BoundCallResult, BoundCallableTarget,
     BoundExpression, BoundExpressionId, BoundUnitRoot, CheckedAsync, CheckedDependencyContracts,
     CheckedExpressionTypes, CheckedRefinements, CheckedSemanticSelections, Liveness,
-    SemanticSelection, StorageFlow, StoragePlan,
+    SelectedConstructionInput, SelectedOperation, SemanticSelection, StorageFlow, StoragePlan,
 };
 use bray_compiler_known::RepresentationRole;
 use bray_diagnostics::{
@@ -343,7 +343,26 @@ fn pending_cleanup_types<'a>(
         })
         .flat_map(bray_bound_tree::SelectedCall::input_types);
 
-    types.callable_result_type().into_iter().chain(inputs)
+    let construction_inputs = selections
+        .entries()
+        .iter()
+        .filter_map(|entry| match entry.selection() {
+            SemanticSelection::Operation(SelectedOperation::Construction(construction)) => {
+                Some(construction)
+            }
+            _ => None,
+        })
+        .flat_map(|construction| construction.inputs())
+        .map(|input| match input {
+            SelectedConstructionInput::Explicit { ty, .. }
+            | SelectedConstructionInput::Default { ty, .. } => *ty,
+        });
+
+    types
+        .callable_result_type()
+        .into_iter()
+        .chain(inputs)
+        .chain(construction_inputs)
 }
 
 fn add_selected_task_operations<C>(

@@ -150,7 +150,8 @@ where
         };
 
         let Some(SemanticSelection::Call(selection)) = selections.expression(expression) else {
-            return false;
+            // Union construction has call syntax but retains a construction selection.
+            return matches!(selections.expression(expression), Some(SemanticSelection::Operation(operation)) if operation.may_propagate_synchronous_panic());
         };
 
         // Capture allocation and omitted defaults execute before the deferred body starts.

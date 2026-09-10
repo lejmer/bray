@@ -7,7 +7,7 @@ use bray_bound_tree::{
 use bray_compiler_known::CompilerKnownOperationRole;
 use bray_ir::{
     MirBinaryOperator, MirBlockId, MirCall, MirCallArgument, MirCallIntrinsic, MirCallTarget,
-    MirCallableReference, MirOperand, MirOperationKind, MirSourceAnchor, MirUnaryOperator,
+    MirCallableReference, MirOperationKind, MirSourceAnchor, MirUnaryOperator,
 };
 
 impl Lowerer<'_> {
@@ -263,7 +263,7 @@ impl Lowerer<'_> {
                 return Err(LoweringError::UnsupportedExpression(expression));
             };
 
-            let mut preceding = arguments
+            let preceding = arguments
                 .iter()
                 .filter_map(|argument| match argument {
                     MirCallArgument::Receiver { value, .. } => Some((None, value)),
@@ -276,12 +276,7 @@ impl Lowerer<'_> {
                 })
                 .collect::<Vec<_>>();
 
-            preceding.sort_by_key(|(position, _)| *position);
-
-            let inputs = preceding.into_iter().map(|(_, value)| match value {
-                MirOperand::Move(place) => MirOperand::Copy(Self::retained_place(place)),
-                value => Self::retained_operand(value),
-            });
+            let inputs = Self::default_arguments(preceding);
 
             let call = MirCall::protocol(
                 MirCallTarget::ParameterDefault {

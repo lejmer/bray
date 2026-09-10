@@ -406,11 +406,11 @@ impl Lowerer<'_> {
             Self::retained_source(source),
             MirOperationKind::Construct(MirConstruction::new(
                 ConstructionTarget::UnionVariant(variant),
-                [MirConstructionInput::Explicit {
-                    input: ConstructionInputId::UnionPayloadField(field),
-                    ordinal: 0,
+                [MirConstructionInput::new(
+                    ConstructionInputId::UnionPayloadField(field),
+                    0,
                     value,
-                }],
+                )],
             )),
             Some(result_type),
         )?;

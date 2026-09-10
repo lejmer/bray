@@ -35,6 +35,20 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         }
     }
 
+    pub(in crate::translation::unit) fn operation_panic_report_context(
+        &mut self,
+        operation: bray_ir::MirOperationId,
+    ) -> Result<Option<PointerValue<'context>>, CodegenFailure> {
+        if !self.checked_call_operations.contains(&operation) {
+            return Ok(None);
+        }
+
+        let context = self.checked_call_panic_report_context()?;
+        self.retain_checked_call_context(context)?;
+
+        Ok(Some(context))
+    }
+
     pub(in crate::translation::unit) fn retain_checked_call_context(
         &mut self,
         context: PointerValue<'context>,

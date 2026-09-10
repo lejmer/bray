@@ -5,7 +5,7 @@ use bray_ir::{
     MirExecutableTemplateId, MirHelperReference, MirImportedExecutableKey, MirOperationId,
     MirOperationKind, MirUnitKey,
 };
-use bray_symbols::{AnySymbolId, CallableDefinitionId, SymbolKeyData, TypeData, TypeId};
+use bray_symbols::{AnySymbolId, CallableDefinitionId, SymbolKeyData, TypeData};
 
 use super::super::specialization::ConcreteCodegenInstance;
 use crate::compilation::{
@@ -45,26 +45,45 @@ impl Compilation {
         owner: &ConcreteCodegenInstance,
         operation_id: MirOperationId,
         operation: &MirOperationKind,
-        result_type: Option<TypeId>,
         provider: ConstructionDefaultProvider,
         target: &CodegenTarget,
         cancellation: &CancellationToken,
     ) -> Result<ConcreteCodegenInstance, CodegenPreparationError> {
         let reference = MirHelperReference::ConstructionDefault(provider);
 
-        let MirOperationKind::Construct(construction) = operation else {
-            return Err(ProductQueryFailure::InvalidHelperOperation {
-                context: ProductQueryContext::Operation {
-                    instance: owner.key().clone(),
-                    operation: operation_id,
-                },
-                helper: reference,
-                operation: operation.clone(),
+        let (construction_target, ty) = match operation {
+            MirOperationKind::Call(call) => match call.target() {
+                bray_ir::MirCallTarget::ConstructionDefault {
+                    target,
+                    owner_type,
+                    provider: selected,
+                } if *selected == provider => (*target, *owner_type),
+                _ => {
+                    return Err(ProductQueryFailure::InvalidHelperCallTarget {
+                        context: ProductQueryContext::Operation {
+                            instance: owner.key().clone(),
+                            operation: operation_id,
+                        },
+                        helper: reference,
+                        target: call.target().clone(),
+                    }
+                    .into());
+                }
+            },
+            _ => {
+                return Err(ProductQueryFailure::InvalidHelperOperation {
+                    context: ProductQueryContext::Operation {
+                        instance: owner.key().clone(),
+                        operation: operation_id,
+                    },
+                    helper: reference,
+                    operation: operation.clone(),
+                }
+                .into());
             }
-            .into());
         };
 
-        if let ConstructionTarget::TypeForm { callable, .. } = construction.target() {
+        if let ConstructionTarget::TypeForm { callable, .. } = construction_target {
             let callee =
                 self.concrete_codegen_callable_data(owner, &callable, target, cancellation)?;
 
@@ -75,16 +94,6 @@ impl Compilation {
                 cancellation,
             );
         }
-
-        let ty = result_type.ok_or_else(|| {
-            ProductQueryFailure::missing(
-                ProductQueryContext::Operation {
-                    instance: owner.key().clone(),
-                    operation: operation_id,
-                },
-                ProductDataKind::OperationResultType,
-            )
-        })?;
 
         let ty = self.concrete_codegen_type(ty, owner.substitution(), Some(owner), cancellation)?;
 

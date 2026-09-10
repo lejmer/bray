@@ -401,15 +401,7 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
             return Err(CodegenFailure::GeneratedModuleInvariant);
         }
 
-        let context = if self.checked_call_operations.contains(&operation) {
-            let context = self.checked_call_panic_report_context()?;
-
-            self.retain_checked_call_context(context)?;
-
-            Some(context)
-        } else {
-            None
-        };
+        let context = self.operation_panic_report_context(operation)?;
 
         if helper.symbol().is_none() {
             return Ok(());
