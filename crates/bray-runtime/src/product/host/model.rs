@@ -72,12 +72,11 @@ impl ProductHost {
         self.active_entries == 0 && self.external_roots == 0 && self.thread_attachments == 0
     }
 
-    pub(super) fn product_cleanups(&self) -> Vec<ProductStatic> {
-        self.statics
-            .iter()
-            .copied()
-            .filter(|entry| entry.duration == NativeStaticDuration::PRODUCT)
-            .collect()
+    pub(super) fn take_product_cleanups(&mut self) -> Vec<ProductStatic> {
+        let mut statics = std::mem::take(&mut self.statics);
+        statics.retain(|entry| entry.duration == NativeStaticDuration::PRODUCT);
+
+        statics
     }
 
     pub(super) fn static_entry(&self, identity: NativeStaticIdentity) -> Option<ProductStatic> {
@@ -119,6 +118,7 @@ pub(super) fn product_key(descriptor: &NativeProductHostDescriptor) -> usize {
 pub(super) fn runtime_status(status: NativeProductHostStatus) -> NativeRuntimeStatus {
     match status {
         NativeProductHostStatus::SUCCESS => NativeRuntimeStatus::SUCCESS,
+        NativeProductHostStatus::ALLOCATION_FAILURE => NativeRuntimeStatus::ALLOCATION_FAILURE,
         NativeProductHostStatus::CLOSED | NativeProductHostStatus::INVALID_ARGUMENT => {
             NativeRuntimeStatus::INVALID_ARGUMENT
         }

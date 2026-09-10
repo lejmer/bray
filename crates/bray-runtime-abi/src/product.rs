@@ -118,6 +118,8 @@ impl NativeProductHostStatus {
     pub const INCIDENTS: Self = Self(4);
     /// Runtime infrastructure could not preserve the host contract.
     pub const RUNTIME_FAILURE: Self = Self(5);
+    /// Storage admission failed before acquiring the requested ownership.
+    pub const ALLOCATION_FAILURE: Self = Self(6);
 
     /// Returns the stable integer representation.
     pub const fn code(self) -> u32 {

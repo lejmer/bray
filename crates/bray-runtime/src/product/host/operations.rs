@@ -2,9 +2,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use bray_runtime_abi::{
     NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostOperation,
-    NativeProductHostState, NativeProductHostStatus, NativeProductIdentity, NativeRuntimeStatus,
-    NativeStaticDuration, NativeStaticIdentity, NativeThreadStaticCleanupRegistration,
-    PRODUCT_HOST_ABI_VERSION,
+    NativeProductHostState, NativeProductHostStatus, NativeRuntimeStatus, NativeStaticDuration,
+    NativeStaticIdentity, NativeThreadStaticCleanupRegistration, PRODUCT_HOST_ABI_VERSION,
 };
 
 use super::super::cleanup::run_static_cleanup;
@@ -124,7 +123,7 @@ pub(crate) fn register_thread_static(
     let product = product_key(registration.product());
     let worker = current_thread_is_product_worker(product);
 
-    let Some((_, entry)) = static_entry(product, registration.static_identity()) else {
+    let Some(entry) = static_entry(product, registration.static_identity()) else {
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     };
 
@@ -237,14 +236,22 @@ fn close_product(product: usize) -> NativeProductHostObservation {
     progress_closure(product).unwrap_or(observation)
 }
 
-pub(in crate::product) fn prepare_thread_attachment(product: usize) -> Option<bool> {
+pub(in crate::product) fn prepare_thread_attachment(
+    product: usize,
+) -> Result<bool, NativeProductHostStatus> {
     THREAD_STATICS.with(|registry| {
         let mut registry = registry.borrow_mut();
 
         registry
             .attachment(product, false)
-            .ok()
             .map(|attachment| attachment.acquired)
+            .map_err(|status| match status {
+                NativeRuntimeStatus::ALLOCATION_FAILURE => {
+                    NativeProductHostStatus::ALLOCATION_FAILURE
+                }
+                NativeRuntimeStatus::INVALID_ARGUMENT => NativeProductHostStatus::INVALID_ARGUMENT,
+                _ => NativeProductHostStatus::RUNTIME_FAILURE,
+            })
     })
 }
 
@@ -450,7 +457,7 @@ fn prepare_cleanup(product: usize, host: &mut ProductHost) -> Option<PendingClea
     Some(PendingCleanup {
         product,
         runtime: host.runtime.clone(),
-        statics: host.product_cleanups(),
+        statics: host.take_product_cleanups(),
     })
 }
 
@@ -702,15 +709,11 @@ fn read_descriptor(
     })
 }
 
-fn static_entry(
-    product: usize,
-    identity: NativeStaticIdentity,
-) -> Option<(NativeProductIdentity, ProductStatic)> {
+fn static_entry(product: usize, identity: NativeStaticIdentity) -> Option<ProductStatic> {
     let hosts = product_hosts().lock().ok()?;
     let host = hosts.get(&product)?;
-    let entry = host.static_entry(identity)?;
 
-    Some((host.identity, entry))
+    host.static_entry(identity)
 }
 
 pub(super) fn report_incidents(product: usize, identity: NativeStaticIdentity, count: usize) {
@@ -1001,6 +1004,92 @@ mod tests {
 
             order.set(value);
         });
+    }
+
+    #[test]
+    fn product_closure_transfers_admitted_storage_and_preserves_cleanup_order() {
+        extern "C" fn mixed_entry(index: usize) -> NativeStaticHostEntry {
+            let (order, duration, start): (
+                u64,
+                NativeStaticDuration,
+                NativeStaticFinalizerStartCallback,
+            ) = match index {
+                0 => (2, NativeStaticDuration::PRODUCT, second_thread_cleanup),
+                1 => (
+                    1,
+                    NativeStaticDuration::EXACT_THREAD,
+                    panicking_thread_cleanup,
+                ),
+                _ => (0, NativeStaticDuration::PRODUCT, first_thread_cleanup),
+            };
+
+            NativeStaticHostEntry::new(
+                duration,
+                NativeStaticIdentity::new([u8::try_from(order + 1).unwrap(); 32]),
+                order,
+                1,
+                access,
+                detach_thread_static,
+                finalizer(start),
+                no_cleanup,
+                detach_thread_static,
+                no_dependency,
+                0,
+            )
+        }
+
+        THREAD_CLEANUP_ORDER.set(0);
+
+        let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
+            NativeProductIdentity::new([151; 32]),
+            mixed_entry,
+            3,
+        )));
+
+        assert_eq!(
+            control(descriptor, NativeProductHostOperation::FORM).status(),
+            NativeProductHostStatus::SUCCESS
+        );
+
+        let product = super::product_key(descriptor);
+
+        let (pending, original, capacity) = {
+            let mut hosts = super::product_hosts().lock().unwrap();
+            let host = hosts.get_mut(&product).unwrap();
+            host.state = NativeProductHostState::CLOSING;
+            let original = host.statics.as_ptr();
+            let capacity = host.statics.capacity();
+
+            let pending = crate::test_support::with_allocation_failure(|| {
+                super::prepare_cleanup(product, host)
+            })
+            .unwrap();
+
+            assert!(super::prepare_cleanup(product, host).is_none());
+
+            (pending, original, capacity)
+        };
+
+        assert_eq!(
+            pending.statics.as_ptr(),
+            original,
+            "closure must transfer the admitted allocation"
+        );
+
+        assert_eq!(pending.statics.capacity(), capacity);
+        assert_eq!(pending.statics.len(), 2);
+        let closed = super::finish_cleanup(pending);
+        assert_eq!(closed.state(), NativeProductHostState::CLOSED);
+        assert_eq!(closed.cleaned_statics(), 2);
+        assert_eq!(closed.cleanup_incidents(), 0);
+        assert_eq!(THREAD_CLEANUP_ORDER.get(), 12);
+
+        assert_eq!(
+            control(descriptor, NativeProductHostOperation::CLOSE).cleaned_statics(),
+            2
+        );
+
+        assert_eq!(THREAD_CLEANUP_ORDER.get(), 12);
     }
 
     #[test]
@@ -1325,6 +1414,78 @@ mod tests {
         assert_eq!(THREAD_CLEANUP_ORDER.get(), 2);
         assert_eq!(observed.cleanup_incidents(), 1);
         assert_eq!(observed.last_incident(), panicking_identity);
+    }
+
+    #[test]
+    fn foreign_attachment_failure_preserves_prepared_cleanup_and_retry_depth() {
+        let _scope = bray_platform::RuntimeThreadScope::enter().unwrap();
+
+        let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
+            NativeProductIdentity::new([152; 32]),
+            delayed_entry,
+            1,
+        )));
+
+        assert_eq!(
+            control(descriptor, NativeProductHostOperation::FORM).status(),
+            NativeProductHostStatus::SUCCESS
+        );
+
+        let identity = thread_attachment_identity(descriptor);
+        assert_ne!(identity, 0);
+
+        let failed = crate::test_support::with_allocation_failure(|| {
+            control(
+                descriptor,
+                NativeProductHostOperation::ATTACH_CURRENT_THREAD,
+            )
+        });
+
+        assert_eq!(failed.status(), NativeProductHostStatus::ALLOCATION_FAILURE);
+        assert_eq!(failed.thread_attachments(), 0);
+        assert_eq!(thread_attachment_identity(descriptor), identity);
+
+        assert_eq!(
+            control(
+                descriptor,
+                NativeProductHostOperation::ATTACH_CURRENT_THREAD
+            )
+            .status(),
+            NativeProductHostStatus::SUCCESS
+        );
+
+        let nested = crate::test_support::with_allocation_failure(|| {
+            control(
+                descriptor,
+                NativeProductHostOperation::ATTACH_CURRENT_THREAD,
+            )
+        });
+
+        assert_eq!(nested.status(), NativeProductHostStatus::SUCCESS);
+        assert_eq!(nested.thread_attachments(), 1);
+
+        assert_eq!(
+            control(
+                descriptor,
+                NativeProductHostOperation::DETACH_CURRENT_THREAD
+            )
+            .thread_attachments(),
+            1
+        );
+
+        assert_eq!(
+            control(
+                descriptor,
+                NativeProductHostOperation::DETACH_CURRENT_THREAD
+            )
+            .thread_attachments(),
+            0
+        );
+
+        assert_eq!(
+            control(descriptor, NativeProductHostOperation::CLOSE).state(),
+            NativeProductHostState::CLOSED
+        );
     }
 
     #[test]

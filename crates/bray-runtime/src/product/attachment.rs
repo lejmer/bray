@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 use bray_runtime_abi::{NativeProductHostObservation, NativeProductHostStatus};
 
@@ -11,19 +11,19 @@ use super::host::{
 
 thread_local! {
     static FOREIGN_ATTACHMENTS: RefCell<ForeignAttachments> =
-        const { RefCell::new(ForeignAttachments::new()) };
+        RefCell::new(ForeignAttachments::new());
 }
 
 struct ForeignAttachments {
     scope: Option<bray_platform::RuntimeThreadScope>,
-    products: BTreeMap<usize, usize>,
+    products: HashMap<usize, usize>,
 }
 
 impl ForeignAttachments {
-    const fn new() -> Self {
+    fn new() -> Self {
         Self {
             scope: None,
-            products: BTreeMap::new(),
+            products: HashMap::new(),
         }
     }
 }
@@ -38,17 +38,20 @@ pub(super) fn attach_current_thread(product: usize) -> NativeProductHostObservat
 
         if let Some(depth) = attachments.products.get_mut(&product) {
             let Some(next) = depth.checked_add(1) else {
-                return None;
+                return Err(NativeProductHostStatus::INVALID_ARGUMENT);
             };
 
             *depth = next;
 
-            return Some(false);
+            return Ok(false);
         }
+
+        crate::allocation::reserve_map_entries(&mut attachments.products, 1)
+            .map_err(|_| NativeProductHostStatus::ALLOCATION_FAILURE)?;
 
         if bray_platform::current_runtime_thread().is_none() && attachments.scope.is_none() {
             let Ok(scope) = bray_platform::RuntimeThreadScope::enter() else {
-                return None;
+                return Err(NativeProductHostStatus::RUNTIME_FAILURE);
             };
 
             attachments.scope = Some(scope);
@@ -56,21 +59,25 @@ pub(super) fn attach_current_thread(product: usize) -> NativeProductHostObservat
 
         attachments.products.insert(product, 1);
 
-        Some(true)
+        Ok(true)
     });
 
-    let Some(inserted) = inserted else {
-        return observation_with_status(product, NativeProductHostStatus::INVALID_ARGUMENT);
+    let inserted = match inserted {
+        Ok(inserted) => inserted,
+        Err(status) => return observation_with_status(product, status),
     };
 
     if !inserted {
         return observation_with_status(product, NativeProductHostStatus::SUCCESS);
     }
 
-    let Some(already_acquired) = prepare_thread_attachment(product) else {
-        rollback(product);
+    let already_acquired = match prepare_thread_attachment(product) {
+        Ok(acquired) => acquired,
+        Err(status) => {
+            rollback(product);
 
-        return observation_with_status(product, NativeProductHostStatus::RUNTIME_FAILURE);
+            return observation_with_status(product, status);
+        }
     };
 
     if !already_acquired {
