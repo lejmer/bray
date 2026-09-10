@@ -1,0 +1,70 @@
+module worker_static_cleanup;
+
+using std.task;
+
+static FINISHED: core.atomic.Atomic<u32> = core.atomic.initialize<u32>(0);
+
+struct WorkerProbe
+{
+    mut state: i32;
+    finished: &core.atomic.Atomic<u32>;
+
+    async finalize()
+    {
+        await std.task.yield_now();
+        self.state = 2;
+    }
+
+    destruct()
+    {
+        assert(self.state == 2);
+        core.atomic.fetch_add<u32, 2>(self.finished, 1);
+    }
+}
+
+@thread_local static WORKER: WorkerProbe = WorkerProbe
+{
+    state = 1,
+    finished = &FINISHED
+};
+
+struct ProductProbe
+{
+    finished: &core.atomic.Atomic<u32>;
+
+    finalize()
+    {
+        assert(core.atomic.load<u32, 1>(self.finished) == 2);
+    }
+}
+
+static PRODUCT: ProductProbe = ProductProbe
+{
+    finished = &FINISHED
+};
+
+async func compute_value() -> i32
+    requires(compute_execution())
+{
+    return WORKER.state;
+}
+
+async func blocking_value() -> i32
+    requires(blocking_execution())
+{
+    return WORKER.state;
+}
+
+async func main()
+{
+    assert(core.atomic.load<u32, 1>(PRODUCT.finished) == 0);
+
+    let compute = compute_value().start();
+    let blocking = blocking_value().start();
+
+    let compute_result: i32 = try await compute.join();
+    let blocking_result: i32 = try await blocking.join();
+
+    assert(compute_result == 1);
+    assert(blocking_result == 1);
+}

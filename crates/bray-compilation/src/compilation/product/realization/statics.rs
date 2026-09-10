@@ -199,6 +199,13 @@ impl Compilation {
         demanded.extend(constants.iter().map(|constant| constant.data().ty()));
 
         demanded.extend(
+            static_storages
+                .iter()
+                .flat_map(CodegenStaticStorageMapping::relocations)
+                .map(CodegenStaticRelocation::ty),
+        );
+
+        demanded.extend(
             native_storages
                 .iter()
                 .map(bray_codegen::CodegenNativeStaticMapping::pointee_type),

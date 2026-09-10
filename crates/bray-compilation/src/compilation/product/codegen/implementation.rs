@@ -5110,6 +5110,31 @@ public func invoke<T>(pos value: T)
     }
 
     #[test]
+    fn worker_static_finalization_with_atomic_borrows_generates_for_windows() {
+        let source = include_str!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../xtask/fixtures/native-execution/worker-static-cleanup.bray"
+        ))
+        .replace("using std.task;", "")
+        .replace("std.task.yield_now()", "complete()");
+
+        let source = format!("{source}\nasync func complete() {{}}\n");
+
+        let (backend, plan) = runtime_native_plan_for_sources_target(
+            &[&source],
+            ProductKind::Executable,
+            SelectedTarget::for_native(NativeTarget::X86_64WindowsMsvc),
+            &[],
+        );
+
+        assert!(
+            generated_artifacts(&backend, &plan)
+                .iter()
+                .all(|artifact| !artifact.is_empty())
+        );
+    }
+
+    #[test]
     fn native_static_storage_fixture_prepares_for_windows() {
         let sources = [
             include_str!(concat!(

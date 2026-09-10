@@ -22,7 +22,7 @@ use super::fixtures::{
     QUIET_CANCELLATION_FIXTURE, RANGE_FIXTURE, STANDARD_MEMORY_FIXTURE, STANDARD_RUN_SOURCE,
     STANDARD_TASK_SOURCE, STANDARD_TESTING_SOURCE, STANDARD_TEXT_FIXTURE, STARTUP_FIXTURE,
     SYNC_CATCH_PROPAGATION_FIXTURE, SYNC_PANIC_FIXTURE, TEXT_CURSOR_FIXTURE,
-    VALUE_REPLACEMENT_FIXTURE,
+    VALUE_REPLACEMENT_FIXTURE, WORKER_STATIC_CLEANUP_FIXTURE,
 };
 use super::hello::audit_standard_hello_world;
 use super::nullable::audit_nullable_state_queries;
@@ -425,6 +425,13 @@ fn audit_host_behavior(root: &Path, target: NativeTarget, runtime: &Path) -> Res
         (
             "owned finalizer error",
             OWNED_FINALIZER_ERROR_FIXTURE,
+            0,
+            None,
+            false,
+        ),
+        (
+            "worker thread-static cleanup",
+            WORKER_STATIC_CLEANUP_FIXTURE,
             0,
             None,
             false,

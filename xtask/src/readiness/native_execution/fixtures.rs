@@ -29,6 +29,8 @@ pub(super) const OWNED_SYNC_ENTRY_ERROR_FIXTURE: &str =
     "xtask/fixtures/native-execution/owned-sync-entry-error.bray";
 pub(super) const QUIET_CANCELLATION_FIXTURE: &str =
     "xtask/fixtures/native-execution/quiet-cancellation.bray";
+pub(super) const WORKER_STATIC_CLEANUP_FIXTURE: &str =
+    "xtask/fixtures/native-execution/worker-static-cleanup.bray";
 pub(super) const STANDARD_RUN_SOURCE: &str = "standard-library/std/src/run.bray";
 pub(super) const STANDARD_TASK_SOURCE: &str = "standard-library/std/src/task.bray";
 pub(super) const STANDARD_TESTING_SOURCE: &str = "standard-library/std/src/testing.bray";
