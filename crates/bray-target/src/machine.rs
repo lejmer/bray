@@ -165,6 +165,13 @@ impl TargetMachineProperties {
         self.pointer_width_bits
     }
 
+    /// Returns whether a nonnegative value is representable as a target-sized unsigned integer.
+    pub const fn fits_usize(&self, value: u128) -> bool {
+        let width = self.pointer_width_bits.get();
+
+        width >= 128 || value < (1_u128 << width)
+    }
+
     /// Returns the target pointer alignment in bytes.
     pub const fn pointer_alignment_bytes(&self) -> NonZeroU32 {
         self.pointer_alignment_bytes
@@ -181,6 +188,35 @@ mod tests {
     use std::num::{NonZeroU16, NonZeroU32};
 
     use super::{Endianness, ObjectFormat, TargetArchitecture, TargetMachineProperties};
+
+    #[test]
+    fn target_usize_bounds_follow_the_pointer_width() {
+        for width in [8, 32, 64, 128, 256] {
+            let alignment = NonZeroU32::new(16).unwrap();
+
+            let machine = TargetMachineProperties::try_new(
+                TargetArchitecture::X86_64,
+                ObjectFormat::Elf,
+                Endianness::Little,
+                NonZeroU16::new(width).unwrap(),
+                alignment,
+                alignment,
+            )
+            .unwrap();
+
+            assert!(machine.fits_usize(0));
+
+            if width < 128 {
+                let exclusive_bound = 1_u128 << width;
+
+                assert!(machine.fits_usize(exclusive_bound - 1));
+                assert!(!machine.fits_usize(exclusive_bound));
+                assert!(!machine.fits_usize(u128::MAX));
+            } else {
+                assert!(machine.fits_usize(u128::MAX));
+            }
+        }
+    }
 
     #[test]
     fn machine_properties_reject_invalid_pointer_and_alignment_properties() {
