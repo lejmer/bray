@@ -1,5 +1,5 @@
 use std::cell::RefCell;
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
 use bray_runtime_abi::{
@@ -11,11 +11,9 @@ use bray_runtime_abi::{
 
 use super::attachment::ThreadStaticRegistry;
 
-pub(super) const MAXIMUM_STATIC_ENTRIES: usize = 1_000_000;
-
 // Loaded products share one process registry so archive and shared-library hosts coordinate with
 // exact-thread attachments owned by the same runtime.
-pub(super) static PRODUCT_HOSTS: OnceLock<Mutex<BTreeMap<usize, ProductHost>>> = OnceLock::new();
+pub(super) static PRODUCT_HOSTS: OnceLock<Mutex<HashMap<usize, ProductHost>>> = OnceLock::new();
 
 thread_local! {
     pub(super) static THREAD_STATICS: RefCell<ThreadStaticRegistry> =
@@ -103,8 +101,8 @@ pub(super) struct ThreadStaticEntry {
     pub(super) detach: NativeStaticTransitionCallback,
 }
 
-pub(super) fn product_hosts() -> &'static Mutex<BTreeMap<usize, ProductHost>> {
-    PRODUCT_HOSTS.get_or_init(|| Mutex::new(BTreeMap::new()))
+pub(super) fn product_hosts() -> &'static Mutex<HashMap<usize, ProductHost>> {
+    PRODUCT_HOSTS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 pub(in crate::product) fn initialize_thread_static_registry() {
@@ -123,5 +121,14 @@ pub(super) fn runtime_status(status: NativeProductHostStatus) -> NativeRuntimeSt
             NativeRuntimeStatus::INVALID_ARGUMENT
         }
         _ => NativeRuntimeStatus::RUNTIME_FAILURE,
+    }
+}
+
+pub(super) fn host_status(status: NativeRuntimeStatus) -> NativeProductHostStatus {
+    match status {
+        NativeRuntimeStatus::SUCCESS => NativeProductHostStatus::SUCCESS,
+        NativeRuntimeStatus::ALLOCATION_FAILURE => NativeProductHostStatus::ALLOCATION_FAILURE,
+        NativeRuntimeStatus::INVALID_ARGUMENT => NativeProductHostStatus::INVALID_ARGUMENT,
+        _ => NativeProductHostStatus::RUNTIME_FAILURE,
     }
 }

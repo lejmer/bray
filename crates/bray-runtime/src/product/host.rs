@@ -1,4 +1,6 @@
 mod attachment;
+mod descriptor;
+mod formation;
 mod model;
 mod operations;
 mod thread;

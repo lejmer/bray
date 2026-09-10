@@ -1,16 +1,16 @@
-use std::collections::{BTreeMap, BTreeSet};
-
 use bray_runtime_abi::{
     NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostOperation,
     NativeProductHostState, NativeProductHostStatus, NativeRuntimeStatus, NativeStaticDuration,
-    NativeStaticIdentity, NativeThreadStaticCleanupRegistration, PRODUCT_HOST_ABI_VERSION,
+    NativeStaticIdentity, NativeThreadStaticCleanupRegistration,
 };
 
 use super::super::cleanup::run_static_cleanup;
 
+use super::formation::ensure_formed;
+
 use super::model::{
-    MAXIMUM_STATIC_ENTRIES, PendingCleanup, ProductHost, ProductStatic, THREAD_STATICS,
-    ThreadStaticEntry, product_hosts, product_key, runtime_status,
+    PendingCleanup, ProductHost, ProductStatic, THREAD_STATICS, ThreadStaticEntry, host_status,
+    product_hosts, product_key, runtime_status,
 };
 
 pub(crate) fn control(
@@ -245,13 +245,7 @@ pub(in crate::product) fn prepare_thread_attachment(
         registry
             .attachment(product, false)
             .map(|attachment| attachment.acquired)
-            .map_err(|status| match status {
-                NativeRuntimeStatus::ALLOCATION_FAILURE => {
-                    NativeProductHostStatus::ALLOCATION_FAILURE
-                }
-                NativeRuntimeStatus::INVALID_ARGUMENT => NativeProductHostStatus::INVALID_ARGUMENT,
-                _ => NativeProductHostStatus::RUNTIME_FAILURE,
-            })
+            .map_err(host_status)
     })
 }
 
@@ -531,182 +525,6 @@ fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
     cleanup.runtime.release();
 
     observation
-}
-
-fn ensure_formed(
-    descriptor: &NativeProductHostDescriptor,
-) -> Result<(), NativeProductHostObservation> {
-    let product = product_key(descriptor);
-
-    let hosts = product_hosts().lock().map_err(|_| {
-        NativeProductHostObservation::new(
-            NativeProductHostStatus::RUNTIME_FAILURE,
-            NativeProductHostState::FAILED,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            NativeStaticIdentity::new([0; 32]),
-        )
-    })?;
-
-    if hosts.contains_key(&product) {
-        return Ok(());
-    }
-
-    // Runtime creation can wait for another thread that needs the product registry.
-    drop(hosts);
-
-    let runtime = crate::native::retain_runtime().map_err(|_| {
-        NativeProductHostObservation::new(
-            NativeProductHostStatus::RUNTIME_FAILURE,
-            NativeProductHostState::FAILED,
-            0,
-            0,
-            0,
-            0,
-            0,
-            0,
-            NativeStaticIdentity::new([0; 32]),
-        )
-    })?;
-
-    let Some(host) = read_descriptor(descriptor, runtime.clone()) else {
-        runtime.release();
-
-        return Err(NativeProductHostObservation::invalid());
-    };
-
-    // Drop a poisoned guard before releasing a runtime that can join product workers.
-    let inserted = match product_hosts().lock().map_err(|_| ()) {
-        Ok(mut hosts) => match hosts.entry(product) {
-            std::collections::btree_map::Entry::Vacant(entry) => {
-                entry.insert(host);
-
-                true
-            }
-            std::collections::btree_map::Entry::Occupied(_) => false,
-        },
-        Err(_) => {
-            runtime.release();
-
-            return Err(NativeProductHostObservation::invalid());
-        }
-    };
-
-    if !inserted {
-        runtime.release();
-    }
-
-    Ok(())
-}
-
-fn read_descriptor(
-    descriptor: &NativeProductHostDescriptor,
-    runtime: crate::native::RetainedRuntime,
-) -> Option<ProductHost> {
-    if descriptor.abi_version() != PRODUCT_HOST_ABI_VERSION
-        || descriptor.static_count() > MAXIMUM_STATIC_ENTRIES
-    {
-        return None;
-    }
-
-    let mut identities = BTreeSet::new();
-    let mut orders = BTreeSet::new();
-    let mut statics = Vec::with_capacity(descriptor.static_count());
-    let mut dependency_tables = Vec::with_capacity(descriptor.static_count());
-
-    for index in 0..descriptor.static_count() {
-        let entry = descriptor.static_entry()(index);
-        let finalizer = entry.finalizer();
-        let execution = finalizer.execution();
-
-        let valid_result_layout = finalizer.result_alignment().is_power_of_two()
-            && (execution != bray_runtime_abi::NativeCleanupExecution::NONE
-                || (finalizer.result_size() == 0 && finalizer.result_alignment() == 1));
-
-        if entry.abi_version() != PRODUCT_HOST_ABI_VERSION
-            || !entry.duration().is_known()
-            || !execution.is_known()
-            || !valid_result_layout
-            || !identities.insert(entry.identity())
-            || !orders.insert(entry.order())
-            || entry.dependency_count() > MAXIMUM_STATIC_ENTRIES
-        {
-            return None;
-        }
-
-        let dependency = entry.dependency();
-
-        let dependencies = (0..entry.dependency_count())
-            .map(|index| dependency(index))
-            .collect::<BTreeSet<_>>();
-
-        if dependencies.contains(&entry.identity()) {
-            return None;
-        }
-
-        if dependencies.len() != entry.dependency_count() {
-            return None;
-        }
-
-        statics.push(ProductStatic {
-            identity: entry.identity(),
-            duration: entry.duration(),
-            order: entry.order(),
-            prepare: entry.prepare(),
-            finalizer: entry.finalizer(),
-            destroy: entry.destroy(),
-            detach: entry.detach(),
-        });
-
-        dependency_tables.push((entry.identity(), dependencies));
-    }
-
-    statics.sort_unstable_by_key(|entry| entry.order);
-
-    let order_by_identity = statics
-        .iter()
-        .map(|entry| (entry.identity, entry.order))
-        .collect::<BTreeMap<_, _>>();
-
-    if dependency_tables.iter().any(|(identity, dependencies)| {
-        let Some(order) = order_by_identity.get(identity) else {
-            return true;
-        };
-
-        dependencies.iter().any(|dependency| {
-            order_by_identity
-                .get(dependency)
-                .is_none_or(|dependency_order| dependency_order <= order)
-        })
-    }) {
-        return None;
-    }
-
-    let initialized_statics = statics
-        .iter()
-        .filter(|entry| entry.duration == NativeStaticDuration::PRODUCT)
-        .count();
-
-    Some(ProductHost {
-        identity: descriptor.identity(),
-        runtime,
-        state: NativeProductHostState::OPEN,
-        active_entries: 0,
-        external_roots: 0,
-        thread_attachments: 0,
-        worker_attachments: 0,
-        initialized_statics,
-        cleaned_statics: 0,
-        cleanup_incidents: 0,
-        last_incident: NativeStaticIdentity::new([0; 32]),
-        cleanup_running: false,
-        cleanup_blocked: false,
-        statics,
-    })
 }
 
 fn static_entry(product: usize, identity: NativeStaticIdentity) -> Option<ProductStatic> {
@@ -1090,6 +908,140 @@ mod tests {
         );
 
         assert_eq!(THREAD_CLEANUP_ORDER.get(), 12);
+    }
+
+    #[test]
+    fn product_metadata_validation_preserves_dependency_and_order_contracts() {
+        thread_local! {
+            static CASE: Cell<u8> = const { Cell::new(0) };
+        }
+
+        extern "C" fn dependency(_: usize) -> NativeStaticIdentity {
+            NativeStaticIdentity::new(
+                [match CASE.get() {
+                    3 => 3,
+                    4 => 2,
+                    _ => 1,
+                }; 32],
+            )
+        }
+
+        extern "C" fn entry(index: usize) -> NativeStaticHostEntry {
+            let case = CASE.get();
+            let first = index == 0;
+            let identity = if first || case == 1 { 2 } else { 1 };
+
+            let order = match (case, first) {
+                (2, _) | (5, false) => 0,
+                (5, true) => 1,
+                (_, true) => 0,
+                (_, false) => 1,
+            };
+
+            let count = if first {
+                if case == 6 { 2 } else { 1 }
+            } else {
+                0
+            };
+
+            NativeStaticHostEntry::new(
+                NativeStaticDuration::EXACT_THREAD,
+                NativeStaticIdentity::new([identity; 32]),
+                order,
+                0,
+                access,
+                detach_thread_static,
+                finalizer(first_thread_cleanup),
+                no_cleanup,
+                detach_thread_static,
+                dependency,
+                count,
+            )
+        }
+
+        let descriptor =
+            NativeProductHostDescriptor::new(NativeProductIdentity::new([155; 32]), entry, 2);
+
+        let valid = super::super::descriptor::read_statics(&descriptor).unwrap();
+
+        assert_eq!(
+            valid.iter().map(|entry| entry.order).collect::<Vec<_>>(),
+            [0, 1]
+        );
+
+        assert_eq!(valid[0].identity, NativeStaticIdentity::new([2; 32]));
+        assert_eq!(valid[1].identity, NativeStaticIdentity::new([1; 32]));
+
+        for case in 1..=6 {
+            CASE.set(case);
+
+            assert!(
+                matches!(
+                    super::super::descriptor::read_statics(&descriptor),
+                    Err(NativeProductHostStatus::INVALID_ARGUMENT)
+                ),
+                "invalid metadata case {case}"
+            );
+        }
+    }
+
+    #[test]
+    fn product_formation_allocation_failure_preserves_existing_host_and_retry() {
+        assert!(
+            crate::native::implementation::bray_runtime_substrate_initialization(4, 1).is_success()
+        );
+
+        let existing = Box::leak(Box::new(NativeProductHostDescriptor::new(
+            NativeProductIdentity::new([153; 32]),
+            thread_order_entry,
+            2,
+        )));
+
+        let candidate = Box::leak(Box::new(NativeProductHostDescriptor::new(
+            NativeProductIdentity::new([154; 32]),
+            thread_order_entry,
+            2,
+        )));
+
+        assert_eq!(
+            control(existing, NativeProductHostOperation::FORM).status(),
+            NativeProductHostStatus::SUCCESS
+        );
+
+        let failed = crate::test_support::with_allocation_failure(|| {
+            control(candidate, NativeProductHostOperation::FORM)
+        });
+
+        assert_eq!(failed.status(), NativeProductHostStatus::ALLOCATION_FAILURE);
+
+        assert!(
+            !super::product_hosts()
+                .lock()
+                .unwrap()
+                .contains_key(&super::product_key(candidate))
+        );
+
+        assert_eq!(
+            control(existing, NativeProductHostOperation::OBSERVE).state(),
+            NativeProductHostState::OPEN
+        );
+
+        assert_eq!(
+            control(candidate, NativeProductHostOperation::FORM).status(),
+            NativeProductHostStatus::SUCCESS
+        );
+
+        assert_eq!(
+            control(candidate, NativeProductHostOperation::CLOSE).state(),
+            NativeProductHostState::CLOSED
+        );
+
+        assert_eq!(
+            control(existing, NativeProductHostOperation::CLOSE).state(),
+            NativeProductHostState::CLOSED
+        );
+
+        assert!(crate::native::implementation::bray_runtime_substrate_shutdown().is_success());
     }
 
     #[test]
