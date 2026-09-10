@@ -427,7 +427,11 @@ where
             .type_data(target)
             .map_err(CheckerInfrastructureError::SemanticValueStore)?;
 
-        if matches!(target_data.as_ref(), TypeData::Borrow { .. }) {
+        // A provisional recovery type is not evidence for a concrete borrow target.
+        if matches!(
+            target_data.as_ref(),
+            TypeData::Error | TypeData::Borrow { .. }
+        ) {
             return Ok(());
         }
 

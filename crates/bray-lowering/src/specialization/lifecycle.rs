@@ -223,6 +223,33 @@ fn expand_action<C: SyntheticLoweringContext + ?Sized>(
         );
     }
 
+    if matches!(
+        role,
+        MirGeneratedLifecycleRole::Destroy
+            | MirGeneratedLifecycleRole::Cleanup(bray_ir::MirCleanupPhase::LifecycleResolution)
+            | MirGeneratedLifecycleRole::Abandon(bray_ir::MirAbandonmentAction::Quiesce)
+    ) {
+        if let Some(completion) = context
+            .compiler_known_symbols()
+            .unary_representation_argument(
+                context.semantic_values(),
+                RepresentationRole::Task,
+                concrete,
+            )
+            .map_err(SyntheticLoweringError::SemanticValue)?
+        {
+            return super::task::expand_task_cleanup(
+                context,
+                builder,
+                location,
+                source,
+                (role, place, completion),
+                state,
+                (completed, *panicked, cancelled),
+            );
+        }
+    }
+
     let ty = place.ty();
 
     let receiver = context

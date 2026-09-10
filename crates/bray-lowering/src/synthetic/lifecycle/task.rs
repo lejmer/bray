@@ -52,12 +52,6 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
     ) -> Result<bray_ir::MirBlockId, C::Error> {
         let completion = self.task_completion_type(task.ty())?;
 
-        let types = crate::cleanup_await::task_completion_borrow_types(
-            self.context.semantic_values(),
-            completion,
-        )
-        .map_err(SyntheticLoweringError::SemanticValue)?;
-
         let state = self.next_lifecycle_state(builder, source)?;
 
         // Suspension, payload observation and borrow release each retain the same owner's path.
@@ -71,6 +65,26 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
         )
         .map_err(|cause| self.mir_error(source, cause))?;
 
+        self.quiesce_task_completion(builder, resumed, source, task, completion, outcome)
+    }
+
+    /// Quiesces a terminal task payload after the caller has waited, retaining its outer outcome.
+    pub(crate) fn quiesce_task_completion(
+        &self,
+        builder: &mut MirUnitBuilder,
+        resumed: bray_ir::MirBlockId,
+        source: &MirSourceAnchor,
+        task: MirPlace,
+        completion: bray_symbols::TypeId,
+        outcome: &CleanupOutcome,
+    ) -> Result<bray_ir::MirBlockId, C::Error> {
+        let types = crate::cleanup_await::task_completion_borrow_types(
+            self.context.semantic_values(),
+            completion,
+        )
+        .map_err(SyntheticLoweringError::SemanticValue)?;
+
+        // Completion borrowing and its release independently retain the owner path.
         let (completed, finished, payload) = crate::cleanup_await::borrow_task_completion(
             builder,
             resumed,
@@ -151,35 +165,13 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             completion,
         )?;
 
-        let (completed, finished, completion_place) = outcome
-            .resolve_completion(
-                builder,
-                resumed,
-                source,
-                result_place,
-                (variants, completion),
-            )
-            .map_err(|cause| self.mir_error(source, cause))?;
-
-        let completed = self.resolve_lifecycle_action(
+        self.resolve_owner_completion(
             builder,
-            completed,
+            resumed,
             source,
-            MirOperationKind::Cleanup {
-                phase: bray_ir::MirCleanupPhase::LifecycleResolution,
-                place: completion_place,
-            },
+            result_place,
+            (variants, completion),
             outcome,
-        )?;
-
-        builder
-            .set_terminator(
-                completed,
-                source.clone(),
-                MirTerminatorKind::Goto(MirEdge::new(finished, [])),
-            )
-            .map_err(|cause| self.mir_error(source, cause))?;
-
-        Ok(finished)
+        )
     }
 }

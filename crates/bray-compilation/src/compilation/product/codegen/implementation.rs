@@ -4292,14 +4292,17 @@ public func invoke<T>(pos value: T)
     }
 
     #[test]
-    fn generic_future_cleanup_reuses_the_existing_frame_after_substitution() {
-        for (completion, value) in [
-            ("i32", "7"),
-            ("Future<i32>", "integer()"),
-            ("Guard", "Guard {}"),
-        ] {
-            let source = format!(
-                r#"
+    fn generic_owner_cleanup_reuses_existing_storage_after_substitution() {
+        for owner_kind in ["Future", "Task"] {
+            for (completion, value) in [
+                ("i32", "7"),
+                ("Future<i32>", "integer()"),
+                ("Guard", "Guard {}"),
+            ] {
+                let start = if owner_kind == "Task" { ".start()" } else { "" };
+
+                let source = format!(
+                    r#"
                 module app;
                 struct Guard {{ async finalize() {{}} }}
                 async func integer() -> i32 {{ return 7; }}
@@ -4307,45 +4310,78 @@ public func invoke<T>(pos value: T)
                 async func dispose<T>(pos value: T) {{}}
                 async func main()
                 {{
-                    await dispose<Future<{completion}>>(produce());
+                    await dispose<{owner_kind}<{completion}>>(produce(){start});
                 }}
                 "#
-            );
+                );
 
-            let (backend, plan) = runtime_native_plan(&source);
+                let (backend, plan) = runtime_native_plan(&source);
 
-            let instances = plan
-                .units()
-                .iter()
-                .flat_map(bray_codegen::CodegenUnit::instances)
-                .filter(|instance| {
-                    matches!(instance.key().template(), bray_ir::MirUnitKey::Bound(_))
-                        && !instance.key().specialization().arguments().is_empty()
-                })
-                .collect::<Vec<_>>();
+                let instances = plan
+                    .units()
+                    .iter()
+                    .flat_map(bray_codegen::CodegenUnit::instances)
+                    .filter(|instance| {
+                        matches!(instance.key().template(), bray_ir::MirUnitKey::Bound(_))
+                            && !instance.key().specialization().arguments().is_empty()
+                    })
+                    .collect::<Vec<_>>();
 
-            assert_eq!(instances.len(), 1);
+                assert_eq!(instances.len(), 1);
 
-            let mir = instances[0].mir();
+                let mir = instances[0].mir();
 
-            let owner = mir
-                .storages()
-                .iter()
-                .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
-                .unwrap()
-                .ty();
+                let owner = mir
+                    .storages()
+                    .iter()
+                    .find(|storage| matches!(storage.kind(), bray_ir::MirStorageKind::Parameter(0)))
+                    .unwrap()
+                    .ty();
 
-            for expected in [
-                bray_ir::MirFrameEntry::CaptureCleanup,
-                bray_ir::MirFrameEntry::CaptureQuiescence,
-            ] {
-                assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
+                if owner_kind == "Task" {
+                    assert!(
+                        mir.blocks().iter().any(|block| matches!(
+                            block.terminator().kind(),
+                            bray_ir::MirTerminatorKind::Suspend {
+                                kind: bray_ir::MirSuspensionKind::TaskCompletion,
+                                ..
+                            }
+                        )),
+                        "specialized Task<{completion}> must wait directly"
+                    );
+
+                    assert!(
+                        mir.operations().iter().any(|operation| matches!(
+                            operation.kind(),
+                            bray_ir::MirOperationKind::Async(
+                                bray_ir::MirAsyncOperation::BorrowTaskCompletion { .. }
+                            )
+                        )),
+                        "specialized Task<{completion}> must borrow completion directly"
+                    );
+
+                    assert!(
+                        mir.operations().iter().any(|operation| matches!(
+                            operation.kind(),
+                            bray_ir::MirOperationKind::Async(
+                                bray_ir::MirAsyncOperation::ResolveTask { .. }
+                            )
+                        )),
+                        "specialized Task<{completion}> must resolve completion directly"
+                    );
+                } else {
+                    for expected in [
+                        bray_ir::MirFrameEntry::CaptureCleanup,
+                        bray_ir::MirFrameEntry::CaptureQuiescence,
+                    ] {
+                        assert!(mir.operations().iter().any(|operation| matches!(operation.kind(),
                     bray_ir::MirOperationKind::Async(bray_ir::MirAsyncOperation::ComposeAwaitedFrame { entry, .. })
                         if *entry == expected
                 )), "specialized Future<{completion}> must enter {expected:?} directly");
-            }
+                    }
+                }
 
-            assert!(
+                assert!(
                 !mir.operations()
                     .iter()
                     .any(|operation| matches!(operation.kind(),
@@ -4353,33 +4389,34 @@ public func invoke<T>(pos value: T)
                             initializer: bray_ir::MirFrameInitializer::Lifecycle { ty, .. }, ..
                         }) if *ty == owner || completion != "Guard"
                     )),
-                "specialized Future<{completion}> must not allocate a lifecycle wrapper"
+                "specialized {owner_kind}<{completion}> must not allocate a lifecycle wrapper"
             );
 
-            let frame = mir.frame_descriptor().unwrap();
+                let frame = mir.frame_descriptor().unwrap();
 
-            for block in mir.blocks() {
-                if let bray_ir::MirTerminatorKind::Suspend {
-                    resume_state,
-                    resume,
-                    ..
-                } = block.terminator().kind()
-                {
-                    assert!(
-                        frame
-                            .states()
-                            .iter()
-                            .any(|state| state.state() == *resume_state
-                                && state.entry() == resume.target())
-                    );
+                for block in mir.blocks() {
+                    if let bray_ir::MirTerminatorKind::Suspend {
+                        resume_state,
+                        resume,
+                        ..
+                    } = block.terminator().kind()
+                    {
+                        assert!(
+                            frame
+                                .states()
+                                .iter()
+                                .any(|state| state.state() == *resume_state
+                                    && state.entry() == resume.target())
+                        );
+                    }
                 }
-            }
 
-            assert!(
-                generated_artifacts(&backend, &plan)
-                    .iter()
-                    .all(|artifact| !artifact.is_empty())
-            );
+                assert!(
+                    generated_artifacts(&backend, &plan)
+                        .iter()
+                        .all(|artifact| !artifact.is_empty())
+                );
+            }
         }
     }
 

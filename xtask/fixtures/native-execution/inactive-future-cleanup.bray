@@ -192,6 +192,23 @@ async func discard_generic(pos trace: &std.atomic.Atomic<usize>)
     );
 }
 
+async func discard_generic_task(pos trace: &std.atomic.Atomic<usize>)
+{
+    let remaining = RemainingCapture
+    {
+        trace = trace,
+    };
+
+    await dispose<Task<unit>>(
+        inactive_failure(
+            FailingCapture
+            {
+                trace = trace,
+            }
+        ).start()
+    );
+}
+
 async func main() -> i32
 {
     let mut completion = Completion
@@ -263,6 +280,47 @@ async func main() -> i32
     if counter.value != 555
     {
         return 9;
+    }
+
+    await dispose<Task<unit>>(
+        cancelled_guard(
+            Guard
+            {
+                counter = &mut counter
+            }
+        ).start()
+    );
+
+    if counter.value != 666
+    {
+        return 10;
+    }
+
+    await dispose<Task<Guard>>(
+        return_guard(
+            Guard
+            {
+                counter = &mut counter
+            }
+        ).start()
+    );
+
+    if counter.value != 777
+    {
+        return 11;
+    }
+
+    let task_trace = std.atomic.Atomic<usize>(0);
+    let task_result = catch await discard_generic_task(&task_trace);
+
+    if !(task_result matches Error(_))
+    {
+        return 12;
+    }
+
+    if task_trace.load(order = std.atomic.LoadOrder.Acquire) != 123
+    {
+        return 13;
     }
 
     completion.continued = true;

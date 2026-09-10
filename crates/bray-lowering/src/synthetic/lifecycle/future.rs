@@ -1,7 +1,7 @@
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirBlockId, MirCleanupPhase, MirEdge, MirFrameEntry, MirOperand, MirOperationKind, MirPlace,
-    MirSourceAnchor, MirTerminatorKind, MirUnitBuilder,
+    MirBlockId, MirEdge, MirFrameEntry, MirOperand, MirOperationKind, MirPlace, MirSourceAnchor,
+    MirTerminatorKind, MirUnitBuilder,
 };
 
 use super::super::{SyntheticLowerer, SyntheticLoweringContext, SyntheticLoweringError};
@@ -134,7 +134,7 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             completion,
         )?;
 
-        self.resolve_future_completion(
+        self.resolve_owner_completion(
             builder,
             block,
             source,
@@ -142,42 +142,5 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             (variants, completion),
             outcome,
         )
-    }
-
-    pub(crate) fn resolve_future_completion(
-        &self,
-        builder: &mut MirUnitBuilder,
-        block: MirBlockId,
-        source: &MirSourceAnchor,
-        result: MirPlace,
-        contract: (bray_ir::MirRunResultVariants, bray_symbols::TypeId),
-        outcome: &crate::cleanup_outcome::CleanupOutcome,
-    ) -> Result<MirBlockId, C::Error> {
-        let (variants, completion) = contract;
-
-        let (completed, finished, payload) = outcome
-            .resolve_completion(builder, block, source, result, (variants, completion))
-            .map_err(|cause| self.mir_error(source, cause))?;
-
-        let completed = self.resolve_lifecycle_action(
-            builder,
-            completed,
-            source,
-            MirOperationKind::Cleanup {
-                phase: MirCleanupPhase::LifecycleResolution,
-                place: payload,
-            },
-            outcome,
-        )?;
-
-        builder
-            .set_terminator(
-                completed,
-                source.clone(),
-                MirTerminatorKind::Goto(MirEdge::new(finished, [])),
-            )
-            .map_err(|cause| self.mir_error(source, cause))?;
-
-        Ok(finished)
     }
 }

@@ -955,6 +955,31 @@ mod tests {
     );
 
     #[test]
+    fn inferred_local_borrows_match_construction_field_types() {
+        for borrow in ["&", "&mut "] {
+            let source = format!(
+                r#"
+                module app;
+                struct Counter {{ mut value: i32; }}
+                struct Holder {{ counter: {borrow}Counter; }}
+                func main() {{
+                    let mut counter = Counter {{ value = 0 }};
+                    let holder = Holder {{ counter = {borrow}counter }};
+                }}
+            "#
+            );
+
+            let compilation = compilation(&source);
+
+            assert!(
+                compilation.check_diagnostics().is_empty(),
+                "{:?}",
+                compilation.check_diagnostics()
+            );
+        }
+    }
+
+    #[test]
     fn lowering_results_are_computed_lazily_and_published_once() {
         let compilation = lowering_compilation();
         let key = source_callable_body_key(&compilation);

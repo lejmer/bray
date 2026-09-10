@@ -236,7 +236,7 @@ native_export! {
         let status = with_runtime(|runtime| runtime.compose_awaited(transfer))
             .unwrap_or_else(|status| status);
 
-        assert!(status.is_success(), "awaited-frame composition failed");
+        assert!(status.is_success(), "awaited-frame composition failed: {status:?}");
     }
 }
 

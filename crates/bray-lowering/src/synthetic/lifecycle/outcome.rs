@@ -1,6 +1,6 @@
 use bray_compiler_known::RepresentationRole;
 use bray_ir::{
-    MirBlockId, MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge, MirOperationKind,
+    MirBlockId, MirBlockKind, MirCleanupEdge, MirCleanupPhase, MirEdge, MirOperationKind, MirPlace,
     MirRuntimeReference, MirSourceAnchor, MirTerminatorKind, MirUnitBuilder,
 };
 use bray_runtime_interface::RuntimeAbiRole;
@@ -146,5 +146,42 @@ impl<C: SyntheticLoweringContext + ?Sized> SyntheticLowerer<'_, C> {
             .map_err(invalid)?;
 
         Ok(terminal)
+    }
+
+    pub(crate) fn resolve_owner_completion(
+        &self,
+        builder: &mut MirUnitBuilder,
+        block: MirBlockId,
+        source: &MirSourceAnchor,
+        result: MirPlace,
+        contract: (bray_ir::MirRunResultVariants, bray_symbols::TypeId),
+        outcome: &crate::cleanup_outcome::CleanupOutcome,
+    ) -> Result<MirBlockId, C::Error> {
+        let (variants, completion) = contract;
+
+        let (completed, finished, payload) = outcome
+            .resolve_completion(builder, block, source, result, (variants, completion))
+            .map_err(|cause| self.mir_error(source, cause))?;
+
+        let completed = self.resolve_lifecycle_action(
+            builder,
+            completed,
+            source,
+            MirOperationKind::Cleanup {
+                phase: MirCleanupPhase::LifecycleResolution,
+                place: payload,
+            },
+            outcome,
+        )?;
+
+        builder
+            .set_terminator(
+                completed,
+                source.clone(),
+                MirTerminatorKind::Goto(MirEdge::new(finished, [])),
+            )
+            .map_err(|cause| self.mir_error(source, cause))?;
+
+        Ok(finished)
     }
 }
