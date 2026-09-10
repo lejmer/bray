@@ -183,6 +183,9 @@ demand-driven product formation.
 
 ## Capacity, results and provider lifetime
 
+The detailed ownership and native transfer contracts are defined in
+[Cleanup storage and panic report ownership](cleanup-storage-and-reports.md).
+
 Each new owner whose concrete type requires runtime cleanup capacity admits a uniform local bundle before publication.
 Current-value completion evidence can skip execution but does not change that bundle. Its credits survive completion and
 later mutation until ownership ends. Only a type-universal proof removes a requirement from the bundle. This gives moves,

@@ -457,8 +457,8 @@ key, load and store the current thread's opaque value, and destroy the key only 
 thread-specific storage and Windows FLS provide the required exit callback. A native shim may adapt that callback ABI,
 but it cannot own attachment state, cleanup order, panic policy, or product shutdown.
 
-Synchronous and foreign callback entries exchange a fixed outcome record. The panicked state transfers one opaque owned
-panic-report handle. The cancelled state transfers no report. A callback never uses Rust or C++ unwinding to carry a
+Synchronous and foreign callback entries exchange a tagged outcome and caller-owned report destination. A panicking
+callback moves a report into that destination before publishing the panic tag. Cancellation initializes no report. A callback never uses Rust or C++ unwinding to carry a
 Bray panic through a native frame. Cleanup callbacks use the same outcome rule, report a cleanup panic, continue the
 remaining reverse-order cleanup, and return normally to the target destructor.
 

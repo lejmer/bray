@@ -8,6 +8,17 @@ panic(message);
 
 The panic message must be compatible with `string`.
 
+The requested panic is raised only after its message can be preserved through propagation and report ownership.
+Immutable backing can be retained, and owned backing can be transferred when doing so preserves the expression's
+semantics. A borrowed message whose bytes may change or cease to exist requires an owned snapshot.
+
+If allocating a required snapshot fails, the expression raises a catchable allocation-failure panic with the panic
+expression's source context. The requested panic has not been raised in that case. The compiler does not truncate its
+message or substitute text while reporting it as the requested panic. Failure while evaluating the message expression
+follows the ordinary failure rules for that evaluation.
+
+Forwarding or attaching an already-owned panic report preserves its message without copying it again.
+
 A panic expression has type `never` because the current normal continuation does not run.
 
 Panic is used for programmer errors, violated invariants, failed assertions, failed runtime contract checks, bounds

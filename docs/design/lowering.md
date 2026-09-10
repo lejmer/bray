@@ -369,6 +369,11 @@ backend.
 
 Cleanup behavior must be explicit before code generation.
 
+[Cleanup storage and panic report ownership](cleanup-storage-and-reports.md) defines how checked lifecycle actions
+produce one concrete cleanup expansion, its symbolic reservations and owned report destinations. Semantic checking owns
+action and effect selection. Source lowering and specialization share their realization without querying generated
+frame layout during guarantee certification.
+
 Lowering consumes the verified lifecycle, storage, dependency, panic, cancellation, and body-behavior plans to
 construct:
 
