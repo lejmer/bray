@@ -94,12 +94,9 @@ fn guarded_predicate_meaning_round_trips_without_provider_source() {
                 executes(pure)
             } {}
         "#,
-        [DependencyInterfaceInput::new(
-            PackageIdentity::try_new("example.package").unwrap(),
-            InterfaceProductIdentity::try_new("library").unwrap(),
+        [exported_dependency(
             "contracts.brayi",
             artifact.shared_bytes(),
-            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
         )],
     );
 
@@ -202,12 +199,9 @@ fn imported_execution_guarantees_require_checked_provider_evidence_and_their_gua
                 }}
                 "#
             ),
-            [DependencyInterfaceInput::new(
-                PackageIdentity::try_new("example.package").unwrap(),
-                InterfaceProductIdentity::try_new("library").unwrap(),
+            [exported_dependency(
                 "contracts.brayi",
                 artifact.shared_bytes(),
-                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
             )],
         );
 
@@ -279,12 +273,9 @@ fn generic_witness_proof_dependencies_survive_interface_round_trip() {
                 }}
                 "#
             ),
-            [DependencyInterfaceInput::new(
-                PackageIdentity::try_new("example.package").unwrap(),
-                InterfaceProductIdentity::try_new("library").unwrap(),
+            [exported_dependency(
                 "contracts.brayi",
                 artifact.shared_bytes(),
-                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
             )],
         );
 
@@ -354,12 +345,9 @@ fn generic_method_proof_arguments_survive_interface_round_trip() {
             return example.package.contracts.apply<ReaderValue>(&reader);
         }
         "#,
-        [DependencyInterfaceInput::new(
-            PackageIdentity::try_new("example.package").unwrap(),
-            InterfaceProductIdentity::try_new("library").unwrap(),
+        [exported_dependency(
             "contracts.brayi",
             artifact.shared_bytes(),
-            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
         )],
     );
 
@@ -431,14 +419,10 @@ fn imported_foreign_assertions_retain_abi_provenance_and_caller_trust() {
                 }}
                 "#
             ),
-            [DependencyInterfaceInput::new(
-                PackageIdentity::try_new("example.package").unwrap(),
-                InterfaceProductIdentity::try_new("library").unwrap(),
-                "native.brayi",
-                interface.shared_bytes(),
-                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
-            )
-            .with_implementation_artifact("native.brayimpl", Arc::clone(&implementation))],
+            [
+                exported_dependency("native.brayi", interface.shared_bytes())
+                    .with_implementation_artifact("native.brayimpl", Arc::clone(&implementation)),
+            ],
         );
 
         let diagnostics = consumer.check_diagnostics();
@@ -484,12 +468,9 @@ fn imported_nested_fields_preserve_mutation_authority() {
                 value.state.value = 0;
             }
             "#,
-            [DependencyInterfaceInput::new(
-                PackageIdentity::try_new("example.package").unwrap(),
-                InterfaceProductIdentity::try_new("library").unwrap(),
+            [exported_dependency(
                 "resources.brayi",
                 artifact.shared_bytes(),
-                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
             )],
         );
 
@@ -556,12 +537,9 @@ fn imported_resource_completion_uses_checked_domain_operation_and_finalizer_cont
     let import = |source: &str| {
         crate::test_support::compilation_with_dependencies(
             source,
-            [DependencyInterfaceInput::new(
-                PackageIdentity::try_new("example.package").unwrap(),
-                InterfaceProductIdentity::try_new("library").unwrap(),
+            [exported_dependency(
                 "resources.brayi",
                 artifact.shared_bytes(),
-                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
             )],
         )
     };
@@ -784,12 +762,9 @@ fn boxed_observations_and_projection_evidence_survive_package_interfaces() {
 
         let consumer = crate::test_support::compilation_with_dependencies(
             &source,
-            [DependencyInterfaceInput::new(
-                PackageIdentity::try_new("example.package").unwrap(),
-                InterfaceProductIdentity::try_new("library").unwrap(),
+            [exported_dependency(
                 "resources.brayi",
                 artifact.shared_bytes(),
-                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
             )],
         );
 
@@ -885,12 +860,9 @@ fn imported_proofs_reject_missing_evidence_and_circular_termination() {
                 return example.package.contracts.identity();
             }
             "#,
-            [DependencyInterfaceInput::new(
-                PackageIdentity::try_new("example.package").unwrap(),
-                InterfaceProductIdentity::try_new("library").unwrap(),
+            [exported_dependency(
                 "contracts.brayi",
                 artifact.shared_bytes(),
-                InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
             )],
         );
 
@@ -970,12 +942,9 @@ fn associated_predicates_round_trip_with_their_parameters() {
 
     let consumer = crate::test_support::compilation_with_dependencies(
         "module app;",
-        [DependencyInterfaceInput::new(
-            PackageIdentity::try_new("example.package").unwrap(),
-            InterfaceProductIdentity::try_new("library").unwrap(),
+        [exported_dependency(
             "contracts.brayi",
             artifact.shared_bytes(),
-            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
         )],
     );
 
@@ -1015,12 +984,9 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
 
     let baseline = crate::test_support::compilation_with_dependencies(
         "module app; using example.package.types; func take(pos item: example.package.types.Guard) {} func partial(pos value: example.package.types.Choice) { match consume value { case Pair(left,..) { take(left); } } }",
-        [DependencyInterfaceInput::new(
-            PackageIdentity::try_new("example.package").unwrap(),
-            InterfaceProductIdentity::try_new("library").unwrap(),
+        [exported_dependency(
             "provider.brayi",
             baseline_artifact.shared_bytes(),
-            InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
         )],
     );
 
@@ -1079,13 +1045,7 @@ fn imported_union_cleanup_retains_members_without_exported_field_identities() {
 
     let artifact = encode_package_interface(&bundle).unwrap();
 
-    let dependency = DependencyInterfaceInput::new(
-        PackageIdentity::try_new("example.package").unwrap(),
-        InterfaceProductIdentity::try_new("library").unwrap(),
-        "provider.brayi",
-        artifact.shared_bytes(),
-        InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
-    );
+    let dependency = exported_dependency("provider.brayi", artifact.shared_bytes());
 
     let consumer = crate::test_support::compilation_with_dependencies(
         "module app; using example.package.types; func take(pos item: example.package.types.Guard) {} func partial(pos value: example.package.types.Choice) { match consume value { case Pair(left,..) { take(left); } } }",
@@ -1133,14 +1093,8 @@ fn imported_construction_defaults_use_the_declaring_type_specialization() {
     )
     .unwrap();
 
-    let dependency = DependencyInterfaceInput::new(
-        PackageIdentity::try_new("example.package").unwrap(),
-        InterfaceProductIdentity::try_new("library").unwrap(),
-        "provider.brayi",
-        interface.shared_bytes(),
-        InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
-    )
-    .with_implementation_artifact("provider.brayimpl", Arc::new(implementation));
+    let dependency = exported_dependency("provider.brayi", interface.shared_bytes())
+        .with_implementation_artifact("provider.brayimpl", Arc::new(implementation));
 
     let consumer = crate::test_support::compilation_with_dependencies(
         "module app; using example.package.types; func first<U>() -> example.package.types.Value<U> { return { marker = true }; } func second<U>() -> example.package.types.Value<U> { return { marker = true }; } func third<U>() -> example.package.types.Choice<U> { return Item(); } func fourth<U>() -> example.package.types.Choice<U> { return Item(); } func main() { first<i32>(); second<i32>(); first<bool>(); third<i32>(); fourth<i32>(); third<bool>(); }",
@@ -3081,6 +3035,16 @@ fn runtime_defaults_export_after_disabled_target_gated_contributions() {
     let bundle = export(&compilation);
 
     assert_eq!(bundle.semantics().callable_parameter_defaults().len(), 1);
+}
+
+fn exported_dependency(source_name: &str, bytes: Arc<[u8]>) -> DependencyInterfaceInput {
+    DependencyInterfaceInput::new(
+        PackageIdentity::try_new("example.package").unwrap(),
+        InterfaceProductIdentity::try_new("library").unwrap(),
+        source_name,
+        bytes,
+        InterfaceValidationPolicy::new(InterfaceLanguageRevision::new(0)),
+    )
 }
 
 fn export(compilation: &Compilation) -> &Arc<PackageInterfaceExportBundle> {

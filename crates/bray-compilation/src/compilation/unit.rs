@@ -10,6 +10,7 @@ mod support;
 mod view;
 
 pub(in crate::compilation) use declaration::DeclaredUnitIndex;
+pub(in crate::compilation) use proof::ProofDependency;
 pub(in crate::compilation) use support::{checker_unit_view, semantic_unit_context_for};
 pub use view::{
     AsyncAnalysisView, DependencyContractsView, ExpressionTypesView, LiteralValuesView,

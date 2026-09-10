@@ -8,15 +8,16 @@ use crate::compilation::Compilation;
 use crate::fact::{CancellationToken, FactQueryError};
 
 #[derive(Clone, Copy)]
-pub(super) enum ProofDependency {
+pub(in crate::compilation) enum ProofDependency {
     Selected(ResolvedCallableEvidenceTarget, CallableProofObligation),
     Unverified(AnyBoundNodeId),
 }
 
-pub(super) type ProofInputs = BTreeMap<CallableProofObligation, Vec<ProofDependency>>;
+pub(in crate::compilation) type ProofInputs =
+    BTreeMap<CallableProofObligation, Vec<ProofDependency>>;
 
 impl Compilation {
-    pub(super) fn source_proof_inputs(
+    pub(in crate::compilation) fn source_proof_inputs(
         &self,
         key: &BoundUnitKey,
         cancellation: &CancellationToken,
