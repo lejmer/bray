@@ -1,7 +1,7 @@
 use std::any::Any;
 use std::collections::VecDeque;
 use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 use bray_runtime_model::{ProtectedAsyncFrameId, ProtectedFrameStateId};
 
@@ -17,12 +17,15 @@ pub struct CleanupIncident {
 }
 
 impl CleanupIncident {
-    fn new(
-        ordinal: u64,
+    pub(crate) fn next(
+        next_ordinal: &mut u64,
         producer: CleanupIncidentProducer,
         origin: CleanupIncidentOrigin,
         payload: OwnedCleanupIncident,
     ) -> Self {
+        let ordinal = *next_ordinal;
+        *next_ordinal = next_ordinal.saturating_add(1);
+
         Self {
             ordinal,
             producer,
@@ -104,9 +107,9 @@ impl CleanupIncidentOrigin {
 }
 
 /// Mandatory product-host sink for cleanup incidents not attached to a returned panic.
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct CleanupReportSink {
-    state: Arc<Mutex<CleanupReportState>>,
+    state: Mutex<CleanupReportState>,
 }
 
 #[derive(Debug, Default)]
@@ -146,13 +149,8 @@ impl CleanupReportSink {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
 
-        let ordinal = state.next_ordinal;
-
-        state.next_ordinal = state.next_ordinal.saturating_add(1);
-
-        state
-            .incidents
-            .push_back(CleanupIncident::new(ordinal, producer, origin, payload));
+        let incident = CleanupIncident::next(&mut state.next_ordinal, producer, origin, payload);
+        state.incidents.push_back(incident);
     }
 
     /// Reports and removes every incident in transfer order.

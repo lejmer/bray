@@ -184,13 +184,11 @@ impl NativeRuntime {
             wake.clone(),
         );
 
-        let status = {
-            let _incidents = super::super::incident::IncidentOwnerScope::enter(&started.terminal);
-
+        let status = super::super::incident::with_incident_owner(&started.terminal, || {
             with_native_task(handle, || {
                 with_task_execution_context(context, || task.resume())
             })
-        };
+        });
 
         let status = match status {
             Ok(status) => status,

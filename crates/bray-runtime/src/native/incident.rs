@@ -1,55 +1,34 @@
-use std::cell::RefCell;
 use std::io::Write;
-use triomphe::Arc;
 
 use bray_runtime_abi::{
     NativeCleanupIncident, NativeRunOutcome, NativeRuntimeStatus, NativeSourceAnchor,
     NativeTypeIdentity,
 };
 
-use crate::{CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink};
+use crate::{CleanupIncident, CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink};
 
 use super::frame::NativeTerminalState;
 
-thread_local! {
-    // Each resume or synchronous callback binds its owning run, including nested callbacks.
-    static CURRENT_INCIDENT_OWNER: RefCell<Option<Arc<NativeTerminalState>>> = const { RefCell::new(None) };
-}
+// Each resume or synchronous callback borrows its owning run for that callback's scope.
+scoped_tls::scoped_thread_local!(static CURRENT_INCIDENT_OWNER: NativeTerminalState);
 
-pub(super) struct IncidentOwnerScope {
-    previous: Option<Arc<NativeTerminalState>>,
-}
-
-impl IncidentOwnerScope {
-    pub(super) fn enter(owner: &Arc<NativeTerminalState>) -> Self {
-        // A callback can recursively enter another run while this owner remains suspended.
-        let previous =
-            CURRENT_INCIDENT_OWNER.with(|current| current.replace(Some(Arc::clone(owner))));
-
-        Self { previous }
-    }
-}
-
-impl Drop for IncidentOwnerScope {
-    fn drop(&mut self) {
-        CURRENT_INCIDENT_OWNER.with(|current| current.replace(self.previous.take()));
-    }
+pub(super) fn with_incident_owner<T>(
+    owner: &NativeTerminalState,
+    callback: impl FnOnce() -> T,
+) -> T {
+    CURRENT_INCIDENT_OWNER.set(owner, callback)
 }
 
 pub(super) fn retain_cleanup_incident(
     incident: crate::incident::OwnedCleanupIncident,
 ) -> Result<(), crate::incident::OwnedCleanupIncident> {
-    CURRENT_INCIDENT_OWNER.with(|current| {
-        let current = current.borrow();
+    if !CURRENT_INCIDENT_OWNER.is_set() {
+        return Err(incident);
+    }
 
-        let Some(owner) = current.as_ref() else {
-            return Err(incident);
-        };
+    CURRENT_INCIDENT_OWNER.with(|owner| owner.record_cleanup_incident(incident));
 
-        owner.record_cleanup_incident(incident);
-
-        Ok(())
-    })
+    Ok(())
 }
 
 const VALUE_CLEANUP_IDENTITY: [u8; 32] = *b"bray.value.cleanup.v1\0\0\0\0\0\0\0\0\0\0\0";
@@ -84,11 +63,11 @@ pub(super) fn retain_cleanup_incidents(incidents: Vec<crate::incident::OwnedClea
 pub(crate) fn with_cleanup_incident_owner<T>(
     callback: impl FnOnce(&dyn Fn(crate::incident::OwnedCleanupIncident)) -> T,
 ) -> (T, Vec<crate::incident::OwnedCleanupIncident>) {
-    let terminal = Arc::new(NativeTerminalState::new());
-    let owner = IncidentOwnerScope::enter(&terminal);
-    let result = callback(&|incident| terminal.record_cleanup_incident(incident));
+    let terminal = NativeTerminalState::new();
 
-    drop(owner);
+    let result = with_incident_owner(&terminal, || {
+        callback(&|incident| terminal.record_cleanup_incident(incident))
+    });
 
     (result, terminal.take_cleanup_incidents())
 }
@@ -163,7 +142,7 @@ pub(super) fn finish_synchronous_incidents(
     terminal: &NativeTerminalState,
     outcome: NativeRunOutcome,
 ) -> NativeRunOutcome {
-    let reports = CleanupReportSink::new();
+    let mut next_ordinal = 0;
     let mut outcome = outcome;
 
     loop {
@@ -175,15 +154,20 @@ pub(super) fn finish_synchronous_incidents(
             return outcome;
         }
 
+        let mut failed = false;
+
         for incident in incidents.into_iter().rev() {
-            reports.transfer_owned(
+            let incident = CleanupIncident::next(
+                &mut next_ordinal,
                 CleanupIncidentProducer::SynchronousRoot,
                 CleanupIncidentOrigin::SynchronousRoot,
                 incident,
             );
+
+            failed |= !report_cleanup_incident(incident).is_success();
         }
 
-        if !report_cleanup_incidents(&reports).is_success() {
+        if failed {
             super::host::record_cleanup_failure(1);
         }
     }
@@ -193,13 +177,7 @@ pub(super) fn report_cleanup_incidents(reports: &CleanupReportSink) -> NativeRun
     let mut status = NativeRuntimeStatus::SUCCESS;
 
     reports.drain(|incident| {
-        if super::state::write_cleanup_incident_report(&mut std::io::stderr().lock(), &incident)
-            .is_err()
-        {
-            status = NativeRuntimeStatus::RUNTIME_FAILURE;
-        }
-
-        if incident.report_native_payload() {
+        if !report_cleanup_incident(incident).is_success() {
             status = NativeRuntimeStatus::RUNTIME_FAILURE;
         }
     });
@@ -207,17 +185,30 @@ pub(super) fn report_cleanup_incidents(reports: &CleanupReportSink) -> NativeRun
     status
 }
 
+fn report_cleanup_incident(incident: CleanupIncident) -> NativeRuntimeStatus {
+    let report_failed =
+        super::state::write_cleanup_incident_report(&mut std::io::stderr().lock(), &incident)
+            .is_err();
+
+    let payload_failed = incident.report_native_payload();
+
+    if report_failed || payload_failed {
+        NativeRuntimeStatus::RUNTIME_FAILURE
+    } else {
+        NativeRuntimeStatus::SUCCESS
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
-    use triomphe::Arc;
 
     use bray_runtime_abi::{
         NativeBrayCallOutcome, NativeCleanupIncident, NativePanicReportCallbacks, NativeRunOutcome,
         NativeRunState, NativeRuntimeStatus, NativeSourceAnchor, NativeTypeIdentity,
     };
 
-    use super::{IncidentOwnerScope, bray_runtime_cleanup_incident_transfer};
+    use super::{bray_runtime_cleanup_incident_transfer, with_incident_owner};
     use crate::native::frame::NativeTerminalState;
 
     #[derive(Debug, Eq, PartialEq)]
@@ -347,31 +338,31 @@ mod tests {
 
         assert_eq!(events(), [Event::Destroy(7)]);
 
-        let terminal = Arc::new(NativeTerminalState::new());
-        let scope = IncidentOwnerScope::enter(&terminal);
+        let terminal = NativeTerminalState::new();
 
-        let invalid_source = NativeCleanupIncident::new(
-            11,
-            NativeTypeIdentity::new([7; 32]),
-            NativeSourceAnchor::new(9, 12, 3, 1),
-            report_error,
-            destroy,
-            NativePanicReportCallbacks::new(report, destroy_report, construct, suppress),
-        );
-
-        for invalid in [incident(0), invalid_source] {
-            assert!(crate::incident::OwnedCleanupIncident::native(invalid).is_none());
-
-            assert_eq!(
-                bray_runtime_cleanup_incident_transfer(&invalid),
-                NativeRuntimeStatus::INVALID_ARGUMENT
+        with_incident_owner(&terminal, || {
+            let invalid_source = NativeCleanupIncident::new(
+                11,
+                NativeTypeIdentity::new([7; 32]),
+                NativeSourceAnchor::new(9, 12, 3, 1),
+                report_error,
+                destroy,
+                NativePanicReportCallbacks::new(report, destroy_report, construct, suppress),
             );
 
-            assert!(terminal.take_cleanup_incidents().is_empty());
-            assert!(events().is_empty());
-        }
+            for invalid in [incident(0), invalid_source] {
+                assert!(crate::incident::OwnedCleanupIncident::native(invalid).is_none());
 
-        drop(scope);
+                assert_eq!(
+                    bray_runtime_cleanup_incident_transfer(&invalid),
+                    NativeRuntimeStatus::INVALID_ARGUMENT
+                );
+
+                assert!(terminal.take_cleanup_incidents().is_empty());
+                assert!(events().is_empty());
+            }
+        });
+
         assert!(events().is_empty());
     }
 
@@ -380,15 +371,15 @@ mod tests {
         extern "C-unwind" fn reenter(value: usize) -> NativeBrayCallOutcome {
             EVENTS.with(|events| events.borrow_mut().push(Event::Destroy(value)));
 
-            let terminal = Arc::new(NativeTerminalState::new());
-            let scope = IncidentOwnerScope::enter(&terminal);
+            let terminal = NativeTerminalState::new();
 
-            assert_eq!(
-                bray_runtime_cleanup_incident_transfer(&incident(13)),
-                NativeRuntimeStatus::SUCCESS
-            );
+            with_incident_owner(&terminal, || {
+                assert_eq!(
+                    bray_runtime_cleanup_incident_transfer(&incident(13)),
+                    NativeRuntimeStatus::SUCCESS
+                );
+            });
 
-            drop(scope);
             drop(terminal.take_cleanup_incidents());
 
             NativeBrayCallOutcome::completed()
@@ -412,48 +403,106 @@ mod tests {
     }
 
     #[test]
-    fn scoped_cleanup_returns_transfers_without_stealing_the_enclosing_owner() {
-        let outer = Arc::new(NativeTerminalState::new());
-        let owner = IncidentOwnerScope::enter(&outer);
+    fn unwinding_stack_owned_cleanup_restores_the_parent_before_payload_destruction() {
+        extern "C-unwind" fn reenter(value: usize) -> NativeBrayCallOutcome {
+            EVENTS.with(|events| events.borrow_mut().push(Event::Destroy(value)));
 
-        assert_eq!(
-            bray_runtime_cleanup_incident_transfer(&incident(2)),
-            NativeRuntimeStatus::SUCCESS
-        );
-
-        let (result, incidents) = super::with_cleanup_incident_owner(|record| {
             assert_eq!(
-                bray_runtime_cleanup_incident_transfer(&incident(3)),
+                bray_runtime_cleanup_incident_transfer(&incident(13)),
                 NativeRuntimeStatus::SUCCESS
             );
 
-            record(crate::incident::OwnedCleanupIncident::native(incident(4)).unwrap());
+            NativeBrayCallOutcome::completed()
+        }
 
-            assert_eq!(
-                bray_runtime_cleanup_incident_transfer(&incident(5)),
-                NativeRuntimeStatus::SUCCESS
-            );
+        let outer = NativeTerminalState::new();
 
-            17
+        with_incident_owner(&outer, || {
+            let empty = crate::test_support::with_allocation_failure(|| {
+                super::with_cleanup_incident_owner(|_| 42)
+            });
+
+            assert_eq!(empty.0, 42);
+            assert!(empty.1.is_empty());
+
+            let unwind = std::panic::catch_unwind(|| {
+                super::with_cleanup_incident_owner(|_| {
+                    let error = NativeCleanupIncident::new(
+                        7,
+                        NativeTypeIdentity::new([7; 32]),
+                        NativeSourceAnchor::unavailable(),
+                        report_error,
+                        reenter,
+                        NativePanicReportCallbacks::new(
+                            report,
+                            destroy_report,
+                            construct,
+                            suppress,
+                        ),
+                    );
+
+                    assert_eq!(
+                        bray_runtime_cleanup_incident_transfer(&error),
+                        NativeRuntimeStatus::SUCCESS
+                    );
+
+                    panic!("cleanup unwinds with an owned incident");
+                });
+            });
+
+            assert!(unwind.is_err());
+            assert_eq!(events(), [Event::Destroy(7)]);
         });
 
-        assert_eq!(result, 17);
-        assert_eq!(incidents.len(), 3);
-        assert!(events().is_empty());
-
-        assert_eq!(
-            bray_runtime_cleanup_incident_transfer(&incident(7)),
-            NativeRuntimeStatus::SUCCESS
-        );
-
+        let incidents = outer.take_cleanup_incidents();
+        assert_eq!(incidents.len(), 1);
         drop(incidents);
+        assert_eq!(events(), [Event::Destroy(13)]);
+    }
 
-        assert_eq!(
-            events(),
-            [Event::Destroy(3), Event::Destroy(4), Event::Destroy(5)]
-        );
+    #[test]
+    fn scoped_cleanup_returns_transfers_without_stealing_the_enclosing_owner() {
+        let outer = NativeTerminalState::new();
 
-        drop(owner);
+        with_incident_owner(&outer, || {
+            assert_eq!(
+                bray_runtime_cleanup_incident_transfer(&incident(2)),
+                NativeRuntimeStatus::SUCCESS
+            );
+
+            let (result, incidents) = super::with_cleanup_incident_owner(|record| {
+                assert_eq!(
+                    bray_runtime_cleanup_incident_transfer(&incident(3)),
+                    NativeRuntimeStatus::SUCCESS
+                );
+
+                record(crate::incident::OwnedCleanupIncident::native(incident(4)).unwrap());
+
+                assert_eq!(
+                    bray_runtime_cleanup_incident_transfer(&incident(5)),
+                    NativeRuntimeStatus::SUCCESS
+                );
+
+                17
+            });
+
+            assert_eq!(result, 17);
+            assert_eq!(incidents.len(), 3);
+            assert!(events().is_empty());
+
+            assert_eq!(
+                bray_runtime_cleanup_incident_transfer(&incident(7)),
+                NativeRuntimeStatus::SUCCESS
+            );
+
+            drop(incidents);
+
+            assert_eq!(
+                events(),
+                [Event::Destroy(3), Event::Destroy(4), Event::Destroy(5)]
+            );
+        });
+
         drop(outer.take_cleanup_incidents());
 
         assert_eq!(events(), [Event::Destroy(2), Event::Destroy(7)]);
@@ -461,34 +510,34 @@ mod tests {
 
     #[test]
     fn nested_owners_restore_after_unwind_and_do_not_take_each_others_errors() {
-        let outer = Arc::new(NativeTerminalState::new());
-        let inner = Arc::new(NativeTerminalState::new());
-        let outer_scope = IncidentOwnerScope::enter(&outer);
+        let outer = NativeTerminalState::new();
+        let inner = NativeTerminalState::new();
 
-        assert_eq!(
-            bray_runtime_cleanup_incident_transfer(&incident(2)),
-            NativeRuntimeStatus::SUCCESS
-        );
-
-        let failed = std::panic::catch_unwind(|| {
-            let _inner_scope = IncidentOwnerScope::enter(&inner);
-
+        with_incident_owner(&outer, || {
             assert_eq!(
-                bray_runtime_cleanup_incident_transfer(&incident(3)),
+                bray_runtime_cleanup_incident_transfer(&incident(2)),
                 NativeRuntimeStatus::SUCCESS
             );
 
-            panic!("nested callback failed");
+            let failed = std::panic::catch_unwind(|| {
+                with_incident_owner(&inner, || {
+                    assert_eq!(
+                        bray_runtime_cleanup_incident_transfer(&incident(3)),
+                        NativeRuntimeStatus::SUCCESS
+                    );
+
+                    panic!("nested callback failed");
+                })
+            });
+
+            assert!(failed.is_err());
+
+            assert_eq!(
+                bray_runtime_cleanup_incident_transfer(&incident(5)),
+                NativeRuntimeStatus::SUCCESS
+            );
         });
 
-        assert!(failed.is_err());
-
-        assert_eq!(
-            bray_runtime_cleanup_incident_transfer(&incident(5)),
-            NativeRuntimeStatus::SUCCESS
-        );
-
-        drop(outer_scope);
         assert!(events().is_empty());
         drop(inner.take_cleanup_incidents());
         assert_eq!(events(), [Event::Destroy(3)]);
@@ -575,61 +624,62 @@ mod tests {
             NativeRunState::RUNTIME_FAILURE,
             NativeRunState::PANICKED,
         ] {
-            let terminal = Arc::new(NativeTerminalState::new());
-            let scope = IncidentOwnerScope::enter(&terminal);
-            let callbacks = incident(7).panics();
+            let terminal = NativeTerminalState::new();
 
-            terminal.record_cleanup_incident(
-                crate::incident::OwnedCleanupIncident::native(incident(7)).unwrap(),
-            );
+            with_incident_owner(&terminal, || {
+                let callbacks = incident(7).panics();
 
-            for payload in [32, 48] {
-                assert!(
-                    super::retain_cleanup_incident(
-                        crate::incident::OwnedCleanupIncident::boundary(
-                            NativeBrayCallOutcome::panicked(payload).unwrap(),
-                            callbacks
-                        )
-                        .unwrap()
-                    )
-                    .is_ok()
+                terminal.record_cleanup_incident(
+                    crate::incident::OwnedCleanupIncident::native(incident(7)).unwrap(),
                 );
-            }
 
-            let outcome = terminal.resolve_cleanup_outcome(NativeRunOutcome::new(state, 64));
+                for payload in [32, 48] {
+                    assert!(
+                        super::retain_cleanup_incident(
+                            crate::incident::OwnedCleanupIncident::boundary(
+                                NativeBrayCallOutcome::panicked(payload).unwrap(),
+                                callbacks
+                            )
+                            .unwrap()
+                        )
+                        .is_ok()
+                    );
+                }
 
-            let primary = if state == NativeRunState::PANICKED {
-                64
-            } else {
-                32
-            };
+                let outcome = terminal.resolve_cleanup_outcome(NativeRunOutcome::new(state, 64));
 
-            assert_eq!(
-                outcome,
-                NativeRunOutcome::new(NativeRunState::PANICKED, primary)
-            );
+                let primary = if state == NativeRunState::PANICKED {
+                    64
+                } else {
+                    32
+                };
 
-            assert!(terminal.take_cleanup_incidents().is_empty());
+                assert_eq!(
+                    outcome,
+                    NativeRunOutcome::new(NativeRunState::PANICKED, primary)
+                );
 
-            let expected = if state == NativeRunState::PANICKED {
-                vec![
-                    Event::Attach(64, 48),
-                    Event::Attach(64, 32),
-                    Event::Attach(64, 7),
-                ]
-            } else {
-                vec![Event::Attach(32, 48), Event::Attach(32, 7)]
-            };
+                assert!(terminal.take_cleanup_incidents().is_empty());
 
-            assert_eq!(events(), expected);
+                let expected = if state == NativeRunState::PANICKED {
+                    vec![
+                        Event::Attach(64, 48),
+                        Event::Attach(64, 32),
+                        Event::Attach(64, 7),
+                    ]
+                } else {
+                    vec![Event::Attach(32, 48), Event::Attach(32, 7)]
+                };
 
-            assert_eq!(
-                destroy_report(outcome.payload()),
-                NativeRuntimeStatus::SUCCESS
-            );
+                assert_eq!(events(), expected);
 
-            assert_eq!(events(), [Event::Destroy(7)]);
-            drop(scope);
+                assert_eq!(
+                    destroy_report(outcome.payload()),
+                    NativeRuntimeStatus::SUCCESS
+                );
+
+                assert_eq!(events(), [Event::Destroy(7)]);
+            });
         }
     }
 

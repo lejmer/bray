@@ -201,36 +201,39 @@ fn execute_callback_boundary(
     #[cfg(test)]
     let _test_isolation = super::state::test_runtime_isolation();
 
-    let terminal = triomphe::Arc::new(super::frame::NativeTerminalState::new());
-    let incidents = super::incident::IncidentOwnerScope::enter(&terminal);
-    let thread = RuntimeThreadScope::enter_or_reuse();
+    let terminal = super::frame::NativeTerminalState::new();
 
-    let outcome = match &thread {
-        Ok(_) if !main_thread || bray_platform::mark_current_runtime_thread_as_main() => {
-            execute_synchronous_root(|| super::host::with_output(callback), on_started)
-        }
-        Ok(_) => Ok(RunOutcome::Completed(runtime_failure(
-            NativeRuntimeStatus::RUNTIME_FAILURE,
-        ))),
-        Err(error) => Ok(RunOutcome::Completed(runtime_failure(
-            super::state::thread_attachment_status(*error),
-        ))),
-    };
+    let (mut outcome, thread) = super::incident::with_incident_owner(&terminal, || {
+        let thread = RuntimeThreadScope::enter_or_reuse();
 
-    let mut outcome = match outcome {
-        Ok(RunOutcome::Completed(outcome)) => outcome,
-        Ok(RunOutcome::Cancelled) => NativeRunOutcome::new(NativeRunState::CANCELLED, 0),
-        Ok(RunOutcome::Panicked(_)) => runtime_failure(NativeRuntimeStatus::PANICKED),
-        Err(crate::RootExecutionError::Cancellation(_)) => {
-            runtime_failure(NativeRuntimeStatus::ALLOCATION_FAILURE)
-        }
-        Err(_) => runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE),
-    };
+        let outcome = match &thread {
+            Ok(_) if !main_thread || bray_platform::mark_current_runtime_thread_as_main() => {
+                execute_synchronous_root(|| super::host::with_output(callback), on_started)
+            }
+            Ok(_) => Ok(RunOutcome::Completed(runtime_failure(
+                NativeRuntimeStatus::RUNTIME_FAILURE,
+            ))),
+            Err(error) => Ok(RunOutcome::Completed(runtime_failure(
+                super::state::thread_attachment_status(*error),
+            ))),
+        };
 
-    cleanup();
+        let mut outcome = match outcome {
+            Ok(RunOutcome::Completed(outcome)) => outcome,
+            Ok(RunOutcome::Cancelled) => NativeRunOutcome::new(NativeRunState::CANCELLED, 0),
+            Ok(RunOutcome::Panicked(_)) => runtime_failure(NativeRuntimeStatus::PANICKED),
+            Err(crate::RootExecutionError::Cancellation(_)) => {
+                runtime_failure(NativeRuntimeStatus::ALLOCATION_FAILURE)
+            }
+            Err(_) => runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE),
+        };
 
-    outcome = super::incident::finish_synchronous_incidents(&terminal, outcome);
-    drop(incidents);
+        cleanup();
+
+        outcome = super::incident::finish_synchronous_incidents(&terminal, outcome);
+
+        (outcome, thread)
+    });
 
     let cleanup_incidents = thread.map_or(0, bray_platform::RuntimeThreadEntry::finish);
 
