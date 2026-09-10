@@ -2,7 +2,7 @@ use std::cell::{Cell, RefCell};
 use std::marker::PhantomData;
 use std::num::NonZeroU64;
 use std::panic::{AssertUnwindSafe, catch_unwind};
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::thread::{self, JoinHandle, Thread};
@@ -14,8 +14,13 @@ static MAIN_RUNTIME_THREAD_ID: AtomicU64 = AtomicU64::new(0);
 
 thread_local! {
     static CURRENT_RUNTIME_THREAD: Cell<Option<RuntimeThreadId>> = const { Cell::new(None) };
-    static RUNTIME_THREAD_EXIT_CALLBACKS: RefCell<Weak<ThreadExitCallbacks>> =
-        const { RefCell::new(Weak::new()) };
+    static RUNTIME_THREAD_EXIT_CALLBACKS: RefCell<Option<triomphe::Arc<ThreadExitCallbacks>>> =
+        const { RefCell::new(None) };
+}
+
+#[cfg(test)]
+thread_local! {
+    static FAIL_THREAD_STORAGE: Cell<bool> = const { Cell::new(false) };
 }
 
 type ThreadExitCallbacks = RefCell<Vec<RuntimeThreadExitCallback>>;
@@ -45,7 +50,7 @@ pub fn register_runtime_thread_exit_callback(
 
     RUNTIME_THREAD_EXIT_CALLBACKS
         .try_with(|current| {
-            let callbacks = current.borrow().upgrade().ok_or(unavailable)?;
+            let callbacks = current.borrow().as_ref().cloned().ok_or(unavailable)?;
             let mut callbacks = callbacks.borrow_mut();
 
             callbacks
@@ -117,7 +122,7 @@ pub fn main_runtime_thread() -> Option<RuntimeThread> {
 #[derive(Debug)]
 pub struct RuntimeThreadScope {
     runtime: RuntimeThread,
-    callbacks: Rc<ThreadExitCallbacks>,
+    callbacks: triomphe::Arc<ThreadExitCallbacks>,
     active: bool,
     thread_bound: PhantomData<Rc<()>>,
 }
@@ -152,7 +157,10 @@ impl RuntimeThreadEntry {
 impl RuntimeThreadScope {
     /// Initializes the current thread until this scope is dropped.
     pub fn enter() -> Result<Self, PlatformError> {
-        Self::enter_with_id(next_runtime_thread_id()?)
+        ensure_thread_unattached()?;
+        let callbacks = reserve_thread_callbacks()?;
+
+        Self::enter_with_id(next_runtime_thread_id()?, callbacks)
     }
 
     /// Reuses an active runtime thread or attaches the current foreign thread for this entry.
@@ -168,21 +176,14 @@ impl RuntimeThreadScope {
         &self.runtime
     }
 
-    fn enter_with_id(id: RuntimeThreadId) -> Result<Self, PlatformError> {
-        let previous = CURRENT_RUNTIME_THREAD.replace(Some(id));
-
-        if previous.is_some() {
-            CURRENT_RUNTIME_THREAD.set(previous);
-
-            return Err(PlatformError::new(
-                PlatformOperation::ThreadRuntimeInitialization,
-                PlatformErrorKind::RuntimeThreadAlreadyInitialized,
-            ));
-        }
-
-        let callbacks = Rc::new(RefCell::new(Vec::new()));
-
-        RUNTIME_THREAD_EXIT_CALLBACKS.with(|current| current.replace(Rc::downgrade(&callbacks)));
+    fn enter_with_id(
+        id: RuntimeThreadId,
+        callbacks: triomphe::UniqueArc<ThreadExitCallbacks>,
+    ) -> Result<Self, PlatformError> {
+        ensure_thread_unattached()?;
+        let callbacks = callbacks.shareable();
+        CURRENT_RUNTIME_THREAD.set(Some(id));
+        RUNTIME_THREAD_EXIT_CALLBACKS.with(|current| current.replace(Some(callbacks.clone())));
 
         Ok(Self {
             runtime: RuntimeThread::new(id),
@@ -207,7 +208,7 @@ impl RuntimeThreadScope {
         let mut incidents = 0usize;
 
         // The attachment owns callbacks even when the registration TLS has already been destroyed.
-        let _ = RUNTIME_THREAD_EXIT_CALLBACKS.try_with(|current| current.replace(Weak::new()));
+        let _ = RUNTIME_THREAD_EXIT_CALLBACKS.try_with(|current| current.replace(None));
         let mut callbacks = std::mem::take(&mut *self.callbacks.borrow_mut());
 
         while let Some(callback) = callbacks.pop() {
@@ -284,6 +285,7 @@ impl<T: Send + 'static> NativeThread<T> {
         name: Option<NativeThreadName>,
         callback: impl FnOnce(RuntimeThread) -> T + Send + 'static,
     ) -> Result<Self, PlatformError> {
+        let callbacks = reserve_thread_callbacks()?;
         let id = next_runtime_thread_id()?;
         let mut builder = thread::Builder::new();
 
@@ -292,7 +294,7 @@ impl<T: Send + 'static> NativeThread<T> {
         }
 
         let join = builder
-            .spawn(move || run_initialized_thread(id, callback))
+            .spawn(move || run_initialized_thread(id, callbacks, callback))
             .map_err(|error| PlatformError::from_io(PlatformOperation::ThreadSpawn, &error))?;
 
         // The wake authority must remain available after the join handle is moved.
@@ -322,6 +324,31 @@ impl<T: Send + 'static> NativeThread<T> {
     }
 }
 
+fn ensure_thread_unattached() -> Result<(), PlatformError> {
+    if current_runtime_thread().is_some() {
+        return Err(PlatformError::new(
+            PlatformOperation::ThreadRuntimeInitialization,
+            PlatformErrorKind::RuntimeThreadAlreadyInitialized,
+        ));
+    }
+
+    Ok(())
+}
+
+fn reserve_thread_callbacks() -> Result<triomphe::UniqueArc<ThreadExitCallbacks>, PlatformError> {
+    let allocation_failure = PlatformError::new(
+        PlatformOperation::ThreadRuntimeInitialization,
+        PlatformErrorKind::Io(std::io::ErrorKind::OutOfMemory),
+    );
+
+    #[cfg(test)]
+    if FAIL_THREAD_STORAGE.get() {
+        return Err(allocation_failure);
+    }
+
+    triomphe::UniqueArc::try_new(RefCell::new(Vec::new())).map_err(|_| allocation_failure)
+}
+
 fn next_runtime_thread_id() -> Result<RuntimeThreadId, PlatformError> {
     let id = NEXT_RUNTIME_THREAD_ID
         .try_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
@@ -344,9 +371,10 @@ fn next_runtime_thread_id() -> Result<RuntimeThreadId, PlatformError> {
 
 fn run_initialized_thread<T>(
     id: RuntimeThreadId,
+    callbacks: triomphe::UniqueArc<ThreadExitCallbacks>,
     callback: impl FnOnce(RuntimeThread) -> T,
 ) -> NativeThreadOutcome<T> {
-    let Ok(_scope) = RuntimeThreadScope::enter_with_id(id) else {
+    let Ok(_scope) = RuntimeThreadScope::enter_with_id(id, callbacks) else {
         return NativeThreadOutcome::Panicked;
     };
 
@@ -358,6 +386,69 @@ fn run_initialized_thread<T>(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn attachment_storage_failure_precedes_identity_and_native_callback_execution() {
+        use crate::{PlatformErrorKind, PlatformOperation};
+        use std::io::ErrorKind;
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static CALLBACKS: AtomicUsize = AtomicUsize::new(0);
+
+        super::FAIL_THREAD_STORAGE.set(true);
+        let attached = super::RuntimeThreadScope::enter();
+        super::FAIL_THREAD_STORAGE.set(false);
+        let error = attached.unwrap_err();
+
+        assert_eq!(
+            error.operation(),
+            PlatformOperation::ThreadRuntimeInitialization
+        );
+
+        assert_eq!(error.kind(), PlatformErrorKind::Io(ErrorKind::OutOfMemory));
+        assert!(super::current_runtime_thread().is_none());
+
+        let scope = super::RuntimeThreadScope::enter().unwrap();
+        let identity = scope.runtime().id();
+        super::FAIL_THREAD_STORAGE.set(true);
+        let duplicate = super::RuntimeThreadScope::enter();
+        super::FAIL_THREAD_STORAGE.set(false);
+
+        assert_eq!(
+            duplicate.unwrap_err().kind(),
+            PlatformErrorKind::RuntimeThreadAlreadyInitialized
+        );
+
+        assert_eq!(super::current_runtime_thread().unwrap().id(), identity);
+        drop(scope);
+
+        super::FAIL_THREAD_STORAGE.set(true);
+
+        let spawned = super::NativeThread::spawn(None, |_| {
+            CALLBACKS.fetch_add(1, Ordering::Relaxed);
+        });
+
+        super::FAIL_THREAD_STORAGE.set(false);
+
+        let error = match spawned {
+            Ok(thread) => {
+                thread.join().unwrap();
+
+                panic!("failed admission must not spawn the callback")
+            }
+            Err(error) => error,
+        };
+
+        assert_eq!(error.kind(), PlatformErrorKind::Io(ErrorKind::OutOfMemory));
+        assert_eq!(CALLBACKS.load(Ordering::Relaxed), 0);
+
+        assert!(matches!(
+            super::NativeThread::spawn(None, |_| 42)
+                .unwrap()
+                .join()
+                .unwrap(),
+            super::NativeThreadOutcome::Completed(42)
+        ));
+    }
+
     use std::cell::Cell;
 
     use super::{

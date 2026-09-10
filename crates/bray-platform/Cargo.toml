@@ -24,12 +24,13 @@ memory = ["dep:memmap2"]
 network = ["event", "mio/net"]
 process = []
 test-output = []
-thread = []
+thread = ["dep:triomphe"]
 
 [dependencies]
 getrandom = { version = "0.4.3", optional = true }
 memmap2 = { version = "0.9.11", optional = true }
 mio = { version = "1.2.2", default-features = false, optional = true }
+triomphe = { version = "0.1.16", default-features = false, features = ["std"], optional = true }
 
 [lints]
 workspace = true

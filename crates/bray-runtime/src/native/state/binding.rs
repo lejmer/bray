@@ -18,6 +18,15 @@ use super::core::{
     CURRENT_NATIVE_TASK, NATIVE_RUNTIME, NativeRuntime, RetainedRuntime, retain_runtime,
 };
 
+pub(crate) fn thread_attachment_status(error: bray_platform::PlatformError) -> NativeRuntimeStatus {
+    match error.kind() {
+        bray_platform::PlatformErrorKind::Io(std::io::ErrorKind::OutOfMemory) => {
+            NativeRuntimeStatus::ALLOCATION_FAILURE
+        }
+        _ => NativeRuntimeStatus::RUNTIME_FAILURE,
+    }
+}
+
 pub(in crate::native) fn current_thread_lanes(
     thread: RuntimeThreadId,
     main_thread_lane: bool,
@@ -76,8 +85,7 @@ fn with_retained_runtime<T>(
         return Ok(runtime.with_cleanup_driving(callback));
     }
 
-    let thread =
-        RuntimeThreadScope::enter_or_reuse().map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)?;
+    let thread = RuntimeThreadScope::enter_or_reuse().map_err(thread_attachment_status)?;
 
     let main_thread_lane = retained.main_thread == Some(thread.runtime().id());
 

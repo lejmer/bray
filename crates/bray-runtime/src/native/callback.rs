@@ -209,8 +209,11 @@ fn execute_callback_boundary(
         Ok(_) if !main_thread || bray_platform::mark_current_runtime_thread_as_main() => {
             execute_synchronous_root(|| super::host::with_output(callback), on_started)
         }
-        Ok(_) | Err(_) => Ok(RunOutcome::Completed(runtime_failure(
+        Ok(_) => Ok(RunOutcome::Completed(runtime_failure(
             NativeRuntimeStatus::RUNTIME_FAILURE,
+        ))),
+        Err(error) => Ok(RunOutcome::Completed(runtime_failure(
+            super::state::thread_attachment_status(*error),
         ))),
     };
 

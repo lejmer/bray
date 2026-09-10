@@ -124,7 +124,7 @@ pub(super) fn runtime_status(status: NativeProductHostStatus) -> NativeRuntimeSt
     }
 }
 
-pub(super) fn host_status(status: NativeRuntimeStatus) -> NativeProductHostStatus {
+pub(in crate::product) fn host_status(status: NativeRuntimeStatus) -> NativeProductHostStatus {
     match status {
         NativeRuntimeStatus::SUCCESS => NativeProductHostStatus::SUCCESS,
         NativeRuntimeStatus::ALLOCATION_FAILURE => NativeProductHostStatus::ALLOCATION_FAILURE,

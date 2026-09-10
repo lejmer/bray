@@ -373,8 +373,9 @@ fn initialize_with_capabilities(
         #[cfg(test)]
         let test_isolation = test_runtime_isolation();
 
-        let Ok(thread) = RuntimeThreadScope::enter_or_reuse() else {
-            return NativeRuntimeStatus::RUNTIME_FAILURE;
+        let thread = match RuntimeThreadScope::enter_or_reuse() {
+            Ok(thread) => thread,
+            Err(error) => return super::binding::thread_attachment_status(error),
         };
 
         if main_thread_lane && !bray_platform::mark_current_runtime_thread_as_main() {

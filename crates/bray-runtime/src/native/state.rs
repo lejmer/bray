@@ -7,6 +7,7 @@ mod execution;
 mod start;
 mod transfer;
 
+pub(crate) use binding::thread_attachment_status;
 pub(super) use binding::write_cleanup_incident_report;
 pub(super) use binding::{runtime_failure, with_cleanup_runtime};
 pub(super) use core::StartedTask;

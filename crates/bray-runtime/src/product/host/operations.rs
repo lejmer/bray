@@ -1378,8 +1378,8 @@ mod tests {
 
         let descriptor = Box::leak(Box::new(NativeProductHostDescriptor::new(
             NativeProductIdentity::new([152; 32]),
-            delayed_entry,
-            1,
+            thread_order_entry,
+            2,
         )));
 
         assert_eq!(

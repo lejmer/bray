@@ -19,7 +19,7 @@ mod workers;
 
 pub(crate) use frame::inactive_frame_output;
 pub(crate) use incident::with_cleanup_incident_owner;
-pub(crate) use state::{RetainedRuntime, retain_runtime};
+pub(crate) use state::{RetainedRuntime, retain_runtime, thread_attachment_status};
 pub(crate) use static_finalizer::{
     run_static_finalizer, with_retained_static_cleanup_runtime, with_static_cleanup_runtime,
 };

@@ -499,6 +499,7 @@ dependencies = [
  "getrandom",
  "memmap2",
  "mio",
+ "triomphe",
 ]
 
 [[package]]

@@ -50,9 +50,9 @@ pub(super) fn attach_current_thread(product: usize) -> NativeProductHostObservat
             .map_err(|_| NativeProductHostStatus::ALLOCATION_FAILURE)?;
 
         if bray_platform::current_runtime_thread().is_none() && attachments.scope.is_none() {
-            let Ok(scope) = bray_platform::RuntimeThreadScope::enter() else {
-                return Err(NativeProductHostStatus::RUNTIME_FAILURE);
-            };
+            let scope = bray_platform::RuntimeThreadScope::enter().map_err(|error| {
+                super::host::host_status(crate::native::thread_attachment_status(error))
+            })?;
 
             attachments.scope = Some(scope);
         }
