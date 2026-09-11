@@ -68,7 +68,8 @@ impl Scheduler {
 
         let additional = state
             .cleanup_lanes
-            .checked_add(missing)
+            .checked_add(state.pending_lanes)
+            .and_then(|lanes| lanes.checked_add(missing))
             .ok_or(SchedulerError::ReadyQueueCapacityReached)?;
 
         // Worker headers must not consume capacity promised to already admitted cleanup roots.

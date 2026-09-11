@@ -39,6 +39,8 @@ pub(super) struct SchedulerState {
     pub(super) independent_tasks: usize,
     pub(super) cleanup_tasks: usize,
     pub(super) cleanup_lanes: usize,
+    pub(super) pending_tasks: usize,
+    pub(super) pending_lanes: usize,
     pub(super) queues: HashMap<ExecutionLane, ReadyQueue>,
     pub(super) ready: ReadySlots,
     pub(super) timers: BTreeMap<MonotonicDeadline, BTreeMap<u64, TimerWake>>,

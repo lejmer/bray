@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 
 use bray_platform::RuntimeThreadId;
 use bray_runtime_model::{ProtectedFrameDescriptor, ProtectedFrameStateId};
@@ -9,7 +9,8 @@ use crate::{CancellationContext, ExecutionLane, TaskId};
 use super::contract::SchedulerError;
 use super::dispatch::select_task_lane;
 use super::engine::{
-    DispatchState, RegisteredTask, Scheduler, SchedulerState, TaskRegistration, TaskWakeHandle,
+    DispatchState, RegisteredTask, Scheduler, SchedulerData, SchedulerState, TaskRegistration,
+    TaskWakeHandle,
 };
 
 /// Task-owned registration storage that can be prepared before choosing a scheduler or origin.
@@ -18,10 +19,70 @@ pub(crate) struct TaskRegistrationStorage {
     cancellation: CancellationContext,
     cancellation_wake: Option<crate::cancellation::CancellationWakeRegistration>,
     ready_lanes: Vec<ExecutionLane>,
+    reservation: Option<Weak<SchedulerData>>,
     pub(crate) cleanup_admitted: bool,
 }
 
 impl TaskRegistrationStorage {
+    /// Reserves scheduler capacity without choosing the eventual origin thread.
+    pub(crate) fn reserve(&mut self, scheduler: &Scheduler) -> Result<(), SchedulerError> {
+        assert!(
+            self.cancellation_wake.is_some(),
+            "registration storage must install once"
+        );
+
+        self.check_scheduler(scheduler);
+
+        if self.reservation.is_some() {
+            return Ok(());
+        }
+
+        let mut state = scheduler.lock_state()?;
+
+        let pending_tasks = state
+            .pending_tasks
+            .checked_add(1)
+            .ok_or(SchedulerError::ReadyQueueCapacityReached)?;
+
+        let pending_lanes = state
+            .pending_lanes
+            .checked_add(self.descriptor.states().len())
+            .ok_or(SchedulerError::ReadyQueueCapacityReached)?;
+
+        let tasks = state
+            .cleanup_tasks
+            .checked_add(1)
+            .ok_or(SchedulerError::ReadyQueueCapacityReached)?;
+
+        let lanes = state
+            .cleanup_lanes
+            .checked_add(self.descriptor.states().len())
+            .ok_or(SchedulerError::ReadyQueueCapacityReached)?;
+
+        state.reserve_registration_capacity(tasks, lanes)?;
+        state.pending_tasks = pending_tasks;
+        state.pending_lanes = pending_lanes;
+        self.reservation = Some(Arc::downgrade(&scheduler.data));
+
+        Ok(())
+    }
+
+    fn check_scheduler(&self, scheduler: &Scheduler) {
+        if let Some(reservation) = &self.reservation {
+            assert!(
+                reservation.ptr_eq(&Arc::downgrade(&scheduler.data)),
+                "registration must use its admitting scheduler"
+            );
+        }
+    }
+
+    fn release_reservation(&mut self, state: &mut SchedulerState) {
+        if self.reservation.take().is_some() {
+            state.pending_tasks -= 1;
+            state.pending_lanes -= self.descriptor.states().len();
+        }
+    }
+
     pub(crate) fn lane(
         &self,
         scheduler: &Scheduler,
@@ -44,8 +105,24 @@ impl TaskRegistrationStorage {
             cancellation: cancellation.clone(),
             cancellation_wake: Some(cancellation_wake),
             ready_lanes,
+            reservation: None,
             cleanup_admitted: false,
         })
+    }
+}
+
+impl Drop for TaskRegistrationStorage {
+    fn drop(&mut self) {
+        let Some(scheduler) = self.reservation.as_ref().and_then(Weak::upgrade) else {
+            return;
+        };
+
+        let mut state = scheduler
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+        self.release_reservation(&mut state);
     }
 }
 
@@ -100,6 +177,7 @@ impl Scheduler {
             .check_task_admission(task, admission, self.data.limits.tasks().get())?;
 
         let mut storage = TaskRegistrationStorage::prepare(descriptor, cancellation)?;
+        storage.reserve(self)?;
 
         self.register_prepared_task(task, origin, initial_state, admission, &mut storage)
     }
@@ -152,6 +230,7 @@ impl Scheduler {
         storage: &mut TaskRegistrationStorage,
         initial_wake: Option<&mut dyn FnMut() -> Result<(), SchedulerError>>,
     ) -> Result<TaskRegistration, SchedulerError> {
+        storage.check_scheduler(self);
         let descriptor = &storage.descriptor;
         select_task_lane(&self.data, descriptor, origin, initial_state)?;
 
@@ -184,7 +263,7 @@ impl Scheduler {
 
             state.check_task_admission(task, admission, self.data.limits.tasks().get())?;
 
-            if !storage.cleanup_admitted {
+            if !storage.cleanup_admitted && storage.reservation.is_none() {
                 let tasks = state
                     .cleanup_tasks
                     .checked_add(1)
@@ -251,6 +330,8 @@ impl Scheduler {
                     return Err(error);
                 }
             }
+
+            storage.release_reservation(&mut state);
         }
 
         let Some(mut cancellation_wake) = storage.cancellation_wake.take() else {
@@ -276,6 +357,14 @@ impl SchedulerState {
         tasks: usize,
         lanes: usize,
     ) -> Result<(), SchedulerError> {
+        let tasks = tasks
+            .checked_add(self.pending_tasks)
+            .ok_or(SchedulerError::ReadyQueueCapacityReached)?;
+
+        let lanes = lanes
+            .checked_add(self.pending_lanes)
+            .ok_or(SchedulerError::ReadyQueueCapacityReached)?;
+
         crate::allocation::reserve_map_entries(&mut self.tasks, tasks)?;
         self.ready.reserve_capacity(tasks)?;
         crate::allocation::reserve_map_entries(&mut self.queues, lanes)?;
@@ -359,7 +448,10 @@ mod tests {
     use std::num::NonZeroUsize;
 
     use bray_platform::RuntimeThreadScope;
-    use bray_runtime_model::{ProtectedFrameStateId, RuntimeCapability};
+    use bray_runtime_model::{
+        ProtectedFrameAffinity, ProtectedFrameDescriptor, ProtectedFrameStateDescriptor,
+        ProtectedFrameStateId, RuntimeCapability,
+    };
 
     use super::Scheduler;
     use crate::test_support::{TestFrame, register_task, with_allocation_failure};
@@ -388,6 +480,7 @@ mod tests {
         )
         .unwrap();
 
+        storage.reserve(&scheduler).unwrap();
         let capacity = storage.ready_lanes.capacity();
         let initial = ProtectedFrameStateId::new(0);
         let lane = storage.lane(&scheduler, thread, initial).unwrap();
@@ -408,6 +501,8 @@ mod tests {
         assert!(scheduler.lock_state().unwrap().queues.is_empty());
         assert_eq!(storage.ready_lanes.capacity(), capacity);
         assert!(storage.cancellation_wake.is_some());
+        assert_eq!(scheduler.lock_state().unwrap().pending_tasks, 1);
+        assert!(storage.reservation.is_some());
         assert!(scheduler.take_ready(lane).unwrap().is_none());
 
         let registration = with_allocation_failure(|| {
@@ -422,6 +517,8 @@ mod tests {
         .unwrap();
 
         assert_eq!(scheduler.task_count().unwrap(), 1);
+        assert_eq!(scheduler.lock_state().unwrap().pending_tasks, 0);
+        assert!(storage.reservation.is_none());
         let ready = scheduler.take_ready(lane).unwrap().unwrap();
         assert_eq!(ready.task(), task.id());
 
@@ -434,6 +531,206 @@ mod tests {
 
         with_allocation_failure(|| drop(registration));
         assert_eq!(scheduler.task_count().unwrap(), 0);
+    }
+
+    #[test]
+    fn pending_origins_survive_intervening_task_and_thread_admissions() {
+        let runtime = RuntimeThreadScope::enter().unwrap();
+        let thread = runtime.runtime().id();
+
+        let scheduler = Scheduler::new(
+            [
+                RuntimeCapability::CooperativeExecution,
+                RuntimeCapability::MigratableLanes,
+                RuntimeCapability::LocalLanes,
+            ],
+            thread,
+            SchedulerLimits::new(
+                NonZeroUsize::new(64).unwrap(),
+                NonZeroUsize::new(1).unwrap(),
+            ),
+        );
+
+        let tasks: Vec<_> = (0..24)
+            .map(|value| TaskControlBlock::start(TestFrame::completing(value)).unwrap())
+            .collect();
+
+        let descriptor = tasks[0].descriptor();
+        let initial = ProtectedFrameStateId::new(0);
+
+        let local = ProtectedFrameDescriptor::try_new(
+            descriptor.frame(),
+            descriptor.abi_version(),
+            descriptor.frame_abi(),
+            descriptor.layout(),
+            descriptor.completion_layout(),
+            [ProtectedFrameStateDescriptor::new(
+                initial,
+                [],
+                [],
+                [],
+                ProtectedFrameAffinity::OriginThread,
+            )],
+        )
+        .unwrap();
+
+        let mut pending: Vec<_> = tasks[..8]
+            .iter()
+            .map(|task| {
+                let mut storage = super::TaskRegistrationStorage::prepare(
+                    local.clone(),
+                    task.cancellation_context(),
+                )
+                .unwrap();
+
+                storage.reserve(&scheduler).unwrap();
+                with_allocation_failure(|| storage.reserve(&scheduler)).unwrap();
+
+                storage
+            })
+            .collect();
+
+        let ordinary: Vec<_> = tasks[8..]
+            .iter()
+            .map(|task| register_task(&scheduler, task, thread))
+            .collect();
+
+        let origins: Vec<_> = (0..24)
+            .map(|_| {
+                std::thread::spawn(|| RuntimeThreadScope::enter().unwrap().runtime().id())
+                    .join()
+                    .unwrap()
+            })
+            .collect();
+
+        let headers: Vec<_> = origins[8..]
+            .iter()
+            .map(|origin| scheduler.register_thread_lanes(*origin).unwrap())
+            .collect();
+
+        assert_eq!(scheduler.lock_state().unwrap().pending_tasks, 8);
+
+        let registrations: Vec<_> = pending
+            .iter_mut()
+            .zip(&tasks)
+            .zip(&origins)
+            .map(|((storage, task), origin)| {
+                let registration = with_allocation_failure(|| {
+                    scheduler.register_prepared_task(
+                        task.id(),
+                        *origin,
+                        initial,
+                        crate::task::TaskAdmissionKind::Independent,
+                        storage,
+                    )
+                })
+                .unwrap();
+
+                assert_eq!(
+                    registration.lane(initial).unwrap().placement(),
+                    crate::ExecutionLanePlacement::OriginThread(*origin)
+                );
+
+                registration
+            })
+            .collect();
+
+        assert_eq!(scheduler.lock_state().unwrap().pending_tasks, 0);
+        assert_eq!(scheduler.lock_state().unwrap().pending_lanes, 0);
+
+        with_allocation_failure(|| {
+            drop(registrations);
+            drop(ordinary);
+            drop(headers);
+            drop(pending);
+        });
+
+        assert_eq!(scheduler.task_count().unwrap(), 0);
+        assert!(scheduler.lock_state().unwrap().queues.is_empty());
+    }
+
+    #[test]
+    fn pending_reservation_failure_drop_and_scheduler_identity_are_transactional() {
+        let runtime = RuntimeThreadScope::enter().unwrap();
+        let thread = runtime.runtime().id();
+
+        let make_scheduler = || {
+            Scheduler::new(
+                [
+                    RuntimeCapability::CooperativeExecution,
+                    RuntimeCapability::MigratableLanes,
+                    RuntimeCapability::MainThreadLane,
+                ],
+                thread,
+                SchedulerLimits::new(NonZeroUsize::new(1).unwrap(), NonZeroUsize::new(1).unwrap()),
+            )
+        };
+
+        let task = TaskControlBlock::start(TestFrame::main_thread_then_movable(7)).unwrap();
+        let mut reached_success = false;
+
+        for allowed in 0..8 {
+            let scheduler = make_scheduler();
+
+            let mut storage = super::TaskRegistrationStorage::prepare(
+                task.descriptor().clone(),
+                task.cancellation_context(),
+            )
+            .unwrap();
+
+            match crate::test_support::with_allocation_failure_after(allowed, || {
+                storage.reserve(&scheduler)
+            }) {
+                Ok(()) => reached_success = true,
+                Err(SchedulerError::AdmissionAllocation(_)) => {
+                    assert!(storage.reservation.is_none());
+                    assert_eq!(scheduler.lock_state().unwrap().pending_tasks, 0);
+                    assert_eq!(scheduler.lock_state().unwrap().pending_lanes, 0);
+                    storage.reserve(&scheduler).unwrap();
+                }
+                Err(error) => panic!("unexpected reservation failure: {error:?}"),
+            }
+
+            let other = make_scheduler();
+
+            assert!(
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| storage.reserve(&other)))
+                    .is_err()
+            );
+
+            assert_eq!(other.lock_state().unwrap().pending_tasks, 0);
+            with_allocation_failure(|| drop(storage));
+            assert_eq!(scheduler.lock_state().unwrap().pending_tasks, 0);
+            assert_eq!(scheduler.lock_state().unwrap().pending_lanes, 0);
+
+            if reached_success {
+                break;
+            }
+        }
+
+        assert!(reached_success);
+
+        let scheduler = make_scheduler();
+
+        let mut storage = super::TaskRegistrationStorage::prepare(
+            task.descriptor().clone(),
+            task.cancellation_context(),
+        )
+        .unwrap();
+
+        storage.reserve(&scheduler).unwrap();
+        drop(scheduler);
+        let replacement = make_scheduler();
+
+        assert!(
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(
+                || storage.reserve(&replacement)
+            ))
+            .is_err()
+        );
+
+        with_allocation_failure(|| drop(storage));
+        assert_eq!(replacement.lock_state().unwrap().pending_tasks, 0);
     }
 
     #[test]
