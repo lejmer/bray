@@ -76,7 +76,7 @@ pub(in crate::native) fn with_cleanup_runtime<T>(
 
     let thread = RuntimeThreadScope::enter_or_reuse().map_err(thread_attachment_status)?;
 
-    let main_thread_lane = retained.main_thread == Some(thread.runtime().id());
+    let main_thread_lane = retained.core.scheduler.main_thread() == Some(thread.runtime().id());
 
     let runtime = NativeRuntime {
         thread,
@@ -206,6 +206,52 @@ mod tests {
     use crate::{CleanupIncidentOrigin, CleanupIncidentProducer, CleanupReportSink};
     use bray_runtime_abi::{NativeRuntimeConfiguration, NativeRuntimeStatus};
     use std::sync::Arc;
+
+    #[test]
+    fn retention_on_another_thread_preserves_domain_main_authority() {
+        let _isolation = super::super::test_runtime_isolation();
+
+        // Keep the Main attachment alive after its base execution binding is shut down.
+        let main = bray_platform::RuntimeThreadScope::enter().unwrap();
+        assert!(initialize(NativeRuntimeConfiguration::new(4, 1)).is_success());
+        let retained = retain_runtime().unwrap();
+        let shared = retained.clone();
+
+        let from_other = std::thread::spawn(move || {
+            with_cleanup_runtime(&shared, || {
+                with_runtime(|runtime| assert!(!runtime.main_thread_lane)).unwrap();
+
+                retain_runtime().unwrap()
+            })
+            .unwrap()
+        })
+        .join()
+        .unwrap();
+
+        assert!(shutdown().is_success());
+
+        with_cleanup_runtime(&from_other, || {
+            with_runtime(|runtime| {
+                assert!(runtime.main_thread_lane);
+                assert_eq!(runtime.thread.runtime().id(), main.runtime().id());
+            })
+            .unwrap();
+        })
+        .unwrap();
+
+        retained.release();
+        from_other.release();
+
+        // Reusing a physical Main attachment cannot grant authority to a no-Main domain.
+        let isolated = super::super::admit_cleanup_runtime().unwrap();
+
+        with_cleanup_runtime(&isolated, || {
+            with_runtime(|runtime| assert!(!runtime.main_thread_lane)).unwrap();
+        })
+        .unwrap();
+
+        isolated.release();
+    }
 
     #[test]
     fn cleanup_lane_search_preserves_placement_and_workload_priority() {

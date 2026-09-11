@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use triomphe::Arc as RuntimeArc;
 
-use bray_platform::{RuntimeThreadEntry, RuntimeThreadId, RuntimeThreadScope};
+use bray_platform::{RuntimeThreadEntry, RuntimeThreadScope};
 use bray_runtime_abi::{
     NativeRunOutcome, NativeRuntimeConfiguration, NativeRuntimeStatus, NativeTaskHandle,
 };
@@ -260,7 +260,6 @@ mod tests {
 #[derive(Clone)]
 pub(crate) struct RetainedRuntime {
     pub(in crate::native) core: Arc<NativeRuntimeCore>,
-    pub(in crate::native) main_thread: Option<RuntimeThreadId>,
     pub(in crate::native) released: triomphe::Arc<AtomicBool>,
 }
 
@@ -544,15 +543,8 @@ pub(in crate::native) fn shutdown() -> NativeRuntimeStatus {
 }
 
 pub(in crate::native) fn retain_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {
-    let (core, main_thread) = with_runtime(|runtime| {
-        // Retention outlives this thread-local execution binding.
-        (
-            Arc::clone(&runtime.core),
-            runtime
-                .main_thread_lane
-                .then(|| runtime.thread.runtime().id()),
-        )
-    })?;
+    // Domain authority remains in the shared scheduler regardless of the retaining thread.
+    let core = with_runtime(|runtime| Arc::clone(&runtime.core))?;
 
     let released = crate::allocation::allocate_shared(AtomicBool::new(false))
         .map_err(|_| NativeRuntimeStatus::ALLOCATION_FAILURE)?;
@@ -561,11 +553,7 @@ pub(in crate::native) fn retain_runtime() -> Result<RetainedRuntime, NativeRunti
         return Err(NativeRuntimeStatus::RUNTIME_FAILURE);
     }
 
-    Ok(RetainedRuntime {
-        core,
-        main_thread,
-        released,
-    })
+    Ok(RetainedRuntime { core, released })
 }
 
 pub(in crate::native) fn admit_cleanup_runtime() -> Result<RetainedRuntime, NativeRuntimeStatus> {

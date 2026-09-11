@@ -79,6 +79,13 @@ pub(super) struct TimerWake {
 }
 
 impl Scheduler {
+    pub(crate) fn main_thread(&self) -> Option<RuntimeThreadId> {
+        self.data
+            .capabilities
+            .contains(&RuntimeCapability::MainThreadLane)
+            .then_some(self.data.main_thread)
+    }
+
     pub(crate) fn wake_waiters(&self) {
         let _ = self.data.event.wake_handle().wake();
     }
