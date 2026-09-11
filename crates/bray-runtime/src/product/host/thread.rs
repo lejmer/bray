@@ -1,8 +1,8 @@
 use bray_runtime_abi::NativeProductHostObservation;
 
-use super::super::cleanup::report_static_cleanup;
+use super::super::cleanup::StaticCleanup;
 
-use super::model::{THREAD_STATICS, ThreadStaticEntry, product_hosts};
+use super::model::{THREAD_STATICS, product_hosts};
 use super::operations::{release_thread_attachment, report_incidents};
 
 pub(super) extern "C-unwind" fn drain_thread_statics() {
@@ -44,7 +44,7 @@ pub(crate) fn drain_product_thread_statics(product: usize) -> Option<NativeProdu
     None
 }
 
-fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) {
+fn run_product_thread_cleanups(product: usize, entries: Vec<StaticCleanup>) {
     let Some(owner) = entries.first().copied() else {
         return;
     };
@@ -59,15 +59,9 @@ fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) 
 
     let mut cleanup = || {
         for entry in &entries {
-            let count = report_static_cleanup(
-                entry.prepare,
-                entry.finalizer,
-                entry.destroy,
-                entry.detach,
-                execution,
-            );
+            let count = entry.report(execution);
 
-            report_incidents(product, entry.static_identity, count);
+            report_incidents(product, entry.identity, count);
         }
     };
 
@@ -86,5 +80,5 @@ fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) 
         let _ = incident.report();
     }
 
-    report_incidents(product, owner.static_identity, count);
+    report_incidents(product, owner.identity, count);
 }

@@ -33,9 +33,9 @@ pub(super) fn ensure_formed(
     let execution = retain().map_err(|status| unformed(host_status(status)))?;
 
     if execution.is_none()
-        && statics
-            .iter()
-            .any(|entry| entry.finalizer.execution() == NativeCleanupExecution::ASYNCHRONOUS)
+        && statics.iter().any(|entry| {
+            entry.cleanup.finalizer.execution() == NativeCleanupExecution::ASYNCHRONOUS
+        })
     {
         return Err(unformed(NativeProductHostStatus::RUNTIME_FAILURE));
     }

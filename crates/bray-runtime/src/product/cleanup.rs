@@ -4,61 +4,65 @@ use bray_runtime_abi::{
     NativeBrayCallOutcome, NativeCleanupExecution, NativeCleanupIncident,
     NativePanicReportCallbacks, NativeRuntimeStatus, NativeSourceAnchor,
     NativeStaticCleanupCallback, NativeStaticFinalizer, NativeStaticFinalizerStatus,
-    NativeStaticTransitionCallback, NativeTypeIdentity,
+    NativeStaticIdentity, NativeStaticTransitionCallback, NativeTypeIdentity,
 };
 
 use super::execution::ProductExecution;
 use crate::incident::OwnedCleanupIncident;
 
-pub(super) fn run_static_cleanup(
-    prepare: NativeStaticTransitionCallback,
-    finalizer: NativeStaticFinalizer,
-    destroy: NativeStaticCleanupCallback,
-    detach: NativeStaticTransitionCallback,
-    execution: Option<&dyn ProductExecution>,
-) -> Vec<OwnedCleanupIncident> {
-    let ((), incidents) = crate::native::with_cleanup_incident_owner(|record| {
-        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| prepare())) {
-            record(OwnedCleanupIncident::host(payload));
-        }
-
-        for incident in run_finalizer(finalizer, execution) {
-            record(incident);
-        }
-
-        match catch_unwind(AssertUnwindSafe(|| destroy())) {
-            Ok(outcome) => {
-                if let Some(incident) = OwnedCleanupIncident::boundary(outcome, finalizer.panics())
-                {
-                    record(incident);
-                }
-            }
-            Err(payload) => record(OwnedCleanupIncident::host(payload)),
-        }
-
-        if let Err(payload) = catch_unwind(AssertUnwindSafe(|| detach())) {
-            record(OwnedCleanupIncident::host(payload));
-        }
-    });
-
-    incidents
+#[derive(Clone, Copy)]
+pub(in crate::product) struct StaticCleanup {
+    pub(in crate::product) identity: NativeStaticIdentity,
+    pub(in crate::product) order: u64,
+    pub(in crate::product) prepare: NativeStaticTransitionCallback,
+    pub(in crate::product) finalizer: NativeStaticFinalizer,
+    pub(in crate::product) destroy: NativeStaticCleanupCallback,
+    pub(in crate::product) detach: NativeStaticTransitionCallback,
 }
 
-pub(super) fn report_static_cleanup(
-    prepare: NativeStaticTransitionCallback,
-    finalizer: NativeStaticFinalizer,
-    destroy: NativeStaticCleanupCallback,
-    detach: NativeStaticTransitionCallback,
-    execution: Option<&dyn ProductExecution>,
-) -> usize {
-    let incidents = run_static_cleanup(prepare, finalizer, destroy, detach, execution);
-    let count = incidents.len();
+impl StaticCleanup {
+    pub(in crate::product) fn run(
+        &self,
+        execution: Option<&dyn ProductExecution>,
+    ) -> Vec<OwnedCleanupIncident> {
+        let ((), incidents) = crate::native::with_cleanup_incident_owner(|record| {
+            if let Err(payload) = catch_unwind(AssertUnwindSafe(|| (self.prepare)())) {
+                record(OwnedCleanupIncident::host(payload));
+            }
 
-    for incident in incidents {
-        let _ = incident.report();
+            for incident in run_finalizer(self.finalizer, execution) {
+                record(incident);
+            }
+
+            match catch_unwind(AssertUnwindSafe(|| (self.destroy)())) {
+                Ok(outcome) => {
+                    if let Some(incident) =
+                        OwnedCleanupIncident::boundary(outcome, self.finalizer.panics())
+                    {
+                        record(incident);
+                    }
+                }
+                Err(payload) => record(OwnedCleanupIncident::host(payload)),
+            }
+
+            if let Err(payload) = catch_unwind(AssertUnwindSafe(|| (self.detach)())) {
+                record(OwnedCleanupIncident::host(payload));
+            }
+        });
+
+        incidents
     }
 
-    count
+    pub(in crate::product) fn report(&self, execution: Option<&dyn ProductExecution>) -> usize {
+        let incidents = self.run(execution);
+        let count = incidents.len();
+
+        for incident in incidents {
+            let _ = incident.report();
+        }
+
+        count
+    }
 }
 
 fn run_finalizer(
@@ -239,7 +243,16 @@ mod tests {
             crate::test_support::panic_callbacks(report, destroy_report),
         );
 
-        let incidents = super::run_static_cleanup(prepare, finalizer, destroy, detach, None);
+        let cleanup = super::StaticCleanup {
+            identity: bray_runtime_abi::NativeStaticIdentity::new([1; 32]),
+            order: 0,
+            prepare,
+            finalizer,
+            destroy,
+            detach,
+        };
+
+        let incidents = cleanup.run(None);
 
         assert_eq!(incidents.len(), 5);
         assert!(REPORTED.with(|events| events.borrow().is_empty()));

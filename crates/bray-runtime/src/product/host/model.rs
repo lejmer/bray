@@ -4,12 +4,12 @@ use std::sync::{Mutex, OnceLock};
 
 use bray_runtime_abi::{
     NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostState,
-    NativeProductHostStatus, NativeProductIdentity, NativeRuntimeStatus,
-    NativeStaticCleanupCallback, NativeStaticDuration, NativeStaticFinalizer, NativeStaticIdentity,
-    NativeStaticTransitionCallback,
+    NativeProductHostStatus, NativeProductIdentity, NativeRuntimeStatus, NativeStaticDuration,
+    NativeStaticIdentity,
 };
 
 use super::attachment::ThreadStaticRegistry;
+use crate::product::cleanup::StaticCleanup;
 
 // Loaded products share one process registry so archive and shared-library hosts coordinate with
 // exact-thread attachments owned by the same runtime.
@@ -22,13 +22,8 @@ thread_local! {
 
 #[derive(Clone, Copy)]
 pub(super) struct ProductStatic {
-    pub(super) identity: NativeStaticIdentity,
     pub(super) duration: NativeStaticDuration,
-    pub(super) order: u64,
-    pub(super) prepare: NativeStaticTransitionCallback,
-    pub(super) finalizer: NativeStaticFinalizer,
-    pub(super) destroy: NativeStaticCleanupCallback,
-    pub(super) detach: NativeStaticTransitionCallback,
+    pub(super) cleanup: StaticCleanup,
 }
 
 pub(super) struct ProductHost {
@@ -84,7 +79,7 @@ impl ProductHost {
         self.statics
             .iter()
             .copied()
-            .find(|entry| entry.identity == identity)
+            .find(|entry| entry.cleanup.identity == identity)
     }
 }
 
@@ -93,16 +88,6 @@ pub(super) struct PendingCleanup {
     pub(super) execution: Option<crate::product::RetainedProductExecution>,
     pub(super) statics: Vec<ProductStatic>,
     pub(super) thread: bray_platform::RuntimeThreadReservation,
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct ThreadStaticEntry {
-    pub(super) static_identity: NativeStaticIdentity,
-    pub(super) order: u64,
-    pub(super) prepare: NativeStaticTransitionCallback,
-    pub(super) finalizer: NativeStaticFinalizer,
-    pub(super) destroy: NativeStaticCleanupCallback,
-    pub(super) detach: NativeStaticTransitionCallback,
 }
 
 pub(super) fn product_hosts() -> &'static Mutex<HashMap<usize, ProductHost>> {

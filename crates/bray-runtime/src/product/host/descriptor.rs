@@ -4,6 +4,7 @@ use bray_runtime_abi::{
 };
 
 use super::model::ProductStatic;
+use crate::product::cleanup::StaticCleanup;
 
 const MAXIMUM_STATIC_ENTRIES: usize = 1_000_000;
 
@@ -67,13 +68,15 @@ pub(super) fn read_statics(
 
     for entry in entries {
         statics.push(ProductStatic {
-            identity: entry.identity(),
             duration: entry.duration(),
-            order: entry.order(),
-            prepare: entry.prepare(),
-            finalizer: entry.finalizer(),
-            destroy: entry.destroy(),
-            detach: entry.detach(),
+            cleanup: StaticCleanup {
+                identity: entry.identity(),
+                order: entry.order(),
+                prepare: entry.prepare(),
+                finalizer: entry.finalizer(),
+                destroy: entry.destroy(),
+                detach: entry.detach(),
+            },
         });
     }
 

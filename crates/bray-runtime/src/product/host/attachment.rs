@@ -2,7 +2,8 @@ use bray_runtime_abi::{
     NativeProductHostState, NativeProductIdentity, NativeRuntimeStatus, NativeStaticDuration,
 };
 
-use super::model::{ThreadStaticEntry, product_hosts};
+use super::model::product_hosts;
+use crate::product::cleanup::StaticCleanup;
 
 pub(super) struct ThreadProductAttachment {
     pub(super) product: usize,
@@ -10,7 +11,7 @@ pub(super) struct ThreadProductAttachment {
     pub(super) identity: u64,
     pub(super) acquired: bool,
     pub(super) worker: bool,
-    pub(super) entries: Vec<ThreadStaticEntry>,
+    pub(super) entries: Vec<StaticCleanup>,
 }
 
 pub(super) struct ThreadStaticRegistry {

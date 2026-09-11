@@ -4,13 +4,13 @@ use bray_runtime_abi::{
     NativeStaticIdentity, NativeThreadStaticCleanupRegistration,
 };
 
-use super::super::cleanup::report_static_cleanup;
+use super::super::cleanup::StaticCleanup;
 
 use super::formation::ensure_formed;
 
 use super::model::{
-    PendingCleanup, ProductHost, ProductStatic, THREAD_STATICS, ThreadStaticEntry, host_status,
-    product_hosts, product_key, runtime_status,
+    PendingCleanup, ProductHost, ProductStatic, THREAD_STATICS, host_status, product_hosts,
+    product_key, runtime_status,
 };
 
 pub(crate) fn control(
@@ -141,8 +141,8 @@ pub(crate) fn register_thread_static(
     let finalizer = registration.finalizer();
 
     if entry.duration != NativeStaticDuration::EXACT_THREAD
-        || finalizer.execution() != entry.finalizer.execution()
-        || finalizer.metadata().is_some() != entry.finalizer.metadata().is_some()
+        || finalizer.execution() != entry.cleanup.finalizer.execution()
+        || finalizer.metadata().is_some() != entry.cleanup.finalizer.metadata().is_some()
     {
         return NativeRuntimeStatus::INVALID_ARGUMENT;
     }
@@ -158,7 +158,7 @@ pub(crate) fn register_thread_static(
         if attachment
             .entries
             .iter()
-            .any(|entry| entry.static_identity == registration.static_identity())
+            .any(|entry| entry.identity == registration.static_identity())
         {
             return NativeRuntimeStatus::SUCCESS;
         }
@@ -181,9 +181,9 @@ pub(crate) fn register_thread_static(
             "thread-static records must fit admitted attachment storage"
         );
 
-        attachment.entries.push(ThreadStaticEntry {
-            static_identity: registration.static_identity(),
-            order: entry.order,
+        attachment.entries.push(StaticCleanup {
+            identity: registration.static_identity(),
+            order: entry.cleanup.order,
             prepare: registration.prepare(),
             finalizer: registration.finalizer(),
             destroy: registration.destroy(),
@@ -493,18 +493,12 @@ fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
 
     let mut run_cleanup = || {
         for entry in &cleanup.statics {
-            let reported = report_static_cleanup(
-                entry.prepare,
-                entry.finalizer,
-                entry.destroy,
-                entry.detach,
-                execution,
-            );
+            let reported = entry.cleanup.report(execution);
 
             incident_count = incident_count.saturating_add(reported);
 
             if reported != 0 {
-                last_incident = Some(entry.identity);
+                last_incident = Some(entry.cleanup.identity);
             }
         }
     };
@@ -521,7 +515,9 @@ fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
     let runtime_identity = cleanup
         .statics
         .first()
-        .map_or(NativeStaticIdentity::new([0; 32]), |entry| entry.identity);
+        .map_or(NativeStaticIdentity::new([0; 32]), |entry| {
+            entry.cleanup.identity
+        });
 
     incident_count = incident_count.saturating_add(runtime_incidents.len());
 
@@ -1076,12 +1072,15 @@ mod tests {
         let valid = super::super::descriptor::read_statics(&descriptor).unwrap();
 
         assert_eq!(
-            valid.iter().map(|entry| entry.order).collect::<Vec<_>>(),
+            valid
+                .iter()
+                .map(|entry| entry.cleanup.order)
+                .collect::<Vec<_>>(),
             [0, 1]
         );
 
-        assert_eq!(valid[0].identity, NativeStaticIdentity::new([2; 32]));
-        assert_eq!(valid[1].identity, NativeStaticIdentity::new([1; 32]));
+        assert_eq!(valid[0].cleanup.identity, NativeStaticIdentity::new([2; 32]));
+        assert_eq!(valid[1].cleanup.identity, NativeStaticIdentity::new([1; 32]));
 
         for case in 1..=6 {
             CASE.set(case);
