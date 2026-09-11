@@ -18,6 +18,13 @@ use super::core::{
     with_runtime,
 };
 
+pub(in crate::native) fn scheduler_status(error: crate::SchedulerError) -> NativeRuntimeStatus {
+    match error {
+        crate::SchedulerError::AdmissionAllocation(_) => NativeRuntimeStatus::ALLOCATION_FAILURE,
+        _ => NativeRuntimeStatus::RUNTIME_FAILURE,
+    }
+}
+
 pub(crate) fn thread_attachment_status(error: bray_platform::PlatformError) -> NativeRuntimeStatus {
     match error.kind() {
         bray_platform::PlatformErrorKind::Io(std::io::ErrorKind::OutOfMemory) => {

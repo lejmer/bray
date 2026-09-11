@@ -133,7 +133,13 @@ mod tests {
 
             assert_eq!(ready.task(), task.id());
             assert!(visits.load(Ordering::Relaxed) >= 4);
-            ready.complete().unwrap();
+
+            {
+                let execution = ready.execution_state().clone();
+
+                ready.complete(execution)
+            }
+            .unwrap();
         });
     }
 }

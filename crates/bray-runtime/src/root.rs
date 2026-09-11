@@ -5,10 +5,10 @@ use bray_runtime_model::ProtectedFrameStateId;
 
 use crate::context::{with_run_cancellation_context, with_task_execution_context};
 use crate::{
-    CancellationContext, CleanupIncidentProducer, CleanupReportSink,
-    ExecutionLane, ExecutionLanePlacement, ExecutionWorkload, ProtectedFrame, ReadyTask,
-    RunOutcome, Scheduler, SchedulerError, TaskControlBlock, TaskExecutionContext, TaskId,
-    TaskObservationError, TaskResumeError, TaskResumeStatus, TaskStartError, TaskStartFailure,
+    CancellationContext, CleanupIncidentProducer, CleanupReportSink, ExecutionLane,
+    ExecutionLanePlacement, ExecutionWorkload, ProtectedFrame, ReadyTask, RunOutcome, Scheduler,
+    SchedulerError, TaskControlBlock, TaskExecutionContext, TaskId, TaskObservationError,
+    TaskResumeError, TaskResumeStatus, TaskStartError, TaskStartFailure,
 };
 
 /// Product-host authority to request cancellation of the executable root run.
@@ -207,7 +207,7 @@ where
             // The execution context owns an independent view for the duration of resume.
             let context = TaskExecutionContext::new(
                 root.id(),
-                ready.state(),
+                ready.execution_state().clone(),
                 root.cancellation_context().clone(),
                 root.output_context().clone(),
                 ready.lane(),
@@ -218,8 +218,8 @@ where
 
             match status {
                 TaskResumeStatus::Suspended(_, execution) => ready.suspend(execution)?,
-                TaskResumeStatus::Terminal(_) => {
-                    ready.complete()?;
+                TaskResumeStatus::Terminal(_, execution) => {
+                    ready.complete(execution)?;
                     drop(registration);
 
                     return root.take_outcome().map_err(Into::into);
@@ -233,11 +233,7 @@ where
         let panic = root.resolve_runtime_failure();
 
         if let Some(panic) = panic {
-            cleanup_reports.transfer(
-                CleanupIncidentProducer::Task(root.id()),
-                origin,
-                panic,
-            );
+            cleanup_reports.transfer(CleanupIncidentProducer::Task(root.id()), origin, panic);
         }
     }
 
@@ -529,7 +525,7 @@ mod tests {
 
                 let context = TaskExecutionContext::new(
                     child.id(),
-                    ready.state(),
+                    ready.execution_state().clone(),
                     child.cancellation_context().clone(),
                     child.output_context().clone(),
                     ready.lane(),
@@ -540,7 +536,7 @@ mod tests {
 
                 match status {
                     TaskResumeStatus::Suspended(_, execution) => ready.suspend(execution)?,
-                    TaskResumeStatus::Terminal(_) => ready.complete()?,
+                    TaskResumeStatus::Terminal(_, execution) => ready.complete(execution)?,
                 }
 
                 Ok(())

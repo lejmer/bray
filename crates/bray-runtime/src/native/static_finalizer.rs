@@ -34,7 +34,7 @@ pub(super) fn run_cleanup_frame(
             return vec![crate::incident::OwnedCleanupIncident::runtime_failure()];
         };
 
-        if !runtime.start(task, &mut transfer, None).is_success() {
+        if !runtime.start(task, &mut transfer).is_success() {
             return vec![crate::incident::OwnedCleanupIncident::runtime_failure()];
         }
 

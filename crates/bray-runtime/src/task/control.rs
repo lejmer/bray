@@ -77,7 +77,7 @@ pub enum TaskResumeStatus {
     /// The frame suspended in one checked state.
     Suspended(FrameSuspension, FrameExecutionState),
     /// The task published one terminal outcome.
-    Terminal(RunOutcomeKind),
+    Terminal(RunOutcomeKind, crate::FrameExecutionState),
 }
 
 /// A task-control-block operation that cannot safely resume its frame.
@@ -308,7 +308,7 @@ where
             return Err(TaskResumeError::AlreadyRunning);
         };
 
-        let mut frame = {
+        let (mut frame, previous_execution) = {
             let mut data = self.lock_data()?;
 
             if !matches!(data.state, TaskState::Ready | TaskState::Suspended(_)) {
@@ -324,7 +324,7 @@ where
 
             data.state = TaskState::Running;
 
-            frame
+            (frame, data.execution.clone())
         };
 
         let context = FrameContext::new(self.cancellation_observable());
@@ -334,7 +334,7 @@ where
 
             let execution = match &progress {
                 FrameProgress::Suspended(suspension) => frame.execution_state(suspension.state()),
-                _ => None,
+                _ => frame.execution_state(previous_execution.state()),
             };
 
             (progress, execution)
@@ -362,6 +362,13 @@ where
         };
 
         if let Some(failure) = failure {
+            if let Some(execution) = execution {
+                self.data
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .execution = execution;
+            }
+
             let _ = resolve_failed_frame(&mut Some(frame));
             self.publish_failure(failure);
 
@@ -390,6 +397,7 @@ where
             return Ok(TaskResumeStatus::Suspended(suspension, execution));
         }
 
+        let execution = execution.unwrap_or(previous_execution);
         let outcome = finish_frame(frame.as_mut(), progress);
         let outcome = destroy_frame(Some(frame), outcome);
         let kind = outcome.kind();
@@ -401,6 +409,7 @@ where
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
 
             data.state = task_state(kind);
+            data.execution = execution.clone();
             data.outcome = Some(outcome);
 
             self.join_waiters.close()
@@ -408,7 +417,7 @@ where
 
         waiters.wake_all(self.id);
 
-        Ok(TaskResumeStatus::Terminal(kind))
+        Ok(TaskResumeStatus::Terminal(kind, execution))
     }
 
     /// Registers an observer to wake when this task becomes terminal.
@@ -638,7 +647,7 @@ mod tests {
 
         let context = TaskExecutionContext::new(
             parent.id(),
-            ProtectedFrameStateId::new(0),
+            parent.snapshot().unwrap().execution().clone(),
             parent.cancellation_context().clone(),
             parent.output_context().clone(),
             ExecutionLane::new(
@@ -717,10 +726,13 @@ mod tests {
             ))
         );
 
-        assert_eq!(
+        assert!(matches!(
             task.resume(),
-            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Completed))
-        );
+            Ok(TaskResumeStatus::Terminal(
+                crate::RunOutcomeKind::Completed,
+                _
+            ))
+        ));
 
         assert!(task.has_unobserved_outcome().unwrap_or(false));
 
@@ -773,10 +785,13 @@ mod tests {
         let task = TaskControlBlock::start_erased(frame)
             .unwrap_or_else(|error| panic!("erased test task must start: {error:?}"));
 
-        assert_eq!(
+        assert!(matches!(
             task.resume(),
-            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Completed))
-        );
+            Ok(TaskResumeStatus::Terminal(
+                crate::RunOutcomeKind::Completed,
+                _
+            ))
+        ));
 
         assert!(matches!(task.take_outcome(), Ok(RunOutcome::Completed(41))));
     }
@@ -791,10 +806,13 @@ mod tests {
         let task = TaskControlBlock::start_local(frame)
             .unwrap_or_else(|error| panic!("local test task must start: {error:?}"));
 
-        assert_eq!(
+        assert!(matches!(
             task.resume(),
-            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Completed))
-        );
+            Ok(TaskResumeStatus::Terminal(
+                crate::RunOutcomeKind::Completed,
+                _
+            ))
+        ));
 
         assert!(matches!(task.take_outcome(), Ok(RunOutcome::Completed(43))));
     }
@@ -817,10 +835,13 @@ mod tests {
         assert!(task.request_cancellation());
         assert!(!task.request_cancellation());
 
-        assert_eq!(
+        assert!(matches!(
             task.resume(),
-            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Cancelled))
-        );
+            Ok(TaskResumeStatus::Terminal(
+                crate::RunOutcomeKind::Cancelled,
+                _
+            ))
+        ));
 
         assert_eq!(wake_count.load(Ordering::Relaxed), 1);
         assert!(matches!(task.take_outcome(), Ok(RunOutcome::Cancelled)));
@@ -842,10 +863,13 @@ mod tests {
 
         drop(registration);
 
-        assert_eq!(
+        assert!(matches!(
             task.resume(),
-            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Completed))
-        );
+            Ok(TaskResumeStatus::Terminal(
+                crate::RunOutcomeKind::Completed,
+                _
+            ))
+        ));
 
         assert_eq!(wake_count.load(Ordering::Relaxed), 0);
     }
@@ -876,10 +900,13 @@ mod tests {
 
         let owner = task.register_owner_waiter(Arc::clone(&wake)).unwrap();
 
-        assert_eq!(
+        assert!(matches!(
             task.resume(),
-            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Completed))
-        );
+            Ok(TaskResumeStatus::Terminal(
+                crate::RunOutcomeKind::Completed,
+                _
+            ))
+        ));
 
         assert_eq!(wake_count.load(Ordering::Relaxed), 2);
         assert!(!owner.is_pending());
@@ -902,10 +929,13 @@ mod tests {
 
         assert!(task.cancellation_observable());
 
-        assert_eq!(
+        assert!(matches!(
             task.resume(),
-            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Cancelled))
-        );
+            Ok(TaskResumeStatus::Terminal(
+                crate::RunOutcomeKind::Cancelled,
+                _
+            ))
+        ));
     }
 
     #[test]
@@ -930,12 +960,15 @@ mod tests {
 
         release.wait();
 
-        assert_eq!(
+        assert!(matches!(
             worker
                 .join()
                 .unwrap_or_else(|_| panic!("resume worker must not panic")),
-            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Completed))
-        );
+            Ok(TaskResumeStatus::Terminal(
+                crate::RunOutcomeKind::Completed,
+                _
+            ))
+        ));
     }
 
     #[test]
@@ -943,10 +976,13 @@ mod tests {
         let task = TaskControlBlock::start(TestFrame::panicking_with_cleanup_panic())
             .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
 
-        assert_eq!(
+        assert!(matches!(
             task.resume(),
-            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Panicked))
-        );
+            Ok(TaskResumeStatus::Terminal(
+                crate::RunOutcomeKind::Panicked,
+                _
+            ))
+        ));
 
         let outcome = task
             .take_outcome()
@@ -965,10 +1001,13 @@ mod tests {
         let task = TaskControlBlock::start(TestFrame::propagating_cancellation(false))
             .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
 
-        assert_eq!(
+        assert!(matches!(
             task.resume(),
-            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Cancelled))
-        );
+            Ok(TaskResumeStatus::Terminal(
+                crate::RunOutcomeKind::Cancelled,
+                _
+            ))
+        ));
 
         assert!(matches!(task.take_outcome(), Ok(RunOutcome::Cancelled)));
     }
@@ -978,10 +1017,13 @@ mod tests {
         let task = TaskControlBlock::start(TestFrame::propagating_cancellation(true))
             .unwrap_or_else(|error| panic!("test task must start: {error:?}"));
 
-        assert_eq!(
+        assert!(matches!(
             task.resume(),
-            Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Panicked))
-        );
+            Ok(TaskResumeStatus::Terminal(
+                crate::RunOutcomeKind::Panicked,
+                _
+            ))
+        ));
 
         let Ok(RunOutcome::Panicked(panic)) = task.take_outcome() else {
             panic!("cleanup panic must remain observable");
@@ -1008,6 +1050,7 @@ mod tests {
             let frame = ActiveStateFrame {
                 inner: TestFrame::invalid_suspension(),
                 execution: execution.clone(),
+                terminal_execution: None,
                 panics,
             };
 
@@ -1025,7 +1068,10 @@ mod tests {
             if panics {
                 assert!(matches!(
                     resumed,
-                    Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Panicked))
+                    Ok(TaskResumeStatus::Terminal(
+                        crate::RunOutcomeKind::Panicked,
+                        _
+                    ))
                 ));
             } else if returned_state == 9 {
                 assert!(
@@ -1051,9 +1097,58 @@ mod tests {
         }
     }
 
+    #[test]
+    fn terminal_execution_returns_to_root_after_child_suspension() {
+        let inner = TestFrame::retaining_state(42);
+
+        let root = crate::FrameExecutionState::new(
+            inner.descriptor().frame(),
+            inner
+                .descriptor()
+                .state(ProtectedFrameStateId::new(0))
+                .unwrap()
+                .clone(),
+        );
+
+        let child = crate::FrameExecutionState::new(
+            bray_runtime_model::ProtectedAsyncFrameId::new([43; 32]),
+            inner
+                .descriptor()
+                .state(ProtectedFrameStateId::new(1))
+                .unwrap()
+                .clone(),
+        );
+
+        let task = TaskControlBlock::start(ActiveStateFrame {
+            inner,
+            execution: child.clone(),
+            terminal_execution: Some(root.clone()),
+            panics: false,
+        })
+        .unwrap();
+
+        assert!(
+            matches!(task.resume(), Ok(TaskResumeStatus::Suspended(_, execution)) if execution == child)
+        );
+
+        assert_eq!(task.snapshot().unwrap().execution(), &child);
+
+        assert!(
+            matches!(task.resume(), Ok(TaskResumeStatus::Terminal(crate::RunOutcomeKind::Completed, execution)) if execution == root)
+        );
+
+        assert_eq!(task.snapshot().unwrap().execution(), &root);
+
+        assert_eq!(
+            task.execution_origin(),
+            crate::CleanupIncidentOrigin::new(root.frame(), root.state())
+        );
+    }
+
     struct ActiveStateFrame {
         inner: TestFrame,
         execution: crate::FrameExecutionState,
+        terminal_execution: Option<crate::FrameExecutionState>,
         panics: bool,
     }
 
@@ -1071,7 +1166,16 @@ mod tests {
         }
 
         fn resume(self: Pin<&mut Self>, context: FrameContext) -> FrameProgress<i32> {
-            Pin::new(&mut self.get_mut().inner).resume(context)
+            let frame = self.get_mut();
+            let progress = Pin::new(&mut frame.inner).resume(context);
+
+            if !matches!(progress, FrameProgress::Suspended(_)) {
+                if let Some(execution) = frame.terminal_execution.take() {
+                    frame.execution = execution;
+                }
+            }
+
+            progress
         }
 
         fn broadcast_tasks(self: Pin<&mut Self>) {
@@ -1197,7 +1301,11 @@ mod tests {
                     TaskState::Failed(TaskFailureKind::ExecutionInfrastructure)
                 );
             } else {
-                assert!(matches!(task.resume(), Ok(TaskResumeStatus::Terminal(_))));
+                assert!(matches!(
+                    task.resume(),
+                    Ok(TaskResumeStatus::Terminal(_, _))
+                ));
+
                 assert!(matches!(task.take_outcome(), Ok(RunOutcome::Completed(47))));
                 assert_eq!(checks.load(Ordering::Relaxed), 4);
             }

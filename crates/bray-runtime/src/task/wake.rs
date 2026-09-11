@@ -141,7 +141,11 @@ mod tests {
         crate::test_support::with_allocation_failure(|| wake.bind(registration.wake_handle()));
         let initial = ProtectedFrameStateId::new(0);
         let resumed = ProtectedFrameStateId::new(1);
-        let execution = crate::FrameExecutionState::new(parent.descriptor().frame(), parent.descriptor().state(resumed).unwrap().clone());
+
+        let execution = crate::FrameExecutionState::new(
+            parent.descriptor().frame(),
+            parent.descriptor().state(resumed).unwrap().clone(),
+        );
 
         wake.arm(first_child.id());
         wake.wake(first_child.id());
@@ -187,7 +191,13 @@ mod tests {
         wake.clear();
         wake.wake(first_child.id());
         wake.wake(next_child.id());
-        ready.complete().unwrap();
+
+        {
+            let execution = ready.execution_state().clone();
+
+            ready.complete(execution)
+        }
+        .unwrap();
 
         assert!(
             scheduler

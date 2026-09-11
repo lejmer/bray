@@ -438,7 +438,7 @@ impl RuntimeConformance for BrayRuntime {
 
         let context = TaskExecutionContext::new(
             parent.id(),
-            ProtectedFrameStateId::new(0),
+            parent.snapshot().unwrap().execution().clone(),
             parent.cancellation_context().clone(),
             parent.output_context().clone(),
             cooperative_lane(),

@@ -40,7 +40,7 @@ impl NativeThreadCancellation {
 #[derive(Clone, Debug)]
 pub struct TaskExecutionContext {
     task: TaskId,
-    state: ProtectedFrameStateId,
+    execution: crate::FrameExecutionState,
     cancellation: CancellationContext,
     output: TaskOutput,
     lane: ExecutionLane,
@@ -51,7 +51,7 @@ impl TaskExecutionContext {
     /// Creates the context for one task resume.
     pub(crate) const fn new(
         task: TaskId,
-        state: ProtectedFrameStateId,
+        execution: crate::FrameExecutionState,
         cancellation: CancellationContext,
         output: TaskOutput,
         lane: ExecutionLane,
@@ -59,7 +59,7 @@ impl TaskExecutionContext {
     ) -> Self {
         Self {
             task,
-            state,
+            execution,
             cancellation,
             output,
             lane,
@@ -74,7 +74,12 @@ impl TaskExecutionContext {
 
     /// Returns the protected-frame state active for this resume.
     pub const fn state(&self) -> ProtectedFrameStateId {
-        self.state
+        self.execution.state()
+    }
+
+    /// Returns the active frame identity and its checked local execution metadata.
+    pub const fn execution(&self) -> &crate::FrameExecutionState {
+        &self.execution
     }
 
     /// Returns this task's structured cancellation context.
@@ -98,12 +103,15 @@ pub fn current_task_execution_context() -> Option<TaskExecutionContext> {
     CURRENT_CONTEXT.with(|context| context.borrow().clone())
 }
 
+pub(crate) fn current_task_execution_lane() -> Option<ExecutionLane> {
+    CURRENT_CONTEXT.with(|context| context.borrow().as_ref().map(TaskExecutionContext::lane))
+}
+
 pub(crate) fn current_task_start_site() -> Option<TaskStartSite> {
     CURRENT_CONTEXT.with(|context| {
-        context
-            .borrow()
-            .as_ref()
-            .map(|context| TaskStartSite::new(context.task, context.state))
+        context.borrow().as_ref().map(|context| {
+            TaskStartSite::new(context.task, context.execution.frame(), context.state())
+        })
     })
 }
 
@@ -164,6 +172,41 @@ pub(crate) fn with_native_thread_cancellation<T>(
     let _guard = NativeThreadCancellationGuard(previous);
 
     operation()
+}
+
+/// Temporarily selects an active frame without reinstalling the owning run's context.
+pub(crate) fn with_task_frame_execution<T>(
+    execution: crate::FrameExecutionState,
+    lane: ExecutionLane,
+    callback: impl FnOnce() -> T,
+) -> T {
+    let previous = CURRENT_CONTEXT.with(|current| {
+        current.borrow_mut().as_mut().map(|context| {
+            (
+                std::mem::replace(&mut context.execution, execution),
+                std::mem::replace(&mut context.lane, lane),
+            )
+        })
+    });
+
+    let _guard = FrameExecutionGuard(previous);
+
+    callback()
+}
+
+struct FrameExecutionGuard(Option<(crate::FrameExecutionState, ExecutionLane)>);
+
+impl Drop for FrameExecutionGuard {
+    fn drop(&mut self) {
+        if let Some((previous, lane)) = self.0.take() {
+            CURRENT_CONTEXT.with(|current| {
+                if let Some(context) = current.borrow_mut().as_mut() {
+                    context.execution = previous;
+                    context.lane = lane;
+                }
+            });
+        }
+    }
 }
 
 /// Installs one task-local context for the duration of a resume operation.
@@ -316,7 +359,7 @@ mod tests {
 
         let context = TaskExecutionContext::new(
             task.id(),
-            ProtectedFrameStateId::new(0),
+            task.snapshot().unwrap().execution().clone(),
             cancellation,
             task.output_context().clone(),
             lane,
@@ -342,9 +385,82 @@ mod tests {
                     .map(TaskExecutionContext::state),
                 Some(ProtectedFrameStateId::new(0))
             );
+
+            let root = current_task_execution_context().unwrap();
+
+            let child = crate::FrameExecutionState::new(
+                bray_runtime_model::ProtectedAsyncFrameId::new([81; 32]),
+                root.execution().descriptor().clone(),
+            );
+
+            let nested = crate::FrameExecutionState::new(
+                bray_runtime_model::ProtectedAsyncFrameId::new([82; 32]),
+                child.descriptor().clone(),
+            );
+
+            let child_lane = ExecutionLane::new(
+                ExecutionLanePlacement::OriginThread(runtime.runtime().id()),
+                ExecutionWorkload::Cooperative,
+            );
+
+            super::with_task_frame_execution(child.clone(), child_lane, || {
+                let current = current_task_execution_context().unwrap();
+                assert_eq!(current.execution(), &child);
+                assert_eq!(current.lane(), child_lane);
+                let created = TaskControlBlock::start(TestFrame::completing(2)).unwrap();
+                let site = created.snapshot().unwrap().start_site().unwrap();
+                assert_eq!(site.parent(), task.id());
+                assert_eq!(site.frame(), child.frame());
+                assert_eq!(site.state(), child.state());
+
+                let failure = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    super::with_task_frame_execution(nested.clone(), lane, || {
+                        assert_eq!(
+                            current_task_execution_context().unwrap().execution(),
+                            &nested
+                        );
+
+                        assert_eq!(
+                            super::current_task_start_site().unwrap().frame(),
+                            nested.frame()
+                        );
+
+                        panic!("restore active frame metadata");
+                    });
+                }));
+
+                assert!(failure.is_err());
+
+                assert_eq!(
+                    current_task_execution_context().unwrap().execution(),
+                    &child
+                );
+
+                assert_eq!(current_task_execution_context().unwrap().lane(), child_lane);
+                current.cancellation().request();
+                assert!(current_run_cancellation_requested());
+            });
+
+            assert_eq!(
+                current_task_execution_context().unwrap().execution(),
+                root.execution()
+            );
+
+            assert_eq!(
+                current_task_execution_context().unwrap().lane(),
+                root.lane()
+            );
+
+            assert!(current_run_cancellation_requested());
         });
 
         assert!(current_task_execution_context().is_none());
+        let execution = task.snapshot().unwrap().execution().clone();
+
+        super::with_task_frame_execution(execution, lane, || {
+            assert!(current_task_execution_context().is_none());
+            assert!(super::current_task_start_site().is_none());
+        });
     }
 
     #[cfg(feature = "test-output")]
@@ -380,7 +496,7 @@ mod tests {
 
         let context = TaskExecutionContext::new(
             task.id(),
-            ProtectedFrameStateId::new(0),
+            task.snapshot().unwrap().execution().clone(),
             cancellation,
             task.output_context().clone(),
             ExecutionLane::new(

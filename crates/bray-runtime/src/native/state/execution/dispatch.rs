@@ -85,7 +85,7 @@ impl NativeRuntime {
         // The resume context retains one wake handle while yield publication uses the other.
         let context = TaskExecutionContext::new(
             task.id(),
-            ready.state(),
+            ready.execution_state().clone(),
             task.cancellation_context().clone(),
             task.output_context().clone(),
             ready.lane(),
@@ -110,7 +110,9 @@ impl NativeRuntime {
                 };
 
                 if terminal {
-                    let _ = ready.complete();
+                    if let Ok(snapshot) = task.snapshot() {
+                        let _ = ready.complete(snapshot.execution().clone());
+                    }
                 }
 
                 return NativeRuntimeStatus::RUNTIME_FAILURE;
@@ -137,7 +139,7 @@ impl NativeRuntime {
 
                         Some(child)
                     }
-                    FrameSuspensionKind::Awaited => self.awaited_child(handle),
+                    FrameSuspensionKind::Awaited => None,
                     FrameSuspensionKind::Yield => None,
                     FrameSuspensionKind::TaskEvent => {
                         unreachable!("event suspension was handled above")
@@ -167,8 +169,8 @@ impl NativeRuntime {
                     NativeRuntimeStatus::SUCCESS
                 }
             }
-            TaskResumeStatus::Terminal(_) => ready
-                .complete()
+            TaskResumeStatus::Terminal(_, execution) => ready
+                .complete(execution)
                 .map_or(NativeRuntimeStatus::RUNTIME_FAILURE, |()| {
                     NativeRuntimeStatus::SUCCESS
                 }),
@@ -251,6 +253,20 @@ impl NativeRuntime {
         })
     }
 
+    pub(in crate::native) fn current_execution_lane(
+        &self,
+        execution: &crate::FrameExecutionState,
+    ) -> Result<crate::ExecutionLane, NativeRuntimeStatus> {
+        let handle = super::super::binding::current_native_task()
+            .ok_or(NativeRuntimeStatus::INVALID_ARGUMENT)?;
+
+        self.with_started(handle, |task| {
+            task.registration()
+                .execution_lane(execution)
+                .map_err(|_| NativeRuntimeStatus::RUNTIME_FAILURE)
+        })?
+    }
+
     pub(in crate::native) fn lane(
         &self,
         handle: NativeTaskHandle,
@@ -267,7 +283,7 @@ impl NativeRuntime {
         .unwrap_or_else(NativeExecutionLaneResult::failure)
     }
 
-    pub(in crate::native::state::execution) fn with_started<T>(
+    pub(in crate::native) fn with_started<T>(
         &self,
         handle: NativeTaskHandle,
         callback: impl FnOnce(&StartedTask) -> T,
@@ -394,8 +410,7 @@ mod tests {
                     assert_eq!(
                         runtime.start(
                             handle,
-                            &mut crate::native::frame::NativeFrameTransfer::new(frame),
-                            None,
+                            &mut crate::native::frame::NativeFrameTransfer::new(frame)
                         ),
                         NativeRuntimeStatus::SUCCESS
                     );

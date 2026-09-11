@@ -189,12 +189,7 @@ fn reserve_runtime(
     runtime
         .scheduler
         .reserve_cleanup_capacity(tasks, lanes)
-        .map_err(|error| match error {
-            crate::SchedulerError::AdmissionAllocation(_) => {
-                NativeRuntimeStatus::ALLOCATION_FAILURE
-            }
-            _ => NativeRuntimeStatus::RUNTIME_FAILURE,
-        })?;
+        .map_err(super::super::state::scheduler_status)?;
 
     runtime
         .cleanup_task_capacity
@@ -320,6 +315,19 @@ impl FrameTaskClaim {
         self.owner = None;
 
         reservation.install(frame)
+    }
+    pub(in crate::native) fn install_activation(
+        mut self,
+        frame: NativeProtectedFrame,
+    ) -> Box<super::super::run::NativeActivation> {
+        let reservation = self
+            .reservation
+            .take()
+            .unwrap_or_else(|| unreachable!("frame activation claim must install once"));
+
+        self.owner = None;
+
+        reservation.install_activation(frame)
     }
 }
 
@@ -447,7 +455,7 @@ mod tests {
             let task = allocation.task().unwrap();
 
             assert_eq!(
-                runtime.start(task, &mut transfer, None),
+                runtime.start(task, &mut transfer),
                 NativeRuntimeStatus::SUCCESS
             );
 
@@ -561,7 +569,7 @@ mod tests {
                     let mut transfer = NativeFrameTransfer::new(adapter(0, NativeFrameEntry::Body));
 
                     assert_eq!(
-                        runtime.start(task, &mut transfer, None),
+                        runtime.start(task, &mut transfer),
                         NativeRuntimeStatus::SUCCESS
                     );
 
@@ -658,7 +666,7 @@ mod tests {
                 NativeFrameTransfer::borrowed(adapter(address, NativeFrameEntry::Body));
 
             assert_eq!(
-                with_allocation_failure(|| runtime.start(task, &mut transfer, None)),
+                with_allocation_failure(|| runtime.start(task, &mut transfer)),
                 NativeRuntimeStatus::RUNTIME_FAILURE
             );
 
@@ -668,7 +676,7 @@ mod tests {
 
             with_allocation_failure(|| {
                 assert_eq!(
-                    runtime.start(task, &mut transfer, None),
+                    runtime.start(task, &mut transfer),
                     NativeRuntimeStatus::SUCCESS
                 );
 
@@ -771,7 +779,7 @@ mod tests {
                 let mut frame = NativeFrameTransfer::new(adapter(0, NativeFrameEntry::Body));
 
                 assert_eq!(
-                    runtime.start(task, &mut frame, None),
+                    runtime.start(task, &mut frame),
                     NativeRuntimeStatus::SUCCESS
                 );
 

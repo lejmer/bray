@@ -8,43 +8,14 @@ use super::super::core::{NativeRuntime, NativeTaskSlot, StartedTask};
 impl NativeRuntime {
     pub(in crate::native) fn compose_awaited(
         &self,
-        mut transfer: crate::native::frame::NativeFrameTransfer,
+        transfer: crate::native::frame::NativeFrameTransfer,
     ) -> NativeRuntimeStatus {
         let Some(parent) = current_native_task() else {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
         };
 
-        self.with_started(parent, |task| {
-            let mut awaited = task
-                .awaited
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-
-            if awaited.is_some() {
-                return NativeRuntimeStatus::RUNTIME_FAILURE;
-            }
-
-            let allocation = self.allocate_frame_continuation(&transfer);
-
-            let Some(child) = allocation.task() else {
-                return allocation.status();
-            };
-
-            let status = self.start(
-                child,
-                &mut transfer,
-                Some(triomphe::Arc::clone(&task.terminal)),
-            );
-
-            if !status.is_success() {
-                return status;
-            }
-
-            *awaited = Some(child);
-
-            NativeRuntimeStatus::SUCCESS
-        })
-        .unwrap_or_else(|status| status)
+        self.with_started(parent, |task| task.run.compose(transfer))
+            .unwrap_or_else(|status| status)
     }
 
     pub(in crate::native) fn resolve_awaited_terminal(
@@ -55,38 +26,8 @@ impl NativeRuntime {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
         };
 
-        let Some(child) = self.awaited_child(parent) else {
-            return NativeRuntimeStatus::UNKNOWN_TASK;
-        };
-
-        if let Err(status) = self.transfer_task_outcome(child, transfer) {
-            return status;
-        }
-
-        if let Err(status) = self.with_started(parent, |task| {
-            task.awaited
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .take();
-        }) {
-            return status;
-        }
-
-        self.destroy_task(child)
-    }
-
-    pub(in crate::native::state) fn awaited_child(
-        &self,
-        parent: NativeTaskHandle,
-    ) -> Option<NativeTaskHandle> {
-        self.with_started(parent, |task| {
-            *task
-                .awaited
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-        })
-        .ok()
-        .flatten()
+        self.with_started(parent, |task| task.run.transfer_child(transfer))
+            .unwrap_or_else(|status| status)
     }
 
     pub(in crate::native::state::execution) fn register_continuation_wait(
@@ -243,8 +184,7 @@ mod tests {
                     assert_eq!(
                         runtime.start(
                             child,
-                            &mut crate::native::frame::NativeFrameTransfer::new(child_frame),
-                            None
+                            &mut crate::native::frame::NativeFrameTransfer::new(child_frame)
                         ),
                         NativeRuntimeStatus::SUCCESS
                     );
@@ -257,8 +197,7 @@ mod tests {
                     assert_eq!(
                         runtime.start(
                             parent,
-                            &mut crate::native::frame::NativeFrameTransfer::new(parent_frame),
-                            None
+                            &mut crate::native::frame::NativeFrameTransfer::new(parent_frame)
                         ),
                         NativeRuntimeStatus::SUCCESS
                     );
@@ -266,8 +205,7 @@ mod tests {
                     assert_eq!(
                         runtime.start(
                             parent,
-                            &mut crate::native::frame::NativeFrameTransfer::new(parent_frame),
-                            None
+                            &mut crate::native::frame::NativeFrameTransfer::new(parent_frame)
                         ),
                         NativeRuntimeStatus::SUCCESS
                     );
@@ -275,8 +213,7 @@ mod tests {
                     assert_eq!(
                         runtime.start(
                             child,
-                            &mut crate::native::frame::NativeFrameTransfer::new(child_frame),
-                            None
+                            &mut crate::native::frame::NativeFrameTransfer::new(child_frame)
                         ),
                         NativeRuntimeStatus::SUCCESS
                     );
@@ -372,8 +309,7 @@ mod tests {
             assert_eq!(
                 runtime.start(
                     child,
-                    &mut crate::native::frame::NativeFrameTransfer::new(frame),
-                    None
+                    &mut crate::native::frame::NativeFrameTransfer::new(frame)
                 ),
                 NativeRuntimeStatus::SUCCESS
             );

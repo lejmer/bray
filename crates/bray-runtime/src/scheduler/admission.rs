@@ -220,6 +220,7 @@ impl Scheduler {
                     wake_count: 0,
                     ready_lanes: std::mem::take(ready_lanes),
                     ready_slot,
+                    origin_lane: None,
                 },
             );
 
@@ -304,13 +305,20 @@ impl SchedulerState {
             self.ready.release(registered.ready_slot, &mut self.queues);
             self.release_ready_queues(&registered.ready_lanes);
 
+            if let Some(lane) = registered.origin_lane {
+                self.release_ready_queues(&[lane]);
+            }
+
             if registered.admission == TaskAdmissionKind::Independent {
                 self.independent_tasks -= 1;
             }
         }
     }
 
-    fn reserve_ready_queues(&mut self, lanes: &[ExecutionLane]) -> Result<(), SchedulerError> {
+    pub(super) fn reserve_ready_queues(
+        &mut self,
+        lanes: &[ExecutionLane],
+    ) -> Result<(), SchedulerError> {
         let additional = lanes
             .iter()
             .filter(|lane| !self.queues.contains_key(lane))
@@ -335,7 +343,7 @@ impl SchedulerState {
         Ok(())
     }
 
-    fn release_ready_queues(&mut self, lanes: &[ExecutionLane]) {
+    pub(super) fn release_ready_queues(&mut self, lanes: &[ExecutionLane]) {
         for lane in lanes {
             if let Some(queue) = self.queues.get_mut(lane)
                 && queue.release()
@@ -416,7 +424,14 @@ mod tests {
         assert_eq!(scheduler.task_count().unwrap(), 1);
         let ready = scheduler.take_ready(lane).unwrap().unwrap();
         assert_eq!(ready.task(), task.id());
-        ready.complete().unwrap();
+
+        {
+            let execution = ready.execution_state().clone();
+
+            ready.complete(execution)
+        }
+        .unwrap();
+
         with_allocation_failure(|| drop(registration));
         assert_eq!(scheduler.task_count().unwrap(), 0);
     }
@@ -532,7 +547,13 @@ mod tests {
                 .unwrap();
 
             first_task.resume().unwrap();
-            ready.complete().unwrap();
+
+            {
+                let execution = ready.execution_state().clone();
+
+                ready.complete(execution)
+            }
+            .unwrap();
         });
 
         let second = register_second().unwrap();
@@ -574,7 +595,13 @@ mod tests {
                 .unwrap();
 
             assert_eq!(ready.state(), resumed);
-            ready.complete().unwrap();
+
+            {
+                let execution = ready.execution_state().clone();
+
+                ready.complete(execution)
+            }
+            .unwrap();
         });
 
         drop(second);

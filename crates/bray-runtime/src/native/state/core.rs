@@ -401,10 +401,9 @@ pub(in crate::native) struct StartedTask {
     pub(in crate::native) waits: Mutex<Vec<JoinWaitRegistration>>,
     pub(super) continuation: super::continuation::ContinuationWait,
     pub(super) event_wait: super::event_wait::EventWait,
-    pub(in crate::native) awaited: Mutex<Option<NativeTaskHandle>>,
+    pub(in crate::native) run: triomphe::Arc<super::super::run::NativeRun>,
     pub(in crate::native) observation_claimed: AtomicBool,
     pub(in crate::native) terminal: triomphe::Arc<NativeTerminalState>,
-    pub(in crate::native) cleanup_parent: Option<triomphe::Arc<NativeTerminalState>>,
 }
 
 impl StartedTask {
@@ -603,6 +602,14 @@ pub(in crate::native) fn run_worker(
     control: triomphe::Arc<super::super::workers::WorkerControl>,
 ) {
     let startup = control.startup();
+
+    let _thread_lanes = match core.scheduler.register_thread_lanes(thread.id()) {
+        Ok(lanes) => lanes,
+        Err(error) => {
+            startup.finish(super::binding::scheduler_status(error));
+            return;
+        }
+    };
 
     let runtime = match crate::allocation::allocate_shared(NativeRuntime {
         thread: RuntimeThreadEntry::Current(thread),

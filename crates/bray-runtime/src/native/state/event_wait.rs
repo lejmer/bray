@@ -138,7 +138,12 @@ mod tests {
         let replacement = RuntimeEvent::new();
         let initial = ProtectedFrameStateId::new(0);
         let resumed = ProtectedFrameStateId::new(1);
-        let execution = crate::FrameExecutionState::new(task.descriptor().frame(), task.descriptor().state(resumed).unwrap().clone());
+
+        let execution = crate::FrameExecutionState::new(
+            task.descriptor().frame(),
+            task.descriptor().state(resumed).unwrap().clone(),
+        );
+
         let observed = event.observation().unwrap().0;
 
         with_allocation_failure(|| {
@@ -213,7 +218,13 @@ mod tests {
             wait.disarm();
             assert!(wait.is_ready().unwrap());
             wait.wake.notify((2, replacement_observed));
-            ready.complete().unwrap();
+
+            {
+                let execution = ready.execution_state().clone();
+
+                ready.complete(execution)
+            }
+            .unwrap();
 
             assert!(
                 scheduler

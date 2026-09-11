@@ -226,16 +226,6 @@ impl NativeRuntime {
     }
 
     fn transfer_cleanup_incidents(&self, task: &StartedTask) {
-        if let Some(parent) = &task.cleanup_parent {
-            // Direct composition retains cleanup incidents in its enclosing run. That run's
-            // eventual outcome determines whether they belong to a panic report or the host sink.
-            for incident in task.terminal.take_cleanup_incidents() {
-                parent.record_cleanup_incident(incident);
-            }
-
-            return;
-        }
-
         let producer = CleanupIncidentProducer::Task(task.task.id());
 
         let origin = task.task.execution_origin();
@@ -249,103 +239,113 @@ impl NativeRuntime {
 
 #[cfg(test)]
 mod tests {
-
+    use crate::native::frame::NativeFrameTransfer;
+    use crate::native::state::{initialize, shutdown, with_runtime};
     use bray_runtime_abi::{
-        NativeFrameExit, NativeFrameProgress, NativeFrameProgressKind, NativeProtectedFrame,
-        NativeRunState, NativeRuntimeConfiguration, NativeRuntimeStatus,
+        NativeFrameExit, NativeFrameMetadata, NativeFrameProgress, NativeFrameProgressKind,
+        NativeProtectedFrame, NativeRunState, NativeRuntimeConfiguration, NativeRuntimeStatus,
     };
-
-    use crate::native::state::core::{initialize, shutdown, with_runtime};
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     #[test]
-    fn composed_cleanup_incidents_stay_with_the_parent_until_its_boundary_resolves() {
-        extern "C-unwind" fn complete(_: usize) -> NativeFrameProgress {
-            NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0)
-        }
-
+    fn composed_cleanup_incidents_stay_with_the_run_until_its_boundary_resolves() {
+        static ENTERED: AtomicBool = AtomicBool::new(false);
         extern "C-unwind" fn action(_: usize) {}
         extern "C-unwind" fn resolve(_: usize, _: NativeFrameExit) {}
         extern "C-unwind" fn move_completion(_: usize, _: usize) {}
 
-        for composed in [false, true] {
-            assert_eq!(
-                initialize(NativeRuntimeConfiguration::new(2, 1)),
-                NativeRuntimeStatus::SUCCESS
-            );
-
-            with_runtime(|runtime| {
-                let parent = triomphe::Arc::new(crate::native::frame::NativeTerminalState::new());
-                let child = runtime.allocate().task().unwrap();
-
-                let frame = NativeProtectedFrame::new(
+        fn frame(
+            resume: extern "C-unwind" fn(usize) -> NativeFrameProgress,
+        ) -> NativeProtectedFrame {
+            NativeProtectedFrame::new(
+                0,
+                NativeFrameMetadata::new(
+                    [42; 32],
+                    2,
                     0,
-                    bray_runtime_abi::NativeFrameMetadata::new(
-                        [42; 32],
-                        1,
-                        0,
-                        1,
-                        0,
-                        1,
-                        crate::test_support::native_main_frame_state,
-                    ),
-                    complete,
-                    complete,
-                    action,
-                    resolve,
-                    move_completion,
-                    action,
+                    1,
+                    0,
+                    1,
+                    crate::test_support::native_main_frame_state,
+                ),
+                resume,
+                resume,
+                action,
+                resolve,
+                move_completion,
+                action,
+            )
+        }
+
+        extern "C-unwind" fn child(_: usize) -> NativeFrameProgress {
+            for ordinal in [7u32, 11] {
+                assert!(
+                    crate::native::incident::retain_cleanup_incident(
+                        crate::incident::OwnedCleanupIncident::host(Box::new(ordinal))
+                    )
+                    .is_ok()
                 );
+            }
+
+            NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0)
+        }
+
+        extern "C-unwind" fn parent(_: usize) -> NativeFrameProgress {
+            with_runtime(|runtime| {
+                assert_eq!(runtime.pending_cleanup_incidents(), 0);
+
+                if !ENTERED.swap(true, Ordering::Relaxed) {
+                    assert_eq!(
+                        runtime.compose_awaited(NativeFrameTransfer::new(frame(child))),
+                        NativeRuntimeStatus::SUCCESS
+                    );
+
+                    return NativeFrameProgress::new(NativeFrameProgressKind::SUSPENDED, 1, 0);
+                }
 
                 assert_eq!(
-                    runtime.start(
-                        child,
-                        &mut crate::native::frame::NativeFrameTransfer::new(frame),
-                        composed.then(|| triomphe::Arc::clone(&parent))
-                    ),
+                    runtime.resolve_awaited_terminal(|outcome| {
+                        assert_eq!(outcome.state(), NativeRunState::COMPLETED);
+                        Ok(())
+                    }),
                     NativeRuntimeStatus::SUCCESS
                 );
 
-                runtime
-                    .with_started(child, |task| {
-                        for ordinal in [7u32, 11] {
-                            task.terminal.record_cleanup_incident(
-                                crate::incident::OwnedCleanupIncident::host(Box::new(ordinal)),
-                            );
-                        }
-                    })
-                    .unwrap();
+                assert_eq!(runtime.pending_cleanup_incidents(), 0);
 
-                let outcome = runtime.resolve_task(child);
-
-                assert_eq!(outcome.state(), NativeRunState::COMPLETED);
-                assert_eq!(runtime.observe(child), outcome);
-
-                let incidents: Vec<_> = parent
-                    .take_cleanup_incidents()
-                    .into_iter()
-                    .map(|incident| *incident.payload().downcast_ref::<u32>().unwrap())
-                    .collect();
-
-                assert_eq!(incidents, if composed { vec![7, 11] } else { Vec::new() });
-
-                assert_eq!(
-                    runtime.pending_cleanup_incidents(),
-                    if composed { 0 } else { 2 }
-                );
-
-                assert_eq!(runtime.observe(child), outcome);
-                assert!(parent.take_cleanup_incidents().is_empty());
-
-                assert_eq!(
-                    runtime.discard_cleanup_incidents(),
-                    if composed { 0 } else { 2 }
-                );
-
-                assert_eq!(runtime.destroy_task(child), NativeRuntimeStatus::SUCCESS);
+                NativeFrameProgress::new(NativeFrameProgressKind::COMPLETED, 0, 0)
             })
-            .unwrap();
-
-            assert_eq!(shutdown(), NativeRuntimeStatus::SUCCESS);
+            .unwrap()
         }
+
+        ENTERED.store(false, Ordering::Relaxed);
+
+        assert_eq!(
+            initialize(NativeRuntimeConfiguration::new(1, 1)),
+            NativeRuntimeStatus::SUCCESS
+        );
+
+        with_runtime(|runtime| {
+            let root = runtime.allocate().task().unwrap();
+
+            assert_eq!(
+                runtime.start(root, &mut NativeFrameTransfer::new(frame(parent))),
+                NativeRuntimeStatus::SUCCESS
+            );
+
+            assert_eq!(
+                runtime.resolve_task(root).state(),
+                NativeRunState::COMPLETED
+            );
+
+            assert_eq!(runtime.pending_cleanup_incidents(), 2);
+            runtime.observe(root);
+            assert_eq!(runtime.pending_cleanup_incidents(), 2);
+            assert_eq!(runtime.discard_cleanup_incidents(), 2);
+            assert_eq!(runtime.destroy_task(root), NativeRuntimeStatus::SUCCESS);
+        })
+        .unwrap();
+
+        assert_eq!(shutdown(), NativeRuntimeStatus::SUCCESS);
     }
 }

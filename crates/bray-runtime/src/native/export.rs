@@ -216,7 +216,7 @@ native_export! {
             // Source caller storage owns rejection cleanup, including unwinding before publication.
             let mut transfer = super::frame::NativeFrameTransfer::borrowed(frame.into_protected(bray_runtime_abi::NativeFrameEntry::Body));
 
-            with_runtime(|runtime| runtime.start(task, &mut transfer, None))
+            with_runtime(|runtime| runtime.start(task, &mut transfer))
                 .unwrap_or_else(|status| status)
         })
     }
@@ -542,8 +542,8 @@ fn execute_root(
         return NativeRootStart::failure(allocation.status());
     };
 
-    let status = with_runtime(|runtime| runtime.start(task, &mut transfer, None))
-        .unwrap_or_else(|status| status);
+    let status =
+        with_runtime(|runtime| runtime.start(task, &mut transfer)).unwrap_or_else(|status| status);
 
     if !status.is_success() {
         return NativeRootStart::failure(status);
@@ -1378,7 +1378,7 @@ mod tests {
 
                     let status = crate::test_support::with_allocation_failure_after(
                         successful_allocations,
-                        || runtime.start(handle, &mut transfer, None),
+                        || runtime.start(handle, &mut transfer),
                     );
 
                     let accepted = if status.is_success() {
@@ -1402,7 +1402,7 @@ mod tests {
                         let retry = runtime.allocate().task().unwrap();
 
                         assert_eq!(
-                            runtime.start(retry, &mut transfer, None),
+                            runtime.start(retry, &mut transfer),
                             NativeRuntimeStatus::SUCCESS
                         );
 
@@ -1631,13 +1631,13 @@ mod tests {
     }
 
     #[test]
-    fn awaited_blocking_children_wake_the_cooperative_parent() {
+    fn awaited_blocking_children_share_the_admitted_blocking_run() {
         AWAITED_BLOCKING_COMPLETIONS.store(0, Ordering::Relaxed);
 
         let start = execute_test_root(
             protected_frame_with_state(
                 8,
-                crate::test_support::native_movable_frame_state,
+                crate::test_support::native_blocking_frame_state,
                 await_blocking_children,
                 ignore_completion_move,
                 ignore_action,

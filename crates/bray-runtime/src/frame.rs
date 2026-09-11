@@ -13,6 +13,7 @@ use bray_runtime_model::{
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct FrameExecutionState {
     frame: bray_runtime_model::ProtectedAsyncFrameId,
+    origin: Option<bray_platform::RuntimeThreadId>,
     descriptor: ProtectedFrameStateDescriptor,
 }
 
@@ -22,7 +23,21 @@ impl FrameExecutionState {
         frame: bray_runtime_model::ProtectedAsyncFrameId,
         descriptor: ProtectedFrameStateDescriptor,
     ) -> Self {
-        Self { frame, descriptor }
+        Self {
+            frame,
+            origin: None,
+            descriptor,
+        }
+    }
+
+    pub(crate) const fn with_origin(mut self, origin: bray_platform::RuntimeThreadId) -> Self {
+        self.origin = Some(origin);
+
+        self
+    }
+
+    pub(crate) const fn origin(&self) -> Option<bray_platform::RuntimeThreadId> {
+        self.origin
     }
 
     /// Returns the active activation's frame identity.
@@ -240,9 +255,10 @@ pub trait ProtectedFrame: 'static {
     /// Returns the immutable compiler-generated descriptor.
     fn descriptor(&self) -> &ProtectedFrameDescriptor;
 
-    /// Resolves a local state against the currently active activation.
+    /// Resolves a local state hint against the currently active activation.
     ///
     /// The returned requirements must include constraints from retained parent activations.
+    /// Dynamic composition returns its actual active state; callers validate suspension states.
     /// Returns `None` when the state is invalid. Implementations must not allocate during
     /// this observation because a suspension can occur during admitted cleanup.
     fn execution_state(&self, state: ProtectedFrameStateId) -> Option<FrameExecutionState> {

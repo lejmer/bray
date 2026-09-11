@@ -38,12 +38,26 @@ impl CancellationObservation {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct TaskStartSite {
     parent: TaskId,
+    frame: bray_runtime_model::ProtectedAsyncFrameId,
     state: ProtectedFrameStateId,
 }
 
 impl TaskStartSite {
-    pub(crate) const fn new(parent: TaskId, state: ProtectedFrameStateId) -> Self {
-        Self { parent, state }
+    pub(crate) const fn new(
+        parent: TaskId,
+        frame: bray_runtime_model::ProtectedAsyncFrameId,
+        state: ProtectedFrameStateId,
+    ) -> Self {
+        Self {
+            parent,
+            frame,
+            state,
+        }
+    }
+
+    /// Returns the active parent frame that created the child.
+    pub const fn frame(self) -> bray_runtime_model::ProtectedAsyncFrameId {
+        self.frame
     }
 
     /// Returns the parent task that created the child.

@@ -57,6 +57,7 @@ pub(super) struct RegisteredTask {
     pub(super) wake_count: u64,
     pub(super) ready_lanes: Vec<ExecutionLane>,
     pub(super) ready_slot: ReadySlotId,
+    pub(super) origin_lane: Option<ExecutionLane>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -190,6 +191,13 @@ impl Scheduler {
 
     pub(crate) fn retains_thread(&self, thread: RuntimeThreadId) -> Result<bool, SchedulerError> {
         let state = self.lock_state()?;
+
+        if state.tasks.values().any(|task| {
+            task.execution.origin() == Some(thread)
+                && !matches!(task.dispatch, DispatchState::Terminal(_))
+        }) {
+            return Ok(true);
+        }
 
         for task in state.tasks.values().filter(|task| task.origin == thread) {
             for frame_state in task.descriptor.states() {
@@ -341,6 +349,29 @@ impl TaskRegistration {
 
         select_task_lane(&scheduler, &task.descriptor, task.origin, state_id)
     }
+
+    /// Selects an admitted lane for active-frame metadata without publishing a transition.
+    pub(crate) fn execution_lane(
+        &self,
+        execution: &FrameExecutionState,
+    ) -> Result<ExecutionLane, SchedulerError> {
+        let scheduler = self
+            .scheduler
+            .upgrade()
+            .ok_or(SchedulerError::UnknownTask(self.task))?;
+
+        let state = scheduler
+            .state
+            .lock()
+            .map_err(|_| SchedulerError::SynchronizationPoisoned)?;
+
+        let task = state
+            .tasks
+            .get(&self.task)
+            .ok_or(SchedulerError::UnknownTask(self.task))?;
+
+        admitted_execution_lane(&scheduler, &state, task, execution)
+    }
 }
 
 impl Drop for TaskRegistration {
@@ -446,7 +477,7 @@ pub struct ReadyTask {
 
 impl ReadyTask {
     /// Ends terminal execution while retaining the registered task's ownership metadata.
-    pub fn complete(mut self) -> Result<(), SchedulerError> {
+    pub fn complete(mut self, execution: FrameExecutionState) -> Result<(), SchedulerError> {
         let scheduler = self
             .scheduler
             .upgrade()
@@ -466,7 +497,8 @@ impl ReadyTask {
             return Err(SchedulerError::TaskNotRunning(self.task));
         }
 
-        task.dispatch = DispatchState::Terminal(self.state());
+        task.dispatch = DispatchState::Terminal(execution.state());
+        task.execution = execution;
         self.released = true;
 
         Ok(())
@@ -582,13 +614,11 @@ fn release_dispatch(
         return Ok(false);
     }
 
-    let lane = select_state_lane(scheduler, execution.descriptor(), task.origin)?;
-
-    if !task.ready_lanes.contains(&lane) {
-        return Err(SchedulerError::MissingReadyQueue(lane));
-    }
-
+    let lane = admitted_execution_lane(scheduler, state, task, &execution)?;
     let suspended_state = execution.state();
+    let ready_slot = task.ready_slot;
+    let previous_origin = task.origin_lane;
+    let origin_lane = (!task.ready_lanes.contains(&lane)).then_some(lane);
 
     let next = pending.or_else(|| {
         task.cancellation
@@ -596,42 +626,91 @@ fn release_dispatch(
             .then_some(TaskWakeCause::Cancellation)
     });
 
-    if let Some(next) = next {
-        let ready_slot = task.ready_slot;
+    let reserve_origin = origin_lane.filter(|_| origin_lane != previous_origin);
 
+    if let Some(lane) = reserve_origin {
+        state
+            .queues
+            .get_mut(&lane)
+            .ok_or(SchedulerError::MissingReadyQueue(lane))?
+            .reserve()?;
+    }
+
+    if let Some(cause) = next {
+        // Selection verified the queue under this same lock. No map insertion occurs here.
         let queue = state
             .queues
             .get_mut(&lane)
-            .ok_or(SchedulerError::MissingReadyQueue(lane))?;
+            .expect("validated lane retains its queue");
 
-        state.ready.push(
+        if let Err(error) = state.ready.push(
             ready_slot,
             queue,
             lane,
             QueuedTask {
                 task: task_id,
                 state: suspended_state,
-                cause: next,
+                cause,
                 queued_at: queue_instant(scheduler),
             },
-        )?;
+        ) {
+            if let Some(lane) = reserve_origin {
+                state.release_ready_queues(&[lane]);
+            }
 
-        let Some(task) = state.tasks.get_mut(&task_id) else {
-            return Err(SchedulerError::UnknownTask(task_id));
-        };
+            return Err(error);
+        }
+    }
 
-        task.execution = execution;
-        task.dispatch = DispatchState::Queued(suspended_state);
+    // Exclusive scheduler state retains this registration throughout publication.
+    let task = state
+        .tasks
+        .get_mut(&task_id)
+        .expect("dispatch retains its registered task");
+
+    task.execution = execution;
+    task.origin_lane = origin_lane;
+
+    task.dispatch = if next.is_some() {
+        DispatchState::Queued(suspended_state)
     } else {
-        let Some(task) = state.tasks.get_mut(&task_id) else {
-            return Err(SchedulerError::UnknownTask(task_id));
-        };
+        DispatchState::Idle(suspended_state)
+    };
 
-        task.execution = execution;
-        task.dispatch = DispatchState::Idle(suspended_state);
+    if let Some(previous) = previous_origin.filter(|_| previous_origin != origin_lane) {
+        state.release_ready_queues(&[previous]);
     }
 
     Ok(next.is_some())
+}
+
+fn admitted_execution_lane(
+    scheduler: &SchedulerData,
+    state: &SchedulerState,
+    task: &RegisteredTask,
+    execution: &FrameExecutionState,
+) -> Result<ExecutionLane, SchedulerError> {
+    let lane = select_state_lane(
+        scheduler,
+        execution.descriptor(),
+        execution.origin().unwrap_or(task.origin),
+    )?;
+
+    // An admitted migratable workload may become tied to its executing worker. This narrows
+    // placement and uses headers secured by that worker, without granting another workload.
+    let narrowed = execution.origin().is_some_and(|origin| {
+        lane.placement() == crate::ExecutionLanePlacement::OriginThread(origin)
+            && task.ready_lanes.contains(&ExecutionLane::new(
+                crate::ExecutionLanePlacement::Migratable,
+                lane.workload(),
+            ))
+    });
+
+    if (!task.ready_lanes.contains(&lane) && !narrowed) || !state.queues.contains_key(&lane) {
+        return Err(SchedulerError::MissingReadyQueue(lane));
+    }
+
+    Ok(lane)
 }
 
 pub(super) fn enqueue_task(
@@ -670,7 +749,7 @@ pub(super) fn enqueue_task(
         DispatchState::Idle(state) => state,
     };
 
-    let lane = select_state_lane(scheduler, task.execution.descriptor(), task.origin)?;
+    let lane = admitted_execution_lane(scheduler, state, task, &task.execution)?;
 
     let ready_slot = task.ready_slot;
 
@@ -737,8 +816,17 @@ mod tests {
                 task.request_cancellation();
             }
 
-            assert!(matches!(task.resume(), Ok(TaskResumeStatus::Terminal(_))));
-            ready.complete().unwrap();
+            assert!(matches!(
+                task.resume(),
+                Ok(TaskResumeStatus::Terminal(_, _))
+            ));
+
+            {
+                let execution = ready.execution_state().clone();
+
+                ready.complete(execution)
+            }
+            .unwrap();
 
             if cancellation_stage == 2 {
                 task.request_cancellation();
@@ -1117,9 +1205,18 @@ mod tests {
         );
 
         assert!(task.descriptor().state(child.state()).is_none());
+
+        assert_eq!(
+            crate::test_support::with_allocation_failure(|| registration.execution_lane(&child))
+                .unwrap(),
+            cooperative_lane(),
+        );
+
         let wake = registration.wake_handle();
         wake.wake().unwrap();
         let ready = scheduler.take_ready(cooperative_lane()).unwrap().unwrap();
+        assert_eq!(ready.execution_state().frame(), task.descriptor().frame());
+        assert_eq!(ready.state(), ProtectedFrameStateId::new(0));
         wake.wake().unwrap();
         crate::test_support::with_allocation_failure(|| ready.suspend(child.clone())).unwrap();
 
@@ -1161,6 +1258,22 @@ mod tests {
                 .contains_key(&main_lane)
         );
 
+        assert!(matches!(
+            crate::test_support::with_allocation_failure(|| registration.execution_lane(&disallowed)),
+            Err(SchedulerError::MissingReadyQueue(lane)) if lane == main_lane
+        ));
+
+        {
+            let state = scheduler.lock_state().unwrap();
+            let registered = state.tasks.get(&task.id()).unwrap();
+            assert_eq!(&registered.execution, &child);
+
+            assert!(matches!(
+                registered.dispatch,
+                super::DispatchState::Running { pending: None, .. }
+            ));
+        }
+
         wake.wake().unwrap();
 
         assert!(matches!(ready.suspend(disallowed),
@@ -1175,7 +1288,16 @@ mod tests {
         wake.wake().unwrap();
         let ready = scheduler.take_ready(cooperative_lane()).unwrap().unwrap();
         assert_eq!(ready.execution_state(), &child);
-        ready.complete().unwrap();
+        let root = task.snapshot().unwrap().execution().clone();
+        ready.complete(root.clone()).unwrap();
+        let state = scheduler.lock_state().unwrap();
+        let registered = state.tasks.get(&task.id()).unwrap();
+        assert_eq!(&registered.execution, &root);
+
+        assert_eq!(
+            registered.dispatch,
+            super::DispatchState::Terminal(root.state())
+        );
     }
 
     #[test]
@@ -1306,7 +1428,13 @@ mod tests {
         assert_eq!(ready.task(), task.id());
         assert_eq!(ready.wake_cause(), crate::TaskWakeCause::Timer);
         assert_eq!(scheduler.lock_state().unwrap().timer_count, 0);
-        ready.complete().unwrap();
+
+        {
+            let execution = ready.execution_state().clone();
+
+            ready.complete(execution)
+        }
+        .unwrap();
     }
 
     #[test]

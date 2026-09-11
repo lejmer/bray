@@ -257,23 +257,35 @@ impl ProtectedFrameStateDescriptor {
         dependencies: impl IntoIterator<Item = ProtectedFrameDependencyId>,
         affinity: ProtectedFrameAffinity,
     ) -> Self {
-        let mut lanes = arrayvec::ArrayVec::new();
-
-        for requirement in lane_requirements {
-            if !lanes.contains(&requirement) {
-                lanes.push(requirement);
-            }
-        }
-
-        lanes.sort_unstable();
-
         Self {
             state,
-            lane_requirements: lanes,
+            lane_requirements: arrayvec::ArrayVec::new(),
             initialized_storage: sorted_unique_slice(initialized_storage),
             dependencies: sorted_unique_slice(dependencies),
             affinity,
         }
+        .with_execution_requirements(lane_requirements, affinity)
+    }
+
+    /// Replaces execution requirements while retaining this frame's local storage identities.
+    /// Composed execution uses this to include requirements of suspended parent activations.
+    pub fn with_execution_requirements(
+        mut self,
+        lane_requirements: impl IntoIterator<Item = ExecutionLaneRequirement>,
+        affinity: ProtectedFrameAffinity,
+    ) -> Self {
+        self.lane_requirements.clear();
+
+        for requirement in lane_requirements {
+            if !self.lane_requirements.contains(&requirement) {
+                self.lane_requirements.push(requirement);
+            }
+        }
+
+        self.lane_requirements.sort_unstable();
+        self.affinity = affinity;
+
+        self
     }
 
     /// Returns the descriptor-local state identity.

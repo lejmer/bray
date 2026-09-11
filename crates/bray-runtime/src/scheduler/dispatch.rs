@@ -141,7 +141,7 @@ fn scheduled_task_snapshot(
         DispatchState::Running { pending, .. } => (ScheduledTaskState::Running, pending),
     };
 
-    let lane = select_state_lane(scheduler, task.execution.descriptor(), task.origin)?;
+    let lane = select_state_lane(scheduler, task.execution.descriptor(), task.execution.origin().unwrap_or(task.origin))?;
 
     Ok(ScheduledTaskSnapshot::new(
         task_id,

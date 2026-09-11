@@ -215,7 +215,12 @@ mod tests {
             let task = match result {
                 Ok(task) => {
                     assert!(failures > 0);
-                    assert!(matches!(task.resume(), Ok(TaskResumeStatus::Terminal(_))));
+
+                    assert!(matches!(
+                        task.resume(),
+                        Ok(TaskResumeStatus::Terminal(_, _))
+                    ));
+
                     assert!(matches!(task.take_outcome(), Ok(RunOutcome::Completed(37))));
 
                     return;
@@ -234,7 +239,11 @@ mod tests {
                 }
             };
 
-            assert!(matches!(task.resume(), Ok(TaskResumeStatus::Terminal(_))));
+            assert!(matches!(
+                task.resume(),
+                Ok(TaskResumeStatus::Terminal(_, _))
+            ));
+
             assert!(matches!(task.take_outcome(), Ok(RunOutcome::Completed(37))));
         }
 

@@ -9,10 +9,7 @@ impl NativeRuntime {
             return NativeRuntimeStatus::INVALID_ARGUMENT;
         };
 
-        let Some(child) = self.awaited_child(parent) else {
-            return NativeRuntimeStatus::UNKNOWN_TASK;
-        };
-
-        self.request_cancellation(child)
+        self.with_started(parent, |task| task.run.request_child_cancellation())
+            .unwrap_or_else(|status| status)
     }
 }
