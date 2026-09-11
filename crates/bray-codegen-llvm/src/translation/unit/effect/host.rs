@@ -58,65 +58,38 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
                     return Ok(None);
                 }
 
-                if let RootExecution::Asynchronous { .. } = execution {
-                    let (constructor, signature) =
-                        self.root_entry(root, RootExecution::Synchronous)?;
+                if let RootExecution::Asynchronous { frame } = execution {
+                    let constructor = self.root_constructor_callback(*entry, root)?;
 
-                    let inactive = self
-                        .invoke_function(constructor, signature, &[], "root.frame")?
+                    let symbol = self
+                        .request
+                        .mappings()
+                        .symbol(&bray_codegen::CodegenSymbolKey::ProtectedFrame {
+                            frame: *frame,
+                            operation: ProtectedFrameOperation::MetadataDescription,
+                        })
                         .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                    let context = super::super::support::extract_value(&self.builder, inactive, 0)
-                        .and_then(|value| {
-                            pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)
-                        })?;
-
-                    let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
-                        return Err(CodegenFailure::GeneratedModuleInvariant);
-                    };
-
-                    let adapter_name = host
-                        .entry(*entry)
-                        .and_then(bray_runtime_interface::ExecutableHostEntry::root_frame_adapter)
-                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
-
-                    let adapter = self
+                    let provider = self
                         .module
-                        .get_function(adapter_name.as_str())
-                        .unwrap_or_else(|| {
-                            self.module.add_function(
-                                adapter_name.as_str(),
-                                crate::native::frame_operation_type(
-                                    self.types.context(),
-                                    self.request.target(),
-                                    ProtectedFrameOperation::MoveBeforeStart,
-                                ),
-                                None,
-                            )
-                        });
+                        .get_function(symbol.name().as_str())
+                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
-                    let frame_transfer = insert_value(
-                        &self.builder,
-                        crate::native::inactive_frame_type(self.types.context())
-                            .const_zero()
-                            .into(),
-                        context.into(),
-                        0,
-                    )?;
-
-                    let frame_transfer = insert_value(
-                        &self.builder,
-                        frame_transfer,
-                        adapter.as_global_value().as_pointer_value().into(),
-                        1,
-                    )?;
+                    let metadata = llvm(self.builder.build_call(provider, &[], "root.metadata"))?
+                        .try_as_basic_value()
+                        .basic()
+                        .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
 
                     let configuration = self.host_runtime_configuration()?;
 
                     let start = self
                         .invoke_native_runtime(
                             *runtime,
-                            &[frame_transfer.into(), configuration.into()],
+                            &[
+                                metadata.into(),
+                                constructor.as_global_value().as_pointer_value().into(),
+                                configuration.into(),
+                            ],
                         )?
                         .and_then(|value| match value {
                             BasicValueEnum::StructValue(value) => Some(value),
@@ -491,6 +464,121 @@ impl<'context, 'module, 'request, 'types> UnitTranslator<'context, 'module, 'req
         )?;
 
         Ok(None)
+    }
+
+    fn root_constructor_callback(
+        &mut self,
+        entry: bray_runtime_interface::ExecutableHostEntryId,
+        root: &BoundUnitKey,
+    ) -> Result<inkwell::values::FunctionValue<'context>, CodegenFailure> {
+        let context = self.types.context();
+        let pointer = context.ptr_type(inkwell::AddressSpace::default());
+
+        let callback = self.module.add_function(
+            &format!("bray_host_root_constructor_{}", entry.slot()),
+            context.i32_type().fn_type(&[pointer.into()], false),
+            Some(inkwell::module::Linkage::Private),
+        );
+
+        let host_block = self
+            .builder
+            .get_insert_block()
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        self.builder
+            .position_at_end(context.append_basic_block(callback, "construct"));
+
+        let (constructor, signature) = self.root_entry(root, RootExecution::Synchronous)?;
+
+        let inactive = self
+            .invoke_function(constructor, signature, &[], "root.frame")?
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let frame_context = super::super::support::extract_value(&self.builder, inactive, 0)
+            .and_then(|value| {
+                pointer_value(value).ok_or(CodegenFailure::GeneratedModuleInvariant)
+            })?;
+
+        let failed = context.append_basic_block(callback, "allocation.failed");
+        let completed = context.append_basic_block(callback, "constructed");
+
+        let missing = llvm(
+            self.builder
+                .build_is_null(frame_context, "root.frame.missing"),
+        )?;
+
+        llvm(
+            self.builder
+                .build_conditional_branch(missing, failed, completed),
+        )?;
+
+        self.builder.position_at_end(failed);
+
+        llvm(
+            self.builder
+                .build_return(Some(&context.i32_type().const_int(
+                    u64::from(bray_runtime_abi::NativeRuntimeStatus::ALLOCATION_FAILURE.code()),
+                    false,
+                ))),
+        )?;
+
+        self.builder.position_at_end(completed);
+
+        let bray_ir::MirUnitKind::ExecutableHost(host) = self.unit.kind() else {
+            return Err(CodegenFailure::GeneratedModuleInvariant);
+        };
+
+        let adapter_name = host
+            .entry(entry)
+            .and_then(bray_runtime_interface::ExecutableHostEntry::root_frame_adapter)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        let adapter = self
+            .module
+            .get_function(adapter_name.as_str())
+            .unwrap_or_else(|| {
+                self.module.add_function(
+                    adapter_name.as_str(),
+                    crate::native::frame_operation_type(
+                        context,
+                        self.request.target(),
+                        ProtectedFrameOperation::MoveBeforeStart,
+                    ),
+                    None,
+                )
+            });
+
+        let transfer = insert_value(
+            &self.builder,
+            crate::native::inactive_frame_type(context)
+                .const_zero()
+                .into(),
+            frame_context.into(),
+            0,
+        )?;
+
+        let transfer = insert_value(
+            &self.builder,
+            transfer,
+            adapter.as_global_value().as_pointer_value().into(),
+            1,
+        )?;
+
+        let destination = callback
+            .get_first_param()
+            .and_then(pointer_value)
+            .ok_or(CodegenFailure::GeneratedModuleInvariant)?;
+
+        llvm(self.builder.build_store(destination, transfer))?;
+
+        llvm(
+            self.builder
+                .build_return(Some(&context.i32_type().const_zero())),
+        )?;
+
+        self.builder.position_at_end(host_block);
+
+        Ok(callback)
     }
 
     pub(super) fn host_role_implementation(

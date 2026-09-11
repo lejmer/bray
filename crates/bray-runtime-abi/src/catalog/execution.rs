@@ -14,7 +14,7 @@ macro_rules! runtime_role_catalog {
             }
             RootExecution {
                 "Begin and own the executable root run.", "root_execution",
-                native: (ROOT_EXECUTION_SYMBOL = "bray_runtime_root_execution", [InactiveFrame, Configuration] -> RootStart),
+                native: (ROOT_EXECUTION_SYMBOL = "bray_runtime_root_execution", [Pointer, Pointer, Configuration] -> RootStart),
                 call_hook: (),
                 compiler: Bray [] -> Void,
                 owner: Scheduler, availability: All, bootstrap: (), host_control: false,

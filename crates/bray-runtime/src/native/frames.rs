@@ -7,4 +7,5 @@ pub use boundary::{
     bray_runtime_frame_storage_activation, bray_runtime_frame_storage_admission,
     bray_runtime_frame_storage_release,
 };
+pub(super) use cleanup::FrameShape;
 pub(super) use registry::{FrameTaskClaim, claim, is_admitted, register_runtime};

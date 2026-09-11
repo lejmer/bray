@@ -104,6 +104,17 @@ struct FrameProgress {
 struct FrameExit(u32);
 
 #[repr(C)]
+struct FrameMetadata {
+    identity: [u8; 32],
+    state_count: u32,
+    size: usize,
+    alignment: usize,
+    completion_size: usize,
+    completion_alignment: usize,
+    state: extern "C" fn(u32) -> FrameState,
+}
+
+#[repr(C)]
 #[derive(Clone, Copy)]
 struct ProtectedFrame {
     context: usize,
@@ -113,7 +124,7 @@ struct ProtectedFrame {
     alignment: usize,
     completion_size: usize,
     completion_alignment: usize,
-    state: extern "C" fn(usize, u32) -> FrameState,
+    state: extern "C" fn(u32) -> FrameState,
     resume: extern "C-unwind" fn(usize) -> FrameProgress,
     cancel: extern "C-unwind" fn(usize) -> FrameProgress,
     broadcast_tasks: extern "C-unwind" fn(usize),
@@ -125,13 +136,14 @@ struct ProtectedFrame {
 #[repr(C)]
 struct InactiveFrame {
     context: usize,
-    move_before_start: extern "C" fn(usize) -> ProtectedFrame,
+    move_before_start: extern "C" fn(usize, u32) -> ProtectedFrame,
 }
 
 unsafe extern "C" {
     safe fn bray_runtime_initialization(worker_capacity: usize, timer_capacity: usize) -> Status;
     safe fn bray_runtime_root_execution(
-        frame: InactiveFrame,
+        metadata: &FrameMetadata,
+        construct: extern "C-unwind" fn(&mut InactiveFrame) -> Status,
         configuration: Configuration,
     ) -> RootStart;
     safe fn bray_runtime_root_cancellation_request(root: RootHandle) -> Status;
@@ -165,7 +177,7 @@ unsafe extern "C" {
     safe fn bray_runtime_structured_shutdown() -> Status;
 }
 
-extern "C" fn frame_state(_: usize, _: u32) -> FrameState {
+extern "C" fn frame_state(_: u32) -> FrameState {
     FrameState {
         affinity: FrameAffinity(2),
         lane_requirements: LaneRequirements(1 << 2),
@@ -289,7 +301,7 @@ fn transfer_frame(frame: ProtectedFrame) -> InactiveFrame {
     }
 }
 
-extern "C" fn move_before_start(_: usize) -> ProtectedFrame {
+extern "C" fn move_before_start(_: usize, _: u32) -> ProtectedFrame {
     PENDING_FRAME.with(|pending| {
         pending
             .take()
@@ -328,8 +340,30 @@ fn protected_frame(
 fn start_root(frame: ProtectedFrame) -> RootHandle {
     assert!(bray_runtime_initialization(8, 8) == Status::SUCCESS);
 
+    let metadata = FrameMetadata {
+        identity: frame.identity,
+        state_count: frame.state_count,
+        size: frame.size,
+        alignment: frame.alignment,
+        completion_size: frame.completion_size,
+        completion_alignment: frame.completion_alignment,
+        state: frame.state,
+    };
+
+    PENDING_FRAME.with(|pending| assert!(pending.replace(Some(frame)).is_none()));
+
+    extern "C-unwind" fn construct(output: &mut InactiveFrame) -> Status {
+        *output = InactiveFrame {
+            context: 1,
+            move_before_start,
+        };
+
+        Status::SUCCESS
+    }
+
     let start = bray_runtime_root_execution(
-        transfer_frame(frame),
+        &metadata,
+        construct,
         Configuration {
             task_capacity: 8,
             timer_capacity: 8,

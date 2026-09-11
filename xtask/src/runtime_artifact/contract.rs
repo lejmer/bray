@@ -225,7 +225,10 @@ fn native_callback(ty: &syn::Type) -> bool {
         matches!(segment.arguments, syn::PathArguments::None)
             && matches!(
                 segment.ident.to_string().as_str(),
-                "NativeWakeCallback" | "NativeRuntimeEventCallback" | "NativeFrameMetadataProvider"
+                "NativeWakeCallback"
+                    | "NativeRuntimeEventCallback"
+                    | "NativeFrameMetadataProvider"
+                    | "NativeRootConstructor"
             )
     })
 }

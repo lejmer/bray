@@ -45,10 +45,11 @@ native_adapter! {
 
 native_adapter! {
     pub extern "C" fn bray_runtime_root_execution(
-        frame: NativeInactiveFrame,
+        metadata: Option<&bray_runtime_abi::NativeFrameMetadata>,
+        construct: bray_runtime_abi::NativeRootConstructor,
         configuration: NativeRuntimeConfiguration,
     ) -> NativeRootStart {
-        implementation::bray_runtime_root_execution(frame, configuration)
+        implementation::bray_runtime_root_execution(metadata, construct, configuration)
     }
 }
 

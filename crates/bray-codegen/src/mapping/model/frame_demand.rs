@@ -9,7 +9,7 @@ use crate::{
 
 use super::core::CodegenMappingsBuildError;
 
-/// Returns frame operations defined locally or referenced by helpers and static finalization.
+/// Returns frame operations defined locally or referenced by helpers, host roots and static finalization.
 pub fn demanded_frame_operations(
     unit: &CodegenUnit,
     operations: &[CodegenOperationMapping],
@@ -40,7 +40,25 @@ pub fn demanded_frame_operations(
         ))
     });
 
-    local.chain(helpers).chain(finalizers).collect()
+    let roots = unit
+        .mir_units()
+        .filter_map(|unit| match unit.kind() {
+            bray_ir::MirUnitKind::ExecutableHost(host) => Some(host),
+            _ => None,
+        })
+        .flat_map(|host| host.entries())
+        .filter_map(|entry| match entry.root() {
+            bray_runtime_interface::RootExecution::Asynchronous { frame } => {
+                Some((frame, ProtectedFrameOperation::MetadataDescription))
+            }
+            bray_runtime_interface::RootExecution::Synchronous => None,
+        });
+
+    local
+        .chain(helpers)
+        .chain(finalizers)
+        .chain(roots)
+        .collect()
 }
 
 pub(super) fn validate_frame_operations(

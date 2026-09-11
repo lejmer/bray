@@ -716,6 +716,12 @@ impl NativeProtectedFrame {
     }
 }
 
+/// Constructs a zero-argument root after independent-run admission has succeeded.
+/// The callback may admit frame storage but must not execute the source body or acquire owned
+/// captures requiring asynchronous rollback. Failure leaves the output uninitialized.
+pub type NativeRootConstructor =
+    extern "C-unwind" fn(&mut NativeInactiveFrame) -> NativeRuntimeStatus;
+
 /// One inactive compiler-generated frame whose ownership has not entered the runtime.
 #[repr(C)]
 #[derive(Debug)]
@@ -734,6 +740,11 @@ impl NativeInactiveFrame {
             context,
             move_before_start,
         }
+    }
+
+    /// Returns the admitted frame storage address, or zero for an uninitialized output.
+    pub const fn context(&self) -> usize {
+        self.context
     }
 
     /// Materializes the selected adapter, borrowing or consuming context according to its entry.

@@ -11,6 +11,7 @@ mod host;
 pub mod implementation;
 mod incident;
 mod product_execution;
+mod root;
 mod run;
 mod state;
 mod static_finalizer;

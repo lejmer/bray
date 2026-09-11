@@ -51,12 +51,12 @@ pub use runtime::{
     NativeFrameMoveBeforeStartCallback, NativeFrameProgress, NativeFrameProgressKind,
     NativeFrameResolveCallback, NativeFrameResumeCallback, NativeFrameState,
     NativeFrameStateCallback, NativeInactiveFrame, NativeLaneRequirements, NativePanicCause,
-    NativePanicMessageCopyCallback, NativeProtectedFrame, NativeRootHandle, NativeRootStart,
-    NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration, NativeRuntimeEventCallback,
-    NativeRuntimeStatus, NativeSourceAnchor, NativeStringView, NativeSubstrateCleanupCallback,
-    NativeSynchronousRootCallback, NativeTaskAllocation, NativeTaskHandle,
-    NativeThreadCancellationCallback, NativeThreadOperationCallback, NativeWakeCallback,
-    PERFORMANCE_INTERVAL_BEGIN_SYMBOL, PERFORMANCE_INTERVAL_END_SYMBOL,
+    NativePanicMessageCopyCallback, NativeProtectedFrame, NativeRootConstructor, NativeRootHandle,
+    NativeRootStart, NativeRunOutcome, NativeRunState, NativeRuntimeConfiguration,
+    NativeRuntimeEventCallback, NativeRuntimeStatus, NativeSourceAnchor, NativeStringView,
+    NativeSubstrateCleanupCallback, NativeSynchronousRootCallback, NativeTaskAllocation,
+    NativeTaskHandle, NativeThreadCancellationCallback, NativeThreadOperationCallback,
+    NativeWakeCallback, PERFORMANCE_INTERVAL_BEGIN_SYMBOL, PERFORMANCE_INTERVAL_END_SYMBOL,
     PERFORMANCE_OBSERVATION_HEADER, PERFORMANCE_OBSERVATION_PATH_ENVIRONMENT,
 };
 pub use temporal::{

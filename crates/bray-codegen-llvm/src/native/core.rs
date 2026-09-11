@@ -807,17 +807,15 @@ mod tests {
     }
 
     #[test]
-    fn root_execution_uses_the_same_inactive_frame_transfer_as_task_start() {
+    fn root_execution_accepts_metadata_and_constructor_pointers() {
         let context = Context::create();
         let target = CodegenTarget::for_native(NativeTarget::X86_64LinuxGnu);
 
-        let root = super::runtime_function_type(&context, &target, RuntimeAbiRole::RootExecution)
-            .unwrap_or_else(|| panic!("root execution must have a native ABI"));
+        let root =
+            super::runtime_function_type(&context, &target, RuntimeAbiRole::RootExecution).unwrap();
 
-        let task =
-            super::runtime_function_type(&context, &target, RuntimeAbiRole::TaskStart).unwrap();
-
-        assert_eq!(&root.get_param_types()[..2], &task.get_param_types()[1..]);
+        let pointer = context.ptr_type(inkwell::AddressSpace::default()).into();
+        assert_eq!(&root.get_param_types()[..2], &[pointer, pointer]);
     }
 
     #[test]
@@ -852,7 +850,7 @@ mod tests {
             .unwrap_or_else(|| panic!("root execution must have a native ABI"));
 
         assert_eq!(root.get_return_type(), None);
-        assert_eq!(root.count_param_types(), 3);
+        assert_eq!(root.count_param_types(), 4);
 
         let resume =
             super::frame_operation_type(&context, &target, ProtectedFrameOperation::Resume);

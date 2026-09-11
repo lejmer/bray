@@ -4,7 +4,7 @@ use super::registry::{FrameRegistry, admit, registry, release};
 
 /// Concrete frame identity and native layouts select one compatible cleanup capacity group.
 #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub(super) struct FrameShape {
+pub(in crate::native) struct FrameShape {
     identity: [u8; 32],
     state_count: u32,
     size: usize,
@@ -14,7 +14,7 @@ pub(super) struct FrameShape {
 }
 
 impl FrameShape {
-    pub(super) fn of(metadata: &NativeFrameMetadata) -> Self {
+    pub(in crate::native) fn of(metadata: &NativeFrameMetadata) -> Self {
         Self {
             identity: metadata.identity(),
             state_count: metadata.state_count(),

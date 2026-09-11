@@ -104,16 +104,33 @@ impl NativeRuntime {
         };
 
         reservation.task.admission = start.admission;
-        let run = Arc::clone(reservation.run());
+
+        // Keep failed ownership outside the task-table lock while binding may reject admission.
+        let mut pending = Some(reservation);
 
         let status = start.publish(|| {
+            let reservation = pending
+                .as_mut()
+                .unwrap_or_else(|| unreachable!("run installs once"));
+
             reservation.bind(self, true)?;
 
-            Ok(reservation.install())
+            Ok(pending
+                .take()
+                .unwrap_or_else(|| unreachable!("bound run remains owned"))
+                .install())
         });
 
         if !status.is_success() {
-            self.retain_failed_run(handle, run);
+            let mut tasks = self
+                .tasks
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+            if let Some(slot @ NativeTaskSlot::Starting(_)) = tasks.get_mut(&handle) {
+                *slot = NativeTaskSlot::Allocated(start.admission);
+            }
+
             start.committed = true;
         }
 

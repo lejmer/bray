@@ -3,10 +3,10 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use bray_runtime_abi::{
     NativeExecutionLaneResult, NativeFrameProgress, NativeFrameProgressKind, NativeInactiveFrame,
     NativePanicCause, NativeProductHostDescriptor, NativeProductHostObservation,
-    NativeProductHostOperation, NativeProtectedFrame, NativeRootHandle, NativeRootStart,
-    NativeRunOutcome, NativeRunResultLayout, NativeRunState, NativeRuntimeConfiguration,
-    NativeRuntimeEventCallback, NativeRuntimeStatus, NativeSourceAnchor, NativeTaskAllocation,
-    NativeTaskHandle, NativeThreadStaticCleanupRegistration, NativeWakeCallback,
+    NativeProductHostOperation, NativeRootHandle, NativeRootStart, NativeRunOutcome,
+    NativeRunResultLayout, NativeRunState, NativeRuntimeConfiguration, NativeRuntimeEventCallback,
+    NativeRuntimeStatus, NativeSourceAnchor, NativeTaskAllocation, NativeTaskHandle,
+    NativeThreadStaticCleanupRegistration, NativeWakeCallback,
 };
 
 use crate::current_run_cancellation_requested;
@@ -79,11 +79,12 @@ native_export! {
 
 native_export! {
     pub extern "C" fn bray_runtime_root_execution(
-        frame: NativeInactiveFrame,
+        metadata: Option<&bray_runtime_abi::NativeFrameMetadata>,
+        construct: bray_runtime_abi::NativeRootConstructor,
         configuration: NativeRuntimeConfiguration,
     ) -> NativeRootStart {
         catch_unwind(AssertUnwindSafe(|| {
-            let start = super::host::with_output(|| execute_root(frame.into_protected(bray_runtime_abi::NativeFrameEntry::Body), configuration));
+            let start = super::host::with_output(|| super::root::execute(metadata, construct, configuration));
 
             if let Some(root) = start.root()
                 && let Ok(Ok(cancellation)) =
@@ -534,38 +535,9 @@ pub(super) fn contain_status(
     catch_unwind(AssertUnwindSafe(callback)).unwrap_or(NativeRuntimeStatus::PANICKED)
 }
 
-fn execute_root(
-    frame: NativeProtectedFrame,
+pub(super) fn initialize_for_execution(
     configuration: NativeRuntimeConfiguration,
-) -> NativeRootStart {
-    let mut transfer = super::frame::NativeFrameTransfer::new(frame);
-    let status = initialize_for_execution(configuration);
-
-    if !status.is_success() {
-        return NativeRootStart::failure(status);
-    }
-
-    let allocation =
-        with_runtime(|runtime| runtime.allocate()).unwrap_or_else(NativeTaskAllocation::failure);
-
-    let Some(task) = allocation.task() else {
-        return NativeRootStart::failure(allocation.status());
-    };
-
-    let status =
-        with_runtime(|runtime| runtime.start(task, &mut transfer)).unwrap_or_else(|status| status);
-
-    if !status.is_success() {
-        return NativeRootStart::failure(status);
-    }
-
-    NativeRootHandle::new(task.raw()).map_or_else(
-        || NativeRootStart::failure(NativeRuntimeStatus::RUNTIME_FAILURE),
-        NativeRootStart::success,
-    )
-}
-
-fn initialize_for_execution(configuration: NativeRuntimeConfiguration) -> NativeRuntimeStatus {
+) -> NativeRuntimeStatus {
     let status = initialize(configuration);
 
     if status == NativeRuntimeStatus::ALREADY_INITIALIZED {
@@ -2449,10 +2421,30 @@ mod tests {
         frame: NativeProtectedFrame,
         configuration: NativeRuntimeConfiguration,
     ) -> super::NativeRootStart {
-        bray_runtime_root_execution(
-            crate::test_support::inactive_native_frame(frame),
-            configuration,
-        )
+        scoped_tls::scoped_thread_local!(static ROOT_FRAME: std::cell::RefCell<Option<NativeProtectedFrame>>);
+
+        extern "C-unwind" fn construct(output: &mut NativeInactiveFrame) -> NativeRuntimeStatus {
+            ROOT_FRAME.with(|pending| {
+                *output = crate::test_support::inactive_native_frame(
+                    pending.borrow_mut().take().unwrap(),
+                );
+            });
+
+            NativeRuntimeStatus::SUCCESS
+        }
+
+        let metadata = *frame.metadata();
+        let pending = std::cell::RefCell::new(Some(frame));
+
+        let result = ROOT_FRAME.set(&pending, || {
+            bray_runtime_root_execution(Some(&metadata), construct, configuration)
+        });
+
+        if let Some(frame) = pending.take() {
+            drop(super::super::frame::NativeFrameTransfer::new(frame));
+        }
+
+        result
     }
 
     fn start_test_task(task: NativeTaskHandle, frame: NativeProtectedFrame) -> NativeRuntimeStatus {
