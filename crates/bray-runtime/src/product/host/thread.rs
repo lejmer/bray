@@ -1,6 +1,6 @@
 use bray_runtime_abi::NativeProductHostObservation;
 
-use super::super::cleanup::run_static_cleanup;
+use super::super::cleanup::report_static_cleanup;
 
 use super::model::{THREAD_STATICS, ThreadStaticEntry, product_hosts};
 use super::operations::{release_thread_attachment, report_incidents};
@@ -56,14 +56,8 @@ fn run_product_thread_cleanups(product: usize, entries: Vec<ThreadStaticEntry>) 
 
     let cleanup = || {
         for entry in entries {
-            let incidents =
-                run_static_cleanup(entry.prepare, entry.finalizer, entry.destroy, entry.detach);
-
-            let count = incidents.len();
-
-            for incident in incidents {
-                let _ = incident.report();
-            }
+            let count =
+                report_static_cleanup(entry.prepare, entry.finalizer, entry.destroy, entry.detach);
 
             report_incidents(product, entry.static_identity, count);
         }

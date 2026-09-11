@@ -42,6 +42,22 @@ pub(super) fn run_static_cleanup(
     incidents
 }
 
+pub(super) fn report_static_cleanup(
+    prepare: NativeStaticTransitionCallback,
+    finalizer: NativeStaticFinalizer,
+    destroy: NativeStaticCleanupCallback,
+    detach: NativeStaticTransitionCallback,
+) -> usize {
+    let incidents = run_static_cleanup(prepare, finalizer, destroy, detach);
+    let count = incidents.len();
+
+    for incident in incidents {
+        let _ = incident.report();
+    }
+
+    count
+}
+
 fn run_finalizer(finalizer: NativeStaticFinalizer) -> Vec<OwnedCleanupIncident> {
     match finalizer.execution() {
         NativeCleanupExecution::NONE => Vec::new(),

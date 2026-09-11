@@ -4,7 +4,7 @@ use bray_runtime_abi::{
     NativeStaticIdentity, NativeThreadStaticCleanupRegistration,
 };
 
-use super::super::cleanup::run_static_cleanup;
+use super::super::cleanup::report_static_cleanup;
 
 use super::formation::ensure_formed;
 
@@ -464,40 +464,45 @@ fn prepare_cleanup(product: usize, host: &mut ProductHost) -> Option<PendingClea
 fn finish_cleanup(cleanup: PendingCleanup) -> NativeProductHostObservation {
     let thread = cleanup.thread.enter_or_reuse();
 
-    let (mut incidents, runtime_incidents) =
+    let ((mut incident_count, mut last_incident), runtime_incidents) =
         crate::native::with_retained_static_cleanup_runtime(&cleanup.runtime, || {
-            let mut incidents = Vec::new();
+            let mut count = 0usize;
+            let mut last = None;
 
             for entry in &cleanup.statics {
-                incidents.extend(
-                    run_static_cleanup(entry.prepare, entry.finalizer, entry.destroy, entry.detach)
-                        .into_iter()
-                        .map(|incident| (entry.identity, incident)),
+                let reported = report_static_cleanup(
+                    entry.prepare,
+                    entry.finalizer,
+                    entry.destroy,
+                    entry.detach,
                 );
+
+                count = count.saturating_add(reported);
+
+                if reported != 0 {
+                    last = Some(entry.identity);
+                }
             }
 
-            incidents
+            (count, last)
         });
-
-    drop(thread);
 
     let runtime_identity = cleanup
         .statics
         .first()
         .map_or(NativeStaticIdentity::new([0; 32]), |entry| entry.identity);
 
-    incidents.extend(
-        runtime_incidents
-            .into_iter()
-            .map(|incident| (runtime_identity, incident)),
-    );
+    incident_count = incident_count.saturating_add(runtime_incidents.len());
 
-    let incident_count = incidents.len();
-    let last_incident = incidents.last().map(|(identity, _)| *identity);
+    if !runtime_incidents.is_empty() {
+        last_incident = Some(runtime_identity);
+    }
 
-    for (_, incident) in incidents {
+    for incident in runtime_incidents {
         let _ = incident.report();
     }
+
+    drop(thread);
 
     let Ok(mut hosts) = product_hosts().lock().map_err(|_| ()) else {
         cleanup.runtime.release();
@@ -1228,6 +1233,108 @@ mod tests {
 
         assert_eq!(closed.state(), NativeProductHostState::CLOSED);
         assert_eq!(closed.active_entries(), 0);
+    }
+
+    #[test]
+    fn product_cleanup_disposes_incidents_before_destroying_static_dependencies() {
+        use bray_runtime_abi::{
+            NativeCleanupIncident, NativeRuntimeStatus, NativeSourceAnchor, NativeTypeIdentity,
+        };
+
+        static CALLBACKS: AtomicUsize = AtomicUsize::new(0);
+        static DEPENDENCY_DESTROYED: AtomicUsize = AtomicUsize::new(0);
+
+        fn observe_incident_callback() {
+            assert_eq!(DEPENDENCY_DESTROYED.load(Ordering::SeqCst), 0);
+            assert!(bray_platform::current_runtime_thread().is_some());
+            CALLBACKS.fetch_add(1, Ordering::SeqCst);
+        }
+
+        extern "C-unwind" fn report(_: &NativeCleanupIncident) -> NativeRuntimeStatus {
+            observe_incident_callback();
+
+            NativeRuntimeStatus::SUCCESS
+        }
+
+        extern "C-unwind" fn destroy_incident(_: usize) -> NativeBrayCallOutcome {
+            observe_incident_callback();
+
+            NativeBrayCallOutcome::completed()
+        }
+
+        extern "C-unwind" fn transfer(
+            _: usize,
+            _: &mut NativeBrayCallOutcome,
+        ) -> NativeStaticFinalizerStatus {
+            let incident = NativeCleanupIncident::new(
+                1,
+                NativeTypeIdentity::new([91; 32]),
+                NativeSourceAnchor::unavailable(),
+                report,
+                destroy_incident,
+                crate::test_support::panic_callbacks(unexpected_panic, unexpected_panic),
+            );
+
+            assert_eq!(
+                crate::native::implementation::bray_runtime_cleanup_incident_transfer(&incident),
+                NativeRuntimeStatus::SUCCESS
+            );
+
+            NativeStaticFinalizerStatus::SUCCESS
+        }
+
+        extern "C-unwind" fn destroy_dependency() -> NativeBrayCallOutcome {
+            assert_eq!(CALLBACKS.load(Ordering::SeqCst), 2);
+            DEPENDENCY_DESTROYED.store(1, Ordering::SeqCst);
+
+            NativeBrayCallOutcome::completed()
+        }
+
+        extern "C" fn dependency(_: usize) -> NativeStaticIdentity {
+            NativeStaticIdentity::new([92; 32])
+        }
+
+        extern "C" fn entry(index: usize) -> NativeStaticHostEntry {
+            NativeStaticHostEntry::new(
+                NativeStaticDuration::PRODUCT,
+                NativeStaticIdentity::new([if index == 0 { 91 } else { 92 }; 32]),
+                if index == 0 { 0 } else { 1 },
+                index + 1,
+                access,
+                detach_thread_static,
+                if index == 0 {
+                    finalizer(transfer)
+                } else {
+                    NativeStaticFinalizer::new(
+                        NativeCleanupExecution::NONE,
+                        None,
+                        transfer,
+                        crate::test_support::panic_callbacks(unexpected_panic, unexpected_panic),
+                    )
+                },
+                if index == 0 {
+                    no_cleanup
+                } else {
+                    destroy_dependency
+                },
+                detach_thread_static,
+                dependency,
+                usize::from(index == 0),
+            )
+        }
+
+        let descriptor =
+            NativeProductHostDescriptor::new(NativeProductIdentity::new([93; 32]), entry, 2);
+
+        let closed = control(&descriptor, NativeProductHostOperation::CLOSE);
+
+        assert_eq!(closed.state(), NativeProductHostState::CLOSED);
+        assert_eq!(closed.status(), NativeProductHostStatus::INCIDENTS);
+        assert_eq!(closed.cleanup_incidents(), 1);
+        assert_eq!(closed.cleaned_statics(), 2);
+        assert_eq!(closed.last_incident(), NativeStaticIdentity::new([91; 32]));
+        assert_eq!(CALLBACKS.load(Ordering::SeqCst), 2);
+        assert_eq!(DEPENDENCY_DESTROYED.load(Ordering::SeqCst), 1);
     }
 
     #[test]
