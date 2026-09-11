@@ -145,6 +145,10 @@ where
         expression: BoundExpressionId,
         hook: Option<ImplementationHook>,
     ) -> bool {
+        if self.construction_admission.contains(&expression) {
+            return true;
+        }
+
         let Some(selections) = self.selections() else {
             return implementation_hook_may_propagate_synchronous_panic(hook);
         };

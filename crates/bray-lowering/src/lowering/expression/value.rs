@@ -1,12 +1,12 @@
 use bray_bound_tree::{
     BoundExpressionId, BoundStructuredExpression, BoundStructuredExpressionKind,
-    ConstructionTarget, SelectedConstructionInput, SelectedOperation,
+    SelectedConstructionInput, SelectedOperation,
 };
 use bray_ir::{
     MirAggregate, MirAggregateKind, MirBlockId, MirConstruction, MirConstructionInput, MirOperand,
     MirOperationKind, MirSourceAnchor,
 };
-use bray_symbols::{AnySymbolId, TypeData, TypeId};
+use bray_symbols::{TypeData, TypeId};
 
 use super::super::LoweringError;
 use super::super::block::LoweredExpression;
@@ -218,13 +218,6 @@ impl Lowerer<'_> {
                 }
 
                 selection.target()
-            }
-            SelectedOperation::Member(member) => {
-                let AnySymbolId::UnionVariant(variant) = member.member() else {
-                    return Err(LoweringError::MissingSemanticSelection(id));
-                };
-
-                ConstructionTarget::UnionVariant(variant)
             }
             _ => return Err(LoweringError::MissingSemanticSelection(id)),
         };

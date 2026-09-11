@@ -1646,6 +1646,124 @@ mod tests {
     }
 
     #[test]
+    fn construction_admission_failure_precedes_owner_publication() {
+        let compilation = compilation(
+            r#"
+            module app;
+
+            struct Guard
+            {
+                destruct() executes(pure, total) {}
+            }
+
+            struct Owner
+            {
+                guard: Guard;
+                destruct() {}
+            }
+
+            func make() -> Result<Owner, PanicReport>
+            {
+                return catch
+                {
+                    let guard = Guard {};
+                    let owner = Owner { guard = guard };
+                    yield owner;
+                };
+            }
+            "#,
+        );
+
+        let diagnostics = compilation.check_diagnostics();
+        assert!(diagnostics.is_empty(), "{diagnostics:?}");
+
+        let key = source_function_body_key(&compilation, "make");
+        let selections = compilation.semantic_selections(key.clone()).unwrap();
+
+        let (construction, owner_type) = selections
+            .value()
+            .entries()
+            .iter()
+            .find_map(|entry| match entry.selection() {
+                SemanticSelection::Operation(bray_bound_tree::SelectedOperation::Construction(
+                    value,
+                )) if value.inputs().len() == 1 => {
+                    Some((entry.expression(), value.new_owner_type().unwrap()))
+                }
+                _ => None,
+            })
+            .expect("the owner must have one explicit construction input");
+
+        let storage = compilation.storage_plan(key.clone()).unwrap();
+
+        let locals = storage
+            .value()
+            .identity_entries()
+            .filter(|(_, identity)| {
+                matches!(identity, bray_bound_tree::StorageIdentity::LocalOwned(_))
+            })
+            .map(|(identity, _)| identity)
+            .collect::<Vec<_>>();
+
+        assert_eq!(locals.len(), 2);
+
+        let owner = *locals
+            .iter()
+            .find(|id| storage.value().storage_type(**id) == Some(owner_type))
+            .unwrap();
+
+        let guard = *locals.iter().find(|id| **id != owner).unwrap();
+
+        let temporary = storage
+            .value()
+            .identity_entries()
+            .find_map(|(identity, value)| {
+                matches!(value, bray_bound_tree::StorageIdentity::Temporary(expression) if expression == construction)
+                    .then_some(identity)
+            })
+            .unwrap();
+
+        let flow = compilation.storage_flow(key.clone()).unwrap();
+
+        let failure = flow
+            .value()
+            .exits()
+            .iter()
+            .find(|exit| exit.exit() == construction.into() && exit.live().contains(&guard))
+            .expect("owner admission must have a checked failure exit");
+
+        assert!(!failure.initialized().contains(&owner));
+        assert!(!failure.initialized().contains(&temporary));
+
+        // Input evaluation moves the local into lowering's guarded construction temporary.
+        assert!(failure.fully_moved().contains(&guard));
+
+        let analysis = compilation.async_analysis(key).unwrap();
+        let guard_type = storage.value().storage_type(guard).unwrap();
+
+        assert!(
+            analysis
+                .value()
+                .cleanup_types()
+                .iter()
+                .any(|shape| shape.ty() == guard_type
+                    && matches!(
+                        shape.cleanup(),
+                        bray_bound_tree::AsyncStorageCleanupRequirement::Cleanup(_)
+                    ))
+        );
+
+        assert!(analysis.value().scope_exits().iter().any(|exit| {
+            exit.exit() == construction.into()
+                && exit.storage().iter().any(|decision| {
+                    decision.identity() == guard
+                        && decision.disposition()
+                            == bray_bound_tree::AsyncStorageExitDisposition::Moved
+                })
+        }));
+    }
+
+    #[test]
     fn construction_defaults_are_checked_before_complete_owner_publication() {
         let compilation = compilation(
             r#"

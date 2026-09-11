@@ -14,8 +14,13 @@ impl GuaranteeDomain<'_> {
         &self,
         operation: AnalysisOperationKind,
     ) -> Result<Option<Vec<CallableProofDependency>>, CheckerInfrastructureError> {
-        let AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression)) = operation else {
-            return Ok(Some(Vec::new()));
+        let expression = match operation {
+            AnalysisOperationKind::Bound(AnyBoundNodeId::Expression(expression))
+            | AnalysisOperationKind::Call {
+                expression,
+                phase: crate::analysis::model::AnalysisCallPhase::Attempt,
+            } => expression,
+            _ => return Ok(Some(Vec::new())),
         };
 
         let Some(SemanticSelection::Operation(SelectedOperation::Construction(construction))) =

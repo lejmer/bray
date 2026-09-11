@@ -28,7 +28,13 @@ pub(crate) fn build_control_flow_graph<C>(
 where
     C: CheckerRequestContext + ?Sized,
 {
-    build_control_flow_graph_with_storage(request, None, None, Default::default())
+    build_control_flow_graph_with_storage(
+        request,
+        None,
+        None,
+        Default::default(),
+        Default::default(),
+    )
 }
 
 pub(crate) fn build_storage_control_flow_graph<C>(
@@ -50,7 +56,27 @@ where
         }
     };
 
-    build_control_flow_graph_with_storage(request, Some(storage), Some(selections), scopes)
+    let construction_admission =
+        match super::construction::admission_expressions(request, selections) {
+            Ok(construction_admission) => construction_admission,
+            Err(crate::CheckerQueryError::Cancelled) => {
+                return ControlFlowGraphBuildOutcome::Cancelled;
+            }
+            Err(crate::CheckerQueryError::Infrastructure(error)) => {
+                return ControlFlowGraphBuildOutcome::InfrastructureFailure(error);
+            }
+            Err(crate::CheckerQueryError::Upstream(error)) => {
+                return ControlFlowGraphBuildOutcome::UpstreamFailure(error);
+            }
+        };
+
+    build_control_flow_graph_with_storage(
+        request,
+        Some(storage),
+        Some(selections),
+        scopes,
+        construction_admission,
+    )
 }
 
 fn build_control_flow_graph_with_storage<C, E>(
@@ -58,12 +84,18 @@ fn build_control_flow_graph_with_storage<C, E>(
     checked_storage: Option<&StoragePlan>,
     selections: Option<&bray_bound_tree::CheckedSemanticSelections>,
     cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
+    construction_admission: std::collections::BTreeSet<BoundExpressionId>,
 ) -> ControlFlowGraphBuildOutcome<E>
 where
     C: CheckerRequestContext + ?Sized,
 {
-    let mut builder =
-        ControlFlowGraphBuilder::new(request, checked_storage, selections, cleanup_scopes);
+    let mut builder = ControlFlowGraphBuilder::new(
+        request,
+        checked_storage,
+        selections,
+        cleanup_scopes,
+        construction_admission,
+    );
 
     let entry = builder.push_block();
 
@@ -110,6 +142,7 @@ where
     selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
     infrastructure_failure: Option<CheckerInfrastructureError>,
     pub(super) cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
+    pub(super) construction_admission: std::collections::BTreeSet<BoundExpressionId>,
 }
 
 #[derive(Clone, Copy)]
@@ -142,6 +175,7 @@ where
         checked_storage: Option<&'view StoragePlan>,
         selections: Option<&'view bray_bound_tree::CheckedSemanticSelections>,
         cleanup_scopes: std::collections::BTreeSet<BoundBlockId>,
+        construction_admission: std::collections::BTreeSet<BoundExpressionId>,
     ) -> Self {
         Self {
             request,
@@ -156,6 +190,7 @@ where
             selections,
             infrastructure_failure: None,
             cleanup_scopes,
+            construction_admission,
         }
     }
 
@@ -425,6 +460,10 @@ where
     }
 
     fn source_operation_may_propagate_panic(&self, expression: BoundExpressionId) -> bool {
+        if self.construction_admission.contains(&expression) {
+            return true;
+        }
+
         match self
             .selections()
             .and_then(|selections| selections.expression(expression))

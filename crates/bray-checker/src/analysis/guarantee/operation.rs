@@ -36,7 +36,10 @@ where
             ..
         }
         | AnalysisOperationKind::PatternObservation(_) => true,
-        AnalysisOperationKind::Call { .. } => false,
+        AnalysisOperationKind::Call {
+            expression,
+            phase: AnalysisCallPhase::Attempt,
+        } => expression_preserves_property(request, expression, property, selections),
         AnalysisOperationKind::ScopeExit {
             block, exit, phase, ..
         } => asynchronous

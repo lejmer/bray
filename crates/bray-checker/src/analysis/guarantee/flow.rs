@@ -178,6 +178,14 @@ impl GuaranteeDomain<'_> {
             Some(dependencies) => state.dependencies.extend(dependencies),
             None => {
                 let call_mutations = match operation.kind() {
+                    AnalysisOperationKind::Bound(_)
+                    | AnalysisOperationKind::Call {
+                        phase: AnalysisCallPhase::Attempt,
+                        ..
+                    } if self.pure_operations.contains(&operation.id()) => {
+                        // Admission changes runtime capacity without mutating observed program values.
+                        Some(Vec::new())
+                    }
                     AnalysisOperationKind::Call {
                         expression,
                         phase: AnalysisCallPhase::Attempt,
@@ -194,12 +202,6 @@ impl GuaranteeDomain<'_> {
                         ) =>
                     {
                         self.suspension_mutations(expression)?
-                    }
-                    AnalysisOperationKind::Bound(_)
-                        if self.pure_operations.contains(&operation.id()) =>
-                    {
-                        // Admission changes runtime capacity without mutating observed program values.
-                        Some(Vec::new())
                     }
                     _ => None,
                 };
