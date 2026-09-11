@@ -316,9 +316,6 @@ pub type NativeThreadOperationCallback =
 /// Callback observing cancellation for one Bray-owned native thread.
 pub type NativeThreadCancellationCallback = extern "C" fn(context: usize) -> u32;
 
-/// Resolves bootstrap-owned cleanup while the native thread attachment remains live.
-pub type NativeSubstrateCleanupCallback = extern "C" fn();
-
 /// Copies a borrowed panic message into caller-owned writable storage.
 /// Both non-overlapping ranges remain live for this call and contain exactly `length` bytes.
 /// On success the callback initializes the destination with the source bytes. It retains neither pointer.

@@ -229,6 +229,9 @@ fn native_callback(ty: &syn::Type) -> bool {
                     | "NativeRuntimeEventCallback"
                     | "NativeCleanupCapacityMetadataProvider"
                     | "NativeRootConstructor"
+                    | "NativeSynchronousRootCallback"
+                    | "NativeThreadOperationCallback"
+                    | "NativeThreadCancellationCallback"
             )
     })
 }
@@ -331,6 +334,10 @@ mod tests {
             "NativeWakeCallback",
             "NativeRuntimeEventCallback",
             "NativeCleanupCapacityMetadataProvider",
+            "NativeRootConstructor",
+            "NativeSynchronousRootCallback",
+            "NativeThreadOperationCallback",
+            "NativeThreadCancellationCallback",
         ] {
             for source in [
                 format!("bray_runtime_abi::{name}"),

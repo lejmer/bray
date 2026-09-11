@@ -6,10 +6,10 @@ use crate::{
     NativeProductHostOperation, NativeProductServices, NativeProviderRetention,
     NativeRootConstructor, NativeRootHandle, NativeRootStart, NativeRunOutcome,
     NativeRunResultLayout, NativeRuntimeConfiguration, NativeRuntimeStatus, NativeSourceAnchor,
-    NativeSubstrateCleanupCallback, NativeSynchronousRootCallback, NativeTaskAllocation,
-    NativeTaskHandle, NativeTaskTerminalCleanup, NativeThreadCancellationCallback,
-    NativeThreadOperationCallback, NativeThreadStaticCleanupRegistration, NativeTypeIdentity,
-    NativeValueCleanup, NativeWakeCallback,
+    NativeSynchronousRootCallback, NativeTaskAllocation, NativeTaskHandle,
+    NativeTaskTerminalCleanup, NativeThreadCancellationCallback, NativeThreadOperationCallback,
+    NativeThreadStaticCleanupRegistration, NativeTypeIdentity, NativeValueCleanup,
+    NativeWakeCallback,
 };
 
 /// Resident host operations. The table and callbacks outlive every bound provider.
@@ -20,26 +20,19 @@ pub struct NativeHostServices {
     pub version: u32,
     /// Reserved, initialized to zero.
     pub reserved: u32,
-    /// Routes substrate synchronous root execution through the resident host service.
-    pub substrate_synchronous_root_execution: extern "C" fn(
-        NativeSynchronousRootCallback,
-        usize,
-        NativeSubstrateCleanupCallback,
-    ) -> NativeRunOutcome,
-    /// Routes substrate foreign callback execution through the resident host service.
-    pub substrate_foreign_callback_execution: extern "C" fn(
-        NativeSynchronousRootCallback,
-        usize,
-        NativeSubstrateCleanupCallback,
-    ) -> NativeRunOutcome,
-    /// Routes substrate native thread execution through the resident host service.
-    pub substrate_native_thread_execution: extern "C" fn(
+    /// Routes synchronous root execution through the resident host service.
+    pub synchronous_root_execution:
+        extern "C" fn(NativeSynchronousRootCallback, usize) -> NativeRunOutcome,
+    /// Routes foreign callback execution through the resident host service.
+    pub foreign_callback_execution:
+        extern "C" fn(NativeSynchronousRootCallback, usize) -> NativeRunOutcome,
+    /// Routes native thread execution through the resident host service.
+    pub native_thread_execution: extern "C" fn(
         NativeThreadOperationCallback,
         usize,
         NativeThreadCancellationCallback,
         usize,
         &mut usize,
-        NativeSubstrateCleanupCallback,
     ) -> u32,
     /// Routes substrate panic reporting through the resident host service.
     pub substrate_panic_reporting: extern "C" fn(
@@ -80,8 +73,8 @@ pub struct NativeHostServices {
     pub current_native_thread_identity: extern "C" fn() -> u64,
     /// Read the process-wide identity of the distinguished initial native thread.
     pub main_native_thread_identity: extern "C" fn() -> u64,
-    /// Routes substrate product host control through the resident host service.
-    pub substrate_product_host_control: extern "C" fn(
+    /// Routes product host control through the resident host service.
+    pub product_host_control: extern "C" fn(
         &NativeProductHostDescriptor,
         NativeProductHostOperation,
         Option<&NativeProductServices>,
@@ -91,11 +84,10 @@ pub struct NativeHostServices {
         &NativeProductHostDescriptor,
         &mut NativeProviderRetention,
     ) -> NativeRuntimeStatus,
-    /// Routes substrate thread attachment identity through the resident host service.
-    pub substrate_thread_attachment_identity:
-        extern "C" fn(&'static NativeProductHostDescriptor) -> u64,
-    /// Routes substrate thread static cleanup registration through the resident host service.
-    pub substrate_thread_static_cleanup_registration:
+    /// Routes thread attachment identity through the resident host service.
+    pub thread_attachment_identity: extern "C" fn(&'static NativeProductHostDescriptor) -> u64,
+    /// Routes thread static cleanup registration through the resident host service.
+    pub thread_static_cleanup_registration:
         extern "C" fn(&NativeThreadStaticCleanupRegistration) -> NativeRuntimeStatus,
     /// Secure a complete generated cleanup bundle before owner construction.
     pub cleanup_capacity_admission: extern "C" fn(
@@ -231,7 +223,7 @@ mod tests {
         assert_abi_layout!(NativeHostServices, size: 8 + 20 * word, align: word, fields: {
             version: 0,
             reserved: 4,
-            substrate_synchronous_root_execution: 8,
+            synchronous_root_execution: 8,
             cleanup_capacity_discharge: 8 + 19 * word,
         });
 

@@ -8,16 +8,9 @@ use super::super::super::foreign::{AbiField, abi_type_matches};
 use crate::fact::{CancellationToken, FactQueryError};
 
 const BYTE_POINTER: AbiField = AbiField::Pointer(RepresentationRole::ScalarU8);
-const USIZE_POINTER: AbiField = AbiField::Pointer(RepresentationRole::ScalarUsize);
 const U32: AbiField = AbiField::Scalar(RepresentationRole::ScalarU32);
 const U64: AbiField = AbiField::Scalar(RepresentationRole::ScalarU64);
 const USIZE: AbiField = AbiField::Scalar(RepresentationRole::ScalarUsize);
-const RUN_OUTCOME_FIELDS: &[AbiField] = &[U32, USIZE];
-const RUN_OUTCOME: AbiField = AbiField::Struct(RUN_OUTCOME_FIELDS);
-const PRODUCT_OBSERVATION_FIELDS: &[AbiField] = &[
-    U32, U32, USIZE, USIZE, USIZE, USIZE, USIZE, USIZE, USIZE, U64, U64, U64, U64,
-];
-const PRODUCT_OBSERVATION: AbiField = AbiField::Struct(PRODUCT_OBSERVATION_FIELDS);
 
 macro_rules! define_runtime_source_fields {
     ($( $role:ident {
@@ -46,9 +39,6 @@ macro_rules! define_runtime_source_fields {
     (@field U64) => { U64 };
     (@field Usize) => { USIZE };
     (@field Pointer) => { BYTE_POINTER };
-    (@field PointerUsize) => { USIZE_POINTER };
-    (@field ProductObservation) => { PRODUCT_OBSERVATION };
-    (@field RunOutcome) => { RUN_OUTCOME };
 }
 
 bray_runtime_abi::runtime_role_catalog!(define_runtime_source_fields);
@@ -107,70 +97,49 @@ mod tests {
     use bray_codegen::{CodegenCallableSignature, CodegenParameterMapping, CodegenResultMapping};
     use bray_compiler_known::RepresentationRole;
     use bray_runtime_interface::RuntimeAbiRole;
-    use bray_symbols::{CallableAbi, NamedTypeSymbolId, SymbolOrigin};
+    use bray_symbols::CallableAbi;
 
     use super::runtime_source_signature_matches;
     use crate::CancellationToken;
-    use crate::compilation::substitution::named_type;
     use crate::test_support::compilation;
 
     #[test]
-    fn callback_boundary_roles_accept_the_structural_c_run_outcome() {
-        let compilation = compilation(concat!(
-            "module app;\n",
-            "@copy\n",
-            "@layout(c)\n",
-            "struct RunOutcome\n",
-            "{\n",
-            "    state: u32;\n",
-            "    payload: usize;\n",
-            "}\n",
-        ));
-
-        let symbols = compilation
-            .symbol_graph()
-            .unwrap_or_else(|error| panic!("symbol graph must be available: {error:?}"));
-
-        let outcome = symbols
-            .structures()
-            .iter()
-            .find(|symbol| symbol.origin() == SymbolOrigin::Source)
-            .unwrap_or_else(|| panic!("fixture must declare RunOutcome"));
-
-        let values = compilation
-            .semantic_value_store()
-            .unwrap_or_else(|error| panic!("semantic values must be available: {error:?}"));
-
-        let outcome = named_type(values, NamedTypeSymbolId::Struct(outcome.id()))
-            .unwrap_or_else(|error| panic!("RunOutcome type must be available: {error:?}"));
-
-        let pointer = compilation
-            .codegen_opaque_pointer_type()
-            .unwrap_or_else(|error| panic!("opaque pointer must be available: {error:?}"));
+    fn bootstrap_initialization_requires_native_abi_and_pointer_width_parameters() {
+        let compilation = compilation("module app;\n");
 
         let usize = compilation
             .codegen_representation_type(RepresentationRole::ScalarUsize)
-            .unwrap_or_else(|error| panic!("usize must be available: {error:?}"));
+            .unwrap();
 
-        let signature = CodegenCallableSignature::new(
-            [
-                CodegenParameterMapping::direct(pointer, None, []),
-                CodegenParameterMapping::direct(usize, None, []),
-            ],
-            CodegenResultMapping::direct(outcome, None, []),
-            CallableAbi::C,
-            false,
-        );
+        let u32 = compilation
+            .codegen_representation_type(RepresentationRole::ScalarU32)
+            .unwrap();
 
-        assert_eq!(
-            runtime_source_signature_matches(
-                &compilation,
-                RuntimeAbiRole::SynchronousRootExecution,
-                &signature,
-                &CancellationToken::new(),
-            )
-            .unwrap_or_else(|error| panic!("runtime ABI must validate: {error:?}")),
-            Some(true)
-        );
+        for (abi, parameter, expected) in [
+            (CallableAbi::C, usize, true),
+            (CallableAbi::C, u32, false),
+            (CallableAbi::Bray, usize, false),
+        ] {
+            let signature = CodegenCallableSignature::new(
+                [
+                    CodegenParameterMapping::direct(parameter, None, []),
+                    CodegenParameterMapping::direct(parameter, None, []),
+                ],
+                CodegenResultMapping::direct(u32, None, []),
+                abi,
+                false,
+            );
+
+            assert_eq!(
+                runtime_source_signature_matches(
+                    &compilation,
+                    RuntimeAbiRole::RuntimeInitialization,
+                    &signature,
+                    &CancellationToken::new(),
+                )
+                .unwrap(),
+                Some(expected),
+            );
+        }
     }
 }

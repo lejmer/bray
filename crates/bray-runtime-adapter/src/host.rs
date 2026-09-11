@@ -1,8 +1,21 @@
 use bray_runtime::native::implementation;
 use bray_runtime_abi::{
     NativeProductHostDescriptor, NativeProductHostObservation, NativeProductHostOperation,
-    NativeRootHandle, NativeRunOutcome, NativeRuntimeStatus, NativeThreadStaticCleanupRegistration,
+    NativeRootHandle, NativeRunOutcome, NativeRuntimeStatus, NativeSynchronousRootCallback,
+    NativeThreadStaticCleanupRegistration,
 };
+
+native_adapter! {
+    pub extern "C" fn bray_runtime_synchronous_root_execution(
+        callback: NativeSynchronousRootCallback,
+        context: usize,
+    ) -> NativeRunOutcome {
+        implementation::bray_runtime_synchronous_root_execution(
+            callback,
+            context,
+        )
+    }
+}
 
 native_adapter! {
     pub extern "C" fn bray_runtime_cleanup_incident_detail_reporting(
@@ -30,7 +43,7 @@ native_adapter! {
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_substrate_product_host_control(
+    pub extern "C" fn bray_runtime_product_host_control(
         descriptor: &NativeProductHostDescriptor,
         operation: NativeProductHostOperation,
         capacity: Option<&bray_runtime_abi::NativeProductServices>,
@@ -49,18 +62,18 @@ native_adapter! {
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_substrate_thread_attachment_identity(
+    pub extern "C" fn bray_runtime_thread_attachment_identity(
         descriptor: &'static NativeProductHostDescriptor,
     ) -> u64 {
-        implementation::bray_runtime_substrate_thread_attachment_identity(descriptor)
+        implementation::bray_runtime_thread_attachment_identity(descriptor)
     }
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_substrate_thread_static_cleanup_registration(
+    pub extern "C" fn bray_runtime_thread_static_cleanup_registration(
         registration: &NativeThreadStaticCleanupRegistration,
     ) -> NativeRuntimeStatus {
-        implementation::bray_runtime_substrate_thread_static_cleanup_registration(registration)
+        implementation::bray_runtime_thread_static_cleanup_registration(registration)
     }
 }
 

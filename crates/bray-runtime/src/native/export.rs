@@ -60,7 +60,7 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_substrate_thread_attachment_identity(
+    pub extern "C" fn bray_runtime_thread_attachment_identity(
         descriptor: &'static NativeProductHostDescriptor,
     ) -> u64 {
         catch_unwind(AssertUnwindSafe(|| {
@@ -71,7 +71,7 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_substrate_thread_static_cleanup_registration(
+    pub extern "C" fn bray_runtime_thread_static_cleanup_registration(
         registration: &NativeThreadStaticCleanupRegistration,
     ) -> NativeRuntimeStatus {
         contain_status(|| crate::product::register_thread_static(registration))
@@ -559,8 +559,7 @@ mod tests {
     };
 
     use super::super::callback::{
-        bray_runtime_substrate_foreign_callback_execution,
-        bray_runtime_substrate_synchronous_root_execution,
+        bray_runtime_foreign_callback_execution, bray_runtime_synchronous_root_execution,
     };
 
     use super::{
@@ -2507,11 +2506,7 @@ mod tests {
 
     #[test]
     fn synchronous_root_boundary_catches_reports_and_resolves_panic() {
-        let outcome = bray_runtime_substrate_synchronous_root_execution(
-            propagate_test_panic,
-            0,
-            assert_attached_cleanup,
-        );
+        let outcome = bray_runtime_synchronous_root_execution(propagate_test_panic, 0);
 
         assert_eq!(outcome.state(), NativeRunState::PANICKED);
         assert_ne!(outcome.payload(), 0);
@@ -2524,11 +2519,7 @@ mod tests {
 
     #[test]
     fn synchronous_root_boundary_catches_current_run_cancellation() {
-        let outcome = bray_runtime_substrate_synchronous_root_execution(
-            propagate_test_cancellation,
-            0,
-            assert_attached_cleanup,
-        );
+        let outcome = bray_runtime_synchronous_root_execution(propagate_test_cancellation, 0);
 
         assert_eq!(outcome.state(), NativeRunState::CANCELLED);
         assert_eq!(outcome.payload(), 0);
@@ -2539,11 +2530,8 @@ mod tests {
         let (outcome, attached_after_return) = std::thread::spawn(|| {
             assert!(bray_platform::current_runtime_thread().is_none());
 
-            let outcome = bray_runtime_substrate_foreign_callback_execution(
-                assert_callback_runtime_thread,
-                41,
-                assert_attached_cleanup,
-            );
+            let outcome =
+                bray_runtime_foreign_callback_execution(assert_callback_runtime_thread, 41);
 
             (outcome, bray_platform::current_runtime_thread().is_some())
         })
@@ -2560,11 +2548,7 @@ mod tests {
         let _thread = bray_platform::RuntimeThreadScope::enter()
             .unwrap_or_else(|error| panic!("runtime thread must attach: {error:?}"));
 
-        let outcome = bray_runtime_substrate_foreign_callback_execution(
-            assert_callback_runtime_thread,
-            41,
-            assert_attached_cleanup,
-        );
+        let outcome = bray_runtime_foreign_callback_execution(assert_callback_runtime_thread, 41);
 
         assert_eq!(outcome.state(), NativeRunState::COMPLETED);
         assert_eq!(outcome.payload(), 41);
@@ -2718,10 +2702,6 @@ mod tests {
         assert!(bray_platform::current_runtime_thread().is_some());
 
         *outcome = NativeRunOutcome::new(NativeRunState::COMPLETED, destination);
-    }
-
-    extern "C" fn assert_attached_cleanup() {
-        assert!(bray_platform::current_runtime_thread().is_some());
     }
 
     extern "C-unwind" fn suspend_and_self_wake(_: usize) -> NativeFrameProgress {

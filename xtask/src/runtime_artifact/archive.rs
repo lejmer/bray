@@ -64,14 +64,6 @@ fn validate_exports(kind: RuntimeArchiveKind, symbols: &[String]) -> Result<(), 
 }
 
 pub(super) fn support_exports(kind: RuntimeArchiveKind) -> impl Iterator<Item = &'static str> {
-    let bootstrap = (kind == RuntimeArchiveKind::Bootstrap)
-        .then_some([
-            "bray_runtime_bootstrap_thread_static_probe",
-            "bray_runtime_bootstrap_thread_static_cleanup_observation",
-        ])
-        .into_iter()
-        .flatten();
-
     let observation = (kind == RuntimeArchiveKind::Observation)
         .then_some([
             bray_runtime_abi::MEMORY_OBSERVATION_BEGIN_SYMBOL,
@@ -89,9 +81,6 @@ pub(super) fn support_exports(kind: RuntimeArchiveKind) -> impl Iterator<Item = 
     )
     .then_some([
         "bray_runtime_substrate_initialization",
-        "bray_runtime_substrate_product_host_control",
-        "bray_runtime_substrate_thread_attachment_identity",
-        "bray_runtime_substrate_thread_static_cleanup_registration",
         "bray_runtime_substrate_shutdown",
     ])
     .into_iter()
@@ -101,16 +90,11 @@ pub(super) fn support_exports(kind: RuntimeArchiveKind) -> impl Iterator<Item = 
         kind,
         RuntimeArchiveKind::Callback | RuntimeArchiveKind::TestHost
     )
-    .then_some([
-        "bray_runtime_substrate_panic_reporting",
-        "bray_runtime_substrate_synchronous_root_execution",
-        "bray_runtime_substrate_foreign_callback_execution",
-        "bray_runtime_substrate_native_thread_execution",
-    ])
+    .then_some(["bray_runtime_substrate_panic_reporting"])
     .into_iter()
     .flatten();
 
-    bootstrap.chain(observation).chain(host).chain(callback)
+    observation.chain(host).chain(callback)
 }
 
 #[cfg(test)]

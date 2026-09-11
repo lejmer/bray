@@ -572,16 +572,12 @@ mod tests {
         *outcome = NativeRunOutcome::new(NativeRunState::PANICKED, 64);
     }
 
-    extern "C" fn cleanup() {}
-
     #[test]
     fn synchronous_cancellation_reports_errors_in_reverse_order_before_destroying_them() {
-        let outcome =
-            crate::native::implementation::bray_runtime_substrate_foreign_callback_execution(
-                transfer_errors,
-                0,
-                cleanup,
-            );
+        let outcome = crate::native::implementation::bray_runtime_foreign_callback_execution(
+            transfer_errors,
+            0,
+        );
 
         assert_eq!(outcome, NativeRunOutcome::new(NativeRunState::CANCELLED, 0));
 
@@ -598,12 +594,10 @@ mod tests {
 
     #[test]
     fn synchronous_panics_transfer_errors_to_the_returned_report_owner() {
-        let outcome =
-            crate::native::implementation::bray_runtime_substrate_foreign_callback_execution(
-                panic_after_errors,
-                0,
-                cleanup,
-            );
+        let outcome = crate::native::implementation::bray_runtime_foreign_callback_execution(
+            panic_after_errors,
+            0,
+        );
 
         assert_eq!(outcome, NativeRunOutcome::new(NativeRunState::PANICKED, 64));
         assert_eq!(events(), [Event::Attach(64, 11), Event::Attach(64, 7)]);
@@ -723,12 +717,10 @@ mod tests {
 
     #[test]
     fn synchronous_reporting_drains_incidents_created_by_report_and_destroy_callbacks() {
-        let outcome =
-            crate::native::implementation::bray_runtime_substrate_foreign_callback_execution(
-                transfer_reentrant_error,
-                0,
-                cleanup,
-            );
+        let outcome = crate::native::implementation::bray_runtime_foreign_callback_execution(
+            transfer_reentrant_error,
+            0,
+        );
 
         assert_eq!(outcome, NativeRunOutcome::new(NativeRunState::CANCELLED, 0));
 

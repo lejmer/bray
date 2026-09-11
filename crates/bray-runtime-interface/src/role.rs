@@ -367,10 +367,16 @@ mod tests {
             ],
         );
 
-        assert_eq!(
-            RuntimeAbiRole::ThreadStaticCleanupRegistration.bootstrap_declaration(),
-            Some("register_thread_cleanup"),
-        );
+        for role in [
+            RuntimeAbiRole::SynchronousRootExecution,
+            RuntimeAbiRole::ForeignCallbackExecution,
+            RuntimeAbiRole::NativeThreadExecution,
+            RuntimeAbiRole::ProductHostControl,
+            RuntimeAbiRole::ThreadAttachmentIdentity,
+            RuntimeAbiRole::ThreadStaticCleanupRegistration,
+        ] {
+            assert_eq!(role.bootstrap_declaration(), None);
+        }
 
         assert!(!RuntimeAbiRole::TestEntrySelection.available_to_product());
 

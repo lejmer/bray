@@ -5,12 +5,9 @@ use super::implementation;
 pub(crate) static HOST_SERVICES: NativeHostServices = NativeHostServices {
     version: 1,
     reserved: 0,
-    substrate_synchronous_root_execution:
-        implementation::bray_runtime_substrate_synchronous_root_execution,
-    substrate_foreign_callback_execution:
-        implementation::bray_runtime_substrate_foreign_callback_execution,
-    substrate_native_thread_execution:
-        implementation::bray_runtime_substrate_native_thread_execution,
+    synchronous_root_execution: implementation::bray_runtime_synchronous_root_execution,
+    foreign_callback_execution: implementation::bray_runtime_foreign_callback_execution,
+    native_thread_execution: implementation::bray_runtime_native_thread_execution,
     substrate_panic_reporting: implementation::bray_runtime_substrate_panic_reporting,
     native_thread_panic_report_recovery:
         implementation::bray_runtime_native_thread_panic_report_recovery,
@@ -26,12 +23,11 @@ pub(crate) static HOST_SERVICES: NativeHostServices = NativeHostServices {
         implementation::bray_runtime_current_run_cancellation_propagation,
     current_native_thread_identity: implementation::bray_runtime_current_native_thread_identity,
     main_native_thread_identity: implementation::bray_runtime_main_native_thread_identity,
-    substrate_product_host_control: implementation::bray_runtime_product_host_control,
+    product_host_control: implementation::bray_runtime_product_host_control,
     provider_retention: implementation::bray_runtime_provider_retention,
-    substrate_thread_attachment_identity:
-        implementation::bray_runtime_substrate_thread_attachment_identity,
-    substrate_thread_static_cleanup_registration:
-        implementation::bray_runtime_substrate_thread_static_cleanup_registration,
+    thread_attachment_identity: implementation::bray_runtime_thread_attachment_identity,
+    thread_static_cleanup_registration:
+        implementation::bray_runtime_thread_static_cleanup_registration,
     cleanup_capacity_admission: implementation::bray_runtime_cleanup_capacity_admission,
     cleanup_capacity_discharge: implementation::bray_runtime_cleanup_capacity_discharge,
 };

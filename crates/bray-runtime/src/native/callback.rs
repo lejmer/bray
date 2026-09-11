@@ -1,32 +1,13 @@
 use bray_platform::RuntimeThreadScope;
 use bray_runtime_abi::{
     NativeBrayCallOutcome, NativePanicCause, NativePanicMessageCopyCallback, NativeRunOutcome,
-    NativeRunState, NativeRuntimeStatus, NativeSourceAnchor, NativeSubstrateCleanupCallback,
-    NativeSynchronousRootCallback, NativeThreadCancellationCallback, NativeThreadOperationCallback,
+    NativeRunState, NativeRuntimeStatus, NativeSourceAnchor, NativeSynchronousRootCallback,
+    NativeThreadCancellationCallback, NativeThreadOperationCallback,
 };
 
 use crate::{RunOutcome, execute_synchronous_root};
 
 use super::state::runtime_failure;
-
-#[cfg(test)]
-fn bray_runtime_native_thread_execution(
-    callback: NativeThreadOperationCallback,
-    context: usize,
-    cancellation: NativeThreadCancellationCallback,
-    cancellation_context: usize,
-    panic_payload: &mut usize,
-    cleanup: NativeSubstrateCleanupCallback,
-) -> u32 {
-    bray_runtime_substrate_native_thread_execution(
-        callback,
-        context,
-        cancellation,
-        cancellation_context,
-        panic_payload,
-        cleanup,
-    )
-}
 
 native_export! {
     pub extern "C" fn bray_runtime_substrate_panic_reporting(
@@ -73,13 +54,12 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_substrate_native_thread_execution(
+    pub extern "C" fn bray_runtime_native_thread_execution(
         callback: NativeThreadOperationCallback,
         context: usize,
         cancellation: NativeThreadCancellationCallback,
         cancellation_context: usize,
         panic_payload: &mut usize,
-        cleanup: NativeSubstrateCleanupCallback,
     ) -> u32 {
         let outcome = crate::context::with_native_thread_cancellation(
             cancellation,
@@ -89,7 +69,6 @@ native_export! {
                     || execute_native_thread_operation(callback, context),
                     |_| {},
                     false,
-                    cleanup,
                 )
             },
         );
@@ -120,17 +99,15 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_substrate_synchronous_root_execution(
+    pub extern "C" fn bray_runtime_synchronous_root_execution(
         callback: NativeSynchronousRootCallback,
         destination: usize,
-        cleanup: NativeSubstrateCleanupCallback,
     ) -> NativeRunOutcome {
         let outcome = execute_synchronous_callback(
             callback,
             destination,
             super::host::register_timeout,
             true,
-            cleanup,
         );
 
         super::host::record_outcome(outcome);
@@ -140,12 +117,11 @@ native_export! {
 }
 
 native_export! {
-    pub extern "C" fn bray_runtime_substrate_foreign_callback_execution(
+    pub extern "C" fn bray_runtime_foreign_callback_execution(
         callback: NativeSynchronousRootCallback,
         destination: usize,
-        cleanup: NativeSubstrateCleanupCallback,
     ) -> NativeRunOutcome {
-        execute_synchronous_callback(callback, destination, |_| {}, false, cleanup)
+        execute_synchronous_callback(callback, destination, |_| {}, false)
     }
 }
 
@@ -154,7 +130,6 @@ fn execute_synchronous_callback(
     destination: usize,
     on_started: impl FnOnce(crate::RootCancellationHandle),
     main_thread: bool,
-    cleanup: NativeSubstrateCleanupCallback,
 ) -> NativeRunOutcome {
     execute_callback_boundary(
         || {
@@ -166,7 +141,6 @@ fn execute_synchronous_callback(
         },
         on_started,
         main_thread,
-        cleanup,
     )
 }
 
@@ -196,7 +170,6 @@ fn execute_callback_boundary(
     callback: impl FnOnce() -> NativeRunOutcome,
     on_started: impl FnOnce(crate::RootCancellationHandle),
     main_thread: bool,
-    cleanup: NativeSubstrateCleanupCallback,
 ) -> NativeRunOutcome {
     #[cfg(test)]
     let _test_isolation = super::state::test_runtime_isolation();
@@ -227,8 +200,6 @@ fn execute_callback_boundary(
             }
             Err(_) => runtime_failure(NativeRuntimeStatus::RUNTIME_FAILURE),
         };
-
-        cleanup();
 
         outcome = super::incident::finish_synchronous_incidents(&terminal, outcome);
 
@@ -387,10 +358,6 @@ mod tests {
         0
     }
 
-    extern "C" fn cleanup() {
-        assert!(bray_platform::current_runtime_thread().is_some());
-    }
-
     extern "C" fn observe_cancellation(_: usize, _: &mut NativeBrayCallOutcome) {
         assert!(crate::current_run_cancellation_requested());
     }
@@ -417,7 +384,6 @@ mod tests {
             cancellation_requested,
             0,
             &mut payload,
-            cleanup,
         );
 
         assert_eq!(state, NativeRunState::COMPLETED.code());
@@ -434,7 +400,6 @@ mod tests {
             cancellation_not_requested,
             0,
             &mut payload,
-            cleanup,
         );
 
         assert_eq!(state, NativeRunState::PANICKED.code());
@@ -451,7 +416,6 @@ mod tests {
             cancellation_requested,
             0,
             &mut payload,
-            cleanup,
         );
 
         assert_eq!(state, NativeRunState::CANCELLED.code());

@@ -26,7 +26,7 @@ macro_rules! runtime_role_catalog {
                 native: (SYNCHRONOUS_ROOT_EXECUTION_SYMBOL = "bray_runtime_synchronous_root_execution", [Pointer, Usize] -> RunOutcome),
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Host, availability: All, bootstrap: ("synchronous_root_execution"), host_control: false,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
                 effects: [EstablishRootRun, ExecuteCallbackRoot]
             }
@@ -35,7 +35,7 @@ macro_rules! runtime_role_catalog {
                 native: (FOREIGN_CALLBACK_EXECUTION_SYMBOL = "bray_runtime_foreign_callback_execution", [Pointer, Usize] -> RunOutcome),
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Callback, availability: All, bootstrap: ("foreign_callback_execution"), host_control: false,
+                owner: Callback, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
                 effects: [EstablishRootRun, ExecuteCallbackRoot]
             }
@@ -44,7 +44,7 @@ macro_rules! runtime_role_catalog {
                 native: (NATIVE_THREAD_EXECUTION_SYMBOL = "bray_runtime_native_thread_execution", [Pointer, Usize, Pointer, Usize, PointerUsize] -> U32),
                 call_hook: (NativeThreadExecution),
                 compiler: C [Pointer, Usize, Pointer, Usize, Pointer] -> U32,
-                owner: Callback, availability: All, bootstrap: ("native_thread_execution"), host_control: false,
+                owner: Callback, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
                 effects: [PublishTerminalState, ObserveCancellation, EstablishVisibility]
             }
@@ -107,7 +107,7 @@ macro_rules! runtime_role_catalog {
                 native: (THREAD_ATTACHMENT_IDENTITY_SYMBOL = "bray_runtime_thread_attachment_identity", [Pointer] -> U64),
                 call_hook: (),
                 compiler: C [Pointer] -> U64,
-                owner: Host, availability: All, bootstrap: ("thread_attachment_identity"), host_control: false,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
                 effects: [ObserveThreadAttachment]
             }
@@ -116,7 +116,7 @@ macro_rules! runtime_role_catalog {
                 native: (THREAD_STATIC_CLEANUP_REGISTRATION_SYMBOL = "bray_runtime_thread_static_cleanup_registration", [Pointer] -> U32),
                 call_hook: (),
                 compiler: C [Pointer] -> U32,
-                owner: Host, availability: All, bootstrap: ("register_thread_cleanup"), host_control: false,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
                 effects: [RegisterThreadCleanup]
             }
@@ -125,7 +125,7 @@ macro_rules! runtime_role_catalog {
                 native: (PRODUCT_HOST_CONTROL_RUNTIME_SYMBOL = "bray_runtime_product_host_control", [Pointer, U32, Pointer] -> ProductObservation),
                 call_hook: (),
                 compiler: Bray [] -> Void,
-                owner: Host, availability: All, bootstrap: ("product_host_control"), host_control: false,
+                owner: Host, availability: All, bootstrap: (), host_control: false,
                 capabilities: [],
                 effects: [ControlProductHost]
             }

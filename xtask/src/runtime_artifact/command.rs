@@ -960,12 +960,14 @@ fn required_value(
 
 #[cfg(test)]
 mod tests {
-    use bray_runtime_interface::{PlatformServiceRole, RuntimeAbiRole, RuntimeArtifactDigest};
+    use bray_runtime_interface::{
+        PlatformServiceRole, RuntimeAbiRole, RuntimeArtifactDigest, RuntimeArtifactPurpose,
+    };
     use bray_target::NativeTarget;
 
     use super::{
         BuildOptions, BuiltComponent, CommandError, RuntimeArchiveKind, archive_file_name,
-        metadata, runtime_role_archive, runtime_role_bindings,
+        metadata, runtime_role_archive,
     };
 
     #[test]
@@ -1055,6 +1057,30 @@ mod tests {
             assert_eq!(first, second);
             assert_eq!(first.contract().target().as_str(), target.as_str());
             assert_eq!(first.components().len(), 12);
+
+            for role in RuntimeAbiRole::ALL
+                .into_iter()
+                .filter(|role| role.native_symbol().is_some())
+            {
+                for purpose in RuntimeArtifactPurpose::ALL {
+                    let owners = first
+                        .components()
+                        .iter()
+                        .filter(|component| {
+                            component.purpose() == purpose && component.roles().contains(&role)
+                        })
+                        .count();
+
+                    let required = purpose == RuntimeArtifactPurpose::TestRunner
+                        || role.available_to_product();
+
+                    assert_eq!(
+                        owners,
+                        usize::from(required),
+                        "{target:?} {purpose:?} {role:?}"
+                    );
+                }
+            }
 
             let common = first
                 .components()
@@ -1191,89 +1217,5 @@ mod tests {
                     .unwrap_or_else(|_| panic!("runtime metadata must encode"))
             );
         }
-    }
-
-    #[test]
-    fn packaged_contract_names_every_exported_runtime_role() {
-        let bindings = runtime_role_bindings()
-            .unwrap_or_else(|error| panic!("runtime role bindings must be valid: {error}"));
-
-        let roles: Vec<_> = bindings.iter().map(|binding| binding.role()).collect();
-
-        assert_eq!(
-            roles,
-            [
-                RuntimeAbiRole::RuntimeInitialization,
-                RuntimeAbiRole::RootExecution,
-                RuntimeAbiRole::SynchronousRootExecution,
-                RuntimeAbiRole::ForeignCallbackExecution,
-                RuntimeAbiRole::NativeThreadExecution,
-                RuntimeAbiRole::CurrentNativeThreadIdentity,
-                RuntimeAbiRole::MainNativeThreadIdentity,
-                RuntimeAbiRole::NativeThreadPanicReportRecovery,
-                RuntimeAbiRole::TaskEventCreation,
-                RuntimeAbiRole::TaskEventSignal,
-                RuntimeAbiRole::TaskEventDestruction,
-                RuntimeAbiRole::ThreadAttachmentIdentity,
-                RuntimeAbiRole::ThreadStaticCleanupRegistration,
-                RuntimeAbiRole::ProductHostControl,
-                RuntimeAbiRole::AsynchronousProductHostControl,
-                RuntimeAbiRole::ProviderRetention,
-                RuntimeAbiRole::RootCancellationRequest,
-                RuntimeAbiRole::TaskAllocation,
-                RuntimeAbiRole::TaskStart,
-                RuntimeAbiRole::SuspensionRegistration,
-                RuntimeAbiRole::Wake,
-                RuntimeAbiRole::TaskCancellationRequest,
-                RuntimeAbiRole::AwaitedFrameCancellationRequest,
-                RuntimeAbiRole::CurrentRunCancellationObservation,
-                RuntimeAbiRole::CurrentRunCancellationPropagation,
-                RuntimeAbiRole::CleanupShieldEnter,
-                RuntimeAbiRole::CleanupShieldLeave,
-                RuntimeAbiRole::JoinRegistration,
-                RuntimeAbiRole::TaskResolution,
-                RuntimeAbiRole::TaskCompletionBorrow,
-                RuntimeAbiRole::TaskCompletionBorrowRelease,
-                RuntimeAbiRole::TerminalPublication,
-                RuntimeAbiRole::RuntimeEvent,
-                RuntimeAbiRole::CompatibleLaneSelection,
-                RuntimeAbiRole::CleanupIncidentConstruction,
-                RuntimeAbiRole::CleanupIncidentTransfer,
-                RuntimeAbiRole::CleanupIncidentDetailReporting,
-                RuntimeAbiRole::CleanupIncidentReporting,
-                RuntimeAbiRole::ExecutionServices,
-                RuntimeAbiRole::MainThreadLaneStartup,
-                RuntimeAbiRole::MainThreadLaneDrive,
-                RuntimeAbiRole::RootTerminalObservation,
-                RuntimeAbiRole::RootCompletionResolution,
-                RuntimeAbiRole::PanicReporting,
-                RuntimeAbiRole::PanicReportObservation,
-                RuntimeAbiRole::PanicReportDestruction,
-                RuntimeAbiRole::PanicReportSuppression,
-                RuntimeAbiRole::EntryFailureResolution,
-                RuntimeAbiRole::TestEntrySelection,
-                RuntimeAbiRole::StructuredShutdown,
-                RuntimeAbiRole::AwaitedFrameResolution,
-                RuntimeAbiRole::PanicReportConstruction,
-                RuntimeAbiRole::PanicPropagation,
-                RuntimeAbiRole::FrameStorageAdmission,
-                RuntimeAbiRole::CleanupCapacityAdmission,
-                RuntimeAbiRole::CleanupCapacityDischarge,
-                RuntimeAbiRole::FrameStorageActivation,
-                RuntimeAbiRole::FrameStorageRelease,
-                RuntimeAbiRole::AwaitedFrameComposition,
-                RuntimeAbiRole::TaskDestruction,
-                RuntimeAbiRole::InactiveCaptureDestruction,
-            ]
-        );
-
-        let test_bindings = runtime_role_bindings()
-            .unwrap_or_else(|error| panic!("test runtime role bindings must be valid: {error}"));
-
-        assert!(
-            test_bindings
-                .iter()
-                .any(|binding| binding.role() == RuntimeAbiRole::TestEntrySelection)
-        );
     }
 }

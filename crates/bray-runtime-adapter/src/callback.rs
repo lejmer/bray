@@ -1,7 +1,7 @@
 use bray_runtime::native::implementation;
 use bray_runtime_abi::{
-    NativePanicMessageCopyCallback, NativeRuntimeStatus, NativeSubstrateCleanupCallback,
-    NativeSynchronousRootCallback, NativeThreadCancellationCallback, NativeThreadOperationCallback,
+    NativePanicMessageCopyCallback, NativeRuntimeStatus, NativeSynchronousRootCallback,
+    NativeThreadCancellationCallback, NativeThreadOperationCallback,
 };
 
 native_adapter! {
@@ -49,49 +49,31 @@ native_adapter! {
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_substrate_synchronous_root_execution(
+    pub extern "C" fn bray_runtime_foreign_callback_execution(
         callback: NativeSynchronousRootCallback,
         context: usize,
-        cleanup: NativeSubstrateCleanupCallback,
     ) -> bray_runtime_abi::NativeRunOutcome {
-        implementation::bray_runtime_substrate_synchronous_root_execution(
+        implementation::bray_runtime_foreign_callback_execution(
             callback,
             context,
-            cleanup,
         )
     }
 }
 
 native_adapter! {
-    pub extern "C" fn bray_runtime_substrate_foreign_callback_execution(
-        callback: NativeSynchronousRootCallback,
-        context: usize,
-        cleanup: NativeSubstrateCleanupCallback,
-    ) -> bray_runtime_abi::NativeRunOutcome {
-        implementation::bray_runtime_substrate_foreign_callback_execution(
-            callback,
-            context,
-            cleanup,
-        )
-    }
-}
-
-native_adapter! {
-    pub extern "C" fn bray_runtime_substrate_native_thread_execution(
+    pub extern "C" fn bray_runtime_native_thread_execution(
         callback: NativeThreadOperationCallback,
         context: usize,
         cancellation: NativeThreadCancellationCallback,
         cancellation_context: usize,
         panic_payload: &mut usize,
-        cleanup: NativeSubstrateCleanupCallback,
     ) -> u32 {
-        implementation::bray_runtime_substrate_native_thread_execution(
+        implementation::bray_runtime_native_thread_execution(
             callback,
             context,
             cancellation,
             cancellation_context,
             panic_payload,
-            cleanup,
         )
     }
 }
