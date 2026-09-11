@@ -75,6 +75,14 @@ impl Compilation {
             BTreeSet::new()
         };
 
+        if let Some(reachability) = source_reachability.as_ref() {
+            required_runtime_roles.extend(self.cleanup_allowance_runtime_roles(
+                reachability,
+                target,
+                cancellation,
+            )?);
+        }
+
         if host_statics
             .iter()
             .any(ProductStaticHostEntry::requires_async_cleanup)

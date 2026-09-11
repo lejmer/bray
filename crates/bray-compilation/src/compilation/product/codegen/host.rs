@@ -28,7 +28,32 @@ impl Compilation {
         host: Option<&ExecutableHostContract>,
         target: &CodegenTarget,
     ) -> Result<Option<CodegenProductHostMapping>, NativeProductPlanningError> {
+        let mut has_allowance = false;
+        let mut asynchronous_allowance = false;
+
+        for invocation in mappings
+            .iter()
+            .flat_map(CodegenMappings::operations)
+            .filter_map(bray_codegen::CodegenOperationMapping::cleanup_allowance)
+            .flatten()
+        {
+            let instance = units
+                .iter()
+                .flat_map(CodegenUnit::instances)
+                .find(|instance| instance.key() == invocation)
+                .ok_or_else(|| {
+                    FactQueryError::from(ProductQueryFailure::missing(
+                        ProductQueryContext::Instance(invocation.clone()),
+                        ProductDataKind::ConcreteInstance,
+                    ))
+                })?;
+
+            has_allowance = true;
+            asynchronous_allowance |= instance.protected_frame_identity().is_some();
+        }
+
         if entries.is_empty()
+            && !has_allowance
             && !host.is_some_and(|host| {
                 host.requirements()
                     .requires_role(RuntimeAbiRole::ProductHostControl)
@@ -125,9 +150,10 @@ impl Compilation {
             identity,
             descriptor_symbol,
             control_symbol,
-            if entries
-                .iter()
-                .any(super::super::realization::ProductStaticHostEntry::requires_async_cleanup)
+            if asynchronous_allowance
+                || entries
+                    .iter()
+                    .any(super::super::realization::ProductStaticHostEntry::requires_async_cleanup)
             {
                 RuntimeAbiRole::AsynchronousProductHostControl
             } else {
@@ -143,6 +169,69 @@ impl Compilation {
             })
             .into()
         })
+    }
+
+    pub(super) fn cleanup_allowance_runtime_roles(
+        &self,
+        reachability: &super::super::specialization::ConcreteCodegenReachability,
+        target: &CodegenTarget,
+        cancellation: &CancellationToken,
+    ) -> Result<BTreeSet<RuntimeAbiRole>, NativeProductPlanningError> {
+        let mut roles = BTreeSet::new();
+
+        for instance in reachability.graph().instances() {
+            let owner = reachability.instance(instance.key()).ok_or_else(|| {
+                FactQueryError::from(ProductQueryFailure::missing(
+                    ProductQueryContext::Instance(instance.key().clone()),
+                    ProductDataKind::ConcreteInstance,
+                ))
+            })?;
+
+            for operation in instance.mir().operations() {
+                let Some(allowance) = self.concrete_operation_cleanup_allowance(
+                    owner,
+                    operation.kind(),
+                    target,
+                    cancellation,
+                )?
+                else {
+                    continue;
+                };
+
+                if allowance.is_empty() {
+                    continue;
+                }
+
+                roles.insert(RuntimeAbiRole::ProductHostControl);
+
+                roles.insert(
+                    if matches!(operation.kind(), bray_ir::MirOperationKind::AdmitCleanup(_)) {
+                        RuntimeAbiRole::CleanupCapacityAdmission
+                    } else {
+                        RuntimeAbiRole::CleanupCapacityDischarge
+                    },
+                );
+
+                for invocation in allowance {
+                    let body =
+                        reachability
+                            .graph()
+                            .instance(invocation.key())
+                            .ok_or_else(|| {
+                                FactQueryError::from(ProductQueryFailure::missing(
+                                    ProductQueryContext::Instance(invocation.key().clone()),
+                                    ProductDataKind::ConcreteInstance,
+                                ))
+                            })?;
+
+                    if body.protected_frame_identity().is_some() {
+                        roles.insert(RuntimeAbiRole::MainThreadLaneStartup);
+                    }
+                }
+            }
+        }
+
+        Ok(roles)
     }
 
     pub(super) fn executable_host(
